@@ -20,12 +20,15 @@ import {
 } from "@/components/ui/Skeleton"
 import { StatusTag } from "@/features/workspaces/StatusTag"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
+import { useCheckingFormatExpired } from "./checking-format-clock"
 import {
-  checkWorkspaceUpgrades,
+  checkWorkspaceUpgradesAndWait,
   type WorkspaceUpgradeItem,
+  type WorkspaceUpgrades as WorkspaceUpgradesData,
   workspaceUpgradeKeys,
   workspaceUpgradesOptions,
 } from "./queries"
+import { UpgradeRunProgress } from "./UpgradeRunProgress"
 import {
   CHECKING_FORMAT_COPY,
   formatHealthLine,
@@ -45,6 +48,7 @@ import {
   upgradeFailureCopy,
   upgradeFailurePrompt,
 } from "./upgrade-failure"
+import { upgradeCheckResult, upgradeProgress } from "./upgrade-progress"
 import { useStartWorkspaceUpgrade } from "./use-start-upgrade"
 
 /**
@@ -64,15 +68,24 @@ function UpgradeItemCard(props: {
   isChecking?: boolean
   /** The org of the item: the failure card links to its connectors. */
   orgSlug?: string
+  workspaceSlug?: string
   /** Opens the chat with this prompt ("Fix using agent"). */
   onFixWithAgent?: (prompt: string) => void
 }) {
   const { item, isAdmin, onStart, onCheck, isStarting, isChecking } = props
-  const checkingFormat = upgradeIsCheckingFormat(item, props.formatVersion)
+  // After a minute, the checking state ends and the blocked line comes back.
+  const formatChecking = upgradeIsCheckingFormat(item, props.formatVersion)
+  const checkingExpired = useCheckingFormatExpired(
+    `${props.orgSlug}/${props.workspaceSlug}/${item.key}`,
+    formatChecking,
+  )
+  const checkingFormat = formatChecking && !checkingExpired
   const waiting = checkingFormat
     ? CHECKING_FORMAT_COPY
     : upgradeWaitingCopy(item)
   const notices = upgradeNotices(item)
+  const progress = upgradeProgress(item)
+  const checkResult = upgradeCheckResult(item, props.formatVersion)
   const stepsWithReport = item.steps.filter((step) => step.report.length > 0)
   return (
     <li
@@ -88,7 +101,12 @@ function UpgradeItemCard(props: {
               : `${item.description} Format ${item.fromFormat} to format ${item.targetFormat}. ctxpipe opens one pull request. Nothing changes until you merge it.`}
           </p>
         </div>
-        <StatusTag {...upgradeStatusTag(item, props.formatVersion)} />
+        <StatusTag
+          {...upgradeStatusTag(
+            item,
+            checkingExpired ? null : props.formatVersion,
+          )}
+        />
       </div>
 
       {item.steps.length > 0 ? (
@@ -110,6 +128,10 @@ function UpgradeItemCard(props: {
             </li>
           ))}
         </ol>
+      ) : null}
+
+      {progress ? (
+        <UpgradeRunProgress title={item.title} progress={progress} />
       ) : null}
 
       {notices.length > 0 ? (
@@ -191,6 +213,10 @@ function UpgradeItemCard(props: {
         <p className="mt-3 text-xs text-muted-foreground">{waiting}</p>
       ) : null}
 
+      {checkResult ? (
+        <p className="mt-3 text-xs text-muted-foreground">{checkResult}</p>
+      ) : null}
+
       {item.status === "failed" ? (
         <div className="mt-3">
           {item.failure ? (
@@ -245,7 +271,9 @@ function UpgradeItemCard(props: {
           >
             {item.status === "failed" ? "Start again" : "Start"}
           </Button>
-        ) : upgradeCanStart(item) && isAdmin === false ? (
+        ) : (upgradeCanStart(item) ||
+            (item.status === "blocked" && upgradeCanCheck(item))) &&
+          isAdmin === false ? (
           <p className="text-xs text-muted-foreground">{MEMBER_ASK_ADMIN}</p>
         ) : null}
       </div>
@@ -318,14 +346,34 @@ function UpgradeItemRow(props: {
   // One mutation for each card: the pending state of one card stays apart.
   const startMutation = useStartWorkspaceUpgrade(orgSlug, workspaceSlug, item)
   const checkMutation = useMutation({
-    mutationFn: () => checkWorkspaceUpgrades(orgSlug, workspaceSlug),
-    onSuccess: () => {
+    mutationFn: () =>
+      checkWorkspaceUpgradesAndWait(
+        queryClient,
+        orgSlug,
+        workspaceSlug,
+        item.key,
+      ),
+    onSuccess: (result) => {
+      if (result === "pending") {
+        toast.message(
+          "ctxpipe has not finished the check yet. This page shows the result when it does.",
+        )
+        return
+      }
+      const found = queryClient
+        .getQueryData<WorkspaceUpgradesData>(
+          workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
+        )
+        ?.items.find(({ key }) => key === item.key)
       toast.success(
-        "ctxpipe is reading the repository now. This takes a minute.",
+        (found && upgradeCheckResult(found, props.formatVersion)) ??
+          "ctxpipe checked the Workspace. The upgrade is not pending any more.",
       )
     },
     onError: (error: Error) => {
-      toast.error(error.message)
+      toast.error(
+        `${error.message.replace(/\.$/, "")}. Press Check again to try again.`,
+      )
     },
     onSettled: () =>
       Promise.all([
@@ -347,6 +395,7 @@ function UpgradeItemRow(props: {
       onStart={() => startMutation.mutate()}
       onCheck={() => checkMutation.mutate()}
       orgSlug={orgSlug}
+      workspaceSlug={workspaceSlug}
       {...(props.onFixWithAgent
         ? { onFixWithAgent: props.onFixWithAgent }
         : {})}

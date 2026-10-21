@@ -141,6 +141,7 @@ export async function scanWorkspaceUpgrade(input: {
   if (format < 0 || format > CODE_FORMAT)
     return { kind: "none", reason: "not_upgradable" }
   const key = formatUpgradeKey(targetFormat)
+  const checkedAt = new Date().toISOString()
   await failStoppedUpgradeRun(workspace.id, key)
   const existing = await getWorkspaceUpgradeRow(workspace.id, key)
   if (format >= targetFormat) {
@@ -152,7 +153,7 @@ export async function scanWorkspaceUpgrade(input: {
           (status) => status !== UPGRADE_STATUSES.completed,
         ),
         to: UPGRADE_STATUSES.completed,
-        upgrade: { note: undefined, blockedReason: undefined },
+        upgrade: { note: undefined, blockedReason: undefined, checkedAt },
       })
     return { kind: "current", format }
   }
@@ -162,7 +163,7 @@ export async function scanWorkspaceUpgrade(input: {
     statuses: SCAN_OWNED,
   })
   const branch = upgradeBranch(targetFormat)
-  const base = { key, fromFormat: format, targetFormat, branch }
+  const base = { key, fromFormat: format, targetFormat, branch, checkedAt }
   const repositoryName = githubRepoFullNameFromWorkspaceUrl(
     workspace.workspaceRepositoryUrl,
   )
@@ -231,9 +232,21 @@ export async function scanWorkspaceUpgrade(input: {
         ? await getPullRequestState({ ...github, pullNumber: number })
         : null
     // After a merge, the next hydrate records the new format and a scan
-    // completes the row.
-    if (pull?.prState === "merged")
+    // completes the row. The row keeps the time of the first scan that saw
+    // the merge, so the UI can say that ctx| knows.
+    if (pull?.prState === "merged") {
+      await transitionWorkspaceUpgradeRow({
+        workspaceId: workspace.id,
+        key,
+        from: [UPGRADE_STATUSES.pr_open],
+        to: UPGRADE_STATUSES.pr_open,
+        upgrade: {
+          mergedAt: existing.upgrade.mergedAt ?? checkedAt,
+          checkedAt,
+        },
+      })
       return { kind: "pending", key, status: existing.status }
+    }
     return record(
       UPGRADE_STATUSES.awaiting_operator,
       [UPGRADE_STATUSES.pr_open],
@@ -396,6 +409,7 @@ export async function scanWorkspaceReingest(input: {
       return { kind: "pending", key, status: existing.status }
     const fields = {
       estimate,
+      checkedAt: new Date().toISOString(),
       fromFormat: Math.max(format, 0),
       blockedReason: blocked?.blockedReason,
       // A failed run keeps its note; a block replaces it.

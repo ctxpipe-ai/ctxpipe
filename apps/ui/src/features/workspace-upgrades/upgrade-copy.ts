@@ -110,7 +110,7 @@ const UPGRADE_BLOCKED_COPY: Record<
     },
     needs_format: {
       title: "Apply the format upgrade first",
-      body: "Re-ingestion needs format 3. Finish the format upgrade, then press Check again.",
+      body: "Re-ingestion needs a newer format. Finish the format upgrade, then press Check again.",
     },
     sandbox_unavailable: {
       title: "This deployment cannot run the re-ingestion",
@@ -125,7 +125,10 @@ const UPGRADE_BLOCKED_COPY: Record<
 
 /** The title and the short reason of a blocked item. */
 export function upgradeBlockedCopy(
-  item: Pick<WorkspaceUpgradeItem, "kind" | "blockedReason" | "note">,
+  item: Pick<
+    WorkspaceUpgradeItem,
+    "kind" | "blockedReason" | "note" | "targetFormat"
+  >,
 ): BlockedCopy {
   const copy = item.blockedReason
     ? UPGRADE_BLOCKED_COPY[item.kind]?.[item.blockedReason]
@@ -134,7 +137,10 @@ export function upgradeBlockedCopy(
   // names the real cause and its fix (merge the pull request, or give write
   // access), so this item says one action.
   if (item.blockedReason === "needs_format" && copy)
-    return { title: copy.title, body: copy.body }
+    return {
+      title: copy.title,
+      body: `Re-ingestion needs format ${item.targetFormat}. Finish the format upgrade, then press Check again.`,
+    }
   return {
     title:
       copy?.title ??
@@ -168,15 +174,29 @@ export function upgradeStatusTag(
   item: Pick<
     WorkspaceUpgradeItem,
     "kind" | "status" | "blockedReason" | "targetFormat" | "waitingForSlot"
-  >,
+  > &
+    Partial<Pick<WorkspaceUpgradeItem, "mergedAt">>,
   formatVersion?: number | null,
 ) {
+  if (item.status === "pr_open" && item.mergedAt)
+    return {
+      label: "Merged. Reading the new format",
+      className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
+      pulse: true,
+    }
   if (upgradeIsCheckingFormat(item, formatVersion))
     return {
       label: "Checking the new format",
       className: "border-border bg-zinc-800 text-muted-foreground",
       pulse: true,
     }
+  // A re-ingestion opens no pull request while it runs.
+  if (
+    item.kind === "reingest" &&
+    item.status === "running" &&
+    !item.waitingForSlot
+  )
+    return { ...UPGRADE_STATUS_TAG.running, label: "Re-ingesting the sources" }
   return item.status === "running" && item.waitingForSlot
     ? { ...UPGRADE_STATUS_TAG.running, label: "Waiting for a free sandbox" }
     : UPGRADE_STATUS_TAG[item.status]
@@ -185,12 +205,13 @@ export function upgradeStatusTag(
 /** What a waiting item waits for, and what happens next. Null when it does not wait. */
 export function upgradeWaitingCopy(
   item: Pick<WorkspaceUpgradeItem, "status" | "pullRequest"> &
-    Partial<Pick<WorkspaceUpgradeItem, "waitingForSlot">>,
+    Partial<Pick<WorkspaceUpgradeItem, "waitingForSlot" | "mergedAt">>,
   now = Date.now(),
 ): string | null {
   if (item.status === "running" && item.waitingForSlot)
     return `Waiting for a free sandbox for ${waitedFor(item.waitingForSlot.since, now)}. ${item.waitingForSlot.reason} ctxpipe checks again every minute and starts the run when its turn comes.`
-  if (item.status !== "pr_open") return null
+  // The progress block of a merged pull request says what ctxpipe does now.
+  if (item.status !== "pr_open" || item.mergedAt) return null
   const pullRequest = item.pullRequest?.number
     ? `pull request #${item.pullRequest.number}`
     : "the upgrade pull request"

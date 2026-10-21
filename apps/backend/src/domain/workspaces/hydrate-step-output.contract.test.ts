@@ -7,7 +7,11 @@ import {
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
 
-/** Top-level `git fetch` commands that read the full history of the tree. */
+/**
+ * Top-level `git fetch` commands that start a read of the tree: the fetch of
+ * the tip commit from `origin`. The history fetch and the pack read of the
+ * previous commit are not counted.
+ */
 function fullHistoryFetches(f: NativeHydrationFixture) {
   return readFileSync(f.gitTrace, "utf8")
     .trim()
@@ -18,7 +22,8 @@ function fullHistoryFetches(f: NativeHydrationFixture) {
         event.event === "start" &&
         !event.sid.includes("/") &&
         event.argv.includes("fetch") &&
-        !event.argv.includes("--depth"),
+        event.argv.includes("origin") &&
+        event.argv.includes("--depth"),
     )
 }
 

@@ -292,8 +292,26 @@ it(
             },
           })
 
-          // A pull request that closes without a merge waits for a new click.
+          // A pull request that merged stays `pr_open`. The row keeps the time
+          // of the first scan that saw the merge, and the time of the last scan.
           openPulls = []
+          closedPull = {
+            number: 41,
+            state: "closed",
+            merged_at: "2026-10-15T00:00:00Z",
+            html_url: "https://github.com/fixture/hydration-contract/pull/41",
+            head: { ref: BRANCH, sha: "a".repeat(40) },
+          }
+          await runScan("after-merge")
+          const merged = await row()
+          expect(merged?.status).toBe("pr_open")
+          const mergedAt = merged?.upgrade.mergedAt
+          expect(Date.parse(mergedAt ?? "")).not.toBeNaN()
+          expect(Date.parse(merged?.upgrade.checkedAt ?? "")).not.toBeNaN()
+          await runScan("after-merge-again")
+          expect((await row())?.upgrade.mergedAt).toBe(mergedAt)
+
+          // A pull request that closes without a merge waits for a new click.
           closedPull = {
             number: 41,
             state: "closed",

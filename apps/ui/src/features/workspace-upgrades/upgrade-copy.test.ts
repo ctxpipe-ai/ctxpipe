@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { upgradeItemFixture } from "@/mocks/workspace-upgrades-handlers"
 import type { WorkspaceUpgradeItem } from "./queries"
 import {
   formatHealthLine,
@@ -81,7 +82,7 @@ describe("upgrade copy", () => {
       kind: WorkspaceUpgradeItem["kind"],
       blockedReason: string | null,
       note: string | null = null,
-    ) => upgradeBlockedCopy({ kind, blockedReason, note })
+    ) => upgradeBlockedCopy({ kind, blockedReason, note, targetFormat: 3 })
     expect(blocked("format", "write_access").title).toBe(
       "ctxpipe cannot open the upgrade pull request",
     )
@@ -151,6 +152,30 @@ describe("upgrade copy", () => {
     expect(upgradeCanCheck(item("pr_open"))).toBe(true)
     expect(upgradeCanCheck(item("awaiting_operator"))).toBe(false)
   })
+
+  it("tags a merged pull request and a running re-ingestion for what they do", () => {
+    const tag = (overrides: Partial<WorkspaceUpgradeItem>) =>
+      upgradeStatusTag(upgradeItemFixture(overrides)).label
+    expect(
+      tag({ status: "pr_open", mergedAt: "2026-10-20T11:00:00.000Z" }),
+    ).toBe("Merged. Reading the new format")
+    expect(tag({ status: "running", kind: "reingest" })).toBe(
+      "Re-ingesting the sources",
+    )
+    expect(tag({ status: "running", kind: "format" })).toBe(
+      "Preparing the pull request",
+    )
+  })
+
+  it("gives no wait line for a merged pull request: its progress block says what ctxpipe does", () => {
+    expect(
+      upgradeWaitingCopy({
+        status: "pr_open",
+        pullRequest: null,
+        mergedAt: "2026-10-20T11:00:00.000Z",
+      }),
+    ).toBeNull()
+  })
 })
 
 describe("a re-ingestion that waits for the scan after the format changed (CTX-944)", () => {
@@ -187,5 +212,17 @@ describe("a re-ingestion that waits for the scan after the format changed (CTX-9
     expect(
       upgradeIsCheckingFormat({ ...blockedForFormat, kind: "format" }, 3),
     ).toBe(false)
+  })
+
+  it("names the target format in the needs-format line", () => {
+    const blocked = (targetFormat: number) =>
+      upgradeBlockedCopy({
+        kind: "reingest",
+        blockedReason: "needs_format",
+        note: "Merge the format upgrade first, or give write access.",
+        targetFormat,
+      })
+    expect(blocked(3).body).toContain("needs format 3.")
+    expect(blocked(4).body).toContain("needs format 4.")
   })
 })
