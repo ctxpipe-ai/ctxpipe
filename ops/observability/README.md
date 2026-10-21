@@ -20,14 +20,14 @@ Querying: [USING.md](./USING.md). Deploy: [terraform/README.md](./terraform/READ
 
 ## Awake vs sleep
 
-| Awake or scheduled | Sleeps when idle | Serverless on, stays up |
-| --- | --- | --- |
-| collector, clickhouse, langfuse-worker, redis | hyperdx | langfuse-web, mongo |
-| railway-telemetry, cost-telemetry (starts, exports, exits) | | |
+| Awake or scheduled | Serverless on, stays up |
+| --- | --- |
+| collector, clickhouse, hyperdx, langfuse-worker, redis | langfuse-web, mongo |
+| railway-telemetry, cost-telemetry (starts, exports, exits) | |
 
-Sleep is a missing `railway.cpu` sample, not a zero. Nothing polls HyperDX, Mongo, or Langfuse web. The collector scrapes only itself and ClickHouse. Redis stays up because the worker does.
+HyperDX has Serverless off. The first MCP call after a sleep got a Cloudflare 504 while the container woke up, and HyperDX is the first tool for incident triage. It uses about 0.25 GB of memory. A sleeping service shows as a missing `railway.cpu` sample, not a zero. Nothing polls Mongo or Langfuse web. The collector scrapes only itself and ClickHouse. Redis stays up because the worker does.
 
-Langfuse web stays up on the stock image: the Prisma client and ioredis send keepalives. No `LANGFUSE_*` variable turns those off. Mongo stays Online with Serverless on; the volume is billed either way. Collector and ClickHouse have Serverless off. Provider 0.6.1 omits `sleepApplication` on update, so apply does not turn it back on.
+Langfuse web stays up on the stock image: the Prisma client and ioredis send keepalives. No `LANGFUSE_*` variable turns those off. Mongo stays Online with Serverless on; the volume is billed either way. Collector, ClickHouse, and HyperDX have Serverless off. Terraform does not manage this setting. Provider 0.6.1 omits `sleepApplication` on update, so apply neither turns it off nor turns it back on. Set it in Railway (service Settings, Serverless off) or with the `serviceInstanceUpdate` mutation (`sleepApplication: false`).
 
 Langfuse Postgres is database `langfuse` on the existing Neon `ctxpipe` project. Event blobs are Railway bucket `langfuse-events`.
 
