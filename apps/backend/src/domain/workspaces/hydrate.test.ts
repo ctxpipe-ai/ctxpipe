@@ -857,6 +857,29 @@ describe("hydrateKnowledgeTree pull request changes", () => {
     ])
   })
 
+  it("writes no CHANGED claim to a Workflow file outside knowledge/workflows/, with another workflow_file, or with two sources", () => {
+    const mirror = pullRequest([]).path
+    const workflow = (path: string, extra: Record<string, unknown>) =>
+      unitFile(path, "Workflow", extra)
+    expect(
+      changedEdges([".github/workflows/ci.yml", "package.json"], undefined, [
+        ...PACKAGES,
+        workflow("knowledge/services/ci.md", {
+          workflow_file: ".github/workflows/ci.yml",
+        }),
+        workflow("knowledge/workflows/manifest.md", {
+          workflow_file: "package.json",
+        }),
+        workflow("knowledge/workflows/shared-ci.md", {
+          workflow_file: ".github/workflows/ci.yml",
+          sources: [SHOP, "https://github.com/acme/other"],
+        }),
+      ]),
+    ).toEqual([
+      { from: mirror, to: "knowledge/codebases/shop.md", validFrom: MERGED_AT },
+    ])
+  })
+
   it("writes no CHANGED claim for a pull request that is not merged", () => {
     expect(
       changedEdges(["apps/api/src/checkout.ts"], {

@@ -57,9 +57,13 @@ export function pullRequestChangedClaims(
   for (const unit of units) {
     if (unit.kind === "Workflow") {
       const file = unit.attributes.workflow_file
+      // Only a file that the workflows skill wrote, for a workflow file
+      // directly in `.github/workflows/` (as the validator checks).
       if (
         unit.attributes.generated_by !== "ctxpipe-extract" ||
+        !unit.path.startsWith("knowledge/workflows/") ||
         typeof file !== "string" ||
+        !/^\.github\/workflows\/[A-Za-z0-9_.-]{1,100}\.ya?ml$/.test(file) ||
         !Array.isArray(unit.attributes.sources) ||
         unit.attributes.sources.length !== 1
       )
