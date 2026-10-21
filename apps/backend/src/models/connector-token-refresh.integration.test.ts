@@ -96,6 +96,26 @@ describe("Notion and PagerDuty token refresh (Postgres)", () => {
     ).rejects.toThrow("Outbound I/O cannot run inside withOrgDbContext")
   })
 
+  it("Notion: returns the stored tokens without a token call when the caller is stale", async () => {
+    let calls = 0
+    const tokens = await refreshNotionConnectionTokensWithLock({
+      orgId: seed.orgId,
+      connectionId: notion,
+      env,
+      expectedRefreshToken: "old-refresh",
+      expectedAccessToken: "old-access",
+      refresh: async () => {
+        calls += 1
+        return { accessToken: "x", refreshToken: "y" }
+      },
+    })
+    expect(calls).toBe(0)
+    expect(tokens).toEqual({
+      accessToken: "new-access",
+      refreshToken: "new-refresh",
+    })
+  })
+
   it("PagerDuty: refreshes with no SQL transaction open and stores the new tokens", async () => {
     let transactionOpen: boolean | undefined
     const tokens = await refreshPagerdutyConnectionTokensWithLock({

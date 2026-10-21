@@ -6,7 +6,6 @@ import { encryptConnectionSecret } from "../lib/connection-secrets.js"
 import {
   clearNotionSyncBindingsForRepository,
   getNotionConnectionByConnectionId,
-  refreshNotionConnectionTokensWithLock,
   upsertNotionConnectionFromOAuth,
 } from "./notion-connector.js"
 
@@ -309,101 +308,6 @@ describe("Notion connection storage maintenance", () => {
     const persisted = set.mock.calls[0]?.[0].config
     expect(persisted).not.toHaveProperty("accessToken")
     expect(persisted).not.toHaveProperty("refreshToken")
-  })
-
-  it("serialises stale refreshes and preserves the locked binding config", async () => {
-    const storedRow = notionConnectionRow("live", {
-      repositoryId: "repo_rebound",
-      branch: "release",
-    })
-    let row: Omit<typeof storedRow, "config"> & {
-      config: Record<string, unknown>
-    } = {
-      ...storedRow,
-      config: {
-        ...storedRow.config,
-        accessToken: "access-old",
-        refreshToken: "refresh-old",
-      },
-    }
-    const set = vi.fn((value: { config: Record<string, unknown> }) => ({
-      where: vi.fn(() => ({
-        returning: vi.fn(async () => {
-          row = { ...row, config: value.config, updatedAt: new Date() }
-          return [{ id: row.id }]
-        }),
-      })),
-    }))
-    const tx = {
-      execute: vi.fn(),
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn(async () => [row]),
-          })),
-        })),
-      })),
-      update: vi.fn(() => ({ set })),
-    }
-    let transactionTail = Promise.resolve()
-    const db = {
-      transaction: vi.fn(
-        <T>(operation: (transaction: Db) => Promise<T>): Promise<T> => {
-          const result = transactionTail.then(() =>
-            operation(tx as unknown as Db),
-          )
-          transactionTail = result.then(
-            () => undefined,
-            () => undefined,
-          )
-          return result
-        },
-      ),
-    } as unknown as Db
-    dbMocks.getOrgDb.mockReturnValue(db)
-    const refresh = vi.fn(async () => ({
-      accessToken: "access-fresh",
-      refreshToken: "refresh-rotated",
-    }))
-
-    const results = await Promise.all([
-      refreshNotionConnectionTokensWithLock({
-        orgId: "org_1",
-        connectionId: "con_notion",
-        env,
-        expectedRefreshToken: "refresh-old",
-        expectedAccessToken: "access-old",
-        refresh,
-      }),
-      refreshNotionConnectionTokensWithLock({
-        orgId: "org_1",
-        connectionId: "con_notion",
-        env,
-        expectedRefreshToken: "refresh-old",
-        expectedAccessToken: "access-old",
-        refresh,
-      }),
-    ])
-
-    expect(refresh).toHaveBeenCalledTimes(1)
-    expect(results).toEqual([
-      {
-        accessToken: "access-fresh",
-        refreshToken: "refresh-rotated",
-      },
-      {
-        accessToken: "access-fresh",
-        refreshToken: "refresh-rotated",
-      },
-    ])
-    expect(set).toHaveBeenCalledTimes(1)
-    expect(set).toHaveBeenCalledWith({
-      config: expect.objectContaining({
-        repositoryId: "repo_rebound",
-        branch: "release",
-      }),
-      updatedAt: expect.any(Date),
-    })
   })
 
   it("clears every binding for a deleted repository", async () => {

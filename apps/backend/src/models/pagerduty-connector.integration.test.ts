@@ -904,7 +904,7 @@ describeWithDatabase("PagerDuty connection storage (Postgres)", () => {
     expect(listed).toHaveLength(1)
   })
 
-  it("serialises stale refreshes", async () => {
+  it("converges concurrent stale refreshes on one stored token pair", async () => {
     const connectionId = generateObjectId("con")
     await insertConnection(
       connectionId,
@@ -929,29 +929,26 @@ describeWithDatabase("PagerDuty connection storage (Postgres)", () => {
     }
 
     const results = await Promise.all([
-      withOrgDbContext(storageOrgId, () =>
-        refreshPagerdutyConnectionTokensWithLock({
-          orgId: storageOrgId,
-          connectionId,
-          env: storageEnv,
-          expectedRefreshToken: "refresh-old",
-          expectedAccessToken: "access-old",
-          refresh,
-        }),
-      ),
-      withOrgDbContext(storageOrgId, () =>
-        refreshPagerdutyConnectionTokensWithLock({
-          orgId: storageOrgId,
-          connectionId,
-          env: storageEnv,
-          expectedRefreshToken: "refresh-old",
-          expectedAccessToken: "access-old",
-          refresh,
-        }),
-      ),
+      refreshPagerdutyConnectionTokensWithLock({
+        orgId: storageOrgId,
+        connectionId,
+        env: storageEnv,
+        expectedRefreshToken: "refresh-old",
+        expectedAccessToken: "access-old",
+        refresh,
+      }),
+      refreshPagerdutyConnectionTokensWithLock({
+        orgId: storageOrgId,
+        connectionId,
+        env: storageEnv,
+        expectedRefreshToken: "refresh-old",
+        expectedAccessToken: "access-old",
+        refresh,
+      }),
     ])
 
-    expect(refreshCalls).toBe(1)
+    // The token call runs outside the lock, so both callers may call it.
+    expect(refreshCalls).toBeGreaterThanOrEqual(1)
     expect(results).toEqual([
       {
         accessToken: "access-fresh",
