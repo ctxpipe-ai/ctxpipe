@@ -37,10 +37,23 @@ import type { Workspace } from "./types"
 
 type ConversationPage = { items: Array<{ id: string; name: string }> }
 
+/** A running turn refused the delete: a retry fails the same way. */
+function isTurnRunning(error: Error): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    error.message === "turn_running"
+  )
+}
+
 /** The cause and the next step for a failed delete. */
 function deleteErrorText(error: Error): string {
-  if (error instanceof ApiError && error.status === 409) {
+  if (isTurnRunning(error)) {
     return "A turn is still running in this chat. Open the chat and select Stop, or wait until the turn ends. Then delete the chat again."
+  }
+  if (error instanceof ApiError && error.status === 409) {
+    // chat_starting: a prepare (sandbox resume) holds the chat.
+    return "The chat is starting. Try again in a few seconds."
   }
   if (error instanceof ApiError && error.status === 0) {
     return "The request did not reach ctxpipe. Check your connection, then try again."
@@ -318,9 +331,8 @@ export function WorkspaceConversationRow(props: {
             title="The chat was not deleted"
             actions={
               <>
-                {/* A retry of a refused delete fails the same way. */}
-                {remove.error instanceof ApiError &&
-                remove.error.status === 409 ? null : (
+                {/* A retry while the turn runs fails the same way. */}
+                {isTurnRunning(remove.error) ? null : (
                   <Button
                     size="sm"
                     variant="outline"

@@ -135,6 +135,7 @@ type PublishErrorCode =
   | "session_moved"
   | "push_failed"
   | "turn_running"
+  | "chat_starting"
   | "pr_merged"
   | "github_unavailable"
   | "sandbox_capacity"
@@ -180,12 +181,23 @@ const publishErrorMessages: Record<PublishErrorCode, string> = {
     "The branch on GitHub has commits ctxpipe did not push. Ask the agent to fetch and rebase.",
   push_failed: "Git or GitHub refused the push. Try again.",
   turn_running: "The agent is still working. Try again when the turn ends.",
+  chat_starting: "The chat is starting. Try again in a few seconds.",
   pr_merged:
     "The pull request was merged. Send a message to continue on a new branch.",
   pr_refused: "GitHub refused the pull request.",
   github_unavailable: "GitHub did not answer. Try again.",
   sandbox_capacity: "Too many sandboxes are running. Try again later.",
   sandbox_unavailable: "The sandbox is not available. Try again.",
+}
+
+/**
+ * The cause and the next step for a known backend error code, or undefined
+ * for an unknown code. The text never shows the code itself.
+ */
+export function conversationErrorReason(code: string): string | undefined {
+  return Object.hasOwn(publishErrorMessages, code)
+    ? publishErrorMessages[code as PublishErrorCode]
+    : undefined
 }
 
 /** The toast text for a failed Sync (commit and push) or Create PR. */
@@ -200,8 +212,6 @@ export function conversationPublishErrorMessage(
       ? `${action} failed. GitHub refused the pull request: ${why.replace(/\.$/, "")}.`
       : `${action} failed. GitHub refused the pull request.`
   }
-  const reason = Object.hasOwn(publishErrorMessages, code)
-    ? publishErrorMessages[code as PublishErrorCode]
-    : undefined
+  const reason = conversationErrorReason(code)
   return reason ? `${action} failed. ${reason}` : `${action} failed (${code}).`
 }

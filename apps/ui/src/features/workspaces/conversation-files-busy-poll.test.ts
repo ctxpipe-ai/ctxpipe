@@ -12,6 +12,7 @@ import {
 } from "vitest"
 import { clearAllConversationGitTreeSnapshots } from "./conversation-git-tree-snapshot"
 import {
+  conversationGitBlobOptions,
   conversationGitStatusOptions,
   conversationGitTreeOptions,
 } from "./queries"
@@ -27,7 +28,7 @@ vi.hoisted(() => {
 const server = setupServer()
 let restoreFetch = () => {}
 
-describe("conversation Files queries while a turn runs", () => {
+describe("conversation Files queries while a turn runs or the chat starts", () => {
   beforeAll(() => {
     installMemorySessionStorage()
     server.listen({ onUnhandledRequest: "error" })
@@ -39,8 +40,14 @@ describe("conversation Files queries while a turn runs", () => {
     restoreFetch()
   })
 
-  for (const route of ["tree", "status"] as const) {
-    it(`asks files/${route} again after a 409 until a real answer arrives`, async () => {
+  for (const [route, code] of [
+    ["tree", "turn_running"],
+    ["status", "turn_running"],
+    // A prepare (sandbox resume) holds the conversation.
+    ["tree", "chat_starting"],
+    ["status", "chat_starting"],
+  ] as const) {
+    it(`asks files/${route} again after a 409 ${code} until a real answer arrives`, async () => {
       clearAllConversationGitTreeSnapshots()
       let hits = 0
       server.use(
@@ -48,12 +55,9 @@ describe("conversation Files queries while a turn runs", () => {
           `http://localhost:3000/:orgSlug/api/v1/conversations/:conversationId/files/${route}`,
           () => {
             hits += 1
-            // A turn holds the conversation: the first read is busy.
+            // The first read is busy.
             if (hits === 1) {
-              return HttpResponse.json(
-                { error: "turn_running" },
-                { status: 409 },
-              )
+              return HttpResponse.json({ error: code }, { status: 409 })
             }
             return HttpResponse.json(
               route === "tree"
@@ -108,7 +112,54 @@ describe("conversation Files queries while a turn runs", () => {
         clearAllConversationGitTreeSnapshots()
       }
     }, 10_000)
+  }
 
+  it("asks files/blob again after a 409 chat_starting and says the chat starts", async () => {
+    let hits = 0
+    server.use(
+      http.get(
+        "http://localhost:3000/:orgSlug/api/v1/conversations/:conversationId/files/blob",
+        () => {
+          hits += 1
+          if (hits === 1)
+            return HttpResponse.json(
+              { error: "chat_starting" },
+              { status: 409 },
+            )
+          return HttpResponse.json({
+            path: "AGENTS.md",
+            body: "# Agents\n",
+            binary: false,
+          })
+        },
+      ),
+    )
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const blob = new QueryObserver(
+      queryClient,
+      conversationGitBlobOptions("acme", "conv_1", "AGENTS.md"),
+    )
+    const seen: Array<string | undefined> = []
+    const unsubscribe = blob.subscribe((result) => {
+      if (result.data) seen.push(result.data.busy)
+    })
+    try {
+      await vi.waitFor(
+        () => expect(blob.getCurrentResult().data?.body).toBe("# Agents\n"),
+        { timeout: 5_000, interval: 100 },
+      )
+      expect(seen[0]).toBe("chat_starting")
+      expect(blob.getCurrentResult().data?.busy).toBeUndefined()
+      expect(hits).toBe(2)
+    } finally {
+      unsubscribe()
+      queryClient.clear()
+    }
+  }, 10_000)
+
+  for (const route of ["tree", "status"] as const) {
     it(`does not ask files/${route} again after a 409 missing_sandbox`, async () => {
       clearAllConversationGitTreeSnapshots()
       let hits = 0

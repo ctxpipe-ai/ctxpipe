@@ -32,7 +32,10 @@ import {
   conversationHasStoredTurns,
   warmTanstackWorkspaceChat,
 } from "../../domain/workspaces/tanstack-workspace-chat.js"
-import { workspaceChatPersistence } from "../../domain/workspaces/workspace-chat-persistence.js"
+import {
+  conversationBusyError,
+  workspaceChatPersistence,
+} from "../../domain/workspaces/workspace-chat-persistence.js"
 import {
   persistWorkspaceChatUserTurnListed,
   resolveWorkspaceChatSendRuntime,
@@ -318,7 +321,7 @@ const deleteConversationRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description:
-        "turn_running: a turn runs in the conversation (stop it or wait, then delete)",
+        "turn_running: a turn runs in the conversation (stop it or wait, then delete), or chat_starting: the chat sandbox starts (try again in a few seconds)",
     },
   },
 })
@@ -1220,6 +1223,8 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     })
     // A turn takes this lock before it inserts its running row. Holding it
     // here makes a starting turn win or lose against the delete, never both.
+    // A prepare (sandbox resume) also holds it for some seconds: wait a short
+    // time for it to release the lock.
     const outcome = await withSandboxLockIfFree(
       existing.orgId,
       `chat-thread:${conversationId}`,
@@ -1242,8 +1247,12 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
         }
         return "deleted" as const
       },
+      undefined,
+      5_000,
     )
-    if (outcome.busy || outcome.value === "turn_running")
+    if (outcome.busy)
+      return c.json({ error: await conversationBusyError(conversationId) }, 409)
+    if (outcome.value === "turn_running")
       return c.json({ error: "turn_running" }, 409)
     if (outcome.value === "not_found")
       return c.json({ error: "Not found" }, 404)
