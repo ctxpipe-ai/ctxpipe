@@ -141,9 +141,10 @@ function markAnswerLinks(options: { files: boolean }) {
         }
         const path = options.files ? workspaceFilePathFromHref(href) : null
         if (path) return fileLinkNode(path, node.children ?? [])
-        if (options.files) {
+        if (options.files && !href.startsWith("#")) {
           // Harden would show "[blocked]" after a link it cannot keep, so
-          // keep only the content of a link that is not a file or http(s).
+          // keep only the content of a link that is not a file, http(s) or an
+          // in-page anchor.
           const content: HastNode = {
             type: "element",
             tagName: "span",

@@ -73,7 +73,20 @@ describe("MessageResponse file links", () => {
     expect(html).not.toContain("data-ctx-file-link")
   })
 
-  it("leaves an uppercase-scheme HTTPS link to harden, not to the file-link logic", () => {
+  it("keeps an in-page anchor link the same as with file links off", () => {
+    const markdown = "Jump to [Options](#options) now."
+    const withFiles = render(markdown)
+    const withoutFiles = renderToStaticMarkup(
+      <MessageResponse>{markdown}</MessageResponse>,
+    )
+    expect(withFiles).not.toContain("data-ctx-file-link")
+    expect(withFiles).toBe(withoutFiles)
+    expect(withFiles).toContain("Options")
+  })
+
+  // Accepted behavior, not a goal: it was never a link before, so harden
+  // blocks it and the link text stays.
+  it("accepts that an uppercase-scheme HTTPS link is blocked, not made a file link", () => {
     const html = render("See [site](HTTPS://example.com) now.")
     expect(html).not.toContain("data-ctx-file-link")
     expect(html).not.toContain("href=")
