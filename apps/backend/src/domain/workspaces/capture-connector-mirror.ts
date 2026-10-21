@@ -92,6 +92,7 @@ export async function captureConnectorMirrorTarget(input: {
         }
       },
       pack,
+      null,
     )
   })
 }

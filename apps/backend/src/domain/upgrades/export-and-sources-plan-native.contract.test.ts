@@ -96,6 +96,7 @@ async function readTree(pack: GitPack) {
       return { paths: [...modes.keys()], modes, text }
     },
     pack,
+    null,
   )
 }
 

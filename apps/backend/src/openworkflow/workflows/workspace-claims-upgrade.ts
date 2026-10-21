@@ -3,6 +3,7 @@ import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { hydrateKnowledgeTree } from "../../domain/workspaces/hydrate.js"
 import { claimsUpgradeFiles } from "../../domain/workspaces/hydrate-write-jobs.js"
+import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -62,6 +63,12 @@ export const workspaceClaimsUpgrade = defineWorkflow(
       "workspace-write-claims-upgrade",
       async () => {
         const env = parseEnv(process.env)
+        // Read access to the bound repository, from the workflow input (CTX-955).
+        const read = workspaceGitRead({
+          orgId: input.orgId,
+          env,
+          remote: input.revision.remote,
+        })
         let revision = input.revision
         const repositoryName = githubRepoFullNameFromWorkspaceUrl(
           revision.remote.url,
@@ -108,8 +115,11 @@ export const workspaceClaimsUpgrade = defineWorkflow(
           const files = await step.run(
             { name: "transform-claims-upgrade" },
             async () => {
-              const sourceFiles = await readGitFiles(acquired.pack, (path) =>
-                path.endsWith(".md"),
+              const sourceFiles = await readGitFiles(
+                acquired.pack,
+                (path) => path.endsWith(".md"),
+                undefined,
+                read,
               )
               const parsed = hydrateKnowledgeTree({
                 workspaceId: input.workspaceId,
@@ -140,12 +150,14 @@ export const workspaceClaimsUpgrade = defineWorkflow(
           const staged = await step.run({ name: "stage" }, () => {
             if (files.some((file) => !file.path.endsWith(".md")))
               throw new Error("Claims upgrade may only edit Markdown")
-            return stageGitFiles(acquired.pack, files)
+            return stageGitFiles(acquired.pack, files, [], read)
           })
           await step.run({ name: "validate" }, () =>
             validateGitTree(
               staged,
               files.map((file) => file.path),
+              {},
+              read,
             ),
           )
           const subject = await step.run({ name: "commit-subject" }, () =>
@@ -156,10 +168,14 @@ export const workspaceClaimsUpgrade = defineWorkflow(
             }),
           )
           const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(staged, {
-              subject,
-              createdAt: run.createdAt,
-            })
+            const pack = await commitGitTree(
+              staged,
+              {
+                subject,
+                createdAt: run.createdAt,
+              },
+              read,
+            )
             await persistWriteJobPreparedCommit(input.jobId, pack.sha)
             return pack
           })

@@ -90,6 +90,7 @@ async function withTreeReader<T>(
       })
     },
     pack,
+    null,
   )
 }
 
@@ -139,12 +140,14 @@ async function commitChange(
   change: Pick<UpgradeStepPlan, "writes" | "deletes">,
   input: { subject: string; createdAt: Date | string },
 ): Promise<GitPack> {
-  const staged = await stageGitFiles(pack, change.writes, change.deletes)
-  await validateGitTree(staged, [
-    ...change.writes.map((write) => write.path),
-    ...change.deletes,
-  ])
-  return commitGitTree(staged, input)
+  const staged = await stageGitFiles(pack, change.writes, change.deletes, null)
+  await validateGitTree(
+    staged,
+    [...change.writes.map((write) => write.path), ...change.deletes],
+    undefined,
+    null,
+  )
+  return commitGitTree(staged, input, null)
 }
 
 /**

@@ -340,6 +340,8 @@ export function defineWorkspaceHydrateWorkflow() {
                     const [previousFormatFile] = await readGitFiles(
                       { ...pack, sha: previousSha },
                       (path) => path === WORKSPACE_FORMAT_PATH,
+                      undefined,
+                      null,
                     )
                     return {
                       previousSha,
@@ -349,7 +351,7 @@ export function defineWorkspaceHydrateWorkflow() {
                         ),
                       ),
                       renameRewrites: (
-                        await nativeRenameRewriteFiles(pack, previousSha)
+                        await nativeRenameRewriteFiles(pack, previousSha, null)
                       ).length,
                       folderSetChanged: await nativeFolderSetChanged(
                         pack,
