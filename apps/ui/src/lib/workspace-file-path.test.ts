@@ -53,6 +53,7 @@ describe("workspaceFilePathFromHref", () => {
     "./knowledge/x.md",
     "knowledge/x.md#L12",
     "knowledge/x.md#L12-L20",
+    "knowledge/x.md#heading-anchor-on-a-workspace-file-opens-the-file",
     "knowledge/x.md:12",
     "knowledge/x.md:12:5",
     "file:///workspace/knowledge/x.md",

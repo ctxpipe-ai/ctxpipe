@@ -69,7 +69,7 @@ export function workspaceFilePathFromHref(href: string): string | null {
   const cleaned = href
     .trim()
     .replace(/^file:\/\//i, "")
-    .replace(/#.*$/, "")
+    .replace(/(?<=.)#.*$/, "")
     .replace(/(?::\d+){1,2}$/, "")
     .replace(/^\/workspace\//, "")
   return workspaceFilePath(cleaned)

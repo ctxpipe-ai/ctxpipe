@@ -37,4 +37,45 @@ describe("MessageResponse file links", () => {
     expect(html).not.toContain("blocked")
     expect(html).toContain("data-ctx-file-link")
   })
+
+  it("opens the href target of a file: link, not the link text", () => {
+    const html = render("See [the file](file:///workspace/knowledge/x.md) now.")
+    expect(html).toContain("data-ctx-file-link")
+    expect(html).toContain("the file")
+    expect(html).not.toContain("<a ")
+    const code = render("See [`other.md`](file:///workspace/knowledge/x.md).")
+    expect(code).toContain("data-ctx-file-link")
+    expect(code).toContain("other.md")
+  })
+
+  it.each([
+    "javascript:alert(1)",
+    "JaVaScRiPt:alert(1)",
+    "data:text/html,hi",
+    "vbscript:msgbox(1)",
+    "//evil.com",
+    "javascript%3Aalert(1)",
+    "file:///etc/passwd",
+    "file:///workspace/../etc/passwd",
+    "file://host/workspace/x.md",
+    "foo/../../secret.md",
+    "C:\\code\\a.ts",
+  ])("leaves the unsafe href %j as plain text", (href) => {
+    const html = render(`See [the link](${href}) now.`)
+    expect(html).toContain("the link")
+    expect(html).not.toContain("href=")
+    expect(html).not.toContain("data-ctx-file-link")
+  })
+
+  it("keeps a real https link as a link button", () => {
+    const html = render("See [site](https://example.com) now.")
+    expect(html).toContain('data-streamdown="link"')
+    expect(html).not.toContain("data-ctx-file-link")
+  })
+
+  it("leaves an uppercase-scheme HTTPS link to harden, not to the file-link logic", () => {
+    const html = render("See [site](HTTPS://example.com) now.")
+    expect(html).not.toContain("data-ctx-file-link")
+    expect(html).not.toContain("href=")
+  })
 })

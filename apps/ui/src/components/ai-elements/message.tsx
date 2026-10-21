@@ -93,6 +93,29 @@ function fileLinkNode(path: string, children: HastNode[]): HastNode {
 }
 
 /**
+ * Rehype plugin. It runs before sanitize, which removes every `file:` href.
+ * It rewrites a `file:///workspace/…` href into the repository-relative path,
+ * so the file-link logic handles it. It removes every other `file:` href.
+ */
+function rewriteFileHrefs() {
+  const visit = (node: HastNode) => {
+    if (node.type === "element" && node.tagName === "a") {
+      const href = String(node.properties?.href ?? "").trim()
+      if (/^file:/i.test(href) && node.properties) {
+        const sandboxRoot = /^file:\/\/\/workspace\//i
+        if (sandboxRoot.test(href)) {
+          node.properties.href = href.replace(sandboxRoot, "")
+        } else {
+          delete node.properties.href
+        }
+      }
+    }
+    for (const child of node.children ?? []) visit(child)
+  }
+  return visit
+}
+
+/**
  * Rehype plugin. It adds an icon to off-site links. With `files`, it changes
  * file paths in inline code and relative links into `ctx-file-link` elements.
  * It runs after sanitize, so model HTML cannot make these elements, and
@@ -104,7 +127,7 @@ function markAnswerLinks(options: { files: boolean }) {
       if (node.type !== "element") return node
       if (node.tagName === "a") {
         const href = String(node.properties?.href ?? "")
-        if (/^https?:\/\//.test(href)) {
+        if (/^https?:\/\//i.test(href)) {
           node.children = [
             ...(node.children ?? []),
             {
@@ -150,6 +173,7 @@ const answerRehypePlugins = (
   files: boolean,
 ): ComponentProps<typeof Streamdown>["rehypePlugins"] => [
   defaultRehypePlugins.raw,
+  ...(files ? [rewriteFileHrefs] : []),
   defaultRehypePlugins.sanitize,
   [markAnswerLinks, { files }],
   defaultRehypePlugins.harden,
