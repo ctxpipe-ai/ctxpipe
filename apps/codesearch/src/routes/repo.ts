@@ -355,6 +355,11 @@ const filesQueryRequestSchema = z
         "The root must be a relative folder path",
       )
       .optional(),
+    /**
+     * A size limit in bytes. A file larger than the limit is not read: its
+     * entry has only its size.
+     */
+    maxBytes: z.number().int().positive().optional(),
   })
   .openapi("FilesQueryRequest")
 
@@ -375,8 +380,17 @@ const filesQueryRoute = createRoute({
     200: {
       content: {
         "application/json": {
-          schema: z.record(z.string(), z.string()),
-          description: "Map of path to base64-encoded content",
+          schema: z.record(
+            z.string(),
+            z.union([
+              z.string(),
+              z
+                .object({ size: z.number().int(), tooLarge: z.literal(true) })
+                .openapi("TooLargeFile"),
+            ]),
+          ),
+          description:
+            "Map of path to base64-encoded content, or to the size only when the file is larger than `maxBytes`",
         },
       },
       description: "Files by path",
@@ -698,7 +712,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const auth = c.get("auth")
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
-    const { paths, root } = c.req.valid("json")
+    const { paths, root, maxBytes } = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) return c.json(repositoryNotFoundBody, 404)
     const basePath = repoCheckoutPath(
@@ -706,12 +720,14 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       repo.id,
       checkoutKeyFromAuth(auth, repoId, repo.publishedCheckoutKey),
     )
-    const result: Record<string, string> = {}
+    const result: Record<string, string | { size: number; tooLarge: true }> = {}
     for (const p of paths) {
       try {
-        result[p] = (await readContainedFile(basePath, p, root)).toString(
-          "base64",
-        )
+        const data =
+          maxBytes === undefined
+            ? await readContainedFile(basePath, p, root)
+            : await readContainedFile(basePath, p, root ?? "", maxBytes)
+        result[p] = Buffer.isBuffer(data) ? data.toString("base64") : data
       } catch {
         // omit missing files
       }

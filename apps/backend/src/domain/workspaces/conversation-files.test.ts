@@ -15,6 +15,7 @@ import { DockerHandle } from "@tanstack/ai-sandbox-docker"
 import { describe, expect, it } from "vitest"
 import { conversationBaseDiff } from "./conversation-diff.js"
 import {
+  ConversationFileChangedError,
   conversationPathIsSafe,
   conversationRevisionStatus,
   conversationSandboxStatus,
@@ -22,6 +23,7 @@ import {
   fingerprintConversationWorktree,
   listConversationSandboxPaths,
   readConversationSandboxFile,
+  readConversationSandboxFileBytes,
   removeConversationSandboxPath,
   renameConversationSandboxPath,
   sanitizeGitRemoteError,
@@ -561,6 +563,89 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
           tracked: { path: "AGENTS.md", body: "# Agents\n", binary: false },
           untracked: { path: "draft.md", body: "fresh\n", binary: false },
         })
+      },
+    )
+  })
+
+  it("reads the exact bytes of a listed binary file, and refuses one over the limit", async () => {
+    // Every byte value, so a text decode would change the result.
+    const image = Buffer.alloc(600 * 1024)
+    for (let i = 0; i < image.length; i++) image[i] = (i * 7) % 256
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, ".gitignore"), ".env\n")
+        writeFileSync(join(directory, "logo.png"), image)
+      },
+      async ({ directory, handle }) => {
+        writeFileSync(join(directory, ".env"), "API_KEY=hidden\n")
+        symlinkSync("logo.png", join(directory, "logo-link.png"))
+        const read = (path: string, max = 1024 * 1024) =>
+          readConversationSandboxFileBytes(handle, path, max)
+        const bytes = await read("logo.png")
+        expect({
+          same:
+            bytes.kind === "bytes" && Buffer.from(bytes.bytes).equals(image),
+          blob: await readConversationSandboxFile(handle, "logo.png"),
+          tooLarge: await read("logo.png", image.length - 1),
+          ignored: await read(".env"),
+          symlink: await read("logo-link.png"),
+          gitMetadata: await read(".git/config"),
+          missing: await read("missing.png"),
+        }).toEqual({
+          same: true,
+          blob: {
+            path: "logo.png",
+            body: null,
+            binary: true,
+            size: image.length,
+          },
+          tooLarge: { kind: "too_large", size: image.length },
+          ignored: { kind: "missing" },
+          symlink: { kind: "missing" },
+          gitMetadata: { kind: "missing" },
+          missing: { kind: "missing" },
+        })
+      },
+    )
+  })
+
+  it("reads the bytes of a top-level file whose name starts with a dash", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, "-x"), "dash bytes\n")
+      },
+      async ({ handle }) => {
+        const result = await readConversationSandboxFileBytes(
+          handle,
+          "-x",
+          1024,
+        )
+        expect(
+          result.kind === "bytes" && Buffer.from(result.bytes).toString(),
+        ).toBe("dash bytes\n")
+      },
+    )
+  })
+
+  it("refuses a read when the file changes between the size check and the read", async () => {
+    await withWorktree(
+      (directory) => writeFileSync(join(directory, "logo.png"), "png"),
+      async ({ handle }) => {
+        // The file grows inside the one read command, after its size check.
+        const growing: JobSandboxHandle = {
+          ...handle,
+          exec: (command, options) =>
+            handle.exec(
+              command.replace(
+                "head -c",
+                'printf more >> "$CTXPIPE_FILE_PATH"; head -c',
+              ),
+              options,
+            ),
+        }
+        await expect(
+          readConversationSandboxFileBytes(growing, "logo.png", 1024),
+        ).rejects.toBeInstanceOf(ConversationFileChangedError)
       },
     )
   })

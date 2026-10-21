@@ -187,38 +187,21 @@ export async function listConversationSandboxPaths(
 export async function readConversationSandboxFile(
   handle: JobSandboxHandle,
   path: string,
-): Promise<{ path: string; body: string | null; binary: boolean } | null> {
-  // Read only a path that the tree lists, with no symlink. This prevents a
-  // read of .git and of ignored files, such as .env.
-  return readSandboxFileIfListed(
-    handle,
-    path,
-    `${LIST_TREE_FILES_COMMAND} -- ":(literal)$CTXPIPE_FILE_PATH"`,
-  )
-}
-
-/**
- * Reads a path when `listCommand` prints it after the symlink check. The
- * diff checks the tree list before the call, so its command only prints the
- * path.
- */
-async function readSandboxFileIfListed(
-  handle: JobSandboxHandle,
-  path: string,
-  listCommand: string,
-): Promise<{ path: string; body: string | null; binary: boolean } | null> {
-  if (!isConversationSandboxListedPath(path)) return null
-  const listed = await execGitOk(
-    handle.exec,
-    `${STOP_AT_SYMLINK}${listCommand}`,
-    { CTXPIPE_FILE_PATH: path },
-  )
-  if (!splitGitNulPaths(listed).includes(path)) return null
+): Promise<{
+  path: string
+  body: string | null
+  binary: boolean
+  size?: number
+} | null> {
+  if (!(await conversationSandboxPathIsListed(handle, path))) return null
   try {
     const content = await handle.fs.read(path)
     const blob = explorerBlobFromContent(content)
     if (!blob) return null
-    return { path, ...blob }
+    if (!blob.binary) return { path, ...blob }
+    // The text read changes binary bytes, so the size comes from the file.
+    const size = await sandboxFileSize(handle, path)
+    return { path, ...blob, ...(size === null ? {} : { size }) }
   } catch (error) {
     if (isMissingFileError(error)) return null
     const exists = await handle.exec('test -e "$CTXPIPE_FILE_PATH"', {
@@ -227,6 +210,93 @@ async function readSandboxFileIfListed(
     if (exists.exitCode === 1) return null
     throw error
   }
+}
+
+/** The file changed while a read of it ran. The route answers 409. */
+export class ConversationFileChangedError extends Error {
+  constructor() {
+    super("The file changed while it was read. Open it again.")
+    this.name = "ConversationFileChangedError"
+  }
+}
+
+/**
+ * Reads the exact bytes of a listed file. One sandbox command does the
+ * checks and the read, so the file cannot change between them: no symlink
+ * at the path or at a parent folder, a regular file, and at most `maxBytes`
+ * bytes. The command prints the size, then the bytes in base64. A size
+ * that is not the same as the count of bytes read means that the file
+ * changed during the read.
+ */
+export async function readConversationSandboxFileBytes(
+  handle: JobSandboxHandle,
+  path: string,
+  maxBytes: number,
+): Promise<
+  | { kind: "missing" }
+  | { kind: "too_large"; size: number }
+  | { kind: "bytes"; bytes: Uint8Array }
+> {
+  if (!(await conversationSandboxPathIsListed(handle, path)))
+    return { kind: "missing" }
+  const result = await handle.exec(
+    [
+      "set -f; p=; s=; IFS=/",
+      'for part in $CTXPIPE_FILE_PATH; do p="$p$s$part"; s=/; if [ -L "$p" ]; then exit 2; fi; done',
+      "unset IFS",
+      '[ -f "$CTXPIPE_FILE_PATH" ] || exit 2',
+      'size=$(wc -c < "$CTXPIPE_FILE_PATH") || exit 2',
+      "size=$((size))",
+      "echo $size",
+      `[ "$size" -gt ${maxBytes} ] && exit 3`,
+      `head -c ${maxBytes + 1} -- "$CTXPIPE_FILE_PATH" | base64`,
+    ].join("\n"),
+    { env: { CTXPIPE_FILE_PATH: path } },
+  )
+  if (result.exitCode === 2) return { kind: "missing" }
+  const [sizeLine = "", ...encodedLines] = result.stdout.split("\n")
+  const size = Number.parseInt(sizeLine.trim(), 10)
+  if (
+    !Number.isSafeInteger(size) ||
+    (result.exitCode !== 0 && result.exitCode !== 3)
+  )
+    throw new Error(`The sandbox file read failed (exit ${result.exitCode}).`)
+  if (result.exitCode === 3) return { kind: "too_large", size }
+  const encoded = encodedLines.join("").replace(/\s/g, "")
+  const bytes = Buffer.from(encoded, "base64")
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) || bytes.length !== size)
+    throw new ConversationFileChangedError()
+  return { kind: "bytes", bytes }
+}
+
+/**
+ * Reads only a path that the tree lists, with no symlink. This prevents a
+ * read of .git and of ignored files, such as .env.
+ */
+async function conversationSandboxPathIsListed(
+  handle: JobSandboxHandle,
+  path: string,
+): Promise<boolean> {
+  if (!isConversationSandboxListedPath(path)) return false
+  const listed = await execGitOk(
+    handle.exec,
+    `${STOP_AT_SYMLINK}${LIST_TREE_FILES_COMMAND} -- ":(literal)$CTXPIPE_FILE_PATH"`,
+    { CTXPIPE_FILE_PATH: path },
+  )
+  return splitGitNulPaths(listed).includes(path)
+}
+
+/** The size in bytes of a regular file, or null when it is not one. */
+async function sandboxFileSize(
+  handle: JobSandboxHandle,
+  path: string,
+): Promise<number | null> {
+  const result = await handle.exec(
+    'test -f "$CTXPIPE_FILE_PATH" && wc -c < "$CTXPIPE_FILE_PATH"',
+    { env: { CTXPIPE_FILE_PATH: path } },
+  )
+  const size = Number.parseInt(result.stdout.trim(), 10)
+  return result.exitCode === 0 && Number.isSafeInteger(size) ? size : null
 }
 
 function isMissingFileError(error: unknown): boolean {
