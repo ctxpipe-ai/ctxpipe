@@ -148,8 +148,9 @@ export async function resolveSemanticConflicts(
         }
         throw error
       })
-      if (answer && resolvesExactly(answer.files, [conflict]))
-        return { file: answer.files[0], flagged: false }
+      const [file] = answer?.files ?? []
+      if (answer && file && resolvesExactly(answer.files, [conflict]))
+        return { file, flagged: false }
       if (answer)
         slip = new Error(
           "Semantic merge did not resolve exactly the conflicting files",
