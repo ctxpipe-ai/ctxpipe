@@ -614,3 +614,9 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Category:** docs
 - **Date:** 2026-10-19
 - **Source:** CTO correction during the README update for PR 280
+
+### Agent setup is harness-agnostic; Claude Code and Codex are primary
+- **Rule:** The team uses Claude Code as the primary agent harness, with Codex as the second model family. The team does not use Cursor now, but it can come back. Keep the agent setup of this repository independent of one harness: put shared content (instructions, skills, hooks, MCP server lists) in one neutral place, and keep each harness directory (`.claude/`, `.codex/`, `.cursor/`) a thin adapter to it. Do not add a feature that only one harness can read when a shared form exists. An orchestrator app (Paseo now, T3 before) starts the Claude and Codex agents and picks their models, so a cross-model handoff goes through the orchestrator, not through a repo script. Keep the dormant Cursor files until the team decides otherwise.
+- **Category:** tooling
+- **Date:** 2026-10-21
+- **Source:** CTO decision when the team stopped its Cursor plan
