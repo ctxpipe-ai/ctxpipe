@@ -114,7 +114,7 @@ describe("Upgrade progress on the upgrades read (Postgres)", () => {
     expect(item.runStage).toBeNull()
   })
 
-  it("shows when ctx| saw the merge and when it checked last", async () => {
+  it("shows when ctxpipe saw the merge and when it checked last", async () => {
     const before = await withOrgIdContext(org, readItem)
     expect(before.mergedAt).toBeNull()
     await withOrgIdContext(org, () =>

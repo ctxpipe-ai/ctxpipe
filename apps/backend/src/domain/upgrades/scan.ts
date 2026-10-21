@@ -233,7 +233,7 @@ export async function scanWorkspaceUpgrade(input: {
         : null
     // After a merge, the next hydrate records the new format and a scan
     // completes the row. The row keeps the time of the first scan that saw
-    // the merge, so the UI can say that ctx| knows.
+    // the merge, so the UI can say that ctxpipe knows.
     if (pull?.prState === "merged") {
       await transitionWorkspaceUpgradeRow({
         workspaceId: workspace.id,
