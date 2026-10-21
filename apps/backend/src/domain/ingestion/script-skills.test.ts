@@ -1734,6 +1734,40 @@ describe("workflows skill", () => {
     expect(second.more).toBe(false)
   }, 60_000)
 
+  it("counts the deletes that a script recorded before writeStep against the 30 ops of the step", async () => {
+    // instruction-areas records its deletes and then calls writeStep.
+    const s = step(PNPM_SHOP, { ...SHOP_UNITS, ...libraries(5) })
+    const lib = await import(join(INGEST_SKILLS_DIR, "bin/knowledge-lib.mjs"))
+    const stage = await import(join(INGEST_SKILLS_DIR, "bin/stage-lib.mjs"))
+    const current = stage.currentStep(s.root)
+    const deletes: Record<string, { baseBlob: string; reason: string }> = {}
+    for (let i = 0; i < 5; i++) {
+      const path = `knowledge/libraries/l${i}.md`
+      deletes[path] = {
+        baseBlob: stage.baseBlob(current, path),
+        reason: "Gone",
+      }
+    }
+    stage.writeDeletes(current, deletes)
+    const plans = Array.from({ length: 30 }, (_, i) => ({
+      path: `knowledge/libraries/new${String(i).padStart(2, "0")}.md`,
+      create: {
+        kind: "Library",
+        name: `New ${i}`,
+        summary: "A new library.",
+        intro: "A library.",
+      },
+      claims: [],
+      related: ["- A library"],
+    }))
+    const result = lib.writeStep(current, plans)
+    expect(result.ops).toHaveLength(30)
+    expect(
+      result.ops.filter((o: { op: string }) => o.op === "delete"),
+    ).toHaveLength(5)
+    expect(result.more).toBe(true)
+  })
+
   it("keeps the workflow name as the heading when the validator accepts it", async () => {
     const workflow = (name: string) =>
       `name: ${name}\non: push\njobs:\n  a:\n    runs-on: x\n`

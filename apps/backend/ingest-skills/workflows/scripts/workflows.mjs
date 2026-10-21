@@ -271,4 +271,4 @@ for (const path of stale.slice(limit))
   })
 if (Object.keys(deletes).length) writeDeletes(step, deletes)
 
-writeStep(step, plans, skipped, { reserved: Object.keys(deletes).length })
+writeStep(step, plans, skipped)

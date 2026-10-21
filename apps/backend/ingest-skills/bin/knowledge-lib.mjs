@@ -19,6 +19,7 @@ import {
   ensureParent,
   fail,
   parseArgs,
+  readDeletes,
   stagedFile,
   writePatch,
 } from "./stage-lib.mjs"
@@ -647,9 +648,8 @@ function mergeFile(text, { claims, related }) {
  * for the next page: the host runs the skill again on the new base until
  * `more` is false. A file that already has a claim or a line does not
  * change again, so each page continues where the last one stopped.
- * `options.more` adds a page that the caller knows of, and
- * `options.reserved` counts the ops that the caller recorded before (for
- * example deletes) against MAX_STEP_OPS. patch.json holds
+ * The deletes that the caller recorded before count against MAX_STEP_OPS.
+ * `options.more` adds a page that the caller knows of. patch.json holds
  * `more` for the host. Prints and returns { ops, skipped, more }.
  */
 export function writeStep(step, plans, skipped = [], options = {}) {
@@ -668,8 +668,8 @@ export function writeStep(step, plans, skipped = [], options = {}) {
       })
   }
   let changed = 0
-  // Ops that the caller recorded already, for example deletes.
-  const reserved = options.reserved ?? 0
+  // The deletes that the caller recorded are ops of the step too.
+  const deletes = Object.keys(readDeletes(step)).length
   let more = false
   const sorted = [...byPath.values()].sort((a, b) => (a.path < b.path ? -1 : 1))
   for (const plan of sorted) {
@@ -713,7 +713,7 @@ export function writeStep(step, plans, skipped = [], options = {}) {
       continue
     }
     if (text === before) continue
-    if (changed + reserved >= MAX_STEP_OPS) {
+    if (changed + deletes >= MAX_STEP_OPS) {
       more = true
       break
     }
