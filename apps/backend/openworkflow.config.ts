@@ -4,6 +4,7 @@ import { initDb } from "./src/db/client.js"
 import { createLogger, flushEvlog, log } from "./src/observability/logger.js"
 import { shutdownOtel } from "./src/observability/otel.js"
 import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
+import { failInFlightStepAttempts } from "./src/openworkflow/crash-loop.js"
 import { connectOpenWorkflowBackend } from "./src/openworkflow/storable-backend.js"
 import { wakeParkedParents } from "./src/openworkflow/wake-parked-parents.js"
 import { scheduleSweepsForOrgsNeedingIt } from "./src/openworkflow/workflows/conversation-sandbox-sweep.js"
@@ -61,18 +62,34 @@ const wakeParents = () =>
 wakeParents()
 setInterval(wakeParents, 5 * 60_000).unref()
 
+/**
+ * On SIGTERM or SIGINT, mark the guarded step attempts of this process
+ * `failed`, so the crash-loop guard does not count the stop as a crash, then
+ * flush the logs and traces. A step body that ends after the mark cannot
+ * complete its attempt, so the process stops at once when it marked an
+ * attempt; the next worker runs the step again. With no such attempt, the
+ * OpenWorkflow CLI waits for the active runs until the supervisor stops it.
+ */
 let shuttingDown = false
-async function shutdownWorkerObservability() {
+async function stopWorker() {
   if (shuttingDown) return
   shuttingDown = true
+  const marked = await failInFlightStepAttempts().catch((error: unknown) => {
+    log.error({
+      step: "openworkflow.step-attempts-stopped",
+      message: `Marking the step attempts of the stopped worker failed: ${String(error)}`,
+    })
+    return 0
+  })
   await Promise.all([flushEvlog(), shutdownOtel()])
+  if (marked > 0) process.exit(0)
 }
 
 process.on("SIGINT", () => {
-  void shutdownWorkerObservability()
+  void stopWorker()
 })
 process.on("SIGTERM", () => {
-  void shutdownWorkerObservability()
+  void stopWorker()
 })
 
 const workerConcurrency = parseOpenWorkflowConcurrency(

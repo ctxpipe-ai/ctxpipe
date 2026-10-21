@@ -9,6 +9,7 @@ import { z } from "zod"
 import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { skillStepName } from "../domain/ingestion/ingestion-plan.js"
 import {
+  failInFlightStepAttempts,
   MAX_CRASHED_STEP_ATTEMPTS,
   StepCrashLoopError,
   withCrashLoopGuard,
@@ -272,4 +273,71 @@ it("ends a crash-looping skill step partial, so the run goes on", async () => {
       .filter((attempt) => attempt.status === "completed")
       .map((attempt) => [attempt.stepName, attempt.output]),
   ).toEqual([[name, { partial: true, failed: "crashLoop" }]])
+})
+
+it("marks the attempt of a stopped worker failed, so three deploys in a step do not trip the guard", async () => {
+  const stops = MAX_CRASHED_STEP_ATTEMPTS
+  // An attempt of another worker process: the stop must not change it.
+  await insertRun("run-foreign")
+  await startAttempt("run-foreign", "deploy")
+  const statusesAtStop: string[][] = []
+  let bodies = 0
+  workflows++
+  const workflow = defineWorkflow(
+    {
+      name: `crash-loop-${pr}-${workflows}`,
+      schema: z.object({}),
+      retryPolicy: once,
+    },
+    async ({ step, run }) =>
+      step.run(
+        {
+          name: "deploy",
+          retryPolicy: {
+            initialInterval: "10ms",
+            backoffCoefficient: 1,
+            maximumInterval: "10ms",
+            maximumAttempts: stops + 1,
+          },
+        },
+        () =>
+          withCrashLoopGuard(
+            run.id,
+            "deploy",
+            async () => {
+              bodies++
+              if (bodies > stops) return "ran"
+              // SIGTERM comes while the step body runs.
+              expect(await failInFlightStepAttempts()).toBe(1)
+              const rows = await getSystemDb().execute<{ status: string }>(sql`
+                select status from openworkflow.step_attempts
+                where namespace_id = ${namespace}
+                  and step_name = 'deploy'
+                order by created_at
+              `)
+              statusesAtStop.push(rows.rows.map((row) => row.status))
+              // The process stops here. In the test, the body throws, so
+              // OpenWorkflow runs the step again as the next worker would.
+              throw new Error("worker stopped")
+            },
+            () => "crash-loop",
+          ),
+      ),
+  )
+  const { output, steps } = await runAfterCrashes(workflow, async () => {})
+  expect(output).toBe("ran")
+  // At each stop, only the attempt of this process became `failed`.
+  expect(statusesAtStop).toEqual([
+    ["running", "failed"],
+    ["running", "failed", "failed"],
+    ["running", "failed", "failed", "failed"],
+  ])
+  expect(steps.map((attempt) => attempt.status).sort()).toEqual([
+    "completed",
+    "failed",
+    "failed",
+    "failed",
+  ])
+  // Nothing is in flight after the step: a later stop marks nothing.
+  expect(await failInFlightStepAttempts()).toBe(0)
 })

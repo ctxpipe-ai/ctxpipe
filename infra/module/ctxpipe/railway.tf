@@ -434,6 +434,13 @@ resource "railway_variable_collection" "open_workflow_env" {
       value = var.openworkflow_concurrency
     },
     {
+      # Railway sends SIGTERM and waits this long before SIGKILL (the default
+      # is 0). The worker marks its step attempts stopped in this time, and
+      # the supervisor kills the worker after 25 seconds.
+      name  = "RAILWAY_DEPLOYMENT_DRAINING_SECONDS"
+      value = "30"
+    },
+    {
       name  = "CODESEARCH_INDEXER_CONCURRENCY"
       value = var.codesearch_indexer_concurrency
     },

@@ -138,8 +138,10 @@ function logWorkerExit(code: number | null, signal: NodeJS.Signals | null) {
  * This process is PID 1 of the container (`exec node`). Send a SIGTERM or a
  * SIGINT on to the worker, so that it stops its OpenWorkflow worker and
  * flushes its logs and traces. `Worker.stop()` waits for each active run
- * with no limit, so after 20 seconds the worker gets SIGKILL. Returns true
- * after a signal came.
+ * with no limit, so after 25 seconds the worker gets SIGKILL. The platform
+ * waits 30 seconds before its own SIGKILL (Railway drain time, Compose
+ * `stop_grace_period`, ECS `stopTimeout`), so this kill comes first. Returns
+ * true after a signal came.
  */
 function forwardStopSignals(child: ChildProcess): () => boolean {
   let stopping = false
@@ -148,7 +150,7 @@ function forwardStopSignals(child: ChildProcess): () => boolean {
       if (stopping) return
       stopping = true
       child.kill(signal)
-      setTimeout(() => child.kill("SIGKILL"), 20_000).unref()
+      setTimeout(() => child.kill("SIGKILL"), 25_000).unref()
     })
   return () => stopping
 }
