@@ -12,7 +12,7 @@ module "ctxpipe" {
   railway_workspace_id = "aa3ec44f-f8bd-4beb-bbe0-e4c46e20b14c"
   railway_project = {
     name           = "ctxpipe"
-    description    = "This is the ctx| application deployed as our SaaS platform"
+    description    = "This is the ctxpipe application deployed as our SaaS platform"
     private        = true
     has_pr_deploys = true
   }

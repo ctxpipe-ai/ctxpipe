@@ -39,7 +39,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         name: "viewport",
         content: "width=device-width, initial-scale=1",
       },
-      { title: "ctx | The Context Layer for AI Agents" },
+      { title: "ctxpipe | The Context Layer for AI Agents" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
