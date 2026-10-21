@@ -492,7 +492,11 @@ describe("sandbox host", () => {
         /iptables -C (.+?) 2>\/dev\/null \|\| iptables -I (.+?)'/g,
       ),
     ]
+    const rules = script
+      .split("\n")
+      .filter((l) => l.startsWith("ExecStartPost=") && l.includes("iptables"))
     expect(pairs.length).toBeGreaterThan(0)
+    expect(pairs.length).toBe(rules.length)
     for (const [, check, insert] of pairs) {
       // Insert may add a position number after the chain name.
       expect(insert?.replace(/^(\S+) \d+ /, "$1 ")).toBe(check)
@@ -551,6 +555,19 @@ describe("sandbox host", () => {
     expect(reject).toBeGreaterThan(-1)
     expect(proxy).toBeGreaterThan(reject)
     expect(replies).toBeGreaterThan(proxy)
+    // The proxy port is the only docker0 INPUT accept, and it sits above the
+    // INPUT reject (inserted later, so it is checked first).
+    const inputReject = script.indexOf("iptables -I INPUT -i docker0 -j REJECT")
+    const inputProxy = script.indexOf(
+      "iptables -I INPUT -i docker0 -p tcp --dport 14322 -j ACCEPT",
+    )
+    expect(inputProxy).toBeGreaterThan(inputReject)
+    const accepts = script
+      .split("\n")
+      .filter((l) => /-i docker0\b.*-j ACCEPT/.test(l))
+    expect(accepts.length).toBeGreaterThan(0)
+    for (const l of accepts)
+      expect(l).toContain("INPUT -i docker0 -p tcp --dport 14322 -j ACCEPT")
     expect(script.indexOf("ctxpipe-agent-vault")).toBeLessThan(
       script.indexOf("signal SUCCESS"),
     )
