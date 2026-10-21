@@ -47,7 +47,11 @@ export const ImagePreview: Story = {
     await waitFor(() =>
       expect(canvas.getByRole("button", { name: "Zoom to fit" })).toBeVisible(),
     )
-    await expect(image).toHaveClass("max-w-none")
+    await waitFor(() =>
+      expect(canvas.getByRole("img", { name: "logo.png" })).toHaveClass(
+        "max-w-none",
+      ),
+    )
   },
 }
 
