@@ -256,7 +256,7 @@ export const CheckAgainStillOpen: Story = {
       () =>
         expect(
           canvas.getAllByText(
-            /Last check at .*Pull request #42 is still open on GitHub\. ctx\| waits for the merge\./,
+            /Last check at .*Pull request #42 is still open on GitHub\. ctxpipe waits for the merge\./,
           ).length,
         ).toBeGreaterThan(0),
       { timeout: 10_000 },
@@ -297,7 +297,7 @@ export const CheckAgainFindsMerge: Story = {
     )
     expect(
       canvas.getAllByText(
-        /The pull request merged\. ctx\| is reading the new format\./,
+        /The pull request merged\. ctxpipe is reading the new format\./,
       ).length,
     ).toBeGreaterThan(0)
   },
