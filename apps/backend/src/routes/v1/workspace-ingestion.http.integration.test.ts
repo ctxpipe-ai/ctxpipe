@@ -104,7 +104,7 @@ function v2Input(orgId: string, destinations?: string[]) {
 }
 
 async function readWorkspace(slug: string): Promise<Item[]> {
-  const response = await withOrgDbContext(org.id, () =>
+  const response = await withOrgDbContext(org.id, async () =>
     workspaceHttpApp(org, workspaceIngestionRoutes).request(
       `/workspaces/${slug}/ingestion`,
     ),
@@ -369,7 +369,7 @@ describe("Active ingestion of a Workspace (Postgres)", () => {
   })
 
   it("gives the sidebar only the Workspaces of the org that have work", async () => {
-    const response = await withOrgDbContext(org.id, () =>
+    const response = await withOrgDbContext(org.id, async () =>
       workspaceHttpApp(org, orgWorkspaceIngestionRoutes).request("/workspaces"),
     )
     expect(response.status).toBe(200)
@@ -383,7 +383,7 @@ describe("Active ingestion of a Workspace (Postgres)", () => {
   })
 
   it("shows the other org only its own run", async () => {
-    const response = await withOrgDbContext(otherOrg.id, () =>
+    const response = await withOrgDbContext(otherOrg.id, async () =>
       workspaceHttpApp(otherOrg, workspaceIngestionRoutes).request(
         "/workspaces/busy/ingestion",
       ),

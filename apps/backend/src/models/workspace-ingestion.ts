@@ -23,10 +23,10 @@ export const INGESTION_STAGES = [
   "hydrating",
 ] as const
 
-export type IngestionStage = (typeof INGESTION_STAGES)[number]
+type IngestionStage = (typeof INGESTION_STAGES)[number]
 
 /** One unit of ingestion work that runs now for a Workspace (CTX-959). */
-export type ActiveIngestionItem = {
+type ActiveIngestionItem = {
   /** The workflow run. */
   id: string
   kind: "repository" | "source_sync" | "reingest" | "hydrate"

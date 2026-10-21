@@ -32,6 +32,7 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 import { orgPageDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import type { IngestionItem } from "./ingestion"
 import { WorkspaceSurface } from "./WorkspaceSurface"
 import {
   docsConversationDetail,
@@ -1877,7 +1878,7 @@ let demoStart = 0
  * then a repository run in its shards, a Linear sync, a second run that
  * waits for the first one and a slow hydrate, then idle again.
  */
-function ingestionDemoState(seconds: number) {
+function ingestionDemoState(seconds: number): Record<string, IngestionItem[]> {
   if (seconds < 4 || seconds >= 30) return {}
   const startedAt = (ago: number) =>
     new Date(demoStart + (4 - ago) * 1000).toISOString()

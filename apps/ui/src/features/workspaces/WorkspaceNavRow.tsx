@@ -15,12 +15,6 @@ import {
   sideNavLabelClassName,
   sideNavRowClassName,
 } from "@/components/SideNav/sideNavStyles"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/Tooltip"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { prefetchWorkspaceRouteData } from "./ensure-route-data"
 import { ingestingLabel, orgIngestionOptions } from "./ingestion"
@@ -300,31 +294,16 @@ export function WorkspaceNavRow(props: {
  */
 function IngestingDot(props: { label: string }) {
   return (
-    <TooltipProvider delay={200}>
-      <Tooltip>
-        <TooltipTrigger
-          nativeButton={false}
-          render={
-            <span
-              data-ingesting="true"
-              className="mr-1 flex size-4 shrink-0 items-center justify-center"
-            >
-              <span
-                aria-hidden
-                className="ctx-status-pulse size-1.5 rounded-full bg-teal-400"
-              />
-            </span>
-          }
+    <SideNavTooltip label={props.label} enabled>
+      <span
+        data-ingesting="true"
+        className="mr-1 flex size-4 shrink-0 items-center justify-center"
+      >
+        <span
+          aria-hidden
+          className="ctx-status-pulse size-1.5 rounded-full bg-teal-400"
         />
-        <TooltipContent
-          side="right"
-          sideOffset={6}
-          className="border-0 bg-zinc-800 text-zinc-100 shadow-md"
-          arrowClassName="bg-zinc-800 fill-zinc-800"
-        >
-          {props.label}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+      </span>
+    </SideNavTooltip>
   )
 }

@@ -13,12 +13,12 @@ type WorkspaceIngestionResponse = InferResponseType<
 export type IngestionItem = WorkspaceIngestionResponse["items"][number]
 
 /** The Workspaces of the org that ingest now, each with its items. */
-export type OrgIngestion = Array<{
+type OrgIngestion = Array<{
   workspaceSlug: string
   items: IngestionItem[]
 }>
 
-export const ingestionKeys = {
+const ingestionKeys = {
   org: (orgSlug: string) => ["workspace-ingestion", orgSlug] as const,
   workspace: (orgSlug: string, workspaceSlug: string) =>
     ["workspace-ingestion", orgSlug, workspaceSlug] as const,
@@ -28,7 +28,7 @@ export const ingestionKeys = {
  * The poll interval: fast while work runs, so the progress moves; slow when
  * the Workspace is idle, so a new run shows in a minute or less.
  */
-export function ingestionPollInterval(active: boolean, activeMs: number) {
+function ingestionPollInterval(active: boolean, activeMs: number) {
   return active ? activeMs : 60_000
 }
 
