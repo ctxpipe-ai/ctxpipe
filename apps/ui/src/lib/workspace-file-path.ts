@@ -59,3 +59,18 @@ export function workspaceFilePath(text: string): string | null {
   if (/^[A-Z][a-z]*\.js$/.test(name)) return null
   return path
 }
+
+/**
+ * Returns the Workspace file path for a link href that the chat agent wrote,
+ * or null. It removes a `file://` prefix, the sandbox repository root, a
+ * `#L12` or `#L12-L20` fragment, and a `:12` or `:12:5` suffix first.
+ */
+export function workspaceFilePathFromHref(href: string): string | null {
+  const cleaned = href
+    .trim()
+    .replace(/^file:\/\//i, "")
+    .replace(/#.*$/, "")
+    .replace(/(?::\d+){1,2}$/, "")
+    .replace(/^\/workspace\//, "")
+  return workspaceFilePath(cleaned)
+}

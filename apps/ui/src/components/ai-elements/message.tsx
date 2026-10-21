@@ -4,23 +4,20 @@ import { cjk } from "@streamdown/cjk"
 import { code } from "@streamdown/code"
 import { math } from "@streamdown/math"
 import { mermaid } from "@streamdown/mermaid"
+
 type ChatMessageRole = "system" | "user" | "assistant"
 
 import { IconExternalLink } from "@tabler/icons-react"
-import type {
-  ComponentProps,
-  HTMLAttributes,
-  ReactNode,
-} from "react"
-import {
-  memo,
-  useMemo,
-} from "react"
+import type { ComponentProps, HTMLAttributes, ReactNode } from "react"
+import { memo, useMemo } from "react"
 import { Button as AriaButton } from "react-aria-components"
 import { defaultRehypePlugins, Streamdown } from "streamdown"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
-import { workspaceFilePath } from "@/lib/workspace-file-path"
+import {
+  workspaceFilePath,
+  workspaceFilePathFromHref,
+} from "@/lib/workspace-file-path"
 
 type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: ChatMessageRole
@@ -119,8 +116,20 @@ function markAnswerLinks(options: { files: boolean }) {
           ]
           return node
         }
-        const path = options.files ? workspaceFilePath(href) : null
+        const path = options.files ? workspaceFilePathFromHref(href) : null
         if (path) return fileLinkNode(path, node.children ?? [])
+        if (options.files) {
+          // Harden would show "[blocked]" after a link it cannot keep, so
+          // keep only the content of a link that is not a file or http(s).
+          const content: HastNode = {
+            type: "element",
+            tagName: "span",
+            properties: {},
+            children: node.children ?? [],
+          }
+          visit(content)
+          return content
+        }
       }
       if (
         node.tagName === "code" &&
@@ -213,4 +222,3 @@ export const MessageResponse = memo(
 )
 
 MessageResponse.displayName = "MessageResponse"
-
