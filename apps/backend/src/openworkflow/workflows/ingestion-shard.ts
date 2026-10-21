@@ -56,7 +56,7 @@ import {
   listWorkspaceIngestStepFiles,
   pushWorkspaceIngestStep,
 } from "../../domain/workspaces/write-broker.js"
-import { withCrashLoopGuard } from "../crash-loop.js"
+import { WORKER_BOOT_ID, withCrashLoopGuard } from "../crash-loop.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import {
   cleanUpUnlessParked,
@@ -159,8 +159,12 @@ export type IngestionShardWorkspace = {
   stepFailures?: IngestStepFailures
 }
 
-/** The cause of the last failed attempt of a step: its time limit, a model error, or another cause. */
-type IngestStepFailureKind = "timeLimit" | "model" | "other"
+/**
+ * The cause of the last failed attempt of a step: its time limit, a model
+ * error, or another cause. `crashLoop`: the step stopped the worker again and
+ * again (for example, out of memory), so the step did not run again.
+ */
+type IngestStepFailureKind = "timeLimit" | "model" | "other" | "crashLoop"
 export type IngestStepFailures = Partial<Record<IngestStepFailureKind, number>>
 
 /** The sum of step failure counts; undefined when no step failed. */
@@ -301,12 +305,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
               const current = state.get(destination.workspaceId)
               if (!current) continue
               await runSkillPages({
-                step: (name, fn) =>
-                  step.run({ name, retryPolicy: { maximumAttempts: 1 } }, () =>
-                    withCrashLoopGuard(run.id, name, () =>
-                      withIngestionOrg(input.orgId, fn),
-                    ),
-                  ),
+                step: guardedSkillStep(step, run.id, input.orgId),
                 run: input,
                 broker: workspaceSkillBroker({
                   orgId: input.orgId,
@@ -458,6 +457,33 @@ export function workspaceSkillBroker(input: {
     sourcePathExists: (path) => source.exists(path),
     readSourceFile: (path) => source.read(path),
   }
+}
+
+/**
+ * The `step` of `runSkillPages`: one `step.run` with no OpenWorkflow retry,
+ * in the org of the run. A step that stopped the worker again and again
+ * (CTX-971) ends `partial` with the `crashLoop` cause and does not run
+ * again; the run goes on with the next step.
+ */
+export function guardedSkillStep(
+  step: {
+    run: <O>(
+      config: { name: string; retryPolicy: { maximumAttempts: number } },
+      fn: () => Promise<O>,
+    ) => Promise<O>
+  },
+  workflowRunId: string,
+  orgId: string,
+): SkillPages["step"] {
+  return (name, fn) =>
+    step.run({ name, retryPolicy: { maximumAttempts: 1 } }, () =>
+      withCrashLoopGuard(
+        workflowRunId,
+        name,
+        () => withIngestionOrg(orgId, fn),
+        (): StepResult => ({ partial: true, failed: "crashLoop" }),
+      ),
+    )
 }
 
 type SkillPages = {
@@ -616,6 +642,7 @@ async function attemptSkillStep(
       workspaceId: destination.workspaceId,
       ingestStep: ctx.name,
       attempt,
+      workerBootId: WORKER_BOOT_ID,
     })
     // Where the attempt is, for the log of a failed attempt.
     let stage: "find" | "list-files" | "runtime" | "push" = "find"
@@ -676,7 +703,7 @@ async function attemptSkillStep(
           workspaceId: destination.workspaceId,
           ingestStep: ctx.name,
           reason:
-            "The model step reported no usage: the spend of the run is unknown, and the recorded spend counts only the known part",
+            "The model step reported no usage, or the worker kept only a part of it: the spend of the run is unknown, and the recorded spend counts only the known part",
         })
       usage = addIngestUsage(usage, stepUsage)
       stage = "push"

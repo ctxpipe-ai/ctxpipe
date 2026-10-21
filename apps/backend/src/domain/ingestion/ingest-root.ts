@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto"
 import { PassThrough } from "node:stream"
 import type { ExecResult } from "@tanstack/ai-sandbox"
 import Docker from "dockerode"
+import {
+  OPENCODE_ERROR,
+  OPENCODE_STEP_FINISH,
+} from "./ingest-opencode-usage.js"
 
 /*
  * Root commands for an ingest sandbox. Only root prepares /ctxpipe and starts
@@ -19,7 +23,13 @@ import Docker from "dockerode"
 export type RootExec = (
   script: string,
   options?: { signal?: AbortSignal },
-) => Promise<ExecResult>
+) => Promise<RootResult>
+
+/**
+ * The result of a root command. `stdoutTruncated`: the command wrote more
+ * stdout than the worker keeps, so a part of it is not in `stdout`.
+ */
+export type RootResult = ExecResult & { stdoutTruncated?: boolean }
 
 /** The agent user on every provider. It is in no sudoers file. */
 export const INGEST_AGENT_USER = "ctxpipe-agent"
@@ -58,7 +68,7 @@ if [ -n "$(found)" ]; then echo "Agent processes are left: $(found)" >&2; exit 1
 const EXEC_GROUPS = "/run/ctxpipe-exec"
 
 /** Runs one command (no shell) as root in the sandbox. */
-type RootCommand = (cmd: string[]) => Promise<ExecResult>
+type RootCommand = (cmd: string[]) => Promise<RootResult>
 
 /**
  * A `RootExec` from a root command. With a `signal`, the script runs in its
@@ -172,31 +182,106 @@ export function vercelRootExec(sandbox: VercelCommandSandbox): RootExec {
   })
 }
 
-/** The stdout that a root command keeps: its first bytes, up to this cap. */
+/** The stdout that a root command keeps from its start, up to this cap. */
 export const ROOT_STDOUT_MAX_BYTES = 8 * 1024 * 1024
+/**
+ * After the start of stdout is full, the `step_finish` and `error` lines of
+ * `opencode run` that a root command still keeps, up to this cap. The usage
+ * and the errors of a model step come from these lines.
+ */
+export const ROOT_STDOUT_EVENT_MAX_BYTES = 4 * 1024 * 1024
+/** The longest event line that is kept after the start of stdout is full. */
+const EVENT_LINE_MAX_BYTES = 64 * 1024
 /** The stderr that a root command keeps: its last bytes, up to this cap. */
 export const ROOT_STDERR_MAX_BYTES = 64 * 1024
 
+const NEWLINE = 0x0a
+const EVENT_PREFIXES = [
+  Buffer.from(OPENCODE_STEP_FINISH),
+  Buffer.from(OPENCODE_ERROR),
+]
+
 /**
  * The output of one root command, with a cap on each stream, so that a
- * command that writes gigabytes cannot fill the worker heap. Stdout keeps
- * its start: the callers parse it, and a parse of a cut stdout fails or a
- * size check refuses it. Stderr keeps its end: the callers show the last
- * part of it in the error.
+ * command that writes gigabytes cannot fill the worker heap (CTX-971).
+ * Stdout keeps its start, in full lines, up to `ROOT_STDOUT_MAX_BYTES`: the
+ * callers parse it, and a parse of a cut stdout fails or a size check
+ * refuses it. After that, stdout keeps only the `step_finish` and `error`
+ * lines, up to `ROOT_STDOUT_EVENT_MAX_BYTES`, so that the usage of a long
+ * model step stays. `stdoutTruncated` is true when stdout lost a byte.
+ * Stderr keeps its end: the callers show the last part of it in the error.
  */
 function boundedRootOutput() {
   const out: Buffer[] = []
-  const err: Buffer[] = []
   let outBytes = 0
+  let eventBytes = 0
+  /** The start of stdout is full; only event lines are kept now. */
+  let headFull = false
+  let truncated = false
+  /** The parts of the current stdout line, before its newline. */
+  let line: Buffer[] = []
+  let lineBytes = 0
+  /** The current line is too long to keep; drop it up to its newline. */
+  let dropLine = false
+  const err: Buffer[] = []
   let errBytes = 0
+
+  const lineCap = () =>
+    headFull ? EVENT_LINE_MAX_BYTES : ROOT_STDOUT_MAX_BYTES - outBytes
+  const keepLine = (end: Buffer) => {
+    const whole = Buffer.concat([...line, end])
+    line = []
+    lineBytes = 0
+    if (!headFull && outBytes + whole.length <= ROOT_STDOUT_MAX_BYTES) {
+      out.push(whole)
+      outBytes += whole.length
+      return
+    }
+    headFull = true
+    truncated = true
+    if (
+      eventBytes + whole.length <= ROOT_STDOUT_EVENT_MAX_BYTES &&
+      EVENT_PREFIXES.some((prefix) =>
+        whole.subarray(0, prefix.length).equals(prefix),
+      )
+    ) {
+      out.push(whole)
+      eventBytes += whole.length
+    }
+  }
+  const addStdout = (chunk: Buffer) => {
+    let at = 0
+    while (at < chunk.length) {
+      const newline = chunk.indexOf(NEWLINE, at)
+      const end = newline === -1 ? chunk.length : newline + 1
+      const part = chunk.subarray(at, end)
+      at = end
+      if (!dropLine && lineBytes + part.length > lineCap()) {
+        // The line does not fit in the start of stdout: the start ends here.
+        // It can still be an event line; one longer than that cap is dropped.
+        headFull = true
+        truncated = true
+        if (lineBytes + part.length > lineCap()) {
+          dropLine = true
+          line = []
+          lineBytes = 0
+        }
+      }
+      if (dropLine) {
+        if (newline !== -1) dropLine = false
+        continue
+      }
+      if (newline === -1) {
+        line.push(Buffer.from(part))
+        lineBytes += part.length
+      } else keepLine(part)
+    }
+  }
   return {
     add(stream: "stdout" | "stderr", data: Buffer | string) {
       const chunk = typeof data === "string" ? Buffer.from(data) : data
       if (stream === "stdout") {
-        if (outBytes >= ROOT_STDOUT_MAX_BYTES) return
-        const kept = chunk.subarray(0, ROOT_STDOUT_MAX_BYTES - outBytes)
-        out.push(kept)
-        outBytes += kept.length
+        addStdout(chunk)
         return
       }
       err.push(chunk)
@@ -207,13 +292,16 @@ function boundedRootOutput() {
       )
         errBytes -= err.shift()?.length ?? 0
     },
-    result(): { stdout: string; stderr: string } {
+    result(): { stdout: string; stderr: string; stdoutTruncated?: true } {
+      // The last line has no newline.
+      if (lineBytes > 0) keepLine(Buffer.alloc(0))
       const stderr = Buffer.concat(err)
       return {
         stdout: Buffer.concat(out).toString("utf8"),
         stderr: stderr
           .subarray(Math.max(0, stderr.length - ROOT_STDERR_MAX_BYTES))
           .toString("utf8"),
+        ...(truncated ? { stdoutTruncated: true as const } : {}),
       }
     },
   }

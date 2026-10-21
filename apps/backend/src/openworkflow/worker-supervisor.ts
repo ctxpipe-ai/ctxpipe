@@ -117,7 +117,10 @@ function startOpenworkflowWorker(backendRoot: string): ChildProcess {
   })
 }
 
-/** One JSON line for each worker exit: a restart alert counts these. */
+/**
+ * One JSON line for each worker exit. (The restart saved search counts the
+ * `openworkflow.config-loaded` lines of each worker start, not these.)
+ */
 function logWorkerExit(code: number | null, signal: NodeJS.Signals | null) {
   process.stderr.write(
     `${JSON.stringify({
@@ -131,17 +134,37 @@ function logWorkerExit(code: number | null, signal: NodeJS.Signals | null) {
   )
 }
 
+/**
+ * This process is PID 1 of the container (`exec node`). Send a SIGTERM or a
+ * SIGINT on to the worker, so that it stops its OpenWorkflow worker and
+ * flushes its logs and traces. `Worker.stop()` waits for each active run
+ * with no limit, so after 20 seconds the worker gets SIGKILL. Returns true
+ * after a signal came.
+ */
+function forwardStopSignals(child: ChildProcess): () => boolean {
+  let stopping = false
+  for (const signal of ["SIGTERM", "SIGINT"] as const)
+    process.on(signal, () => {
+      if (stopping) return
+      stopping = true
+      child.kill(signal)
+      setTimeout(() => child.kill("SIGKILL"), 20_000).unref()
+    })
+  return () => stopping
+}
+
 async function main() {
   const databaseUrl = requiredEnv("DATABASE_URL")
   const backendRoot = process.cwd()
 
   if (!shouldIdleExitOnEmptyQueue()) {
     const child = startOpenworkflowWorker(backendRoot)
+    const stopping = forwardStopSignals(child)
     await new Promise<void>((resolvePromise, reject) => {
       child.on("error", reject)
       child.on("exit", (code, signal) => {
         logWorkerExit(code, signal)
-        if (code === 0 || signal === "SIGTERM") resolvePromise()
+        if (stopping() || code === 0 || signal === "SIGTERM") resolvePromise()
         else reject(new Error(`worker exited with ${code} ${signal ?? ""}`))
       })
     })
@@ -151,6 +174,7 @@ async function main() {
   const sql = postgres(databaseUrl, { max: 1 })
 
   const child = startOpenworkflowWorker(backendRoot)
+  const stopping = forwardStopSignals(child)
 
   let consecutiveIdlePolls = 0
   const pollsNeeded = Math.ceil((idleExitSeconds * 1000) / pollMs)
@@ -188,6 +212,7 @@ async function main() {
       void sql.end({ timeout: 5 }).catch(() => {})
       if (
         intentionalShutdown ||
+        stopping() ||
         code === 0 ||
         signal === "SIGTERM" ||
         code === 143
