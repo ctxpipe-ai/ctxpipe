@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { GitFileChange } from "./file-change.js"
 import {
   type GitPack,
@@ -166,4 +169,54 @@ export async function resolveGitMergeTree(
     files.filter((file) => file.content === null).map((file) => file.path),
   )
   return { ...staged, pack: { ...staged.pack, sha: parent } }
+}
+
+/**
+ * Keep both versions of a conflicting file when no resolution is available
+ * (CTX-958). Git marks each overlapping hunk with conflict markers and merges
+ * the other lines, so a person or an agent can finish the merge later. When
+ * one side deleted the file, the merge keeps the side that changed it, so no
+ * change is lost.
+ */
+export async function markGitConflict(
+  conflict: GitMergeConflict,
+): Promise<string | null> {
+  if (conflict.current === null || conflict.incoming === null)
+    return conflict.current ?? conflict.incoming
+  const directory = await mkdtemp(join(tmpdir(), "ctxpipe-merge-file-"))
+  try {
+    await writeFile(join(directory, "current"), conflict.current)
+    await writeFile(join(directory, "base"), conflict.base ?? "")
+    await writeFile(join(directory, "incoming"), conflict.incoming)
+    const merged = await nativeGit(directory, [
+      "merge-file",
+      "-p",
+      "-L",
+      "default branch",
+      "-L",
+      "base",
+      "-L",
+      "ctxpipe write (the merge model gave no answer; keep the correct lines and remove these markers)",
+      "current",
+      "base",
+      "incoming",
+    ]).catch((error: unknown) => {
+      // `git merge-file` exits with the count of conflicts (1 to 127) and
+      // prints the marked file.
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        typeof error.code === "number" &&
+        error.code > 0 &&
+        error.code < 128 &&
+        "stdout" in error &&
+        Buffer.isBuffer(error.stdout)
+      )
+        return error.stdout
+      throw error
+    })
+    return merged.toString("utf8")
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 }

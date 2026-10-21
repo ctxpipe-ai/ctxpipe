@@ -311,6 +311,128 @@ it("fails the merge with the cause after a bounded count of slips", async () => 
   expect(calls).toBe(3)
 })
 
+// CTX-958: a merge model that reaches the time limit must not lose the write.
+const slow = http.post(
+  "https://semantic-merge.test/v1/chat/completions",
+  async () => {
+    calls += 1
+    await new Promise((resolve) => setTimeout(resolve, 2_000))
+    return HttpResponse.json(
+      { error: { message: "too late" } },
+      { status: 500 },
+    )
+  },
+)
+
+it("asks again after the time limit, then keeps both versions in conflict markers", async () => {
+  server.use(slow)
+  await expect(
+    resolveSemanticConflicts(ingestConflicts, {
+      origin: "extraction",
+      flagUnresolved: true,
+      deadlineMs: 100,
+    }),
+  ).resolves.toEqual([
+    {
+      path: "knowledge/services/checkout.md",
+      content: `${HUMAN}\n<<<<<<< default branch\nCurrent.\n=======\nIncoming.\n>>>>>>> ctxpipe write (the merge model gave no answer; keep the correct lines and remove these markers)\n`,
+    },
+  ])
+  expect(calls).toBe(3)
+}, 30_000)
+
+it("fails with the time limit as the cause when the caller does not flag", async () => {
+  server.use(slow)
+  await expect(
+    resolveSemanticConflicts(ingestConflicts, {
+      origin: "extraction",
+      deadlineMs: 100,
+    }),
+  ).rejects.toThrow("The merge model did not answer in 0.1 s (3 attempts)")
+}, 30_000)
+
+it("asks for one file per call and flags only the file the model cannot resolve", async () => {
+  const other = {
+    path: "knowledge/services/payments.md",
+    base: HUMAN,
+    current: `${HUMAN}\nA.\n`,
+    incoming: `${HUMAN}\nB.\n`,
+  }
+  server.use(
+    http.post(
+      "https://semantic-merge.test/v1/chat/completions",
+      async ({ request }) => {
+        calls += 1
+        const body = (await request.json()) as {
+          messages: Array<{ role: string; content: string }>
+        }
+        const asked = JSON.parse(
+          body.messages.find((message) => message.role === "user")?.content ??
+            "[]",
+        ) as Array<{ path: string }>
+        expect(asked).toHaveLength(1)
+        const files =
+          asked[0]?.path === other.path
+            ? [{ path: other.path, content: `${HUMAN}\nA.\nB.\n` }]
+            : []
+        return HttpResponse.json({
+          id: "merge",
+          object: "chat.completion",
+          created: 1,
+          model: "fixture",
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: "assistant",
+                content: null,
+                tool_calls: [
+                  {
+                    id: "call_1",
+                    type: "function",
+                    function: {
+                      name: "workspace_semantic_merge",
+                      arguments: JSON.stringify({ files }),
+                    },
+                  },
+                ],
+              },
+              finish_reason: "tool_calls",
+            },
+          ],
+        })
+      },
+    ),
+  )
+  const resolved = await resolveSemanticConflicts([...ingestConflicts, other], {
+    origin: "extraction",
+    flagUnresolved: true,
+  })
+  expect(resolved[0]?.content).toContain("<<<<<<< default branch")
+  expect(resolved[1]).toEqual({
+    path: other.path,
+    content: `${HUMAN}\nA.\nB.\n`,
+  })
+  expect(calls).toBe(4)
+}, 30_000)
+
+it("does not flag an agent write whose incoming side adds ownership fields", async () => {
+  server.use(slipThen(Number.POSITIVE_INFINITY))
+  await expect(
+    resolveSemanticConflicts(
+      [
+        {
+          path: "knowledge/services/checkout.md",
+          base: HUMAN,
+          current: `${HUMAN}\nCurrent.\n`,
+          incoming: GENERATED,
+        },
+      ],
+      { origin: "agent", flagUnresolved: true },
+    ),
+  ).rejects.toThrow(/ownership/)
+}, 30_000)
+
 // CTX-721: each file under sources/ is one source. Only the host writes it
 // without a pull request.
 it("lets a host write change sources/ and refuses an agent or extraction write", () => {
