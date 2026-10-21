@@ -345,9 +345,11 @@ it("marks the attempt of a stopped worker failed, so three deploys in a step do 
 
 /** The stop flag of `crash-loop.ts`. The tests set it back after a stop. */
 function workerStopState() {
-  return (globalThis as unknown as Record<symbol, { stopping: boolean }>)[
-    Symbol.for("ctxpipe.openworkflow.worker-stop-state")
-  ]
+  const state = (
+    globalThis as unknown as Record<symbol, { stopping: boolean } | undefined>
+  )[Symbol.for("ctxpipe.openworkflow.worker-stop-state")]
+  if (!state) throw new Error("crash-loop.ts keeps no stop state")
+  return state
 }
 
 async function runState(runId: string, step: string) {
