@@ -213,7 +213,12 @@ const deleteCheckoutsRoute = createRoute({
       description:
         "Clones, SCIP files, and Zoekt shards of the listed checkouts removed. The caller deletes the checkout rows of `deleted`.",
     },
-    403: { description: "Access denied" },
+    403: {
+      content: {
+        "application/json": { schema: z.object({ error: z.string() }) },
+      },
+      description: "The token is not a collection token for this repository",
+    },
     404: repositoryNotFoundResponse,
     409: {
       content: {
@@ -222,7 +227,12 @@ const deleteCheckoutsRoute = createRoute({
       description:
         "An index job of the repository runs now. Nothing was deleted; try again later.",
     },
-    503: { description: "Database not available" },
+    503: {
+      content: {
+        "application/json": { schema: z.object({ error: z.string() }) },
+      },
+      description: "Database not available",
+    },
   },
 })
 
