@@ -28,8 +28,7 @@ import { registerUiRoutes } from "../routes/ui.js"
 import { registerV1Routes } from "../routes/v1/index.js"
 import { registerWebhookRoutes } from "../routes/webhooks.js"
 import type { AppEnv } from "./env.js"
-
-
+import { wwwRedirect } from "./www-redirect.js"
 
 /**
  * Paths that must not resolve Better Auth sessions (static UI + auth/webhook).
@@ -72,6 +71,9 @@ export function createApp() {
 
   // First: a sandbox-forwarded request must not reach any other route.
   app.use("*", sandboxEgressGuard())
+
+  // Hosted only: www.app.ctxpipe.ai redirects before auth and routing.
+  app.use("*", wwwRedirect())
 
   const corsOrigins = (env.AUTH_ALLOWED_ORIGINS ?? "")
     .split(",")

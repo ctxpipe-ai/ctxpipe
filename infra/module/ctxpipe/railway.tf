@@ -293,6 +293,12 @@ resource "railway_custom_domain" "app" {
   service_id     = railway_service.backend.id
 }
 
+resource "railway_custom_domain" "www_app" {
+  domain         = "www.app.ctxpipe.ai"
+  environment_id = railway_project.this.default_environment.id
+  service_id     = railway_service.backend.id
+}
+
 resource "railway_variable_collection" "backend_env" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.backend.id
