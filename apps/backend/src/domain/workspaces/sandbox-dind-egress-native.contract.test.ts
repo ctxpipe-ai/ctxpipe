@@ -62,15 +62,23 @@ it(
             }
             await new Promise((resolve) => setTimeout(resolve, 1_000))
           }
-          // DinD itself pulls images; only its sandbox bridges are limited.
-          await docker(
-            "exec",
-            name,
-            "docker",
-            "pull",
-            "-q",
-            "curlimages/curl:8.17.0",
-          )
+          // DinD has its own image store. Load the image from the runner's
+          // daemon (the CI job pulls it with retries) so a Docker Hub token
+          // timeout inside DinD cannot fail the test.
+          const curlImage = "curlimages/curl:8.17.0"
+          try {
+            await exec("docker", ["image", "inspect", curlImage]).catch(() =>
+              exec("docker", ["pull", "-q", curlImage]),
+            )
+            await exec("sh", [
+              "-c",
+              `docker save ${curlImage} | docker exec -i ${name} docker load`,
+            ])
+          } catch (error) {
+            throw new Error(
+              `Docker Hub (docker.io) did not serve ${curlImage}: ${error instanceof Error ? error.message : error}`,
+            )
+          }
           // Compose builds the chat image inside DinD. A build step on a
           // sandbox bridge is blocked; on the DinD host network it downloads.
           const build = (network: string) =>

@@ -163,7 +163,7 @@ jobs:
       - name: Required test container images
         if: matrix.lane == 'contracts'
         run: |
-          for image in infisical/agent-vault:latest alpine:3.22 node:22; do
+          for image in infisical/agent-vault:latest alpine:3.22 node:22 curlimages/curl:8.17.0; do
             n=0
             until docker pull --quiet "$image"; do
               n=$((n + 1))
