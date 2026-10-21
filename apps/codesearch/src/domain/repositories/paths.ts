@@ -171,7 +171,23 @@ export async function readContainedFile(
     if (maxBytes !== undefined && stats.size > maxBytes) {
       return { size: stats.size, tooLarge: true }
     }
-    return await handle.readFile()
+    if (maxBytes === undefined) return await handle.readFile()
+    // The file can grow after the stat. Read one byte past the limit, from the
+    // same descriptor, into a fixed buffer.
+    const buffer = Buffer.alloc(maxBytes + 1)
+    let length = 0
+    while (length < buffer.length) {
+      const { bytesRead } = await handle.read(
+        buffer,
+        length,
+        buffer.length - length,
+        length,
+      )
+      if (bytesRead === 0) break
+      length += bytesRead
+    }
+    if (length > maxBytes) return { size: length, tooLarge: true }
+    return buffer.subarray(0, length)
   } finally {
     await handle.close()
   }

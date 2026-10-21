@@ -249,7 +249,7 @@ export async function readConversationSandboxFileBytes(
       "size=$((size))",
       "echo $size",
       `[ "$size" -gt ${maxBytes} ] && exit 3`,
-      `head -c ${maxBytes + 1} "$CTXPIPE_FILE_PATH" | base64`,
+      `head -c ${maxBytes + 1} -- "$CTXPIPE_FILE_PATH" | base64`,
     ].join("\n"),
     { env: { CTXPIPE_FILE_PATH: path } },
   )

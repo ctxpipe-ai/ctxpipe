@@ -336,7 +336,7 @@ const getRawRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description:
-        "Chat sandbox missing, a turn is running (`turn_running`), or the file changed during the read (`file_changed`)",
+        "Chat sandbox missing, a turn is running (`turn_running`), the chat sandbox starts (`chat_starting`), or the file changed during the read (`file_changed`)",
     },
     413: {
       content: { "application/json": { schema: ErrorResponseSchema } },

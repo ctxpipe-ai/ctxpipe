@@ -609,6 +609,24 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
     )
   })
 
+  it("reads the bytes of a top-level file whose name starts with a dash", async () => {
+    await withWorktree(
+      (directory) => {
+        writeFileSync(join(directory, "-x"), "dash bytes\n")
+      },
+      async ({ handle }) => {
+        const result = await readConversationSandboxFileBytes(
+          handle,
+          "-x",
+          1024,
+        )
+        expect(
+          result.kind === "bytes" && Buffer.from(result.bytes).toString(),
+        ).toBe("dash bytes\n")
+      },
+    )
+  })
+
   it("refuses a read when the file changes between the size check and the read", async () => {
     await withWorktree(
       (directory) => writeFileSync(join(directory, "logo.png"), "png"),

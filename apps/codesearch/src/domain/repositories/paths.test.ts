@@ -1,6 +1,8 @@
+import type { Stats } from "node:fs"
 import {
   mkdir,
   mkdtemp,
+  open,
   realpath,
   rm,
   symlink,
@@ -8,7 +10,7 @@ import {
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   readContainedDirectory,
   readContainedFile,
@@ -101,6 +103,34 @@ describe("paths inside the checkout", () => {
       (await readContainedFile(checkout, "in-dir/inner.txt")).toString(),
     ).toBe("inside\n")
     await expect(readContainedFile(checkout, "sub")).rejects.toThrow()
+  })
+
+  it("stops at the limit when a file grows after the stat", async () => {
+    await writeFile(join(checkout, "grow.bin"), Buffer.alloc(100, 1))
+    const probe = await open(join(checkout, "grow.bin"))
+    const proto = Object.getPrototypeOf(probe) as {
+      stat: () => Promise<Stats>
+    }
+    await probe.close()
+    const realStat = proto.stat
+    const spy = vi.spyOn(proto, "stat").mockImplementation(async function (
+      this: unknown,
+    ) {
+      const stats = await realStat.call(this)
+      stats.size = 10
+      return stats
+    })
+    try {
+      expect(await readContainedFile(checkout, "grow.bin", "", 10)).toEqual({
+        size: 11,
+        tooLarge: true,
+      })
+    } finally {
+      spy.mockRestore()
+    }
+    expect(
+      await readContainedFile(checkout, "grow.bin", "", 100),
+    ).toHaveProperty("length", 100)
   })
 
   // The tree never lists .git, and .git/config can hold a clone token.
