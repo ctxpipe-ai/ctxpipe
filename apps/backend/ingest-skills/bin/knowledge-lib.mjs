@@ -268,10 +268,9 @@ function claimYaml(claim, indent) {
 }
 
 /**
- * Text of a new file. `heading` replaces the name as the first heading,
+ * Text of a new file. `heading` replaces the name as the first heading, and
  * `fields` are more front matter scalars after the summary ([key, value]
- * pairs), and `sections` is Markdown between the intro and the Related
- * section.
+ * pairs). `intro` is the Markdown before the Related section.
  */
 function newFile({
   kind,
@@ -280,7 +279,6 @@ function newFile({
   summary,
   intro,
   fields = [],
-  sections = "",
   claims,
   related,
 }) {
@@ -288,8 +286,7 @@ function newFile({
   for (const [key, value] of fields) yaml.push(`${key}: ${q(value)}`)
   if (claims.length) yaml.push("claims:", ...claims.map((c) => claimYaml(c, 2)))
   const lines = related.slice(0, MAX_RELATED_LINES)
-  const middle = sections ? `${sections.trim()}\n\n` : ""
-  return `---\n${yaml.join("\n")}\n---\n\n# ${heading}\n\n${intro}\n\n${middle}## Related\n\n${lines.join("\n")}\n`
+  return `---\n${yaml.join("\n")}\n---\n\n# ${heading}\n\n${intro}\n\n## Related\n\n${lines.join("\n")}\n`
 }
 
 /** The body of a file after its front matter, or null. */
@@ -638,7 +635,7 @@ function mergeFile(text, { claims, related }) {
 /**
  * Write the planned files to the staged tree and write patch.json. A plan is
  * { path, create, claims, related, expectName?, exactName?, replace? }.
- * `create` is { kind, name, heading?, summary, intro, fields?, sections? } for a new
+ * `create` is { kind, name, heading?, summary, intro, fields? } for a new
  * file, or null when the script only adds to an existing file. When
  * `expectName` is set, an existing file at the path must have that name;
  * letters and digits only, unless `exactName` is set (then the same text, in

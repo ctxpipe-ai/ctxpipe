@@ -204,8 +204,8 @@ for (const file of files.slice(0, MAX_WORKFLOWS)) {
       ? `## ${title}\n\n${items
           .slice(0, MAX_LISTED)
           .map((i) => `- \`${i}\``)
-          .join("\n")}\n\n`
-      : ""
+          .join("\n")}`
+      : null
   plans.push({
     path,
     claims,
@@ -216,9 +216,14 @@ for (const file of files.slice(0, MAX_WORKFLOWS)) {
       name,
       heading,
       summary,
-      intro: `A script wrote this file from the GitHub Actions workflow \`${file}\` of \`${repository}\`. It holds the triggers, the job ids, and the code roots that the workflow names. It does not copy the steps of the workflow.`,
+      intro: [
+        `A script wrote this file from the GitHub Actions workflow \`${file}\` of \`${repository}\`. It holds the triggers, the job ids, and the code roots that the workflow names. It does not copy the steps of the workflow.`,
+        section("Triggers", triggers),
+        section("Jobs", jobs),
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
       fields: [["workflow_file", file]],
-      sections: `${section("Triggers", triggers)}${section("Jobs", jobs)}`,
     },
   })
 }
