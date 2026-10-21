@@ -1039,7 +1039,7 @@ it(
         expect(created.title).toBe("Add notes")
         expect(created.body).toMatch(
           new RegExp(
-            `^- Add note one\\n- Add note two\\n\\n\\[Open the conversation in ctx\\|\\]\\(https?://[^)]+/ws/[^)]+/${s.conversationId}\\)$`,
+            `^- Add note one\\n- Add note two\\n\\n\\[Open the conversation in ctxpipe\\]\\(https?://[^)]+/ws/[^)]+/${s.conversationId}\\)$`,
           ),
         )
         // The pull request opens even when GitHub cannot compare the branch.
