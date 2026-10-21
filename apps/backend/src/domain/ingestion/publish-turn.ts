@@ -1,6 +1,5 @@
 import { trace } from "@opentelemetry/api"
 import { sql } from "drizzle-orm"
-import type { StepApi } from "openworkflow"
 import { getSystemDb } from "../../db/client.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "./ingestion-run.js"
@@ -66,7 +65,11 @@ export const PUBLISH_TURN_WAIT_MS = 60 * 60_000
  * not a time limit.
  */
 export async function waitForPublishTurn(options: {
-  step: Pick<StepApi, "run" | "sleep">
+  /** The `step` of the workflow; openworkflow does not export its type. */
+  step: {
+    run<T>(config: { name: string }, fn: () => Promise<T>): Promise<T>
+    sleep(name: string, duration: "60 seconds"): Promise<void>
+  }
   startedAt: Date
   check: () => Promise<{ turn: true } | { wait: string }>
   now?: () => number
