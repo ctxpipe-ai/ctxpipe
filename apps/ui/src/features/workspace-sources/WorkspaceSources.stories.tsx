@@ -1201,7 +1201,7 @@ export const RefusedRepositoryFile: Story = {
     // The repository file shows its error, but a remove cannot name it.
     await waitFor(() =>
       expect(
-        canvas.getByText(/repositories\/tools\.md: ctx\| links only GitHub/),
+        canvas.getByText(/repositories\/tools\.md: ctxpipe links only GitHub/),
       ).toBeVisible(),
     )
     await expect(
@@ -2269,7 +2269,7 @@ export const StatusExplainsItself: Story = {
     await waitFor(() => {
       expect(list.getByText("Pending")).toHaveFocus()
       expect(tip()).toHaveTextContent(
-        /^ctx\| has not read this repository yet\.$/,
+        /^ctxpipe has not read this repository yet\.$/,
       )
     })
     // A screen reader gets the same text with the status.

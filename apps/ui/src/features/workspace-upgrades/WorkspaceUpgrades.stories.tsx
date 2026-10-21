@@ -329,7 +329,7 @@ export const WaitingForMerge: Story = {
     await waitFor(() =>
       expect(
         canvas.getByText(
-          /ctx\| waits for you to merge pull request #42 on GitHub\. After the merge, ctx\| reads the new format/,
+          /ctxpipe waits for you to merge pull request #42 on GitHub\. After the merge, ctxpipe reads the new format/,
         ),
       ).toBeVisible(),
     )
@@ -901,7 +901,7 @@ export const ReingestChecksNewFormat: Story = {
     await waitFor(async () =>
       expect(await canvas.findByText("Checking the new format")).toBeVisible(),
     )
-    expect(canvas.getByText(/ctx\| is checking the new format/)).toBeVisible()
+    expect(canvas.getByText(/ctxpipe is checking the new format/)).toBeVisible()
     expect(canvas.getByText(/It is up to date\./)).toBeVisible()
     expect(canvas.queryByText("Apply the format upgrade first")).toBeNull()
     expect(canvas.queryByText(/Merge the format upgrade/)).toBeNull()

@@ -91,7 +91,7 @@ the reason. Select the path to open the file in **Files**.
 | Reason | Cause | Fix |
 | --- | --- | --- |
 | Front matter is not valid | The front matter has no closing `---` line, or its YAML is not valid. | Correct the front matter. |
-| Repeats a linked repository or the Workspace's own repository | Only in results of an earlier version: a `repositories/*.md` file linked a repository that was already linked. ctx\| no longer reads these files. | None. |
+| Repeats a linked repository or the Workspace's own repository | Only in results of an earlier version: a `repositories/*.md` file linked a repository that was already linked. ctxpipe no longer reads these files. | None. |
 
 Push the fix to the default branch. When ctxpipe hydrates the new commit, it
 reads the fixed file again:

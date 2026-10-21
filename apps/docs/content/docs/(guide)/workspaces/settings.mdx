@@ -8,7 +8,7 @@ top and these groups:
 
 | Part | What it holds |
 | --- | --- |
-| Write access tag | Whether ctx\| can save changes. See [Write access](#write-access). |
+| Write access tag | Whether ctxpipe can save changes. See [Write access](#write-access). |
 | Hydrate tag | The state of the last read of the repository. See [Hydrate and skipped files](#hydrate-and-skipped-files). |
 | **General** | **Name** and **URL name**. |
 | **Repositories** | The **Context repository** and the **Root folder**. |
@@ -50,9 +50,9 @@ the [hydrate status](#hydrate-and-skipped-files).
 | --- | --- |
 | **Can save changes** | The GitHub App can push to the repository. |
 | **Changes by pull request** | The default branch is protected. A conversation pushes its own branch and opens a pull request. Source changes use pull requests too. This is a normal state, not a fault. |
-| **Checking write access** | ctx\| is checking whether the GitHub App can push. The pane checks again by itself. |
+| **Checking write access** | ctxpipe is checking whether the GitHub App can push. The pane checks again by itself. |
 | **Could not check write access** | GitHub returned an error or a rate limit. Choose **Check again**. |
-| **Read-only** | ctx\| cannot write. Search, chat, and the graph keep working on the latest commit. The pane shows the reason. |
+| **Read-only** | ctxpipe cannot write. Search, chat, and the graph keep working on the latest commit. The pane shows the reason. |
 
 If the check takes longer than usual, the pane shows **Still checking write
 access** with the text "The check takes longer than usual." and **Check again**.
@@ -65,8 +65,8 @@ A **Read-only** Workspace shows an alert with one of these reasons:
 | "GitHub is not connected for this organization. An owner or admin must install the GitHub App and add this repository to the installation." | Connect GitHub on **Connectors**. Then choose **Select the repository again** in the alert. |
 | "This repository is not in the GitHub App installation. An installation owner or admin must add it, then refresh." | Add the repository to the installation in GitHub. |
 | "The GitHub App cannot write to this repository. Grant Contents: write so ctxpipe can push a conversation branch." | Grant **Contents: Read and write** to the GitHub App. |
-| "This Workspace needs a newer ctx\| version. ctx\| can read it, but it cannot write to it until you upgrade ctx\|." | The repository format is newer than this ctx\| version. Upgrade ctx\|. See [Repository format](#repository-format). |
-| "The file .ctxpipe/workspace.yaml is not valid. ctx\| can read this Workspace, but it cannot write to it until the file is repaired." | Repair the format file in the repository. |
+| "This Workspace needs a newer ctxpipe version. ctxpipe can read it, but it cannot write to it until you upgrade ctxpipe." | The repository format is newer than this ctxpipe version. Upgrade ctxpipe. See [Repository format](#repository-format). |
+| "The file .ctxpipe/workspace.yaml is not valid. ctxpipe can read this Workspace, but it cannot write to it until the file is repaired." | Repair the format file in the repository. |
 
 For a **Read-only** reason, the alert adds: "After you fix it, reload this page.
 ctxpipe checks again at most once a minute." The button **Check again** shows
@@ -81,10 +81,10 @@ the pane shows its status:
 
 | Tag | Meaning |
 | --- | --- |
-| **Ready** | ctx\| read the latest commit. |
-| **Hydrate pending** | ctx\| did not start yet. |
-| **Hydrating** | ctx\| is reading a commit. The previous index keeps serving. |
-| **Loading failed** | ctx\| could not read the repository. |
+| **Ready** | ctxpipe read the latest commit. |
+| **Hydrate pending** | ctxpipe did not start yet. |
+| **Hydrating** | ctxpipe is reading a commit. The previous index keeps serving. |
+| **Loading failed** | ctxpipe could not read the repository. |
 
 Before the first hydrate ends, the Workspace page shows **Preparing** and the
 name of the Workspace, with the steps **Fetching repository** and **Reading
@@ -245,10 +245,10 @@ Each row has one status. The reason shows under the row.
 
 | Status | Meaning |
 | --- | --- |
-| **OK** | ctx\| read the file, and the connection and the scope work. The source syncs. |
+| **OK** | ctxpipe read the file, and the connection and the scope work. The source syncs. |
 | **Not valid** | The file does not parse, has a wrong shape, or breaks a rule. The sync skips it. The reason names the problem. |
 | **Connection missing** | The connection of the source was removed. The file stays. |
-| **Out of access** | The connection cannot reach the scope, for example a GitHub repository that is not in the GitHub App installation. Add the repository to the installation. ctx\| checks again later. |
+| **Out of access** | The connection cannot reach the scope, for example a GitHub repository that is not in the GitHub App installation. Add the repository to the installation. ctxpipe checks again later. |
 
 A file under `sources/` that has an unknown provider or a path that breaks the
 rules shows in the group **Files not valid**. The reason names the problem. A row
@@ -298,10 +298,10 @@ format that ctxpipe reads:
 | Health line | Meaning |
 | --- | --- |
 | "The repository uses format N. It is up to date." | The repository has the newest format. |
-| "The repository uses format N. ctx\| reads format M." | An upgrade is available. |
-| "The repository uses format N. ctx\| reads format M. This Workspace needs a newer ctx\| version." | The repository is newer than ctx\|. The Workspace is **Read-only**. |
+| "The repository uses format N. ctxpipe reads format M." | An upgrade is available. |
+| "The repository uses format N. ctxpipe reads format M. This Workspace needs a newer ctxpipe version." | The repository is newer than ctxpipe. The Workspace is **Read-only**. |
 | "The format file in the repository is not valid." | Repair `.ctxpipe/workspace.yaml`. The Workspace is **Read-only**. |
-| "ctx\| has not read the repository format." | The first hydrate did not finish. |
+| "ctxpipe has not read the repository format." | The first hydrate did not finish. |
 
 When nothing is pending, the group says "No upgrades are pending." Items that are
 done show under **History**. The Home page shows one alert for each Workspace
@@ -322,13 +322,13 @@ Each item shows one status:
 
 | Status | Meaning | What to do |
 | --- | --- | --- |
-| **Ready to start** | ctx\| found the upgrade. It waits for a start. | An owner or admin chooses **Start**. A member sees **Ask an admin**. |
+| **Ready to start** | ctxpipe found the upgrade. It waits for a start. | An owner or admin chooses **Start**. A member sees **Ask an admin**. |
 | **Queued** | The start is recorded. The run did not begin. | Wait. |
 | **Preparing the pull request** | The run builds the commits. | Wait. |
 | **Waiting for merge** | The pull request is open. | Review and merge it. If the card does not change after a few minutes, an owner or admin chooses **Check again**. |
 | **Applied** | The upgrade is done. | None. |
 | **Failed** | The run stopped. The card shows "The upgrade failed" and the reason. | Fix the cause, then an owner or admin chooses **Start again**. |
-| **Blocked** | ctx\| cannot start the item. The card shows a title and a reason. | Remove the cause. See [Blocked items](#blocked-items). |
+| **Blocked** | ctxpipe cannot start the item. The card shows a title and a reason. | Remove the cause. See [Blocked items](#blocked-items). |
 
 Nothing starts by itself. This is true for hosted and for self-hosted
 deployments.
@@ -373,11 +373,11 @@ A blocked card shows a title and a reason. The title tells the cause:
 
 | Title | Item | Cause |
 | --- | --- | --- |
-| "ctx\| cannot open the upgrade pull request" | Format upgrade | ctx\| has no write access through the GitHub App. See [Write access](#write-access). |
-| "ctx\| cannot publish the re-ingestion" | Re-ingestion | ctx\| has no write access through the GitHub App. See [Write access](#write-access). |
+| "ctxpipe cannot open the upgrade pull request" | Format upgrade | ctxpipe has no write access through the GitHub App. See [Write access](#write-access). |
+| "ctxpipe cannot publish the re-ingestion" | Re-ingestion | ctxpipe has no write access through the GitHub App. See [Write access](#write-access). |
 | "Apply the format upgrade first" | Re-ingestion | The repository is below format 3. Merge the format upgrade. An owner or admin chooses **Check again** on the card. |
 | "This deployment cannot run the re-ingestion" | Re-ingestion | The deployment has no ingest sandbox. The operator must configure one. |
-| "The re-ingestion cannot run here yet" | Re-ingestion | ctx\| has not read a valid format file of this Workspace. |
+| "The re-ingestion cannot run here yet" | Re-ingestion | ctxpipe has not read a valid format file of this Workspace. |
 
 ### Repository format
 

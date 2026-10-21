@@ -46,7 +46,7 @@ listens on the public app port and proxies the UI.
 |---|---|
 | `DATABASE_URL` | Runtime PostgreSQL URL for backend, worker, and codesearch. Must be the `ctxpipe_app` role (no `BYPASSRLS`). Example: `postgresql://ctxpipe_app:pass@host:5432/db`. Migrate uses the table-owner URL instead. **AWS CDK** operators do not set either URL — `cdk deploy` writes them. |
 | `AUTH_SECRET` | Random 32+ character string for session signing. Generate with `openssl rand -hex 32`. |
-| `AUTH_BASE_URL` | Public URL of your ctx\| instance, for example `https://ctx.example.com` |
+| `AUTH_BASE_URL` | Public URL of your ctxpipe instance, for example `https://ctx.example.com` |
 | `CTXPIPE_PUBLIC_APP_URL` | Public backend URL baked into the UI image. Usually the same value as `AUTH_BASE_URL`. |
 | `MODEL_PROVIDER_API_KEY` | API key for your configured model provider |
 
@@ -114,7 +114,7 @@ worker.
 | `SANDBOX_CALLBACK_DNS_SUFFIX` | Optional. With it, that derived address becomes the name `ip-<a>-<b>-<c>-<d>.<suffix>`, for example the VPC DNS name on AWS. AWS CDK sets it. |
 | `AGENT_VAULT_ADDR` | Required for Docker sandboxes. The Agent Vault API, for example `http://agent-vault:14321`. Without it, or when Agent Vault does not answer, Docker chat returns 503. Compose and AWS CDK set it. |
 | `AGENT_VAULT_OWNER_PASSWORD`, `AGENT_VAULT_OWNER_PASSWORD_FILE` | The Agent Vault owner password, as a value or as a file. Compose and AWS CDK generate it; do not set it there. On other platforms, generate one and keep it: the backend registers it on its first login, and an Agent Vault with an owner refuses another password. |
-| `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` | Required when `SANDBOX_PROVIDER=vercel`. A Vercel access token, and the team and project (slug or id) that own the sandboxes. Hosted ctx\| uses this provider. |
+| `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` | Required when `SANDBOX_PROVIDER=vercel`. A Vercel access token, and the team and project (slug or id) that own the sandboxes. Hosted ctxpipe uses this provider. |
 
 ### Plain git repositories
 

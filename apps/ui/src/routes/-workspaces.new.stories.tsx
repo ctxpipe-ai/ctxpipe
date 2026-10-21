@@ -356,7 +356,7 @@ export const StepTwoFormatAhead: Story = {
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText(/This Workspace needs a newer ctx\| version/)
+    await canvas.findByText(/This Workspace needs a newer ctxpipe version/)
     await expect(
       canvas.queryByText("Upgrade this Workspace before you add sources"),
     ).toBeNull()

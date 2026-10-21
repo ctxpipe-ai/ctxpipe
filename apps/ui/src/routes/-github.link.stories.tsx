@@ -61,7 +61,9 @@ export const LinkedToAnotherUser: Story = {
     )
     await waitFor(() =>
       expect(
-        canvas.getByText(/This GitHub account is linked to another ctx\| user/),
+        canvas.getByText(
+          /This GitHub account is linked to another ctxpipe user/,
+        ),
       ).toBeVisible(),
     )
     await expect(canvas.queryByText(/Atlassian/)).not.toBeInTheDocument()

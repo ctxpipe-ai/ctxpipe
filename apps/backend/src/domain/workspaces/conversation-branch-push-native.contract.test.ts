@@ -1047,7 +1047,7 @@ it(
         expect((await s.createPr("Add notes")).status).toBe(200)
         const second = s.pullRequests[1] as { body: string }
         expect(second.body).toMatch(
-          /^Changes made in a ctx\| conversation\.\n\n\[Open the conversation in ctx\|\]/,
+          /^Changes made in a ctxpipe conversation\.\n\n\[Open the conversation in ctxpipe\]/,
         )
       },
     )

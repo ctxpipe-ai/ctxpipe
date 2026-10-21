@@ -123,7 +123,7 @@ const RULES: Array<{
     // A Git output that is larger than ctxpipe keeps in memory (CTX-933).
     code: "repository_too_large",
     step: null,
-    match: /too large for ctx\| to read|maxbuffer length exceeded/,
+    match: /too large for ctxpipe to read|maxbuffer length exceeded/,
   },
   { code: "timeout", step: "wait", match: /waited too long for its turn/ },
   // A Git command on a large repository (CTX-933).

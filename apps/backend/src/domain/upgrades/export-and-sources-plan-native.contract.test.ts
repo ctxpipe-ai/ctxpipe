@@ -381,7 +381,7 @@ it(
               /^Kept 2 knowledge item\(s\) from .*Ingestion v2 does not ingest it/,
             ),
             expect.stringMatching(
-              /^Not exported, because ctx\| makes it again: 0 item\(s\) from source repositories .*, 1 item\(s\) from Workspace repositories /,
+              /^Not exported, because ctxpipe makes it again: 0 item\(s\) from source repositories .*, 1 item\(s\) from Workspace repositories /,
             ),
           ]),
         )

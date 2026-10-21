@@ -125,7 +125,7 @@ export const NotLinkedShowsLinkError: Story = {
     const alert = await canvas.findByRole("alert")
     await waitFor(() =>
       expect(alert).toHaveTextContent(
-        /This GitHub account is linked to another ctx\| user/,
+        /This GitHub account is linked to another ctxpipe user/,
       ),
     )
     await expect(canvas.queryByText("Repositories")).not.toBeInTheDocument()

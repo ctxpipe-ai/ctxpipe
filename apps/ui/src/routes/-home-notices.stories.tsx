@@ -275,7 +275,7 @@ export const AlwaysUpdateSlowSave: Story = {
     )
     await waitFor(() =>
       expect(
-        canvas.getByText(/ctx\| saves the setting\. It starts the upgrade/),
+        canvas.getByText(/ctxpipe saves the setting\. It starts the upgrade/),
       ).toBeVisible(),
     )
     expect(canvas.getByText(/You can leave this page/)).toBeVisible()
@@ -305,7 +305,7 @@ export const AlwaysUpdateSaveFails: Story = {
     )
     await waitFor(() =>
       expect(
-        canvas.getByText(/ctx\| could not save the setting\./),
+        canvas.getByText(/ctxpipe could not save the setting\./),
       ).toBeVisible(),
     )
     expect(canvas.getByText(/stdout maxBuffer length exceeded/)).toBeVisible()
@@ -657,7 +657,7 @@ export const ProblemLegacyOverlayAndFile: Story = {
     await waitFor(() =>
       expect(
         within(region).getByText(
-          /Knowledge from before Workspaces\. ctx\| shows it from its database/,
+          /Knowledge from before Workspaces\. ctxpipe shows it from its database/,
         ),
       ).toBeVisible(),
     )
