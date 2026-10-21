@@ -143,36 +143,34 @@ export const linearSyncContent = defineWorkflow(
       expectedRefreshToken: string,
       expectedAccessToken: string,
     ) =>
-      withOrgDbContext(input.orgId, () =>
-        refreshLinearConnectionTokensWithLock({
-          orgId: input.orgId,
-          connectionId: input.connectionId,
-          env,
-          expectedRefreshToken,
-          expectedAccessToken,
-          refresh: async (refreshToken) => {
-            const connection = await getLinearConnectionByConnectionId(
-              input.orgId,
-              input.connectionId,
-              env,
-            )
-            const creds = connection
-              ? getLinearOauthAppCreds(connection, env)
-              : undefined
-            if (!creds) throw new Error("Linear OAuth is not configured")
-            const token = await refreshLinearOAuthToken({
-              env,
-              refreshToken,
-              creds,
-            })
-            return {
-              accessToken: token.access_token,
-              refreshToken: token.refresh_token ?? refreshToken,
-              accessTokenExpiresAt: linearTokenExpiresAt(token.expires_in),
-            }
-          },
-        }),
-      )
+      refreshLinearConnectionTokensWithLock({
+        orgId: input.orgId,
+        connectionId: input.connectionId,
+        env,
+        expectedRefreshToken,
+        expectedAccessToken,
+        refresh: async (refreshToken) => {
+          const connection = await getLinearConnectionByConnectionId(
+            input.orgId,
+            input.connectionId,
+            env,
+          )
+          const creds = connection
+            ? getLinearOauthAppCreds(connection, env)
+            : undefined
+          if (!creds) throw new Error("Linear OAuth is not configured")
+          const token = await refreshLinearOAuthToken({
+            env,
+            refreshToken,
+            creds,
+          })
+          return {
+            accessToken: token.access_token,
+            refreshToken: token.refresh_token ?? refreshToken,
+            accessTokenExpiresAt: linearTokenExpiresAt(token.expires_in),
+          }
+        },
+      })
     const loadAuthorizedConnection = async () => {
       const connection = await withOrgDbContext(input.orgId, () =>
         getLinearConnectionByConnectionId(input.orgId, input.connectionId, env),

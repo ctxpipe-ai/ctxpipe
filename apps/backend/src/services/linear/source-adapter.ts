@@ -146,34 +146,32 @@ function tokenRefresher(input: {
   env: Env
 }): LinearTokenRefreshHandler {
   return (expectedRefreshToken, expectedAccessToken) =>
-    withOrgDbContext(input.orgId, () =>
-      refreshLinearConnectionTokensWithLock({
-        ...input,
-        expectedRefreshToken,
-        expectedAccessToken,
-        refresh: async (refreshToken) => {
-          const connection = await getLinearConnectionByConnectionId(
-            input.orgId,
-            input.connectionId,
-            input.env,
-          )
-          const creds = connection
-            ? getLinearOauthAppCreds(connection, input.env)
-            : undefined
-          if (!creds) throw new Error("Linear OAuth is not configured")
-          const token = await refreshLinearOAuthToken({
-            env: input.env,
-            refreshToken,
-            creds,
-          })
-          return {
-            accessToken: token.access_token,
-            refreshToken: token.refresh_token ?? refreshToken,
-            accessTokenExpiresAt: linearTokenExpiresAt(token.expires_in),
-          }
-        },
-      }),
-    )
+    refreshLinearConnectionTokensWithLock({
+      ...input,
+      expectedRefreshToken,
+      expectedAccessToken,
+      refresh: async (refreshToken) => {
+        const connection = await getLinearConnectionByConnectionId(
+          input.orgId,
+          input.connectionId,
+          input.env,
+        )
+        const creds = connection
+          ? getLinearOauthAppCreds(connection, input.env)
+          : undefined
+        if (!creds) throw new Error("Linear OAuth is not configured")
+        const token = await refreshLinearOAuthToken({
+          env: input.env,
+          refreshToken,
+          creds,
+        })
+        return {
+          accessToken: token.access_token,
+          refreshToken: token.refresh_token ?? refreshToken,
+          accessTokenExpiresAt: linearTokenExpiresAt(token.expires_in),
+        }
+      },
+    })
 }
 
 async function loadInstalledConnection(input: {
