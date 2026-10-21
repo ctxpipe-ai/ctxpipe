@@ -143,7 +143,7 @@ export async function startWorkspaceUpgrade(
   })
 }
 
-/** Starts the tip check now: ctx| reads the default branch of the Workspace repository. */
+/** Starts the tip check now: ctxpipe reads the default branch of the Workspace repository. */
 export async function checkWorkspaceUpgrades(
   orgSlug: string,
   workspaceSlug: string,
@@ -156,7 +156,7 @@ export async function checkWorkspaceUpgrades(
 }
 
 /**
- * Always update: ctx| commits `upgrades: automatic` into the format file of
+ * Always update: ctxpipe commits `upgrades: automatic` into the format file of
  * the Workspace repository. The reply comes at once with the id of the file
  * job. The server starts the waiting upgrades when the commit is done, so the
  * browser sends no second request and does not wait for the commit.

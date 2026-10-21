@@ -339,8 +339,8 @@ export const workspaceBootstrap = defineWorkflow(
                   )
                 ).map((file) => [file.path, file.content]),
               )
-              // A repository with no ctx| content is new, so the bootstrap
-              // commit writes the format file. A repository with ctx|
+              // A repository with no ctxpipe content is new, so the bootstrap
+              // commit writes the format file. A repository with ctxpipe
               // content keeps its format (ADR-053).
               const isNew = !hasCtxpipeContent(
                 (
@@ -443,7 +443,7 @@ export const workspaceBootstrap = defineWorkflow(
                   env,
                   "host",
                   // The tip moved after the bind. The format file of a new
-                  // repository must not go onto a tree that now has ctx|
+                  // repository must not go onto a tree that now has ctxpipe
                   // content: that repository keeps its format (ADR-053).
                   async (next) =>
                     (await revisionHasCtxpipeContent(input.orgId, next))

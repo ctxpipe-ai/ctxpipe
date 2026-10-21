@@ -102,7 +102,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const data = page.data as DocPageData
   return {
-    title: `${data.title} - ctx| docs`,
+    title: `${data.title} - ctxpipe docs`,
     description: data.description,
   }
 }

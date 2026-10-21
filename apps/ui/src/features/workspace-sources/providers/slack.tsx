@@ -87,7 +87,7 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
       <div>
         <p className="text-sm font-medium text-foreground">{pickerLabel}</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Mention the ctx| bot in a thread of a selected channel to save that
+          Mention the ctxpipe bot in a thread of a selected channel to save that
           thread. Private channels show only when the bot is in them.
         </p>
       </div>
@@ -117,7 +117,7 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
         {rows.map((channel) => {
           const listed = listedIds.has(channel.id)
           const detail = !listed
-            ? "Slack does not list this channel now. It is archived, or the ctx| bot left it."
+            ? "Slack does not list this channel now. It is archived, or the ctxpipe bot left it."
             : channel.isMember
               ? null
               : "Invite the bot to this channel before you mention it there."

@@ -20,7 +20,7 @@ import { resolveGitRemoteTip } from "./clone-tree.js"
 export { isMetadataAddress, isPublicAddress }
 
 /*
- * The backend side of a plain git source (CTX-815). ctx| reads the
+ * The backend side of a plain git source (CTX-815). ctxpipe reads the
  * repository with no credential. Before each read, the host must obey the
  * URL policy of the deployment mode (`plainGitUrlPolicy`). Hosted: the
  * host name must resolve only to public addresses. Self-host: the host
@@ -30,7 +30,7 @@ export { isMetadataAddress, isPublicAddress }
  * Vault, which does its own DNS lookup (see `ingest-sandbox-egress.ts`).
  */
 
-/** A plain git URL that ctx| does not read, with the rule that refused it. */
+/** A plain git URL that ctxpipe does not read, with the rule that refused it. */
 export class PlainGitUrlError extends Error {
   constructor(
     readonly rule:

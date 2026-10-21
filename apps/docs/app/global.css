@@ -40,7 +40,7 @@
 }
 
 /*
- * Square controls - ctx| marketing / app use sharp corners, not Fumadocs pills.
+ * Square controls - ctxpipe marketing / app use sharp corners, not Fumadocs pills.
  * Scoped to docs chrome only; page content (cards, callouts) unchanged.
  */
 #nd-subnav :is(button, a[href]),
@@ -143,7 +143,7 @@ pre {
 /* ── Content primitives ─────────────────────────────────────────────────── */
 /*
  * Fumadocs ships rounded tables, callouts, code blocks, and inline tokens.
- * ctx| docs should feel closer to the app/marketing surface: sharp, thin,
+ * ctxpipe docs should feel closer to the app/marketing surface: sharp, thin,
  * quiet, and technical.
  */
 .prose :is(.rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md, .rounded-sm, .rounded-full),

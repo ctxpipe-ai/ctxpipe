@@ -58,7 +58,7 @@ export async function captureUnbornBootstrapBinding(input: {
 }
 
 /**
- * True when the tree of `revision` has ctx| content (see
+ * True when the tree of `revision` has ctxpipe content (see
  * {@link hasCtxpipeContent}). The fetch gets only the trees.
  */
 export async function revisionHasCtxpipeContent(

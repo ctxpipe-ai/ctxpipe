@@ -407,7 +407,7 @@ export async function resolveSlackChannelInfo(input: {
   }
 }
 
-export const SLACK_MENTION_STATUS_WORKING = "ctx| agent working…"
+export const SLACK_MENTION_STATUS_WORKING = "ctxpipe agent working…"
 export const SLACK_CAPTURE_STATUS_CAPTURED = "Engineering context captured."
 export const SLACK_CAPTURE_STATUS_FAILED = "Engineering context capture failed."
 export const SLACK_MENTION_CAPABILITY_REPLY =

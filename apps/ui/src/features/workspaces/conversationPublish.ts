@@ -150,7 +150,7 @@ const publishErrorMessages: Record<PublishErrorCode, string> = {
   not_allowed: "You can't publish from this conversation.",
   workspace_required: "This conversation needs a Workspace.",
   default_branch:
-    "ctx| never pushes to the default branch. Ask the agent to work on its own branch.",
+    "ctxpipe never pushes to the default branch. Ask the agent to work on its own branch.",
   other_branch:
     "The sandbox is on another branch. Ask the agent to switch back to the conversation branch.",
   nothing_committed: "There are no commits yet. Use Sync to commit the files.",
@@ -158,16 +158,16 @@ const publishErrorMessages: Record<PublishErrorCode, string> = {
   outside_root:
     "The agent changed files outside the Workspace folder. Ask it to undo those changes.",
   format_file:
-    "Only a ctx| upgrade can change .ctxpipe/workspace.yaml. Ask the agent to undo that change.",
+    "Only a ctxpipe upgrade can change .ctxpipe/workspace.yaml. Ask the agent to undo that change.",
   upgrade_needed:
     "This Workspace needs an upgrade before it can use files under sources/. Ask the agent to undo those changes, or upgrade the Workspace first.",
   legacy_knowledge:
     "The agent changed a file of knowledge from before Workspaces. That file is read-only until its repository is ingested again. Ask the agent to undo the change.",
-  no_write_access: "The ctx| GitHub App can't push to this repository.",
+  no_write_access: "The ctxpipe GitHub App can't push to this repository.",
   host_only_field:
-    "Only ctx| can set generated_by and sources in front matter. Ask the agent to remove those changes from the branch, then publish again.",
+    "Only ctxpipe can set generated_by and sources in front matter. Ask the agent to remove those changes from the branch, then publish again.",
   no_pr_access:
-    "The ctx| GitHub App can't open pull requests. Give it the Pull requests: Read and write permission.",
+    "The ctxpipe GitHub App can't open pull requests. Give it the Pull requests: Read and write permission.",
   stale_url: workspaceMoved,
   stale_generation: workspaceMoved,
   stale_sha: workspaceMoved,
@@ -177,7 +177,7 @@ const publishErrorMessages: Record<PublishErrorCode, string> = {
   missing_sandbox: "The sandbox stopped. Send a message to start it again.",
   rebase_in_progress: "A rebase is in progress. Ask the agent to finish it.",
   session_moved:
-    "The branch on GitHub has commits ctx| did not push. Ask the agent to fetch and rebase.",
+    "The branch on GitHub has commits ctxpipe did not push. Ask the agent to fetch and rebase.",
   push_failed: "Git or GitHub refused the push. Try again.",
   turn_running: "The agent is still working. Try again when the turn ends.",
   pr_merged:

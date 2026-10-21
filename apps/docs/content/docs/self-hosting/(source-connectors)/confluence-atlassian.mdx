@@ -1,6 +1,6 @@
 ---
 title: Confluence & Atlassian
-description: Configure Atlassian OAuth, Forge provisioning, and Confluence sync for self-hosted ctx|.
+description: Configure Atlassian OAuth, Forge provisioning, and Confluence sync for self-hosted ctxpipe.
 ---
 
 ## Overview
@@ -27,7 +27,7 @@ Both modes keep connector settings and encrypted credentials on your deployment.
 ## 1. Register Atlassian OAuth
 
 If your deployment sets global **`ATLASSIAN_CLIENT_ID`** and
-**`ATLASSIAN_CLIENT_SECRET`**, ctx| uses that Atlassian app for account linking.
+**`ATLASSIAN_CLIENT_SECRET`**, ctxpipe uses that Atlassian app for account linking.
 Otherwise, register a 3LO app for the Forge connection in the
 [Atlassian developer console](https://developer.atlassian.com/cloud/oauth-2-3lo-apps)
 and save its client ID and secret in the Confluence setup wizard.
@@ -36,7 +36,7 @@ Use this callback URL:
 
    `{AUTH_BASE_URL}/api/v1/integrations/atlassian/callback`
 
-ctx| encrypts per-connection credentials and does not return the client secret
+ctxpipe encrypts per-connection credentials and does not return the client secret
 from connector metadata.
 
 ## 2. Install or provision Forge

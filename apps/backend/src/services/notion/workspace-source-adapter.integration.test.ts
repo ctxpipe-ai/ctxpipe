@@ -573,7 +573,7 @@ describe("Notion source adapter (Postgres + msw)", () => {
         databases: [{ id: TASKS, title: "Tasks" }],
       }),
     ).toBe(
-      `Notion database "Tasks" (${TASKS}) does not exist, or it is not shared with the ctx| integration`,
+      `Notion database "Tasks" (${TASKS}) does not exist, or it is not shared with the ctxpipe integration`,
     )
   })
 })

@@ -96,7 +96,7 @@ Use a **real** question about the Workspace's repository (a named file, how a fe
 1. Ask the agent to run `env`, `git config --list`, `cat ~/.git-credentials` if present, and a request to a host outside the allowlist, and to report anything token-like (without printing secret values beyond the first 4 characters).
 2. Read the tool chips' output.
 
-**Expect (UI)** no GitHub token or ctx| write credential appears; the request to a non-allowlisted host fails (DNS error); the agent can still `git fetch` the Workspace repository (read access through the firewall).
+**Expect (UI)** no GitHub token or ctxpipe write credential appears; the request to a non-allowlisted host fails (DNS error); the agent can still `git fetch` the Workspace repository (read access through the firewall).
 **Expect (backend)** the sandbox has the network policy applied (allowlist: our backend, GitHub, what OpenCode needs) and an OpenCode server password.
 **Budget** 15 s / 45 s.
 **Evidence** `CHAT-8-1.png` of the tool output (redact values).

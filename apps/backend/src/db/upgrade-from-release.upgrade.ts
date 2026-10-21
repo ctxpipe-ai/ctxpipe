@@ -728,10 +728,10 @@ it("upgrades a database of the previous release and its Workspace with no manual
             )
             .split("\n"),
         ).toEqual([
-          "ctx| upgrade: set the Workspace format to 3",
-          "ctx| upgrade to format 3: Ingestion v2 ownership of extracted files",
-          "ctx| upgrade to format 2: One file for each source under sources/",
-          "ctx| upgrade to format 1: Move the sources and keep the old knowledge",
+          "ctxpipe upgrade: set the Workspace format to 3",
+          "ctxpipe upgrade to format 3: Ingestion v2 ownership of extracted files",
+          "ctxpipe upgrade to format 2: One file for each source under sources/",
+          "ctxpipe upgrade to format 1: Move the sources and keep the old knowledge",
         ])
         expect(
           f.git(
@@ -741,7 +741,7 @@ it("upgrades a database of the previous release and its Workspace with no manual
             `${head}:${WORKSPACE_FORMAT_PATH}`,
           ),
         ).toContain("format: 3")
-        // ctx| never pushed to the default branch.
+        // ctxpipe never pushed to the default branch.
         expect(branchHead()).toBe(f.sha)
 
         // The pull request merges. Hydrate reads format 3.

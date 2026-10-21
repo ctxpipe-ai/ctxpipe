@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: Configure Docker Compose, environment variables, and connector secrets for self-hosted ctx|.
+description: Configure Docker Compose, environment variables, and connector secrets for self-hosted ctxpipe.
 ---
 
 Configuration is environment-driven. Set only the values your deployment needs,
@@ -46,7 +46,7 @@ listens on the public app port and proxies the UI.
 |---|---|
 | `DATABASE_URL` | Runtime PostgreSQL URL for backend, worker, and codesearch. Must be the `ctxpipe_app` role (no `BYPASSRLS`). Example: `postgresql://ctxpipe_app:pass@host:5432/db`. Migrate uses the table-owner URL instead. **AWS CDK** operators do not set either URL — `cdk deploy` writes them. |
 | `AUTH_SECRET` | Random 32+ character string for session signing. Generate with `openssl rand -hex 32`. |
-| `AUTH_BASE_URL` | Public URL of your ctx\| instance, for example `https://ctx.example.com` |
+| `AUTH_BASE_URL` | Public URL of your ctxpipe instance, for example `https://ctx.example.com` |
 | `CTXPIPE_PUBLIC_APP_URL` | Public backend URL baked into the UI image. Usually the same value as `AUTH_BASE_URL`. |
 | `MODEL_PROVIDER_API_KEY` | API key for your configured model provider |
 
@@ -114,15 +114,15 @@ worker.
 | `SANDBOX_CALLBACK_DNS_SUFFIX` | Optional. With it, that derived address becomes the name `ip-<a>-<b>-<c>-<d>.<suffix>`, for example the VPC DNS name on AWS. AWS CDK sets it. |
 | `AGENT_VAULT_ADDR` | Required for Docker sandboxes. The Agent Vault API, for example `http://agent-vault:14321`. Without it, or when Agent Vault does not answer, Docker chat returns 503. Compose and AWS CDK set it. |
 | `AGENT_VAULT_OWNER_PASSWORD`, `AGENT_VAULT_OWNER_PASSWORD_FILE` | The Agent Vault owner password, as a value or as a file. Compose and AWS CDK generate it; do not set it there. On other platforms, generate one and keep it: the backend registers it on its first login, and an Agent Vault with an owner refuses another password. |
-| `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` | Required when `SANDBOX_PROVIDER=vercel`. A Vercel access token, and the team and project (slug or id) that own the sandboxes. Hosted ctx\| uses this provider. |
+| `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` | Required when `SANDBOX_PROVIDER=vercel`. A Vercel access token, and the team and project (slug or id) that own the sandboxes. Hosted ctxpipe uses this provider. |
 
 ### Plain git repositories
 
-A plain git repository is a repository that ctx| reads with no credential
+A plain git repository is a repository that ctxpipe reads with no credential
 (see [Linked repositories](/docs/workspaces/linked-repositories#plain-git-repositories)).
 With `SANDBOX_PROVIDER=docker`, its URL can use `https://` or `http://`,
 another port, an IP address, or an internal host name. ssh (`git@…` or
-`ssh://`), `git://`, and `file://` URLs are not supported. ctx| never reads a
+`ssh://`), `git://`, and `file://` URLs are not supported. ctxpipe never reads a
 host that resolves to a cloud metadata or link-local address
 (`169.254.0.0/16`, `fe80::/10`, or `fd00:ec2::254`). With each other value
 of `SANDBOX_PROVIDER`, or with no value, the URL must use `https://` on the
@@ -160,7 +160,7 @@ events, credentials, installation, and end-to-end verification.
 
 ## Atlassian and Confluence
 
-Self-hosted Confluence uses the same product wizard as fully managed ctx|, but
+Self-hosted Confluence uses the same product wizard as fully managed ctxpipe, but
 your deployment or organization must provide Atlassian and Forge settings first.
 
 | Variable | Description |
@@ -229,7 +229,7 @@ See [Notion](/docs/self-hosting/notion) for provisioning and verification.
 ## PagerDuty
 
 PagerDuty can use a deployment-owned OAuth application. After a user
-authorizes an account, ctx| creates the signed webhook subscription. These
+authorizes an account, ctxpipe creates the signed webhook subscription. These
 variables are an optional hosted-style shortcut; self-host can save the app
 on the connection in the setup wizard instead.
 
@@ -246,7 +246,7 @@ verification.
 
 ## Observability
 
-Telemetry is off until you set it. ctx| does not ship a collector, Langfuse, or
+Telemetry is off until you set it. ctxpipe does not ship a collector, Langfuse, or
 ClickStack in the Compose `deploy` profile or in `@ctxpipe/aws-cdk`. Unset
 values keep logs on stdout and do not start trace or metric export. Empty
 values are treated as unset.
@@ -311,7 +311,7 @@ endpoint is unset returns `204`.
 
 ## Railway
 
-ctx| can be deployed on Railway with prebuilt images from GitHub Container
+ctxpipe can be deployed on Railway with prebuilt images from GitHub Container
 Registry. Runtime services (`backend`, `worker`, `codesearch`) must use a
 `DATABASE_URL` for `ctxpipe_app`. The migrate job uses the Neon owner / pooler
 URL (`neondb_owner`) and then GRANTs the app role. Do not point app services at

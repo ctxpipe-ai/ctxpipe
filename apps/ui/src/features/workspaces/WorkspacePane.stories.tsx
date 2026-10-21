@@ -548,7 +548,7 @@ export const ReadOnly: Story = {
 
 const legacyPath = "knowledge/services/tools-cli.md"
 const legacyReason =
-  "This file is knowledge from before Workspaces. ctx| shows it from its database, not from git, so you cannot edit, move, or delete it. The re-ingestion of its repository replaces it after the format upgrade."
+  "This file is knowledge from before Workspaces. ctxpipe shows it from its database, not from git, so you cannot edit, move, or delete it. The re-ingestion of its repository replaces it after the format upgrade."
 
 /** The editor of the open file takes keys only when it is editable. */
 async function expectFileEditable(
@@ -861,7 +861,7 @@ export const GraphPhasePending: Story = {
     await waitFor(() =>
       expect(
         canvas.getByText(
-          "The graph opens when ctx| finishes reading this Workspace.",
+          "The graph opens when ctxpipe finishes reading this Workspace.",
         ),
       ).toBeVisible(),
     )
@@ -946,7 +946,7 @@ export const GraphLostRebuilds: Story = {
     await waitFor(() =>
       expect(
         canvas.getByText(
-          "The graph opens when ctx| finishes reading this Workspace.",
+          "The graph opens when ctxpipe finishes reading this Workspace.",
         ),
       ).toBeVisible(),
     )
@@ -955,7 +955,7 @@ export const GraphLostRebuilds: Story = {
       () => {
         expect(
           canvas.queryByText(
-            "The graph opens when ctx| finishes reading this Workspace.",
+            "The graph opens when ctxpipe finishes reading this Workspace.",
           ),
         ).toBeNull()
       },

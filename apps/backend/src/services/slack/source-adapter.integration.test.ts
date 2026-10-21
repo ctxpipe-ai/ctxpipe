@@ -192,7 +192,7 @@ describe("Slack mention capture through Workspace sources (Postgres, msw, git)",
     replies = [
       { ts: THREAD, user: "U0PERSON1", text: "Root of the thread" },
       { ts: "1790000600.000100", user: "U0PERSON2", text: "First reply" },
-      { ts: STATUS, user: BOT, text: "ctx| agent working…" },
+      { ts: STATUS, user: BOT, text: "ctxpipe agent working…" },
     ]
     installSlack()
     for (const workspaceId of [engWorkspace, bothWorkspace]) {
@@ -240,7 +240,7 @@ describe("Slack mention capture through Workspace sources (Postgres, msw, git)",
       const thread = await readFile(join(dir, threadPath), "utf-8")
       expect(thread).toContain("First reply")
       // The in-thread status reply is not context (ADR-025).
-      expect(thread).not.toContain("ctx| agent working")
+      expect(thread).not.toContain("ctxpipe agent working")
       expect((await blobs(dir)).map((blob) => blob.path)).toContain(
         "slack/channels/C0ENG0001/index.md",
       )
@@ -294,7 +294,7 @@ describe("Slack mention capture through Workspace sources (Postgres, msw, git)",
       "utf-8",
     )
     expect(thread).toContain("Earlier bot note")
-    expect(thread).not.toContain("ctx| agent working")
+    expect(thread).not.toContain("ctxpipe agent working")
   })
 
   it(
@@ -468,12 +468,12 @@ sources:
         env: env(),
       }),
     ).toBe(
-      `Channel #eng is archived; Channel ${OPS} is not found, or the ctx| bot cannot see it`,
+      `Channel #eng is archived; Channel ${OPS} is not found, or the ctxpipe bot cannot see it`,
     )
   })
 
   // Slack sends a mention only from a channel that the bot is in, and an
-  // invite changes nothing in ctx|. So a missing bot is a note, not a block.
+  // invite changes nothing in ctxpipe. So a missing bot is a note, not a block.
   it("keeps a source ok when the bot is not in its channels yet", async () => {
     channelState[ENG] = { is_member: false }
     channelState[OPS] = { is_member: false }
@@ -486,7 +486,7 @@ sources:
       }),
     ).toEqual({
       okDetail:
-        "Invite the ctx| bot to channel #eng; Invite the ctx| bot to channel #ops",
+        "Invite the ctxpipe bot to channel #eng; Invite the ctxpipe bot to channel #ops",
     })
   })
 
@@ -516,7 +516,7 @@ sources:
         scope: { channels: [ENG, OPS] },
         env: env(),
       }),
-    ).toEqual({ okDetail: "Invite the ctx| bot to channel #ops" })
+    ).toEqual({ okDetail: "Invite the ctxpipe bot to channel #ops" })
     channelState = {}
     failures = {}
     expect(

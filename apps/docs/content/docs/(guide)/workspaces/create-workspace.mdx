@@ -5,13 +5,13 @@ description: Choose or create the git repository that holds a Workspace's knowle
 
 Add Workspace has two steps. Step 1 chooses the Workspace's **workspace
 repository**. There is no draft step: once you pick a repository, the
-Workspace exists and ctx| starts reading it. Step 2 adds the code
+Workspace exists and ctxpipe starts reading it. Step 2 adds the code
 repositories and tools that the Workspace reads.
 
 ## Before you start
 
 - Connect GitHub from **Connectors** if you want to pick or create a
-  repository on GitHub. ctx| can only write to repositories the ctx| GitHub App
+  repository on GitHub. ctxpipe can only write to repositories the ctxpipe GitHub App
   can access.
 - Decide which repository should hold this Workspace's knowledge. An empty
   repository is fine; so is an existing documentation repository.
@@ -33,7 +33,7 @@ repositories and tools that the Workspace reads.
 
     Pick one of three ways:
 
-    - **Select GitHub**: search the repositories the ctx| GitHub App can see.
+    - **Select GitHub**: search the repositories the ctxpipe GitHub App can see.
       Sort by recently pushed, newest, oldest, or name.
     - **Create on GitHub**: opens GitHub's new-repository page. Create the
       repository, make sure the App can access it, then come back and select
@@ -52,7 +52,7 @@ repositories and tools that the Workspace reads.
   <Step>
     ### Add code repositories and tools
 
-    ctx| first checks that it can write to the workspace repository. The
+    ctxpipe first checks that it can write to the workspace repository. The
     page shows **Checking write access**, then **Setting up the Workspace
     repository**. Then it shows the **Sources** section of the new Workspace:
 
@@ -63,12 +63,12 @@ repositories and tools that the Workspace reads.
       is connected, to connect a new tool. This closes Add Workspace.
 
     Each change adds a source file under `sources/` in the workspace
-    repository. ctx| opens a pull request for it. The change applies after you
+    repository. ctxpipe opens a pull request for it. The change applies after you
     merge the pull request. This step is optional. You can make the same
     changes later in **Settings**. Choose **Open Workspace** to finish (or
     **Done**, when you started from the **Get started** guide on Home).
 
-    If you chose a repository that has ctx| content from an earlier version, the
+    If you chose a repository that has ctxpipe content from an earlier version, the
     step shows **Upgrade this Workspace before you add sources**. Choose
     **Review upgrades**. See [Upgrades](/docs/workspaces/settings#upgrades).
     If the write check fails, the step shows **Read-only** or **Could not check
@@ -79,7 +79,7 @@ repositories and tools that the Workspace reads.
   <Step>
     ### Wait for the first index
 
-    ctx| reads the default branch and builds the Workspace's index. Settings
+    ctxpipe reads the default branch and builds the Workspace's index. Settings
     shows the progress. You can start a conversation straight away; answers
     improve once indexing finishes.
   </Step>
@@ -93,24 +93,24 @@ organization. Other Workspaces can still add it as a linked repository.
 The root folder is the folder in the workspace repository that holds the
 Workspace. The default is the repository root.
 
-- ctx| reads knowledge files, `AGENTS.md`, the source files in `sources/`, and
+- ctxpipe reads knowledge files, `AGENTS.md`, the source files in `sources/`, and
   `.ctxpipe/workspace.yaml` only below the root folder. Paths in the Files pane,
   in conversations, and in MCP tools are relative to it.
-- ctx| writes only below the root folder. This applies to setup commits,
+- ctxpipe writes only below the root folder. This applies to setup commits,
   connector mirrors, source pull requests, ingestion, and conversation
-  commits. ctx| refuses a conversation push that changes a file outside the
+  commits. ctxpipe refuses a conversation push that changes a file outside the
   root folder, and the agent must undo that change before it can push.
 - The root folder is a relative path, such as `docs/context`. It cannot
   start with `/`, contain `..` or `.git`, or use characters other than
   letters, numbers, `.`, `_`, `-`, and `/`.
 
-When you change the root folder in **Settings**, ctx| reads the Workspace
+When you change the root folder in **Settings**, ctxpipe reads the Workspace
 again from the new folder. The current index keeps serving until the new one
 is ready. Files in the old folder stay where they are.
 
-## What ctx| adds to the repository
+## What ctxpipe adds to the repository
 
-On a writable repository, ctx| makes one setup commit if these files are
+On a writable repository, ctxpipe makes one setup commit if these files are
 missing below the root folder:
 
 - `AGENTS.md` with the Workspace `name` in its front matter and a short folder
@@ -118,11 +118,11 @@ missing below the root folder:
 - `.agents/skills/ctxpipe-knowledge/SKILL.md`, which tells coding agents how to
   write knowledge files for this Workspace.
 
-On an empty repository, or a repository that has no ctx| content yet, the same
+On an empty repository, or a repository that has no ctxpipe content yet, the same
 commit also adds `.ctxpipe/workspace.yaml`. This file holds the
 [repository format](/docs/workspaces/settings#repository-format).
 
-Existing files are kept. ctx| only adds what is missing.
+Existing files are kept. ctxpipe only adds what is missing.
 
 ## Workspace settings
 
@@ -132,6 +132,6 @@ upgrades. You can also delete the Workspace there. See
 [Workspace settings](/docs/workspaces/settings).
 
 <Cards>
-  <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="How to structure files ctx| can use." />
+  <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="How to structure files ctxpipe can use." />
   <Card title="Connect sources" href="/docs/connections" description="Mirror Linear, Notion, Confluence, Slack, and PagerDuty into the Workspace." />
 </Cards>

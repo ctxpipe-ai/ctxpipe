@@ -1,10 +1,10 @@
 ---
 title: Terraform
-description: Manage self-hosted ctx| infrastructure with Terraform.
+description: Manage self-hosted ctxpipe infrastructure with Terraform.
 ---
 
 The repo includes a Terraform stack in `infra/` for managed infrastructure. It
-currently models the ctx| Railway and Neon deployment path, with app services
+currently models the ctxpipe Railway and Neon deployment path, with app services
 pulling versioned images from GitHub Container Registry.
 
 ## What the included stack manages
@@ -71,14 +71,14 @@ the owner. Do not collapse those two identities.
 
 The module runs Workspace chat in Vercel Sandbox (`SANDBOX_PROVIDER=vercel`).
 It takes the Vercel token from `vercel_access_token`. The Vercel team and
-project are set to ctx|'s own values, so a fork must change them. See
+project are set to ctxpipe's own values, so a fork must change them. See
 [Configuration](/docs/self-hosting/configuration#chat-sandboxes).
 
 ## Observability
 
 This stack is the hosted Railway layout. It does not deploy Langfuse or
 ClickStack. The module always sets `OTEL_EXPORTER_OTLP_*` from
-`otel_otlp_endpoint`, which defaults to ctx|'s hosted collector
+`otel_otlp_endpoint`, which defaults to ctxpipe's hosted collector
 `https://telemetry.ctxpipe.ai`, and requires `otel_otlp_headers`. If you reuse
 the module, override both; to disable export, remove `otel_shared_env` from
 the module. See [Configuration](/docs/self-hosting/configuration).

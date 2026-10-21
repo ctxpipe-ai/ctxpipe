@@ -353,7 +353,7 @@ export async function retrieveNotionPage(input: {
   )
 }
 
-/** Read one data source (a database), to check that ctx| can reach it. */
+/** Read one data source (a database), to check that ctxpipe can reach it. */
 export async function retrieveNotionDataSource(input: {
   env: Env
   connection: NotionConnection

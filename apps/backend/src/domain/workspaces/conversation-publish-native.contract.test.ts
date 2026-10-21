@@ -277,7 +277,7 @@ it.each(["unchanged", "edited", "rebased"])(
             (await raw.process.exec(`git cat-file -e ${f.sha}`)).exitCode,
           ).not.toBe(0)
           let revision = f.revision
-          // ctx| pushed the published session itself.
+          // ctxpipe pushed the published session itself.
           await withOrgDbContext(f.org.id, (db) =>
             db
               .update(conversations)

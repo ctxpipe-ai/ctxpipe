@@ -1,9 +1,9 @@
 ---
 title: Remote MCP
-description: Choose the right remote ctx| MCP install path for individuals, teams, and clients that need manual configuration.
+description: Choose the right remote ctxpipe MCP install path for individuals, teams, and clients that need manual configuration.
 ---
 
-ctx| exposes a remote MCP server at:
+ctxpipe exposes a remote MCP server at:
 
 ```text
 https://app.ctxpipe.ai/mcp
@@ -19,18 +19,18 @@ your own base URL.
 ## What the MCP gives an agent
 
 The MCP gives your coding agent seven read-only tools. The agent does the
-reasoning. ctx| returns facts with stable refs and runs no model for each call.
+reasoning. ctxpipe returns facts with stable refs and runs no model for each call.
 See [Use ctxpipe from your agent](/docs/mcp/use-from-your-agent) for the
 tools, the arguments, and how to work with them.
 
 ## Choose Your Install Path
 
-There are two practical ways to install ctx| MCP:
+There are two practical ways to install ctxpipe MCP:
 
 - **The CLI** - best for a developer who sets up the agent clients on one machine. For a team, commit the repository config that the CLI writes.
 - **Manual config** - useful when you need to paste JSON yourself or use a client the CLI does not fully automate.
 
-The CLI writes configuration. They do **not** remove the need for MCP authorization. When a client first uses ctx| MCP, it should still redirect you to ctx| so you can sign in and authorize access. If the client cannot complete OAuth, use [API-key auth](#api-key-auth).
+The CLI writes configuration. They do **not** remove the need for MCP authorization. When a client first uses ctxpipe MCP, it should still redirect you to ctxpipe so you can sign in and authorize access. If the client cannot complete OAuth, use [API-key auth](#api-key-auth).
 
 ## CLI installer (`npx ctxpipe`)
 
@@ -43,9 +43,9 @@ npx ctxpipe init
 ```
 
 <ImageSlot
-  title="ctx| CLI setup"
+  title="ctxpipe CLI setup"
   src="/mcp-cli.png"
-  alt="ctx| CLI setup flow showing sign-in, organization selection, and MCP config scope"
+  alt="ctxpipe CLI setup flow showing sign-in, organization selection, and MCP config scope"
   aspect="standard"
 />
 
@@ -90,7 +90,7 @@ Supported CLI clients:
 The CLI can also set up **local memory**: Markdown under `.ai/memory/` that
 coding agents read and add to as they learn how your team works. It is **not** a
 second MCP server. Hooks only save candidates to a gitignored inbox; agents keep
-what matters, you commit it with the work, and merged lessons reach ctx|.
+what matters, you commit it with the work, and merged lessons reach ctxpipe.
 
 ```bash
 npx ctxpipe init
@@ -101,7 +101,7 @@ npx ctxpipe init --org acme --agents cursor --scope repo --memory --non-interact
 The interactive `npx ctxpipe init` wizard includes local memory setup, so you do
 not need to run `memory init` separately for the normal first-time setup flow.
 Use `npx ctxpipe memory init` when you want local memory only, or when remote
-ctx| MCP is already configured and you are adding memory later.
+ctxpipe MCP is already configured and you are adding memory later.
 
 Read the full guide: [Local memory](/docs/mcp/local-memory).
 
@@ -152,7 +152,7 @@ The CLI still writes `?orgSlug=`. The server ignores it. All keys work on the ge
 npx ctxpipe mcp add --org acme --client cursor --scope both --auth api-key --non-interactive
 ```
 
-Setting `CTXPIPE_API_KEY` in the environment is **not enough** on its own. ctx| MCP is a remote Streamable HTTP server, so the client must send the key on HTTP requests (`x-api-key`, or `Authorization: Bearer` when that is all the host supports). Cursor and Claude do not invent that mapping from a well-known env name. The interpolation in MCP config (or `claude mcp add --header`) is what tells the client to send the header.
+Setting `CTXPIPE_API_KEY` in the environment is **not enough** on its own. ctxpipe MCP is a remote Streamable HTTP server, so the client must send the key on HTTP requests (`x-api-key`, or `Authorization: Bearer` when that is all the host supports). Cursor and Claude do not invent that mapping from a well-known env name. The interpolation in MCP config (or `claude mcp add --header`) is what tells the client to send the header.
 
 If a host lets you attach a custom request header, send **`x-api-key`** interpolating `CTXPIPE_API_KEY`. If the host only supports Bearer credentials, send `Authorization: Bearer` with the same key value to `/mcp`. Do not put the secret in client or repository files.
 
@@ -273,13 +273,13 @@ agent
 - Cursor desktop: either (1) macOS `launchctl setenv CTXPIPE_API_KEY 'ctxp_...'` then fully quit and reopen Cursor, (2) Linux user/session environment (`/etc/environment` or systemd `environment.d`), (3) Windows user environment variables, then restart, or (4) launch Cursor from a terminal that already has the export (`cursor .`).
 - VS Code / Copilot: same GUI rule as Cursor desktop.
 
-After changing GUI env, restart the app. Then reconnect the ctx| MCP server.
+After changing GUI env, restart the app. Then reconnect the ctxpipe MCP server.
 
 ## Manual Configuration
 
 Manual config is the fallback when you do not want to use the CLI, the client is managed elsewhere, or you need to inspect exactly what will be written.
 
-Your MCP client should redirect you to ctx| to sign in and authorize access.
+Your MCP client should redirect you to ctxpipe to sign in and authorize access.
 After approval, it returns to the client and the server is ready to use.
 
 No bearer token setup is required when your client supports OAuth redirect for MCP. If it cannot complete OAuth, use [API-key auth](#api-key-auth).

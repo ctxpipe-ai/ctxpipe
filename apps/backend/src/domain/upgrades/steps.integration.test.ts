@@ -150,9 +150,9 @@ sources:
     )
     const head = await readCommits(built.pack)
     expect(head.subjects).toEqual([
-      "ctx| upgrade: set the Workspace format to 3",
-      "ctx| upgrade to format 3: Ingestion v2 ownership of extracted files",
-      "ctx| upgrade to format 2: One file for each source under sources/",
+      "ctxpipe upgrade: set the Workspace format to 3",
+      "ctxpipe upgrade to format 3: Ingestion v2 ownership of extracted files",
+      "ctxpipe upgrade to format 2: One file for each source under sources/",
       "Base",
     ])
     expect(head.files).not.toContain(".ctxpipe/sources.yaml")

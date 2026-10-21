@@ -15,8 +15,8 @@ export function pendingFormatUpgrade<T extends FormatUpgradeItem>(
  * The one rule for "this Workspace needs the format upgrade first". The
  * sources of a Workspace, the connect flows and the Add controls need the
  * newest format. A Workspace needs the upgrade when it has a format upgrade
- * that is not applied, or when ctx| read a format below the newest one. The
- * server can have no upgrade item yet for a format that ctx| did not read,
+ * that is not applied, or when ctxpipe read a format below the newest one. The
+ * server can have no upgrade item yet for a format that ctxpipe did not read,
  * so an unread format (null) with no item says nothing. A format file that
  * is not valid, or a format above the newest, is not fixed with an upgrade.
  */
@@ -76,13 +76,13 @@ export function formatUpgradeStatusLine(
   switch (item?.status) {
     case "queued":
     case "running":
-      return "ctx| is preparing the upgrade pull request now."
+      return "ctxpipe is preparing the upgrade pull request now."
     case "pr_open":
-      return "The upgrade pull request is open. Merge it on GitHub. Then ctx| reads the new format."
+      return "The upgrade pull request is open. Merge it on GitHub. Then ctxpipe reads the new format."
     case "blocked":
-      return `${item.note ?? "ctx| cannot start the upgrade now."} Open Upgrades for the next step.`
+      return `${item.note ?? "ctxpipe cannot start the upgrade now."} Open Upgrades for the next step.`
     case undefined:
-      return "ctx| has not found the upgrade yet. Open Upgrades to check the repository again."
+      return "ctxpipe has not found the upgrade yet. Open Upgrades to check the repository again."
     default:
       return ""
   }

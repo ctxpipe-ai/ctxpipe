@@ -83,7 +83,7 @@ function rootLabel(root: NotionRoot): string {
 
 /** The text that a source of a revoked Notion connection shows. */
 const RECONNECT_DETAIL =
-  "Notion does not accept the ctx| access any more. Reconnect Notion on the Connectors page."
+  "Notion does not accept the ctxpipe access any more. Reconnect Notion on the Connectors page."
 
 /** The connection, or why it cannot sync now. */
 async function loadConnectionState(
@@ -277,7 +277,7 @@ export const notionSourceAdapter: SourceAdapter<NotionSourceScope> = {
         existingPaths: blobs.map((file) => file.path),
         existingBlobs: existing ? blobs : undefined,
         rootTitlesFromConfig: true,
-        // A child page, row, or block that ctx| cannot read keeps its files.
+        // A child page, row, or block that ctxpipe cannot read keeps its files.
         onUnreadable: (id, error) => {
           result.keepPaths.push(
             ...managedNotionPagePathsForSubtree(existingPaths, id),
@@ -326,7 +326,7 @@ export const notionSourceAdapter: SourceAdapter<NotionSourceScope> = {
         key,
         now,
         detail: (tries) =>
-          `${rootLabel(root)} failed ${tries} syncs: ctx| cannot read it (${error.status}). Share it with the ctx| integration in Notion, or remove it from the source.`,
+          `${rootLabel(root)} failed ${tries} syncs: ctxpipe cannot read it (${error.status}). Share it with the ctxpipe integration in Notion, or remove it from the source.`,
       })
       if (counted && counted.tries >= NOTION_SYNC_MAX_TRIES)
         result.unreachable.push({
@@ -400,7 +400,7 @@ export const notionSourceAdapter: SourceAdapter<NotionSourceScope> = {
           PERMANENT_STATUSES.has(error.status)
         ) {
           problems.push(
-            `${rootLabel(root)} does not exist, or it is not shared with the ctx| integration`,
+            `${rootLabel(root)} does not exist, or it is not shared with the ctxpipe integration`,
           )
           continue
         }

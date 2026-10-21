@@ -5,9 +5,9 @@
  */
 const KNOWN: Record<string, { title: string; description: string }> = {
   account_already_linked_to_different_user: {
-    title: "This account is linked to another ctx| user",
+    title: "This account is linked to another ctxpipe user",
     description:
-      "The account that you tried to link is already linked to a different ctx| user. Sign in as that user and unlink it (User account → Unlink), or link a different account.",
+      "The account that you tried to link is already linked to a different ctxpipe user. Sign in as that user and unlink it (User account → Unlink), or link a different account.",
   },
   unable_to_link_account: {
     title: "Could not link the account",
@@ -17,7 +17,7 @@ const KNOWN: Record<string, { title: string; description: string }> = {
   "email_doesn't_match": {
     title: "Email does not match",
     description:
-      "The email of the account that you tried to link does not match your ctx| account. Use the same email in both, then try again.",
+      "The email of the account that you tried to link does not match your ctxpipe account. Use the same email in both, then try again.",
   },
   invalid_code: {
     title: "Link expired or invalid",

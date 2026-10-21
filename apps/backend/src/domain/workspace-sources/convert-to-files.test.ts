@@ -274,7 +274,7 @@ sources:
       write.path.endsWith("/wrong.md"),
     )?.content
     expect(wrong).toContain("id: wrong\nprovider: notion\nconnection: con_a\n")
-    expect(wrong).toContain('ctx| did not convert the entry "wrong"')
+    expect(wrong).toContain('ctxpipe did not convert the entry "wrong"')
     const twice = plan.writes.find((write) =>
       write.path.endsWith("/twice-2.md"),
     )?.content

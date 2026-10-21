@@ -57,7 +57,7 @@ function gitTimeoutError(args: readonly string[], timeout: number) {
     (arg, index) => !arg.startsWith("-") && args[index - 1] !== "-C",
   )
   return new Error(
-    `Git ${command} did not finish in the time that ctx| waits (${Math.round(timeout / 1000)} s).`,
+    `Git ${command} did not finish in the time that ctxpipe waits (${Math.round(timeout / 1000)} s).`,
   )
 }
 
@@ -133,7 +133,7 @@ export async function gitOutput(
     const { size } = await stat(file)
     if (size > maxBytes)
       throw new Error(
-        `The Git repository is too large for ctx| to read in one step: the Git output is ${Math.ceil(size / 2 ** 20)} MiB, and the limit is ${Math.floor(maxBytes / 2 ** 20)} MiB.`,
+        `The Git repository is too large for ctxpipe to read in one step: the Git output is ${Math.ceil(size / 2 ** 20)} MiB, and the limit is ${Math.floor(maxBytes / 2 ** 20)} MiB.`,
       )
     return await readFile(file)
   } finally {
@@ -145,9 +145,9 @@ type GitShaFile = { kind: "missing" } | { kind: "bytes"; bytes: Uint8Array }
 
 export const GIT_REMOTE_ACCESS_MESSAGES = {
   noCredential:
-    "ctx| has no access to this repository. Connect GitHub to this Workspace, then retry.",
+    "ctxpipe has no access to this repository. Connect GitHub to this Workspace, then retry.",
   denied:
-    "ctx| has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
+    "ctxpipe has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
 } as const
 
 /** The remote refused the read credential, or the read needs one and has none. */

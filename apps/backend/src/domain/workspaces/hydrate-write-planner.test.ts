@@ -167,7 +167,7 @@ describe("hydrate direct writes and the Workspace format (ADR-053 section 7)", (
     })
   })
 
-  it("keeps each direct write of ctx|-managed files at format 3", async () => {
+  it("keeps each direct write of ctxpipe-managed files at format 3", async () => {
     expect(await mainEraPlan(3)).toEqual({
       kinds: [
         "bootstrap",

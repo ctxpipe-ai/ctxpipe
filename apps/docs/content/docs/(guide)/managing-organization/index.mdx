@@ -1,6 +1,6 @@
 ---
 title: Organizations and access
-description: How membership, source scope, and agent access fit together in ctx|.
+description: How membership, source scope, and agent access fit together in ctxpipe.
 ---
 
 An **organization** is the access boundary for repositories, connections,
@@ -25,16 +25,16 @@ of the organization can open every Workspace in it.
 
 ## Access follows both membership and source scope
 
-Organization membership gives a user access to the ctx| organization. It does
+Organization membership gives a user access to the ctxpipe organization. It does
 not widen the upstream source scope:
 
-- GitHub App repository selection controls which code ctx| can read.
+- GitHub App repository selection controls which code ctxpipe can read.
 - Connector scope controls which Linear, Notion, or Confluence content is
   mirrored.
 - Repository permissions control who can read connector-generated Git content.
 - Slack captures require the bot to be present in the channel.
 
-Use roles to control administration inside ctx|, and keep provider permissions
+Use roles to control administration inside ctxpipe, and keep provider permissions
 and context-repository audiences deliberately narrow.
 
 <Cards>

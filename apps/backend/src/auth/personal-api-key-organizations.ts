@@ -171,7 +171,7 @@ export const personalApiKeyOrganizationsHook = createAuthMiddleware(
  * api-key plugin (`enableSessionForAPIKeys`) makes a user session from a
  * personal key on every Better Auth endpoint. Thus without this list, a key
  * could make a new key with a larger org set, change the user, or change an
- * organization. A personal key reads ctx| data through our REST and MCP
+ * organization. A personal key reads ctxpipe data through our REST and MCP
  * routes, which apply its org set. Those routes need only `/get-session`.
  * The other entries are public reads that need no session.
  */

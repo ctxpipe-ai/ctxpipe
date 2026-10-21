@@ -5,7 +5,7 @@ description: Configure a deployment-owned Slack app for OAuth, Events API, and i
 
 ## Overview
 
-Self-hosted Slack uses the same connector flow as hosted ctx|, but your
+Self-hosted Slack uses the same connector flow as hosted ctxpipe, but your
 deployment owns **one** Slack app. Organizations authorize that app into their
 workspace; they do not create their own Slack apps or webhook URLs.
 
@@ -77,7 +77,7 @@ Enable Event Subscriptions and set the Request URL to:
 {AUTH_BASE_URL}/api/v1/webhook/slack
 ```
 
-Slack verifies the URL with a signed `url_verification` challenge. ctx| checks
+Slack verifies the URL with a signed `url_verification` challenge. ctxpipe checks
 `X-Slack-Signature` using **`SLACK_SIGNING_SECRET`**.
 
 Subscribe the bot to:
@@ -88,7 +88,7 @@ Do **not** subscribe to `message.channels` / `message.groups` for the connector
 ingest path. Continuous message fan-out is not used.
 
 **Turn Socket Mode off.** If Socket Mode is enabled, Slack will not POST to the
-Request URL (“You won’t need a Request URL”) and mentions never reach ctx|.
+Request URL (“You won’t need a Request URL”) and mentions never reach ctxpipe.
 
 The Events URL is deployment-wide. Do not ask each organization to register its
 own webhook.
@@ -153,7 +153,7 @@ After the deployment Slack app is configured, each organization can:
 Direct messages are not supported in v1. Captures are auditable snapshots
 committed to the bound default branch. Uninstall does not delete git.
 
-One Slack workspace can be connected to one ctx| organization. Reinstalling or
+One Slack workspace can be connected to one ctxpipe organization. Reinstalling or
 rotating the Slack app **drops channel membership**. Invite the bot again in
 every channel where capture should work. Hosted and self-host deployments share
 the Slack app’s rate quota across organizations.

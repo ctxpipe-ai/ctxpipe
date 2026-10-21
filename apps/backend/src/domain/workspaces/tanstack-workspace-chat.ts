@@ -902,7 +902,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
                   JSON.stringify({
                     type: "workspace_root_folder",
                     rootPath,
-                    instructions: `The Workspace is the folder ${rootPath}/ of this repository. Read and change files only below it. Do not change, add, or delete a file outside it: ctx| refuses to push such a commit.`,
+                    instructions: `The Workspace is the folder ${rootPath}/ of this repository. Read and change files only below it. Do not change, add, or delete a file outside it: ctxpipe refuses to push such a commit.`,
                   }),
                 ]
               : []),

@@ -848,7 +848,7 @@ describe("validatePatchStep human files", () => {
       {
         path: ".ctxpipe/sources.yaml",
         rule: "path",
-        reason: "Only ctx| writes host-only paths",
+        reason: "Only ctxpipe writes host-only paths",
       },
     ])
   })
@@ -1479,7 +1479,7 @@ describe("validatePatchStep ownership by source path (CTX-721 T9)", () => {
 
 describe("validatePatchStep sources folder (CTX-721)", () => {
   const SOURCE_FILE = "sources/github/example-org/checkout-api.md"
-  const HOST_ONLY = "Only ctx| writes host-only paths"
+  const HOST_ONLY = "Only ctxpipe writes host-only paths"
 
   it.each([
     ["a new source file", "sources/github/evil/exfil.md"],

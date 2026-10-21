@@ -28,7 +28,7 @@ const sha = z.string().regex(/^[0-9a-f]{40}$/)
 
 /**
  * The source repository of a run: a GitHub repository with the connection
- * that reads it, or a plain git repository that ctx| reads over public
+ * that reads it, or a plain git repository that ctxpipe reads over public
  * HTTPS with no credential (CTX-815). A GitHub source can leave out `kind`:
  * an input from before CTX-815 has none.
  */

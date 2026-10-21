@@ -15,9 +15,9 @@ export function upstreamAuthUnavailableMessage(
   env: AppEnv["Variables"]["env"],
 ): string {
   if (env.MODEL_PROVIDER === "bedrock") {
-    return "ctx| memory proxy is not configured on this server. Ask your operator to set MODEL_PROVIDER=bedrock and grant the runtime IAM permissions to invoke Bedrock models (for example an ECS task role with bedrock:InvokeModel)."
+    return "ctxpipe memory proxy is not configured on this server. Ask your operator to set MODEL_PROVIDER=bedrock and grant the runtime IAM permissions to invoke Bedrock models (for example an ECS task role with bedrock:InvokeModel)."
   }
-  return "ctx| memory proxy is not configured on this server. Ask your operator to set MODEL_PROVIDER_API_KEY (or MODEL_PROVIDER=bedrock with IAM for Amazon Bedrock)."
+  return "ctxpipe memory proxy is not configured on this server. Ask your operator to set MODEL_PROVIDER_API_KEY (or MODEL_PROVIDER=bedrock with IAM for Amazon Bedrock)."
 }
 
 export function unavailableResponse(reason: string, message: string) {

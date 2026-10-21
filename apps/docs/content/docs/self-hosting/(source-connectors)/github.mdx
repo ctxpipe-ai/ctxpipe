@@ -3,18 +3,18 @@ title: GitHub
 description: Create and connect the deployment-owned GitHub App used for repository access and Git-backed connector writes.
 ---
 
-GitHub is foundational to a self-hosted ctx| deployment. The GitHub App reads
+GitHub is foundational to a self-hosted ctxpipe deployment. The GitHub App reads
 selected source repositories and writes configuration or generated context for
 connectors such as Linear, Notion, Confluence, and Slack.
 
 Your deployment must use a GitHub App that **you create and own**. Self-hosted
-repository traffic and credentials do not pass through the hosted ctx| GitHub
+repository traffic and credentials do not pass through the hosted ctxpipe GitHub
 App.
 
 ## Before you start
 
 - Configure a stable public HTTPS `AUTH_BASE_URL`.
-- Sign in as an owner or admin of the ctx| organization.
+- Sign in as an owner or admin of the ctxpipe organization.
 - Decide whether a GitHub user account or GitHub organization should own the
   App.
 - Have permission to install the App on the GitHub accounts that own the target
@@ -41,7 +41,7 @@ Create a [new personal GitHub App](https://github.com/settings/apps/new), or
 open a GitHub organization's **Settings → Developer settings → GitHub Apps →
 New GitHub App**.
 
-Use the values shown in the ctx| wizard:
+Use the values shown in the ctxpipe wizard:
 
 | GitHub field | Value |
 | --- | --- |
@@ -85,9 +85,9 @@ into the Workspaces that link it. The App installation must be able to read
 those linked repositories. Optional for richer PR conversation: **Issues:
 Read**. Required-check conclusions are not mirrored in v1.
 
-Write access is required because ctx| commits to workspace repositories and
+Write access is required because ctxpipe commits to workspace repositories and
 opens pull requests for connector configuration and Workspace chat. Limit the App
-installation to the repositories ctx| should read or write.
+installation to the repositories ctxpipe should read or write.
 
 ## 4. Generate and save credentials
 
@@ -96,11 +96,11 @@ After creating the App:
 1. Copy its numeric **App ID**.
 2. Copy the App slug from its public URL.
 3. Generate and download a private key (`.pem`).
-4. Return to the ctx| wizard.
+4. Return to the ctxpipe wizard.
 5. Paste the App ID and slug, then upload or paste the complete PEM.
 6. Save the connection.
 
-ctx| encrypts the private key and webhook secret for this GitHub connection.
+ctxpipe encrypts the private key and webhook secret for this GitHub connection.
 Keep `AUTH_SECRET` stable and use
 `CONNECTION_SECRETS_ENCRYPTION_KEY` when your secret-management policy requires
 an explicit connector encryption key.
@@ -111,7 +111,7 @@ Install the App on the GitHub user or organization that owns the source
 repositories. Choose **Only select repositories** unless the deployment
 deliberately needs broad access.
 
-ctx| attaches an installation to an organization only with proof that it
+ctxpipe attaches an installation to an organization only with proof that it
 belongs there. A connection created in the wizard proves it with its own App
 credentials. An installation of an App configured through `GITHUB_APP_ID`
 instead needs the person finishing setup to have a linked GitHub account that
@@ -123,7 +123,7 @@ Then verify the full path:
 1. The GitHub connector reaches **Connected**.
 2. **Create workspace** lists repositories from the expected installation.
 3. A linked repository reaches **Indexed** in the Workspace's **Settings**.
-4. Changing repository selection returns through the ctx| setup URL.
+4. Changing repository selection returns through the ctxpipe setup URL.
 5. A test push reaches the connection-specific webhook.
 6. A source change can open a pull request on the workspace repository.
 
@@ -146,12 +146,12 @@ installation.
 
 Confirm that the App is installed on the correct GitHub account and has access
 to the repository. Changing the installation in GitHub does not itself tell
-ctx| to index a repository; link it from the Workspace's **Settings**
+ctxpipe to index a repository; link it from the Workspace's **Settings**
 afterwards.
 
 ### Webhooks fail signature verification
 
-The secret in the GitHub App settings must match the secret saved for this ctx|
+The secret in the GitHub App settings must match the secret saved for this ctxpipe
 connection. Do not reuse a connection-specific URL with credentials from
 another connection.
 
