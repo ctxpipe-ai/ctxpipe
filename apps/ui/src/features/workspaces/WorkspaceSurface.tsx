@@ -13,6 +13,7 @@ import { SkeletonRegion, SkeletonSuspense } from "@/components/ui/Skeleton"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import { pollWhileOk } from "@/lib/api-result"
 import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
+import { conversationErrorReason } from "./conversationPublish"
 import {
   closeFileTab,
   type FileTabSession,
@@ -97,15 +98,26 @@ export function WorkspaceSurface(props: {
   )
 }
 
+/**
+ * The cause and the next step for a pane or chat column error. A known
+ * backend code gets its text; an unknown code never shows as it is.
+ */
+function workspacePaneErrorText(error: unknown): string {
+  const raw = error instanceof Error ? error.message.trim() : ""
+  if (!raw) return "Try again in a moment."
+  const reason = conversationErrorReason(raw)
+  if (reason) return reason
+  if (/^[a-z]+(_[a-z]+)+$/.test(raw))
+    return "ctxpipe could not load this. Try again. If the error stays, reload the page."
+  return raw
+}
+
 function WorkspaceColumnError(props: {
   title: string
   error: unknown
   reset: () => void
 }) {
-  const message =
-    props.error instanceof Error && props.error.message.trim().length > 0
-      ? props.error.message
-      : "Try again in a moment."
+  const message = workspacePaneErrorText(props.error)
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
       <div className="w-full max-w-sm">

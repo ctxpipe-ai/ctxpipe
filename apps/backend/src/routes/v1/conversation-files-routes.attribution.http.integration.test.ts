@@ -6,6 +6,7 @@ import { recordSpans } from "../../../test/spans.js"
 import type { AppEnv } from "../../app/env.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { chatRuns } from "../../db/schema/chat-persistence.js"
 import { conversations } from "../../db/schema/conversations.js"
 import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import { workspaces } from "../../db/schema/workspaces.js"
@@ -134,7 +135,7 @@ describe("conversation Files routes over HTTP", () => {
     expect(JSON.stringify(span?.attributes)).not.toContain("conv_SPOOFED")
   })
 
-  /** Hold the conversation lock as a chat turn does, until the call to release. */
+  /** Hold the conversation lock as a turn or a prepare does, until the call to release. */
   async function holdTurnLock() {
     let release = () => {}
     let acquired = () => {}
@@ -156,24 +157,54 @@ describe("conversation Files routes over HTTP", () => {
     }
   }
 
+  async function read(route: string) {
+    const answered = Promise.resolve(
+      createApp().request(`/conversations/${conversationId}/${route}`, {
+        headers: { cookie: seed.cookie },
+      }),
+    ).then(async (res) => ({ status: res.status, body: await res.json() }))
+    const blocked = new Promise<"blocked">((resolve) =>
+      setTimeout(() => resolve("blocked"), 3_000),
+    )
+    return Promise.race([answered, blocked])
+  }
+
   for (const route of ["files/tree", "files/status", "turns"] as const) {
     it(`answers GET ${route} at once with turn_running while a turn holds the conversation`, async () => {
+      const runId = generateObjectId("run")
+      await withOrgDbContext(seed.orgId, (db) =>
+        db.insert(chatRuns).values({
+          runId,
+          threadId: conversationId,
+          orgId: seed.orgId,
+          status: "running",
+          startedAt: Date.now(),
+        }),
+      )
       const releaseTurn = await holdTurnLock()
       try {
-        const answered = Promise.resolve(
-          createApp().request(`/conversations/${conversationId}/${route}`, {
-            headers: { cookie: seed.cookie },
-          }),
-        ).then(async (res) => ({ status: res.status, body: await res.json() }))
-        const blocked = new Promise<"blocked">((resolve) =>
-          setTimeout(() => resolve("blocked"), 3_000),
-        )
-        expect(await Promise.race([answered, blocked])).toEqual({
+        expect(await read(route)).toEqual({
           status: 409,
           body: { error: "turn_running" },
         })
       } finally {
         await releaseTurn()
+        await withOrgDbContext(seed.orgId, (db) =>
+          db.delete(chatRuns).where(eq(chatRuns.runId, runId)),
+        )
+      }
+    })
+
+    it(`answers GET ${route} at once with chat_starting while a prepare holds the conversation`, async () => {
+      // A prepare (sandbox resume) holds the lock with no running row.
+      const releasePrepare = await holdTurnLock()
+      try {
+        expect(await read(route)).toEqual({
+          status: 409,
+          body: { error: "chat_starting" },
+        })
+      } finally {
+        await releasePrepare()
       }
     })
   }

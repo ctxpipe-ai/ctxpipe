@@ -151,7 +151,9 @@ export async function renameConversation(
 
 /**
  * Deletes a conversation. A 404 means it is already gone, which is the result
- * the caller wants. A 409 (`turn_running`) means a turn still runs in it.
+ * the caller wants. A 409 `turn_running` means a turn still runs in it. A
+ * 409 `chat_starting` means the chat sandbox still starts after the backend
+ * waited a few seconds for it.
  */
 export async function deleteConversation(
   orgSlug: string,
@@ -547,16 +549,25 @@ export function activityOptions(
 
 /**
  * A 409 from a Files read. `busy`: a turn holds the conversation
- * (`turn_running`), so a later read can succeed. Other 409s (for example
- * `missing_sandbox`) do not end on their own.
+ * (`turn_running`) or the chat starts (`chat_starting`), so a later read can
+ * succeed. Other 409s (for example `missing_sandbox`) do not end on their own.
  */
 type ConversationFilesBlocked = { blocked: true; busy: boolean }
+
+/** Who holds the conversation now, from a 409 body. */
+export type ConversationBusy = "turn_running" | "chat_starting"
+
+function conversationBusy(error: unknown): ConversationBusy | undefined {
+  return error === "turn_running" || error === "chat_starting"
+    ? error
+    : undefined
+}
 
 async function readConversationFilesBlocked(
   res: Response,
 ): Promise<ConversationFilesBlocked> {
   const body = (await res.json().catch(() => ({}))) as { error?: string }
-  return { blocked: true, busy: body.error === "turn_running" }
+  return { blocked: true, busy: conversationBusy(body.error) !== undefined }
 }
 
 async function fetchConversationGitTree(
@@ -577,7 +588,7 @@ async function fetchConversationGitBlob(
   orgSlug: string,
   conversationId: string,
   path: string,
-): Promise<WorkspaceGitBlobResponse> {
+): Promise<WorkspaceGitBlobResponse & { busy?: ConversationBusy }> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[
     ":conversationId"
@@ -585,6 +596,15 @@ async function fetchConversationGitBlob(
     param: { orgSlug, conversationId },
     query: { path },
   })
+  if (res.status === 409) {
+    const body = (await (res as Response)
+      .clone()
+      .json()
+      .catch(() => ({}))) as { error?: string }
+    const busy = conversationBusy(body.error)
+    // The chat starts, or no running sandbox is free to read: ask again.
+    if (busy) return { path, body: null, binary: false, busy }
+  }
   return readApiJson(res, {
     emptyOn: [404],
     empty: { path, body: null, binary: false },
@@ -874,7 +894,7 @@ export async function createConversationPullRequest(
   return readApiJson(res, { message: "Failed to create pull request" })
 }
 
-/** Query data for a Files read. `busy`: the last read got 409 turn_running. */
+/** Query data for a Files read. `busy`: the last read got 409 turn_running or chat_starting. */
 type PolledFiles<T> = T & { busy?: boolean }
 
 export function conversationGitTreeOptions(
@@ -911,7 +931,7 @@ export function conversationGitTreeOptions(
       writeConversationGitTreeSnapshot(conversationId, listed)
       return listed
     },
-    // 409 turn_running: a turn holds the conversation. Ask again.
+    // 409 turn_running or chat_starting: the holder lets go soon. Ask again.
     refetchInterval: (query) => (query.state.data?.busy ? 2000 : false),
     placeholderData: (previousData): ConversationGitTreeResponse | undefined =>
       readConversationGitTreeSnapshot(conversationId) ?? previousData,
@@ -928,6 +948,8 @@ export function conversationGitBlobOptions(
   return queryOptions({
     queryKey: workspaceKeys.conversationGitBlob(orgSlug, conversationId, path),
     queryFn: () => fetchConversationGitBlob(orgSlug, conversationId, path),
+    // 409 chat_starting or turn_running: the holder lets go soon. Ask again.
+    refetchInterval: (query) => (query.state.data?.busy ? 2000 : false),
   })
 }
 

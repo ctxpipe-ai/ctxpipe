@@ -500,6 +500,56 @@ export const DeleteRefusedWhileTurnRuns: Story = {
   },
 }
 
+let startingDeletes = 0
+
+/**
+ * A prepare (sandbox resume) still holds the chat after the backend waited:
+ * the delete answers 409 chat_starting. The message says the chat starts and
+ * offers Try again. It does not tell the user to stop a turn.
+ */
+export const DeleteWhileChatStarts: Story = {
+  beforeEach: () => {
+    requests.length = 0
+    startingDeletes = 0
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: conversationRequestHandlers({
+          del: () =>
+            startingDeletes++ === 0
+              ? HttpResponse.json({ error: "chat_starting" }, { status: 409 })
+              : new HttpResponse(null, { status: 204 }),
+        }),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const body = within(canvasElement.ownerDocument.body)
+    await chooseAction(canvasElement, "Auth claims", "Delete")
+    await userEvent.click(
+      await body.findByRole("button", { name: "Delete chat" }),
+    )
+    const alert = await canvas.findByRole("alert")
+    await waitFor(() =>
+      expect(alert).toHaveTextContent(
+        "The chat is starting. Try again in a few seconds.",
+      ),
+    )
+    expect(alert).not.toHaveTextContent(/turn|Stop|chat_starting/)
+    await userEvent.click(canvas.getByRole("button", { name: "Try again" }))
+    await waitFor(() =>
+      expect(canvas.queryByRole("link", { name: "Auth claims" })).toBeNull(),
+    )
+    expect(canvas.queryByRole("alert")).toBeNull()
+    expect(requests).toEqual([
+      "DELETE /acme/api/v1/conversations/conv_2",
+      "DELETE /acme/api/v1/conversations/conv_2",
+    ])
+  },
+}
+
 const PREFERENCES_KEY = "ctxpipe:userPreferences"
 
 /** What the browser stored about the chats the user has seen. */

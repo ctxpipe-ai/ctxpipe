@@ -642,6 +642,57 @@ export const GitFileEditable: Story = {
   },
 }
 
+let startingBlobHits = 0
+
+/**
+ * A prepare (sandbox resume) holds the chat: the file read answers 409
+ * chat_starting twice. The pane says the chat starts, asks again by itself,
+ * and then shows the file. It never shows the code or "a turn is running".
+ */
+export const FileWhileChatStarts: Story = {
+  ...conversationFileStory(ledgerPath),
+  beforeEach: () => {
+    startingBlobHits = 0
+  },
+  parameters: {
+    ...conversationFileStory(ledgerPath).parameters,
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+                new URL(request.url).pathname,
+              ),
+            // After two answers, the next handler serves the file.
+            () =>
+              startingBlobHits++ < 2
+                ? HttpResponse.json({ error: "chat_starting" }, { status: 409 })
+                : undefined,
+          ),
+          ...legacyConversationHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expect(
+      await canvas.findByText("The chat is starting…", undefined, {
+        timeout: 5000,
+      }),
+    ).toBeVisible()
+    expect(textInShadows(canvasElement)).not.toContain("chat_starting")
+    expect(canvasElement.textContent).not.toContain("chat_starting")
+    expect(canvasElement.textContent).not.toMatch(/turn is (still )?running/i)
+    await waitFor(
+      () => expect(textInShadows(canvasElement)).toContain("Billing ledger"),
+      { timeout: 10_000 },
+    )
+    expect(canvas.queryByText("The chat is starting…")).toBeNull()
+  },
+}
+
 const manyFileTabs = [
   ...Array.from(
     { length: 14 },
