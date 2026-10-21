@@ -81,7 +81,8 @@ async function stopWorker() {
     })
   })
   await Promise.all([flushEvlog(), shutdownOtel()])
-  process.exit(0)
+    .catch(() => {})
+    .finally(() => process.exit(0))
 }
 
 process.on("SIGINT", () => {

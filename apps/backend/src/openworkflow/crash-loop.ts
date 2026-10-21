@@ -162,7 +162,16 @@ export async function withCrashLoopGuard<T>(
   )
   if (workerState.stopping) {
     // SIGTERM came before this step started: do not run it.
-    if (attemptId) await markAttemptsFailed([attemptId])
+    if (attemptId) {
+      await markAttemptsFailed([attemptId]).catch((error: unknown) => {
+        log.error({
+          step: "openworkflow.step-attempt-stop-failed",
+          message: `Marking the step attempt of the stopped worker failed: ${String(error)}`,
+          workflowRunId,
+          stepName,
+        })
+      })
+    }
     return never()
   }
   const crashes = crashed.length

@@ -420,9 +420,11 @@ it("does not end a step whose body ends after the stop marked it, so the next wo
   })
   expect(bodies).toBe(1)
 
-  // The next worker claims the run when the lease of the stopped one ends.
+  // The lease of the stopped worker ends. Clearing worker_id in the same
+  // update makes its heartbeat a no-op, so it cannot push the lease out
+  // before the next claim.
   await getSystemDb().execute(sql`
-    update openworkflow.workflow_runs set available_at = now()
+    update openworkflow.workflow_runs set available_at = now(), worker_id = null
     where namespace_id = ${namespace} and id = ${runId}
   `)
   const next = ow.newWorker({ concurrency: 1 })
