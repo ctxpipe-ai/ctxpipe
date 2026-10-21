@@ -38,7 +38,7 @@ export async function stageGitFiles(
   pack: GitPack,
   rootFiles: readonly GitFileChange[],
   rootDeletePaths: readonly string[] = [],
-  read?: GitRemoteRead,
+  read: GitRemoteRead | null,
 ): Promise<StagedGitTree> {
   const root = pack.root ?? ""
   const files = rootFiles.map((file) => ({
@@ -129,7 +129,7 @@ export async function validateGitTree(
   staged: StagedGitTree,
   allowedPaths: readonly string[],
   options: { allowNoChanges?: boolean } = {},
-  read?: GitRemoteRead,
+  read: GitRemoteRead | null,
 ): Promise<string[]> {
   return withGitDirectory(
     staged.pack.sha,
@@ -165,7 +165,7 @@ export async function validateGitTree(
 export async function commitGitTree(
   staged: StagedGitTree,
   input: { subject: string; createdAt: Date | string },
-  read?: GitRemoteRead,
+  read: GitRemoteRead | null,
 ): Promise<GitPack> {
   return withGitDirectory(
     staged.pack.sha,
@@ -207,7 +207,7 @@ export async function commitGitTree(
 export async function readGitCommitChanges(
   pack: GitPack,
   parent: string,
-  read?: GitRemoteRead,
+  read: GitRemoteRead | null,
 ): Promise<{ files: GitFileChange[]; deletePaths: string[] }> {
   return withGitDirectory(
     pack.sha,

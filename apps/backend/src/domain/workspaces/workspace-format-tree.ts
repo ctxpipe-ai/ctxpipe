@@ -25,7 +25,7 @@ import {
 /** The format in a pack of the Workspace tree. Pack paths are relative to the root folder. */
 export async function packWorkspaceFormat(
   pack: GitPack,
-  read?: GitRemoteRead,
+  read: GitRemoteRead | null,
 ): Promise<number> {
   const [file] = await readGitFiles(
     pack,

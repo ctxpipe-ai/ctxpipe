@@ -104,22 +104,27 @@ it("waits for a Git process the operation left running before it removes the dir
   let leftDirectory = ""
   try {
     await expect(
-      withGitDirectory("0".repeat(40), async (directory) => {
-        leftDirectory = directory
-        // Git blocks on the pipe: it is alive until something writes to it or kills it.
-        void nativeGit(directory, ["hash-object", "-w", "--stdin"], {
-          file: fifo,
-        })
-          .catch((error: unknown) => {
-            leftError = error
+      withGitDirectory(
+        "0".repeat(40),
+        async (directory) => {
+          leftDirectory = directory
+          // Git blocks on the pipe: it is alive until something writes to it or kills it.
+          void nativeGit(directory, ["hash-object", "-w", "--stdin"], {
+            file: fifo,
           })
-          .finally(() => {
-            leftSettled = true
-          })
-        // Let Git start and block, so the process is really alive.
-        await new Promise((resolve) => setTimeout(resolve, 200))
-        throw new Error("the operation failed")
-      }),
+            .catch((error: unknown) => {
+              leftError = error
+            })
+            .finally(() => {
+              leftSettled = true
+            })
+          // Let Git start and block, so the process is really alive.
+          await new Promise((resolve) => setTimeout(resolve, 200))
+          throw new Error("the operation failed")
+        },
+        undefined,
+        null,
+      ),
     ).rejects.toThrow("the operation failed")
     // The clean-up has waited: the process has exited, not only been signaled.
     expect(leftSettled).toBe(true)
@@ -182,6 +187,7 @@ it("opens a large pack without the whole pack in memory", async () => {
             .trim()
             .split("\n").length,
         pack,
+        null,
       )
       expect(count).toBe(12 * 64)
     } finally {
@@ -196,11 +202,16 @@ it("opens a large pack without the whole pack in memory", async () => {
 it("puts the Git error output and the exit code in the error of a failed pack", async () => {
   const sha = "a".repeat(40)
   await expect(
-    withGitDirectory(sha, async () => undefined, {
+    withGitDirectory(
       sha,
-      objects: Buffer.from("PACK but not a pack").toString("base64"),
-      shallow: "",
-    }),
+      async () => undefined,
+      {
+        sha,
+        objects: Buffer.from("PACK but not a pack").toString("base64"),
+        shallow: "",
+      },
+      null,
+    ),
   ).rejects.toThrow(/git index-pack exit code 128 after \d+ s: fatal: /)
 })
 
@@ -244,6 +255,30 @@ it.each([
     name: "plain HTTP",
     url: "http://github.com/fixture/bound.git",
     readUrl: "http://github.com/fixture/bound.git",
+    stored: {},
+  },
+  {
+    name: "a URL with a user name",
+    url: "https://x@github.com/o/r",
+    readUrl: "https://x@github.com/o/r",
+    stored: {},
+  },
+  {
+    name: "a host that only starts with github.com",
+    url: "https://github.com.evil/o/r",
+    readUrl: "https://github.com.evil/o/r",
+    stored: {},
+  },
+  {
+    name: "a URL with a port",
+    url: "https://github.com:8443/o/r",
+    readUrl: "https://github.com:8443/o/r",
+    stored: {},
+  },
+  {
+    name: "a URL with a backslash",
+    url: "https://github.com\\@evil.example/o/r",
+    readUrl: "https://github.com\\@evil.example/o/r",
     stored: {},
   },
 ])("rejects a stored base on $name before it asks for a token (CTX-955)", async ({
@@ -302,7 +337,7 @@ it("fetches a stored base with the read access of the caller, not with the org a
     expect(content).toBe("# Notes\n")
     expect(token).toHaveBeenCalledTimes(1)
     await expect(
-      withGitDirectory(source.sha, async () => "opened", pack),
+      withGitDirectory(source.sha, async () => "opened", pack, null),
     ).rejects.toThrow("needs the read access of its Workspace")
   } finally {
     vi.unstubAllEnvs()
@@ -313,6 +348,7 @@ it("fetches a stored base with the read access of the caller, not with the org a
 it.each([
   { status: 503, attempts: 3, error: "returned error: 503" },
   { status: 404, attempts: 1, error: "not found" },
+  { status: 403, attempts: 1, error: "returned error: 403" },
 ])("fetches again after a $status answer only when the Git host can recover: $attempts attempts", async ({
   status,
   attempts,

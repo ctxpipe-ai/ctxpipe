@@ -35,7 +35,7 @@ export async function mergeGitFiles(input: {
   previousSha: string
   files: readonly GitFileChange[]
   deletePaths: readonly string[]
-  read?: GitRemoteRead
+  read: GitRemoteRead | null
 }): Promise<GitMergeResult | null> {
   const candidateTree = await stageGitFiles(
     { ...input.pack, sha: input.previousSha },
@@ -167,7 +167,7 @@ export async function mergeGitFiles(input: {
 export async function resolveGitMergeTree(
   merged: GitMergeResult,
   files: readonly { path: string; content: string | null }[],
-  read?: GitRemoteRead,
+  read: GitRemoteRead | null,
 ): Promise<StagedGitTree> {
   const parent = merged.staged.pack.sha
   const candidate = await commitGitTree(

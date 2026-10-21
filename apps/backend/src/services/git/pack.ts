@@ -81,7 +81,9 @@ function assertBaseOfBoundRepository(base: GitPackBase, read: GitRemoteRead) {
     url?.protocol !== "https:" ||
     url.hostname.toLowerCase() !== "github.com" ||
     url.username ||
-    url.password
+    url.password ||
+    url.port !== "" ||
+    base.url.includes("\\")
   )
     throw new Error(
       "The stored Git pack names a remote that is not the GitHub repository of its Workspace",
@@ -92,7 +94,7 @@ function assertBaseOfBoundRepository(base: GitPackBase, read: GitRemoteRead) {
 function isTransientFetchError(error: unknown): boolean {
   return (
     error instanceof Error &&
-    /returned error: 5\d\d|Could not resolve host|Failed to connect|Connection (?:timed out|reset|refused)|Operation timed out|early EOF|RPC failed|unexpected disconnect|remote end hung up|at the \d+ s time limit/i.test(
+    /returned error: 5\d\d|Could not resolve host|Failed to connect|Connection (?:timed out|reset|refused)|Operation timed out|early EOF|unexpected disconnect|remote end hung up|at the \d+ s time limit/i.test(
       error.message,
     )
   )
@@ -423,9 +425,9 @@ async function indexGitPack(directory: string, objects: string) {
 export async function withGitDirectory<T>(
   sha: string,
   operation: (directory: string) => Promise<T>,
-  pack?: GitPack,
+  pack: GitPack | undefined,
   /** Required when the pack has a base. */
-  read?: GitRemoteRead,
+  read: GitRemoteRead | null,
 ): Promise<T> {
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(sha))
     throw new Error("An immutable full Git SHA is required")
@@ -439,7 +441,7 @@ export async function withGitDirectory<T>(
     if (pack) {
       if (pack.sha !== sha) throw new Error("Git pack identity mismatch")
       if (pack.base) {
-        if (!read)
+        if (read === null)
           throw new Error(
             "A Git pack with a base needs the read access of its Workspace",
           )
@@ -495,8 +497,8 @@ export async function withGitDirectory<T>(
 export async function readGitFiles(
   pack: GitPack,
   include: (path: string) => boolean,
-  limit?: { maxBytes: number; applies: (path: string) => boolean },
-  read?: GitRemoteRead,
+  limit: { maxBytes: number; applies: (path: string) => boolean } | undefined,
+  read: GitRemoteRead | null,
 ): Promise<
   Array<{ path: string; content: string; omitted?: "too_large" | "binary" }>
 > {
@@ -551,20 +553,25 @@ export async function readGitPackFromRemote(input: {
   /** Workspace root folder; `""` or absent is the repository root. */
   root?: string
 }): Promise<GitPack> {
-  return withGitDirectory(input.sha, async (directory) => {
-    await fetchGitCommits(directory, {
-      url: input.url,
-      shas: [input.sha, ...(input.additionalShas ?? [])],
-      token: input.token,
-    })
-    const pack = await captureGitPack(
-      directory,
-      input.sha,
-      null,
-      input.additionalShas,
-    )
-    return input.root ? { ...pack, root: input.root } : pack
-  })
+  return withGitDirectory(
+    input.sha,
+    async (directory) => {
+      await fetchGitCommits(directory, {
+        url: input.url,
+        shas: [input.sha, ...(input.additionalShas ?? [])],
+        token: input.token,
+      })
+      const pack = await captureGitPack(
+        directory,
+        input.sha,
+        null,
+        input.additionalShas,
+      )
+      return input.root ? { ...pack, root: input.root } : pack
+    },
+    undefined,
+    null,
+  )
 }
 
 /** Every blob below the pack's root folder, with root-relative paths. */

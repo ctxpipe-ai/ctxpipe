@@ -83,6 +83,7 @@ export async function nativeFolderSetChanged(
       )
     },
     pack,
+    null,
   )
 }
 

@@ -66,19 +66,27 @@ function treePaths(pack: GitPack): Promise<string[]> {
         .split("\0")
         .filter(Boolean),
     pack,
+    null,
   )
 }
 
 describe("a pack with a Workspace root folder", () => {
   it("reads only the files below the root folder, as root-relative paths", async () => {
     expect(
-      (await readGitFiles(base, () => true)).map((file) => file.path).sort(),
+      (await readGitFiles(base, () => true, undefined, null))
+        .map((file) => file.path)
+        .sort(),
     ).toEqual(["AGENTS.md", "knowledge/services/a.md"])
   })
 
   it("reads nothing when the root folder does not exist yet", async () => {
     expect(
-      await readGitFiles({ ...base, root: "docs/new" }, () => true),
+      await readGitFiles(
+        { ...base, root: "docs/new" },
+        () => true,
+        undefined,
+        null,
+      ),
     ).toEqual([])
   })
 
@@ -87,17 +95,24 @@ describe("a pack with a Workspace root folder", () => {
       base,
       [{ path: "knowledge/services/b.md", content: "# B\n" }],
       ["knowledge/services/a.md"],
+      null,
     )
     expect(
-      await validateGitTree(staged, [
-        "knowledge/services/a.md",
-        "knowledge/services/b.md",
-      ]),
+      await validateGitTree(
+        staged,
+        ["knowledge/services/a.md", "knowledge/services/b.md"],
+        undefined,
+        null,
+      ),
     ).toEqual(["knowledge/services/a.md", "knowledge/services/b.md"])
-    const committed = await commitGitTree(staged, {
-      subject: "Change",
-      createdAt: "2026-01-01T00:00:00Z",
-    })
+    const committed = await commitGitTree(
+      staged,
+      {
+        subject: "Change",
+        createdAt: "2026-01-01T00:00:00Z",
+      },
+      null,
+    )
     expect(committed.root).toBe("docs/context")
     expect(await treePaths(committed)).toEqual([
       "README.md",
@@ -105,7 +120,7 @@ describe("a pack with a Workspace root folder", () => {
       "docs/context/knowledge/services/b.md",
       "src/app.ts",
     ])
-    expect(await readGitCommitChanges(committed, base.sha)).toEqual({
+    expect(await readGitCommitChanges(committed, base.sha, null)).toEqual({
       files: [
         {
           path: "knowledge/services/b.md",
@@ -119,15 +134,24 @@ describe("a pack with a Workspace root folder", () => {
 
   it("refuses a path that leaves the root folder", async () => {
     await expect(
-      stageGitFiles(base, [{ path: "../../src/app.ts", content: "x" }]),
+      stageGitFiles(
+        base,
+        [{ path: "../../src/app.ts", content: "x" }],
+        undefined,
+        null,
+      ),
     ).rejects.toThrow()
-    await expect(stageGitFiles(base, [], ["../../README.md"])).rejects.toThrow()
+    await expect(
+      stageGitFiles(base, [], ["../../README.md"], null),
+    ).rejects.toThrow()
   })
 
   it("keeps the repository root when the pack has no root folder", async () => {
     const { root: _root, ...plain } = base
     expect(
-      (await readGitFiles(plain, () => true)).map((file) => file.path).sort(),
+      (await readGitFiles(plain, () => true, undefined, null))
+        .map((file) => file.path)
+        .sort(),
     ).toEqual([
       "README.md",
       "docs/context/AGENTS.md",
@@ -169,6 +193,7 @@ describe("a pack with a Workspace root folder", () => {
     const merged = await mergeGitFiles({
       pack: tip,
       previousSha: base.sha,
+      read: null,
       files: [{ path: "knowledge/services/b.md", content: "# B\n" }],
       deletePaths: [],
     })

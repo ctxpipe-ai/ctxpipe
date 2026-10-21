@@ -99,5 +99,6 @@ export async function readSliceTarget(input: {
       }
     },
     pack,
+    null,
   )
 }

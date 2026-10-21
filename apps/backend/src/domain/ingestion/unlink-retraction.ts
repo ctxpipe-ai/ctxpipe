@@ -99,7 +99,7 @@ type UnlinkRetractionPlan = {
  */
 export async function planUnlinkRetraction(input: {
   pack: GitPack
-  read?: GitRemoteRead
+  read: GitRemoteRead | null
   /** The repository that left the sources. */
   sourceUrl: string
   /**
@@ -300,7 +300,7 @@ async function validateDeletes(
   pack: GitPack,
   source: { sourceUrl: string; sourcePath: string },
   paths: readonly string[],
-  read: GitRemoteRead | undefined,
+  read: GitRemoteRead | null,
 ): Promise<void> {
   await withGitDirectory(
     pack.sha,

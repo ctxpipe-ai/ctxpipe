@@ -33,7 +33,7 @@ function renamePairs(output: Buffer): Rename[] {
 export async function nativeRenameRewriteFiles(
   pack: GitPack,
   previousSha: string,
-  read?: GitRemoteRead,
+  read: GitRemoteRead | null,
 ) {
   return withGitDirectory(
     pack.sha,

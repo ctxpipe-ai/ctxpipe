@@ -76,7 +76,10 @@ export function splitSourcesTree<
  * the hydrate read ({@link SOURCES_TREE_READ}): a blob under `sources/` that
  * is too large or not text gets no content, so that it gets an invalid row.
  */
-export async function readSourcesTree(pack: GitPack, read?: GitRemoteRead) {
+export async function readSourcesTree(
+  pack: GitPack,
+  read: GitRemoteRead | null,
+) {
   return splitSourcesTree(
     await readGitFiles(
       pack,

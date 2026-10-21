@@ -79,7 +79,7 @@ export async function assertConnectorMirrorBinding(
 export async function assertConnectorMirrorScope(
   source: ConnectorMirrorSource,
   pack: GitPack,
-  read?: GitRemoteRead,
+  read: GitRemoteRead | null,
 ): Promise<void> {
   if ("sourcesBlobSha" in source) {
     const fence = await withGitDirectory(
@@ -138,7 +138,7 @@ export async function assertConnectorMirrorScope(
 async function blobShaAt(
   pack: GitPack,
   path: string,
-  read: GitRemoteRead | undefined,
+  read: GitRemoteRead | null,
 ): Promise<string | null> {
   return withGitDirectory(
     pack.sha,

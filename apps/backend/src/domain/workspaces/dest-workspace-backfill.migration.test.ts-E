@@ -1,0 +1,37 @@
+import { existsSync, readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { describe, expect, it } from "vitest"
+
+const backendRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..")
+const migrationSql = readFileSync(
+  join(backendRoot, "migrations/20261016064110_workspaces/migration.sql"),
+  "utf8",
+)
+
+describe("dest workspace SQL backfill", () => {
+  it("inserts workspaces without starting jobs; cardinality is corrected in TypeScript", () => {
+    expect(migrationSql).not.toMatch(/workflow_runs/i)
+    expect(migrationSql).not.toMatch(/runWorkflow/i)
+    expect(migrationSql).not.toMatch(/INSERT INTO openworkflow/i)
+    expect(migrationSql).toContain('INSERT INTO "workspaces"')
+    expect(migrationSql).toContain("linear")
+    expect(migrationSql).toContain("notion")
+    expect(migrationSql).toContain("slack")
+    expect(migrationSql).not.toContain("org_workspace_cutover")
+    expect(migrationSql).not.toContain("workspace_linked_repositories")
+  })
+
+  it("removes the runtime cutover job", () => {
+    expect(
+      existsSync(
+        join(backendRoot, "src/openworkflow/workflows/workspace-cutover.ts"),
+      ),
+    ).toBe(false)
+    expect(
+      existsSync(
+        join(backendRoot, "src/openworkflow/enqueue-workspace-cutover.ts"),
+      ),
+    ).toBe(false)
+  })
+})

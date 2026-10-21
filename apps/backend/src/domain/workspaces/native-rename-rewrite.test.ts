@@ -67,6 +67,7 @@ it("rewrites the sources list of each unit that names a renamed source file", as
   const changes = await nativeRenameRewriteFiles(
     await captureGitPack(repo.directory, after, null, [before]),
     before,
+    null,
   )
 
   expect(changes).toEqual([

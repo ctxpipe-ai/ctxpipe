@@ -332,6 +332,7 @@ export async function refreshWorkspaceWriteRevision(
         token: resolved.token,
         root: workspaceRootPath(resolved.revision),
       }),
+      null,
     )
   }
   return { ...resolved.revision, access: "write-default" }
@@ -550,6 +551,7 @@ export async function pushUnbornWorkspaceCommit(
         return { kind: "pushed" }
       },
       committed,
+      null,
     )
   } catch (error) {
     const reason =
