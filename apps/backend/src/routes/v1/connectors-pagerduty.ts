@@ -630,20 +630,22 @@ function pagerdutyTokenRefresh(
 ) {
   return async (expectedRefreshToken: string, expectedAccessToken: string) => {
     try {
-      return await refreshPagerdutyConnectionTokensWithLock({
-        orgId,
-        connectionId: connection.id,
-        env,
-        expectedRefreshToken,
-        expectedAccessToken,
-        refresh: async (refreshToken) => {
-          const creds = resolvePagerdutyOAuthAppCreds(connection, env)
-          if (!creds) {
-            throw new Error("PagerDuty OAuth is not configured")
-          }
-          return refreshPagerdutyOAuthToken({ env, creds, refreshToken })
-        },
-      })
+      return await withOrgDbContext(orgId, () =>
+        refreshPagerdutyConnectionTokensWithLock({
+          orgId,
+          connectionId: connection.id,
+          env,
+          expectedRefreshToken,
+          expectedAccessToken,
+          refresh: async (refreshToken) => {
+            const creds = resolvePagerdutyOAuthAppCreds(connection, env)
+            if (!creds) {
+              throw new Error("PagerDuty OAuth is not configured")
+            }
+            return refreshPagerdutyOAuthToken({ env, creds, refreshToken })
+          },
+        }),
+      )
     } catch (error) {
       if (isPagerdutyAuthorizationRevokedError(error)) {
         await withOrgDbContext(orgId, () =>

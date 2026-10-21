@@ -63,32 +63,34 @@ function createPagerdutyTokenRefreshHandler(input: {
   env: Env
 }) {
   return (expectedRefreshToken: string, expectedAccessToken: string) =>
-    refreshPagerdutyConnectionTokensWithLock({
-      ...input,
-      expectedRefreshToken,
-      expectedAccessToken,
-      refresh: async (refreshToken) => {
-        const connection = await getPagerdutyConnectionByConnectionId(
-          input.orgId,
-          input.connectionId,
-          input.env,
-        )
-        const creds = resolvePagerdutyOAuthAppCreds(connection, input.env)
-        if (!creds) {
-          throw new Error("PagerDuty OAuth is not configured")
-        }
-        const refreshed = await refreshPagerdutyOAuthToken({
-          env: input.env,
-          creds,
-          refreshToken,
-        })
-        return {
-          accessToken: refreshed.accessToken,
-          refreshToken: refreshed.refreshToken,
-          accessTokenExpiresAt: refreshed.accessTokenExpiresAt,
-        }
-      },
-    })
+    withOrgDbContext(input.orgId, () =>
+      refreshPagerdutyConnectionTokensWithLock({
+        ...input,
+        expectedRefreshToken,
+        expectedAccessToken,
+        refresh: async (refreshToken) => {
+          const connection = await getPagerdutyConnectionByConnectionId(
+            input.orgId,
+            input.connectionId,
+            input.env,
+          )
+          const creds = resolvePagerdutyOAuthAppCreds(connection, input.env)
+          if (!creds) {
+            throw new Error("PagerDuty OAuth is not configured")
+          }
+          const refreshed = await refreshPagerdutyOAuthToken({
+            env: input.env,
+            creds,
+            refreshToken,
+          })
+          return {
+            accessToken: refreshed.accessToken,
+            refreshToken: refreshed.refreshToken,
+            accessTokenExpiresAt: refreshed.accessTokenExpiresAt,
+          }
+        },
+      }),
+    )
 }
 
 export async function resolveFreshAccessToken(input: {

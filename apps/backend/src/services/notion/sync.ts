@@ -74,28 +74,30 @@ export function createNotionTokenRefreshHandler(input: {
   env: Env
 }): NotionTokenRefreshHandler {
   return (expectedRefreshToken, expectedAccessToken) =>
-    refreshNotionConnectionTokensWithLock({
-      ...input,
-      expectedRefreshToken,
-      expectedAccessToken,
-      refresh: async (refreshToken) => {
-        const stored = await loadNotionStoredConfig(
-          input.orgId,
-          input.connectionId,
-        )
-        const app = resolveNotionOAuthApp(stored, input.env)
-        if (!app) throw new Error("Notion OAuth is not configured")
-        const refreshed = await refreshNotionOAuthToken({
-          clientId: app.clientId,
-          clientSecret: app.clientSecret,
-          refreshToken,
-        })
-        return {
-          accessToken: refreshed.access_token,
-          refreshToken: refreshed.refresh_token ?? refreshToken,
-        }
-      },
-    })
+    withOrgDbContext(input.orgId, () =>
+      refreshNotionConnectionTokensWithLock({
+        ...input,
+        expectedRefreshToken,
+        expectedAccessToken,
+        refresh: async (refreshToken) => {
+          const stored = await loadNotionStoredConfig(
+            input.orgId,
+            input.connectionId,
+          )
+          const app = resolveNotionOAuthApp(stored, input.env)
+          if (!app) throw new Error("Notion OAuth is not configured")
+          const refreshed = await refreshNotionOAuthToken({
+            clientId: app.clientId,
+            clientSecret: app.clientSecret,
+            refreshToken,
+          })
+          return {
+            accessToken: refreshed.access_token,
+            refreshToken: refreshed.refresh_token ?? refreshToken,
+          }
+        },
+      }),
+    )
 }
 
 type NotionSyncResult = {

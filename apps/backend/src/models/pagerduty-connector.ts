@@ -1,11 +1,6 @@
 import { and, desc, eq, sql } from "drizzle-orm"
 import type { Env } from "../config/env.js"
-import {
-  assertNotInOrgDbContext,
-  type Db,
-  getOrgDb,
-  withOrgDbContext,
-} from "../db/client.js"
+import { type Db, getOrgDb, withOrgDbContext } from "../db/client.js"
 import {
   CONNECTION_TYPE_PAGERDUTY,
   connections,
@@ -507,8 +502,11 @@ export async function refreshPagerdutyConnectionTokensWithLock(input: {
   refreshToken: string | null
   accessTokenExpiresAt: string | null
 }> {
-  assertNotInOrgDbContext()
-  const load = async (tx: Db) => {
+  const db = getOrgDb()
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
+    )
     const [row] = await tx
       .select()
       .from(connections)
@@ -521,40 +519,27 @@ export async function refreshPagerdutyConnectionTokensWithLock(input: {
       )
       .limit(1)
     if (!row) throw new Error("PagerDuty connection not found")
-    return pagerdutyConnectionToShape(row, input.env)
-  }
-  const isStale = (current: {
-    accessToken: string | null
-    refreshToken: string | null
-  }) =>
-    current.accessToken !== input.expectedAccessToken ||
-    current.refreshToken !== input.expectedRefreshToken
-  const currentTokens = (current: Awaited<ReturnType<typeof load>>) => {
-    if (!current.accessToken) {
-      throw new Error("PagerDuty connection has no access token")
+    const current = pagerdutyConnectionToShape(row, input.env)
+    if (
+      current.accessToken !== input.expectedAccessToken ||
+      current.refreshToken !== input.expectedRefreshToken
+    ) {
+      if (!current.accessToken) {
+        throw new Error("PagerDuty connection has no access token")
+      }
+      return {
+        accessToken: current.accessToken,
+        refreshToken: current.refreshToken,
+        accessTokenExpiresAt: current.accessTokenExpiresAt,
+      }
     }
-    return {
-      accessToken: current.accessToken,
-      refreshToken: current.refreshToken,
-      accessTokenExpiresAt: current.accessTokenExpiresAt,
+    if (!current.refreshToken) {
+      throw new Error("PagerDuty connection has no refresh token")
     }
-  }
-  // The token call runs between two short transactions, never inside one.
-  const snapshot = await withOrgDbContext(input.orgId, load)
-  if (isStale(snapshot)) return currentTokens(snapshot)
-  if (!snapshot.refreshToken) {
-    throw new Error("PagerDuty connection has no refresh token")
-  }
-  const refreshed = await input.refresh(snapshot.refreshToken)
-  return withOrgDbContext(input.orgId, async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
-    )
-    const current = await load(tx)
-    if (isStale(current)) return currentTokens(current)
+    const refreshed = await input.refresh(current.refreshToken)
     const tokens = {
       accessToken: refreshed.accessToken,
-      refreshToken: refreshed.refreshToken ?? snapshot.refreshToken,
+      refreshToken: refreshed.refreshToken ?? current.refreshToken,
       accessTokenExpiresAt:
         refreshed.accessTokenExpiresAt ?? current.accessTokenExpiresAt,
     }

@@ -1,7 +1,6 @@
 import { and, desc, eq, sql } from "drizzle-orm"
 import type { Env } from "../config/env.js"
 import {
-  assertNotInOrgDbContext,
   type Db,
   getOrgDb,
   getSystemDb,
@@ -682,8 +681,11 @@ export async function refreshNotionConnectionTokensWithLock(input: {
     refreshToken: string | null
   }>
 }): Promise<{ accessToken: string; refreshToken: string | null }> {
-  assertNotInOrgDbContext()
-  const load = async (tx: Db) => {
+  const db = getOrgDb()
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
+    )
     const [row] = await tx
       .select()
       .from(connections)
@@ -700,37 +702,22 @@ export async function refreshNotionConnectionTokensWithLock(input: {
     if (!current.accessToken) {
       throw new Error("Notion connection has no access token")
     }
-    return { row, current, accessToken: current.accessToken }
-  }
-  const isStale = (current: {
-    accessToken: string | null
-    refreshToken: string | null
-  }) =>
-    current.accessToken !== input.expectedAccessToken ||
-    current.refreshToken !== input.expectedRefreshToken
-  // The token call runs between two short transactions, never inside one.
-  const snapshot = await withOrgDbContext(input.orgId, load)
-  if (isStale(snapshot.current)) {
-    return {
-      accessToken: snapshot.accessToken,
-      refreshToken: snapshot.current.refreshToken,
+    if (
+      current.accessToken !== input.expectedAccessToken ||
+      current.refreshToken !== input.expectedRefreshToken
+    ) {
+      return {
+        accessToken: current.accessToken,
+        refreshToken: current.refreshToken,
+      }
     }
-  }
-  if (!snapshot.current.refreshToken) {
-    throw new Error("Notion connection has no refresh token")
-  }
-  const refreshed = await input.refresh(snapshot.current.refreshToken)
-  return withOrgDbContext(input.orgId, async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
-    )
-    const { row, current, accessToken } = await load(tx)
-    if (isStale(current)) {
-      return { accessToken, refreshToken: current.refreshToken }
+    if (!current.refreshToken) {
+      throw new Error("Notion connection has no refresh token")
     }
+    const refreshed = await input.refresh(current.refreshToken)
     const tokens = {
       accessToken: refreshed.accessToken,
-      refreshToken: refreshed.refreshToken ?? snapshot.current.refreshToken,
+      refreshToken: refreshed.refreshToken ?? current.refreshToken,
     }
     const stored = parseNotionConnectionConfig(
       row.config as Record<string, unknown>,
