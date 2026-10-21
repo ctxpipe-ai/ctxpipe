@@ -131,7 +131,8 @@ function describeGitFailure(
     signal?: NodeJS.Signals | null
     stderr?: Buffer | string
   }
-  if (typeof failure.code === "string") return error
+  // Only a Git process that ran has an exit status; execFile sets `cmd`.
+  if (!("cmd" in failure) || typeof failure.code === "string") return error
   const exitCode = typeof failure.code === "number" ? failure.code : undefined
   const signal = failure.signal ?? undefined
   const stderr = String(failure.stderr ?? "").trim()
@@ -143,7 +144,11 @@ function describeGitFailure(
   const status = signal
     ? `stopped by ${signal}${timedOut ? ` at the ${GIT_TIME_LIMIT_MS / 1000} s time limit` : ""}`
     : `exit code ${exitCode ?? "unknown"}`
-  const command = args.find((arg) => !arg.startsWith("-")) ?? "git"
+  // The subcommand is the first argument that is not an option or the value
+  // of a `-c` option.
+  const command =
+    args.find((arg, at) => !arg.startsWith("-") && args[at - 1] !== "-c") ??
+    "git"
   const firstLine = failure.message.split("\n", 1)[0]
   failure.message = `${firstLine}\ngit ${command} ${status} after ${Math.round(elapsedMs / 1000)} s${shownStderr ? `: ${shownStderr}` : " with no error output"}`
   const details = {
