@@ -42,7 +42,7 @@ export const WORKSPACE_UPGRADES_HASH = "upgrades"
 
 /**
  * How long to wait before the next read. A run that prepares the pull
- * request changes fast (3 s). A merged pull request that ctx| reads changes
+ * request changes fast (3 s). A merged pull request that ctxpipe reads changes
  * when the hydrate and the scan end (3 s). An open pull request changes when
  * someone merges it on GitHub (15 s). An item that waits for a click changes when a
  * scan starts it (Always update) or when the user starts it elsewhere (15 s).
@@ -160,7 +160,7 @@ export async function startWorkspaceUpgrade(
   })
 }
 
-/** Starts the tip check now: ctx| reads the default branch of the Workspace repository. */
+/** Starts the tip check now: ctxpipe reads the default branch of the Workspace repository. */
 async function checkWorkspaceUpgrades(
   orgSlug: string,
   workspaceSlug: string,
@@ -173,7 +173,7 @@ async function checkWorkspaceUpgrades(
 }
 
 /**
- * Always update: ctx| commits `upgrades: automatic` into the format file of
+ * Always update: ctxpipe commits `upgrades: automatic` into the format file of
  * the Workspace repository. The reply comes at once with the id of the file
  * job. The server starts the waiting upgrades when the commit is done, so the
  * browser sends no second request and does not wait for the commit.

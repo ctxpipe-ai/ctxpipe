@@ -120,7 +120,7 @@ export async function readWorkspaceFormatFileAt(
 /**
  * Find the pending git upgrade of one Workspace and record it. The scan
  * never starts an upgrade: it records `awaiting_operator`, or `blocked` when
- * ctx| cannot write to the repository. It makes the row again from git (the
+ * ctxpipe cannot write to the repository. It makes the row again from git (the
  * format file and an open pull request on the upgrade branch), so a lost
  * row comes back.
  */
@@ -266,7 +266,7 @@ export async function scanWorkspaceUpgrade(input: {
       // GitHub.
       note:
         workspace.readOnlyReason ??
-        "ctx| needs write access through the GitHub App to open the upgrade pull request.",
+        "ctxpipe needs write access through the GitHub App to open the upgrade pull request.",
     })
   // A failed run waits for the operator to start it again.
   if (existing?.status === UPGRADE_STATUSES.failed)

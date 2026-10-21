@@ -247,7 +247,7 @@ class ConversionPlan {
       frontMatter === undefined
         ? ""
         : YAML.stringify(frontMatter, { lineWidth: 0 })
-    const content = `---\n${yaml}---\n\nctx| did not convert ${origin} of ${SOURCES_FILE_PATH}: ${reason}\n\nTo use it, move it to ${SOURCE_FILES_FOLDER}/<provider>/<name>.md, remove the id key, and correct the error. Else, remove this file.\n${extra}`
+    const content = `---\n${yaml}---\n\nctxpipe did not convert ${origin} of ${SOURCES_FILE_PATH}: ${reason}\n\nTo use it, move it to ${SOURCE_FILES_FOLDER}/<provider>/<name>.md, remove the id key, and correct the error. Else, remove this file.\n${extra}`
     // An old pull request can bring `sources.yaml` back. The same input then
     // gives the same text, and the file that has it stays the only copy.
     const existing = [...this.unconverted].find(([, text]) => text === content)
@@ -260,7 +260,7 @@ class ConversionPlan {
     this.report.push(`${origin} went to ${path}: ${reason}`)
     this.notices.push({
       kind: "action",
-      text: "ctx| could not convert some sources. They show as not valid in Sources. Fix or delete them.",
+      text: "ctxpipe could not convert some sources. They show as not valid in Sources. Fix or delete them.",
     })
   }
 
@@ -298,7 +298,7 @@ function convertYaml(text: string, plan: ConversionPlan): void {
   )
   if (extraKeys.length) {
     plan.report.push(
-      `${SOURCES_FILE_PATH} had keys that ctx| did not use, and they are not converted: ${extraKeys.join(", ")}`,
+      `${SOURCES_FILE_PATH} had keys that ctxpipe did not use, and they are not converted: ${extraKeys.join(", ")}`,
     )
     plan.notices.push(UNCONVERTED_SETTINGS)
   }
@@ -375,7 +375,7 @@ function convertEntry(
   )
   if (unused.length) {
     plan.report.push(
-      `${origin} had keys that ctx| did not use, and they are not converted: ${unused.join(", ")}`,
+      `${origin} had keys that ctxpipe did not use, and they are not converted: ${unused.join(", ")}`,
     )
     plan.notices.push(UNCONVERTED_SETTINGS)
   }

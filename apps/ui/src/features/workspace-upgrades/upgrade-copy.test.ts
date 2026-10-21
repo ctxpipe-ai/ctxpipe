@@ -69,11 +69,11 @@ describe("upgrade copy", () => {
     expect(formatHealthLine(null, 3)).toMatch(/has not read/)
     expect(formatHealthLine(-1, 3)).toMatch(/not valid/)
     expect(formatHealthLine(1, 3)).toBe(
-      "The repository uses format 1. ctx| reads format 3.",
+      "The repository uses format 1. ctxpipe reads format 3.",
     )
     expect(formatHealthLine(3, 3)).toMatch(/up to date/)
     expect(formatHealthLine(4, 3)).toBe(
-      "The repository uses format 4. ctx| reads format 3. This Workspace needs a newer ctx| version.",
+      "The repository uses format 4. ctxpipe reads format 3. This Workspace needs a newer ctxpipe version.",
     )
   })
 
@@ -84,10 +84,10 @@ describe("upgrade copy", () => {
       note: string | null = null,
     ) => upgradeBlockedCopy({ kind, blockedReason, note, targetFormat: 3 })
     expect(blocked("format", "write_access").title).toBe(
-      "ctx| cannot open the upgrade pull request",
+      "ctxpipe cannot open the upgrade pull request",
     )
     expect(blocked("reingest", "write_access").title).toBe(
-      "ctx| cannot publish the re-ingestion",
+      "ctxpipe cannot publish the re-ingestion",
     )
     expect(blocked("reingest", "write_access").body).not.toMatch(/pull request/)
     expect(blocked("reingest", "needs_format").title).toBe(
@@ -116,7 +116,7 @@ describe("upgrade copy", () => {
     // No reason and no note: the body is never empty.
     expect(blocked("format", null)).toEqual({
       title: "The upgrade cannot start",
-      body: "ctx| cannot start this item now.",
+      body: "ctxpipe cannot start this item now.",
     })
   })
 
@@ -167,7 +167,7 @@ describe("upgrade copy", () => {
     )
   })
 
-  it("gives no wait line for a merged pull request: its progress block says what ctx| does", () => {
+  it("gives no wait line for a merged pull request: its progress block says what ctxpipe does", () => {
     expect(
       upgradeWaitingCopy({
         status: "pr_open",

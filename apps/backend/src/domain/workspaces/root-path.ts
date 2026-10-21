@@ -11,7 +11,7 @@ export {
 } from "../../services/git/root-folder.js"
 
 /**
- * The root folder of a Workspace in its context repository (CTX-709). ctx|
+ * The root folder of a Workspace in its context repository (CTX-709). ctxpipe
  * reads and writes only below this folder. `""` is the repository root.
  * The stored value is normalized: relative, no trailing slash.
  */

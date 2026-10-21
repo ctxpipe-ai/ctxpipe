@@ -20,7 +20,7 @@ type ProgressItem = Pick<
 >
 
 export type UpgradeProgress = {
-  /** What ctx| does now. */
+  /** What ctxpipe does now. */
   label: string
   /** "Step 2 of 4" or "1 of 3 repositories". Null when the count is not known. */
   count: string | null
@@ -50,8 +50,8 @@ function formatClock(iso: string): string {
 }
 
 /**
- * The progress of an item that ctx| works on: a queued or running upgrade,
- * or a pull request that ctx| saw merge. The data comes from the upgrade row:
+ * The progress of an item that ctxpipe works on: a queued or running upgrade,
+ * or a pull request that ctxpipe saw merge. The data comes from the upgrade row:
  * the stage of a git run, the repositories of a re-ingestion, and the times.
  * Null for an item that waits for a person, and for a re-ingestion that waits
  * for a sandbox slot (its own line says that).
@@ -63,7 +63,7 @@ export function upgradeProgress(item: ProgressItem): UpgradeProgress | null {
       count: null,
       fraction: null,
       detail:
-        "ctx| saw the merge. Next, ctx| reads the new format of the repository and completes this upgrade. A large repository can take several minutes.",
+        "ctxpipe saw the merge. Next, ctxpipe reads the new format of the repository and completes this upgrade. A large repository can take several minutes.",
       since: item.mergedAt,
     }
   if (item.status !== "queued" && item.status !== "running") return null
@@ -78,7 +78,7 @@ export function upgradeProgress(item: ProgressItem): UpgradeProgress | null {
       return {
         label:
           item.status === "queued"
-            ? "Queued. ctx| starts the run in a moment."
+            ? "Queued. ctxpipe starts the run in a moment."
             : "Starting the run",
         count: null,
         fraction: 0,
@@ -98,7 +98,7 @@ export function upgradeProgress(item: ProgressItem): UpgradeProgress | null {
     return {
       label:
         item.status === "queued"
-          ? "Queued. ctx| starts the run in a moment."
+          ? "Queued. ctxpipe starts the run in a moment."
           : "Planning the run",
       count: null,
       fraction: null,
@@ -149,10 +149,10 @@ export function upgradeCheckResult(
   switch (item.status) {
     case "pr_open":
       return item.mergedAt
-        ? `${at} The pull request merged. ctx| is reading the new format.`
-        : `${at} ${pullRequest} is still open on GitHub. ctx| waits for the merge.`
+        ? `${at} The pull request merged. ctxpipe is reading the new format.`
+        : `${at} ${pullRequest} is still open on GitHub. ctxpipe waits for the merge.`
     case "awaiting_operator":
-      return `${at} ctx| found no open pull request for this upgrade.`
+      return `${at} ctxpipe found no open pull request for this upgrade.`
     case "blocked":
       return item.blockedReason === "needs_format" &&
         typeof formatVersion === "number"

@@ -1,6 +1,6 @@
 ---
 title: Production readiness
-description: Checklist for running ctx| behind a real public origin.
+description: Checklist for running ctxpipe behind a real public origin.
 ---
 
 Use this checklist before making a self-hosted deployment available to a team.
@@ -9,7 +9,7 @@ make the network boundary, persistence, secrets, and rollback process explicit.
 
 ## Public origin
 
-ctx| expects a single public backend origin for browser, REST, auth, and MCP
+ctxpipe expects a single public backend origin for browser, REST, auth, and MCP
 traffic.
 
 | Check | Why it matters |
@@ -126,7 +126,7 @@ Before inviting users:
 - If using PagerDuty, register the exact OAuth callback. Either save the
   client id and secret in the connector wizard, or configure
   `PAGERDUTY_CLIENT_ID` and `PAGERDUTY_CLIENT_SECRET` on backend and worker.
-  ctx| creates the webhook subscription after authorization.
+  ctxpipe creates the webhook subscription after authorization.
 - Confirm backend and worker can reach `identity.pagerduty.com` and
   `api.pagerduty.com` or `api.eu.pagerduty.com`.
 - Confirm the worker can run connector jobs.

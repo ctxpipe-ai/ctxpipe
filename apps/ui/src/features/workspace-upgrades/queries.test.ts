@@ -18,7 +18,7 @@ describe("upgrade polling", () => {
     expect(poll("awaiting_operator")).toBe(15_000)
   })
 
-  it("polls every 3 s after ctx| saw the merge, until the upgrade completes", () => {
+  it("polls every 3 s after ctxpipe saw the merge, until the upgrade completes", () => {
     expect(
       upgradePollInterval([
         upgradeItemFixture({

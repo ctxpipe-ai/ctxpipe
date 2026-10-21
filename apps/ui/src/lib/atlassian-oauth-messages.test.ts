@@ -33,7 +33,7 @@ describe("oauthErrorMessage", () => {
 
   it("says how to fix an account that another user linked", () => {
     const m = oauthErrorMessage("account_already_linked_to_different_user")
-    expect(m.title).toBe("This account is linked to another ctx| user")
+    expect(m.title).toBe("This account is linked to another ctxpipe user")
     expect(m.description).toContain("Unlink")
   })
 

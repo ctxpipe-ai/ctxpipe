@@ -1,6 +1,6 @@
 ---
 title: How indexing works
-description: What ctx| builds after content reaches a Workspace, and how to read indexing states.
+description: What ctxpipe builds after content reaches a Workspace, and how to read indexing states.
 ---
 
 **Indexing** turns a Workspace's files and linked code into something chat,
@@ -13,7 +13,7 @@ change, so new content can take a few minutes to show up in answers.
   <Step>
     ### The workspace repository
 
-    When the workspace repository's default branch changes, ctx| reads the
+    When the workspace repository's default branch changes, ctxpipe reads the
     knowledge files at that commit and rebuilds the Workspace's index: units,
     links and claims for the graph, and embeddings for search. It never edits
     files and never calls an extraction model at this step. The previous index
@@ -23,7 +23,7 @@ change, so new content can take a few minutes to show up in answers.
   <Step>
     ### Linked repositories
 
-    When a linked repository changes, ctx| checks out its default branch,
+    When a linked repository changes, ctxpipe checks out its default branch,
     builds code search and code navigation, and uses models to extract
     services, APIs, libraries, infrastructure, and instructions. The extracted
     knowledge is committed to the workspace repository as knowledge files,
@@ -39,7 +39,7 @@ the status of each linked repository:
 | Status | Meaning | What to do |
 | --- | --- | --- |
 | **Pending** | Linked, not yet indexed. | Wait. |
-| **Indexing** | ctx| is building search and extracting knowledge. | Answers may be incomplete. |
+| **Indexing** | ctxpipe is building search and extracting knowledge. | Answers may be incomplete. |
 | **Indexed** | The current commit is indexed. | Ask a known question in chat or MCP. |
 | **Indexed with issues** | Search works, but part of the index failed. The reason is shown. | Check the reason. A push to the repository re-runs indexing. |
 

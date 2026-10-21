@@ -65,7 +65,7 @@ describe("clone-tree", { timeout: 30_000 }, () => {
       )
     expect((await output(1024)).toString()).toBe("refs/heads/main\n")
     await expect(output(4)).rejects.toThrow(
-      "The Git repository is too large for ctx| to read in one step: the Git output is 1 MiB",
+      "The Git repository is too large for ctxpipe to read in one step: the Git output is 1 MiB",
     )
   })
 
@@ -909,12 +909,12 @@ describe("clone-tree", { timeout: 30_000 }, () => {
       const anonymous = await resolveGitRemoteTip({ url }).catch((e) => e)
       expect(anonymous).toBeInstanceOf(GitRemoteAccessError)
       expect(anonymous.message).toBe(
-        "ctx| has no access to this repository. Connect GitHub to this Workspace, then retry.",
+        "ctxpipe has no access to this repository. Connect GitHub to this Workspace, then retry.",
       )
       const denied = await resolveGitRemoteTip({ url, token }).catch((e) => e)
       expect(denied).toBeInstanceOf(GitRemoteAccessError)
       expect(denied.message).toBe(
-        "ctx| has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
+        "ctxpipe has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
       )
       expect(authorizations).toContain(`Basic ${encoded}`)
       const surface = [

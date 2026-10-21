@@ -75,7 +75,7 @@ describe("withWorkspaceFormatFields", () => {
     const next = withWorkspaceFormatFields(workspaceFormatFile(2).content, {
       upgrades: "automatic",
     })
-    expect(next).toContain("# ctx| Workspace format.")
+    expect(next).toContain("# ctxpipe Workspace format.")
     expect(readWorkspaceFormat(next)).toEqual({
       kind: "format",
       format: 2,

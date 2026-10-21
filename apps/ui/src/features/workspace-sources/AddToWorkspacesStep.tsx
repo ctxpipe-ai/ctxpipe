@@ -21,7 +21,7 @@ type AddToWorkspacesStepProps = {
   items: string
   /**
    * The config pull request of an earlier setup (before Workspace sources).
-   * ctx| does not use it now; the step tells the user to close it.
+   * ctxpipe does not use it now; the step tells the user to close it.
    */
   replacedConfigPullUrl?: string | null
   /** After the save, with the pull requests that it opened. */
@@ -62,7 +62,7 @@ export function AddToWorkspacesStep({
       </div>
       {replacedConfigPullUrl ? (
         <InlineAlert variant="warning">
-          This setup was replaced. ctx| no longer uses the{" "}
+          This setup was replaced. ctxpipe no longer uses the{" "}
           <Link href={replacedConfigPullUrl} target="_blank" rel="noreferrer">
             configuration pull request
           </Link>{" "}

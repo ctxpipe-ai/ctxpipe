@@ -21,8 +21,8 @@ import {
   CLIENT_COMMANDS,
   CLIENT_LABELS,
   CLIENTS,
-  MCP_API_KEY_MINT_HINT,
   type Client,
+  MCP_API_KEY_MINT_HINT,
   type McpAuthMode,
 } from "./constants.js"
 import { readJsonObject } from "./fs-operations.js"
@@ -158,13 +158,13 @@ async function promptMemoryAuthOrSkip(baseUrl: string): Promise<string | null> {
   }
 
   const choice = await promptSelect<"sign-in" | "skip">({
-    message: "Sign in to ctx| to store an org slug? (optional)",
+    message: "Sign in to ctxpipe to store an org slug? (optional)",
     initial: "skip",
     choices: [
       {
         title: "Sign in with browser",
         value: "sign-in",
-        description: "Optional: store org slug for other ctx| features.",
+        description: "Optional: store org slug for other ctxpipe features.",
       },
       {
         title: "Continue without login",
@@ -184,7 +184,7 @@ async function promptMemoryAuthOrSkip(baseUrl: string): Promise<string | null> {
   }
 
   log.step("Sign in")
-  log.message(muted("Sign in to ctx| so we can load your organizations."))
+  log.message(muted("Sign in to ctxpipe so we can load your organizations."))
   const freshAuth = await loginWithDeviceFlow({ baseUrl })
   return resolveOrgFromAuth(baseUrl, freshAuth.accessToken)
 }
@@ -195,7 +195,7 @@ async function resolveOrgFromAuth(
 ): Promise<string | null> {
   const fallbackOrg = detectDefaultOrgSlug()
   const orgSpinner = spinner()
-  orgSpinner.start("Loading ctx| organizations")
+  orgSpinner.start("Loading ctxpipe organizations")
   let orgs: Organization[] = []
   let session: Record<string, unknown> | null = null
   try {
@@ -204,10 +204,12 @@ async function resolveOrgFromAuth(
       fetchSession({ baseUrl, accessToken }).catch(() => null),
     ])
     orgSpinner.stop(
-      orgs.length > 0 ? "Loaded ctx| organizations" : "No organizations found",
+      orgs.length > 0
+        ? "Loaded ctxpipe organizations"
+        : "No organizations found",
     )
   } catch (error) {
-    orgSpinner.stop("Could not load ctx| organizations")
+    orgSpinner.stop("Could not load ctxpipe organizations")
     throw error
   }
 
@@ -218,7 +220,7 @@ async function resolveOrgFromAuth(
 
   if (orgs.length === 1) {
     const org = orgs[0]
-    if (!org) throw new Error("Could not load ctx| organization")
+    if (!org) throw new Error("Could not load ctxpipe organization")
     log.step("Organization")
     log.message(orgLabel(org))
     return org.slug
@@ -226,7 +228,8 @@ async function resolveOrgFromAuth(
 
   if (orgs.length > 1) {
     return promptSelect({
-      message: "Which ctx| organization should memory use for hosted models?",
+      message:
+        "Which ctxpipe organization should memory use for hosted models?",
       initial: fallbackOrg ?? orgs[0]?.slug,
       choices: orgs.map((org) => ({
         title: orgLabel(org),
@@ -237,7 +240,7 @@ async function resolveOrgFromAuth(
   }
 
   return promptText({
-    message: "Which ctx| organization should memory use for hosted models?",
+    message: "Which ctxpipe organization should memory use for hosted models?",
     initial: fallbackOrg,
   })
 }
@@ -303,7 +306,7 @@ async function promptSetupOrg(baseUrl: string): Promise<string> {
 
   if (auth) {
     const sessionSpinner = spinner()
-    sessionSpinner.start("Checking existing ctx| session")
+    sessionSpinner.start("Checking existing ctxpipe session")
     try {
       ;[orgs, session] = await Promise.all([
         fetchOrganizations({ baseUrl, accessToken: auth.accessToken }).catch(
@@ -314,7 +317,7 @@ async function promptSetupOrg(baseUrl: string): Promise<string> {
         ),
       ])
       sessionSpinner.stop(
-        orgs.length > 0 ? "Loaded ctx| organizations" : "Sign-in required",
+        orgs.length > 0 ? "Loaded ctxpipe organizations" : "Sign-in required",
       )
     } catch (error) {
       sessionSpinner.stop("Could not check saved sign-in")
@@ -324,10 +327,10 @@ async function promptSetupOrg(baseUrl: string): Promise<string> {
 
   if (orgs.length === 0) {
     log.step("Sign in")
-    log.message(muted("Sign in to ctx| so we can load your organizations."))
+    log.message(muted("Sign in to ctxpipe so we can load your organizations."))
     auth = await loginWithDeviceFlow({ baseUrl })
     const orgSpinner = spinner()
-    orgSpinner.start("Loading ctx| organizations")
+    orgSpinner.start("Loading ctxpipe organizations")
     try {
       ;[orgs, session] = await Promise.all([
         fetchOrganizations({ baseUrl, accessToken: auth.accessToken }),
@@ -335,9 +338,9 @@ async function promptSetupOrg(baseUrl: string): Promise<string> {
           () => null,
         ),
       ])
-      orgSpinner.stop("Loaded ctx| organizations")
+      orgSpinner.stop("Loaded ctxpipe organizations")
     } catch (error) {
-      orgSpinner.stop("Could not load ctx| organizations")
+      orgSpinner.stop("Could not load ctxpipe organizations")
       throw error
     }
   }
@@ -349,7 +352,7 @@ async function promptSetupOrg(baseUrl: string): Promise<string> {
 
   if (orgs.length === 1) {
     const org = orgs[0]
-    if (!org) throw new Error("Could not load ctx| organization")
+    if (!org) throw new Error("Could not load ctxpipe organization")
     log.step("Organization")
     log.message(orgLabel(org))
     return org.slug
@@ -357,7 +360,7 @@ async function promptSetupOrg(baseUrl: string): Promise<string> {
 
   if (orgs.length > 1) {
     return promptSelect({
-      message: "Which ctx| organization should this repo use?",
+      message: "Which ctxpipe organization should this repo use?",
       initial: fallbackOrg ?? orgs[0]?.slug,
       choices: orgs.map((org) => ({
         title: orgLabel(org),
@@ -368,7 +371,7 @@ async function promptSetupOrg(baseUrl: string): Promise<string> {
   }
 
   return promptText({
-    message: "Which ctx| organization should this repo use?",
+    message: "Which ctxpipe organization should this repo use?",
     initial: fallbackOrg,
   })
 }
@@ -387,7 +390,7 @@ export async function promptMcpWizard(
   const answers: McpPromptAnswers = {}
   if (!current.org) {
     answers.org = await promptText({
-      message: "Which ctx| organization should this MCP server use?",
+      message: "Which ctxpipe organization should this MCP server use?",
       initial: detectDefaultOrgSlug(),
     })
   }
@@ -455,7 +458,7 @@ async function promptAgents(): Promise<Client[]> {
       : "No supported agents detected",
   )
   const agents = await multiselect({
-    message: "Which agents should use ctx|?",
+    message: "Which agents should use ctxpipe?",
     required: true,
     initialValues: detected,
     options: CLIENTS.map((client) => ({

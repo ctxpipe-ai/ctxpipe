@@ -16,7 +16,7 @@ Langfuse: org `ctxpipe`, project `ctxpipe`. `AUTH_DISABLE_SIGNUP=true`. Existing
 2. Set the environment. Hosted apps use `production` or `pr-<digits>`. This stack uses `observability`. A laptop opt-in is `local-<name>`. Dashboards that default to `production` are listed below. Clear that chip to see a preview or a local run.
 3. Open saved search **Request by id** (logs) or **Request by id (traces)** and set the where clause to `LogAttributes['request.id'] = '<id>'` or `SpanAttributes['request.id'] = '<id>'`. Read `TraceId` and open the trace.
 4. LLM prompt text is in Langfuse, tagged `org:<slug>` and `env:<environment>`, metadata `orgId`, `orgSlug`, `requestId`, and `environment`. HyperDX stores the gen_ai span with prompt and completion attributes removed.
-5. If the window is empty, check the environment chip and the service (`backend`, `openworkflow`, `codesearch`, `ui`). The first HyperDX load after idle wakes it. Process stdout that never exported is in Railway.
+5. If the window is empty, check the environment chip and the service (`backend`, `openworkflow`, `codesearch`, `ui`). HyperDX does not sleep. Process stdout that never exported is in Railway.
 
 ## Dashboards
 
@@ -51,7 +51,7 @@ claude mcp add --transport http langfuse https://langfuse.ctxpipe.ai/api/public/
   --header "Authorization: Basic ${LANGFUSE_AUTH_STRING}"
 ```
 
-Cloud agents need `HYPERDX_ACCESS_KEY` and `LANGFUSE_AUTH_STRING`. Railway MCP uses Cursor OAuth and may be absent headless (Claude Code's `.mcp.json` uses `railway mcp local` with `RAILWAY_API_TOKEN`). HyperDX's first call after idle wakes the service.
+Cloud agents need `HYPERDX_ACCESS_KEY` and `LANGFUSE_AUTH_STRING`. Railway MCP uses Cursor OAuth and may be absent headless (Claude Code's `.mcp.json` uses `railway mcp local` with `RAILWAY_API_TOKEN`). HyperDX does not sleep, so the first call works.
 
 ClickHouse has no public hostname (`clickhouse.railway.internal:8123`). Query it through HyperDX `clickstack_*`. Publishing port 8123 is not done.
 

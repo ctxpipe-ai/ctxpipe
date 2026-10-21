@@ -93,7 +93,9 @@ export const Queued: Story = {
     })
     await waitFor(() =>
       expect(
-        within(progress).getByText("Queued. ctx| starts the run in a moment."),
+        within(progress).getByText(
+          "Queued. ctxpipe starts the run in a moment.",
+        ),
       ).toBeVisible(),
     )
     expect(within(progress).getByText(/Time so far:/)).toBeVisible()
@@ -195,7 +197,7 @@ export const ReingestPlanning: Story = {
   },
 }
 
-/** ctx| saw the merge. The card says what it reads now and what comes next. */
+/** ctxpipe saw the merge. The card says what it reads now and what comes next. */
 export const MergedReadingFormat: Story = {
   parameters: withUpgrades(
     upgradesFixture(

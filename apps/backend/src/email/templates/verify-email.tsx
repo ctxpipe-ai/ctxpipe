@@ -21,13 +21,13 @@ export function VerifyEmail({ url, userEmail }: VerifyEmailProps) {
   return (
     <Html>
       <Head />
-      <Preview>Verify your email address — ctx|</Preview>
+      <Preview>Verify your email address — ctxpipe</Preview>
       <Body style={main}>
         <Container style={container}>
           <Text style={logo}>ctx|</Text>
           <Heading style={heading}>Verify your email address</Heading>
           <Text style={paragraph}>
-            Welcome to <strong>ctx|</strong>. Confirm that{" "}
+            Welcome to <strong>ctxpipe</strong>. Confirm that{" "}
             <strong>{userEmail}</strong> is yours to finish setting up your
             account.
           </Text>
@@ -47,8 +47,8 @@ export function VerifyEmail({ url, userEmail }: VerifyEmailProps) {
             browser: {url}
           </Text>
           <Text style={brandFooter}>
-            ctx| - the self-learning context layer for engineering AI agents &
-            humans
+            ctxpipe - the self-learning context layer for engineering AI agents
+            & humans
           </Text>
         </Container>
       </Body>

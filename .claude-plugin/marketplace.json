@@ -6,7 +6,7 @@
     "url": "https://ctxpipe.ai"
   },
   "metadata": {
-    "description": "Official ctx| plugins for Claude Code, Cowork, and Claude Tag."
+    "description": "Official ctxpipe plugins for Claude Code, Cowork, and Claude Tag."
   },
   "plugins": [
     {

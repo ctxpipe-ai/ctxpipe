@@ -19,6 +19,7 @@ import {
 } from "../auth/context.js"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { withAmbientOrgDb } from "../db/org-sql.js"
+import { chatRuns } from "../db/schema/chat-persistence.js"
 import { conversations } from "../db/schema/conversations.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
@@ -428,6 +429,56 @@ export async function listConversations(input?: {
         sql`${conversations.lastMessageAt} DESC NULLS LAST`,
         desc(conversations.id),
       )
+  })
+}
+
+/**
+ * The newest turn of each conversation, by its run record. `at` is when the
+ * turn ended, or when it started while it still runs. A conversation with no
+ * run has no entry.
+ */
+type ConversationLastTurn = {
+  status: "running" | "interrupted" | "completed" | "failed" | "aborted"
+  at: number
+}
+
+const lastTurnStatuses: ReadonlySet<string> = new Set([
+  "running",
+  "interrupted",
+  "completed",
+  "failed",
+  "aborted",
+])
+
+export async function getLastTurns(
+  conversationIds: readonly string[],
+): Promise<Map<string, ConversationLastTurn>> {
+  if (conversationIds.length === 0) return new Map()
+  return orgSql(async () => {
+    const rows = await getOrgDb()
+      .selectDistinctOn([chatRuns.threadId], {
+        threadId: chatRuns.threadId,
+        status: chatRuns.status,
+        startedAt: chatRuns.startedAt,
+        finishedAt: chatRuns.finishedAt,
+      })
+      .from(chatRuns)
+      .where(
+        and(
+          eq(chatRuns.orgId, requireCurrentOrgId()),
+          inArray(chatRuns.threadId, [...conversationIds]),
+        ),
+      )
+      .orderBy(chatRuns.threadId, desc(chatRuns.startedAt))
+    const turns = new Map<string, ConversationLastTurn>()
+    for (const row of rows) {
+      if (!lastTurnStatuses.has(row.status)) continue
+      turns.set(row.threadId, {
+        status: row.status as ConversationLastTurn["status"],
+        at: row.finishedAt ?? row.startedAt,
+      })
+    }
+    return turns
   })
 }
 

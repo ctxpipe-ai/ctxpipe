@@ -1,10 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
+import { type ComponentProps, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   expectBoxUnchanged,
   responseGate,
 } from "@/components/ui/skeletonMatchStory"
+import type { ConversationLastTurn } from "@/features/chat/types"
 import {
   conversationsListHandler,
   conversationsListLoadingHandler,
@@ -495,5 +497,303 @@ export const DeleteRefusedWhileTurnRuns: Story = {
     expect(canvas.queryByRole("button", { name: "Try again" })).toBeNull()
     expect(canvas.getByRole("button", { name: "Dismiss" })).toBeVisible()
     expect(canvas.getByRole("link", { name: "Auth claims" })).toBeVisible()
+  },
+}
+
+const PREFERENCES_KEY = "ctxpipe:userPreferences"
+
+/** What the browser stored about the chats the user has seen. */
+function seedSeen(seen: Record<string, number>) {
+  window.localStorage.setItem(
+    PREFERENCES_KEY,
+    JSON.stringify({ seenConversations: seen }),
+  )
+  return () => window.localStorage.removeItem(PREFERENCES_KEY)
+}
+
+/** The chat link is read again on each try, because the list can render it again. */
+async function expectStatus(
+  canvasElement: HTMLElement,
+  chat: string,
+  description: string,
+  timeout = 1000,
+) {
+  const canvas = within(canvasElement)
+  await waitFor(
+    () =>
+      expect(
+        canvas.getByRole("link", { name: chat }),
+      ).toHaveAccessibleDescription(description),
+    { timeout },
+  )
+}
+
+const statusChats = (
+  turns: Record<string, ConversationLastTurn | null>,
+): typeof docsConversations =>
+  Object.entries(turns).map(([name, lastTurn], index) => ({
+    ...docsConversations[0],
+    id: `conv_${index + 1}`,
+    name,
+    lastTurn,
+  }))
+
+/** The four states, and each cause of "needs attention", with a label that is not only color. */
+export const StatusDots: Story = {
+  args: { currentConversationId: undefined },
+  beforeEach: () => seedSeen({ conv_1: 100, conv_2: 100, conv_4: 100 }),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          conversationsListHandler(
+            statusChats({
+              "Idle chat": { status: "completed", at: 100 },
+              "Unread chat": { status: "completed", at: 200 },
+              "Working chat": { status: "running", at: Date.now() },
+              "Failed chat": { status: "failed", at: 400 },
+              "Stopped chat": { status: "aborted", at: 500 },
+              "Waiting chat": { status: "interrupted", at: 600 },
+              "New chat": null,
+            }),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const describedAs = async (name: string, description: string) => {
+      const link = await canvas.findByRole("link", { name })
+      await waitFor(() => expect(link).toHaveAccessibleDescription(description))
+    }
+    await describedAs("Idle chat", "Idle")
+    await describedAs("Unread chat", "Finished. You have not opened it yet.")
+    await describedAs("Working chat", "Working")
+    await describedAs("Failed chat", "Needs attention. The turn failed.")
+    await describedAs(
+      "Stopped chat",
+      "Needs attention. The turn stopped before it finished.",
+    )
+    await describedAs(
+      "Waiting chat",
+      "Needs attention. The agent waits for you.",
+    )
+    await describedAs("New chat", "Idle")
+    const statuses = [...canvasElement.querySelectorAll("[data-status]")].map(
+      (dot) => dot.getAttribute("data-status"),
+    )
+    expect(statuses).toEqual([
+      "idle",
+      "unread",
+      "working",
+      "attention",
+      "attention",
+      "attention",
+      "idle",
+    ])
+  },
+}
+
+/** A running row older than the backend turn limit is lost: orange, no spinner. */
+export const StaleRunningChat: Story = {
+  args: { currentConversationId: undefined },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          conversationsListHandler(
+            statusChats({
+              "Lost chat": {
+                status: "running",
+                at: Date.now() - 3 * 60 * 60_000,
+              },
+            }),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const link = await canvas.findByRole("link", { name: "Lost chat" })
+    await waitFor(() =>
+      expect(link).toHaveAccessibleDescription(
+        "Needs attention. The turn stopped before it finished.",
+      ),
+    )
+    expect(canvasElement.querySelector("[data-status]")).toHaveAttribute(
+      "data-status",
+      "attention",
+    )
+  },
+}
+
+/** The rail has no room for names, so each dot is a badge on the initials. */
+export const StatusDotsCollapsed: Story = {
+  args: { navExpanded: false, currentConversationId: undefined },
+  beforeEach: () => seedSeen({ conv_1: 100 }),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          conversationsListHandler(
+            statusChats({
+              "Unread chat": { status: "completed", at: 200 },
+              "Working chat": { status: "running", at: Date.now() },
+              "Failed chat": { status: "failed", at: 400 },
+            }),
+          ),
+        ],
+      },
+    },
+  },
+  decorators: [
+    (Story) => (
+      <div className="w-16 bg-zinc-950 py-2">
+        <Story />
+      </div>
+    ),
+  ],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const link = await canvas.findByRole("link", { name: "Working chat" })
+    await waitFor(() => expect(link).toHaveAccessibleDescription("Working"))
+    expect(
+      canvas.getByRole("link", { name: "Failed chat" }),
+    ).toHaveAccessibleDescription("Needs attention. The turn failed.")
+  },
+}
+
+/** The list with an open chat that follows the chat the user selects. */
+function OpensChats(props: ComponentProps<typeof WorkspaceConversationList>) {
+  const [open, setOpen] = useState<string | undefined>(undefined)
+  return (
+    <WorkspaceConversationList
+      {...props}
+      currentConversationId={open}
+      onSelectNav={(next) => setOpen(next.conversationId)}
+    />
+  )
+}
+
+/**
+ * The list reads the chat status again while a chat works. One chat works,
+ * then finishes: the dot goes from the spinner to unread. Opening the chat
+ * marks it read, and the list stops reading when no chat works.
+ */
+const finishRequests = { count: 0 }
+export const WorkingThenUnreadThenRead: Story = {
+  beforeEach: () => {
+    finishRequests.count = 0
+    return seedSeen({ conv_1: 500 })
+  },
+  args: { currentConversationId: undefined },
+  render: (args) => <OpensChats {...args} />,
+  parameters: {
+    // Selecting a chat goes to its route. The list stays, as in the Workspace layout.
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: docsWorkspace.slug,
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations$/.test(new URL(request.url).pathname),
+            () => {
+              finishRequests.count += 1
+              const lastTurn: ConversationLastTurn =
+                finishRequests.count < 2
+                  ? { status: "running", at: Date.now() }
+                  : { status: "completed", at: 2000 }
+              return HttpResponse.json({
+                items: statusChats({ "Billing questions": lastTurn }),
+                pageInfo: { hasNextPage: false, endCursor: null },
+              })
+            },
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("link", { name: "Billing questions" })
+    await expectStatus(canvasElement, "Billing questions", "Working")
+    // The next read shows the finished turn. The user is not in the chat.
+    await expectStatus(
+      canvasElement,
+      "Billing questions",
+      "Finished. You have not opened it yet.",
+      8000,
+    )
+    // No chat works now, so the list stops reading.
+    const reads = finishRequests.count
+    await new Promise((resolve) => setTimeout(resolve, 3500))
+    expect(finishRequests.count).toBe(reads)
+    await userEvent.click(
+      canvas.getByRole("link", { name: "Billing questions" }),
+    )
+    await expectStatus(canvasElement, "Billing questions", "Idle")
+  },
+}
+
+const failRequests = { count: 0 }
+/** A turn that works and then fails turns the dot orange. It stays orange after the chat is opened. */
+export const WorkingThenNeedsAttention: Story = {
+  beforeEach: () => {
+    failRequests.count = 0
+    return seedSeen({ conv_1: 500 })
+  },
+  args: { currentConversationId: undefined },
+  render: (args) => <OpensChats {...args} />,
+  parameters: {
+    // Selecting a chat goes to its route. The list stays, as in the Workspace layout.
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: docsWorkspace.slug,
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations$/.test(new URL(request.url).pathname),
+            () => {
+              failRequests.count += 1
+              const lastTurn: ConversationLastTurn =
+                failRequests.count < 2
+                  ? { status: "running", at: Date.now() }
+                  : { status: "failed", at: 2000 }
+              return HttpResponse.json({
+                items: statusChats({ "Billing questions": lastTurn }),
+                pageInfo: { hasNextPage: false, endCursor: null },
+              })
+            },
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("link", { name: "Billing questions" })
+    await expectStatus(canvasElement, "Billing questions", "Working")
+    const failed = "Needs attention. The turn failed."
+    await expectStatus(canvasElement, "Billing questions", failed, 8000)
+    await userEvent.click(
+      canvas.getByRole("link", { name: "Billing questions" }),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("link", { name: "Billing questions" }),
+      ).toHaveAttribute("aria-current", "page"),
+    )
+    // Opening the chat does not clear the cause. A retry or a new turn does.
+    await expectStatus(canvasElement, "Billing questions", failed)
   },
 }

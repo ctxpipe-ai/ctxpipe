@@ -14,10 +14,8 @@ import {
 } from "./client.js"
 import type { SlackCaptureResult } from "./sync.js"
 
-
-
-const SLACK_MENTION_SYSTEM_PROMPT = `You are ctx|'s Slack mention agent for one thread.
-Decide whether the user wants ctx| to capture this Slack thread into the organization's context git repository.
+const SLACK_MENTION_SYSTEM_PROMPT = `You are ctxpipe's Slack mention agent for one thread.
+Decide whether the user wants ctxpipe to capture this Slack thread into the organization's context git repository.
 
 Set capture to true when the user wants to persist, save, capture, snapshot, or keep this thread, including terse confirmations like "yes", "do it", or "please".
 Set capture to false if the message is a question, joke, greeting, or any request that capture cannot fulfill. Do not invent answers about the repository or product.`
@@ -124,7 +122,7 @@ export function formatSlackMentionStatusText(
     case "not_in_channel":
       return "Capture failed: invite the bot to this channel, then mention it again."
     case "github_protected_branch":
-      return "Capture failed: the context repository branch is protected, so ctx| cannot commit."
+      return "Capture failed: the context repository branch is protected, so ctxpipe cannot commit."
     case "repo_missing":
       return "Capture failed: the context repository is missing or is not linked to GitHub."
     case "model_not_configured":
@@ -132,7 +130,7 @@ export function formatSlackMentionStatusText(
     case "dm_not_supported":
       return "Capture failed: direct messages are not supported."
     case "missing_scope":
-      return "Capture failed: the ctx| Slack app needs more permissions to read this channel. Reinstall Slack."
+      return "Capture failed: the ctxpipe Slack app needs more permissions to read this channel. Reinstall Slack."
     case "channel_archived":
       return "Capture failed: this channel is archived."
     case "no_source":

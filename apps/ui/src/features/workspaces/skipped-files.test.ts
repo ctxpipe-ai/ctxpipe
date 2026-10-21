@@ -18,7 +18,7 @@ const gitFile = {
 describe("skipped files", () => {
   it("names the cause of a legacy overlay file, and offers no fix for it", () => {
     expect(skippedFileCopy(legacy)).toBe(
-      "Knowledge from before Workspaces. ctx| shows it from its database, so it cannot be fixed here.",
+      "Knowledge from before Workspaces. ctxpipe shows it from its database, so it cannot be fixed here.",
     )
     expect(skippedFileFixable(legacy)).toBe(false)
   })

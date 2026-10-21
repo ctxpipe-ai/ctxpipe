@@ -358,7 +358,7 @@ describe("listOpenPullRequestsByBranchPrefix", () => {
     })
   })
 
-  it("keeps only the pull requests that ctx| opened in this repository, on all pages", async () => {
+  it("keeps only the pull requests that ctxpipe opened in this repository, on all pages", async () => {
     const queries: string[] = []
     server.use(
       http.get(PULLS, ({ request }) => {
@@ -446,7 +446,7 @@ describe("listOpenRepositoryPullRequestsByBranchPrefix", () => {
     })
   })
 
-  it("marks as ours only a pull request in this repository by the ctx| App bot, and not one of another App", async () => {
+  it("marks as ours only a pull request in this repository by the ctxpipe App bot, and not one of another App", async () => {
     const branch = "ctxpipe/upgrade/format-3"
     const pull = (
       number: number,

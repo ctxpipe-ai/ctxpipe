@@ -2,7 +2,7 @@ import { useNow } from "@/lib/useNow"
 
 /**
  * After the merge, a re-ingestion stays blocked for the format until the
- * scan after the hydrate rewrites it, and ctx| shows "Checking the new
+ * scan after the hydrate rewrites it, and ctxpipe shows "Checking the new
  * format". If that scan never runs, the state must end: a minute after this
  * client first saw it, the card shows the blocked line again, and the 3 s
  * poll stops (CTX-949). The minute counts from the first sight in this

@@ -4,6 +4,7 @@ import {
   SIDE_NAV_DEFAULT_WIDTH,
   upgradeDismissKey,
   withDismissedUpgrade,
+  withSeenConversation,
 } from "./user-preferences"
 
 describe("parseUserPreferences", () => {
@@ -14,6 +15,7 @@ describe("parseUserPreferences", () => {
       sideNavWidth: SIDE_NAV_DEFAULT_WIDTH,
       orgGuides: {},
       dismissedUpgrades: [],
+      seenConversations: {},
     }
     expect(parseUserPreferences(null)).toEqual(defaults)
     expect(parseUserPreferences("{not json")).toEqual(defaults)
@@ -105,5 +107,24 @@ describe("dismissed upgrades", () => {
       preferences = withDismissedUpgrade(preferences, `key-${index}`)
     expect(preferences.dismissedUpgrades).toHaveLength(100)
     expect(preferences.dismissedUpgrades[0]).toBe("key-1")
+  })
+})
+
+describe("seen conversations", () => {
+  it("keeps the stored times and drops values that are not numbers", () => {
+    const parsed = parseUserPreferences(
+      JSON.stringify({ seenConversations: { conv_1: 5, conv_2: "x" } }),
+    )
+    expect(parsed.seenConversations).toEqual({ conv_1: 5 })
+  })
+
+  it("records a time, and the oldest chats drop out at the cap", () => {
+    let preferences = parseUserPreferences(null)
+    for (let index = 0; index < 205; index++) {
+      preferences = withSeenConversation(preferences, `conv_${index}`, index)
+    }
+    expect(Object.keys(preferences.seenConversations)).toHaveLength(200)
+    expect(preferences.seenConversations.conv_0).toBeUndefined()
+    expect(preferences.seenConversations.conv_204).toBe(204)
   })
 })

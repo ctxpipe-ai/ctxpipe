@@ -3,7 +3,7 @@ import { useNow } from "@/lib/useNow"
 import { formatElapsed, type UpgradeProgress } from "./upgrade-progress"
 
 /**
- * The progress of an upgrade that ctx| works on: what it does now, how far it
+ * The progress of an upgrade that ctxpipe works on: what it does now, how far it
  * is, and the time so far. The bar is a full-width bar that scales, so the
  * layout does not move. It pulses when the server gives no count.
  */

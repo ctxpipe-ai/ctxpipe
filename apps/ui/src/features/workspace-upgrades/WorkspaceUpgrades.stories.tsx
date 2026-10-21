@@ -118,7 +118,7 @@ export const PurposeLine: Story = {
     await waitFor(() =>
       expect(
         canvas.getByText(
-          "Upgrades move your Workspace repository to the layout that this version of ctx| reads. Nothing changes until you merge the pull request.",
+          "Upgrades move your Workspace repository to the layout that this version of ctxpipe reads. Nothing changes until you merge the pull request.",
         ),
       ).toBeVisible(),
     )
@@ -268,7 +268,7 @@ export const PullRequestOpen: Story = {
               notices: [
                 {
                   kind: "risk",
-                  text: "ctx| kept some knowledge as files, because fresh ingestion cannot make it again. Do not delete these files.",
+                  text: "ctxpipe kept some knowledge as files, because fresh ingestion cannot make it again. Do not delete these files.",
                 },
                 {
                   kind: "action",
@@ -329,7 +329,7 @@ export const WaitingForMerge: Story = {
     await waitFor(() =>
       expect(
         canvas.getByText(
-          /ctx\| waits for you to merge pull request #42 on GitHub\. After the merge, ctx\| reads the new format/,
+          /ctxpipe waits for you to merge pull request #42 on GitHub\. After the merge, ctxpipe reads the new format/,
         ),
       ).toBeVisible(),
     )
@@ -438,7 +438,7 @@ export const NotesWithDetails: Story = {
           .map((row) => row.textContent),
       ).toEqual([
         "Action: Some connections did not move to this Workspace. Check the Sources of the Workspace after the merge.",
-        "Risk: ctx| kept some knowledge as files, because fresh ingestion cannot make it again. Do not delete these files.",
+        "Risk: ctxpipe kept some knowledge as files, because fresh ingestion cannot make it again. Do not delete these files.",
       ]),
     )
     await waitFor(() =>
@@ -547,7 +547,7 @@ export const FailedPublishConflict: Story = {
     )
     expect(
       canvas.getByText(
-        "The Workspace changed while ctx| published, and ctx| could not merge the files.",
+        "The Workspace changed while ctxpipe published, and ctxpipe could not merge the files.",
       ),
     ).toBeVisible()
     expect(
@@ -562,7 +562,7 @@ export const FailedPublishConflict: Story = {
   },
 }
 
-/** CTX-896: the automatic retry failed too, so the card says that ctx| started it again once. */
+/** CTX-896: the automatic retry failed too, so the card says that ctxpipe started it again once. */
 export const FailedAfterAutoRetry: Story = {
   parameters: failedReingest(
     {
@@ -578,7 +578,7 @@ export const FailedAfterAutoRetry: Story = {
     await waitFor(() =>
       expect(
         canvas.getByText(
-          "ctx| already started this upgrade again once by itself.",
+          "ctxpipe already started this upgrade again once by itself.",
         ),
       ).toBeVisible(),
     )
@@ -591,7 +591,7 @@ export const FailedSourceAccess: Story = {
     step: "read_source",
     repository: "acme/ky",
     summary:
-      "ctx| cannot read the default branch of the repository. Repository not found.",
+      "ctxpipe cannot read the default branch of the repository. Repository not found.",
   }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -696,8 +696,30 @@ export const FailedUnknown: Story = {
       await canvas.findByRole("button", { name: "Fix using agent" }),
     )
     expect(fixPrompts).toHaveBeenCalledWith(
-      'The upgrade "Fresh re-ingestion of the source repositories" of this Workspace failed at the step "Ingest the source repository (acme/ky)". ctx| recorded: The ingestion run failed: something odd happened Find the cause, and tell me how to fix it.',
+      'The upgrade "Fresh re-ingestion of the source repositories" of this Workspace failed at the step "Ingest the source repository (acme/ky)". ctxpipe recorded: The ingestion run failed: something odd happened Find the cause, and tell me how to fix it.',
     )
+  },
+}
+
+/** CTX-952: the server had no room for a Git process, so starting again is the fix. */
+export const FailedServerBusy: Story = {
+  args: { onFixWithAgent: fixPrompts },
+  parameters: failedReingest({
+    code: "server_busy",
+    step: "ingest",
+    repository: "acme/ky",
+    summary: "spawn EAGAIN",
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () =>
+      expect(
+        await canvas.findByText(
+          "The server was busy and could not start a Git process for this upgrade.",
+        ),
+      ).toBeVisible(),
+    )
+    expect(canvas.getByRole("button", { name: /^Start again/ })).toBeVisible()
   },
 }
 
@@ -717,7 +739,7 @@ export const Blocked: Story = {
     const canvas = within(canvasElement)
     await waitFor(async () =>
       expect(
-        await canvas.findByText("ctx| cannot open the upgrade pull request"),
+        await canvas.findByText("ctxpipe cannot open the upgrade pull request"),
       ).toBeVisible(),
     )
     await waitFor(async () =>
@@ -767,7 +789,7 @@ export const BlockedWithoutReason: Story = {
     )
     await waitFor(() =>
       expect(
-        canvas.getByText("ctx| cannot start this item now."),
+        canvas.getByText("ctxpipe cannot start this item now."),
       ).toBeVisible(),
     )
   },
@@ -818,7 +840,7 @@ export const ReingestBlockedOnWriteAccess: Story = {
   play: async ({ canvasElement }) => {
     const canvas = await expectReingestCard(
       canvasElement,
-      "ctx| cannot publish the re-ingestion",
+      "ctxpipe cannot publish the re-ingestion",
     )
     await waitFor(() =>
       expect(
@@ -867,7 +889,7 @@ export const ReingestBlockedNextStep: Story = {
 
 /**
  * CTX-944. The hydrate read the new format, and the scan has not yet changed
- * the re-ingestion. The page shows one state: the item says that ctx| checks
+ * the re-ingestion. The page shows one state: the item says that ctxpipe checks
  * the new format, and it has no blocked warning. The page reads the items
  * again by itself, so the item becomes ready to start with no refresh.
  */
@@ -906,7 +928,7 @@ export const ReingestChecksNewFormat: Story = {
     await waitFor(async () =>
       expect(await canvas.findByText("Checking the new format")).toBeVisible(),
     )
-    expect(canvas.getByText(/ctx\| is checking the new format/)).toBeVisible()
+    expect(canvas.getByText(/ctxpipe is checking the new format/)).toBeVisible()
     expect(canvas.getByText(/It is up to date\./)).toBeVisible()
     expect(canvas.queryByText("Apply the format upgrade first")).toBeNull()
     expect(canvas.queryByText(/Merge the format upgrade/)).toBeNull()
@@ -958,7 +980,7 @@ export const ReadOnlyBelowFormat: Story = {
         upgradeItemFixture({
           status: "blocked",
           blockedReason: "write_access",
-          note: "ctx| needs write access through the GitHub App to open the upgrade pull request.",
+          note: "ctxpipe needs write access through the GitHub App to open the upgrade pull request.",
         }),
         upgradeItemFixture({
           key: "reingest-bundle",
@@ -967,7 +989,7 @@ export const ReadOnlyBelowFormat: Story = {
           steps: [],
           status: "blocked",
           blockedReason: "needs_format",
-          note: "Re-ingestion needs format 3. ctx| needs write access through the GitHub App to open the format upgrade pull request.",
+          note: "Re-ingestion needs format 3. ctxpipe needs write access through the GitHub App to open the format upgrade pull request.",
         }),
       ]),
     ),
@@ -976,7 +998,7 @@ export const ReadOnlyBelowFormat: Story = {
     const canvas = within(canvasElement)
     await waitFor(() =>
       expect(
-        canvas.getByText("ctx| cannot open the upgrade pull request"),
+        canvas.getByText("ctxpipe cannot open the upgrade pull request"),
       ).toBeVisible(),
     )
     await waitFor(() =>

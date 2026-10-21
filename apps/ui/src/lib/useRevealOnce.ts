@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { flushSync } from "react-dom"
+import { updateInViewTransition } from "./updateInViewTransition"
 
 /**
  * Returns true once `ready` has been true. A block that may not show uses it
@@ -15,14 +15,7 @@ export function useRevealOnce(ready: boolean, immediate = false): boolean {
   if (immediate && ready && !shown) setShown(true)
   useEffect(() => {
     if (!ready || shown) return
-    const animate =
-      typeof document.startViewTransition === "function" &&
-      !window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    if (animate) {
-      document.startViewTransition(() => flushSync(() => setShown(true)))
-    } else {
-      setShown(true)
-    }
+    updateInViewTransition(() => setShown(true))
   }, [ready, shown])
   return shown
 }

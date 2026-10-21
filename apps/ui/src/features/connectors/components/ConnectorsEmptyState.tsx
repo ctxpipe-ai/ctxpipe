@@ -23,9 +23,9 @@ export function ConnectorsEmptyState({
         No connections yet
       </h2>
       <p className="mx-auto mt-3 max-w-md leading-relaxed text-muted-foreground">
-        Connections pull docs, wikis, repos, and other sources into ctx| so your
-        team loads real data into context—grounding agents and workflows instead
-        of relying on whatever happens to be in the thread.
+        Connections pull docs, wikis, repos, and other sources into ctxpipe so
+        your team loads real data into context—grounding agents and workflows
+        instead of relying on whatever happens to be in the thread.
       </p>
       <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
         <Button

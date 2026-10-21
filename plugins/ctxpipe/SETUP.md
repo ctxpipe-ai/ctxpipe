@@ -1,7 +1,7 @@
-# Connect ctx| to Claude
+# Connect ctxpipe to Claude
 
 1. Open Claude's MCP connections and connect **ctxpipe**.
-2. Complete ctx| sign-in in the browser.
+2. Complete ctxpipe sign-in in the browser.
 3. On the consent page, tick the organizations that Claude may read. The
    organization of your current session is ticked. Tick at least one. Edit the
    set later on **Connected apps**.
@@ -24,10 +24,10 @@ must attach this plugin and add an **MCP Connector** credential for
 `app.ctxpipe.ai`. This one-time admin connection is required by Claude Tag;
 installing the community plugin cannot bypass it.
 
-The OAuth grant holds a set of ctx| organizations that the admin ticks on the
+The OAuth grant holds a set of ctxpipe organizations that the admin ticks on the
 consent page. Switching organizations later in the admin's browser does not
 change what the Slack agent can access. To add an organization, open
-**Connected apps** in ctx| settings and tick it, or reconnect the MCP Connector.
+**Connected apps** in ctxpipe settings and tick it, or reconnect the MCP Connector.
 
-Signing out of the ctx| browser session does not revoke an `offline_access`
+Signing out of the ctxpipe browser session does not revoke an `offline_access`
 grant. Disconnect the MCP Connector when its access should end.

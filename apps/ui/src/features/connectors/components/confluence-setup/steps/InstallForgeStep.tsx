@@ -279,7 +279,7 @@ export function InstallForgeStep({
         ) : (
           <p className="mt-2 text-sm text-muted-foreground">
             Confluence integrations use embedded Forge apps on Atlassian’s
-            cloud. ctx| will provision one for you below.{" "}
+            cloud. ctxpipe will provision one for you below.{" "}
             <a
               href="https://developer.atlassian.com/platform/forge/"
               target="_blank"

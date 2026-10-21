@@ -45,7 +45,7 @@ describe("workspaceNeedsFormatUpgrade", () => {
     ).toBe(false)
   })
 
-  it("says nothing about a format that ctx| did not read, with no item", () => {
+  it("says nothing about a format that ctxpipe did not read, with no item", () => {
     expect(
       workspaceNeedsFormatUpgrade({
         items: [],

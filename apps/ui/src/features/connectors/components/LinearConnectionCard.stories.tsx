@@ -184,7 +184,7 @@ export const ConnectedNotInAWorkspace: Story = {
     await expect(
       canvas.getByRole("button", { name: "Add to a Workspace" }),
     ).toBeVisible()
-    // The Linear workspace is the account, not a ctx| Workspace.
+    // The Linear workspace is the account, not a ctxpipe Workspace.
     await expect(canvas.getByText("Account")).toBeVisible()
     await expect(canvas.getByText("Acme Product")).toBeVisible()
   },

@@ -170,7 +170,7 @@ function runReport(
   if (!output.success)
     return {
       status: "failed",
-      report: ["ctx| cannot read the result of the ingestion run."],
+      report: ["ctxpipe cannot read the result of the ingestion run."],
     }
   const reason = output.data.reason ? [output.data.reason] : []
   const result = output.data.workspaces?.find(
@@ -300,7 +300,7 @@ const plannedSchema = z.union([
         url: z.string(),
         githubConnectionId: z.string().nullable(),
         sha: z.string().nullable(),
-        /** Why ctx| could not read the tip (with no `sha`). */
+        /** Why ctxpipe could not read the tip (with no `sha`). */
         tipError: z.string().nullable().optional(),
         /** Done at this commit by an earlier run of this upgrade. */
         done: z
@@ -353,7 +353,7 @@ async function planReingest(input: {
   const format = workspace.formatVersion
   if (format !== null && format > CODE_FORMAT)
     throw new Error(
-      `The Workspace has format ${format}, which is newer than this ctx| version.`,
+      `The Workspace has format ${format}, which is newer than this ctxpipe version.`,
     )
   const blocked = reingestBlock({ ...workspace, format })
   if (blocked) return { blocked: blocked.blockedReason, note: blocked.note }
@@ -367,7 +367,7 @@ async function planReingest(input: {
     input.orgId,
     input.workspaceId,
   )) {
-    // A repository that ctx| cannot read gets no run; the report names it
+    // A repository that ctxpipe cannot read gets no run; the report names it
     // and the reason. A plain git repository is read with no credential,
     // from a host that passes the plain git rules (CTX-815).
     let tipError: string | null = null
@@ -398,7 +398,7 @@ async function planReingest(input: {
       sha,
       tipError,
       done,
-      // A run that ctx| or the user starts again adds to the spend.
+      // A run that ctxpipe or the user starts again adds to the spend.
       ...(!done && before?.spendUsd
         ? { earlierSpendUsd: before.spendUsd }
         : {}),
@@ -634,7 +634,7 @@ export function defineWorkspaceUpgradeReingest(
                   : r.sha
                     ? []
                     : [
-                        `ctx| cannot read the default branch of the repository.${r.tipError ? ` ${r.tipError}` : ""}`,
+                        `ctxpipe cannot read the default branch of the repository.${r.tipError ? ` ${r.tipError}` : ""}`,
                       ],
                 ...(r.done
                   ? {

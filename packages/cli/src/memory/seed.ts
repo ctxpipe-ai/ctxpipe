@@ -153,7 +153,7 @@ rg -i "keyword" .ai/memory --glob '*.md' --glob '!events/**'
 
 ## Commit and share
 
-- Memory is shared with teammates (and the ctx| graph) only once it merges. Include \`.ai/memory/\` changes in the commit for the work they came from, on that work's branch — not a separate memory branch.
+- Memory is shared with teammates (and the ctxpipe graph) only once it merges. Include \`.ai/memory/\` changes in the commit for the work they came from, on that work's branch — not a separate memory branch.
 - Summarize the work in the pull request description: what changed, why, what was tried and ruled out, follow-ups. Use \`sessions/\` only for work with no PR.
 - Describe people by role, not by name or email address.
 
@@ -315,7 +315,8 @@ const GITIGNORE_EVENTS_BLOCK = `
 
 export function mergeGitignoreForMemory(existing: string | null): string {
   const base = existing ?? ""
-  if (base.includes(".ai/memory/events/**")) return base.endsWith("\n") ? base : `${base}\n`
+  if (base.includes(".ai/memory/events/**"))
+    return base.endsWith("\n") ? base : `${base}\n`
   const trimmed = base.replace(/\s*$/, "")
   return `${trimmed}${trimmed ? "\n" : ""}${GITIGNORE_EVENTS_BLOCK.trim()}\n`
 }

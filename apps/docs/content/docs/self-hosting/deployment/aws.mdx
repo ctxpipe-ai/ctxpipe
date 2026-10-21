@@ -1,12 +1,12 @@
 ---
 title: AWS
-description: Deploy ctx| on AWS with the @ctxpipe/aws-cdk CtxPipe construct.
+description: Deploy ctxpipe on AWS with the @ctxpipe/aws-cdk CtxPipe construct.
 ---
 
-`@ctxpipe/aws-cdk` is the AWS self-hosting path for ctx|. It gives you one high-level construct, `CtxPipe`, that provisions the required infrastructure and wires runtime configuration for you.
+`@ctxpipe/aws-cdk` is the AWS self-hosting path for ctxpipe. It gives you one high-level construct, `CtxPipe`, that provisions the required infrastructure and wires runtime configuration for you.
 
 <Callout type="warn" title="Single-tenant only">
-  Self-hosted ctx| on `@ctxpipe/aws-cdk` is **single-tenant**. Run one stack
+  Self-hosted ctxpipe on `@ctxpipe/aws-cdk` is **single-tenant**. Run one stack
   per organization.
 </Callout>
 
@@ -189,7 +189,7 @@ product onboarding flow.
 | Prop | Why it is required |
 |---|---|
 | `orgSlug` | Self-hosted AWS CDK deployments are single-tenant. The slug identifies the one org for this stack and is used for org-scoped graph runtime values such as `GRAPH_DB_URI_<orgSlug>`. |
-| `customDomain` | ctx| needs one stable public HTTPS origin for browser traffic, auth, API routes, connector callbacks, and MCP. The construct uses this to configure DNS + TLS + ALB listeners. |
+| `customDomain` | ctxpipe needs one stable public HTTPS origin for browser traffic, auth, API routes, connector callbacks, and MCP. The construct uses this to configure DNS + TLS + ALB listeners. |
 | `modelProvider` | Backend and worker need model IDs and either an OpenAI-compatible endpoint + API key, or Bedrock via ECS task role. See union below. |
 
 ### Optional props

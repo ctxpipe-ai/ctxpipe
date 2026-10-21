@@ -28,8 +28,8 @@ export function WorkspaceHydrateFailedBody(props: {
     <div className="w-full max-w-md">
       <h1 className="text-lg font-medium tracking-tight">Prepare failed</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Chat and the graph open when ctx| can read this repository. Change the
-        Workspace repository in settings, or try again.
+        Chat and the graph open when ctxpipe can read this repository. Change
+        the Workspace repository in settings, or try again.
       </p>
       <div className="mt-5">
         <InlineAlert
@@ -45,9 +45,9 @@ export function WorkspaceHydrateFailedBody(props: {
             </Button>
           }
         >
-          {workspace.hydrateError ?? "ctx| could not read this repository."}
+          {workspace.hydrateError ?? "ctxpipe could not read this repository."}
           {workspace.hydrateError?.startsWith(
-            "ctx| has no access to this repository.",
+            "ctxpipe has no access to this repository.",
           ) ? (
             <>
               {" "}
@@ -108,8 +108,8 @@ export function WorkspaceHydrateProgress(props: {
           Preparing {workspace.displayName}
         </h1>
         <p className="mt-3 text-sm text-muted-foreground">
-          ctx| reads the knowledge in this repository. Chat and the graph open
-          when it is done.
+          ctxpipe reads the knowledge in this repository. Chat and the graph
+          open when it is done.
         </p>
         <ol className="mt-5 space-y-2 text-sm">
           {["Fetching repository", "Reading knowledge"].map((label, index) => (

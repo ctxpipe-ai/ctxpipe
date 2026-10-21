@@ -2,7 +2,7 @@ const accountRail = [
   {
     label: "Actor",
     title: "User",
-    description: "Signs in via Atlassian OAuth from ctx|",
+    description: "Signs in via Atlassian OAuth from ctxpipe",
   },
   {
     label: "Atlassian OAuth",
@@ -11,7 +11,7 @@ const accountRail = [
       "Confirms account, discovers sites, grants API access to selected site",
   },
   {
-    label: "ctx| stores",
+    label: "ctxpipe stores",
     title: "Linked account and site",
     description: "OAuth token stored, site linked, awaiting Forge confirmation",
   },
@@ -21,15 +21,16 @@ const siteRail = [
   {
     label: "Actor",
     title: "Confluence admin",
-    description: "Installs ctx| Forge app into the Confluence site",
+    description: "Installs ctxpipe Forge app into the Confluence site",
   },
   {
-    label: "ctx| Forge app",
+    label: "ctxpipe Forge app",
     title: "Runs inside Confluence site",
-    description: "Sends install status and page or space change events to ctx|",
+    description:
+      "Sends install status and page or space change events to ctxpipe",
   },
   {
-    label: "ctx| receives",
+    label: "ctxpipe receives",
     title: "Site events",
     description: "Install confirmed, change events flowing, sync triggered",
   },
@@ -73,7 +74,9 @@ export function ConfluenceDataFlowDiagram() {
       aria-label="Confluence connector data flow"
     >
       <div className="confluence-flow-title">
-        <div className="confluence-flow-kicker">ctx| / Confluence connector</div>
+        <div className="confluence-flow-kicker">
+          ctxpipe / Confluence connector
+        </div>
         <div className="confluence-flow-heading">
           OAuth reads. Forge <span>notifies.</span>
         </div>
@@ -108,7 +111,7 @@ export function ConfluenceDataFlowDiagram() {
       <div className="confluence-flow-connector">
         <div className="confluence-flow-connector-label">Converged state</div>
         <div className="confluence-flow-connector-title">
-          ctx| Confluence Connector - active
+          ctxpipe Confluence Connector - active
         </div>
         <div className="confluence-flow-checks">
           <span>Site linked via OAuth</span>
@@ -135,12 +138,15 @@ export function ConfluenceDataFlowDiagram() {
       <div className="confluence-flow-why">
         <div>
           <div className="confluence-flow-why-label a">OAuth</div>
-          <p>Gives ctx| permission to read Confluence content via Atlassian APIs.</p>
+          <p>
+            Gives ctxpipe permission to read Confluence content via Atlassian
+            APIs.
+          </p>
         </div>
         <div className="confluence-flow-why-div" />
         <div>
           <div className="confluence-flow-why-label b">Forge</div>
-          <p>Lets the Confluence site notify ctx| when content changes.</p>
+          <p>Lets the Confluence site notify ctxpipe when content changes.</p>
         </div>
         <div className="confluence-flow-why-div" />
         <div>
@@ -151,8 +157,8 @@ export function ConfluenceDataFlowDiagram() {
 
       <figcaption>
         OAuth grants read access. Forge confirms installation and sends change
-        events. Together they let ctx| sync selected Confluence content into a
-        GitHub-backed source.
+        events. Together they let ctxpipe sync selected Confluence content into
+        a GitHub-backed source.
       </figcaption>
     </figure>
   )

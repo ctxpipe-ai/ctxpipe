@@ -56,7 +56,7 @@ describe("upgradeProgress", () => {
     ).toMatchObject({ label: "Starting the run", count: null, fraction: 0 })
     expect(
       upgradeProgress(upgradeItemFixture({ status: "queued", approvedAt })),
-    ).toMatchObject({ label: "Queued. ctx| starts the run in a moment." })
+    ).toMatchObject({ label: "Queued. ctxpipe starts the run in a moment." })
   })
 
   it("counts the repositories that a re-ingestion finished", () => {
@@ -105,7 +105,7 @@ describe("upgradeProgress", () => {
     ).toBeNull()
   })
 
-  it("says that ctx| saw the merge and what comes next", () => {
+  it("says that ctxpipe saw the merge and what comes next", () => {
     const progress = upgradeProgress(
       upgradeItemFixture({
         status: "pr_open",
@@ -148,7 +148,7 @@ describe("upgradeCheckResult", () => {
         }),
         2,
       ),
-    ).toContain("The pull request merged. ctx| is reading the new format.")
+    ).toContain("The pull request merged. ctxpipe is reading the new format.")
     expect(
       upgradeCheckResult(
         upgradeItemFixture({ status: "awaiting_operator", checkedAt }),

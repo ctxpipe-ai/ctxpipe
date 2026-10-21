@@ -67,7 +67,7 @@ export type UpgradeStepPlan = {
 }
 
 /**
- * A line for the user. `action`: the user must do something. `risk`: ctx|
+ * A line for the user. `action`: the user must do something. `risk`: ctxpipe
  * cannot keep or make again some knowledge or setting.
  */
 export type UpgradeNotice = { kind: "action" | "risk"; text: string }
@@ -125,7 +125,7 @@ export const UPGRADE_STATUSES = {
   pr_open: "pr_open",
   completed: "completed",
   failed: "failed",
-  /** It cannot start, for example because ctx| cannot write to the repository. */
+  /** It cannot start, for example because ctxpipe cannot write to the repository. */
   blocked: "blocked",
 } as const
 
@@ -133,7 +133,7 @@ export type UpgradeStatus =
   (typeof UPGRADE_STATUSES)[keyof typeof UPGRADE_STATUSES]
 
 export const UPGRADE_BLOCKED_REASONS = {
-  /** ctx| cannot push a branch or open a pull request on the repository. */
+  /** ctxpipe cannot push a branch or open a pull request on the repository. */
   writeAccess: "write_access",
   /** The re-ingestion needs format 3 or higher (G5). Merge the format upgrade first. */
   needsFormat: "needs_format",
@@ -279,7 +279,7 @@ export type WorkspaceUpgradePayload = {
    */
   waitingForSlot?: { reason: string; since: string }
   /**
-   * Only on a re-ingestion that ctx| started again by itself, once, after a
+   * Only on a re-ingestion that ctxpipe started again by itself, once, after a
    * run failed for a temporary cause (CTX-896): the failed run. A start by
    * the user removes it.
    */

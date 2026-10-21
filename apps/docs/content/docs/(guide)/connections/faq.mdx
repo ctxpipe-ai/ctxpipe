@@ -1,11 +1,11 @@
 ---
 title: Other connections FAQ
-description: Common questions about what ctx| connects today and what is on the roadmap.
+description: Common questions about what ctxpipe connects today and what is on the roadmap.
 ---
 
 ## Which sources can I connect?
 
-ctx| currently supports GitHub, Confluence, Linear, Notion, PagerDuty, and
+ctxpipe currently supports GitHub, Confluence, Linear, Notion, PagerDuty, and
 Slack. Confluence, Linear, Notion, and PagerDuty mirror the scope that you
 approve into a Workspace. The scope is a source file, and a pull request that
 you merge adds it. Slack captures specific threads on mention rather than
@@ -17,16 +17,16 @@ A connection is the authorization of one tool. It has no scope. A source is a
 file in a Workspace that names the connection and the scope. One connection can
 feed many Workspaces. See [Connections](/docs/connections).
 
-## Does ctx| scan my laptop?
+## Does ctxpipe scan my laptop?
 
-No. ctx| reads the repositories and tools you connect, and data derived from
+No. ctxpipe reads the repositories and tools you connect, and data derived from
 them in your deployment. It does not install an agent on developer machines.
 
 ## How do private repositories work?
 
-The GitHub App grants ctx| access to all or selected repositories. ctx|
+The GitHub App grants ctxpipe access to all or selected repositories. ctxpipe
 clones and indexes linked code repositories in its own deployment and does not
-commit to them. ctx| commits only to workspace repositories (extracted
+commit to them. ctxpipe commits only to workspace repositories (extracted
 knowledge and connector content) and opens pull requests only when you ask,
 for example from Workspace chat or the MCP config flow.
 

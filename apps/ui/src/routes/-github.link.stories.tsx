@@ -38,7 +38,7 @@ function startFlow() {
 }
 
 /**
- * The GitHub account belongs to another ctx| user. The page names GitHub,
+ * The GitHub account belongs to another ctxpipe user. The page names GitHub,
  * and it leaves the error, with the flow nonce, for the opener.
  */
 export const LinkedToAnotherUser: Story = {
@@ -61,7 +61,9 @@ export const LinkedToAnotherUser: Story = {
     )
     await waitFor(() =>
       expect(
-        canvas.getByText(/This GitHub account is linked to another ctx\| user/),
+        canvas.getByText(
+          /This GitHub account is linked to another ctxpipe user/,
+        ),
       ).toBeVisible(),
     )
     await expect(canvas.queryByText(/Atlassian/)).not.toBeInTheDocument()

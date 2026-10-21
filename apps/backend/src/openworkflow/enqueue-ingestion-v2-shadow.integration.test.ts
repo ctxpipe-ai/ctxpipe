@@ -123,7 +123,7 @@ describe("ingestion v2 shadow trigger", () => {
     })
   })
 
-  it("queues nothing for a repository URL that ctx| does not read as plain git", async () => {
+  it("queues nothing for a repository URL that ctxpipe does not read as plain git", async () => {
     for (const [index, gitUrl] of [
       "http://git.example.com/acme/plain.git",
       "https://token@git.example.com/acme/plain.git",

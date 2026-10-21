@@ -118,7 +118,7 @@ export const SweepPushEntry: Story = {
   args: { sync: { ...base, trigger: "sweep", files: 2 } },
   play: async ({ canvasElement }) => {
     const entry = within(canvasElement).getByRole("region", {
-      name: `ctx| pushed 2 files to ${branch}`,
+      name: `ctxpipe pushed 2 files to ${branch}`,
     })
     await expectLink(entry, branch, treeUrl)
   },

@@ -7,7 +7,7 @@ import {
 } from "../mcp/mcp-server-info.js"
 
 /**
- * Serves the ctx| brand mark for MCP client UIs (e.g. CodeRabbit) that load
+ * Serves the ctxpipe brand mark for MCP client UIs (e.g. CodeRabbit) that load
  * `icons[].src` over HTTPS instead of inline data URIs.
  */
 export function registerMcpBrandAssetRoute(app: Hono<AppEnv>) {

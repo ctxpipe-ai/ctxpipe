@@ -1,10 +1,10 @@
 ---
 title: Slack connector
-description: Capture specific Slack threads into a Workspace by mentioning the ctx| bot.
+description: Capture specific Slack threads into a Workspace by mentioning the ctxpipe bot.
 ---
 
 <Callout title="Fully managed app flow">
-  This page covers the fully managed ctx| app, where one Slack app is owned by
+  This page covers the fully managed ctxpipe app, where one Slack app is owned by
   the deployment. Self-hosted operators must create and configure their own Slack
   app first. See [Self-host Slack](/docs/self-hosting/slack).
 </Callout>
@@ -16,37 +16,37 @@ the background. Captures are **auditable** (git history records who captured,
 when, and which Slack thread), not a reviewed pull-request gate. The channel
 list of a Workspace is the reviewed part: a pull request adds it.
 
-Connect Slack to ctx|, add it to a Workspace with the channels to capture, then
+Connect Slack to ctxpipe, add it to a Workspace with the channels to capture, then
 **@mention** the bot in Slack. Mentioning the bot starts a small in-thread agent. Ask it to **capture
 this**, or mention it with no extra text, to snapshot the thread as Markdown
 under `slack/channels/<channelId>/` in each Workspace that has the channel. Later mentions on the same thread **update the same
 file**. Other intents get a short capability reply; v1 does not answer product
 questions in Slack.
 
-A Slack workspace can be connected to **one** ctx| organization.
+A Slack workspace can be connected to **one** ctxpipe organization.
 
 ## Two ways to work with Slack
 
 | Approach | Job |
 | --- | --- |
-| **ctx\| Slack connector** (this page) | Durable, auditable context: capture chosen threads into git for indexing |
+| **ctxpipe Slack connector** (this page) | Durable, auditable context: capture chosen threads into git for indexing |
 | **[Slack MCP server](https://docs.slack.dev/ai/slack-mcp-server)** | Query-time access: search and read the live workspace from your developer agent |
 
 If you want general access to your Slack workspace from tools such as Cursor or
 Claude, add Slack’s MCP server to your developer environment. See Slack’s
 [Guide to Model Context Protocol in Slack](https://slack.com/help/articles/48855576908307-Guide-to-Model-Context-Protocol-in-Slack).
-ctx| does not replace Slack MCP, and Slack MCP does not create the same
+ctxpipe does not replace Slack MCP, and Slack MCP does not create the same
 git-native, ingested context that the connector does.
 
 ## Prerequisites
 
-- An active GitHub connection in ctx|.
-- A [Workspace](/docs/workspaces) whose repository the ctx| GitHub App can write
+- An active GitHub connection in ctxpipe.
+- A [Workspace](/docs/workspaces) whose repository the ctxpipe GitHub App can write
   to. The repository must use format 2 or higher. If it does not, the Workspace
   shows **Upgrade this Workspace first**. See
   [Upgrades](/docs/workspaces/settings#upgrades).
 - Permission to merge the pull request that adds the source.
-- Permission to install the ctx| Slack app in the workspace.
+- Permission to install the ctxpipe Slack app in the workspace.
 - Ability to `/invite` the bot into any channel where you will capture threads.
 
 ## Setup flow
@@ -62,8 +62,8 @@ git-native, ingested context that the connector does.
     ### Authorize the workspace
 
     Complete the Slack OAuth popup (**Authorize Slack workspace**, then
-    **Connect Slack**). ctx| stores an encrypted bot token for that workspace
-    connection. One Slack workspace maps to one ctx| org. The connection holds
+    **Connect Slack**). ctxpipe stores an encrypted bot token for that workspace
+    connection. One Slack workspace maps to one ctxpipe org. The connection holds
     authorization only. If GitHub is not connected, the wizard shows **Connect
     GitHub** next.
   </Step>
@@ -77,7 +77,7 @@ git-native, ingested context that the connector does.
     **A different scope for each Workspace**. Prefer a separate Workspace with a
     private repository when captures can include private-channel content.
 
-    Choose **Add to Workspaces**. ctx| opens one pull request for each
+    Choose **Add to Workspaces**. ctxpipe opens one pull request for each
     Workspace. Each pull request adds `sources/slack/<name>.md` with the channel
     ids. The dialog shows **Merge the pull request** (or **Merge the pull
     requests**). After each merge, it shows **Pull request merged**.
@@ -97,19 +97,19 @@ git-native, ingested context that the connector does.
     @your-bot-handle capture this
     ```
 
-    A bare mention with no extra text also captures. ctx| replies in the thread
-    with **ctx| agent working…**, then updates that message (or posts a new
+    A bare mention with no extra text also captures. ctxpipe replies in the thread
+    with **ctxpipe agent working…**, then updates that message (or posts a new
     reply if the update cannot land) to **Engineering context captured into**
     and a link to each Workspace that got the thread. The link opens the
     captured thread file in that Workspace, where you can edit it. If you asked
-    for something else, ctx| gives a short capability reply. Later replies are not mirrored unless you mention the bot
+    for something else, ctxpipe gives a short capability reply. Later replies are not mirrored unless you mention the bot
     again on that thread (that recapture overwrites the same snapshot).
   </Step>
 </Steps>
 
 ## What is captured
 
-ctx| saves a thread to each Workspace whose Slack source, with the status
+ctxpipe saves a thread to each Workspace whose Slack source, with the status
 **OK**, has the channel of the thread. It writes one commit for each Workspace.
 
 - Thread-first Markdown at
@@ -135,7 +135,7 @@ ctx| saves a thread to each Workspace whose Slack source, with the status
 - Deleting git history when you uninstall Slack. Uninstall marks the connection
   revoked; captured files stay in the repository.
 - Deleting captured threads when you remove a channel from a source. Captured
-  threads stay, because ctx| cannot fetch a thread again.
+  threads stay, because ctxpipe cannot fetch a thread again.
 
 ## Troubleshooting
 

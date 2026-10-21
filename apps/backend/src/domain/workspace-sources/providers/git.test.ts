@@ -234,7 +234,7 @@ describe("a plain git source file", () => {
     })
   })
 
-  it("refuses a connection, a URL that ctx| does not read, and another key", () => {
+  it("refuses a connection, a URL that ctxpipe does not read, and another key", () => {
     const parse = (frontMatter: string) =>
       parseSourceFile(
         "sources/git/git.example.org/team-app.md",

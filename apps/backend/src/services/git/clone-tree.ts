@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { trace } from "@opentelemetry/api"
+import { withGitProcessSlot } from "./process-slot.js"
 import {
   workspaceRelativePath,
   workspaceRepositoryPath,
@@ -17,12 +18,16 @@ async function gitExec(
   input?: string,
 ) {
   try {
-    const execution = execFileAsync("git", args, {
-      ...options,
-      encoding: "buffer",
+    return await withGitProcessSlot(() => {
+      const execution = execFileAsync("git", args, {
+        ...options,
+        encoding: "buffer",
+      })
+      // A process that did not start has no reader for its input.
+      execution.child.stdin?.on("error", () => {})
+      if (input !== undefined) execution.child.stdin?.end(input)
+      return execution
     })
-    if (input !== undefined) execution.child.stdin?.end(input)
-    return await execution
   } catch (error) {
     const err = error as NodeJS.ErrnoException & {
       message?: string
@@ -53,7 +58,7 @@ function gitTimeoutError(args: readonly string[], timeout: number) {
     (arg, index) => !arg.startsWith("-") && args[index - 1] !== "-C",
   )
   return new Error(
-    `Git ${command} did not finish in the time that ctx| waits (${Math.round(timeout / 1000)} s).`,
+    `Git ${command} did not finish in the time that ctxpipe waits (${Math.round(timeout / 1000)} s).`,
   )
 }
 
@@ -74,53 +79,62 @@ export async function gitOutput(
     const file = join(scratch, "stdout")
     const stdout = await open(file, "w")
     try {
-      await new Promise<void>((resolve, reject) => {
-        const child = spawn("git", args, {
-          stdio: [input === undefined ? "ignore" : "pipe", stdout.fd, "pipe"],
-        })
-        let stderr = ""
-        let timedOut = false
-        const timer = setTimeout(() => {
-          timedOut = true
-          child.kill()
-        }, timeout)
-        child.stderr?.on("data", (chunk: Buffer) => {
-          stderr = (stderr + chunk.toString()).slice(-4096)
-        })
-        // Git can exit before it reads all of its input; its exit status
-        // gives the result, not the broken pipe.
-        child.stdin?.on("error", () => {})
-        child.stdin?.end(input)
-        child.on("error", (error: NodeJS.ErrnoException) => {
-          clearTimeout(timer)
-          reject(
-            error.code === "ENOENT"
-              ? new Error(
-                  "git is not installed on this service; cannot read a repository by clone.",
+      await withGitProcessSlot(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            const child = spawn("git", args, {
+              stdio: [
+                input === undefined ? "ignore" : "pipe",
+                stdout.fd,
+                "pipe",
+              ],
+            })
+            let stderr = ""
+            let timedOut = false
+            const timer = setTimeout(() => {
+              timedOut = true
+              child.kill()
+            }, timeout)
+            child.stderr?.on("data", (chunk: Buffer) => {
+              stderr = (stderr + chunk.toString()).slice(-4096)
+            })
+            // Git can exit before it reads all of its input; its exit status
+            // gives the result, not the broken pipe.
+            child.stdin?.on("error", () => {})
+            child.stdin?.end(input)
+            child.on("error", (error: NodeJS.ErrnoException) => {
+              clearTimeout(timer)
+              reject(
+                error.code === "ENOENT"
+                  ? new Error(
+                      "git is not installed on this service; cannot read a repository by clone.",
+                    )
+                  : error,
+              )
+            })
+            child.on("close", (code) => {
+              clearTimeout(timer)
+              if (timedOut) reject(gitTimeoutError(args, timeout))
+              else if (code === 0) resolve()
+              else
+                reject(
+                  Object.assign(
+                    new Error(
+                      `Command failed: git ${args.join(" ")}\n${stderr}`,
+                    ),
+                    { code, stderr },
+                  ),
                 )
-              : error,
-          )
-        })
-        child.on("close", (code) => {
-          clearTimeout(timer)
-          if (timedOut) reject(gitTimeoutError(args, timeout))
-          else if (code === 0) resolve()
-          else
-            reject(
-              Object.assign(
-                new Error(`Command failed: git ${args.join(" ")}\n${stderr}`),
-                { code, stderr },
-              ),
-            )
-        })
-      })
+            })
+          }),
+      )
     } finally {
       await stdout.close()
     }
     const { size } = await stat(file)
     if (size > maxBytes)
       throw new Error(
-        `The Git repository is too large for ctx| to read in one step: the Git output is ${Math.ceil(size / 2 ** 20)} MiB, and the limit is ${Math.floor(maxBytes / 2 ** 20)} MiB.`,
+        `The Git repository is too large for ctxpipe to read in one step: the Git output is ${Math.ceil(size / 2 ** 20)} MiB, and the limit is ${Math.floor(maxBytes / 2 ** 20)} MiB.`,
       )
     return await readFile(file)
   } finally {
@@ -132,9 +146,9 @@ type GitShaFile = { kind: "missing" } | { kind: "bytes"; bytes: Uint8Array }
 
 export const GIT_REMOTE_ACCESS_MESSAGES = {
   noCredential:
-    "ctx| has no access to this repository. Connect GitHub to this Workspace, then retry.",
+    "ctxpipe has no access to this repository. Connect GitHub to this Workspace, then retry.",
   denied:
-    "ctx| has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
+    "ctxpipe has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
 } as const
 
 /** The remote refused the read credential, or the read needs one and has none. */

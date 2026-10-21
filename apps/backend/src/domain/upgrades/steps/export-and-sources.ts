@@ -244,7 +244,7 @@ async function connectorSources(input: {
       notices: [
         {
           kind: "action",
-          text: "The sources file of the Workspace is not valid, so ctx| did not move the connection settings. Fix the file, then start the upgrade again.",
+          text: "The sources file of the Workspace is not valid, so ctxpipe did not move the connection settings. Fix the file, then start the upgrade again.",
         },
       ],
     }
@@ -527,12 +527,12 @@ export function exportAndSourcesStep(
         )
       for (const refused of plainGitRefused)
         report.push(
-          `Not linked: ${normalizeWorkspaceRepositoryUrl(refused.gitUrl)}. ctx| does not read it as a plain git source: ${refused.reason.replace(/\.$/, "")}. ctx| keeps its knowledge and exports it.`,
+          `Not linked: ${normalizeWorkspaceRepositoryUrl(refused.gitUrl)}. ctxpipe does not read it as a plain git source: ${refused.reason.replace(/\.$/, "")}. ctxpipe keeps its knowledge and exports it.`,
         )
       if (linkedRepositories.skipped.length || plainGitRefused.length)
         notices.push({
           kind: "risk",
-          text: "ctx| could not link some repositories as sources. Fresh ingestion does not read them.",
+          text: "ctxpipe could not link some repositories as sources. Fresh ingestion does not read them.",
         })
 
       // 2. The connection scopes.
@@ -670,7 +670,7 @@ export function exportAndSourcesStep(
           )
         notices.push({
           kind: "risk",
-          text: "ctx| kept some knowledge as files, because fresh ingestion cannot make it again. Do not delete these files.",
+          text: "ctxpipe kept some knowledge as files, because fresh ingestion cannot make it again. Do not delete these files.",
         })
       }
       for (const link of knowledge.droppedLinks)
@@ -680,10 +680,10 @@ export function exportAndSourcesStep(
       if (knowledge.droppedLinks.length)
         notices.push({
           kind: "risk",
-          text: "ctx| removed some links between knowledge items, because this Workspace does not get their target.",
+          text: "ctxpipe removed some links between knowledge items, because this Workspace does not get their target.",
         })
       report.push(
-        `Not exported, because ctx| makes it again: ${counts.github} item(s) from source repositories (the re-ingestion upgrade), ${counts.workspace} item(s) from Workspace repositories and ${counts.no_repository} connector item(s) (hydrate makes Workspace items again from their Markdown files, and fresh ingestion of the connector sources fetches connector items again).`,
+        `Not exported, because ctxpipe makes it again: ${counts.github} item(s) from source repositories (the re-ingestion upgrade), ${counts.workspace} item(s) from Workspace repositories and ${counts.no_repository} connector item(s) (hydrate makes Workspace items again from their Markdown files, and fresh ingestion of the connector sources fetches connector items again).`,
       )
 
       if (counts.deleted_repository) {

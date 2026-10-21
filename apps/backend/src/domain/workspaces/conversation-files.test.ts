@@ -396,7 +396,7 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
       git(root, "clone", "-q", upstream, sandbox)
       git(sandbox, "checkout", "-q", "-b", "ctxpipe/session")
       writeFileSync(join(sandbox, "agent.md"), "the agent's file\n")
-      // ctx| pushes to the default branch after the conversation starts.
+      // ctxpipe pushes to the default branch after the conversation starts.
       writeFileSync(join(upstream, "AGENTS.md"), "# Agents\nmore\n")
       writeFileSync(join(upstream, "imported.md"), "imported\n")
       git(upstream, "add", ".")

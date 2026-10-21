@@ -191,7 +191,7 @@ export const SkippedFiles: Story = {
     ).toBeVisible()
     // A legacy overlay file is not in Git: the row names the cause and has no fix.
     await canvas.findByText(
-      "Knowledge from before Workspaces. ctx| shows it from its database, so it cannot be fixed here.",
+      "Knowledge from before Workspaces. ctxpipe shows it from its database, so it cannot be fixed here.",
     )
     // Its path is not in Git, so it is plain text: the Files pane would show "File not found".
     expect(canvas.getByText("knowledge/apis/imported.md")).toBeVisible()

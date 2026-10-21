@@ -25,7 +25,7 @@ import { parseLinearConfigYamlContent } from "./config-yaml.js"
  */
 export function linearLegacyBindings(input: {
   connectionId: string
-  /** The Linear workspace id of the connection (not a ctx| Workspace). */
+  /** The Linear workspace id of the connection (not a ctxpipe Workspace). */
   linearWorkspaceId: string | null
   syncRepositoryUrl: string
   configYaml: string | undefined

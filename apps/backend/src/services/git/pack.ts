@@ -1,11 +1,14 @@
 import { execFile } from "node:child_process"
 import { createReadStream } from "node:fs"
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { mkdtemp, open, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pipeline } from "node:stream/promises"
 import { promisify } from "node:util"
+import { trace } from "@opentelemetry/api"
+import { log } from "../../observability/logger.js"
 import { gitRemoteEnvironment } from "./clone-tree.js"
+import { withGitProcessSlot } from "./process-slot.js"
 
 const execute = promisify(execFile)
 
@@ -18,6 +21,16 @@ const running = new Map<
   string,
   Set<{ kill: () => void; done: Promise<void> }>
 >()
+
+/**
+ * Temporary directories whose clean-up has started. A read that was in the
+ * slot queue must not start Git in such a directory: the kill of a sibling
+ * gives it a slot while the removal runs.
+ */
+const closing = new Set<string>()
+
+/** Native Git calls that have not settled, also the calls in the slot queue. */
+const pending = new Map<string, Set<Promise<void>>>()
 
 /**
  * Native pack and shallow boundary; no filesystem locator or credential is
@@ -63,6 +76,104 @@ export async function nativeGit(
   input?: Uint8Array | string | { file: string },
   env?: NodeJS.ProcessEnv,
 ): Promise<Buffer> {
+  const call = withGitProcessSlot(() =>
+    startNativeGit(directory, args, input, env),
+  )
+  const settled = call.then(
+    () => undefined,
+    () => undefined,
+  )
+  const calls = pending.get(directory) ?? new Set()
+  calls.add(settled)
+  pending.set(directory, calls)
+  void settled.then(() => {
+    calls.delete(settled)
+    if (!calls.size && pending.get(directory) === calls)
+      pending.delete(directory)
+  })
+  return call
+}
+
+async function startNativeGit(
+  directory: string,
+  args: string[],
+  input?: Uint8Array | string | { file: string },
+  env?: NodeJS.ProcessEnv,
+): Promise<Buffer> {
+  if (closing.has(directory))
+    throw new Error("The temporary Git directory is closed")
+  const started = Date.now()
+  try {
+    return await runNativeGit(directory, args, input, env)
+  } catch (error) {
+    throw describeGitFailure(error, args, Date.now() - started)
+  }
+}
+
+/** Git output that a failure message keeps, at most. */
+const STDERR_LIMIT = 4000
+const GIT_TIME_LIMIT_MS = 60_000
+
+/**
+ * Add the exit code or the signal and the end of the Git error output to a
+ * failed Git command, and record them in the active span and the log. The
+ * error object stays the same, so its `code` and `syscall` stay for the
+ * spawn retry (CTX-952). A spawn error has no exit status and stays as it is.
+ */
+function describeGitFailure(
+  error: unknown,
+  args: readonly string[],
+  elapsedMs: number,
+): unknown {
+  if (!(error instanceof Error)) return error
+  const failure = error as Error & {
+    code?: unknown
+    signal?: NodeJS.Signals | null
+    stderr?: Buffer | string
+  }
+  // Only a Git process that ran has an exit status; execFile sets `cmd`.
+  if (!("cmd" in failure) || typeof failure.code === "string") return error
+  const exitCode = typeof failure.code === "number" ? failure.code : undefined
+  const signal = failure.signal ?? undefined
+  const stderr = String(failure.stderr ?? "").trim()
+  const shownStderr =
+    stderr.length > STDERR_LIMIT
+      ? `…${stderr.slice(stderr.length - STDERR_LIMIT)}`
+      : stderr
+  const timedOut = Boolean(signal) && elapsedMs >= GIT_TIME_LIMIT_MS
+  const status = signal
+    ? `stopped by ${signal}${timedOut ? ` at the ${GIT_TIME_LIMIT_MS / 1000} s time limit` : ""}`
+    : `exit code ${exitCode ?? "unknown"}`
+  // The subcommand is the first argument that is not an option or the value
+  // of a `-c` option.
+  const command =
+    args.find((arg, at) => !arg.startsWith("-") && args[at - 1] !== "-c") ??
+    "git"
+  const firstLine = failure.message.split("\n", 1)[0]
+  failure.message = `${firstLine}\ngit ${command} ${status} after ${Math.round(elapsedMs / 1000)} s${shownStderr ? `: ${shownStderr}` : " with no error output"}`
+  const details = {
+    "git.command": command,
+    "git.exit_code": exitCode,
+    "git.signal": signal,
+    "git.timed_out": timedOut,
+    "git.duration_ms": elapsedMs,
+    "git.stderr": shownStderr,
+  }
+  trace.getActiveSpan()?.setAttributes(details)
+  log.warn({
+    step: "git.command_failed",
+    message: failure.message,
+    ...details,
+  })
+  return error
+}
+
+async function runNativeGit(
+  directory: string,
+  args: string[],
+  input?: Uint8Array | string | { file: string },
+  env?: NodeJS.ProcessEnv,
+): Promise<Buffer> {
   const result = execute(
     "git",
     [
@@ -79,7 +190,7 @@ export async function nativeGit(
     ],
     {
       encoding: "buffer",
-      timeout: 60_000,
+      timeout: GIT_TIME_LIMIT_MS,
       maxBuffer: 64 * 1024 * 1024,
       env: env ?? { ...process.env, GIT_TERMINAL_PROMPT: "0" },
     },
@@ -116,8 +227,16 @@ export async function nativeGit(
         throw error
       },
     )
-    return (await Promise.all([result, streamed]))[0].stdout
+    try {
+      return (await Promise.all([result, streamed]))[0].stdout
+    } finally {
+      // A failed input stream kills Git; its slot stays taken until it exits.
+      await entry.done
+    }
   }
+  // Git can exit before it reads all of its input, and a process that did not
+  // start has no reader; the exit status gives the result, not the pipe.
+  result.child.stdin?.on("error", () => {})
   if (input !== undefined) result.child.stdin?.end(input)
   return (await result).stdout
 }
@@ -153,7 +272,7 @@ export async function packGitObjects(
     const { size } = await stat(file)
     if (size > maxBytes)
       throw new Error(
-        `The Git repository is too large for ctx| to read in one step: the Git pack of its commit is ${Math.ceil(size / 2 ** 20)} MiB, and the limit is ${maxBytes / 2 ** 20} MiB.`,
+        `The Git repository is too large for ctxpipe to read in one step: the Git pack of its commit is ${Math.ceil(size / 2 ** 20)} MiB, and the limit is ${maxBytes / 2 ** 20} MiB.`,
       )
     return (await readFile(file)).toString("base64")
   } finally {
@@ -176,6 +295,33 @@ export async function captureGitPack(
   return { sha, objects, shallow }
 }
 
+/**
+ * Decode a base64 pack to a file in the object store of `directory` and
+ * index it there. Git reads the file itself: the pack does not go through a
+ * pipe that the event loop of this process must feed, and the decode holds
+ * only one chunk of the pack in memory at a time (CTX-954).
+ */
+async function indexGitPack(directory: string, objects: string) {
+  const packs = join(directory, ".git/objects/pack")
+  const incoming = join(packs, "pack-incoming.pack")
+  const file = await open(incoming, "w")
+  try {
+    // A multiple of 4 base64 characters decodes without a partial byte. One
+    // buffer takes each decoded chunk in turn.
+    const chunk = 4 * 2 ** 20
+    const bytes = Buffer.allocUnsafe((chunk / 4) * 3)
+    for (let at = 0; at < objects.length; at += chunk) {
+      const length = bytes.write(objects.slice(at, at + chunk), "base64")
+      await file.write(bytes, 0, length)
+    }
+  } finally {
+    await file.close()
+  }
+  // Git writes the index (and its reverse index) next to the pack. It reads
+  // a pack through any index in this folder, so no rename is needed.
+  await nativeGit(directory, ["index-pack", incoming])
+}
+
 export async function withGitDirectory<T>(
   sha: string,
   operation: (directory: string) => Promise<T>,
@@ -192,29 +338,38 @@ export async function withGitDirectory<T>(
     ])
     if (pack) {
       if (pack.sha !== sha) throw new Error("Git pack identity mismatch")
-      await nativeGit(
-        directory,
-        ["index-pack", "--stdin"],
-        Buffer.from(pack.objects, "base64"),
-      )
+      await indexGitPack(directory, pack.objects)
       if (pack.shallow)
         await writeFile(join(directory, ".git/shallow"), pack.shallow)
       await nativeGit(directory, ["checkout", "--detach", sha])
     }
     return await operation(directory)
   } finally {
-    // A Git process that the operation left running (a rejected sibling of a
-    // parallel read) must exit before the removal; it could write meanwhile.
-    const left = [...(running.get(directory) ?? [])]
-    for (const child of left) child.kill()
-    await Promise.all(left.map((child) => child.done))
-    // Second layer only: the cause is handled above.
-    await rm(directory, {
-      recursive: true,
-      force: true,
-      maxRetries: 3,
-      retryDelay: 50,
-    })
+    // No Git process starts in the directory from here. A process that the
+    // operation left running (a rejected sibling of a parallel read) must
+    // exit before the removal; it could write meanwhile.
+    closing.add(directory)
+    try {
+      const left = [...(running.get(directory) ?? [])]
+      for (const child of left) child.kill()
+      // A queued call gets a slot and rejects at once because of `closing`.
+      await Promise.all([...(pending.get(directory) ?? [])])
+      // Second layer only: the cause is handled above.
+      await rm(directory, {
+        recursive: true,
+        force: true,
+        maxRetries: 3,
+        retryDelay: 50,
+      })
+    } catch (error) {
+      // A failed removal must not hide the error of the operation.
+      log.warn({
+        step: "git.temporary_directory_cleanup",
+        message: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      closing.delete(directory)
+    }
   }
 }
 

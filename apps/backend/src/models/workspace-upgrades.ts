@@ -153,7 +153,7 @@ export async function transitionWorkspaceUpgradeRow(input: {
   failureReason?: string | null
   /** Only change a row that this workflow run owns. */
   ownerRunId?: string
-  /** Only change a row that ctx| queued again by itself after this failed run (CTX-896). */
+  /** Only change a row that ctxpipe queued again by itself after this failed run (CTX-896). */
   autoRetryOf?: string
 }): Promise<WorkspaceUpgradeRow | null> {
   return orgSql(async () => {

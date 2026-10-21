@@ -487,7 +487,7 @@ it(
           expect(row).toEqual({
             hydrateStatus: "failed",
             hydrateError:
-              "ctx| has no access to this repository. Connect GitHub to this Workspace, then retry.",
+              "ctxpipe has no access to this repository. Connect GitHub to this Workspace, then retry.",
           })
           const requestsAfterFirst = requests
           expect(requestsAfterFirst).toBeGreaterThan(0)

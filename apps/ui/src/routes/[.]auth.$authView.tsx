@@ -275,7 +275,7 @@ export function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   return (
     <form onSubmit={submit} className="grid gap-4">
       <p className="text-sm text-zinc-400">
-        Create your ctx| account to join{" "}
+        Create your ctxpipe account to join{" "}
         <span className="font-medium text-zinc-200">
           {invitationEmailQuery.data.organizationName}
         </span>

@@ -16,7 +16,7 @@ export async function runMemoryStatus(opts: {
     process.stdout.write(`${JSON.stringify(state, null, 2)}\n`)
     return
   }
-  note(formatStatusText(state), "ctx| memory status")
+  note(formatStatusText(state), "ctxpipe memory status")
 }
 
 export async function runMemoryDoctor(opts: {
@@ -35,7 +35,7 @@ export async function runMemoryDoctor(opts: {
     [formatStatusText(status), "", "Checks:", ...checks.map(formatCheck)].join(
       "\n",
     ),
-    "ctx| memory doctor",
+    "ctxpipe memory doctor",
   )
 }
 
@@ -151,6 +151,7 @@ function formatStatusText(state: StatusSnapshot): string {
 }
 
 function formatCheck(check: DoctorCheck): string {
-  const badge = check.status === "ok" ? "✓" : check.status === "warn" ? "!" : "✗"
+  const badge =
+    check.status === "ok" ? "✓" : check.status === "warn" ? "!" : "✗"
   return `  ${badge} ${check.name}: ${check.detail}`
 }

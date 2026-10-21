@@ -255,7 +255,7 @@ export async function loadKnowledgeProjectionSource(
           objectId: row.objectId,
           predicate: row.predicate,
           aggregatedConfidence: row.aggregatedConfidence,
-          // A claim with no `valid_from` holds since ctx| first saw it. With
+          // A claim with no `valid_from` holds since ctxpipe first saw it. With
           // a date in the file, hydrate has no `valid_from` to write after
           // the upgrade.
           validFrom: row.validFrom ?? row.firstObservedAt,

@@ -48,6 +48,8 @@ Write each explanation in ASD-STE100 Simplified Technical English (Issue 9). You
 
 Use US English spelling in every text you write. Write `organization`, not `organisation`.
 
+In text, write the product name as "ctxpipe". Use "ctx|" only in the logo.
+
 Retained text uses the full standard. This includes markdown, a code comment, a commit message, pull request text, a changeset, docs, and other kept text. User-facing UI copy is the exception: it follows ASD-STE100 at about 80% strength.
 
 A reply to the user uses that same 80% level. Keep sentence length, one topic, the active voice, and a command verb for a step. You may relax at most one sentence in five. A relaxed sentence may use a common word, a contraction, a phrasal verb, an "-ing" form, or a warmer tone. A procedure step stays at full strength.

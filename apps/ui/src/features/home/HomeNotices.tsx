@@ -104,11 +104,11 @@ function UpgradeToast(props: {
         <p className="text-sm font-medium">{title}</p>
         <p className="text-xs text-muted-foreground">
           {saving
-            ? "ctx| saves the setting. It starts the upgrade when the setting is saved. You can leave this page."
+            ? "ctxpipe saves the setting. It starts the upgrade when the setting is saved. You can leave this page."
             : saveFailed
-              ? `ctx| could not save the setting. ${job.data?.failureReason ?? ""} Press Update once to start the upgrade now, or open Upgrades.`
+              ? `ctxpipe could not save the setting. ${job.data?.failureReason ?? ""} Press Update once to start the upgrade now, or open Upgrades.`
               : jobStatus === "completed"
-                ? "ctx| saved the setting. The upgrade starts in a moment."
+                ? "ctxpipe saved the setting. The upgrade starts in a moment."
                 : upgradeToastLine(item)}
         </p>
         {isAdmin === false ? (
@@ -196,7 +196,7 @@ function FailedUpgradeToast(props: {
   const label = `${workspace.displayName}, ${item.title}`
   const cause = item.failure
     ? upgradeFailureCopy(item.failure).reason
-    : (item.failureReason ?? "ctx| gives no reason.")
+    : (item.failureReason ?? "ctxpipe gives no reason.")
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3">
       <IconAlertTriangle

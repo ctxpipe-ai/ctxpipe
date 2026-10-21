@@ -130,7 +130,7 @@ export const ownershipMigrationStep: GitUpgradeStep = {
           report.push(`${path}: claim ${index + 1} is removed. ${reason}.`)
           notices.push({
             kind: "risk",
-            text: "ctx| removed some claims that ingestion v2 cannot keep.",
+            text: "ctxpipe removed some claims that ingestion v2 cannot keep.",
           })
         },
         onRemovedKeys: ({ path, keys }) =>
@@ -142,7 +142,7 @@ export const ownershipMigrationStep: GitUpgradeStep = {
     const unkeyed = apply(importKeyCleanupFiles(current()))
     if (unkeyed)
       report.push(
-        `Removed the import key of ${unkeyed} knowledge file(s). ctx| does not need it after the upgrade.`,
+        `Removed the import key of ${unkeyed} knowledge file(s). ctxpipe does not need it after the upgrade.`,
       )
     const units = () =>
       hydrateKnowledgeTree({ workspaceId: ctx.workspaceId, files: current() })
@@ -189,7 +189,7 @@ export const ownershipMigrationStep: GitUpgradeStep = {
     )
     if (bootstrapped)
       report.push(
-        "Updated the ctx| instructions for agents: AGENTS.md and the knowledge skill.",
+        "Updated the ctxpipe instructions for agents: AGENTS.md and the knowledge skill.",
       )
     return { writes: [...writes.values()], deletes: [], report, notices }
   },
