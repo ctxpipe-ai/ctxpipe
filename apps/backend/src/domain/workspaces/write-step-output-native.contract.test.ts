@@ -17,7 +17,7 @@ const largeBody = Array.from({ length: 4096 }, (_, index) =>
   createHash("sha256").update(String(index)).digest("hex"),
 ).join("\n")
 
-const fixture = {
+const fixture: Parameters<typeof withNativeHydrationFixture>[0] = {
   github: true,
   githubWriteView: "writable",
   writeStatus: "writable",
@@ -25,7 +25,7 @@ const fixture = {
     { path: "large.md", body: largeBody },
     { path: "notes.md", body: "# Notes\nBefore.\n" },
   ],
-} as const
+}
 
 type Fixture = Parameters<Parameters<typeof withNativeHydrationFixture>[1]>[0]
 
@@ -77,7 +77,9 @@ it(
         const outputs = await stepOutputs(f, handle.workflowRun.id)
         for (const name of ["acquire-revision", "stage", "commit"]) {
           expect(outputs.has(name)).toBe(true)
-          expect(JSON.stringify(outputs.get(name)).length, name).toBeLessThan(4096)
+          expect(JSON.stringify(outputs.get(name)).length, name).toBeLessThan(
+            4096,
+          )
         }
       } finally {
         await worker.stop()
