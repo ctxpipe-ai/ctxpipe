@@ -418,7 +418,7 @@ export const ConversationWorkspaceMovedNoChanges: Story = {
 
 /**
  * The Workspace moved under the conversation's own changes. The notice says
- * what happens on publish and does not name a conflict.
+ * to send a message first and does not name a conflict.
  */
 export const ConversationWorkspaceMovedWithChanges: Story = {
   args: { conversationId: "conv_1" },
@@ -441,7 +441,7 @@ export const ConversationWorkspaceMovedWithChanges: Story = {
       { timeout: 15_000 },
     )
     expect(notice).toHaveTextContent(
-      "ctxpipe applies this conversation's changes on top of them when you publish.",
+      "Send your next message to bring this conversation up to date. Then you can publish.",
     )
     expect(notice).not.toHaveTextContent(/conflict|rebase/i)
   },
