@@ -25,6 +25,7 @@ import {
 import {
   landingPane,
   type ParsedPane,
+  paneSearchForOtherConversation,
   serializePane,
   visiblePane,
 } from "./pane"
@@ -490,7 +491,7 @@ function WorkspaceSurfaceColumns(props: {
     void navigate({
       to: "/$orgSlug/ws/$workspaceSlug",
       params: { orgSlug, workspaceSlug: workspace.slug },
-      search: {},
+      search: (prev) => paneSearchForOtherConversation(prev),
     })
   }
   const publish = useWorkspaceConversationPublish({

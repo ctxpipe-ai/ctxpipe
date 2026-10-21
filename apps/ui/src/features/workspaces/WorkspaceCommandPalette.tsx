@@ -36,6 +36,7 @@ import {
   useSkeletonHold,
 } from "@/components/ui/Skeleton"
 import { prefetchWorkspaceRouteData } from "./ensure-route-data"
+import { paneSearchForOtherConversation } from "./pane"
 import { fetchWorkspaces, workspaceKeys } from "./queries"
 
 type PaletteProps = {
@@ -161,7 +162,7 @@ function PaletteBody(props: PaletteProps) {
       void navigate({
         to: "/$orgSlug/ws/$workspaceSlug",
         params: { orgSlug, workspaceSlug },
-        search: (prev) => prev,
+        search: (prev) => paneSearchForOtherConversation(prev),
       })
     }
     onOpenChange(false)

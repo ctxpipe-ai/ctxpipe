@@ -15,6 +15,7 @@ import {
   type WorkspaceSliceWrite,
 } from "../../domain/workspace-sources/sync.js"
 import { encodeLinearTokensForDb } from "../../lib/connection-config.js"
+import { getLinearConnectionByConnectionId } from "../../models/linear-connector.js"
 import {
   listWorkspaceSourceRows,
   replaceWorkspaceSourceRows,
@@ -487,5 +488,55 @@ describe("Linear source adapter on the sync frame (Postgres, msw)", () => {
         scope: { teams: ["GONE"] },
       }),
     ).resolves.toBeNull()
+  })
+
+  it("refreshes an expired access token for the access check and stores the new tokens", async () => {
+    const oauthEnv = {
+      ...env(),
+      LINEAR_CLIENT_ID: "linear-client-id",
+      LINEAR_CLIENT_SECRET: "linear-client-secret",
+    }
+    const expired = await seed.addConnection("linear", {
+      ...encodeLinearTokensForDb(
+        { accessToken: "expired-access", refreshToken: "stored-refresh" },
+        oauthEnv,
+      ),
+      accessTokenExpiresAt: new Date(Date.now() - 60_000).toISOString(),
+      workspaceId: `linear-org-expired-${seed.suffix}`,
+      workspaceName: "Example",
+      workspaceUrlKey: "example",
+      status: "installed",
+    })
+    const refreshTokens: string[] = []
+    server.use(
+      http.post("https://api.linear.app/oauth/token", async ({ request }) => {
+        refreshTokens.push(
+          new URLSearchParams(await request.text()).get("refresh_token") ?? "",
+        )
+        return HttpResponse.json({
+          access_token: "fresh-access",
+          refresh_token: "fresh-refresh",
+          expires_in: 86_399,
+          token_type: "Bearer",
+          scope: "read",
+        })
+      }),
+    )
+    await expect(
+      linearSourceAdapter.checkAccess?.({
+        orgId: seed.orgId,
+        connectionId: expired,
+        env: oauthEnv,
+        scope: { teams: ["ops"] },
+      }),
+    ).resolves.toBeNull()
+    expect(refreshTokens).toEqual(["stored-refresh"])
+    const stored = await getLinearConnectionByConnectionId(
+      seed.orgId,
+      expired,
+      oauthEnv,
+    )
+    expect(stored?.accessToken).toBe("fresh-access")
+    expect(stored?.refreshToken).toBe("fresh-refresh")
   })
 })
