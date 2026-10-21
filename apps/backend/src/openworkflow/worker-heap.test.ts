@@ -31,4 +31,22 @@ describe("worker heap options", () => {
       "--max-old-space-size=3000 --diagnostic-dir=/data --heapsnapshot-near-heap-limit=1",
     )
   })
+
+  it("keeps the underscore form of a flag", () => {
+    expect(workerNodeOptions("--max_old_space_size=8192", 24 * GiB)).toBe(
+      "--max_old_space_size=8192 --heapsnapshot-near-heap-limit=1 --diagnostic-dir=/tmp/heap",
+    )
+  })
+
+  it("keeps an operator value that turns the snapshot off", () => {
+    expect(workerNodeOptions("--heapsnapshot-near-heap-limit=0", 4 * GiB)).toBe(
+      "--heapsnapshot-near-heap-limit=0 --max-old-space-size=2252 --diagnostic-dir=/tmp/heap",
+    )
+  })
+
+  it("does not read a flag name inside another value", () => {
+    expect(workerNodeOptions("--title=x--max-old-space-size", 4 * GiB)).toBe(
+      "--title=x--max-old-space-size --max-old-space-size=2252 --heapsnapshot-near-heap-limit=1 --diagnostic-dir=/tmp/heap",
+    )
+  })
 })

@@ -26,12 +26,20 @@ export function workerNodeOptions(
   memoryBytes: number,
 ): string {
   const options = existing?.trim() ?? ""
+  const names = new Set(
+    options
+      .split(/\s+/)
+      .filter((token) => token.startsWith("--"))
+      .map((token) => token.split("=")[0].replaceAll("_", "-")),
+  )
   const add: string[] = []
-  if (!options.includes("--max-old-space-size"))
+  if (!names.has("--max-old-space-size"))
     add.push(`--max-old-space-size=${workerHeapLimitMib(memoryBytes)}`)
-  if (!options.includes("--heapsnapshot-near-heap-limit"))
+  // Kept on by default: if the platform kills the process while it writes the
+  // snapshot, the result is the same crash as without the flag.
+  if (!names.has("--heapsnapshot-near-heap-limit"))
     add.push("--heapsnapshot-near-heap-limit=1")
-  if (!options.includes("--diagnostic-dir"))
+  if (!names.has("--diagnostic-dir"))
     add.push(`--diagnostic-dir=${HEAP_SNAPSHOT_DIR}`)
   return [options, ...add].filter(Boolean).join(" ")
 }

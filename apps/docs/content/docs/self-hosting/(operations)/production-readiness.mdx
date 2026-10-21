@@ -99,8 +99,15 @@ the worker. The worker keeps your value. Keep it below the container memory.
 The worker also starts with `--heapsnapshot-near-heap-limit=1` and
 `--diagnostic-dir=/tmp/heap`. If the heap nears its limit, Node writes one
 `.heapsnapshot` file to `/tmp/heap` before the process exits. The file is lost
-when the container restarts, unless `/tmp/heap` is on a volume. The worker
-logs its heap limit at start (`heapLimitMib` in the
+when the container restarts, unless `/tmp/heap` is on a volume.
+
+Writing the snapshot pauses the worker. It needs extra memory and disk space,
+and the file can be larger than the heap. On a small task the write can fail,
+and the platform can then stop the process. The result is the same crash as
+without the snapshot. To turn the snapshot off, set
+`--heapsnapshot-near-heap-limit=0` in `NODE_OPTIONS` on the worker.
+
+The worker logs its heap limit at start (`heapLimitMib` in the
 `openworkflow.config-loaded` line).
 
 ## Secret handling
