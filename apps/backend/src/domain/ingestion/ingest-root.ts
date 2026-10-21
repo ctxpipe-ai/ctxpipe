@@ -184,7 +184,7 @@ export const ROOT_STDERR_MAX_BYTES = 64 * 1024
  * size check refuses it. Stderr keeps its end: the callers show the last
  * part of it in the error.
  */
-export function boundedRootOutput() {
+function boundedRootOutput() {
   const out: Buffer[] = []
   const err: Buffer[] = []
   let outBytes = 0

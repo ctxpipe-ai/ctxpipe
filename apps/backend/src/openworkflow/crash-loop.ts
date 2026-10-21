@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm"
 import { getSystemDb } from "../db/client.js"
-import { flushWorkflowLog, getLogger } from "../observability/logger.js"
+import { log } from "../observability/logger.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
 
 /**
@@ -33,7 +33,7 @@ export class StepCrashLoopError extends Error {
  * makes a new attempt. Call this inside the step body: the attempt of the
  * caller is also `running`, so it does not count.
  */
-export async function crashedStepAttempts(
+async function crashedStepAttempts(
   workflowRunId: string,
   stepName: string,
 ): Promise<number> {
@@ -63,13 +63,13 @@ export async function withCrashLoopGuard<T>(
   const crashes = await crashedStepAttempts(workflowRunId, stepName)
   if (crashes >= MAX_CRASHED_STEP_ATTEMPTS) {
     const error = new StepCrashLoopError(stepName, crashes)
-    getLogger().error(error, {
+    log.error({
       step: "openworkflow.step-crash-loop",
+      message: error.message,
       workflowRunId,
       stepName,
       crashes,
     })
-    flushWorkflowLog()
     throw error
   }
   return fn()
