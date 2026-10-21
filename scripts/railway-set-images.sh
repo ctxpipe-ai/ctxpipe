@@ -63,7 +63,7 @@ instance_state() {
   local service_id="$1"
   # shellcheck disable=SC2016
   railway_graphql \
-    'query serviceInstanceSource($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { source { image } latestDeployment { status } } }' \
+    'query serviceInstanceSource($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { source { image } latestDeployment { status meta } } }' \
     "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')"
 }
 
@@ -77,13 +77,28 @@ set_image() {
 }
 
 deploy_service() {
-  local service_id="$1"
-  local response
+  local name="$1"
+  local service_id="$2"
+  local response deployment_id
   # shellcheck disable=SC2016
-  response="$(railway_graphql \
+  if ! response="$(railway_graphql \
     'mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }' \
-    "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')")"
-  echo "$response" | jq -er '.data.serviceInstanceDeployV2'
+    "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')")"; then
+    railway_deploy_failed "$name" "$service_id"
+    return 1
+  fi
+  if ! deployment_id="$(echo "$response" | jq -er '.data.serviceInstanceDeployV2 // empty')"; then
+    echo "Railway returned no deployment id for $name: $response" >&2
+    railway_deploy_failed "$name" "$service_id"
+    return 1
+  fi
+  echo "$deployment_id"
+}
+
+railway_deploy_failed() {
+  echo "Railway did not start a deployment of $1 ($2) in $ENVIRONMENT_NAME ($ENV_ID) at $IMAGE_TAG." >&2
+  echo "Cause: Railway refused serviceInstanceDeployV2 (see the error above). \"Problem processing request\" is usually a Railway incident, for example paused builds or deploys: https://status.railway.com" >&2
+  echo "Fix: when Railway is healthy, re-run the failed jobs of this Deploy run. The re-run deploys each service whose running deployment is not $IMAGE_TAG." >&2
 }
 
 wait_deploy() {
@@ -116,7 +131,7 @@ wait_deploy() {
 
 deploy_image() {
   local name="$1"
-  local service_id image desired state current status deployment_id
+  local service_id image desired state current deployed status deployment_id
   service_id="$(echo "$ids_by_name" | jq -r --arg name "$name" '.[$name] // empty')"
   if [[ -z "$service_id" ]]; then
     echo "No Railway service named $name in project $PROJECT_ID" >&2
@@ -126,18 +141,22 @@ deploy_image() {
   desired="${image}:${IMAGE_TAG}"
   state="$(instance_state "$service_id")"
   current="$(echo "$state" | jq -r '.data.serviceInstance.source.image // empty')"
+  # The source image changes before the deploy starts. When the deploy call
+  # fails, the source is already $desired but the old image still runs. So
+  # skip only when the latest deployment itself runs $desired.
+  deployed="$(echo "$state" | jq -r '.data.serviceInstance.latestDeployment.meta.image // empty')"
   status="$(echo "$state" | jq -r '.data.serviceInstance.latestDeployment.status // empty')"
-  if [[ "$current" == "$desired" && ( "$status" == "SUCCESS" || "$status" == "SLEEPING" ) ]]; then
-    echo "Skipping $name ($service_id): source image already $desired ($status)"
+  if [[ "$deployed" == "$desired" && ( "$status" == "SUCCESS" || "$status" == "SLEEPING" ) ]]; then
+    echo "Skipping $name ($service_id): latest deployment already runs $desired ($status)"
     return 0
   fi
   if [[ "$current" != "$desired" ]]; then
     echo "Setting $name ($service_id) image ${current:-none} -> $desired"
     set_image "$service_id" "$desired"
   else
-    echo "Redeploying $name ($service_id): image is $desired but latest deployment is ${status:-none}"
+    echo "Redeploying $name ($service_id): source image is $desired but the latest deployment runs ${deployed:-unknown} (${status:-none})"
   fi
-  deployment_id="$(deploy_service "$service_id")"
+  deployment_id="$(deploy_service "$name" "$service_id")"
   echo "Deploying $name as $deployment_id"
   wait_deploy "$name" "$deployment_id"
 }
