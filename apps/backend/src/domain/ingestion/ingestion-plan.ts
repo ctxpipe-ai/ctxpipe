@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { gunzipSync, gzipSync } from "node:zlib"
 import type { ModelTier } from "../../retrieval/services/providers/providerTypes.js"
 import {
   type DiscoveredRoot,
@@ -162,4 +163,23 @@ export function ingestRootMap(
       files: [...(files.get(skillStepRootKey(r.path)) ?? [])].sort(),
     })),
   }
+}
+
+type PackedRoot = { path: string; manifests: string[]; evidence: string[] }
+
+/** The root list in the `discover-roots` step output: gzip, then base64. */
+export function packRoots(roots: readonly PackedRoot[]): string {
+  return gzipSync(
+    JSON.stringify(
+      roots.map((r) => ({
+        path: r.path,
+        manifests: r.manifests,
+        evidence: r.evidence,
+      })),
+    ),
+  ).toString("base64")
+}
+
+export function unpackRoots(packed: string): PackedRoot[] {
+  return JSON.parse(gunzipSync(Buffer.from(packed, "base64")).toString("utf8"))
 }
