@@ -447,6 +447,8 @@ const answerLinkMessages: ChatMessage[] = [
           "",
           "Streamdown renders the Markdown. Read the [Streamdown docs](https://streamdown.ai) for the options.",
           "",
+          "Line anchors: [`knowledge/x.md`](knowledge/x.md#L12), [`knowledge/y.md`](knowledge/y.md#L12-L20), [`knowledge/z.md`](knowledge/z.md:12) and [`knowledge/w.md`](file:///workspace/knowledge/w.md).",
+          "",
           "These stay as code: `useState`, `process.env`, `Node.js`, `application/json`, `/etc/hosts`, `../outside.ts` and `pnpm dev`.",
         ].join("\n"),
       },
@@ -495,7 +497,17 @@ export const AnswerLinksInWorkspace: Story = {
       await expect(canvas.queryByRole("button", { name: text })).toBeNull()
       await expect(canvas.getByText(text)).toBeVisible()
     }
-    await expect(args.onOpenFile).toHaveBeenCalledTimes(2)
+    for (const path of [
+      "knowledge/x.md",
+      "knowledge/y.md",
+      "knowledge/z.md",
+      "knowledge/w.md",
+    ]) {
+      await userEvent.click(canvas.getByRole("button", { name: path }))
+      await expect(args.onOpenFile).toHaveBeenLastCalledWith(path)
+    }
+    await expect(canvas.queryByText(/blocked/)).toBeNull()
+    await expect(args.onOpenFile).toHaveBeenCalledTimes(6)
   },
 }
 
