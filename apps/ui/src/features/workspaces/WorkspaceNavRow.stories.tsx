@@ -181,8 +181,8 @@ export const IngestingCollapsed: Story = {
   parameters: { msw: { handlers: ingestingDocs } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const row = await canvas.findByRole("link", {
-      name: "Collapse Docs. Ingesting 2 sources",
+    const row = await canvas.findByRole("button", {
+      name: "Expand Docs. Ingesting 2 sources",
     })
     await waitFor(() =>
       expect(row.querySelector("[data-ingesting]")).not.toBeNull(),

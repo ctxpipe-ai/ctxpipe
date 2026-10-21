@@ -184,7 +184,7 @@ export function WorkspaceNavRow(props: {
             <span
               data-ingesting="true"
               aria-hidden
-              className="ctx-status-pulse absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-teal-400 motion-reduce:animate-none"
+              className="ctx-status-pulse absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-teal-400"
             />
           ) : null}
         </span>
@@ -311,7 +311,7 @@ function IngestingDot(props: { label: string }) {
             >
               <span
                 aria-hidden
-                className="ctx-status-pulse size-1.5 rounded-full bg-teal-400 motion-reduce:animate-none"
+                className="ctx-status-pulse size-1.5 rounded-full bg-teal-400"
               />
             </span>
           }

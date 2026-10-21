@@ -659,6 +659,13 @@
   animation: ctx-status-pulse 1.2s ease-in-out infinite;
 }
 
+/* With reduced motion a status dot stays at full strength, with no pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .ctx-status-pulse {
+    animation: none;
+  }
+}
+
 @keyframes ctx-status-pulse {
   0%,
   100% {

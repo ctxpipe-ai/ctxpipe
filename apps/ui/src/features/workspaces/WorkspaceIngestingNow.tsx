@@ -80,7 +80,7 @@ export function WorkspaceIngestingNow(props: {
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
                 <span
                   aria-hidden
-                  className="ctx-status-pulse size-1.5 shrink-0 rounded-full bg-teal-400 motion-reduce:animate-none"
+                  className="ctx-status-pulse size-1.5 shrink-0 rounded-full bg-teal-400"
                 />
                 Indexing the newest commit…
                 <span className="text-xs tabular-nums">
