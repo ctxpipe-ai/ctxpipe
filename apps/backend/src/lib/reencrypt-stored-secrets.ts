@@ -12,13 +12,13 @@ import {
 } from "./connection-secrets.js"
 
 /** Counts of stored secret values. `failed` holds row ids (and fields) only, never a value. */
-export type ReencryptTally = {
+type ReencryptTally = {
   rewritten: number
   alreadyCurrent: number
   failed: string[]
 }
 
-export type ReencryptReport = {
+type ReencryptReport = {
   dryRun: boolean
   connections: ReencryptTally
   sandboxGitTokens: ReencryptTally
