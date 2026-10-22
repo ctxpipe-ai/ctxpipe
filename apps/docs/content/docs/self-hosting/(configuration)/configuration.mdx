@@ -146,7 +146,8 @@ stores its ID, PEM private key, and webhook secret encrypted for the connection.
 | `GITHUB_WEBHOOK_SECRET` | Optional after migrations. Also used for the legacy webhook route. |
 | `GITHUB_APP_SLUG` | Optional. Public app slug used for default install URLs. |
 | `CONNECTION_SECRETS_ENCRYPTION_KEY` | Optional 64-character hex key. When unset, encryption derives from `AUTH_SECRET`. |
-| `CONNECTION_SECRETS_PREVIOUS_KEYS` | Optional. Set only while you change keys: the old keys, comma separated. Each entry is a 64-character hex key or `auth-secret:<old AUTH_SECRET>`. See [Roll AUTH_SECRET and the encryption key](/docs/self-hosting/production-readiness#roll-auth_secret-and-the-encryption-key). |
+| `CONNECTION_SECRETS_PREVIOUS_KEYS` | Optional. Set only while you change keys: the old 64-character hex keys, comma separated. See [Roll AUTH_SECRET and the encryption key](/docs/self-hosting/production-readiness#roll-auth_secret-and-the-encryption-key). |
+| `PREVIOUS_AUTH_SECRET` | Optional. Set only while you change `AUTH_SECRET`: the old `AUTH_SECRET`, as one value. |
 
 The wizard reserves the connection-specific webhook URL and provides the exact
 value to paste into GitHub.

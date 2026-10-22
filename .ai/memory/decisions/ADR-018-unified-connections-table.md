@@ -25,7 +25,7 @@ GitHub App installations and Atlassian Forge / Confluence installations were sto
 - Connectors UI lists **N** cards from the list API; wizards and modals must carry **`connectionId`** when more than one connection of a type exists.
 - Call sites must be audited when adding new org-level connector behavior so they do not pick `.limit(1)` arbitrarily.
 - **List and logs:** Never log or return full `config` on list or debug paths where secrets could leak.
-- **Key rotation:** Decrypt tries the current key, then the keys in **`CONNECTION_SECRETS_PREVIOUS_KEYS`**. Encrypt uses only the current key. The **`secrets:reencrypt`** backend command moves stored values to the current key; after it, the operator removes the previous keys.
+- **Key rotation:** Decrypt tries the current key, then the keys in **`CONNECTION_SECRETS_PREVIOUS_KEYS`**, then the key derived from **`PREVIOUS_AUTH_SECRET`**. Encrypt uses only the current key. The **`secrets:reencrypt`** backend command moves stored values to the current key; after it, the operator removes the previous keys.
 
 ## Alternatives considered
 

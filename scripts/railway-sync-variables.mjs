@@ -12,6 +12,9 @@ import { pathToFileURL } from "node:url"
 const PRODUCT_APP = {
   "AUTH_SECRET": "BETTER_AUTH_SECRET",
   "CONNECTION_SECRETS_ENCRYPTION_KEY": "CONNECTION_SECRETS_ENCRYPTION_KEY",
+  // Set only during a key roll (infra/README.md, "Connection secrets key").
+  "CONNECTION_SECRETS_PREVIOUS_KEYS": "CONNECTION_SECRETS_PREVIOUS_KEYS",
+  "PREVIOUS_AUTH_SECRET": "PREVIOUS_AUTH_SECRET",
   "MODEL_PROVIDER_API_KEY": "MODEL_PROVIDER_API_KEY",
   "SMTP_CONNECTION_URL": "SMTP_CONNECTION_URL",
   "GITHUB_PRIVATE_KEY": "GH_PRIVATE_KEY",
@@ -103,6 +106,9 @@ const OPTIONAL = new Set([
   // Optional for now: production has no value yet. Without it, the backend
   // refuses each Notion webhook that has no stored verification token.
   "NOTION_WEBHOOK_SECRET",
+  // Set only during a key roll; empty after it.
+  "CONNECTION_SECRETS_PREVIOUS_KEYS",
+  "PREVIOUS_AUTH_SECRET",
 ])
 // Variables that no code uses any more. The sync deletes them from each
 // service it writes.

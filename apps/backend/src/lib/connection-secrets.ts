@@ -11,9 +11,6 @@ const IV_LENGTH = 12
 const TAG_LENGTH = 16
 const KEY_LENGTH = 32
 
-/** The prefix of a `CONNECTION_SECRETS_PREVIOUS_KEYS` entry that holds an old AUTH_SECRET. */
-export const PREVIOUS_AUTH_SECRET_PREFIX = "auth-secret:"
-
 const derivedKeys = new Map<string, Buffer>()
 
 /** The key that is derived from AUTH_SECRET when no explicit key is set. */
@@ -26,36 +23,30 @@ function keyFromAuthSecret(authSecret: string): Buffer {
   return key
 }
 
-function keyFromPreviousEntry(entry: string): Buffer {
-  if (entry.startsWith(PREVIOUS_AUTH_SECRET_PREFIX)) {
-    return keyFromAuthSecret(entry.slice(PREVIOUS_AUTH_SECRET_PREFIX.length))
-  }
-  return Buffer.from(entry, "hex")
+/** The key that encrypts. */
+function currentKey(env: Env): Buffer {
+  const explicit = env.CONNECTION_SECRETS_ENCRYPTION_KEY?.trim()
+  return explicit
+    ? Buffer.from(explicit, "hex")
+    : keyFromAuthSecret(env.AUTH_SECRET)
 }
 
-/** The entries of `CONNECTION_SECRETS_PREVIOUS_KEYS`, in order. */
-export function previousKeyEntries(raw: string | undefined): string[] {
-  return (raw ?? "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-}
-
-/** The current key first, then the previous keys. Encrypt only with the first. */
+/** The current key first, then the previous keys. */
 function connectionSecretKeys(env: Env): Buffer[] {
-  const current = env.CONNECTION_SECRETS_ENCRYPTION_KEY?.trim()
   return [
-    current ? Buffer.from(current, "hex") : keyFromAuthSecret(env.AUTH_SECRET),
-    ...previousKeyEntries(env.CONNECTION_SECRETS_PREVIOUS_KEYS).map(
-      keyFromPreviousEntry,
+    currentKey(env),
+    ...(env.CONNECTION_SECRETS_PREVIOUS_KEYS ?? []).map((hex) =>
+      Buffer.from(hex, "hex"),
     ),
+    ...(env.PREVIOUS_AUTH_SECRET
+      ? [keyFromAuthSecret(env.PREVIOUS_AUTH_SECRET)]
+      : []),
   ]
 }
 
 /** Encrypt a UTF-8 string for storage in `connections.config`. */
 export function encryptConnectionSecret(plaintext: string, env: Env): string {
-  const [key] = connectionSecretKeys(env)
-  if (!key) throw new Error("No connection secret key")
+  const key = currentKey(env)
   const iv = randomBytes(IV_LENGTH)
   const cipher = createCipheriv("aes-256-gcm", key, iv)
   const enc = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()])
@@ -96,7 +87,7 @@ function decryptWithKeyList(
     if (plaintext !== null) return { plaintext, keyIndex }
   }
   throw new Error(
-    "No configured key decrypts this stored secret. Add the key that encrypted it to CONNECTION_SECRETS_PREVIOUS_KEYS (a 64-hex key, or auth-secret:<old AUTH_SECRET> when no explicit key was set), or enter the secret again.",
+    "No configured key decrypts this stored secret. Add the old 64-hex key to CONNECTION_SECRETS_PREVIOUS_KEYS, or, when no explicit key was set, set PREVIOUS_AUTH_SECRET to the old AUTH_SECRET. Or enter the secret again.",
   )
 }
 

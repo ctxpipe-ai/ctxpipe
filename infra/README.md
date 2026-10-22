@@ -127,13 +127,15 @@ The Terraform state still holds the Neon owner password and the `ctxpipe_app` pa
 
 To rotate the `ctxpipe_app` password, change `keepers.rotation` of `random_password.app_database` in `infra/module/ctxpipe/neon.tf`, then push to `main`. The step "Ensure the ctxpipe_app password exists" makes the new password, migrate sets it on the role, and the Terraform apply writes the new `DATABASE_URL` to backend, worker and codesearch. Until that apply, the running services have the old password and cannot connect to the database.
 
-### Connection secrets key
+### Connection secrets key and AUTH_SECRET
 
-`CONNECTION_SECRETS_ENCRYPTION_KEY` (64 hex characters, `openssl rand -hex 32`) encrypts the stored connection secrets. Without it, the key comes from `AUTH_SECRET`. Do not change it like the other secrets: the stored values stay on the old key. To move the stored connection secrets to a new key:
+`CONNECTION_SECRETS_ENCRYPTION_KEY` (64 hex characters, `openssl rand -hex 32`) encrypts the stored connection secrets. `BETTER_AUTH_SECRET` (the `AUTH_SECRET` of the services) encrypts the two-factor secrets. Do not change them like the other secrets: the stored values stay on the old key. The full procedure is in [Roll AUTH_SECRET and the encryption key](../apps/docs/content/docs/self-hosting/(operations)/production-readiness.mdx). On hosted production, do these steps:
 
-1. Stop backend and worker. Do not merge to `main` until step 3.
-2. From `apps/backend`, with `DATABASE_URL` (owner URL), `OLD_AUTH_SECRET` and `NEW_CONNECTION_SECRETS_ENCRYPTION_KEY` exported, run `bun run src/scripts/reencryptConnectionSecrets.ts`, then the same with `--apply`. When the current key is an explicit key, export `OLD_CONNECTION_SECRETS_ENCRYPTION_KEY` in place of `OLD_AUTH_SECRET`.
-3. Set the same key in the GitHub secret, then push to `main`. The sync writes the key before the services start.
+1. In the GitHub environment `Production`, set `CONNECTION_SECRETS_PREVIOUS_KEYS` to the old key and `PREVIOUS_AUTH_SECRET` to the old `BETTER_AUTH_SECRET` (only if you change it). Then set the new `CONNECTION_SECRETS_ENCRYPTION_KEY` and `BETTER_AUTH_SECRET`.
+2. Push to `main` (or run the deploy again). The sync writes the values to backend, worker and codesearch and deploys them.
+3. Run `railway ssh --service backend --environment production`, then `bun run apps/backend/src/scripts/reencryptSecrets.ts --dry-run`, then the same command without `--dry-run`.
+4. When the old deployments have stopped, do the dry run again. It must show `"rewritten": 0` and `"failed": []` for all three groups. If not, do step 3 again.
+5. Delete `CONNECTION_SECRETS_PREVIOUS_KEYS` and `PREVIOUS_AUTH_SECRET` from the GitHub environment, then deploy again. The sync deletes the empty variables from the services.
 
 ## PR Terraform plans (GitHub Actions)
 

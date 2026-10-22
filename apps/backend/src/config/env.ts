@@ -24,30 +24,41 @@ const envSchema = z.object({
       .optional(),
   ),
   /**
-   * Keys that encrypted the stored connector secrets before a key change,
-   * comma separated. Each entry is a 64-hex key or `auth-secret:<old
-   * AUTH_SECRET>`. Decrypt tries them after the current key.
+   * The 64-hex keys that encrypted the stored connector secrets before a key
+   * change, comma separated. Decrypt tries them after the current key.
    * `secrets:reencrypt` moves the stored values to the current key.
    */
   CONNECTION_SECRETS_PREVIOUS_KEYS: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z
-      .string()
-      .refine(
-        (v) =>
-          v
+    (v) =>
+      typeof v === "string"
+        ? v
             .split(",")
             .map((entry) => entry.trim())
             .filter(Boolean)
-            .every(
-              (entry) =>
-                /^[0-9a-fA-F]{64}$/.test(entry) ||
-                /^auth-secret:.{32,}$/.test(entry),
-            ),
-        "Each entry must be 64 hex characters or auth-secret:<old AUTH_SECRET>",
+        : v,
+    z
+      .array(
+        z
+          .string()
+          .regex(
+            /^[0-9a-fA-F]{64}$/,
+            "CONNECTION_SECRETS_PREVIOUS_KEYS takes only 64-hex keys, comma separated. Put an old AUTH_SECRET in PREVIOUS_AUTH_SECRET.",
+          ),
       )
       .optional(),
   ),
+  /**
+   * The AUTH_SECRET before a change, as one value (it can hold a comma).
+   * Decrypt tries the key derived from it for connector secrets, and the
+   * value itself for two-factor secrets. `secrets:reencrypt` moves both.
+   */
+  PREVIOUS_AUTH_SECRET: z
+    .string()
+    .min(
+      32,
+      "PREVIOUS_AUTH_SECRET must be the old AUTH_SECRET (at least 32 characters)",
+    )
+    .optional(),
   GITHUB_CLIENT_ID: z.string().min(1).optional(),
   GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
   GOOGLE_CLIENT_ID: z.string().min(1).optional(),
