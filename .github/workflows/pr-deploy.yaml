@@ -798,6 +798,24 @@ jobs:
           GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
           GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
           GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          FALKORDB_PASSWORD: ${{ secrets.FALKORDB_PASSWORD }}
+          SMTP_CONNECTION_URL: ${{ secrets.SMTP_CONNECTION_URL }}
+          ATLASSIAN_CLIENT_ID: ${{ secrets.ATLASSIAN_CLIENT_ID }}
+          ATLASSIAN_CLIENT_SECRET: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
+          NOTION_CLIENT_ID: ${{ secrets.NOTION_CLIENT_ID }}
+          NOTION_CLIENT_SECRET: ${{ secrets.NOTION_CLIENT_SECRET }}
+          NOTION_WEBHOOK_SECRET: ${{ secrets.NOTION_WEBHOOK_SECRET }}
+          SLACK_CLIENT_ID: ${{ secrets.SLACK_CLIENT_ID }}
+          SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}
+          SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
+          LINEAR_CLIENT_ID: ${{ secrets.LINEAR_CLIENT_ID }}
+          LINEAR_CLIENT_SECRET: ${{ secrets.LINEAR_CLIENT_SECRET }}
+          LINEAR_WEBHOOK_SECRET: ${{ secrets.LINEAR_WEBHOOK_SECRET }}
+          PAGERDUTY_CLIENT_ID: ${{ secrets.PAGERDUTY_CLIENT_ID }}
+          PAGERDUTY_CLIENT_SECRET: ${{ secrets.PAGERDUTY_CLIENT_SECRET }}
+          BETTER_AUTH_API_KEY: ${{ secrets.BETTER_AUTH_API_KEY }}
+          CONFLUENCE_FORGE_INSTALL_URL: ${{ secrets.CONFLUENCE_FORGE_INSTALL_URL }}
         # Single Railway roll. Do not wrap this script in nick-fields/retry —
         # a second attempt stacks serviceInstanceDeployV2 on a still-DEPLOYING
         # instance. GraphQL HTTP retries live in railway_graphql.
@@ -1336,6 +1354,11 @@ jobs:
             # shellcheck disable=SC1091
             source "${GITHUB_WORKSPACE}/scripts/preview-own-secrets.sh"
             sync_preview_own_secrets
+            # Every other secret comes from the GitHub Environment `Preview`;
+            # each production value that Preview does not set is deleted.
+            # shellcheck disable=SC1091
+            source "${GITHUB_WORKSPACE}/scripts/preview-secrets.sh"
+            sync_preview_secrets
             echo "- This preview has its own \`AUTH_SECRET\` and connection-secrets key. Connection secrets copied from production do not decrypt here: connect each integration again on the preview." >> "$GITHUB_STEP_SUMMARY"
 
             upsert_database_url_without_deploy "$BACKEND_SERVICE_ID" >/dev/null

@@ -85,6 +85,7 @@ const reviewedScripts = new Set([
   "scripts/preview-neon-branch.sh",
   "scripts/preview-otel-vars.sh",
   "scripts/preview-own-secrets.sh",
+  "scripts/preview-secrets.sh",
   "scripts/preview-sandbox-vars.sh",
   "scripts/preview-ui-private.sh",
   "scripts/railway-graphql.sh",

@@ -25,7 +25,7 @@ A security incident on Railway required a rotation of every secret.
 - The state, the plan output, and the PR plan job hold no app secret.
 - A rotation is: set the new value in GitHub, then deploy. A value that a service stores itself (for example the Langfuse init user, or the key that encrypts stored connection secrets) needs its own procedure.
 - The deploy job that runs the sync holds every secret of its environment.
-- Railway PR previews start as a copy of the production variables. A preview script must replace each production secret that a preview must not hold.
+- Railway PR previews start as a copy of the production variables. The preview deploy runs the same script with `--preview`: it writes each value of the GitHub Environment `Preview` and deletes each one that `Preview` does not set, so no production secret stays on a preview.
 
 ## Alternatives considered
 

@@ -258,6 +258,8 @@ jobs:
           VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
           OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
           FALKORDB_PASSWORD: ${{ secrets.FALKORDB_PASSWORD }}
+          BETTER_AUTH_API_KEY: ${{ secrets.BETTER_AUTH_API_KEY }}
+          CONFLUENCE_FORGE_INSTALL_URL: ${{ secrets.CONFLUENCE_FORGE_INSTALL_URL }}
         run: |
           set -euo pipefail
           export PROJECT_ID="$RAILWAY_PROJECT_ID"

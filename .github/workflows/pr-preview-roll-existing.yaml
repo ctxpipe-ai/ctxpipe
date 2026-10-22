@@ -103,10 +103,30 @@ jobs:
           GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
           GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
           GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          FALKORDB_PASSWORD: ${{ secrets.FALKORDB_PASSWORD }}
+          SMTP_CONNECTION_URL: ${{ secrets.SMTP_CONNECTION_URL }}
+          ATLASSIAN_CLIENT_ID: ${{ secrets.ATLASSIAN_CLIENT_ID }}
+          ATLASSIAN_CLIENT_SECRET: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
+          NOTION_CLIENT_ID: ${{ secrets.NOTION_CLIENT_ID }}
+          NOTION_CLIENT_SECRET: ${{ secrets.NOTION_CLIENT_SECRET }}
+          NOTION_WEBHOOK_SECRET: ${{ secrets.NOTION_WEBHOOK_SECRET }}
+          SLACK_CLIENT_ID: ${{ secrets.SLACK_CLIENT_ID }}
+          SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}
+          SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
+          LINEAR_CLIENT_ID: ${{ secrets.LINEAR_CLIENT_ID }}
+          LINEAR_CLIENT_SECRET: ${{ secrets.LINEAR_CLIENT_SECRET }}
+          LINEAR_WEBHOOK_SECRET: ${{ secrets.LINEAR_WEBHOOK_SECRET }}
+          PAGERDUTY_CLIENT_ID: ${{ secrets.PAGERDUTY_CLIENT_ID }}
+          PAGERDUTY_CLIENT_SECRET: ${{ secrets.PAGERDUTY_CLIENT_SECRET }}
+          BETTER_AUTH_API_KEY: ${{ secrets.BETTER_AUTH_API_KEY }}
+          CONFLUENCE_FORGE_INSTALL_URL: ${{ secrets.CONFLUENCE_FORGE_INSTALL_URL }}
         run: |
           set -euo pipefail
           # shellcheck disable=SC1091
           source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-secrets.sh"
           # shellcheck disable=SC1091
           source "${GITHUB_WORKSPACE}/scripts/preview-otel-vars.sh"
           # shellcheck disable=SC1091
@@ -194,6 +214,7 @@ jobs:
           # the production AUTH_SECRET and the workspace token. Replace them
           # before branch code rolls. A marked preview keeps its values.
           sync_preview_own_secrets
+          sync_preview_secrets
 
           update_img "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
           deploy "$BACKEND_SERVICE_ID"

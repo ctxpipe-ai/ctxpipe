@@ -38,6 +38,8 @@ PRODUCT_APP = {
     "PAGERDUTY_CLIENT_SECRET": "PAGERDUTY_CLIENT_SECRET",
     "VERCEL_TOKEN": "VERCEL_ACCESS_TOKEN",
     "OTEL_EXPORTER_OTLP_HEADERS": "OBSERVABILITY_OTLP_HEADERS",
+    "BETTER_AUTH_API_KEY": "BETTER_AUTH_API_KEY",
+    "CONFLUENCE_FORGE_INSTALL_URL": "CONFLUENCE_FORGE_INSTALL_URL",
 }
 SERVICE_VARIABLES = {
     # Product project (GitHub Environment `production`).
@@ -104,7 +106,28 @@ OPTIONAL = {
     "PAGERDUTY_CLIENT_ID",
     "PAGERDUTY_CLIENT_SECRET",
     "COST_TELEMETRY_AWS_SESSION_TOKEN",
+    "BETTER_AUTH_API_KEY",
+    "CONFLUENCE_FORGE_INSTALL_URL",
 }
+# Variables that no code uses any more. The sync deletes them from each
+# service it writes.
+RETIRED = {"BETTER_STACK_TOKEN"}
+# A Railway PR preview starts as a copy of the production variables. With
+# --preview, the values come from the GitHub Environment `Preview`, and each
+# empty one is deleted, so no production value stays. The preview scripts own
+# these names (a value made for each preview, the preview GitHub App, the
+# preview Vercel project, the OTLP header):
+PREVIEW_OWNED = {
+    "AUTH_SECRET",
+    "CONNECTION_SECRETS_ENCRYPTION_KEY",
+    "GITHUB_PRIVATE_KEY",
+    "GITHUB_CLIENT_SECRET",
+    "GITHUB_WEBHOOK_SECRET",
+    "VERCEL_TOKEN",
+    "OTEL_EXPORTER_OTLP_HEADERS",
+}
+# A preview cannot start without these.
+PREVIEW_REQUIRED = {"MODEL_PROVIDER_API_KEY", "FALKORDB_PASSWORD"}
 # Checked before any write, so a bad value never reaches a service.
 FORMATS = {
     "CONNECTION_SECRETS_ENCRYPTION_KEY": re.compile(r"[0-9a-fA-F]{64}"),
@@ -154,11 +177,17 @@ def main():
     parser.add_argument("--service", choices=SERVICE_VARIABLES, required=True)
     # Appends the service name to this file when a value changed.
     parser.add_argument("--changed-file")
+    parser.add_argument("--preview", action="store_true")
     args = parser.parse_args()
     variables = SERVICE_VARIABLES[args.service]
+    optional = OPTIONAL
+    if args.preview:
+        variables = {name: source for name, source in variables.items()
+                     if name not in PREVIEW_OWNED}
+        optional = set(variables.values()) - PREVIEW_REQUIRED
 
     required = ["PROJECT_ID", "ENVIRONMENT_ID", "SERVICE_ID",
-                *(source for source in variables.values() if source not in OPTIONAL)]
+                *(source for source in variables.values() if source not in optional)]
     missing = [name for name in required if not os.environ.get(name)]
     token = os.environ.get("RAILWAY_TOKEN") or os.environ.get("RAILWAY_API_TOKEN")
     if not token:
@@ -178,7 +207,7 @@ def main():
 
     existing = current_variables(project_id, environment_id, service_id, token)
     changed = {name: value for name, value in desired.items() if existing.get(name) != value}
-    removed = [name for name, source in variables.items()
+    removed = [name for name in [*variables, *sorted(RETIRED)]
                if name not in desired and name in existing]
     if not changed and not removed:
         print(f"{args.service} credentials already match GitHub Environment")

@@ -157,6 +157,37 @@ class RailwaySyncVariablesTest(unittest.TestCase):
         self.run_sync("--redeploy", service="langfuse-worker")
         self.assertEqual(self.calls, ["read", "deploy", "poll"])
 
+    def test_preview_keeps_no_production_value(self):
+        self.environment = {
+            "PROJECT_ID": "project",
+            "ENVIRONMENT_ID": "environment",
+            "SERVICE_ID": "service",
+            "RAILWAY_TOKEN": "management-token",
+            "MODEL_PROVIDER_API_KEY": "preview-model-key",
+        }
+        self.current.update({
+            "AUTH_SECRET": "preview-own-auth-secret",
+            "MODEL_PROVIDER_API_KEY": "production-model-key",
+            "SLACK_CLIENT_SECRET": "production-slack-secret",
+            "BETTER_STACK_TOKEN": "retired-token",
+        })
+        self.run_sync("--preview", service="backend")
+        self.assertEqual(self.current["MODEL_PROVIDER_API_KEY"], "preview-model-key")
+        self.assertEqual(self.current["AUTH_SECRET"], "preview-own-auth-secret")
+        self.assertNotIn("SLACK_CLIENT_SECRET", self.current)
+        self.assertNotIn("BETTER_STACK_TOKEN", self.current)
+
+    def test_preview_falkordb_needs_its_own_password(self):
+        self.environment = {
+            "PROJECT_ID": "project",
+            "ENVIRONMENT_ID": "environment",
+            "SERVICE_ID": "service",
+            "RAILWAY_TOKEN": "management-token",
+        }
+        with self.assertRaisesRegex(RuntimeError, "FALKORDB_PASSWORD"):
+            self.run_sync("--preview", service="falkordb")
+        self.assertEqual(self.calls, [])
+
     def test_missing_credential_fails_before_any_railway_request(self):
         del self.environment["COST_TELEMETRY_NEON_API_KEY"]
         with self.assertRaisesRegex(RuntimeError, "COST_TELEMETRY_NEON_API_KEY"):
