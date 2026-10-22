@@ -174,9 +174,8 @@ console.log(`connections: ${[...connectionsByName.keys()].sort().join(", ") || "
 // DEFAULT_CONNECTIONS seeds it only for a new team. Set it on each run, so a
 // rotation of CLICKHOUSE_OTEL_PASSWORD reaches HyperDX. The API never returns
 // the password.
-const clickhouseConnection = unwrapList(connectionsResponse.json).find(
-  (item) => isRecord(item) && item.name === "ctxpipe ClickHouse",
-);
+const clickhouseConnection =
+  unwrapList(connectionsResponse.json).find((item) => isRecord(item) && item.name === "ctxpipe ClickHouse") ?? null;
 if (!isRecord(clickhouseConnection) || typeof clickhouseConnection.id !== "string") {
   fail("Find connection ctxpipe ClickHouse", connectionsResponse.status, connectionsResponse.json);
 }
