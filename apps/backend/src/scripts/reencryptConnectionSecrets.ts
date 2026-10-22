@@ -1,8 +1,9 @@
 /**
- * One-off: re-encrypt the stored connection secrets from the key that
- * OLD_AUTH_SECRET makes to NEW_CONNECTION_SECRETS_ENCRYPTION_KEY. Run it with
- * the backend and the worker stopped, as the database owner (row-level
- * security hides every row from ctxpipe_app). Without --apply, it rolls back.
+ * One-off: re-encrypt the stored connection secrets from the old key to
+ * NEW_CONNECTION_SECRETS_ENCRYPTION_KEY. The old key is
+ * OLD_CONNECTION_SECRETS_ENCRYPTION_KEY, or the key that OLD_AUTH_SECRET makes
+ * when that is not set. Run it with the backend and the worker stopped, as the
+ * database owner. Without --apply, it rolls back.
  *
  *   bun run src/scripts/reencryptConnectionSecrets.ts [--apply]
  */
@@ -13,7 +14,11 @@ import {
   encryptConnectionSecret,
 } from "../lib/connection-secrets.js"
 
-const from = { AUTH_SECRET: process.env.OLD_AUTH_SECRET } as Env
+const from = {
+  AUTH_SECRET: process.env.OLD_AUTH_SECRET,
+  CONNECTION_SECRETS_ENCRYPTION_KEY:
+    process.env.OLD_CONNECTION_SECRETS_ENCRYPTION_KEY,
+} as Env
 const to = {
   CONNECTION_SECRETS_ENCRYPTION_KEY:
     process.env.NEW_CONNECTION_SECRETS_ENCRYPTION_KEY,
@@ -37,6 +42,16 @@ const db = new Client({ connectionString: process.env.DATABASE_URL })
 await db.connect()
 try {
   await db.query("begin")
+  // Row-level security hides every row from ctxpipe_app, and the run would
+  // then change nothing and still report success.
+  const rls = await db.query(
+    "select row_security_active('connections') or row_security_active('workspace_sandbox_git_tokens') as active",
+  )
+  if (rls.rows[0]?.active) {
+    throw new Error(
+      "Row-level security hides rows. Use the owner DATABASE_URL.",
+    )
+  }
   const connections = await db.query(
     "select id, config from connections for update",
   )

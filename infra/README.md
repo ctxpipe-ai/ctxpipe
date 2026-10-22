@@ -126,10 +126,10 @@ The Terraform state still holds the Neon owner password and the `ctxpipe_app` pa
 
 ### Connection secrets key
 
-`CONNECTION_SECRETS_ENCRYPTION_KEY` (64 hex characters, `openssl rand -hex 32`) encrypts the stored connection secrets. Without it, the key comes from `AUTH_SECRET`. To move the stored connection secrets to a new key:
+`CONNECTION_SECRETS_ENCRYPTION_KEY` (64 hex characters, `openssl rand -hex 32`) encrypts the stored connection secrets. Without it, the key comes from `AUTH_SECRET`. Do not change it like the other secrets: the stored values stay on the old key. To move the stored connection secrets to a new key:
 
 1. Stop backend and worker. Do not merge to `main` until step 3.
-2. From `apps/backend`, with `DATABASE_URL` (owner URL), `OLD_AUTH_SECRET` and `NEW_CONNECTION_SECRETS_ENCRYPTION_KEY` exported, run `bun run src/scripts/reencryptConnectionSecrets.ts`, then the same with `--apply`.
+2. From `apps/backend`, with `DATABASE_URL` (owner URL), `OLD_AUTH_SECRET` and `NEW_CONNECTION_SECRETS_ENCRYPTION_KEY` exported, run `bun run src/scripts/reencryptConnectionSecrets.ts`, then the same with `--apply`. When the current key is an explicit key, export `OLD_CONNECTION_SECRETS_ENCRYPTION_KEY` in place of `OLD_AUTH_SECRET`.
 3. Set the same key in the GitHub secret, then push to `main`. The sync writes the key before the services start.
 
 ## PR Terraform plans (GitHub Actions)

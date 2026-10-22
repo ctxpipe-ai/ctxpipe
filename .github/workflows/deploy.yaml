@@ -274,7 +274,10 @@ jobs:
           sync openworkflow open_workflow
           sync codesearch code_search
           sync ui ui
-          sync falkordb falkordb --redeploy-on-change
+          # A re-run redeploys FalkorDB in any case: the failed attempt may
+          # have written its password and then failed to redeploy it.
+          if [[ "$GITHUB_RUN_ATTEMPT" != 1 ]]; then redeploy=--redeploy; else redeploy=--redeploy-on-change; fi
+          sync falkordb falkordb "$redeploy"
           if [[ -s "$changed" || "$GITHUB_RUN_ATTEMPT" != 1 ]]; then
             echo "force_deploy=1" >> "$GITHUB_OUTPUT"
           fi

@@ -119,6 +119,9 @@ def current_variables(project_id, environment_id, service_id, token):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--redeploy-on-change", action="store_true")
+    # Redeploys even when no value changed: a re-run, after an attempt that
+    # wrote the values but whose redeploy failed.
+    parser.add_argument("--redeploy", action="store_true")
     parser.add_argument("--service", choices=SERVICE_VARIABLES, required=True)
     # Appends the service name to this file when a value changed.
     parser.add_argument("--changed-file")
@@ -150,8 +153,6 @@ def main():
                if name not in desired and name in existing]
     if not changed and not removed:
         print(f"{args.service} credentials already match GitHub Environment")
-        return
-
     if changed:
         graphql(
             "mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) "
@@ -170,17 +171,18 @@ def main():
                        "serviceId": service_id, "name": name}},
             token,
         )
-    updated = current_variables(project_id, environment_id, service_id, token)
-    if any(updated.get(name) != value for name, value in changed.items()) or \
-            any(name in updated for name in removed):
-        raise RuntimeError(f"Railway did not retain every {args.service} credential")
-    print(f"Synced {len(changed)} and removed {len(removed)} {args.service} variables "
-          "from GitHub Environment")
-    if args.changed_file:
-        with open(args.changed_file, "a", encoding="utf-8") as changed_file:
-            changed_file.write(f"{args.service}\n")
+    if changed or removed:
+        updated = current_variables(project_id, environment_id, service_id, token)
+        if any(updated.get(name) != value for name, value in changed.items()) or \
+                any(name in updated for name in removed):
+            raise RuntimeError(f"Railway did not retain every {args.service} credential")
+        print(f"Synced {len(changed)} and removed {len(removed)} {args.service} variables "
+              "from GitHub Environment")
+        if args.changed_file:
+            with open(args.changed_file, "a", encoding="utf-8") as changed_file:
+                changed_file.write(f"{args.service}\n")
 
-    if not args.redeploy_on_change:
+    if not (args.redeploy or (args.redeploy_on_change and (changed or removed))):
         return
     data = graphql(
         "mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) "
