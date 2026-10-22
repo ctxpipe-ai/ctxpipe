@@ -5,17 +5,20 @@ import { type Db, getSystemDb, withOrgDbContext } from "../db/client.js"
 import { organizations, twoFactors } from "../db/schema/auth.js"
 import { connections } from "../db/schema/connections.js"
 import { workspaceSandboxGitTokens } from "../db/schema/workspaces.js"
-import {
-  PREVIOUS_AUTH_SECRET_PREFIX,
-  previousKeyEntries,
-  reencryptConnectionSecret,
-} from "./connection-secrets.js"
+import { reencryptConnectionSecret } from "./connection-secrets.js"
 
-/** Counts of stored secret values. `failed` holds row ids (and fields) only, never a value. */
+/**
+ * Why a row stays on an old key: no configured key decrypts a value in it
+ * (`decrypt`), it changed during the run (`changed`), or its UPDATE failed
+ * (`write`).
+ */
+type FailReason = "decrypt" | "changed" | "write"
+
+/** Counts of rows. `failed` holds row ids only, never a value. */
 type ReencryptTally = {
   rewritten: number
   alreadyCurrent: number
-  failed: string[]
+  failed: { id: string; reason: FailReason }[]
 }
 
 type ReencryptReport = {
@@ -34,47 +37,57 @@ function newTally(): ReencryptTally {
 }
 
 /**
- * Runs one compare-and-set UPDATE in a savepoint. Returns false when the
- * UPDATE fails or changes no row. It keeps no error: a query error holds the
- * bound parameters, and they are ciphertext.
+ * Runs one compare-and-set UPDATE in a savepoint, unless `dryRun`. It keeps
+ * no error: a query error holds the bound parameters, and they are
+ * ciphertext.
  */
 async function writeIfUnchanged(
   db: Db,
+  dryRun: boolean,
   update: (savepoint: Savepoint) => Promise<unknown[]>,
-): Promise<boolean> {
+): Promise<"written" | "changed" | "write"> {
+  if (dryRun) return "written"
   try {
     const rows = await db.transaction((savepoint) => update(savepoint))
-    return rows.length > 0
+    return rows.length > 0 ? "written" : "changed"
   } catch {
-    return false
+    return "write"
   }
 }
 
-/** Moves the `…Enc` values of one connection config to the current key. */
+/** Counts one row that had values on an old key. */
+function count(
+  tally: ReencryptTally,
+  id: string,
+  result: "written" | FailReason,
+): void {
+  if (result === "written") tally.rewritten++
+  else tally.failed.push({ id, reason: result })
+}
+
+/**
+ * Moves the `…Enc` values of one connection config to the current key.
+ * `undecryptable` is true when a value in it opens with no configured key;
+ * the other values move all the same.
+ */
 function reencryptConfig(
   config: Record<string, unknown>,
   env: Env,
-  tally: ReencryptTally,
-  id: string,
-): { next: Record<string, unknown>; fields: number } | null {
+): { next: Record<string, unknown> | null; undecryptable: boolean } {
   let next: Record<string, unknown> | null = null
-  let fields = 0
+  let undecryptable = false
   for (const [field, value] of Object.entries(config)) {
     if (!field.endsWith("Enc") || typeof value !== "string") continue
     try {
       const rewritten = reencryptConnectionSecret(value, env)
-      if (rewritten === null) {
-        tally.alreadyCurrent++
-        continue
-      }
+      if (rewritten === null) continue
       next ??= { ...config }
       next[field] = rewritten
-      fields++
     } catch {
-      tally.failed.push(`${id}.${field}`)
+      undecryptable = true
     }
   }
-  return next ? { next, fields } : null
+  return { next, undecryptable }
 }
 
 async function reencryptOrg(
@@ -84,77 +97,78 @@ async function reencryptOrg(
   report: ReencryptReport,
 ): Promise<void> {
   await withOrgDbContext(orgId, async (db) => {
-    const rows = await db
+    const connectionRows = await db
       .select({ id: connections.id, config: connections.config })
       .from(connections)
       .where(eq(connections.orgId, orgId))
-    const tally = report.connections
-    for (const row of rows) {
-      const result = reencryptConfig(row.config, env, tally, row.id)
-      if (!result) continue
+    for (const row of connectionRows) {
+      const tally = report.connections
+      const { next, undecryptable } = reencryptConfig(row.config, env)
+      if (!next) {
+        if (undecryptable) count(tally, row.id, "decrypt")
+        else tally.alreadyCurrent++
+        continue
+      }
       // Write only when nobody changed the config during this run.
-      const written =
-        dryRun ||
-        (await writeIfUnchanged(db, (tx) =>
-          tx
-            .update(connections)
-            .set({ config: result.next })
-            .where(
-              and(
-                eq(connections.id, row.id),
-                sql`${connections.config} = ${JSON.stringify(row.config)}::jsonb`,
-              ),
-            )
-            .returning({ id: connections.id }),
-        ))
-      if (written) tally.rewritten += result.fields
-      else tally.failed.push(row.id)
+      const result = await writeIfUnchanged(db, dryRun, (tx) =>
+        tx
+          .update(connections)
+          .set({ config: next })
+          .where(
+            and(
+              eq(connections.id, row.id),
+              sql`${connections.config} = ${JSON.stringify(row.config)}::jsonb`,
+            ),
+          )
+          .returning({ id: connections.id }),
+      )
+      count(
+        tally,
+        row.id,
+        undecryptable && result === "written" ? "decrypt" : result,
+      )
     }
-  })
-  await withOrgDbContext(orgId, async (db) => {
-    const rows = await db
+
+    const tokenRows = await db
       .select()
       .from(workspaceSandboxGitTokens)
       .where(eq(workspaceSandboxGitTokens.orgId, orgId))
-    const tally = report.sandboxGitTokens
-    for (const row of rows) {
+    for (const row of tokenRows) {
+      const tally = report.sandboxGitTokens
       let rewritten: string | null
       try {
         rewritten = reencryptConnectionSecret(row.tokenCiphertext, env)
       } catch {
-        tally.failed.push(row.sandboxId)
+        count(tally, row.sandboxId, "decrypt")
         continue
       }
       if (rewritten === null) {
         tally.alreadyCurrent++
         continue
       }
-      const written =
-        dryRun ||
-        (await writeIfUnchanged(db, (tx) =>
-          tx
-            .update(workspaceSandboxGitTokens)
-            .set({ tokenCiphertext: rewritten })
-            .where(
-              and(
-                eq(workspaceSandboxGitTokens.sandboxId, row.sandboxId),
-                eq(
-                  workspaceSandboxGitTokens.tokenCiphertext,
-                  row.tokenCiphertext,
-                ),
+      const result = await writeIfUnchanged(db, dryRun, (tx) =>
+        tx
+          .update(workspaceSandboxGitTokens)
+          .set({ tokenCiphertext: rewritten })
+          .where(
+            and(
+              eq(workspaceSandboxGitTokens.sandboxId, row.sandboxId),
+              eq(
+                workspaceSandboxGitTokens.tokenCiphertext,
+                row.tokenCiphertext,
               ),
-            )
-            .returning({ id: workspaceSandboxGitTokens.sandboxId }),
-        ))
-      if (written) tally.rewritten++
-      else tally.failed.push(row.sandboxId)
+            ),
+          )
+          .returning({ id: workspaceSandboxGitTokens.sandboxId }),
+      )
+      count(tally, row.sandboxId, result)
     }
   })
 }
 
 /**
  * Better Auth encrypts the TOTP secret and the backup codes with AUTH_SECRET.
- * Only the `auth-secret:` entries of the previous keys can decrypt them.
+ * Only PREVIOUS_AUTH_SECRET can decrypt an old value.
  */
 async function reencryptTwoFactorValue(
   value: string,
@@ -164,20 +178,14 @@ async function reencryptTwoFactorValue(
     await symmetricDecrypt({ key: env.AUTH_SECRET, data: value })
     return null
   } catch {}
-  for (const entry of previousKeyEntries(
-    env.CONNECTION_SECRETS_PREVIOUS_KEYS,
-  )) {
-    if (!entry.startsWith(PREVIOUS_AUTH_SECRET_PREFIX)) continue
-    const key = entry.slice(PREVIOUS_AUTH_SECRET_PREFIX.length)
-    let plaintext: string
-    try {
-      plaintext = await symmetricDecrypt({ key, data: value })
-    } catch {
-      continue
-    }
-    return symmetricEncrypt({ key: env.AUTH_SECRET, data: plaintext })
+  if (!env.PREVIOUS_AUTH_SECRET) {
+    throw new Error("No configured AUTH_SECRET decrypts this value")
   }
-  throw new Error("No configured AUTH_SECRET decrypts this value")
+  const plaintext = await symmetricDecrypt({
+    key: env.PREVIOUS_AUTH_SECRET,
+    data: value,
+  })
+  return symmetricEncrypt({ key: env.AUTH_SECRET, data: plaintext })
 }
 
 async function reencryptTwoFactors(
@@ -203,33 +211,30 @@ async function reencryptTwoFactors(
         secret = await reencryptTwoFactorValue(row.secret, env)
         backupCodes = await reencryptTwoFactorValue(row.backupCodes, env)
       } catch {
-        tally.failed.push(row.id)
+        count(tally, row.id, "decrypt")
         continue
       }
       if (secret === null && backupCodes === null) {
         tally.alreadyCurrent++
         continue
       }
-      const written =
-        dryRun ||
-        (await writeIfUnchanged(db, (tx) =>
-          tx
-            .update(twoFactors)
-            .set({
-              secret: secret ?? row.secret,
-              backupCodes: backupCodes ?? row.backupCodes,
-            })
-            .where(
-              and(
-                eq(twoFactors.id, row.id),
-                eq(twoFactors.secret, row.secret),
-                eq(twoFactors.backupCodes, row.backupCodes),
-              ),
-            )
-            .returning({ id: twoFactors.id }),
-        ))
-      if (written) tally.rewritten++
-      else tally.failed.push(row.id)
+      const result = await writeIfUnchanged(db, dryRun, (tx) =>
+        tx
+          .update(twoFactors)
+          .set({
+            secret: secret ?? row.secret,
+            backupCodes: backupCodes ?? row.backupCodes,
+          })
+          .where(
+            and(
+              eq(twoFactors.id, row.id),
+              eq(twoFactors.secret, row.secret),
+              eq(twoFactors.backupCodes, row.backupCodes),
+            ),
+          )
+          .returning({ id: twoFactors.id }),
+      )
+      count(tally, row.id, result)
     }
   }
 }
@@ -239,8 +244,9 @@ async function reencryptTwoFactors(
  * secret again with the current key. Safe to run again: a value that the
  * current key encrypted stays as it is. With `dryRun`, it only counts. It
  * always does all organizations, so that no organization keeps old-key
- * values after a run that reports success. A row that changed during the run,
- * or that it cannot write, goes into `failed`.
+ * values after a run that reports success. Each count is a row. A row that
+ * it cannot decrypt, that changed during the run, or that it cannot write
+ * goes into `failed` with the reason.
  */
 export async function reencryptStoredSecrets(input: {
   env: Env

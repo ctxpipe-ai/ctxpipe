@@ -6,9 +6,10 @@
  *   bun run src/scripts/reencryptSecrets.ts [--dry-run]
  *
  * It always does all organizations. It reads the old keys from
- * CONNECTION_SECRETS_PREVIOUS_KEYS. It prints counts and the ids of the rows
- * that it cannot decrypt or write, never a value. Run it again until `failed`
- * is empty; each run skips the current values.
+ * CONNECTION_SECRETS_PREVIOUS_KEYS and PREVIOUS_AUTH_SECRET. It prints row
+ * counts and the ids of the rows that stay on an old key, with the reason,
+ * never a value. Run it again until `failed` is empty; each run skips the
+ * current values.
  */
 import { parseEnv } from "../config/env.js"
 import { closeDb, initDb } from "../db/client.js"
@@ -34,13 +35,19 @@ try {
     report.sandboxGitTokens.failed.length +
     report.twoFactors.failed.length
   if (failed > 0) process.exitCode = 1
-} catch {
-  // Do not log the error: a database error holds the bound parameters, which
-  // are ciphertext.
+} catch (error) {
+  // Log only the error name and the SQLSTATE: the message of a database
+  // error holds the bound parameters, which are ciphertext.
+  const cause = (error as { cause?: unknown })?.cause
+  const code = [error, cause]
+    .map((e) => (e as { code?: unknown } | undefined)?.code)
+    .find((c): c is string => typeof c === "string" && /^[0-9A-Z]{5}$/.test(c))
   log.error({
     step: "secrets.reencrypt",
+    errorName: error instanceof Error ? error.name : typeof error,
+    sqlState: code,
     message:
-      "The re-encrypt command stopped. Make sure that the database is available, then run the command again.",
+      "The re-encrypt command stopped. Use the error name and the SQLSTATE to find the cause (for example, the database is not available), then run the command again. A completed row stays complete.",
   })
   process.exitCode = 1
 } finally {

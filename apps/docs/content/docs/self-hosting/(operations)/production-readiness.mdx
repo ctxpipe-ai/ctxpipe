@@ -142,11 +142,14 @@ To change one or both secrets, do these steps:
    - `CONNECTION_SECRETS_ENCRYPTION_KEY`: a new value from
      `openssl rand -hex 32`. We recommend an explicit key, so that the next
      change of `AUTH_SECRET` does not change it.
-   - `CONNECTION_SECRETS_PREVIOUS_KEYS`: the old keys, comma separated. Use
-     the old `CONNECTION_SECRETS_ENCRYPTION_KEY` value if it was set. If it
-     was not set, use `auth-secret:<old AUTH_SECRET>`. If you change
-     `AUTH_SECRET`, always add `auth-secret:<old AUTH_SECRET>`, because the
-     two-factor secrets need it.
+   - `CONNECTION_SECRETS_PREVIOUS_KEYS`: the old
+     `CONNECTION_SECRETS_ENCRYPTION_KEY`, if it was set. If you did not
+     complete an earlier roll, keep its keys too, comma separated.
+   - `PREVIOUS_AUTH_SECRET`: the old `AUTH_SECRET`, as one value (a comma in
+     it is safe). Set it when you change `AUTH_SECRET`, because the
+     two-factor secrets need it. Also set it when no explicit
+     `CONNECTION_SECRETS_ENCRYPTION_KEY` was set before, because then the old
+     connector key comes from it.
 3. Deploy the backend, the worker, and codesearch. Connectors continue to
    work, because the backend tries the previous keys after the current key.
    All users must sign in again.
@@ -159,22 +162,29 @@ To change one or both secrets, do these steps:
    ```
 
 5. Run the command without `--dry-run`. It encrypts each stored value again
-   with the current key, for all organizations. It shows the number of values
-   that it rewrote, the number that were current, and the ids of the rows that
-   it could not decrypt or write. It never shows a secret. You can run it
+   with the current key, for all organizations. For each group, it shows the
+   number of rows that it rewrote, the number of rows that were current, and
+   the ids of the rows that stay on an old key, with a reason. It never shows
+   a secret. You can run it
    again at any time; it skips current values. `--dry-run` is the only
    option.
 6. Make sure that all the old backend and worker instances have stopped. Then
    do the dry run of step 4 again. A connector token refresh that read a row
    before step 5 can write a value with the old key back.
-7. Remove `CONNECTION_SECRETS_PREVIOUS_KEYS` only when the dry run of step 6
+7. Remove `CONNECTION_SECRETS_PREVIOUS_KEYS` and `PREVIOUS_AUTH_SECRET` only
+   when the dry run of step 6
    shows `"rewritten": 0` and `"failed": []` for all three groups. If it does
    not, do step 5 and step 6 again. Then deploy again and destroy the old
    values.
 
-If a row stays in `failed`, no configured key decrypts it, or the row changed
-during the run. Run the command again. If the row stays in `failed`, find the
-key that encrypted it, or connect that integration again.
+Each row in `failed` has a reason:
+
+- `decrypt`: no configured key decrypts a value in the row. Find the key that
+  encrypted it and add it, or connect that integration again (for a
+  two-factor row, the user sets up two-factor sign-in again).
+- `changed`: the row changed during the run. Run the command again.
+- `write`: the UPDATE failed. Make sure that the database is available, then
+  run the command again.
 
 Users with two-factor sign-in cannot sign in between step 3 and step 5. Run
 step 5 immediately after the deploy.
