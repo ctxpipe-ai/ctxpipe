@@ -347,8 +347,6 @@ jobs:
           LANGFUSE_NEXTAUTH_SECRET: ${{ secrets.LANGFUSE_NEXTAUTH_SECRET }}
           LANGFUSE_SALT: ${{ secrets.LANGFUSE_SALT }}
           LANGFUSE_ENCRYPTION_KEY: ${{ secrets.LANGFUSE_ENCRYPTION_KEY }}
-          LANGFUSE_INIT_USER_EMAIL: ${{ secrets.LANGFUSE_INIT_USER_EMAIL }}
-          LANGFUSE_INIT_USER_PASSWORD: ${{ secrets.LANGFUSE_INIT_USER_PASSWORD }}
         run: |
           set -euo pipefail
           export PROJECT_ID="$RAILWAY_PROJECT_ID"

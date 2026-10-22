@@ -19,7 +19,6 @@ locals {
   langfuse_init_org_name     = "ctxpipe"
   langfuse_init_project_id   = "ctxpipe"
   langfuse_init_project_name = "ctxpipe"
-  langfuse_init_user_name    = "ctxpipe"
 
   observability_otlp_endpoint       = "http://$${{collector.RAILWAY_PRIVATE_DOMAIN}}:4318"
   observability_otlp_headers        = "authorization=$${{collector.HYPERDX_API_KEY}}"

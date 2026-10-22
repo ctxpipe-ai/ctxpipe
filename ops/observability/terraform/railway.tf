@@ -300,10 +300,6 @@ resource "railway_variable_collection" "langfuse_web" {
       value = local.langfuse_init_project_name
     },
     {
-      name  = "LANGFUSE_INIT_USER_NAME"
-      value = local.langfuse_init_user_name
-    },
-    {
       name  = "PORT"
       value = "3000"
     },

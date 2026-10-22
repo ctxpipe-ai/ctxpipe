@@ -44,14 +44,14 @@ No secret is set by hand in Railway. The protected GitHub `observability` Enviro
 | clickhouse | `CLICKHOUSE_OTEL_PASSWORD`, `CLICKHOUSE_LANGFUSE_PASSWORD` | cold-bucket references |
 | collector | `HYPERDX_API_KEY`; `LANGFUSE_AUTH_STRING` made from `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` | `CLICKHOUSE_PASSWORD` = `${{clickhouse.CLICKHOUSE_OTEL_PASSWORD}}` |
 | hyperdx | — | ClickHouse password and `HYPERDX_API_KEY` from those services |
-| langfuse-web | `LANGFUSE_DATABASE_URL` → `DATABASE_URL`, `LANGFUSE_DIRECT_URL` → `DIRECT_URL`, `LANGFUSE_NEXTAUTH_SECRET` → `NEXTAUTH_SECRET`, `LANGFUSE_SALT` → `SALT`, `LANGFUSE_ENCRYPTION_KEY` → `ENCRYPTION_KEY`, `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` → `LANGFUSE_INIT_PROJECT_*_KEY`, `LANGFUSE_INIT_USER_EMAIL`, `LANGFUSE_INIT_USER_PASSWORD` | ClickHouse password and the collector OTLP header |
+| langfuse-web | `LANGFUSE_DATABASE_URL` → `DATABASE_URL`, `LANGFUSE_DIRECT_URL` → `DIRECT_URL`, `LANGFUSE_NEXTAUTH_SECRET` → `NEXTAUTH_SECRET`, `LANGFUSE_SALT` → `SALT`, `LANGFUSE_ENCRYPTION_KEY` → `ENCRYPTION_KEY`, `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` → `LANGFUSE_INIT_PROJECT_*_KEY` | ClickHouse password and the collector OTLP header |
 | langfuse-worker | — | database, salt, and encryption key from langfuse-web |
 | railway-telemetry | `TELEMETRY_RAILWAY_WORKSPACE_TOKEN` → `RAILWAY_API_TOKEN` | collector OTLP header |
 | cost-telemetry | `COST_TELEMETRY_*` provider credentials, `TELEMETRY_RAILWAY_WORKSPACE_TOKEN` → `RAILWAY_API_TOKEN` | collector OTLP header |
 
 `DATABASE_URL` and `DIRECT_URL` include `connection_limit=1&keepalives=0`. The product GitHub secret `OBSERVABILITY_OTLP_HEADERS` is `authorization=<HYPERDX_API_KEY>`, so change both together.
 
-Langfuse reads the `LANGFUSE_INIT_*` values only to create a missing user and API key. It finds the key by its public key. So a key rotation needs a new `LANGFUSE_PUBLIC_KEY` and a new `LANGFUSE_SECRET_KEY` together; then delete the old key in the Langfuse project settings. A new `LANGFUSE_INIT_USER_PASSWORD` does not change the password of the existing user: change it in Langfuse. A new `SALT` does not revoke an old key. A new `ENCRYPTION_KEY` makes stored LLM connection keys unreadable: enter them again. While the services restart after a ClickHouse or key rotation, OTLP ingestion and LLM traces stop for a short time.
+Langfuse reads the `LANGFUSE_INIT_PROJECT_*` values only to create a missing API key. It finds the key by its public key. So a key rotation needs a new `LANGFUSE_PUBLIC_KEY` and a new `LANGFUSE_SECRET_KEY` together; then delete the old key in the Langfuse project settings. The sync sets no `LANGFUSE_INIT_USER_*` value and deletes them from `langfuse-web`: Langfuse already has its user. Manage users and passwords in Langfuse. A new `SALT` does not revoke an old key. A new `ENCRYPTION_KEY` makes stored LLM connection keys unreadable: enter them again. While the services restart after a ClickHouse or key rotation, OTLP ingestion and LLM traces stop for a short time.
 
 ## Deploy
 
