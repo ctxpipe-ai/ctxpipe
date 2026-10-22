@@ -145,12 +145,17 @@ export async function getWebhookSecretForGithubConnection(
   env: Env,
 ): Promise<string | undefined> {
   const row = await loadConnectionViaDirectory(connectionId)
-  if (row?.type !== CONNECTION_TYPE_GITHUB || !githubRowHasOwnApp(row, env))
-    return undefined
+  if (row?.type !== CONNECTION_TYPE_GITHUB) return undefined
   const stored = parseGithubConnectionStored(
     row.config as Record<string, unknown>,
   )
-  return decodeGithubAppCredentials(stored, env)?.webhookSecret
+  const fromRow = decodeGithubAppCredentials(stored, env)
+  if (!fromRow) return undefined
+  // A stored copy of the deployment App's credentials takes the deployment's
+  // current secret, as it takes the env key in buildAppForConnection.
+  return !githubRowHasOwnApp(row, env) && env.GITHUB_WEBHOOK_SECRET
+    ? env.GITHUB_WEBHOOK_SECRET
+    : fromRow.webhookSecret
 }
 
 export async function createDraftGithubConnection(input: {

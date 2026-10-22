@@ -132,7 +132,7 @@ describeWithDatabase(
       ).resolves.toEqual({ contents: "write" })
     })
 
-    it("gives a stored copy of the deployment App no webhook secret of its own", async () => {
+    it("answers a stored copy of the deployment App with the current deployment webhook secret", async () => {
       const copy = await connectionStoring({
         githubAppId: deploymentAppId,
         privateKey: rotatedOut.privateKey,
@@ -141,7 +141,7 @@ describeWithDatabase(
 
       await expect(
         getWebhookSecretForGithubConnection(copy.id, env),
-      ).resolves.toBeUndefined()
+      ).resolves.toBe("current-deployment-webhook-secret")
     })
 
     it("keeps the webhook secret of a connection with its own App", async () => {
