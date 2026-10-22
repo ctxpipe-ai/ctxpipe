@@ -65,8 +65,6 @@ export const SERVICE_VARIABLES = {
     "ENCRYPTION_KEY": "LANGFUSE_ENCRYPTION_KEY",
     "LANGFUSE_INIT_PROJECT_PUBLIC_KEY": "LANGFUSE_PUBLIC_KEY",
     "LANGFUSE_INIT_PROJECT_SECRET_KEY": "LANGFUSE_SECRET_KEY",
-    "LANGFUSE_INIT_USER_EMAIL": "LANGFUSE_INIT_USER_EMAIL",
-    "LANGFUSE_INIT_USER_PASSWORD": "LANGFUSE_INIT_USER_PASSWORD",
   },
   // No secret of their own: they refer to the values above, so they only
   // redeploy (--redeploy) after a change.
@@ -108,7 +106,13 @@ const OPTIONAL = new Set([
 ])
 // Variables that no code uses any more. The sync deletes them from each
 // service it writes.
-const RETIRED = new Set(["BETTER_STACK_TOKEN"])
+// Langfuse uses LANGFUSE_INIT_USER_* only on an empty database, to make the
+// first user. Our Langfuse has that user.
+const RETIRED = new Set([
+  "BETTER_STACK_TOKEN",
+  "LANGFUSE_INIT_USER_EMAIL",
+  "LANGFUSE_INIT_USER_PASSWORD",
+])
 // A Railway PR preview starts as a copy of the production variables. With
 // --preview, the values come from the GitHub Environment `Preview`, and each
 // empty one is deleted, so no production value stays. The preview scripts own
