@@ -184,9 +184,8 @@ encryption does not protect the values that were already read. Also rotate the
 connector credentials at each provider.
 
 These steps use Docker Compose. On another host, run the same command in a
-backend container with the same environment. The `@ctxpipe/aws-cdk` stack
-does not set `CONNECTION_SECRETS_ENCRYPTION_KEY` or
-`CONNECTION_SECRETS_PREVIOUS_KEYS` yet.
+backend container with the same environment. For AWS CDK, follow the
+[Secrets Manager and one-off ECS task steps](/docs/self-hosting/deployment/aws#rotate-connection-encryption-keys).
 
 ## Connector readiness
 

@@ -102,6 +102,8 @@ export interface DataPlaneResources {
 
 export interface SecretsResources {
   readonly authSecret: secretsmanager.Secret;
+  readonly connectionSecretsEncryptionKey?: secretsmanager.ISecret;
+  readonly connectionSecretsPreviousKeys?: secretsmanager.ISecret;
   /**
    * Owner `DATABASE_URL` for the migrate task (Aurora master `ctxpipe`). Task
    * definitions from before the app role read it too, so it never holds the
@@ -179,6 +181,8 @@ export interface SecretsConstructProps {
   readonly modelProviderApiKey?: cdk.SecretValue;
   readonly hostedZone: route53.IHostedZone;
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps;
+  readonly connectionSecretsEncryptionKey?: secretsmanager.ISecret;
+  readonly connectionSecretsPreviousKeys?: secretsmanager.ISecret;
   readonly emailFromAddress: string;
 }
 

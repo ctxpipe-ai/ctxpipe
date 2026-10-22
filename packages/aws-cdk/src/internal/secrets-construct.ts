@@ -520,6 +520,8 @@ export class SecretsConstruct extends Construct {
 
     this.resources = {
       authSecret,
+      connectionSecretsEncryptionKey: props.connectionSecretsEncryptionKey,
+      connectionSecretsPreviousKeys: props.connectionSecretsPreviousKeys,
       databaseUrlSecret,
       runtimeDatabaseUrlSecret,
       appDatabaseCredentialsSecret,

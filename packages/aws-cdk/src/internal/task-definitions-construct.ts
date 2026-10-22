@@ -66,6 +66,20 @@ export class TaskDefinitionsConstruct extends Construct {
         }
       : {};
 
+    const connectionSecretEnv: Record<string, ecs.Secret> = {}
+    if (props.secrets.connectionSecretsEncryptionKey) {
+      connectionSecretEnv.CONNECTION_SECRETS_ENCRYPTION_KEY =
+        ecs.Secret.fromSecretsManager(
+          props.secrets.connectionSecretsEncryptionKey,
+        )
+    }
+    if (props.secrets.connectionSecretsPreviousKeys) {
+      connectionSecretEnv.CONNECTION_SECRETS_PREVIOUS_KEYS =
+        ecs.Secret.fromSecretsManager(
+          props.secrets.connectionSecretsPreviousKeys,
+        )
+    }
+
     const backendTask = new ecs.FargateTaskDefinition(this, "BackendTask", {
       memoryLimitMiB: props.sizeProfile.tasks.backend.memoryLimitMiB,
       cpu: props.sizeProfile.tasks.backend.cpu,
@@ -150,6 +164,7 @@ export class TaskDefinitionsConstruct extends Construct {
         ),
         ...modelContainerConfig.secrets,
         ...props.secrets.connectorEnv,
+        ...connectionSecretEnv,
         ...otelHeaderSecrets,
       },
       portMappings: [{ containerPort: 3000 }],
@@ -196,6 +211,7 @@ export class TaskDefinitionsConstruct extends Construct {
         ),
         ...modelContainerConfig.secrets,
         ...props.secrets.connectorEnv,
+        ...connectionSecretEnv,
         ...otelHeaderSecrets,
       },
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-worker" }),
@@ -291,6 +307,8 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.modelProviderSecret,
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
+      props.secrets.connectionSecretsEncryptionKey,
+      props.secrets.connectionSecretsPreviousKeys,
       otelHeadersSecret,
     ]);
     this.grantTaskSecrets(workerTask, [
@@ -299,6 +317,8 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.modelProviderSecret,
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
+      props.secrets.connectionSecretsEncryptionKey,
+      props.secrets.connectionSecretsPreviousKeys,
       otelHeadersSecret,
     ]);
     this.grantTaskSecrets(codesearchTask, [

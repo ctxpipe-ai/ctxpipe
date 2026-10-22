@@ -418,6 +418,66 @@ Signals that you should move up a size:
 
 `@ctxpipe/aws-cdk` keeps services in private subnets for every size. NAT remains required because backend/worker/codesearch need outbound access for model providers, GitHub, Atlassian, and Linear APIs.
 
+## Rotate connection encryption keys
+
+1. Save the current keys in Secrets Manager. Follow the
+   [rotation sequence](/docs/self-hosting/production-readiness#roll-auth_secret-and-the-encryption-key)
+   before you change `AUTH_SECRET`. Create two Secrets Manager secrets as
+   **plain strings**, not JSON: a new 64-hex encryption key and a comma-separated
+   list of previous keys. If the old deployment had no explicit key, put
+   `auth-secret:<old AUTH_SECRET>` in the previous-key list. Include that entry
+   whenever you change `AUTH_SECRET`, to preserve two-factor secrets.
+2. Import the secrets into your CDK stack. Add these optional props to the
+   existing `CtxPipe` configuration:
+
+   ```ts
+   import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+
+   const connectionKeys = {
+     connectionSecretsEncryptionKey: secretsmanager.Secret.fromSecretNameV2(
+       stack, "ConnectionEncryptionKey", "ctxpipe/connection-encryption-key",
+     ),
+     connectionSecretsPreviousKeys: secretsmanager.Secret.fromSecretNameV2(
+       stack, "ConnectionPreviousKeys", "ctxpipe/connection-previous-keys",
+     ),
+   };
+   // Add ...connectionKeys to the existing CtxPipe props.
+   ```
+
+   Backend and worker receive these values as ECS secrets. If you omit a prop,
+   its variable is absent. Codesearch receives the same `AUTH_SECRET` as backend
+   and worker; it does not receive the connection keys.
+3. Deploy the CDK change. When you update a secret value without a task-definition
+   change, force a new ECS deployment of backend and worker. Also replace
+   codesearch tasks if `AUTH_SECRET` changed. Wait until the services are stable.
+4. Run `secrets:reencrypt` as a one-off Fargate task. Set `CLUSTER` and
+   `BACKEND_SERVICE` to the deployed ECS names. Use the current backend task
+   definition and its network configuration:
+
+   ```bash
+   TASK_DEFINITION=$(aws ecs describe-services --cluster "$CLUSTER" \
+     --services "$BACKEND_SERVICE" --query 'services[0].taskDefinition' --output text)
+   NETWORK_CONFIGURATION=$(aws ecs describe-services --cluster "$CLUSTER" \
+     --services "$BACKEND_SERVICE" --query 'services[0].networkConfiguration' --output json)
+   aws ecs run-task --cluster "$CLUSTER" --launch-type FARGATE \
+     --task-definition "$TASK_DEFINITION" \
+     --network-configuration "$NETWORK_CONFIGURATION" \
+     --overrides '{"containerOverrides":[{"name":"backend","command":["bun","run","apps/backend/src/scripts/reencryptSecrets.ts","--dry-run"]}]}' \
+     --query '{tasks:tasks[].taskArn,failures:failures}'
+   ```
+
+   Check `failures`, then wait for the returned task ARN to stop with
+   `aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK_ARN"`.
+   Check the backend container exit code and its CloudWatch logs. If the task
+   cannot start, correct the reported ECS failure before you continue.
+5. Run the same task without `--dry-run`. Confirm exit code zero and an empty
+   `failed` list for all three groups in the report. Repeat the dry run after
+   all old backend and worker tasks stop. If any group has a nonzero
+   `rewritten` count or a failure, repeat the rotation checks.
+6. Remove `connectionSecretsPreviousKeys` only after the final dry run shows
+   `rewritten: 0` and `failed: []` for all three groups. Deploy again, then
+   remove the old values from Secrets Manager.
+
 ## Related references
 
 - [`packages/aws-cdk/README.md`](https://github.com/ctxpipe-ai/ctxpipe/blob/main/packages/aws-cdk/README.md)

@@ -1,10 +1,11 @@
 import * as cdk from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { describe, expect, it } from "vitest";
 import { CtxPipe } from "./ctxpipe";
 import type { CtxPipeConnectorSecretsProps } from "./types";
 
-function synthCtxPipe(connectorSecrets?: CtxPipeConnectorSecretsProps): Template {
+function synthCtxPipe(connectorSecrets?: CtxPipeConnectorSecretsProps, connectionKeys = false): Template {
   const app = new cdk.App();
   const stack = new cdk.Stack(app, "TestStack", {
     env: { account: "123456789012", region: "us-east-1" },
@@ -21,6 +22,22 @@ function synthCtxPipe(connectorSecrets?: CtxPipeConnectorSecretsProps): Template
       models: { fast: "openai.gpt-5.5" },
     },
     connectorSecrets,
+    ...(connectionKeys
+      ? {
+          connectionSecretsEncryptionKey:
+            secretsmanager.Secret.fromSecretCompleteArn(
+              stack,
+              "EncryptionKey",
+              "arn:aws:secretsmanager:us-east-1:123456789012:secret:connection-key-abcdef",
+            ),
+          connectionSecretsPreviousKeys:
+            secretsmanager.Secret.fromSecretCompleteArn(
+              stack,
+              "PreviousKeys",
+              "arn:aws:secretsmanager:us-east-1:123456789012:secret:previous-keys-abcdef",
+            ),
+        }
+      : {}),
   });
   return Template.fromStack(stack);
 }
@@ -281,3 +298,71 @@ describe("SecretsConstruct connector secrets", () => {
     }
   });
 });
+
+describe("Connection encryption keys", () => {
+  it("injects the supplied Secrets Manager values only into backend and worker", () => {
+    const template = synthCtxPipe(undefined, true)
+    const tasks = Object.values(
+      template.findResources("AWS::ECS::TaskDefinition"),
+    )
+    for (const name of ["backend", "worker"]) {
+      template.hasResourceProperties("AWS::ECS::TaskDefinition", {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: name,
+            Secrets: Match.arrayWith([
+              {
+                Name: "CONNECTION_SECRETS_ENCRYPTION_KEY",
+                ValueFrom:
+                  "arn:aws:secretsmanager:us-east-1:123456789012:secret:connection-key-abcdef",
+              },
+              {
+                Name: "CONNECTION_SECRETS_PREVIOUS_KEYS",
+                ValueFrom:
+                  "arn:aws:secretsmanager:us-east-1:123456789012:secret:previous-keys-abcdef",
+              },
+            ]),
+          }),
+        ]),
+      })
+    }
+    for (const task of tasks) {
+      for (const container of task.Properties.ContainerDefinitions) {
+        expect(container.Environment ?? []).not.toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              Name: expect.stringMatching(/^CONNECTION_SECRETS_/),
+            }),
+          ]),
+        )
+        if (!["backend", "worker"].includes(container.Name)) {
+          expect(JSON.stringify(container.Secrets ?? [])).not.toContain(
+            "CONNECTION_SECRETS_",
+          )
+        }
+      }
+    }
+    const authSources = tasks
+      .flatMap((task) => task.Properties.ContainerDefinitions)
+      .filter((container) =>
+        ["backend", "worker", "codesearch"].includes(container.Name),
+      )
+      .map(
+        (container) =>
+          container.Secrets.find(
+            (secret: { Name: string }) => secret.Name === "AUTH_SECRET",
+          ).ValueFrom,
+      )
+    expect(authSources).toHaveLength(3)
+    expect(authSources[0]).toBeDefined()
+    expect(authSources[1]).toEqual(authSources[0])
+    expect(authSources[2]).toEqual(authSources[0])
+  })
+
+  it("omits both variables when no connection keys are supplied", () => {
+    const template = synthCtxPipe()
+    expect(
+      JSON.stringify(template.findResources("AWS::ECS::TaskDefinition")),
+    ).not.toContain("CONNECTION_SECRETS_")
+  })
+})

@@ -1,5 +1,6 @@
 import type * as cdk from "aws-cdk-lib";
 import type * as ec2 from "aws-cdk-lib/aws-ec2";
+import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 
 export type CtxPipeSize = "small" | "medium" | "large";
 
@@ -161,6 +162,10 @@ export interface CtxPipeProps {
   readonly modelProvider: CtxPipeModelProviderProps;
   readonly customDomain: CtxPipeCustomDomainProps;
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps;
+  /** Secrets Manager string with the 64-hex connector encryption key. */
+  readonly connectionSecretsEncryptionKey?: secretsmanager.ISecret;
+  /** Secrets Manager string with comma-separated old keys or auth-secret:<old AUTH_SECRET>. */
+  readonly connectionSecretsPreviousKeys?: secretsmanager.ISecret;
   /**
    * Optional OpenTelemetry export to the operator's OTLP endpoint.
    * Omit to export nothing.

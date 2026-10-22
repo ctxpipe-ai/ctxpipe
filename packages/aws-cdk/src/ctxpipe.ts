@@ -189,6 +189,8 @@ export class CtxPipe extends Construct {
       modelProviderApiKey: resolvedModel.consumerApiKey,
       hostedZone: resolvedCustomDomain.hostedZone,
       connectorSecrets: props.connectorSecrets,
+      connectionSecretsEncryptionKey: props.connectionSecretsEncryptionKey,
+      connectionSecretsPreviousKeys: props.connectionSecretsPreviousKeys,
       emailFromAddress: defaults.emailFromAddress,
     })
 
