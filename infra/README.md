@@ -120,8 +120,10 @@ The backend and the worker encrypt the stored connection secrets (integration to
 
 To change the key, or to move from the key that `AUTH_SECRET` made:
 
-1. Stop the backend and the worker.
-2. Run a dry run, then run it again with `--apply`. Use the owner database URL, because row-level security hides every row from `ctxpipe_app`. `read -s` keeps the values out of the shell history:
+1. Stop the backend and the worker. Do not merge to `main` until step 5: each Deploy starts the stopped services again.
+2. Make the new key (`openssl rand -hex 32`). Use this same value in each step below.
+3. In Railway, set `CONNECTION_SECRETS_ENCRYPTION_KEY` to the new key on the `backend` and `openworkflow` services of `production`. Apply the change without a redeploy (for example `railway variables --set … --skip-deploys`, or deploy the staged change while the services stay stopped). Then make sure that the variable shows as set, not as staged. The Deploy workflow starts the new images before Terraform Apply sets the variables. Without this step, the services start with the old key and write new values with it.
+4. Run a dry run, then run it again with `--apply`. Use the owner database URL, because row-level security hides every row from `ctxpipe_app`. `read -s` keeps the values out of the shell history:
 
    ```bash
    read -rs DATABASE_URL; export DATABASE_URL                # owner URL
@@ -132,8 +134,7 @@ To change the key, or to move from the key that `AUTH_SECRET` made:
    ```
 
    When the current key is an explicit key, set `OLD_CONNECTION_SECRETS_ENCRYPTION_KEY` in place of `OLD_AUTH_SECRET`. One transaction holds all rows. When a value decrypts with neither key, the script changes nothing and names each location. A second run changes nothing.
-3. In Railway, set `CONNECTION_SECRETS_ENCRYPTION_KEY` to the new key on the `backend` and `openworkflow` services of `production`. Do not deploy them yet. The Deploy workflow starts the new images before Terraform Apply sets the variables. Without this step, the services start with the old key and write new values with it.
-4. Set the new key in the GitHub secret `CONNECTION_SECRETS_ENCRYPTION_KEY` of `production`. Then push to `main`, or run again the latest push run of Deploy. "Run workflow" (`workflow_dispatch`) skips the Terraform job.
+5. Set the same key in the GitHub secret `CONNECTION_SECRETS_ENCRYPTION_KEY` of `production`. Then push to `main`, or run again the latest push run of Deploy. "Run workflow" (`workflow_dispatch`) skips the Terraform job.
 
 ## PR Terraform plans (GitHub Actions)
 
