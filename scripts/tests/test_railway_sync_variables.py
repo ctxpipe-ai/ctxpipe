@@ -35,7 +35,7 @@ class RailwaySyncVariablesTest(unittest.TestCase):
         self.calls = []
 
     def railway_response(self, request, timeout):
-        self.assertEqual(timeout, 30)
+        self.assertEqual(timeout, 120)
         self.assertEqual(request.get_header("Authorization"), "Bearer management-token")
         self.assertEqual(request.get_header("User-agent"), "ctxpipe-railway-sync/1.0")
         body = json.loads(request.data)

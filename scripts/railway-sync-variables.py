@@ -145,8 +145,10 @@ def graphql(query, variables, token):
             "User-Agent": "ctxpipe-railway-sync/1.0",
         },
     )
+    # A variableDelete starts a redeploy, and Railway can take more than 30
+    # seconds to answer it. Wait 2 minutes, as railway-graphql.sh does.
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=120) as response:
             payload = json.load(response)
     except urllib.error.HTTPError as error:
         raise RuntimeError(f"Railway API returned HTTP {error.code}") from None
@@ -220,8 +222,9 @@ def main():
             token,
         )
     # variableDelete has no skipDeploys, so a delete can redeploy the service
-    # on its current image. It happens only when an optional connector is
-    # turned off, and the service then starts without it.
+    # on its current image. It happens when an optional connector is turned
+    # off, and on a new preview for each production value that Preview does
+    # not set. The service then starts without it.
     for name in removed:
         graphql(
             "mutation variableDelete($input: VariableDeleteInput!) { variableDelete(input: $input) }",
