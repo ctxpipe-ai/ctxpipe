@@ -209,7 +209,7 @@ jobs:
           # The plan runs PR branch code, so it gets no Railway token.
           # -refresh=false compares the code with the state and calls no
           # provider API; the provider needs only a non-empty token to start.
-          RAILWAY_TOKEN: pr-plan-no-access
+          RAILWAY_TOKEN: pr-plan-placeholder
         run: terraform plan -refresh=false -no-color -input=false -lock=false -out=terraform.plan | tee plan.txt
 
       - name: Refuse plans that delete resources

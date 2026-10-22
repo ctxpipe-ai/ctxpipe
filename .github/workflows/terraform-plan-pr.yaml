@@ -69,8 +69,8 @@ jobs:
           # -refresh=false compares the code with the state and calls no
           # provider API; the providers need only a non-empty token to start.
           # Drift shows in the deploy plan.
-          RAILWAY_TOKEN: pr-plan-no-access
-          NEON_API_KEY: pr-plan-no-access
+          RAILWAY_TOKEN: pr-plan-placeholder
+          NEON_API_KEY: pr-plan-placeholder
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
           timeout_minutes: 10
