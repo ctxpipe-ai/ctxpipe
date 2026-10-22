@@ -68,8 +68,9 @@ same workflow.
 Terraform generates the `ctxpipe_app` password, and migrate creates the role in
 SQL with it. A role from the Neon API is a member of `neon_superuser`, which has
 `BYPASSRLS`, so migrate refuses it. Railway `DATABASE_URL` on backend, worker, and
-codesearch is the app-role pooler URL. Migrate / `PRODUCTION_DATABASE_URL` stays
-the owner. Do not collapse those two identities.
+codesearch is the app-role pooler URL. Migrate uses the `DATABASE_URL` secret of
+the GitHub Environment `production`, which is the owner URL. Do not collapse
+those two identities.
 
 ## Chat sandboxes
 
