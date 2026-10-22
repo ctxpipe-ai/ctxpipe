@@ -148,8 +148,10 @@ class RailwaySyncVariablesTest(unittest.TestCase):
 
     def test_redeploy_retries_a_deploy_when_the_values_already_match(self):
         self.current.update(self.desired)
-        self.run_sync("--redeploy")
+        changed = Path(self.tmp.name) / "changed"
+        self.run_sync("--redeploy", "--changed-file", str(changed))
         self.assertEqual(self.calls, ["read", "deploy", "poll"])
+        self.assertFalse(changed.exists())
 
     def test_missing_credential_fails_before_any_railway_request(self):
         del self.environment["COST_TELEMETRY_NEON_API_KEY"]

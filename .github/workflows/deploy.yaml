@@ -228,8 +228,9 @@ jobs:
       # run that image, so a re-run applies a rotated secret. A re-run of a
       # failed attempt forces it too: that attempt may have changed values
       # that this one finds equal. FalkorDB is not in that step, so it
-      # redeploys here, last: a failure in an app service changes nothing on
-      # FalkorDB.
+      # redeploys here, last: a failure in the sync of an app service changes
+      # nothing on FalkorDB. If the image step fails after this, the re-run
+      # forces the deploy of every app service.
       - name: Sync production secrets to Railway
         id: sync
         working-directory: ${{ github.workspace }}
