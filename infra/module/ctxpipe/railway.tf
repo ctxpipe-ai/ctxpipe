@@ -109,6 +109,12 @@ locals {
       name  = "AUTH_SECRET"
       value = var.better_auth_secret
     },
+    # Without this key, the key of the connection secrets comes from
+    # AUTH_SECRET, and a rotation of AUTH_SECRET makes them unreadable.
+    {
+      name  = "CONNECTION_SECRETS_ENCRYPTION_KEY"
+      value = var.connection_secrets_encryption_key
+    },
     {
       name  = "CODESEARCH_URL"
       value = "http://$${{codesearch.RAILWAY_PRIVATE_DOMAIN}}:$${{codesearch.PORT}}"

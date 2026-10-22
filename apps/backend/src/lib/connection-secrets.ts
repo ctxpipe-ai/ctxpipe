@@ -11,7 +11,18 @@ const IV_LENGTH = 12
 const TAG_LENGTH = 16
 const KEY_LENGTH = 32
 
-function decodeKeyMaterial(env: Env): Buffer {
+/** The values that pick the key: the explicit key, else one from AUTH_SECRET. */
+export type ConnectionSecretKeyEnv = Pick<
+  Env,
+  "AUTH_SECRET" | "CONNECTION_SECRETS_ENCRYPTION_KEY"
+>
+
+/** True when the value is a ciphertext from `encryptConnectionSecret`. */
+export function isEncryptedConnectionSecret(value: string): boolean {
+  return value.startsWith(PREFIX)
+}
+
+function decodeKeyMaterial(env: ConnectionSecretKeyEnv): Buffer {
   const raw = env.CONNECTION_SECRETS_ENCRYPTION_KEY?.trim()
   if (raw) {
     if (/^[0-9a-fA-F]{64}$/.test(raw)) {
@@ -25,7 +36,10 @@ function decodeKeyMaterial(env: Env): Buffer {
 }
 
 /** Encrypt a UTF-8 string for storage in `connections.config`. */
-export function encryptConnectionSecret(plaintext: string, env: Env): string {
+export function encryptConnectionSecret(
+  plaintext: string,
+  env: ConnectionSecretKeyEnv,
+): string {
   const key = decodeKeyMaterial(env)
   const iv = randomBytes(IV_LENGTH)
   const cipher = createCipheriv("aes-256-gcm", key, iv)
@@ -36,8 +50,11 @@ export function encryptConnectionSecret(plaintext: string, env: Env): string {
 }
 
 /** Decrypt a value produced by `encryptConnectionSecret`. */
-export function decryptConnectionSecret(ciphertext: string, env: Env): string {
-  if (!ciphertext.startsWith(PREFIX)) {
+export function decryptConnectionSecret(
+  ciphertext: string,
+  env: ConnectionSecretKeyEnv,
+): string {
+  if (!isEncryptedConnectionSecret(ciphertext)) {
     throw new Error("Invalid encrypted secret format")
   }
   const raw = Buffer.from(ciphertext.slice(PREFIX.length), "base64url")

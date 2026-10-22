@@ -104,6 +104,7 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 - `Preview`: only the jobs that deploy, roll or delete the Railway PR preview.
 - `workbench`: the environment for checks, evals, proofs and live contracts that call outside services, with spend-capped or test-scoped keys.
 - `Production`: the production deploy.
+- Each environment holds its own value of each credential. `Production` and `Preview` never share a token, key, or secret. When you add or rotate a secret, make one value for each environment that needs it.
 - A new check that needs a paid or outside service uses `workbench`. Do not add another environment without a stated need. `scripts/ci/check-secret-jobs.mjs` enforces this.
 
 ### Adversarial review

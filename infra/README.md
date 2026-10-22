@@ -114,6 +114,25 @@ PR deploys are driven by `.github/workflows/pr-deploy.yaml`:
 - **Langfuse in PR**: shared ClickStack collector + `env:pr-N` tags; in-app Langfuse handler remains request-scoped
 - For the PR **openworkflow worker**, image + Serverless + `restartPolicyType: ON_FAILURE` so idle supervisor exits (status 0) stay down until woken
 
+## Connection secrets key
+
+The backend and the worker encrypt the stored connection secrets (integration tokens, OAuth client secrets, webhook secrets, sandbox Git tokens) with `CONNECTION_SECRETS_ENCRYPTION_KEY`. The module sets it from the GitHub secret `CONNECTION_SECRETS_ENCRYPTION_KEY` of the `production` environment (64 hex characters, `openssl rand -hex 32`). Thus a rotation of `AUTH_SECRET` does not change this key. The PR plan gets a placeholder.
+
+To change the key, or to move from the key that `AUTH_SECRET` made:
+
+1. Stop the backend and the worker.
+2. Run a dry run, then run it again with `--apply`. Use the owner database URL, because row-level security hides every row from `ctxpipe_app`:
+
+   ```bash
+   DATABASE_URL='<owner URL>' \
+   OLD_AUTH_SECRET='<the AUTH_SECRET that made the current key>' \
+   NEW_CONNECTION_SECRETS_ENCRYPTION_KEY='<new key>' \
+   pnpm --filter @ctxpipe/backend reencrypt-connection-secrets [--apply]
+   ```
+
+   When the current key is an explicit key, set `OLD_CONNECTION_SECRETS_ENCRYPTION_KEY` in place of `OLD_AUTH_SECRET`. One transaction holds all rows. When a value decrypts with neither key, the script changes nothing and names each location. A second run changes nothing.
+3. Set the new key in the GitHub secret, then run Deploy.
+
 ## PR Terraform plans (GitHub Actions)
 
 The workflow [.github/workflows/terraform-plan-pr.yaml](../.github/workflows/terraform-plan-pr.yaml) runs `terraform plan` on infra changes. Before it can run with production secrets:

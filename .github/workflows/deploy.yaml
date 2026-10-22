@@ -148,6 +148,7 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_VAR_image_tag: ${{ github.sha }}
       TF_VAR_better_auth_secret: ${{ secrets.BETTER_AUTH_SECRET }}
+      TF_VAR_connection_secrets_encryption_key: ${{ secrets.CONNECTION_SECRETS_ENCRYPTION_KEY }}
       TF_VAR_model_provider_api_key: ${{ secrets.MODEL_PROVIDER_API_KEY }}
       TF_VAR_model_provider: ${{ vars.MODEL_PROVIDER || 'openrouter' }}
       TF_VAR_smtp_connection_url: ${{ secrets.SMTP_CONNECTION_URL }}

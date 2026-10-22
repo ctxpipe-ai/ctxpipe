@@ -46,6 +46,9 @@ jobs:
       # value: a non-empty placeholder passes the module validation, and the
       # plan shows a masked VERCEL_TOKEN change that the deploy does not apply.
       TF_VAR_vercel_access_token: pr-plan-placeholder
+      # The same rule for the key of the connection secrets. The placeholder
+      # is 64 hex characters, so it passes the module validation.
+      TF_VAR_connection_secrets_encryption_key: "0000000000000000000000000000000000000000000000000000000000000000"
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1

@@ -10,6 +10,12 @@ variable "better_auth_secret" {
   sensitive   = true
 }
 
+variable "connection_secrets_encryption_key" {
+  type        = string
+  description = "value for CONNECTION_SECRETS_ENCRYPTION_KEY: the AES key of the stored connection secrets, 64 hex characters"
+  sensitive   = true
+}
+
 variable "model_provider_api_key" {
   type        = string
   description = "value for MODEL_PROVIDER_API_KEY"

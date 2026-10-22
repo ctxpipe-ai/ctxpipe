@@ -30,6 +30,7 @@
     "ingestion-compare": "bun run src/scripts/ingestionCompare.ts",
     "reindex-repositories": "bun run src/scripts/reindexRepositories.ts",
     "migrate-workspace-sources": "bun run src/scripts/migrateWorkspaceSources.ts",
+    "reencrypt-connection-secrets": "bun run src/scripts/reencryptConnectionSecrets.ts",
     "verify-instruction-ingestion": "bun run src/scripts/verifyInstructionIngestion.ts",
     "verify-connector-assets-runtime": "bun run src/scripts/verifyConnectorAssetRuntime.ts",
     "codegen:linear": "graphql-codegen --config codegen.linear.yml"

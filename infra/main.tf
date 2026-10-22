@@ -53,6 +53,8 @@ module "ctxpipe" {
   otel_otlp_headers       = var.otel_otlp_headers
   vercel_access_token     = var.vercel_access_token
 
+  connection_secrets_encryption_key = var.connection_secrets_encryption_key
+
   neon_project = {
     name                      = "ctxpipe"
     org_id                    = "org-steep-pine-64462726"

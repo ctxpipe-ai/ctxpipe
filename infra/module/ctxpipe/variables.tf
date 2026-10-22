@@ -71,6 +71,17 @@ variable "better_auth_secret" {
   sensitive   = true
 }
 
+variable "connection_secrets_encryption_key" {
+  type        = string
+  description = "value for CONNECTION_SECRETS_ENCRYPTION_KEY: the AES key of the stored connection secrets, 64 hex characters"
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^[0-9a-fA-F]{64}$", var.connection_secrets_encryption_key))
+    error_message = "connection_secrets_encryption_key must be 64 hex characters. Make one with: openssl rand -hex 32"
+  }
+}
+
 variable "model_provider_api_key" {
   type        = string
   description = "value for MODEL_PROVIDER_API_KEY"
