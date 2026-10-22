@@ -41,11 +41,8 @@ jobs:
       TF_VAR_model_provider: ${{ vars.MODEL_PROVIDER || 'openrouter' }}
       TF_VAR_linear_redirect_uri: ${{ vars.LINEAR_REDIRECT_URI }}
       TF_VAR_pagerduty_redirect_uri: ${{ vars.PAGERDUTY_REDIRECT_URI }}
-      # A pull request must not get the production Vercel token, and only the
-      # Production environment holds it. The plan does not need the real
-      # value: a non-empty placeholder passes the module validation, and the
-      # plan shows a masked VERCEL_TOKEN change that the deploy does not apply.
-      TF_VAR_vercel_access_token: pr-plan-placeholder
+      # No secret value: Terraform does not hold the app secrets
+      # (scripts/railway-sync-variables.mjs writes them to Railway).
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -66,31 +63,14 @@ jobs:
       - name: Terraform Plan
         id: plan
         env:
-          TF_VAR_better_auth_secret: ${{ secrets.BETTER_AUTH_SECRET }}
-          TF_VAR_model_provider_api_key: ${{ secrets.MODEL_PROVIDER_API_KEY }}
-          TF_VAR_smtp_connection_url: ${{ secrets.SMTP_CONNECTION_URL }}
-          TF_VAR_github_private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-          TF_VAR_github_client_secret: ${{ secrets.GH_CLIENT_SECRET }}
-          TF_VAR_github_webhook_secret: ${{ secrets.GH_WEBHOOK_SECRET }}
-          TF_VAR_atlassian_client_id: ${{ secrets.ATLASSIAN_CLIENT_ID }}
-          TF_VAR_atlassian_client_secret: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
-          TF_VAR_slack_client_id: ${{ secrets.SLACK_CLIENT_ID }}
-          TF_VAR_slack_client_secret: ${{ secrets.SLACK_CLIENT_SECRET }}
-          TF_VAR_slack_signing_secret: ${{ secrets.SLACK_SIGNING_SECRET }}
-          TF_VAR_linear_client_id: ${{ secrets.LINEAR_CLIENT_ID }}
-          TF_VAR_linear_client_secret: ${{ secrets.LINEAR_CLIENT_SECRET }}
-          TF_VAR_linear_webhook_secret: ${{ secrets.LINEAR_WEBHOOK_SECRET }}
-          TF_VAR_notion_client_id: ${{ secrets.NOTION_CLIENT_ID }}
-          TF_VAR_notion_client_secret: ${{ secrets.NOTION_CLIENT_SECRET }}
-          TF_VAR_notion_webhook_secret: ${{ secrets.NOTION_WEBHOOK_SECRET }}
-          TF_VAR_pagerduty_client_id: ${{ secrets.PAGERDUTY_CLIENT_ID }}
-          TF_VAR_pagerduty_client_secret: ${{ secrets.PAGERDUTY_CLIENT_SECRET }}
-          TF_VAR_falkordb_password: ${{ secrets.FALKORDB_PASSWORD }}
-          TF_VAR_otel_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          # The plan runs PR branch code, so it gets no Railway or Neon token.
+          # -refresh=false compares the code with the state and calls no
+          # provider API; the providers need only a non-empty token to start.
+          # Drift shows in the deploy plan.
+          RAILWAY_TOKEN: pr-plan-placeholder
+          NEON_API_KEY: pr-plan-placeholder
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
           timeout_minutes: 10
@@ -98,7 +78,7 @@ jobs:
           command: |
             set -euo pipefail
             cd "${GITHUB_WORKSPACE}/infra"
-            terraform plan -no-color -input=false > "${GITHUB_WORKSPACE}/infra/plan.txt"
+            terraform plan -refresh=false -no-color -input=false > "${GITHUB_WORKSPACE}/infra/plan.txt"
 
       - name: Generate Terraform Plan Comment
         if: always()

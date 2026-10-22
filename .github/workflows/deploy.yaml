@@ -147,35 +147,12 @@ jobs:
     env:
       TF_IN_AUTOMATION: "true"
       TF_VAR_image_tag: ${{ github.sha }}
-      TF_VAR_better_auth_secret: ${{ secrets.BETTER_AUTH_SECRET }}
-      TF_VAR_model_provider_api_key: ${{ secrets.MODEL_PROVIDER_API_KEY }}
       TF_VAR_model_provider: ${{ vars.MODEL_PROVIDER || 'openrouter' }}
-      TF_VAR_smtp_connection_url: ${{ secrets.SMTP_CONNECTION_URL }}
-      TF_VAR_github_private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-      TF_VAR_github_client_secret: ${{ secrets.GH_CLIENT_SECRET }}
-      TF_VAR_github_webhook_secret: ${{ secrets.GH_WEBHOOK_SECRET }}
-      TF_VAR_atlassian_client_id: ${{ secrets.ATLASSIAN_CLIENT_ID }}
-      TF_VAR_atlassian_client_secret: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
-      TF_VAR_slack_client_id: ${{ secrets.SLACK_CLIENT_ID }}
-      TF_VAR_slack_client_secret: ${{ secrets.SLACK_CLIENT_SECRET }}
-      TF_VAR_slack_signing_secret: ${{ secrets.SLACK_SIGNING_SECRET }}
-      TF_VAR_linear_client_id: ${{ secrets.LINEAR_CLIENT_ID }}
-      TF_VAR_linear_client_secret: ${{ secrets.LINEAR_CLIENT_SECRET }}
       TF_VAR_linear_redirect_uri: ${{ vars.LINEAR_REDIRECT_URI }}
-      TF_VAR_linear_webhook_secret: ${{ secrets.LINEAR_WEBHOOK_SECRET }}
-      TF_VAR_notion_client_id: ${{ secrets.NOTION_CLIENT_ID }}
-      TF_VAR_notion_client_secret: ${{ secrets.NOTION_CLIENT_SECRET }}
-      TF_VAR_notion_webhook_secret: ${{ secrets.NOTION_WEBHOOK_SECRET }}
-      TF_VAR_pagerduty_client_id: ${{ secrets.PAGERDUTY_CLIENT_ID }}
-      TF_VAR_pagerduty_client_secret: ${{ secrets.PAGERDUTY_CLIENT_SECRET }}
       TF_VAR_pagerduty_redirect_uri: ${{ vars.PAGERDUTY_REDIRECT_URI }}
-      TF_VAR_falkordb_password: ${{ secrets.FALKORDB_PASSWORD }}
-      TF_VAR_otel_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
-      TF_VAR_vercel_access_token: ${{ secrets.VERCEL_ACCESS_TOKEN }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
       RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
 
@@ -244,6 +221,70 @@ jobs:
           export DATABASE_APP_PASSWORD
           pnpm exec tsx src/db/migrate.ts
 
+      # Secret values go from this environment straight to Railway, never into
+      # Terraform inputs or state (scripts/railway-sync-variables.mjs). The app
+      # services do not redeploy here: the next step deploys them on the new
+      # image, and when a value changed it deploys them even when they already
+      # run that image, so a re-run applies a rotated secret. A re-run of a
+      # failed attempt forces it too: that attempt may have changed values
+      # that this one finds equal. FalkorDB is not in that step, so it
+      # redeploys here, last: a failure in the sync of an app service changes
+      # nothing on FalkorDB. If the image step fails after this, the re-run
+      # forces the deploy of every app service.
+      - name: Sync production secrets to Railway
+        id: sync
+        working-directory: ${{ github.workspace }}
+        env:
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          CONNECTION_SECRETS_ENCRYPTION_KEY: ${{ secrets.CONNECTION_SECRETS_ENCRYPTION_KEY }}
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          SMTP_CONNECTION_URL: ${{ secrets.SMTP_CONNECTION_URL }}
+          GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
+          GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
+          GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
+          ATLASSIAN_CLIENT_ID: ${{ secrets.ATLASSIAN_CLIENT_ID }}
+          ATLASSIAN_CLIENT_SECRET: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
+          NOTION_CLIENT_ID: ${{ secrets.NOTION_CLIENT_ID }}
+          NOTION_CLIENT_SECRET: ${{ secrets.NOTION_CLIENT_SECRET }}
+          NOTION_WEBHOOK_SECRET: ${{ secrets.NOTION_WEBHOOK_SECRET }}
+          SLACK_CLIENT_ID: ${{ secrets.SLACK_CLIENT_ID }}
+          SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}
+          SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
+          LINEAR_CLIENT_ID: ${{ secrets.LINEAR_CLIENT_ID }}
+          LINEAR_CLIENT_SECRET: ${{ secrets.LINEAR_CLIENT_SECRET }}
+          LINEAR_WEBHOOK_SECRET: ${{ secrets.LINEAR_WEBHOOK_SECRET }}
+          PAGERDUTY_CLIENT_ID: ${{ secrets.PAGERDUTY_CLIENT_ID }}
+          PAGERDUTY_CLIENT_SECRET: ${{ secrets.PAGERDUTY_CLIENT_SECRET }}
+          VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
+          FALKORDB_PASSWORD: ${{ secrets.FALKORDB_PASSWORD }}
+          BETTER_AUTH_API_KEY: ${{ secrets.BETTER_AUTH_API_KEY }}
+          CONFLUENCE_FORGE_INSTALL_URL: ${{ secrets.CONFLUENCE_FORGE_INSTALL_URL }}
+        run: |
+          set -euo pipefail
+          export PROJECT_ID="$RAILWAY_PROJECT_ID"
+          ENVIRONMENT_ID="$(terraform -chdir=infra output -raw railway_environment_id)"
+          export ENVIRONMENT_ID
+          ids="$(terraform -chdir=infra output -json railway_service_ids)"
+          changed="$RUNNER_TEMP/railway-sync-changed"
+          : > "$changed"
+          sync() {
+            SERVICE_ID="$(jq -er --arg key "$2" '.[$key]' <<<"$ids")"
+            export SERVICE_ID
+            node scripts/railway-sync-variables.mjs --service "$1" --changed-file "$changed" "${@:3}"
+          }
+          sync backend backend
+          sync openworkflow open_workflow
+          sync codesearch code_search
+          sync ui ui
+          # A re-run redeploys FalkorDB in any case: the failed attempt may
+          # have written its password and then failed to redeploy it.
+          if [[ "$GITHUB_RUN_ATTEMPT" != 1 ]]; then redeploy=--redeploy; else redeploy=--redeploy-on-change; fi
+          sync falkordb falkordb "$redeploy"
+          if [[ -s "$changed" || "$GITHUB_RUN_ATTEMPT" != 1 ]]; then
+            echo "force_deploy=1" >> "$GITHUB_OUTPUT"
+          fi
+
       # Provider Update() serviceConnects the image for every environment and
       # redeploys previews. App image tags are ignore_changes; this step
       # deploys production only (ADR-039).
@@ -251,6 +292,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           IMAGE_TAG: ${{ github.sha }}
+          FORCE_DEPLOY: ${{ steps.sync.outputs.force_deploy }}
         run: bash scripts/railway-set-images.sh
 
       - name: Terraform Plan
