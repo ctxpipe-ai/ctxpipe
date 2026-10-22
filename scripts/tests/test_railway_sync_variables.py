@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -29,12 +30,14 @@ class RailwaySyncVariablesTest(unittest.TestCase):
             **{source: self.desired[name] for name, source in self.variables.items()},
         }
         self.current = {"OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.example"}
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
         self.calls = []
 
     def railway_response(self, request, timeout):
         self.assertEqual(timeout, 30)
         self.assertEqual(request.get_header("Authorization"), "Bearer management-token")
-        self.assertEqual(request.get_header("User-agent"), "ctxpipe-observability-ci/1.0")
+        self.assertEqual(request.get_header("User-agent"), "ctxpipe-railway-sync/1.0")
         body = json.loads(request.data)
         query = body["query"]
         variables = body["variables"]
@@ -47,6 +50,10 @@ class RailwaySyncVariablesTest(unittest.TestCase):
             self.assertEqual(variables["input"]["serviceId"], "service")
             self.current.update(variables["input"]["variables"])
             data = {"variableCollectionUpsert": True}
+        elif query.startswith("mutation variableDelete"):
+            self.calls.append("delete")
+            self.current.pop(variables["input"]["name"])
+            data = {"variableDelete": True}
         elif query.startswith("mutation serviceInstanceDeployV2"):
             self.calls.append("deploy")
             data = {"serviceInstanceDeployV2": "deployment"}
@@ -99,11 +106,45 @@ class RailwaySyncVariablesTest(unittest.TestCase):
             "RAILWAY_TOKEN": "management-token",
             **{source: f"private-{name}" for name, source in backend.items()
                if not source.startswith("SLACK_")},
+            "CONNECTION_SECRETS_ENCRYPTION_KEY": "ab" * 32,
         }
         self.run_sync(service="backend")
         self.assertEqual(self.current["AUTH_SECRET"], "private-AUTH_SECRET")
         self.assertEqual(self.current["GITHUB_PRIVATE_KEY"], "private-GITHUB_PRIVATE_KEY")
         self.assertNotIn("SLACK_CLIENT_ID", self.current)
+
+    def test_backend_deletes_an_optional_secret_that_became_empty(self):
+        backend = SYNC.SERVICE_VARIABLES["backend"]
+        self.environment = {
+            "PROJECT_ID": "project",
+            "ENVIRONMENT_ID": "environment",
+            "SERVICE_ID": "service",
+            "RAILWAY_TOKEN": "management-token",
+            **{source: f"private-{name}" for name, source in backend.items()
+               if source != "PAGERDUTY_CLIENT_SECRET"},
+            "CONNECTION_SECRETS_ENCRYPTION_KEY": "ab" * 32,
+        }
+        self.current.update({name: self.environment[source] for name, source in backend.items()
+                             if source in self.environment})
+        self.current["PAGERDUTY_CLIENT_SECRET"] = "leaked-old-value"
+        changed = Path(self.tmp.name) / "changed"
+        self.run_sync("--changed-file", str(changed), service="backend")
+        self.assertEqual(self.calls, ["read", "delete", "read"])
+        self.assertNotIn("PAGERDUTY_CLIENT_SECRET", self.current)
+        self.assertEqual(changed.read_text(), "backend\n")
+
+    def test_malformed_connection_key_fails_before_any_railway_request(self):
+        backend = SYNC.SERVICE_VARIABLES["backend"]
+        self.environment = {
+            "PROJECT_ID": "project",
+            "ENVIRONMENT_ID": "environment",
+            "SERVICE_ID": "service",
+            "RAILWAY_TOKEN": "management-token",
+            **{source: f"private-{name}" for name, source in backend.items()},
+        }
+        with self.assertRaisesRegex(RuntimeError, "CONNECTION_SECRETS_ENCRYPTION_KEY"):
+            self.run_sync(service="backend")
+        self.assertEqual(self.calls, [])
 
     def test_missing_credential_fails_before_any_railway_request(self):
         del self.environment["COST_TELEMETRY_NEON_API_KEY"]

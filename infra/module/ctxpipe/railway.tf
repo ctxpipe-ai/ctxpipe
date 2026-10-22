@@ -214,7 +214,10 @@ resource "railway_custom_domain" "www_app" {
 resource "railway_variable_collection" "backend_config" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.backend.id
-  depends_on     = [terraform_data.app_database_url]
+  # GRAPH_DB_URI refers to FALKORDB_PRIVATE_URL, which refers to the synced
+  # FALKORDB_PASSWORD. Write FalkorDB first, so this redeploy reads the URL
+  # with the password that FalkorDB uses.
+  depends_on = [terraform_data.app_database_url, railway_variable_collection.falkordb_config]
 
   variables = concat(local.shared_backend_env_variables, [
     {
@@ -231,7 +234,7 @@ resource "railway_variable_collection" "backend_config" {
     },
     {
       # The UI reaches the backend over the private network on this port
-      # (ui_env AUTH_BASE_URL). Set it here so it does not depend on the
+      # (ui_config AUTH_BASE_URL). Set it here so it does not depend on the
       # PORT value that Railway injects at runtime.
       name  = "PORT"
       value = "8080"
@@ -322,7 +325,10 @@ resource "railway_service" "open_workflow" {
 resource "railway_variable_collection" "open_workflow_config" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.open_workflow.id
-  depends_on     = [terraform_data.app_database_url]
+  # GRAPH_DB_URI refers to FALKORDB_PRIVATE_URL, which refers to the synced
+  # FALKORDB_PASSWORD. Write FalkorDB first, so this redeploy reads the URL
+  # with the password that FalkorDB uses.
+  depends_on = [terraform_data.app_database_url, railway_variable_collection.falkordb_config]
 
   variables = concat(local.shared_backend_env_variables, [
     {
@@ -403,6 +409,7 @@ resource "railway_variable_collection" "falkordb_config" {
 # does not delete their variables: an Update or Delete of a collection deletes
 # each variable that leaves it. The *_config collections take over the values
 # that are not secret, and railway-sync-variables.py owns the secret ones.
+# Delete these blocks after the first apply that forgets the collections.
 removed {
   from = railway_variable_collection.ui_env
   lifecycle {

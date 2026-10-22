@@ -8,6 +8,7 @@ plans, or state. Terraform owns only the variables that are not secret.
 import argparse
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -65,8 +66,8 @@ SERVICE_VARIABLES = {
     },
     "railway-telemetry": {"RAILWAY_API_TOKEN": "TELEMETRY_RAILWAY_WORKSPACE_TOKEN"},
 }
-# Secrets that may be empty. An empty one is not written; the service then
-# turns that integration off.
+# Secrets that may be empty. An empty one is deleted from the service, so the
+# service turns that integration off and an old value does not stay live.
 OPTIONAL = {
     "SLACK_CLIENT_ID",
     "SLACK_CLIENT_SECRET",
@@ -78,6 +79,8 @@ OPTIONAL = {
     "PAGERDUTY_CLIENT_SECRET",
     "COST_TELEMETRY_AWS_SESSION_TOKEN",
 }
+# Checked before any write, so a bad value never reaches a service.
+FORMATS = {"CONNECTION_SECRETS_ENCRYPTION_KEY": re.compile(r"[0-9a-fA-F]{64}")}
 
 
 def graphql(query, variables, token):
@@ -87,7 +90,7 @@ def graphql(query, variables, token):
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "User-Agent": "ctxpipe-observability-ci/1.0",
+            "User-Agent": "ctxpipe-railway-sync/1.0",
         },
     )
     try:
@@ -117,6 +120,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--redeploy-on-change", action="store_true")
     parser.add_argument("--service", choices=SERVICE_VARIABLES, required=True)
+    # Appends the service name to this file when a value changed.
+    parser.add_argument("--changed-file")
     args = parser.parse_args()
     variables = SERVICE_VARIABLES[args.service]
 
@@ -128,6 +133,10 @@ def main():
         missing.append("RAILWAY_TOKEN")
     if missing:
         raise RuntimeError("Missing required environment variables: " + ", ".join(missing))
+    malformed = [source for source, pattern in FORMATS.items()
+                 if source in variables.values() and not pattern.fullmatch(os.environ[source])]
+    if malformed:
+        raise RuntimeError("Malformed values: " + ", ".join(malformed))
 
     project_id = os.environ["PROJECT_ID"]
     environment_id = os.environ["ENVIRONMENT_ID"]
@@ -137,21 +146,36 @@ def main():
 
     existing = current_variables(project_id, environment_id, service_id, token)
     changed = {name: value for name, value in desired.items() if existing.get(name) != value}
-    if not changed:
+    removed = [name for name, source in variables.items()
+               if name not in desired and name in existing]
+    if not changed and not removed:
         print(f"{args.service} credentials already match GitHub Environment")
         return
 
-    graphql(
-        "mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) "
-        "{ variableCollectionUpsert(input: $input) }",
-        {"input": {"projectId": project_id, "environmentId": environment_id,
-                   "serviceId": service_id, "variables": changed, "skipDeploys": True}},
-        token,
-    )
+    if changed:
+        graphql(
+            "mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) "
+            "{ variableCollectionUpsert(input: $input) }",
+            {"input": {"projectId": project_id, "environmentId": environment_id,
+                       "serviceId": service_id, "variables": changed, "skipDeploys": True}},
+            token,
+        )
+    for name in removed:
+        graphql(
+            "mutation variableDelete($input: VariableDeleteInput!) { variableDelete(input: $input) }",
+            {"input": {"projectId": project_id, "environmentId": environment_id,
+                       "serviceId": service_id, "name": name}},
+            token,
+        )
     updated = current_variables(project_id, environment_id, service_id, token)
-    if any(updated.get(name) != value for name, value in changed.items()):
+    if any(updated.get(name) != value for name, value in changed.items()) or \
+            any(name in updated for name in removed):
         raise RuntimeError(f"Railway did not retain every {args.service} credential")
-    print(f"Synced {len(changed)} {args.service} variables from GitHub Environment")
+    print(f"Synced {len(changed)} and removed {len(removed)} {args.service} variables "
+          "from GitHub Environment")
+    if args.changed_file:
+        with open(args.changed_file, "a", encoding="utf-8") as changed_file:
+            changed_file.write(f"{args.service}\n")
 
     if not args.redeploy_on_change:
         return

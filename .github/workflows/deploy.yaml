@@ -222,11 +222,13 @@ jobs:
           pnpm exec tsx src/db/migrate.ts
 
       # Secret values go from this environment straight to Railway, never into
-      # Terraform inputs or state (scripts/railway-sync-variables.py). It runs
-      # before the images start, so each new deployment has the current
-      # values. A service whose values changed redeploys at once, so a re-run
-      # at the same commit also applies a rotated secret.
+      # Terraform inputs or state (scripts/railway-sync-variables.py). The app
+      # services do not redeploy here: the next step deploys them on the new
+      # image, and when a value changed it deploys them even when they already
+      # run that image, so a re-run applies a rotated secret. FalkorDB is not
+      # in that step, so it redeploys here, first.
       - name: Sync production secrets to Railway
+        id: sync
         working-directory: ${{ github.workspace }}
         env:
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
@@ -258,13 +260,19 @@ jobs:
           ENVIRONMENT_ID="$(terraform -chdir=infra output -raw railway_environment_id)"
           export ENVIRONMENT_ID
           ids="$(terraform -chdir=infra output -json railway_service_ids)"
-          # FalkorDB first: the backend and the worker read its password
-          # through GRAPH_DB_URI.
-          for pair in falkordb:falkordb backend:backend openworkflow:open_workflow codesearch:code_search ui:ui; do
-            SERVICE_ID="$(jq -er --arg key "${pair#*:}" '.[$key]' <<<"$ids")"
+          changed="$RUNNER_TEMP/railway-sync-changed"
+          : > "$changed"
+          sync() {
+            SERVICE_ID="$(jq -er --arg key "$2" '.[$key]' <<<"$ids")"
             export SERVICE_ID
-            python3 scripts/railway-sync-variables.py --service "${pair%%:*}" --redeploy-on-change
-          done
+            python3 -I scripts/railway-sync-variables.py --service "$1" --changed-file "$changed" "${@:3}"
+          }
+          sync falkordb falkordb --redeploy-on-change
+          sync backend backend
+          sync openworkflow open_workflow
+          sync codesearch code_search
+          sync ui ui
+          if [[ -s "$changed" ]]; then echo "force_deploy=1" >> "$GITHUB_OUTPUT"; fi
 
       # Provider Update() serviceConnects the image for every environment and
       # redeploys previews. App image tags are ignore_changes; this step
@@ -273,6 +281,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           IMAGE_TAG: ${{ github.sha }}
+          FORCE_DEPLOY: ${{ steps.sync.outputs.force_deploy }}
         run: bash scripts/railway-set-images.sh
 
       - name: Terraform Plan
