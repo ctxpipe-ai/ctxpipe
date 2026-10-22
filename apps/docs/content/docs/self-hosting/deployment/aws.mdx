@@ -427,9 +427,20 @@ for what to set and how to check the result. On this stack, do them with the
 commands below. Set `CLUSTER`, `BACKEND_SERVICE`, `WORKER_SERVICE`,
 `CODESEARCH_SERVICE`, and `AUTH_SECRET_SECRET_ID` to the deployed names.
 
-1. Create each value as a **plain-string** Secrets Manager secret, not JSON:
-   - The new 64-hex encryption key, from `openssl rand -hex 32`.
-   - The previous keys: the old explicit encryption key, if the stack had one.
+1. Store each value as a **plain-string** Secrets Manager secret, not JSON.
+   Do the work in this order:
+   - The previous keys: write the old explicit encryption key, if the stack
+     had one, into `ctxpipe/connection-previous-keys` first. Use
+     `create-secret` when the secret does not exist. Use `put-secret-value`
+     when it exists. `CONNECTION_SECRETS_PREVIOUS_KEYS` holds only old
+     connection encryption keys. Never put an old `AUTH_SECRET` there, even a
+     64-hex one. An old `AUTH_SECRET` goes in `PREVIOUS_AUTH_SECRET`.
+   - The new 64-hex encryption key, from `openssl rand -hex 32`. Use
+     `create-secret` only when `ctxpipe/connection-encryption-key` does not
+     exist yet. On a second roll it exists, so use `put-secret-value` to
+     replace its value. Write the old key to the previous-keys secret before
+     you do this. If a task restarts in the gap, it cannot decrypt the
+     connector secrets that the old key encrypted.
    - The previous `AUTH_SECRET`: copy the current value before you change it.
      Create it when you change `AUTH_SECRET`, and also when the stack had no
      explicit encryption key before:
