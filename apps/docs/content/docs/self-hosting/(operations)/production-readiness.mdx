@@ -145,9 +145,11 @@ To change one or both secrets, do these steps:
    - `CONNECTION_SECRETS_PREVIOUS_KEYS`: the old
      `CONNECTION_SECRETS_ENCRYPTION_KEY`, if it was set. If you did not
      complete an earlier roll, keep its keys too, comma separated.
-   - `PREVIOUS_AUTH_SECRET`: the old `AUTH_SECRET`, if you change it. It is
-     one value, so a comma in it is safe. The two-factor secrets need it, and
-     so do the connector secrets when no explicit key was set.
+   - `PREVIOUS_AUTH_SECRET`: the old `AUTH_SECRET`, as one value (a comma in
+     it is safe). Set it when you change `AUTH_SECRET`, because the
+     two-factor secrets need it. Also set it when no explicit
+     `CONNECTION_SECRETS_ENCRYPTION_KEY` was set before, because then the old
+     connector key comes from it.
 3. Deploy the backend, the worker, and codesearch. Connectors continue to
    work, because the backend tries the previous keys after the current key.
    All users must sign in again.
