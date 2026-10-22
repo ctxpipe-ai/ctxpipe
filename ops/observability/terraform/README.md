@@ -22,7 +22,7 @@ Buckets `langfuse-events` and `clickhouse-cold` (region `iad`) are created outsi
 
 ## Apply
 
-Supported path: [`.github/workflows/observability.yaml`](../../../.github/workflows/observability.yaml). A same-repo pull request plans only (GitHub Environment `terraform-plan`, `-lock=false`) and updates a comment headed `## Observability Terraform Plan`. Push to `main` and `workflow_dispatch` on `main` plan, refuse deletes, and apply (environment `observability`, concurrency group `observability-apply`, not cancelled when a newer run is queued). The workflow uses existing `RAILWAY_TOKEN`, `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY`. The state key `observability/terraform.tfstate` is in [`backend.tf`](./backend.tf).
+Supported path: [`.github/workflows/observability.yaml`](../../../.github/workflows/observability.yaml). A same-repo pull request plans only (GitHub Environment `terraform-plan`, `-lock=false`) and updates a comment headed `## Observability Terraform Plan`. Push to `main` and `workflow_dispatch` on `main` plan, refuse deletes, and apply (environment `observability`, concurrency group `observability-apply`, not cancelled when a newer run is queued). The workflow uses the existing secrets `RAILWAY_WORKSPACE_TOKEN` (as `RAILWAY_TOKEN`), `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY`. The state key `observability/terraform.tfstate` is in [`backend.tf`](./backend.tf).
 
 After a successful apply the workflow pins region `us-east4-eqdc4a`. Provider 0.6.1 ignores regions on update (issue #77). The same command, from the repo root:
 
@@ -33,7 +33,7 @@ RAILWAY_ENVIRONMENT=production \
 bash scripts/railway-set-regions.sh
 ```
 
-`RAILWAY_TOKEN` must be able to manage this project. The product workspace token is enough.
+`RAILWAY_TOKEN` must be able to manage this project. A workspace token of the product workspace is enough.
 
 Local apply uses the same backend. Export the four `TF_VAR_*_image` tags, `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (the R2 keys), `RAILWAY_TOKEN`, and the `COST_TELEMETRY_*` values from their original credential source, then `terraform init`, `terraform plan`, and `terraform apply` from this directory. GitHub Actions is the supported path because GitHub secret values cannot be read back. Creating or replacing `cost-telemetry`, or changing `TF_VAR_cost_telemetry_image`, runs the local-exec GraphQL helpers; those need `RAILWAY_TOKEN`, `curl`, `jq`, and Python 3. The source-image helper waits up to 600s for a terminal Railway deploy status and fails the apply on `FAILED`, `CRASHED`, or timeout.
 

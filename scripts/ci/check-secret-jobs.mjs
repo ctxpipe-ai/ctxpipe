@@ -12,7 +12,7 @@
 //   (`uses: ./…`), checks out no other commit (`ref:`), and runs or sources
 //   only the reviewed scripts below. It reads no `toJSON(secrets)` and no
 //   `secrets[…]`.
-// - NEON_API_KEY and RAILWAY_API_TOKEN never go to a job that runs
+// - NEON_API_KEY and RAILWAY_WORKSPACE_TOKEN never go to a job that runs
 //   untrusted code. No exception covers them.
 // - GitHub environments: `Preview` is only for the jobs that deploy, roll or
 //   delete the Railway PR preview. `workbench` is for checks, evals, proofs and
@@ -23,7 +23,7 @@
 //   or VERCEL_ACCESS_TOKEN uses
 //   `environment: workbench`. To add a paid or outside check, put the job in
 //   `workbench`: this guard enforces it.
-// - RAILWAY_API_TOKEN and NEON_API_KEY never go to a job in `workbench`.
+// - RAILWAY_WORKSPACE_TOKEN and NEON_API_KEY never go to a job in `workbench`.
 // - A sticky disk or an actions/cache key that a job with a secret mounts or
 //   restores is not written by a job that runs untrusted code. The check
 //   reads each `${{ … }}` part of a key as "any text", and a `restore-keys`
@@ -124,7 +124,7 @@ const secretUse =
 const dynamicSecrets = /toJSON\(\s*secrets\s*\)|(?<![\w./-])secrets\s*\[/
 const secretName = /(?<![\w./-])secrets\s*\.\s*(\w+)/g
 const accountTokens =
-  /(?<![\w.-])secrets\s*\.\s*(NEON_API_KEY|RAILWAY_API_TOKEN|MODEL_PROVIDER_API_KEY)\b/
+  /(?<![\w.-])secrets\s*\.\s*(NEON_API_KEY|RAILWAY_WORKSPACE_TOKEN|MODEL_PROVIDER_API_KEY)\b/
 const untrusted = [
   [
     /\b(pnpm|yarn|bun|bunx|tsx|npx)\b/,
@@ -365,7 +365,7 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
         failures.push(
           `${where(number)} gives ${token[1]} to a job that runs untrusted code. Move it to a job without such code.`,
         )
-      const accountSecret = /secrets\s*\.\s*(NEON_API_KEY|RAILWAY_API_TOKEN)\b/.exec(
+      const accountSecret = /secrets\s*\.\s*(NEON_API_KEY|RAILWAY_WORKSPACE_TOKEN)\b/.exec(
         text,
       )
       if (accountSecret && /^workbench$/i.test(environment ?? ""))

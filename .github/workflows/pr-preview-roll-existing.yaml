@@ -56,7 +56,7 @@ jobs:
     steps:
       - name: Check inputs and the branch
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
           GH_TOKEN: ${{ github.token }}
           REF: ${{ github.ref }}
           BRANCH: ${{ github.ref_name }}
@@ -65,7 +65,7 @@ jobs:
           [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "pr_number must be a number" >&2; exit 1; }
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "head_sha must be a full git SHA" >&2; exit 1; }
           [[ -n "$RAILWAY_API_TOKEN" ]] || {
-            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the Preview environment (Settings > Environments)."
+            echo "::error::RAILWAY_WORKSPACE_TOKEN is missing. Add it to the Preview environment (Settings > Environments)."
             exit 1
           }
           # The concurrency group is the ref name, so it must be the PR branch.
@@ -81,7 +81,7 @@ jobs:
       - name: Resolve Railway environment ID
         id: env
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
         run: |
           set -euo pipefail
           # shellcheck disable=SC1091
@@ -94,7 +94,7 @@ jobs:
       - name: Roll images and wait for UI SUCCESS
         env:
           ENV_ID: ${{ steps.env.outputs.env_id }}
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
           OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
           VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
           GH_APP_ID: ${{ secrets.GH_APP_ID }}
@@ -191,7 +191,7 @@ jobs:
           sync_preview_sandbox_variables
           sync_preview_github_app_variables
           # A preview from before PR Deploy gave it its own secrets still has
-          # the production AUTH_SECRET and the account token. Replace them
+          # the production AUTH_SECRET and the workspace token. Replace them
           # before branch code rolls. A marked preview keeps its values.
           sync_preview_own_secrets
 
