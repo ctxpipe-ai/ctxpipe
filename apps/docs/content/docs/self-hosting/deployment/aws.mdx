@@ -198,6 +198,7 @@ product onboarding flow.
 |---|---|
 | `size` | Capacity profile for single-tenant deployments. Valid values: `small`, `medium`, `large`. Defaults to `small` when omitted. |
 | `otel` | Optional OTLP export. Omit it and the tasks export nothing. The construct does not deploy a collector, Langfuse, or ClickStack. |
+| `connectionSecretsEncryptionKey`, `connectionSecretsPreviousKeys`, `previousAuthSecret` | Optional plain-string Secrets Manager secrets for the connector encryption key and for a [key roll](#rotate-connection-encryption-keys). Backend and worker receive them as ECS secrets. |
 | `sandboxHost` | Optional `instanceType` and `dockerVolumeSizeGiB` for the [chat sandbox host](#chat-sandbox-host), and `agentVaultNetworkAllowlist` for a [private git server](#private-git-servers). The host is always created; these only change its size and its allowlist. |
 
 ### `modelProvider` union
@@ -420,19 +421,33 @@ Signals that you should move up a size:
 
 ## Rotate connection encryption keys
 
-1. Save the current keys in Secrets Manager. Follow the
-   [rotation sequence](/docs/self-hosting/production-readiness#roll-auth_secret-and-the-encryption-key)
-   before you change `AUTH_SECRET`. Create two Secrets Manager secrets as
-   **plain strings**, not JSON: a new 64-hex encryption key and a comma-separated
-   list of previous keys. If the old deployment had no explicit key, put
-   `auth-secret:<old AUTH_SECRET>` in the previous-key list. Include that entry
-   whenever you change `AUTH_SECRET`, to preserve two-factor secrets. This
-   example assumes that Secrets Manager uses the default `aws/secretsmanager`
-   KMS key. If you use a customer-managed KMS key, import the secret with
-   `Secret.fromSecretAttributes({ secretPartialArn, encryptionKey })` so the
-   stack grants decrypt access.
-2. Import the secrets into your CDK stack. Add these optional props to the
-   existing `CtxPipe` configuration:
+Follow the
+[roll steps](/docs/self-hosting/production-readiness#roll-auth_secret-and-the-encryption-key)
+for what to set and how to check the result. On this stack, do them with the
+commands below. Set `CLUSTER`, `BACKEND_SERVICE`, `WORKER_SERVICE`,
+`CODESEARCH_SERVICE`, and `AUTH_SECRET_SECRET_ID` to the deployed names.
+
+1. Create each value as a **plain-string** Secrets Manager secret, not JSON:
+   - The new 64-hex encryption key, from `openssl rand -hex 32`.
+   - The previous keys: the old explicit encryption key, if the stack had one.
+   - The previous `AUTH_SECRET`: copy the current value before you change it.
+     Create it when you change `AUTH_SECRET`, and also when the stack had no
+     explicit encryption key before:
+
+     ```bash
+     aws secretsmanager get-secret-value --secret-id "$AUTH_SECRET_SECRET_ID" \
+       --query SecretString --output text | jq -j .AUTH_SECRET \
+       | aws secretsmanager create-secret --name ctxpipe/previous-auth-secret \
+         --secret-string file:///dev/stdin --query ARN --output text
+     ```
+
+   This example assumes that Secrets Manager uses the default
+   `aws/secretsmanager` KMS key. If you use a customer-managed KMS key, import
+   each secret with
+   `Secret.fromSecretAttributes({ secretPartialArn, encryptionKey })`, so that
+   the stack grants decrypt access.
+2. Add the secrets to the existing `CtxPipe` props. Omit a prop that you did
+   not create in step 1:
 
    ```ts
    import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
@@ -444,50 +459,34 @@ Signals that you should move up a size:
      connectionSecretsPreviousKeys: secretsmanager.Secret.fromSecretNameV2(
        stack, "ConnectionPreviousKeys", "ctxpipe/connection-previous-keys",
      ),
+     previousAuthSecret: secretsmanager.Secret.fromSecretNameV2(
+       stack, "PreviousAuthSecret", "ctxpipe/previous-auth-secret",
+     ),
    };
    // Add ...connectionKeys to the existing CtxPipe props.
    ```
 
-   Backend and worker receive these values as ECS secrets. If you omit a prop,
-   its variable is absent. Codesearch receives the same `AUTH_SECRET` as backend
-   and worker; it does not receive the connection keys.
-3. Deploy the CDK change. This adds the previous-keys secret to the tasks.
-   Wait until the services are stable.
-4. Read the old `AUTH_SECRET` from the JSON secret. Put only the value in the
-   previous-keys secret, with the `auth-secret:` prefix. Do this before you
-   write the new `AUTH_SECRET`:
+   Deploy the CDK change and wait until the services are stable. Backend and
+   worker receive these values as ECS secrets; codesearch does not.
+3. If you change `AUTH_SECRET`, write the new value (keep the JSON shape) and
+   start new tasks of all three services in the same command block:
 
    ```bash
-   OLD_AUTH_SECRET=$(aws secretsmanager get-secret-value \
-     --secret-id "$AUTH_SECRET_SECRET_ID" --query SecretString --output text \
-     | jq -r .AUTH_SECRET)
-   printf 'auth-secret:%s' "$OLD_AUTH_SECRET" | aws secretsmanager put-secret-value \
-     --secret-id "$PREVIOUS_KEYS_SECRET_ID" --secret-string file:///dev/stdin
-   ```
-
-   Write the new value to the `AUTH_SECRET` secret. Keep the JSON shape:
-
-   ```bash
-   NEW_AUTH_SECRET=$(openssl rand -hex 32)
-   jq -n --arg value "$NEW_AUTH_SECRET" '{AUTH_SECRET: $value}' \
+   jq -n --arg value "$(openssl rand -hex 32)" '{AUTH_SECRET: $value}' \
      | aws secretsmanager put-secret-value --secret-id "$AUTH_SECRET_SECRET_ID" \
-       --secret-string file:///dev/stdin
+       --secret-string file:///dev/stdin --query VersionId --output text
+   for service in "$BACKEND_SERVICE" "$WORKER_SERVICE" "$CODESEARCH_SERVICE"; do
+     aws ecs update-service --cluster "$CLUSTER" --service "$service" \
+       --force-new-deployment --query service.serviceName --output text
+   done
    ```
 
-   Force a new deployment of backend, worker, and codesearch together:
-
-   ```bash
-   aws ecs update-service --cluster "$CLUSTER" --service "$BACKEND_SERVICE" --force-new-deployment
-   aws ecs update-service --cluster "$CLUSTER" --service "$WORKER_SERVICE" --force-new-deployment
-   aws ecs update-service --cluster "$CLUSTER" --service "$CODESEARCH_SERVICE" --force-new-deployment
-   ```
-
-   Wait until all three services are stable. Users with two-factor
-   authentication cannot sign in between this deployment and the real
-   `secrets:reencrypt` run. Run it immediately after this deployment.
-5. Run `secrets:reencrypt` as a one-off Fargate task. Set `CLUSTER` and
-   `BACKEND_SERVICE` to the deployed ECS names. Use the current backend task
-   definition and its network configuration:
+   Until all three services are stable, old and new tasks have different
+   values. During that short time, some requests between backend and
+   codesearch fail, and two-factor sign-in fails until step 4 is complete.
+4. Run `secrets:reencrypt` as a one-off Fargate task with the current backend
+   task definition. This is the dry run; for the real run, remove
+   `,"--dry-run"` from the command:
 
    ```bash
    TASK_DEFINITION=$(aws ecs describe-services --cluster "$CLUSTER" \
@@ -501,19 +500,14 @@ Signals that you should move up a size:
      --query '{tasks:tasks[].taskArn,failures:failures}'
    ```
 
-   Check `failures`, then wait for the returned task ARN to stop with
-   `aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK_ARN"`.
-   Check the backend container exit code and its CloudWatch logs. If the task
-   cannot start, correct the reported ECS failure before you continue.
-6. Run the same task without `--dry-run`. Confirm exit code zero and an empty
-   `failed` list for all three groups in the report. Repeat the dry run after
-   all old backend and worker tasks stop. If any group has a nonzero
-   `rewritten` count or a failure, repeat the rotation checks.
-7. After every old backend and worker task has stopped, run the `--dry-run`
-   task again. Remove `connectionSecretsPreviousKeys` only when its report shows
-   `rewritten: 0` and `failed: []` for all three groups. If it does not, run the
-   real task and then the dry run again. Deploy the stack again, then remove
-   the old values from Secrets Manager.
+   Check `failures`. Then wait for the task with
+   `aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK_ARN"`, and
+   read the exit code and the report in the CloudWatch logs of the backend
+   container.
+5. When the dry run of the roll steps shows `"rewritten": 0` and
+   `"failed": []`, remove `connectionSecretsPreviousKeys` and
+   `previousAuthSecret` from the props, deploy, and then delete those two
+   secrets.
 
 ## Related references
 

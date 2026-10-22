@@ -522,6 +522,7 @@ export class SecretsConstruct extends Construct {
       authSecret,
       connectionSecretsEncryptionKey: props.connectionSecretsEncryptionKey,
       connectionSecretsPreviousKeys: props.connectionSecretsPreviousKeys,
+      previousAuthSecret: props.previousAuthSecret,
       databaseUrlSecret,
       runtimeDatabaseUrlSecret,
       appDatabaseCredentialsSecret,

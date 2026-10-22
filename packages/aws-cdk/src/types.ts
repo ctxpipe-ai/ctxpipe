@@ -162,10 +162,24 @@ export interface CtxPipeProps {
   readonly modelProvider: CtxPipeModelProviderProps;
   readonly customDomain: CtxPipeCustomDomainProps;
   readonly connectorSecrets?: CtxPipeConnectorSecretsProps;
-  /** Secrets Manager string with the 64-hex connector encryption key. */
+  /**
+   * Plain-string secret with the 64-hex connector encryption key
+   * (`CONNECTION_SECRETS_ENCRYPTION_KEY`). Omit it and the key comes from
+   * AUTH_SECRET. A new secret value reaches the tasks at their next start,
+   * with no stack deploy.
+   */
   readonly connectionSecretsEncryptionKey?: secretsmanager.ISecret;
-  /** Secrets Manager string with comma-separated old keys or auth-secret:<old AUTH_SECRET>. */
+  /**
+   * Plain-string secret with the old 64-hex keys, comma separated
+   * (`CONNECTION_SECRETS_PREVIOUS_KEYS`). Set it only during a key roll.
+   */
   readonly connectionSecretsPreviousKeys?: secretsmanager.ISecret;
+  /**
+   * Plain-string secret with the old AUTH_SECRET (`PREVIOUS_AUTH_SECRET`).
+   * Set it only during a roll of AUTH_SECRET, or when you set
+   * `connectionSecretsEncryptionKey` for the first time.
+   */
+  readonly previousAuthSecret?: secretsmanager.ISecret;
   /**
    * Optional OpenTelemetry export to the operator's OTLP endpoint.
    * Omit to export nothing.

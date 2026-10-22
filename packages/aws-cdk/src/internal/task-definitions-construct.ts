@@ -67,17 +67,14 @@ export class TaskDefinitionsConstruct extends Construct {
       : {};
 
     const connectionSecretEnv: Record<string, ecs.Secret> = {}
-    if (props.secrets.connectionSecretsEncryptionKey) {
-      connectionSecretEnv.CONNECTION_SECRETS_ENCRYPTION_KEY =
-        ecs.Secret.fromSecretsManager(
-          props.secrets.connectionSecretsEncryptionKey,
-        )
-    }
-    if (props.secrets.connectionSecretsPreviousKeys) {
-      connectionSecretEnv.CONNECTION_SECRETS_PREVIOUS_KEYS =
-        ecs.Secret.fromSecretsManager(
-          props.secrets.connectionSecretsPreviousKeys,
-        )
+    for (const [name, secret] of Object.entries({
+      CONNECTION_SECRETS_ENCRYPTION_KEY:
+        props.secrets.connectionSecretsEncryptionKey,
+      CONNECTION_SECRETS_PREVIOUS_KEYS:
+        props.secrets.connectionSecretsPreviousKeys,
+      PREVIOUS_AUTH_SECRET: props.secrets.previousAuthSecret,
+    })) {
+      if (secret) connectionSecretEnv[name] = ecs.Secret.fromSecretsManager(secret)
     }
 
     const backendTask = new ecs.FargateTaskDefinition(this, "BackendTask", {
@@ -309,6 +306,7 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.connectorSecret,
       props.secrets.connectionSecretsEncryptionKey,
       props.secrets.connectionSecretsPreviousKeys,
+      props.secrets.previousAuthSecret,
       otelHeadersSecret,
     ]);
     this.grantTaskSecrets(workerTask, [
@@ -319,6 +317,7 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.connectorSecret,
       props.secrets.connectionSecretsEncryptionKey,
       props.secrets.connectionSecretsPreviousKeys,
+      props.secrets.previousAuthSecret,
       otelHeadersSecret,
     ]);
     this.grantTaskSecrets(codesearchTask, [

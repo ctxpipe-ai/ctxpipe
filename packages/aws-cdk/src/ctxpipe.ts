@@ -191,6 +191,7 @@ export class CtxPipe extends Construct {
       connectorSecrets: props.connectorSecrets,
       connectionSecretsEncryptionKey: props.connectionSecretsEncryptionKey,
       connectionSecretsPreviousKeys: props.connectionSecretsPreviousKeys,
+      previousAuthSecret: props.previousAuthSecret,
       emailFromAddress: defaults.emailFromAddress,
     })
 

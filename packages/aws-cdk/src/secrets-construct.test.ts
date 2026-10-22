@@ -36,6 +36,11 @@ function synthCtxPipe(connectorSecrets?: CtxPipeConnectorSecretsProps, connectio
               "PreviousKeys",
               "arn:aws:secretsmanager:us-east-1:123456789012:secret:previous-keys-abcdef",
             ),
+          previousAuthSecret: secretsmanager.Secret.fromSecretCompleteArn(
+            stack,
+            "PreviousAuthSecret",
+            "arn:aws:secretsmanager:us-east-1:123456789012:secret:previous-auth-abcdef",
+          ),
         }
       : {}),
   });
@@ -321,6 +326,11 @@ describe("Connection encryption keys", () => {
                 ValueFrom:
                   "arn:aws:secretsmanager:us-east-1:123456789012:secret:previous-keys-abcdef",
               },
+              {
+                Name: "PREVIOUS_AUTH_SECRET",
+                ValueFrom:
+                  "arn:aws:secretsmanager:us-east-1:123456789012:secret:previous-auth-abcdef",
+              },
             ]),
           }),
         ]),
@@ -331,13 +341,15 @@ describe("Connection encryption keys", () => {
         expect(container.Environment ?? []).not.toEqual(
           expect.arrayContaining([
             expect.objectContaining({
-              Name: expect.stringMatching(/^CONNECTION_SECRETS_/),
+              Name: expect.stringMatching(
+                /^(CONNECTION_SECRETS_|PREVIOUS_AUTH_SECRET)/,
+              ),
             }),
           ]),
         )
         if (!["backend", "worker"].includes(container.Name)) {
-          expect(JSON.stringify(container.Secrets ?? [])).not.toContain(
-            "CONNECTION_SECRETS_",
+          expect(JSON.stringify(container.Secrets ?? [])).not.toMatch(
+            /CONNECTION_SECRETS_|PREVIOUS_AUTH_SECRET/,
           )
         }
       }
@@ -359,10 +371,10 @@ describe("Connection encryption keys", () => {
     expect(authSources[2]).toEqual(authSources[0])
   })
 
-  it("omits both variables when no connection keys are supplied", () => {
+  it("omits the variables when no connection keys are supplied", () => {
     const template = synthCtxPipe()
     expect(
       JSON.stringify(template.findResources("AWS::ECS::TaskDefinition")),
-    ).not.toContain("CONNECTION_SECRETS_")
+    ).not.toMatch(/CONNECTION_SECRETS_|PREVIOUS_AUTH_SECRET/)
   })
 })
