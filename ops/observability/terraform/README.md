@@ -12,7 +12,7 @@ jq -e '[.resource_changes[] | select((.change.actions | index("delete")) and (.a
 
 A replace is a delete followed by a create, so every other replace fails the same check. An intentional removal uses a `removed` block with `lifecycle { destroy = false }`.
 
-Railway holds runtime secret values. Terraform holds references. Ownership: [../README.md](../README.md). `RAILWAY_API_TOKEN` on `railway-telemetry` is a Railway variable and must read the observability and product projects. The protected GitHub `observability` Environment holds source copies of the `cost-telemetry` provider credentials; [`sync-cost-telemetry-variables.py`](./sync-cost-telemetry-variables.py) writes them to Railway before the image is connected and after each apply. The values do not enter Terraform inputs, plan output, or state.
+Railway holds runtime secret values. Terraform holds references. Ownership: [../README.md](../README.md). The protected GitHub `observability` Environment holds source copies of the `cost-telemetry` provider credentials and of `TELEMETRY_RAILWAY_WORKSPACE_TOKEN`, the workspace token that both `cost-telemetry` and `railway-telemetry` get as `RAILWAY_API_TOKEN`. It must read the observability and product projects. [`sync-cost-telemetry-variables.py`](./sync-cost-telemetry-variables.py) writes them to Railway before the `cost-telemetry` image is connected and after each apply (`--service railway-telemetry` for `railway-telemetry`). The values do not enter Terraform inputs, plan output, or state.
 
 `DEFAULT_CONNECTIONS` and `DEFAULT_SOURCES` seed a new HyperDX team that has none. They do not update an existing team. Dashboards: [../hyperdx/README.md](../hyperdx/README.md).
 
@@ -42,7 +42,7 @@ Local apply uses the same backend. Export the four `TF_VAR_*_image` tags, `AWS_A
 1. Railway project `ctxpipe-observability` exists. `has_pr_deploys = false`.
 2. Create Neon database `langfuse`, role `langfuse`, on the existing `ctxpipe` project. Langfuse Prisma migrations use schema `public`. Set `idle_session_timeout=60s` on that database. `DATABASE_URL` and `DIRECT_URL` on langfuse-web include `connection_limit=1&keepalives=0`.
 3. Create Railway buckets `langfuse-events` and `clickhouse-cold` (region `iad`).
-4. Set the Railway-owned secrets in the [README table](../README.md#secrets). Collector `LANGFUSE_AUTH_STRING` is `base64(pk:sk)` of the Langfuse project keys. `RAILWAY_API_TOKEN` must read both projects.
+4. Set the Railway-owned secrets in the [README table](../README.md#secrets). Collector `LANGFUSE_AUTH_STRING` is `base64(pk:sk)` of the Langfuse project keys.
 5. Open a pull request that touches `ops/observability/**` and review the plan comment. The plan should create only `railway.tf` resources.
 6. Merge to `main`. The workflow applies, then pins the region. A ClickHouse volume copy has downtime. Confirm both volumes are `us-east4-eqdc4a` before calling the stack done.
 7. Create DNS CNAMEs for `telemetry.ctxpipe.ai`, `hyperdx.ctxpipe.ai`, and `langfuse.ctxpipe.ai` from `terraform output collector_dns_record`, `hyperdx_dns_record`, and `langfuse_dns_record`.

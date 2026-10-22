@@ -19,13 +19,14 @@ SPEC.loader.exec_module(SYNC)
 
 class CostTelemetryCredentialSyncTest(unittest.TestCase):
     def setUp(self):
-        self.desired = {name: f"private-{name}" for name in SYNC.VARIABLES}
+        self.variables = SYNC.SERVICE_VARIABLES["cost-telemetry"]
+        self.desired = {name: f"private-{name}" for name in self.variables}
         self.environment = {
             "PROJECT_ID": "project",
             "ENVIRONMENT_ID": "environment",
             "SERVICE_ID": "service",
             "RAILWAY_TOKEN": "management-token",
-            **{source: self.desired[name] for name, source in SYNC.VARIABLES.items()},
+            **{source: self.desired[name] for name, source in self.variables.items()},
         }
         self.current = {"OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.example"}
         self.calls = []
@@ -82,6 +83,12 @@ class CostTelemetryCredentialSyncTest(unittest.TestCase):
         self.calls.clear()
         self.run_sync("--redeploy-on-change")
         self.assertEqual(self.calls, ["read"])
+
+    def test_railway_telemetry_gets_only_the_shared_railway_token(self):
+        self.run_sync("--service", "railway-telemetry")
+        self.assertEqual(self.calls, ["read", "upsert", "read"])
+        self.assertEqual(self.current["RAILWAY_API_TOKEN"], self.desired["RAILWAY_API_TOKEN"])
+        self.assertNotIn("NEON_API_KEY", self.current)
 
     def test_missing_credential_fails_before_any_railway_request(self):
         del self.environment["COST_TELEMETRY_NEON_API_KEY"]

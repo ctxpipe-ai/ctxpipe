@@ -9,17 +9,24 @@ import urllib.error
 import urllib.request
 
 
-VARIABLES = {
-    "OPENROUTER_MANAGEMENT_KEY": "COST_TELEMETRY_OPENROUTER_MANAGEMENT_KEY",
-    "GITHUB_BILLING_TOKEN": "COST_TELEMETRY_GITHUB_BILLING_TOKEN",
-    "BLACKSMITH_TOKEN": "COST_TELEMETRY_BLACKSMITH_TOKEN",
-    "NEON_API_KEY": "COST_TELEMETRY_NEON_API_KEY",
-    "NEON_ORG_ID": "COST_TELEMETRY_NEON_ORG_ID",
-    "CLOUDFLARE_API_TOKEN": "COST_TELEMETRY_CLOUDFLARE_API_TOKEN",
-    "CLOUDFLARE_ACCOUNT_ID": "COST_TELEMETRY_CLOUDFLARE_ACCOUNT_ID",
-    "RAILWAY_API_TOKEN": "COST_TELEMETRY_RAILWAY_WORKSPACE_TOKEN",
-    "AWS_ACCESS_KEY_ID": "COST_TELEMETRY_AWS_ACCESS_KEY_ID",
-    "AWS_SECRET_ACCESS_KEY": "COST_TELEMETRY_AWS_SECRET_ACCESS_KEY",
+# Railway variable -> GitHub Environment secret, for each service. Both
+# telemetry services read Railway with the same workspace token.
+SERVICE_VARIABLES = {
+    "cost-telemetry": {
+        "OPENROUTER_MANAGEMENT_KEY": "COST_TELEMETRY_OPENROUTER_MANAGEMENT_KEY",
+        "GITHUB_BILLING_TOKEN": "COST_TELEMETRY_GITHUB_BILLING_TOKEN",
+        "BLACKSMITH_TOKEN": "COST_TELEMETRY_BLACKSMITH_TOKEN",
+        "NEON_API_KEY": "COST_TELEMETRY_NEON_API_KEY",
+        "NEON_ORG_ID": "COST_TELEMETRY_NEON_ORG_ID",
+        "CLOUDFLARE_API_TOKEN": "COST_TELEMETRY_CLOUDFLARE_API_TOKEN",
+        "CLOUDFLARE_ACCOUNT_ID": "COST_TELEMETRY_CLOUDFLARE_ACCOUNT_ID",
+        "RAILWAY_API_TOKEN": "TELEMETRY_RAILWAY_WORKSPACE_TOKEN",
+        "AWS_ACCESS_KEY_ID": "COST_TELEMETRY_AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY": "COST_TELEMETRY_AWS_SECRET_ACCESS_KEY",
+    },
+    "railway-telemetry": {
+        "RAILWAY_API_TOKEN": "TELEMETRY_RAILWAY_WORKSPACE_TOKEN",
+    },
 }
 
 
@@ -59,9 +66,11 @@ def current_variables(project_id, environment_id, service_id, token):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--redeploy-on-change", action="store_true")
+    parser.add_argument("--service", choices=SERVICE_VARIABLES, default="cost-telemetry")
     args = parser.parse_args()
+    variables = SERVICE_VARIABLES[args.service]
 
-    required = ["PROJECT_ID", "ENVIRONMENT_ID", "SERVICE_ID", *VARIABLES.values()]
+    required = ["PROJECT_ID", "ENVIRONMENT_ID", "SERVICE_ID", *variables.values()]
     missing = [name for name in required if not os.environ.get(name)]
     token = os.environ.get("RAILWAY_TOKEN") or os.environ.get("RAILWAY_API_TOKEN")
     if not token:
@@ -72,14 +81,14 @@ def main():
     project_id = os.environ["PROJECT_ID"]
     environment_id = os.environ["ENVIRONMENT_ID"]
     service_id = os.environ["SERVICE_ID"]
-    desired = {name: os.environ[source] for name, source in VARIABLES.items()}
-    if os.environ.get("COST_TELEMETRY_AWS_SESSION_TOKEN"):
+    desired = {name: os.environ[source] for name, source in variables.items()}
+    if args.service == "cost-telemetry" and os.environ.get("COST_TELEMETRY_AWS_SESSION_TOKEN"):
         desired["AWS_SESSION_TOKEN"] = os.environ["COST_TELEMETRY_AWS_SESSION_TOKEN"]
 
     existing = current_variables(project_id, environment_id, service_id, token)
     changed = {name: value for name, value in desired.items() if existing.get(name) != value}
     if not changed:
-        print("Cost telemetry credentials already match GitHub Environment")
+        print(f"{args.service} credentials already match GitHub Environment")
         return
 
     graphql(
@@ -91,8 +100,8 @@ def main():
     )
     updated = current_variables(project_id, environment_id, service_id, token)
     if any(updated.get(name) != value for name, value in changed.items()):
-        raise RuntimeError("Railway did not retain every cost telemetry credential")
-    print(f"Synced {len(changed)} cost telemetry variables from GitHub Environment")
+        raise RuntimeError(f"Railway did not retain every {args.service} credential")
+    print(f"Synced {len(changed)} {args.service} variables from GitHub Environment")
 
     if not args.redeploy_on_change:
         return
@@ -119,12 +128,12 @@ def main():
                     and edge["node"].get("id") == deployment_id]
         if statuses:
             if statuses[0] in ("SUCCESS", "SLEEPING"):
-                print("Cost telemetry redeployment succeeded")
+                print(f"{args.service} redeployment succeeded")
                 return
             if statuses[0] in ("FAILED", "CRASHED"):
-                raise RuntimeError(f"Cost telemetry redeployment ended {statuses[0]}")
+                raise RuntimeError(f"{args.service} redeployment ended {statuses[0]}")
         time.sleep(10)
-    raise RuntimeError("Timed out waiting for cost telemetry redeployment")
+    raise RuntimeError(f"Timed out waiting for {args.service} redeployment")
 
 
 if __name__ == "__main__":

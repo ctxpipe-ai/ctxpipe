@@ -46,7 +46,7 @@ Railway holds runtime values. Terraform holds references and does not list provi
 | hyperdx | — | ClickHouse password and `HYPERDX_API_KEY` from those services |
 | langfuse-web | `DATABASE_URL`, `DIRECT_URL`, `NEXTAUTH_SECRET`, `SALT`, `ENCRYPTION_KEY`, init user email/password, project public/secret keys | ClickHouse password and the collector OTLP header |
 | langfuse-worker | — | database, salt, and encryption key from langfuse-web |
-| railway-telemetry | `RAILWAY_API_TOKEN` | collector OTLP header |
+| railway-telemetry | `RAILWAY_API_TOKEN` (synced from GitHub Environment `TELEMETRY_RAILWAY_WORKSPACE_TOKEN`) | collector OTLP header |
 | cost-telemetry | `OPENROUTER_MANAGEMENT_KEY`, `GITHUB_BILLING_TOKEN`, `BLACKSMITH_TOKEN`, `NEON_API_KEY`, `NEON_ORG_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `RAILWAY_API_TOKEN`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN` (synced from GitHub Environment) | collector OTLP header |
 
 `LANGFUSE_AUTH_STRING` is `base64(pk:sk)` and must match the Langfuse project keys. `DATABASE_URL` and `DIRECT_URL` include `connection_limit=1&keepalives=0`.

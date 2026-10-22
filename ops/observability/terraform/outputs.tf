@@ -13,6 +13,11 @@ output "cost_telemetry_service_id" {
   value       = railway_service.cost_telemetry.id
 }
 
+output "railway_telemetry_service_id" {
+  description = "Railway telemetry service ID for post-apply credential sync."
+  value       = railway_service.railway_telemetry.id
+}
+
 output "hyperdx_dns_record" {
   description = "CNAME target Railway assigned for hyperdx.ctxpipe.ai."
   value       = railway_custom_domain.hyperdx.dns_record_value
