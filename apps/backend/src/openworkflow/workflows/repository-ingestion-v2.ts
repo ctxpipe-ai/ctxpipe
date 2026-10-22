@@ -54,7 +54,6 @@ import { cleanUpUnlessParked, settledChildren } from "../isSleepSignal.js"
 import {
   addStepFailures,
   guardedSkillStep,
-  type IngestionRoot,
   type IngestionShardInput,
   type IngestionShardOutput,
   type IngestionShardWorkspace,
