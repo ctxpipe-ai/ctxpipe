@@ -3,10 +3,16 @@ import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto"
 import { config } from "dotenv"
-import { eq } from "drizzle-orm"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { eq, sql } from "drizzle-orm"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { type Env, parseEnv } from "../config/env.js"
-import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
+import {
+  closeDb,
+  type Db,
+  getSystemDb,
+  initDb,
+  withOrgDbContext,
+} from "../db/client.js"
 import { members, organizations, twoFactors, users } from "../db/schema/auth.js"
 import { connections } from "../db/schema/connections.js"
 import { sandboxGitTokenStore } from "../models/sandbox-git-tokens.js"
@@ -15,6 +21,22 @@ import {
   encryptConnectionSecret,
 } from "./connection-secrets.js"
 import { reencryptStoredSecrets } from "./reencrypt-stored-secrets.js"
+
+type Report = Awaited<ReturnType<typeof reencryptStoredSecrets>>
+
+/** The command does all organizations; other tests can leave rows it cannot decrypt. */
+function ours(report: Report): Report {
+  const mine = (tally: Report["connections"]) => ({
+    ...tally,
+    failed: tally.failed.filter((id) => id.includes(suffix)),
+  })
+  return {
+    dryRun: report.dryRun,
+    connections: mine(report.connections),
+    sandboxGitTokens: mine(report.sandboxGitTokens),
+    twoFactors: mine(report.twoFactors),
+  }
+}
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
 config({ path: resolve(__dirname, "../../.env.local") })
@@ -28,6 +50,8 @@ const orgId = `org_test_reencrypt_${suffix}`
 const userId = `user_test_reencrypt_${suffix}`
 const githubId = `con_test_reencrypt_gh_${suffix}`
 const strayId = `con_test_reencrypt_stray_${suffix}`
+const cancelId = `con_test_reencrypt_cancel_${suffix}`
+const changeId = `con_test_reencrypt_change_${suffix}`
 const sandboxId = `sandbox-reencrypt-${suffix}`
 const twoFactorId = `tfa_test_reencrypt_${suffix}`
 
@@ -64,6 +88,64 @@ async function storedTwoFactor() {
     .where(eq(twoFactors.id, twoFactorId))
   if (!row) throw new Error("two-factor row is missing")
   return row
+}
+
+async function insertOldKeyConnection(id: string, value: string) {
+  const privateKeyEnc = encryptConnectionSecret(value, oldEnv)
+  await withOrgDbContext(orgId, (tx) =>
+    tx.insert(connections).values({
+      id,
+      orgId,
+      type: "github",
+      config: {
+        ingestAllRepositories: true,
+        includeFutureRepos: true,
+        privateKeyEnc,
+      },
+    }),
+  )
+  return privateKeyEnc
+}
+
+/** The pid of the re-encrypt UPDATE that waits for the row lock of the test. */
+async function blockedUpdatePid(): Promise<number> {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const { rows } = await getSystemDb().execute<{ pid: number }>(
+      sql`select pid from pg_stat_activity where wait_event_type = 'Lock' and query like 'update "connections"%'`,
+    )
+    if (rows[0]) return rows[0].pid
+    await new Promise((done) => setTimeout(done, 50))
+  }
+  throw new Error("The re-encrypt UPDATE did not wait for the row lock")
+}
+
+/**
+ * Locks the connection row, runs the command, and calls `onBlocked` while the
+ * UPDATE of the command waits for that lock. The lock goes when `onBlocked`
+ * is complete.
+ */
+async function runWhileRowLocked(
+  id: string,
+  onBlocked: (pid: number, holder: Db) => Promise<unknown>,
+): Promise<Report> {
+  const locked = Promise.withResolvers<void>()
+  const blocked = Promise.withResolvers<number>()
+  const holder = withOrgDbContext(orgId, async (tx) => {
+    await tx
+      .select({ id: connections.id })
+      .from(connections)
+      .where(eq(connections.id, id))
+      .for("update")
+    locked.resolve()
+    // A failed wait rolls back this transaction, so the lock goes.
+    await onBlocked(await blocked.promise, tx)
+  })
+  holder.catch(locked.reject)
+  await locked.promise
+  const run = reencryptStoredSecrets({ env: rollingEnv, dryRun: false })
+  blockedUpdatePid().then(blocked.resolve, blocked.reject)
+  const [report] = await Promise.all([run, holder])
+  return report
 }
 
 describe("connector secret key rotation (Postgres)", () => {
@@ -174,7 +256,6 @@ describe("connector secret key rotation (Postgres)", () => {
     const dryRun = await reencryptStoredSecrets({
       env: rollingEnv,
       dryRun: true,
-      orgId,
     })
     expect(dryRun.connections).toMatchObject({
       rewritten: 2,
@@ -185,9 +266,8 @@ describe("connector secret key rotation (Postgres)", () => {
     const report = await reencryptStoredSecrets({
       env: rollingEnv,
       dryRun: false,
-      orgId,
     })
-    expect(report).toEqual({
+    expect(ours(report)).toEqual({
       dryRun: false,
       connections: {
         rewritten: 2,
@@ -234,7 +314,6 @@ describe("connector secret key rotation (Postgres)", () => {
     const again = await reencryptStoredSecrets({
       env: rollingEnv,
       dryRun: false,
-      orgId,
     })
     expect(again.connections).toMatchObject({ rewritten: 0, alreadyCurrent: 2 })
     expect(again.sandboxGitTokens).toMatchObject({
@@ -242,5 +321,61 @@ describe("connector secret key rotation (Postgres)", () => {
       alreadyCurrent: 1,
     })
     expect(again.twoFactors).toMatchObject({ rewritten: 0, alreadyCurrent: 1 })
+  })
+  it("names a row whose UPDATE fails, and keeps its ciphertext out of the report and the logs", async () => {
+    const ciphertext = await insertOldKeyConnection(
+      cancelId,
+      `cancel-${suffix}`,
+    )
+    const printed: unknown[] = []
+    const spies = [
+      vi.spyOn(console, "log"),
+      vi.spyOn(console, "info"),
+      vi.spyOn(console, "warn"),
+      vi.spyOn(console, "error"),
+    ]
+    let report: Report
+    try {
+      report = await runWhileRowLocked(cancelId, (pid, holder) =>
+        holder.execute(sql`select pg_cancel_backend(${pid})`),
+      )
+      for (const spy of spies) printed.push(...spy.mock.calls)
+    } finally {
+      for (const spy of spies) spy.mockRestore()
+    }
+
+    expect(report.connections.failed).toContain(cancelId)
+    expect(ours(report).connections.rewritten).toBe(0)
+    expect(JSON.stringify(report)).not.toContain(ciphertext)
+    expect(JSON.stringify(printed)).not.toContain(ciphertext)
+    expect((await storedConfig(cancelId)).privateKeyEnc).toBe(ciphertext)
+  })
+
+  it("counts a row that changed between read and write as failed, not rewritten", async () => {
+    await insertOldKeyConnection(changeId, `change-${suffix}`)
+    // A token refresh that read the row before the run writes old-key ciphertext back.
+    const refreshed = encryptConnectionSecret(`refreshed-${suffix}`, oldEnv)
+    const report = await runWhileRowLocked(changeId, (_pid, holder) =>
+      holder
+        .update(connections)
+        .set({
+          config: {
+            ingestAllRepositories: true,
+            includeFutureRepos: true,
+            privateKeyEnc: refreshed,
+          },
+        })
+        .where(eq(connections.id, changeId)),
+    )
+
+    expect(report.connections.failed).toContain(changeId)
+    expect(JSON.stringify(report)).not.toContain(refreshed)
+    expect((await storedConfig(changeId)).privateKeyEnc).toBe(refreshed)
+
+    const check = await reencryptStoredSecrets({
+      env: rollingEnv,
+      dryRun: true,
+    })
+    expect(ours(check).connections.rewritten).toBe(1)
   })
 })

@@ -134,9 +134,10 @@ When that variable is not set, the key comes from `AUTH_SECRET`. Two-factor
 
 To change one or both secrets, do these steps:
 
-1. Write down the old values. Keep them in your secret store until step 6 is
+1. Write down the old values. Keep them in your secret store until step 7 is
    complete.
-2. Set the new values on the backend and the worker:
+2. Set the new values on the backend, the worker, and codesearch at the same
+   time. Codesearch uses `AUTH_SECRET` to check the tokens of the backend.
    - `AUTH_SECRET`: a new value from `openssl rand -hex 32`.
    - `CONNECTION_SECRETS_ENCRYPTION_KEY`: a new value from
      `openssl rand -hex 32`. We recommend an explicit key, so that the next
@@ -146,9 +147,9 @@ To change one or both secrets, do these steps:
      was not set, use `auth-secret:<old AUTH_SECRET>`. If you change
      `AUTH_SECRET`, always add `auth-secret:<old AUTH_SECRET>`, because the
      two-factor secrets need it.
-3. Deploy the backend and the worker. Connectors continue to work, because
-   the backend tries the previous keys after the current key. All users must
-   sign in again.
+3. Deploy the backend, the worker, and codesearch. Connectors continue to
+   work, because the backend tries the previous keys after the current key.
+   All users must sign in again.
 4. Do a dry run of the re-encrypt command in a backend container. It shows
    counts and changes nothing:
 
@@ -158,19 +159,29 @@ To change one or both secrets, do these steps:
    ```
 
 5. Run the command without `--dry-run`. It encrypts each stored value again
-   with the current key. It shows the number of values that it rewrote, the
-   number that were current, and the ids of the rows that it could not
-   decrypt. It never shows a secret. You can run it again at any time; it
-   skips current values. Add `--org <organization id>` to do one
-   organization first.
-6. When `failed` is empty, remove `CONNECTION_SECRETS_PREVIOUS_KEYS` and
-   deploy again. Then destroy the old values.
+   with the current key, for all organizations. It shows the number of values
+   that it rewrote, the number that were current, and the ids of the rows that
+   it could not decrypt or write. It never shows a secret. You can run it
+   again at any time; it skips current values. `--dry-run` is the only
+   option.
+6. Make sure that all the old backend and worker instances have stopped. Then
+   do the dry run of step 4 again. A connector token refresh that read a row
+   before step 5 can write a value with the old key back.
+7. Remove `CONNECTION_SECRETS_PREVIOUS_KEYS` only when the dry run of step 6
+   shows `"rewritten": 0` and `"failed": []` for all three groups. If it does
+   not, do step 5 and step 6 again. Then deploy again and destroy the old
+   values.
 
-If a row stays in `failed`, no configured key decrypts it. Find the key that
-encrypted it, or connect that integration again.
+If a row stays in `failed`, no configured key decrypts it, or the row changed
+during the run. Run the command again. If the row stays in `failed`, find the
+key that encrypted it, or connect that integration again.
 
 Users with two-factor sign-in cannot sign in between step 3 and step 5. Run
 step 5 immediately after the deploy.
+
+If an attacker possibly has the old secret and access to the database, new
+encryption does not protect the values that were already read. Also rotate the
+connector credentials at each provider.
 
 These steps use Docker Compose. On another host, run the same command in a
 backend container with the same environment. The `@ctxpipe/aws-cdk` stack

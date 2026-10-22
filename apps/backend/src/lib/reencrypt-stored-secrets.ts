@@ -1,8 +1,8 @@
 import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto"
-import { and, asc, eq, gt, inArray, sql } from "drizzle-orm"
+import { and, asc, eq, gt, sql } from "drizzle-orm"
 import type { Env } from "../config/env.js"
-import { getSystemDb, withOrgDbContext } from "../db/client.js"
-import { members, organizations, twoFactors } from "../db/schema/auth.js"
+import { type Db, getSystemDb, withOrgDbContext } from "../db/client.js"
+import { organizations, twoFactors } from "../db/schema/auth.js"
 import { connections } from "../db/schema/connections.js"
 import { workspaceSandboxGitTokens } from "../db/schema/workspaces.js"
 import {
@@ -27,8 +27,27 @@ type ReencryptReport = {
 
 const BATCH = 100
 
+type Savepoint = Parameters<Parameters<Db["transaction"]>[0]>[0]
+
 function newTally(): ReencryptTally {
   return { rewritten: 0, alreadyCurrent: 0, failed: [] }
+}
+
+/**
+ * Runs one compare-and-set UPDATE in a savepoint. Returns false when the
+ * UPDATE fails or changes no row. It keeps no error: a query error holds the
+ * bound parameters, and they are ciphertext.
+ */
+async function writeIfUnchanged(
+  db: Db,
+  update: (savepoint: Savepoint) => Promise<unknown[]>,
+): Promise<boolean> {
+  try {
+    const rows = await db.transaction((savepoint) => update(savepoint))
+    return rows.length > 0
+  } catch {
+    return false
+  }
 }
 
 /** Moves the `…Enc` values of one connection config to the current key. */
@@ -37,8 +56,9 @@ function reencryptConfig(
   env: Env,
   tally: ReencryptTally,
   id: string,
-): Record<string, unknown> | null {
+): { next: Record<string, unknown>; fields: number } | null {
   let next: Record<string, unknown> | null = null
+  let fields = 0
   for (const [field, value] of Object.entries(config)) {
     if (!field.endsWith("Enc") || typeof value !== "string") continue
     try {
@@ -49,12 +69,12 @@ function reencryptConfig(
       }
       next ??= { ...config }
       next[field] = rewritten
-      tally.rewritten++
+      fields++
     } catch {
       tally.failed.push(`${id}.${field}`)
     }
   }
-  return next
+  return next ? { next, fields } : null
 }
 
 async function reencryptOrg(
@@ -68,21 +88,27 @@ async function reencryptOrg(
       .select({ id: connections.id, config: connections.config })
       .from(connections)
       .where(eq(connections.orgId, orgId))
+    const tally = report.connections
     for (const row of rows) {
-      const next = reencryptConfig(row.config, env, report.connections, row.id)
-      if (!next || dryRun) continue
+      const result = reencryptConfig(row.config, env, tally, row.id)
+      if (!result) continue
       // Write only when nobody changed the config during this run.
-      const updated = await db
-        .update(connections)
-        .set({ config: next })
-        .where(
-          and(
-            eq(connections.id, row.id),
-            sql`${connections.config} = ${JSON.stringify(row.config)}::jsonb`,
-          ),
-        )
-        .returning({ id: connections.id })
-      if (updated.length === 0) report.connections.failed.push(row.id)
+      const written =
+        dryRun ||
+        (await writeIfUnchanged(db, (tx) =>
+          tx
+            .update(connections)
+            .set({ config: result.next })
+            .where(
+              and(
+                eq(connections.id, row.id),
+                sql`${connections.config} = ${JSON.stringify(row.config)}::jsonb`,
+              ),
+            )
+            .returning({ id: connections.id }),
+        ))
+      if (written) tally.rewritten += result.fields
+      else tally.failed.push(row.id)
     }
   })
   await withOrgDbContext(orgId, async (db) => {
@@ -103,18 +129,25 @@ async function reencryptOrg(
         tally.alreadyCurrent++
         continue
       }
-      tally.rewritten++
-      if (dryRun) continue
-      // A sandbox can put a new token meanwhile; that one is current already.
-      await db
-        .update(workspaceSandboxGitTokens)
-        .set({ tokenCiphertext: rewritten })
-        .where(
-          and(
-            eq(workspaceSandboxGitTokens.sandboxId, row.sandboxId),
-            eq(workspaceSandboxGitTokens.tokenCiphertext, row.tokenCiphertext),
-          ),
-        )
+      const written =
+        dryRun ||
+        (await writeIfUnchanged(db, (tx) =>
+          tx
+            .update(workspaceSandboxGitTokens)
+            .set({ tokenCiphertext: rewritten })
+            .where(
+              and(
+                eq(workspaceSandboxGitTokens.sandboxId, row.sandboxId),
+                eq(
+                  workspaceSandboxGitTokens.tokenCiphertext,
+                  row.tokenCiphertext,
+                ),
+              ),
+            )
+            .returning({ id: workspaceSandboxGitTokens.sandboxId }),
+        ))
+      if (written) tally.rewritten++
+      else tally.failed.push(row.sandboxId)
     }
   })
 }
@@ -151,26 +184,14 @@ async function reencryptTwoFactors(
   env: Env,
   dryRun: boolean,
   tally: ReencryptTally,
-  orgId: string | undefined,
 ): Promise<void> {
   const db = getSystemDb()
-  const memberIds = orgId
-    ? db
-        .select({ userId: members.userId })
-        .from(members)
-        .where(eq(members.organizationId, orgId))
-    : undefined
   let after = ""
   for (;;) {
     const rows = await db
       .select()
       .from(twoFactors)
-      .where(
-        and(
-          gt(twoFactors.id, after),
-          memberIds ? inArray(twoFactors.userId, memberIds) : undefined,
-        ),
-      )
+      .where(gt(twoFactors.id, after))
       .orderBy(asc(twoFactors.id))
       .limit(BATCH)
     if (rows.length === 0) return
@@ -189,21 +210,26 @@ async function reencryptTwoFactors(
         tally.alreadyCurrent++
         continue
       }
-      tally.rewritten++
-      if (dryRun) continue
-      await db
-        .update(twoFactors)
-        .set({
-          secret: secret ?? row.secret,
-          backupCodes: backupCodes ?? row.backupCodes,
-        })
-        .where(
-          and(
-            eq(twoFactors.id, row.id),
-            eq(twoFactors.secret, row.secret),
-            eq(twoFactors.backupCodes, row.backupCodes),
-          ),
-        )
+      const written =
+        dryRun ||
+        (await writeIfUnchanged(db, (tx) =>
+          tx
+            .update(twoFactors)
+            .set({
+              secret: secret ?? row.secret,
+              backupCodes: backupCodes ?? row.backupCodes,
+            })
+            .where(
+              and(
+                eq(twoFactors.id, row.id),
+                eq(twoFactors.secret, row.secret),
+                eq(twoFactors.backupCodes, row.backupCodes),
+              ),
+            )
+            .returning({ id: twoFactors.id }),
+        ))
+      if (written) tally.rewritten++
+      else tally.failed.push(row.id)
     }
   }
 }
@@ -211,16 +237,16 @@ async function reencryptTwoFactors(
 /**
  * Encrypts every stored connector secret, sandbox Git token, and two-factor
  * secret again with the current key. Safe to run again: a value that the
- * current key encrypted stays as it is. With `dryRun`, it only counts. With
- * `orgId`, it does only that organization and the two-factor rows of its
- * members.
+ * current key encrypted stays as it is. With `dryRun`, it only counts. It
+ * always does all organizations, so that no organization keeps old-key
+ * values after a run that reports success. A row that changed during the run,
+ * or that it cannot write, goes into `failed`.
  */
 export async function reencryptStoredSecrets(input: {
   env: Env
   dryRun: boolean
-  orgId?: string
 }): Promise<ReencryptReport> {
-  const { env, dryRun, orgId } = input
+  const { env, dryRun } = input
   const report: ReencryptReport = {
     dryRun,
     connections: newTally(),
@@ -233,18 +259,13 @@ export async function reencryptStoredSecrets(input: {
     const orgs = await db
       .select({ id: organizations.id })
       .from(organizations)
-      .where(
-        and(
-          gt(organizations.id, after),
-          orgId ? eq(organizations.id, orgId) : undefined,
-        ),
-      )
+      .where(gt(organizations.id, after))
       .orderBy(asc(organizations.id))
       .limit(BATCH)
     if (orgs.length === 0) break
     after = orgs.at(-1)?.id ?? after
     for (const org of orgs) await reencryptOrg(org.id, env, dryRun, report)
   }
-  await reencryptTwoFactors(env, dryRun, report.twoFactors, orgId)
+  await reencryptTwoFactors(env, dryRun, report.twoFactors)
   return report
 }
