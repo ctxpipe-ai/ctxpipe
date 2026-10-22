@@ -125,6 +125,8 @@ To rotate a secret, set the new value in GitHub, then push to `main` or run agai
 
 The Terraform state still holds the Neon owner password and the `ctxpipe_app` password in `DATABASE_URL`, because Terraform makes them.
 
+To rotate the `ctxpipe_app` password, change `keepers.rotation` of `random_password.app_database` in `infra/module/ctxpipe/neon.tf`, then push to `main`. The step "Ensure the ctxpipe_app password exists" makes the new password, migrate sets it on the role, and the Terraform apply writes the new `DATABASE_URL` to backend, worker and codesearch. Until that apply, the running services have the old password and cannot connect to the database.
+
 ### Connection secrets key
 
 `CONNECTION_SECRETS_ENCRYPTION_KEY` (64 hex characters, `openssl rand -hex 32`) encrypts the stored connection secrets. Without it, the key comes from `AUTH_SECRET`. Do not change it like the other secrets: the stored values stay on the old key. To move the stored connection secrets to a new key:
