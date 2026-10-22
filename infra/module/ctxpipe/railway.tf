@@ -52,69 +52,19 @@ locals {
       name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
       value = "${var.otel_otlp_endpoint}/v1/metrics"
     },
-    {
-      name  = "OTEL_EXPORTER_OTLP_HEADERS"
-      value = var.otel_otlp_headers
-    },
   ]
-  # Omit when unset so parseEnv does not see empty strings for optional min(1) secrets.
-  slack_shared_env = length(var.slack_client_id) > 0 && length(var.slack_client_secret) > 0 && length(var.slack_signing_secret) > 0 ? [
-    {
-      name  = "SLACK_CLIENT_ID"
-      value = var.slack_client_id
-    },
-    {
-      name  = "SLACK_CLIENT_SECRET"
-      value = var.slack_client_secret
-    },
-    {
-      name  = "SLACK_SIGNING_SECRET"
-      value = var.slack_signing_secret
-    },
-  ] : []
-  linear_shared_env = concat(
-    length(var.linear_client_id) > 0 ? [{
-      name  = "LINEAR_CLIENT_ID"
-      value = var.linear_client_id
-    }] : [],
-    length(var.linear_client_secret) > 0 ? [{
-      name  = "LINEAR_CLIENT_SECRET"
-      value = var.linear_client_secret
-    }] : [],
-    length(var.linear_redirect_uri) > 0 ? [{
-      name  = "LINEAR_REDIRECT_URI"
-      value = var.linear_redirect_uri
-    }] : [],
-    length(var.linear_webhook_secret) > 0 ? [{
-      name  = "LINEAR_WEBHOOK_SECRET"
-      value = var.linear_webhook_secret
-    }] : [],
-  )
-  pagerduty_shared_env = concat(
-    length(var.pagerduty_client_id) > 0 ? [{
-      name  = "PAGERDUTY_CLIENT_ID"
-      value = var.pagerduty_client_id
-    }] : [],
-    length(var.pagerduty_client_secret) > 0 ? [{
-      name  = "PAGERDUTY_CLIENT_SECRET"
-      value = var.pagerduty_client_secret
-    }] : [],
-    length(var.pagerduty_redirect_uri) > 0 ? [{
-      name  = "PAGERDUTY_REDIRECT_URI"
-      value = var.pagerduty_redirect_uri
-    }] : [],
-  )
+  # Omit when unset so parseEnv does not see an empty string.
+  linear_shared_env = length(var.linear_redirect_uri) > 0 ? [{
+    name  = "LINEAR_REDIRECT_URI"
+    value = var.linear_redirect_uri
+  }] : []
+  pagerduty_shared_env = length(var.pagerduty_redirect_uri) > 0 ? [{
+    name  = "PAGERDUTY_REDIRECT_URI"
+    value = var.pagerduty_redirect_uri
+  }] : []
+  # Secret values are not here: scripts/railway-sync-variables.py writes them
+  # from the GitHub Environment, so they never enter the Terraform state.
   shared_backend_env_variables = concat([
-    {
-      name  = "AUTH_SECRET"
-      value = var.better_auth_secret
-    },
-    # Without this key, the key of the connection secrets comes from
-    # AUTH_SECRET, and a rotation of AUTH_SECRET makes them unreadable.
-    {
-      name  = "CONNECTION_SECRETS_ENCRYPTION_KEY"
-      value = var.connection_secrets_encryption_key
-    },
     {
       name  = "CODESEARCH_URL"
       value = "http://$${{codesearch.RAILWAY_PRIVATE_DOMAIN}}:$${{codesearch.PORT}}"
@@ -128,16 +78,8 @@ locals {
       value = "noreply@ctxpipe.ai"
     },
     {
-      name  = "MODEL_PROVIDER_API_KEY",
-      value = var.model_provider_api_key
-    },
-    {
       name  = "MODEL_PROVIDER"
       value = var.model_provider
-    },
-    {
-      name  = "SMTP_CONNECTION_URL"
-      value = var.smtp_connection_url
     },
     {
       name  = "UI_PROXY_URL",
@@ -152,10 +94,6 @@ locals {
       value = "ctxpipe-agent"
     },
     {
-      name  = "GITHUB_PRIVATE_KEY",
-      value = var.github_private_key
-    },
-    {
       name  = "GRAPH_DB_URI",
       value = "$${{falkordb.FALKORDB_PRIVATE_URL}}"
     },
@@ -163,42 +101,10 @@ locals {
       name  = "GITHUB_CLIENT_ID",
       value = "Iv23lidGWi9ouvBjgvbv"
     },
-    {
-      name  = "GITHUB_CLIENT_SECRET",
-      value = var.github_client_secret
-    },
-    {
-      name  = "ATLASSIAN_CLIENT_ID",
-      value = var.atlassian_client_id
-    },
-    {
-      name  = "ATLASSIAN_CLIENT_SECRET",
-      value = var.atlassian_client_secret
-    },
-    {
-      name  = "NOTION_CLIENT_ID",
-      value = var.notion_client_id
-    },
-    {
-      name  = "NOTION_CLIENT_SECRET",
-      value = var.notion_client_secret
-    },
-    {
-      name  = "NOTION_WEBHOOK_SECRET",
-      value = var.notion_webhook_secret
-    },
-    {
-      name  = "GITHUB_WEBHOOK_SECRET",
-      value = var.github_webhook_secret
-    },
     # Hosted chat runs each conversation in a Vercel sandbox; never unsandboxed.
     {
       name  = "SANDBOX_PROVIDER"
       value = "vercel"
-    },
-    {
-      name  = "VERCEL_TOKEN"
-      value = var.vercel_access_token
     },
     {
       name  = "VERCEL_TEAM_ID"
@@ -208,7 +114,7 @@ locals {
       name  = "VERCEL_PROJECT_ID"
       value = "ctxpipe"
     },
-  ], local.otel_shared_env, local.slack_shared_env, local.linear_shared_env, local.pagerduty_shared_env)
+  ], local.otel_shared_env, local.linear_shared_env, local.pagerduty_shared_env)
 }
 
 resource "railway_service" "ui" {
@@ -230,12 +136,12 @@ resource "railway_service" "ui" {
   }
 }
 
-resource "railway_variable_collection" "ui_env" {
+resource "railway_variable_collection" "ui_config" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.ui.id
   # AUTH_BASE_URL refers to backend.PORT. Write the backend variables first,
   # so the reference never resolves empty when the UI redeploys.
-  depends_on = [railway_variable_collection.backend_env]
+  depends_on = [railway_variable_collection.backend_config]
 
   variables = concat([
     {
@@ -305,7 +211,7 @@ resource "railway_custom_domain" "www_app" {
   service_id     = railway_service.backend.id
 }
 
-resource "railway_variable_collection" "backend_env" {
+resource "railway_variable_collection" "backend_config" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.backend.id
   depends_on     = [terraform_data.app_database_url]
@@ -354,16 +260,12 @@ resource "railway_service" "code_search" {
   }
 }
 
-resource "railway_variable_collection" "code_search_env" {
+resource "railway_variable_collection" "code_search_config" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.code_search.id
   depends_on     = [terraform_data.app_database_url]
 
   variables = concat([
-    {
-      name  = "AUTH_SECRET"
-      value = var.better_auth_secret
-    },
     {
       name  = "AUTH_TOKEN_AUDIENCE_CODESEARCH",
       value = "codesearch"
@@ -417,7 +319,7 @@ resource "railway_service" "open_workflow" {
   }
 }
 
-resource "railway_variable_collection" "open_workflow_env" {
+resource "railway_variable_collection" "open_workflow_config" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.open_workflow.id
   depends_on     = [terraform_data.app_database_url]
@@ -469,7 +371,7 @@ resource "railway_service" "falkordb" {
   }
 }
 
-resource "railway_variable_collection" "falkordb_env" {
+resource "railway_variable_collection" "falkordb_config" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.falkordb.id
 
@@ -479,16 +381,12 @@ resource "railway_variable_collection" "falkordb_env" {
       value = "--port ${local.falkordb_port} --bind 0.0.0.0 :: --protected-mode no"
     },
     {
-      name  = "FALKORDB_PASSWORD",
-      value = var.falkordb_password
-    },
-    {
       name  = "FALKORDB_PORT",
       value = local.falkordb_port
     },
     {
       name  = "FALKORDB_PRIVATE_URL",
-      value = "redis://default:${var.falkordb_password}@falkordb.railway.internal:${local.falkordb_port}"
+      value = "redis://default:$${{FALKORDB_PASSWORD}}@falkordb.railway.internal:${local.falkordb_port}"
     },
     {
       name  = "PORT",
@@ -496,7 +394,46 @@ resource "railway_variable_collection" "falkordb_env" {
     },
     {
       name  = "REDIS_ARGS",
-      value = "--requirepass ${var.falkordb_password}"
+      value = "--requirepass $${{FALKORDB_PASSWORD}}"
     }
   ]
+}
+
+# The *_env collections held the secret values too. Terraform forgets them and
+# does not delete their variables: an Update or Delete of a collection deletes
+# each variable that leaves it. The *_config collections take over the values
+# that are not secret, and railway-sync-variables.py owns the secret ones.
+removed {
+  from = railway_variable_collection.ui_env
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = railway_variable_collection.backend_env
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = railway_variable_collection.code_search_env
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = railway_variable_collection.open_workflow_env
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = railway_variable_collection.falkordb_env
+  lifecycle {
+    destroy = false
+  }
 }

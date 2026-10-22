@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Copy GitHub Environment credentials to Railway without putting them in Terraform state."""
+"""Copy GitHub Environment secrets to Railway service variables.
+
+The values go straight to Railway, so they never enter Terraform inputs,
+plans, or state. Terraform owns only the variables that are not secret.
+"""
 
 import argparse
 import json
@@ -9,9 +13,43 @@ import urllib.error
 import urllib.request
 
 
-# Railway variable -> GitHub Environment secret, for each service. Both
-# telemetry services read Railway with the same workspace token.
+# Railway variable -> GitHub Environment secret, for each Railway service.
+PRODUCT_APP = {
+    "AUTH_SECRET": "BETTER_AUTH_SECRET",
+    "CONNECTION_SECRETS_ENCRYPTION_KEY": "CONNECTION_SECRETS_ENCRYPTION_KEY",
+    "MODEL_PROVIDER_API_KEY": "MODEL_PROVIDER_API_KEY",
+    "SMTP_CONNECTION_URL": "SMTP_CONNECTION_URL",
+    "GITHUB_PRIVATE_KEY": "GH_APP_PRIVATE_KEY",
+    "GITHUB_CLIENT_SECRET": "GH_CLIENT_SECRET",
+    "GITHUB_WEBHOOK_SECRET": "GH_WEBHOOK_SECRET",
+    "ATLASSIAN_CLIENT_ID": "ATLASSIAN_CLIENT_ID",
+    "ATLASSIAN_CLIENT_SECRET": "ATLASSIAN_CLIENT_SECRET",
+    "NOTION_CLIENT_ID": "NOTION_CLIENT_ID",
+    "NOTION_CLIENT_SECRET": "NOTION_CLIENT_SECRET",
+    "NOTION_WEBHOOK_SECRET": "NOTION_WEBHOOK_SECRET",
+    "SLACK_CLIENT_ID": "SLACK_CLIENT_ID",
+    "SLACK_CLIENT_SECRET": "SLACK_CLIENT_SECRET",
+    "SLACK_SIGNING_SECRET": "SLACK_SIGNING_SECRET",
+    "LINEAR_CLIENT_ID": "LINEAR_CLIENT_ID",
+    "LINEAR_CLIENT_SECRET": "LINEAR_CLIENT_SECRET",
+    "LINEAR_WEBHOOK_SECRET": "LINEAR_WEBHOOK_SECRET",
+    "PAGERDUTY_CLIENT_ID": "PAGERDUTY_CLIENT_ID",
+    "PAGERDUTY_CLIENT_SECRET": "PAGERDUTY_CLIENT_SECRET",
+    "VERCEL_TOKEN": "VERCEL_ACCESS_TOKEN",
+    "OTEL_EXPORTER_OTLP_HEADERS": "OBSERVABILITY_OTLP_HEADERS",
+}
 SERVICE_VARIABLES = {
+    # Product project (GitHub Environment `production`).
+    "backend": PRODUCT_APP,
+    "openworkflow": PRODUCT_APP,
+    "codesearch": {
+        "AUTH_SECRET": "BETTER_AUTH_SECRET",
+        "OTEL_EXPORTER_OTLP_HEADERS": "OBSERVABILITY_OTLP_HEADERS",
+    },
+    "ui": {"OTEL_EXPORTER_OTLP_HEADERS": "OBSERVABILITY_OTLP_HEADERS"},
+    "falkordb": {"FALKORDB_PASSWORD": "FALKORDB_PASSWORD"},
+    # Observability project (GitHub Environment `observability`). Both
+    # telemetry services read Railway with the same workspace token.
     "cost-telemetry": {
         "OPENROUTER_MANAGEMENT_KEY": "COST_TELEMETRY_OPENROUTER_MANAGEMENT_KEY",
         "GITHUB_BILLING_TOKEN": "COST_TELEMETRY_GITHUB_BILLING_TOKEN",
@@ -23,10 +61,22 @@ SERVICE_VARIABLES = {
         "RAILWAY_API_TOKEN": "TELEMETRY_RAILWAY_WORKSPACE_TOKEN",
         "AWS_ACCESS_KEY_ID": "COST_TELEMETRY_AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY": "COST_TELEMETRY_AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN": "COST_TELEMETRY_AWS_SESSION_TOKEN",
     },
-    "railway-telemetry": {
-        "RAILWAY_API_TOKEN": "TELEMETRY_RAILWAY_WORKSPACE_TOKEN",
-    },
+    "railway-telemetry": {"RAILWAY_API_TOKEN": "TELEMETRY_RAILWAY_WORKSPACE_TOKEN"},
+}
+# Secrets that may be empty. An empty one is not written; the service then
+# turns that integration off.
+OPTIONAL = {
+    "SLACK_CLIENT_ID",
+    "SLACK_CLIENT_SECRET",
+    "SLACK_SIGNING_SECRET",
+    "LINEAR_CLIENT_ID",
+    "LINEAR_CLIENT_SECRET",
+    "LINEAR_WEBHOOK_SECRET",
+    "PAGERDUTY_CLIENT_ID",
+    "PAGERDUTY_CLIENT_SECRET",
+    "COST_TELEMETRY_AWS_SESSION_TOKEN",
 }
 
 
@@ -66,11 +116,12 @@ def current_variables(project_id, environment_id, service_id, token):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--redeploy-on-change", action="store_true")
-    parser.add_argument("--service", choices=SERVICE_VARIABLES, default="cost-telemetry")
+    parser.add_argument("--service", choices=SERVICE_VARIABLES, required=True)
     args = parser.parse_args()
     variables = SERVICE_VARIABLES[args.service]
 
-    required = ["PROJECT_ID", "ENVIRONMENT_ID", "SERVICE_ID", *variables.values()]
+    required = ["PROJECT_ID", "ENVIRONMENT_ID", "SERVICE_ID",
+                *(source for source in variables.values() if source not in OPTIONAL)]
     missing = [name for name in required if not os.environ.get(name)]
     token = os.environ.get("RAILWAY_TOKEN") or os.environ.get("RAILWAY_API_TOKEN")
     if not token:
@@ -81,9 +132,8 @@ def main():
     project_id = os.environ["PROJECT_ID"]
     environment_id = os.environ["ENVIRONMENT_ID"]
     service_id = os.environ["SERVICE_ID"]
-    desired = {name: os.environ[source] for name, source in variables.items()}
-    if args.service == "cost-telemetry" and os.environ.get("COST_TELEMETRY_AWS_SESSION_TOKEN"):
-        desired["AWS_SESSION_TOKEN"] = os.environ["COST_TELEMETRY_AWS_SESSION_TOKEN"]
+    desired = {name: os.environ[source] for name, source in variables.items()
+               if os.environ.get(source)}
 
     existing = current_variables(project_id, environment_id, service_id, token)
     changed = {name: value for name, value in desired.items() if existing.get(name) != value}

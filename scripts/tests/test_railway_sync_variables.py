@@ -11,13 +11,13 @@ import unittest
 from unittest.mock import patch
 
 
-SCRIPT = Path(__file__).with_name("sync-cost-telemetry-variables.py")
-SPEC = importlib.util.spec_from_file_location("sync_cost_telemetry_variables", SCRIPT)
+SCRIPT = Path(__file__).parent.parent / "railway-sync-variables.py"
+SPEC = importlib.util.spec_from_file_location("railway_sync_variables", SCRIPT)
 SYNC = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SYNC)
 
 
-class CostTelemetryCredentialSyncTest(unittest.TestCase):
+class RailwaySyncVariablesTest(unittest.TestCase):
     def setUp(self):
         self.variables = SYNC.SERVICE_VARIABLES["cost-telemetry"]
         self.desired = {name: f"private-{name}" for name in self.variables}
@@ -59,10 +59,10 @@ class CostTelemetryCredentialSyncTest(unittest.TestCase):
             self.fail(f"Unexpected Railway query: {query}")
         return io.BytesIO(json.dumps({"data": data}).encode())
 
-    def run_sync(self, *args):
+    def run_sync(self, *args, service="cost-telemetry"):
         output = io.StringIO()
         with patch.dict(os.environ, self.environment, clear=True), \
-             patch.object(sys, "argv", [str(SCRIPT), *args]), \
+             patch.object(sys, "argv", [str(SCRIPT), "--service", service, *args]), \
              patch("urllib.request.urlopen", side_effect=self.railway_response), \
              contextlib.redirect_stdout(output):
             SYNC.main()
@@ -85,10 +85,25 @@ class CostTelemetryCredentialSyncTest(unittest.TestCase):
         self.assertEqual(self.calls, ["read"])
 
     def test_railway_telemetry_gets_only_the_shared_railway_token(self):
-        self.run_sync("--service", "railway-telemetry")
+        self.run_sync(service="railway-telemetry")
         self.assertEqual(self.calls, ["read", "upsert", "read"])
         self.assertEqual(self.current["RAILWAY_API_TOKEN"], self.desired["RAILWAY_API_TOKEN"])
         self.assertNotIn("NEON_API_KEY", self.current)
+
+    def test_backend_skips_an_empty_optional_integration(self):
+        backend = SYNC.SERVICE_VARIABLES["backend"]
+        self.environment = {
+            "PROJECT_ID": "project",
+            "ENVIRONMENT_ID": "environment",
+            "SERVICE_ID": "service",
+            "RAILWAY_TOKEN": "management-token",
+            **{source: f"private-{name}" for name, source in backend.items()
+               if not source.startswith("SLACK_")},
+        }
+        self.run_sync(service="backend")
+        self.assertEqual(self.current["AUTH_SECRET"], "private-AUTH_SECRET")
+        self.assertEqual(self.current["GITHUB_PRIVATE_KEY"], "private-GITHUB_PRIVATE_KEY")
+        self.assertNotIn("SLACK_CLIENT_ID", self.current)
 
     def test_missing_credential_fails_before_any_railway_request(self):
         del self.environment["COST_TELEMETRY_NEON_API_KEY"]

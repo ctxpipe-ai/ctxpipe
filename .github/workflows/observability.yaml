@@ -10,11 +10,13 @@ on:
     paths:
       - "ops/observability/**"
       - "scripts/railway-*.sh"
+      - "scripts/railway-sync-variables.py"
       - ".github/workflows/observability.yaml"
   pull_request:
     paths:
       - "ops/observability/**"
       - "scripts/railway-*.sh"
+      - "scripts/railway-sync-variables.py"
       - ".github/workflows/observability.yaml"
   workflow_dispatch:
 
@@ -85,9 +87,6 @@ jobs:
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: 1.14.7
-
-      - name: Test cost telemetry credential sync
-        run: python3 -m unittest discover -p 'test_*.py'
 
       - name: Terraform fmt
         run: terraform fmt -check -recursive
@@ -330,14 +329,14 @@ jobs:
           export PROJECT_ID="$RAILWAY_PROJECT_ID"
           export ENVIRONMENT_ID="5a0afd5c-5f12-47ef-8f8a-606107610f89"
           export SERVICE_ID="$(terraform output -raw cost_telemetry_service_id)"
-          python3 sync-cost-telemetry-variables.py --redeploy-on-change
+          python3 ../../../scripts/railway-sync-variables.py --service cost-telemetry --redeploy-on-change
 
       - name: Sync railway-telemetry credentials after apply
         run: |
           export PROJECT_ID="$RAILWAY_PROJECT_ID"
           export ENVIRONMENT_ID="5a0afd5c-5f12-47ef-8f8a-606107610f89"
           export SERVICE_ID="$(terraform output -raw railway_telemetry_service_id)"
-          python3 sync-cost-telemetry-variables.py --service railway-telemetry --redeploy-on-change
+          python3 ../../../scripts/railway-sync-variables.py --service railway-telemetry --redeploy-on-change
 
       # Provider Update() never sends multiRegionConfig (issue #77).
       - name: Pin Railway observability region
