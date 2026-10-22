@@ -8,7 +8,7 @@ import {
 
 type Counts = { rows: number; rotated: number; alreadyNewKey: number }
 
-export type ReencryptReport = {
+type ReencryptReport = {
   applied: boolean
   connections: Counts
   sandboxGitTokens: Counts

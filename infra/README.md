@@ -121,17 +121,19 @@ The backend and the worker encrypt the stored connection secrets (integration to
 To change the key, or to move from the key that `AUTH_SECRET` made:
 
 1. Stop the backend and the worker.
-2. Run a dry run, then run it again with `--apply`. Use the owner database URL, because row-level security hides every row from `ctxpipe_app`:
+2. Run a dry run, then run it again with `--apply`. Use the owner database URL, because row-level security hides every row from `ctxpipe_app`. `read -s` keeps the values out of the shell history:
 
    ```bash
-   DATABASE_URL='<owner URL>' \
-   OLD_AUTH_SECRET='<the AUTH_SECRET that made the current key>' \
-   NEW_CONNECTION_SECRETS_ENCRYPTION_KEY='<new key>' \
-   pnpm --filter @ctxpipe/backend reencrypt-connection-secrets [--apply]
+   read -rs DATABASE_URL; export DATABASE_URL                # owner URL
+   read -rs OLD_AUTH_SECRET; export OLD_AUTH_SECRET          # the AUTH_SECRET that made the current key
+   read -rs NEW_CONNECTION_SECRETS_ENCRYPTION_KEY; export NEW_CONNECTION_SECRETS_ENCRYPTION_KEY
+   pnpm --filter @ctxpipe/backend reencrypt-connection-secrets            # dry run
+   pnpm --filter @ctxpipe/backend reencrypt-connection-secrets --apply
    ```
 
    When the current key is an explicit key, set `OLD_CONNECTION_SECRETS_ENCRYPTION_KEY` in place of `OLD_AUTH_SECRET`. One transaction holds all rows. When a value decrypts with neither key, the script changes nothing and names each location. A second run changes nothing.
-3. Set the new key in the GitHub secret, then run Deploy.
+3. In Railway, set `CONNECTION_SECRETS_ENCRYPTION_KEY` to the new key on the `backend` and `openworkflow` services of `production`. Do not deploy them yet. The Deploy workflow starts the new images before Terraform Apply sets the variables. Without this step, the services start with the old key and write new values with it.
+4. Set the new key in the GitHub secret `CONNECTION_SECRETS_ENCRYPTION_KEY` of `production`. Then push to `main`, or run again the latest push run of Deploy. "Run workflow" (`workflow_dispatch`) skips the Terraform job.
 
 ## PR Terraform plans (GitHub Actions)
 

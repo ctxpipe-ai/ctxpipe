@@ -1,12 +1,13 @@
 /**
  * Re-encrypts the stored connection secrets (integration tokens, OAuth client
  * secrets, webhook secrets, sandbox Git tokens) from an old key to a new key.
- * Run it while the backend and the worker are stopped, then deploy them with
- * the new CONNECTION_SECRETS_ENCRYPTION_KEY.
+ * Run it while the backend and the worker are stopped. Procedure:
+ * infra/README.md, "Connection secrets key".
  *
- *   DATABASE_URL=<owner URL> \
- *   OLD_AUTH_SECRET=<AUTH_SECRET that made the current key> \
- *   NEW_CONNECTION_SECRETS_ENCRYPTION_KEY=<64 hex chars> \
+ * Environment: DATABASE_URL (owner URL), OLD_AUTH_SECRET (the AUTH_SECRET
+ * that made the current key), NEW_CONNECTION_SECRETS_ENCRYPTION_KEY (64 hex
+ * characters).
+ *
  *   bun run src/scripts/reencryptConnectionSecrets.ts [--apply]
  *
  * When the current key is an explicit key, set OLD_CONNECTION_SECRETS_ENCRYPTION_KEY
@@ -29,7 +30,13 @@ if (!oldKey && !oldAuthSecret) {
     "Set OLD_AUTH_SECRET or OLD_CONNECTION_SECRETS_ENCRYPTION_KEY",
   )
 }
-if (!newKey || !/^[0-9a-fA-F]{64}$/.test(newKey)) {
+const hexKey = /^[0-9a-fA-F]{64}$/
+if (oldKey && !hexKey.test(oldKey)) {
+  throw new Error(
+    "OLD_CONNECTION_SECRETS_ENCRYPTION_KEY must be 64 hex characters",
+  )
+}
+if (!newKey || !hexKey.test(newKey)) {
   throw new Error(
     "Set NEW_CONNECTION_SECRETS_ENCRYPTION_KEY to 64 hex characters (openssl rand -hex 32)",
   )
