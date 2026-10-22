@@ -107,11 +107,11 @@ async function insertOldKeyConnection(id: string, value: string) {
   return privateKeyEnc
 }
 
-/** The pid of the re-encrypt UPDATE that waits for the row lock of the test. */
-async function blockedUpdatePid(): Promise<number> {
+/** The pid of the backend that waits for a lock held by the backend `holderPid`. */
+async function blockedUpdatePid(holderPid: number): Promise<number> {
   for (let attempt = 0; attempt < 200; attempt++) {
     const { rows } = await getSystemDb().execute<{ pid: number }>(
-      sql`select pid from pg_stat_activity where wait_event_type = 'Lock' and query like 'update "connections"%'`,
+      sql`select pid from pg_stat_activity where ${holderPid} = any(pg_blocking_pids(pid))`,
     )
     if (rows[0]) return rows[0].pid
     await new Promise((done) => setTimeout(done, 50))
@@ -130,12 +130,17 @@ async function runWhileRowLocked(
 ): Promise<Report> {
   const locked = Promise.withResolvers<void>()
   const blocked = Promise.withResolvers<number>()
+  const holderPid = Promise.withResolvers<number>()
   const holder = withOrgDbContext(orgId, async (tx) => {
     await tx
       .select({ id: connections.id })
       .from(connections)
       .where(eq(connections.id, id))
       .for("update")
+    const { rows } = await tx.execute<{ pid: number }>(
+      sql`select pg_backend_pid() as pid`,
+    )
+    holderPid.resolve(rows[0].pid)
     locked.resolve()
     // A failed wait rolls back this transaction, so the lock goes.
     await onBlocked(await blocked.promise, tx)
@@ -143,7 +148,7 @@ async function runWhileRowLocked(
   holder.catch(locked.reject)
   await locked.promise
   const run = reencryptStoredSecrets({ env: rollingEnv, dryRun: false })
-  blockedUpdatePid().then(blocked.resolve, blocked.reject)
+  holderPid.promise.then(blockedUpdatePid).then(blocked.resolve, blocked.reject)
   const [report] = await Promise.all([run, holder])
   return report
 }
