@@ -42,6 +42,87 @@ export type GitPack = {
   objects: string
   shallow: string
   root?: string
+  /**
+   * The commits that each step fetches again from the Git host (CTX-955).
+   * With a base, `objects` holds only the objects that the base does not
+   * have, so a durable step output does not carry the pack of the base. A
+   * pack without a base (the shape before CTX-955) holds all its objects.
+   */
+  base?: GitPackBase
+}
+
+/** Immutable commits on a remote. No credential is durable. */
+export type GitPackBase = {
+  url: string
+  shas: string[]
+}
+
+/**
+ * Transient read access to the repository that a Workspace is bound to. The
+ * domain layer makes it from the workflow input, not from a step output, and
+ * gives it to each Git operation as an argument. It is never in a step
+ * output.
+ */
+export type GitRemoteRead = {
+  url: string
+  token: () => Promise<string | undefined>
+}
+
+/**
+ * The base of a stored pack must be the bound repository, on github.com over
+ * HTTPS (Workspace writes require a github.com remote). The check comes
+ * before the token: a stored step output cannot send a credential to
+ * another host or to another repository.
+ */
+function assertBaseOfBoundRepository(base: GitPackBase, read: GitRemoteRead) {
+  const url = URL.canParse(base.url) ? new URL(base.url) : null
+  if (
+    base.url !== read.url ||
+    url?.protocol !== "https:" ||
+    url.hostname.toLowerCase() !== "github.com" ||
+    url.username ||
+    url.password ||
+    url.port !== "" ||
+    base.url.includes("\\")
+  )
+    throw new Error(
+      "The stored Git pack names a remote that is not the GitHub repository of its Workspace",
+    )
+}
+
+/** A Git host error that can go away when the fetch starts again. */
+function isTransientFetchError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /returned error: 5\d\d|Could not resolve host|Failed to connect|Connection (?:timed out|reset|refused)|Operation timed out|early EOF|unexpected disconnect|remote end hung up|at the \d+ s time limit/i.test(
+      error.message,
+    )
+  )
+}
+
+/**
+ * Shallow-fetch immutable commits into `directory`. A network error, a 5xx
+ * answer, or a timeout starts the fetch again, at most 3 attempts in total:
+ * a step with one attempt must not fail because of a short Git host outage.
+ */
+export async function fetchGitCommits(
+  directory: string,
+  input: { url: string; shas: readonly string[]; token?: string },
+): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await nativeGit(
+        directory,
+        ["fetch", "--depth", "1", "--", input.url, ...input.shas],
+        undefined,
+        gitRemoteEnvironment({ url: input.url, token: input.token }),
+      )
+      return
+    } catch (error) {
+      if (attempt >= 3 || !isTransientFetchError(error)) throw error
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt))
+    }
+  }
 }
 
 /** The tree of the pack's root folder, or null when that folder does not exist. */
@@ -250,14 +331,26 @@ async function runNativeGit(
 export async function packGitObjects(
   directory: string,
   revs: readonly string[],
+  /**
+   * The commits that each step fetches again from the Git host (CTX-955):
+   * the pack holds only the objects that they do not have. `null` packs all
+   * objects (a pack with no base, or an unborn tree).
+   */
+  base: GitPackBase | null,
 ): Promise<string> {
+  // A tree in `revs` is not a commit: only an excluded tree excludes the
+  // objects below it.
+  const excluded = (base?.shas ?? []).flatMap((sha) => [
+    `^${sha}`,
+    `^${sha}^{tree}`,
+  ])
   const scratch = await mkdtemp(join(tmpdir(), "ctxpipe-pack-"))
   try {
     const name = (
       await nativeGit(
         directory,
         ["pack-objects", "--revs", "-q", join(scratch, "pack")],
-        `${revs.join("\n")}\n`,
+        `${[...revs, ...excluded].join("\n")}\n`,
       )
     )
       .toString()
@@ -283,9 +376,16 @@ export async function packGitObjects(
 export async function captureGitPack(
   directory: string,
   sha: string,
+  /** See `packGitObjects`. */
+  base: GitPackBase | null,
   additionalShas: readonly string[] = [],
 ): Promise<GitPack> {
-  const objects = await packGitObjects(directory, [sha, ...additionalShas])
+  const objects = await packGitObjects(
+    directory,
+    [sha, ...additionalShas],
+    base,
+  )
+  if (base) return { sha, objects, shallow: "", base }
   const shallow = await readFile(join(directory, ".git/shallow"), "utf8").catch(
     (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return ""
@@ -325,7 +425,9 @@ async function indexGitPack(directory: string, objects: string) {
 export async function withGitDirectory<T>(
   sha: string,
   operation: (directory: string) => Promise<T>,
-  pack?: GitPack,
+  pack: GitPack | undefined,
+  /** Required when the pack has a base. */
+  read: GitRemoteRead | null,
 ): Promise<T> {
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(sha))
     throw new Error("An immutable full Git SHA is required")
@@ -338,7 +440,19 @@ export async function withGitDirectory<T>(
     ])
     if (pack) {
       if (pack.sha !== sha) throw new Error("Git pack identity mismatch")
-      await indexGitPack(directory, pack.objects)
+      if (pack.base) {
+        if (read === null)
+          throw new Error(
+            "A Git pack with a base needs the read access of its Workspace",
+          )
+        assertBaseOfBoundRepository(pack.base, read)
+        await fetchGitCommits(directory, {
+          url: pack.base.url,
+          shas: pack.base.shas,
+          token: await read.token(),
+        })
+      }
+      if (pack.objects) await indexGitPack(directory, pack.objects)
       if (pack.shallow)
         await writeFile(join(directory, ".git/shallow"), pack.shallow)
       await nativeGit(directory, ["checkout", "--detach", sha])
@@ -383,7 +497,8 @@ export async function withGitDirectory<T>(
 export async function readGitFiles(
   pack: GitPack,
   include: (path: string) => boolean,
-  limit?: { maxBytes: number; applies: (path: string) => boolean },
+  limit: { maxBytes: number; applies: (path: string) => boolean } | undefined,
+  read: GitRemoteRead | null,
 ): Promise<
   Array<{ path: string; content: string; omitted?: "too_large" | "binary" }>
 > {
@@ -425,6 +540,7 @@ export async function readGitFiles(
       return files
     },
     pack,
+    read,
   )
 }
 
@@ -437,28 +553,25 @@ export async function readGitPackFromRemote(input: {
   /** Workspace root folder; `""` or absent is the repository root. */
   root?: string
 }): Promise<GitPack> {
-  return withGitDirectory(input.sha, async (directory) => {
-    await nativeGit(
-      directory,
-      [
-        "fetch",
-        "--depth",
-        "1",
-        "--",
-        input.url,
+  return withGitDirectory(
+    input.sha,
+    async (directory) => {
+      await fetchGitCommits(directory, {
+        url: input.url,
+        shas: [input.sha, ...(input.additionalShas ?? [])],
+        token: input.token,
+      })
+      const pack = await captureGitPack(
+        directory,
         input.sha,
-        ...(input.additionalShas ?? []),
-      ],
-      undefined,
-      gitRemoteEnvironment({ url: input.url, token: input.token }),
-    )
-    const pack = await captureGitPack(
-      directory,
-      input.sha,
-      input.additionalShas,
-    )
-    return input.root ? { ...pack, root: input.root } : pack
-  })
+        null,
+        input.additionalShas,
+      )
+      return input.root ? { ...pack, root: input.root } : pack
+    },
+    undefined,
+    null,
+  )
 }
 
 /** Every blob below the pack's root folder, with root-relative paths. */

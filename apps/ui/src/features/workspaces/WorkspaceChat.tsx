@@ -13,7 +13,7 @@ import { chatDraftKey } from "@/features/chat/chat-draft"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import { cn } from "@/lib/utils"
-import type { ParsedPane } from "./pane"
+import { type ParsedPane, paneSearchForOtherConversation } from "./pane"
 import {
   workspaceChatPrepareOptions,
   workspaceConversationOptions,
@@ -221,7 +221,7 @@ function ConversationNotFound(props: {
                   orgSlug: props.orgSlug,
                   workspaceSlug: props.workspace.slug,
                 },
-                search: (prev) => prev,
+                search: (prev) => paneSearchForOtherConversation(prev),
               })
             }}
           >

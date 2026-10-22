@@ -3,6 +3,7 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
 import { isRepositoryGoneError } from "../../domain/codeIngestion/repositoryGone.js"
+import { collectRepositoryCheckouts } from "../../domain/codesearchCheckoutGc.js"
 import {
   markRepositoryIndexingIssues,
   markRepositoryIndexingReady,
@@ -372,6 +373,17 @@ export const repositoryIngestion = defineWorkflow(
           tipHash: followUp.tipHash ?? null,
           enqueued: followUp.enqueued,
         })
+
+        // The published revision moved: delete the checkouts that no reader
+        // needs any more (CTX-973). It never throws.
+        await step.run({ name: "collect-old-checkouts" }, () =>
+          collectRepositoryCheckouts({
+            orgId: input.orgId,
+            repositoryId: input.repositoryId,
+            // Three batches: the hourly job finishes the rest.
+            maxBatches: 3,
+          }),
+        )
 
         logWorkflowMilestone("repository-ingestion.complete", {
           repositoryId: input.repositoryId,

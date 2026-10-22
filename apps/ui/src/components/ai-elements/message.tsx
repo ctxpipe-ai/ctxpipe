@@ -4,23 +4,20 @@ import { cjk } from "@streamdown/cjk"
 import { code } from "@streamdown/code"
 import { math } from "@streamdown/math"
 import { mermaid } from "@streamdown/mermaid"
+
 type ChatMessageRole = "system" | "user" | "assistant"
 
 import { IconExternalLink } from "@tabler/icons-react"
-import type {
-  ComponentProps,
-  HTMLAttributes,
-  ReactNode,
-} from "react"
-import {
-  memo,
-  useMemo,
-} from "react"
+import type { ComponentProps, HTMLAttributes, ReactNode } from "react"
+import { memo, useMemo } from "react"
 import { Button as AriaButton } from "react-aria-components"
 import { defaultRehypePlugins, Streamdown } from "streamdown"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
-import { workspaceFilePath } from "@/lib/workspace-file-path"
+import {
+  workspaceFilePath,
+  workspaceFilePathFromHref,
+} from "@/lib/workspace-file-path"
 
 type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: ChatMessageRole
@@ -96,6 +93,29 @@ function fileLinkNode(path: string, children: HastNode[]): HastNode {
 }
 
 /**
+ * Rehype plugin. It runs before sanitize, which removes every `file:` href.
+ * It rewrites a `file:///workspace/…` href into the repository-relative path,
+ * so the file-link logic handles it. It removes every other `file:` href.
+ */
+function rewriteFileHrefs() {
+  const visit = (node: HastNode) => {
+    if (node.type === "element" && node.tagName === "a") {
+      const href = String(node.properties?.href ?? "").trim()
+      if (/^file:/i.test(href) && node.properties) {
+        const sandboxRoot = /^file:\/\/\/workspace\//i
+        if (sandboxRoot.test(href)) {
+          node.properties.href = href.replace(sandboxRoot, "")
+        } else {
+          delete node.properties.href
+        }
+      }
+    }
+    for (const child of node.children ?? []) visit(child)
+  }
+  return visit
+}
+
+/**
  * Rehype plugin. It adds an icon to off-site links. With `files`, it changes
  * file paths in inline code and relative links into `ctx-file-link` elements.
  * It runs after sanitize, so model HTML cannot make these elements, and
@@ -107,7 +127,7 @@ function markAnswerLinks(options: { files: boolean }) {
       if (node.type !== "element") return node
       if (node.tagName === "a") {
         const href = String(node.properties?.href ?? "")
-        if (/^https?:\/\//.test(href)) {
+        if (/^https?:\/\//i.test(href)) {
           node.children = [
             ...(node.children ?? []),
             {
@@ -119,8 +139,21 @@ function markAnswerLinks(options: { files: boolean }) {
           ]
           return node
         }
-        const path = options.files ? workspaceFilePath(href) : null
+        const path = options.files ? workspaceFilePathFromHref(href) : null
         if (path) return fileLinkNode(path, node.children ?? [])
+        if (options.files && !href.startsWith("#")) {
+          // Harden would show "[blocked]" after a link it cannot keep, so
+          // keep only the content of a link that is not a file, http(s) or an
+          // in-page anchor.
+          const content: HastNode = {
+            type: "element",
+            tagName: "span",
+            properties: {},
+            children: node.children ?? [],
+          }
+          visit(content)
+          return content
+        }
       }
       if (
         node.tagName === "code" &&
@@ -141,6 +174,7 @@ const answerRehypePlugins = (
   files: boolean,
 ): ComponentProps<typeof Streamdown>["rehypePlugins"] => [
   defaultRehypePlugins.raw,
+  ...(files ? [rewriteFileHrefs] : []),
   defaultRehypePlugins.sanitize,
   [markAnswerLinks, { files }],
   defaultRehypePlugins.harden,
@@ -213,4 +247,3 @@ export const MessageResponse = memo(
 )
 
 MessageResponse.displayName = "MessageResponse"
-

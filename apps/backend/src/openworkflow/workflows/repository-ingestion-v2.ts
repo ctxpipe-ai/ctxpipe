@@ -1,6 +1,7 @@
 import type { Attributes } from "@opentelemetry/api"
 import type { Workflow } from "openworkflow"
 import { parseEnv } from "../../config/env.js"
+import { collectRepositoryCheckouts } from "../../domain/codesearchCheckoutGc.js"
 import {
   IngestRefRefusedError,
   ingestRefName,
@@ -47,10 +48,13 @@ import {
 } from "../../domain/workspaces/write-broker.js"
 import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
+import { withCrashLoopGuard } from "../crash-loop.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { cleanUpUnlessParked, settledChildren } from "../isSleepSignal.js"
 import {
   addStepFailures,
+  guardedSkillStep,
+  type IngestionRoot,
   type IngestionShardInput,
   type IngestionShardOutput,
   type IngestionShardWorkspace,
@@ -268,6 +272,17 @@ export function defineRepositoryIngestionV2Workflow(
             },
             { name: "index" },
           )
+        // The index published a new revision: delete the checkouts that no
+        // reader needs any more (CTX-973). It never throws.
+        if (sourceRepositoryId)
+          await step.run({ name: "collect-old-checkouts" }, () =>
+            collectRepositoryCheckouts({
+              orgId: input.orgId,
+              repositoryId: sourceRepositoryId,
+              // Three batches: the hourly job finishes the rest.
+              maxBatches: 3,
+            }),
+          )
 
         // The shard-0 sandbox runs discovery; shard 0 then uses it, and
         // `release` destroys it in each case.
@@ -282,44 +297,64 @@ export function defineRepositoryIngestionV2Workflow(
             return { released: true }
           })
 
-        const scope = await step.run({ name: "discover-roots" }, async () => {
-          const bundle = await deps.bundle()
-          const discovered = await deps
-            .runtime({
-              orgId: input.orgId,
-              runId: run.id,
-              shard: 0,
-              bundle,
-              source,
-              destinations,
-            })
-            .discoverRoots()
-          const plan = planIngestRoots(discovered)
-          for (const refused of plan.refused)
-            logIngestEvent("warn", "ingestion-v2.root-refused", {
-              ingestionRunId: run.id,
-              ...refused,
-            })
-          const packed = plan.partial === undefined ? packRoots(plan.roots) : ""
-          const partial =
-            plan.partial ??
-            (packed.length > 12_000
-              ? "The root list is too large for one step output"
-              : undefined)
-          if (partial !== undefined) {
-            logIngestEvent("warn", "ingestion-v2.partial", {
-              ingestionRunId: run.id,
-              reason: capIngestText(partial),
-            })
-            return { partial }
-          }
-          return {
-            bundle: bundle.name,
-            roots: packed,
-            repositorySkills: plannedIngestSkills(bundle.skills, "repository")
-              .length,
-          }
-        })
+        // A crash loop ends the run `partial` with the cause and the fix. A
+        // throw would make OpenWorkflow retry the step 10 times (CTX-971).
+        const scope = await step.run({ name: "discover-roots" }, () =>
+          withCrashLoopGuard(
+            run.id,
+            "discover-roots",
+            async (): Promise<
+              | { partial: string }
+              | {
+                  partial?: undefined
+                  bundle: string
+                  roots: string
+                  repositorySkills: number
+                }
+            > => {
+              const bundle = await deps.bundle()
+              const discovered = await deps
+                .runtime({
+                  orgId: input.orgId,
+                  runId: run.id,
+                  shard: 0,
+                  bundle,
+                  source,
+                  destinations,
+                })
+                .discoverRoots()
+              const plan = planIngestRoots(discovered)
+              for (const refused of plan.refused)
+                logIngestEvent("warn", "ingestion-v2.root-refused", {
+                  ingestionRunId: run.id,
+                  ...refused,
+                })
+              const packed =
+                plan.partial === undefined ? packRoots(plan.roots) : ""
+              const partial =
+                plan.partial ??
+                (packed.length > 12_000
+                  ? "The root list is too large for one step output"
+                  : undefined)
+              if (partial !== undefined) {
+                logIngestEvent("warn", "ingestion-v2.partial", {
+                  ingestionRunId: run.id,
+                  reason: capIngestText(partial),
+                })
+                return { partial }
+              }
+              return {
+                bundle: bundle.name,
+                roots: packed,
+                repositorySkills: plannedIngestSkills(
+                  bundle.skills,
+                  "repository",
+                ).length,
+              }
+            },
+            (error) => ({ partial: error.message }),
+          ),
+        )
         if (scope.partial !== undefined) {
           await release()
           return { status: "partial", reason: scope.partial }
@@ -378,10 +413,7 @@ export function defineRepositoryIngestionV2Workflow(
             const state = first[i]
             if (!state) continue
             await runSkillPages({
-              step: (name, fn) =>
-                step.run({ name, retryPolicy: { maximumAttempts: 1 } }, () =>
-                  withIngestionOrg(input.orgId, fn),
-                ),
+              step: guardedSkillStep(step, run.id, input.orgId),
               run: {
                 runId: run.id,
                 shard: 0,

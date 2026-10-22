@@ -10,9 +10,9 @@ import type { IngestStepUsage } from "./ingest-shard-runtime.js"
  */
 
 /** The start of each `step_finish` line (`JSON.stringify({ type, … })`). */
-const STEP_FINISH = '{"type":"step_finish"'
+export const OPENCODE_STEP_FINISH = '{"type":"step_finish"'
 /** The start of each `error` line. */
-const ERROR = '{"type":"error"'
+export const OPENCODE_ERROR = '{"type":"error"'
 
 function quote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`
@@ -30,13 +30,14 @@ export function ingestModelRunCommand(input: {
   const run = `opencode run --format json${input.model ? ` --model ${quote(input.model)}` : ""} ${quote(input.prompt)}`
   // POSIX sh has no pipefail: fd 3 carries the exit code of `opencode run`
   // out of the pipe, and fd 4 carries the filtered lines to stdout.
-  return `exec 4>&1; code=$( { { ${run}; echo $? >&3; } | { grep -F -e ${quote(STEP_FINISH)} -e ${quote(ERROR)} >&4; true; }; } 3>&1 ); exit "$code"`
+  return `exec 4>&1; code=$( { { ${run}; echo $? >&3; } | { grep -F -e ${quote(OPENCODE_STEP_FINISH)} -e ${quote(OPENCODE_ERROR)} >&4; true; }; } 3>&1 ); exit "$code"`
 }
 
 /** The count of finished model calls (`step_finish` lines). */
 export function openCodeModelCalls(stdout: string): number {
-  return stdout.split("\n").filter((line) => line.startsWith(STEP_FINISH))
-    .length
+  return stdout
+    .split("\n")
+    .filter((line) => line.startsWith(OPENCODE_STEP_FINISH)).length
 }
 
 /** A number, or 0. */
@@ -65,7 +66,7 @@ export function parseOpenCodeUsage(
   let costUsd = 0
   let costKnown = true
   for (const line of stdout.split("\n")) {
-    if (!line.startsWith(STEP_FINISH)) continue
+    if (!line.startsWith(OPENCODE_STEP_FINISH)) continue
     let event: { part?: { cost?: unknown; tokens?: Record<string, unknown> } }
     try {
       event = JSON.parse(line)
@@ -103,7 +104,7 @@ export type OpenCodeError = { name: string; status?: number }
 export function parseOpenCodeErrors(stdout: string): OpenCodeError[] {
   const errors: OpenCodeError[] = []
   for (const line of stdout.split("\n")) {
-    if (!line.startsWith(ERROR)) continue
+    if (!line.startsWith(OPENCODE_ERROR)) continue
     let event: { error?: { name?: unknown; data?: { statusCode?: unknown } } }
     try {
       event = JSON.parse(line)

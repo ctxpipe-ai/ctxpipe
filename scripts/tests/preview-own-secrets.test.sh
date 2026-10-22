@@ -84,7 +84,7 @@ jq -se '
 ' "$tmp/new/upserts" >/dev/null \
   || fail "every service should get one new AUTH_SECRET and key; the backend last, with the scoped token and the marker"
 if grep -Fq "account-token-value" "$tmp/new/upserts"; then
-  fail "the account token must never reach a service variable"
+  fail "the workspace token must never reach a service variable"
 fi
 jq -e '.environmentId == "env_preview" and .serviceId == "svc_backend"' "$tmp/new/read" >/dev/null \
   || fail "the marker read should target the preview backend"
@@ -105,7 +105,7 @@ fi
 printf '%s' "$out" | grep -Fq "projectTokenCreate" || fail "the error should name projectTokenCreate: $out"
 [[ ! -s "$tmp/no-token/upserts" ]] || fail "nothing should be written without the scoped token"
 
-# The deploy job must not give the account token to steps that run branch code
+# The deploy job must not give the workspace token to steps that run branch code
 # (pnpm install, migrations), and must not write it into a service variable.
 python3 - "$workflow" <<'PY' || fail "pr-deploy.yaml must scope RAILWAY_API_TOKEN to Railway steps"
 import re, sys
@@ -121,7 +121,7 @@ for step in re.split(r"\n      - ", job)[1:]:
     if ("pnpm install" in step or "migrate.ts" in step) and "RAILWAY_API_TOKEN:" in step:
         raise SystemExit("a step that runs branch code must not get RAILWAY_API_TOKEN")
 if re.search(r"RAILWAY_TOKEN:\s*\$(wake_token|RAILWAY_API_TOKEN|\{?RAILWAY_API_TOKEN)", text):
-    raise SystemExit("the account token must not be written into RAILWAY_TOKEN")
+    raise SystemExit("the workspace token must not be written into RAILWAY_TOKEN")
 if text.count("sync_preview_own_secrets") != 1:
     raise SystemExit("pr-deploy.yaml must call sync_preview_own_secrets once")
 PY

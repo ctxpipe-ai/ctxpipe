@@ -81,6 +81,7 @@ async function readCommits(pack: GitPack) {
       }
     },
     pack,
+    null,
   )
 }
 
@@ -186,8 +187,11 @@ sources:
     expect(head.files).toContain(KNOWLEDGE_SKILL_PATH)
 
     // Hydrate on the merged tree plans no direct write.
-    const markdown = await readGitFiles(built.pack, (path) =>
-      path.endsWith(".md"),
+    const markdown = await readGitFiles(
+      built.pack,
+      (path) => path.endsWith(".md"),
+      undefined,
+      null,
     )
     expect(
       await planHydrateWrites({

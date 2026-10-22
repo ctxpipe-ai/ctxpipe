@@ -128,20 +128,25 @@ it("starts no queued Git process after a failed operation and removes its direct
     let used = ""
     let startsAtFailure = 0
     const failure = new Error("the original read failure")
-    const run = withGitDirectory("a".repeat(40), async (directory) => {
-      used = directory
-      // More reads than slots; one of them fails when all slots are busy.
-      const reads = Array.from({ length: 20 }, () =>
-        nativeGit(directory, ["cat-file", "-t", "HEAD"]),
-      )
-      const failed = (async () => {
-        while ((await starts()) < 8)
-          await new Promise((resolve) => setTimeout(resolve, 20))
-        startsAtFailure = await starts()
-        throw failure
-      })()
-      return Promise.all([...reads, failed])
-    })
+    const run = withGitDirectory(
+      "a".repeat(40),
+      async (directory) => {
+        used = directory
+        // More reads than slots; one of them fails when all slots are busy.
+        const reads = Array.from({ length: 20 }, () =>
+          nativeGit(directory, ["cat-file", "-t", "HEAD"]),
+        )
+        const failed = (async () => {
+          while ((await starts()) < 8)
+            await new Promise((resolve) => setTimeout(resolve, 20))
+          startsAtFailure = await starts()
+          throw failure
+        })()
+        return Promise.all([...reads, failed])
+      },
+      undefined,
+      null,
+    )
 
     await expect(run).rejects.toBe(failure)
     expect(startsAtFailure).toBe(8)

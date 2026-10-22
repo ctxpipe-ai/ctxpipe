@@ -5,6 +5,7 @@ import { isAlias, isMap, isScalar, isSeq } from "yaml"
 import { parseNameStatus } from "../../services/git/name-status.js"
 import {
   type GitPack,
+  type GitRemoteRead,
   nativeGit,
   packRootTree,
   withGitDirectory,
@@ -32,6 +33,7 @@ function renamePairs(output: Buffer): Rename[] {
 export async function nativeRenameRewriteFiles(
   pack: GitPack,
   previousSha: string,
+  read: GitRemoteRead | null,
 ) {
   return withGitDirectory(
     pack.sha,
@@ -125,6 +127,7 @@ export async function nativeRenameRewriteFiles(
       return changes
     },
     pack,
+    read,
   )
 }
 

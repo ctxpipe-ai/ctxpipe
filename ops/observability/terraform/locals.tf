@@ -19,13 +19,13 @@ locals {
   langfuse_init_org_name     = "ctxpipe"
   langfuse_init_project_id   = "ctxpipe"
   langfuse_init_project_name = "ctxpipe"
-  langfuse_init_user_name    = "ctxpipe"
 
   observability_otlp_endpoint       = "http://$${{collector.RAILWAY_PRIVATE_DOMAIN}}:4318"
   observability_otlp_headers        = "authorization=$${{collector.HYPERDX_API_KEY}}"
   observability_resource_attributes = "deployment.environment=observability,service.namespace=ctxpipe"
 
-  # DATABASE_URL, DIRECT_URL, SALT, and ENCRYPTION_KEY stay on langfuse-web.
+  # DATABASE_URL, DIRECT_URL, SALT, and ENCRYPTION_KEY are on langfuse-web,
+  # from scripts/railway-sync-variables.mjs.
   # langfuse-events is Railway-owned (provider 0.6.1 has no bucket resource).
   langfuse_shared_env = [
     {

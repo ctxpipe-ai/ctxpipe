@@ -4,6 +4,7 @@ import { join } from "node:path"
 import type { GitFileChange } from "./file-change.js"
 import {
   type GitPack,
+  type GitRemoteRead,
   nativeGit,
   packGitObjects,
   withGitDirectory,
@@ -34,17 +35,23 @@ export async function mergeGitFiles(input: {
   previousSha: string
   files: readonly GitFileChange[]
   deletePaths: readonly string[]
+  read: GitRemoteRead | null
 }): Promise<GitMergeResult | null> {
   const candidateTree = await stageGitFiles(
     { ...input.pack, sha: input.previousSha },
     input.files,
     input.deletePaths,
+    input.read,
   )
   // This unreachable object gives merge-tree a commit identity for the captured command.
-  const candidate = await commitGitTree(candidateTree, {
-    subject: "Captured unpushed workspace change",
-    createdAt: "2000-01-01T00:00:00.000Z",
-  })
+  const candidate = await commitGitTree(
+    candidateTree,
+    {
+      subject: "Captured unpushed workspace change",
+      createdAt: "2000-01-01T00:00:00.000Z",
+    },
+    input.read,
+  )
   // Paths in the result are relative to the Workspace root folder.
   const rootRelative = (path: string) => {
     const relative = workspaceRelativePath(input.pack.root ?? "", path)
@@ -132,7 +139,11 @@ export async function mergeGitFiles(input: {
           throw new Error("Native merge conflict has no file paths")
       }
       if (!paths.length && !conflicts.length) return null
-      const objects = await packGitObjects(directory, [input.pack.sha, tree])
+      const objects = await packGitObjects(
+        directory,
+        [input.pack.sha, tree],
+        input.pack.base ?? null,
+      )
       return {
         staged: {
           pack: { ...input.pack, objects },
@@ -148,6 +159,7 @@ export async function mergeGitFiles(input: {
       }
     },
     input.pack,
+    input.read,
   )
 }
 
@@ -155,18 +167,24 @@ export async function mergeGitFiles(input: {
 export async function resolveGitMergeTree(
   merged: GitMergeResult,
   files: readonly { path: string; content: string | null }[],
+  read: GitRemoteRead | null,
 ): Promise<StagedGitTree> {
   const parent = merged.staged.pack.sha
-  const candidate = await commitGitTree(merged.staged, {
-    subject: "Unpublished semantic merge tree",
-    createdAt: "2000-01-01T00:00:00.000Z",
-  })
+  const candidate = await commitGitTree(
+    merged.staged,
+    {
+      subject: "Unpublished semantic merge tree",
+      createdAt: "2000-01-01T00:00:00.000Z",
+    },
+    read,
+  )
   const staged = await stageGitFiles(
     candidate,
     files.flatMap((file) =>
       file.content === null ? [] : [{ path: file.path, content: file.content }],
     ),
     files.filter((file) => file.content === null).map((file) => file.path),
+    read,
   )
   return { ...staged, pack: { ...staged.pack, sha: parent } }
 }

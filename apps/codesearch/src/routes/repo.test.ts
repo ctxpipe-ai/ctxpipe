@@ -1,6 +1,14 @@
 import { execFileSync } from "node:child_process"
 import { mkdirSync, renameSync } from "node:fs"
-import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises"
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { OpenAPIHono } from "@hono/zod-openapi"
@@ -28,16 +36,25 @@ const { cacheRoot } = await vi.hoisted(async () => {
   return { cacheRoot: root }
 })
 
-const { getAccessibleRepositoryMock } = vi.hoisted(() => ({
-  getAccessibleRepositoryMock: vi.fn(),
-}))
+const { getAccessibleRepositoryMock, getIndexableRepositoryMock } = vi.hoisted(
+  () => ({
+    getAccessibleRepositoryMock: vi.fn(),
+    getIndexableRepositoryMock: vi.fn(),
+  }),
+)
 
 // Codesearch tests have no database, so this stubs the repository row lookup.
 vi.mock("../domain/repositories/service.js", () => ({
   getAccessibleRepository: getAccessibleRepositoryMock,
-  getIndexableRepository: vi.fn(),
+  getIndexableRepository: getIndexableRepositoryMock,
 }))
 
+import { withRepositoryIndexOperation } from "../domain/indexing/indexConcurrency.js"
+import {
+  zoektRepositoryName,
+  zoektShardFilePrefix,
+} from "../domain/zoekt/shardPrefix.js"
+import { createLogger, withLogger } from "../observability/logger.js"
 import { registerRepoRoutes } from "./repo.js"
 
 const repoCacheDir = join(cacheRoot, "repo-cache")
@@ -870,5 +887,201 @@ describe("reads stay inside the checkout", () => {
     expect(res.status).toBe(404)
     expect(await res.json()).toEqual(await missing.json())
     expect(nested.status).toBe(404)
+  })
+})
+
+describe("POST /{repoId}/checkouts/delete", () => {
+  const ORG = MOCK_REPO.orgId
+  const REPO = MOCK_REPO.id
+  const checkoutsDir = join(repoCacheDir, ORG, REPO, "checkouts")
+  const coldDir = join(cacheRoot, "zoekt-index")
+  const published = `rev:${"a".repeat(40)}`
+  const old = `rev:${"b".repeat(40)}`
+  const oldWorkspace = `ws:ws_one:${"c".repeat(40)}`
+  const zoektIds: Record<string, number> = {
+    default: 1,
+    [published]: 2,
+    [old]: 3,
+    [oldWorkspace]: 4,
+  }
+
+  const shardName = (checkoutKey: string) =>
+    `${zoektShardFilePrefix(
+      zoektRepositoryName({ orgId: ORG, repoId: REPO, checkoutKey }),
+    )}v16.00000.zoekt`
+
+  async function writeCheckout(checkoutKey: string) {
+    await mkdir(join(checkoutsDir, checkoutKey, "src"), { recursive: true })
+    await writeFile(
+      join(checkoutsDir, checkoutKey, "src", "a.ts"),
+      "x".repeat(100),
+    )
+    await writeFile(join(checkoutsDir, `${checkoutKey}.scip`), "s".repeat(10))
+    await writeFile(
+      join(checkoutsDir, `${checkoutKey}.go.scip`),
+      "g".repeat(10),
+    )
+    await writeFile(join(coldDir, shardName(checkoutKey)), "z".repeat(1000))
+  }
+
+  function gcApp(sub = `repo-gc:${REPO}`) {
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("db", {} as AppEnv["Variables"]["db"])
+      c.set("auth", {
+        sub,
+        orgId: ORG,
+        principal: "service",
+      } as AppEnv["Variables"]["auth"])
+      await withLogger(createLogger({}), () => next())
+    })
+    registerRepoRoutes(app)
+    return app
+  }
+
+  const deleteKeys = (checkoutKeys: string[], sub?: string) =>
+    gcApp(sub).request(`/${REPO}/checkouts/delete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ checkoutKeys }),
+    })
+
+  const exists = (path: string) =>
+    stat(path).then(
+      () => true,
+      () => false,
+    )
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    await rm(coldDir, { recursive: true, force: true })
+    await mkdir(coldDir, { recursive: true })
+    for (const key of Object.keys(zoektIds)) await writeCheckout(key)
+    getAccessibleRepositoryMock.mockResolvedValue({
+      ...MOCK_REPO,
+      name: "ctxpipe",
+      publishedCheckoutKey: published,
+    })
+    getIndexableRepositoryMock.mockImplementation(
+      async (_db: unknown, _repo: string, _org: string, key: string) =>
+        zoektIds[key] ? { zoektRepoId: zoektIds[key] } : null,
+    )
+  })
+
+  it("deletes only the listed keys and keeps the published and default checkouts", async () => {
+    const res = await deleteKeys([old, oldWorkspace, published])
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      deleted: [{ checkoutKey: old }, { checkoutKey: oldWorkspace }],
+      skipped: [{ checkoutKey: published, reason: "published" }],
+    })
+    expect((await readdir(checkoutsDir)).sort()).toEqual(
+      [
+        "default",
+        "default.go.scip",
+        "default.scip",
+        published,
+        `${published}.go.scip`,
+        `${published}.scip`,
+      ].sort(),
+    )
+    expect((await readdir(coldDir)).sort()).toEqual(
+      [shardName("default"), shardName(published)].sort(),
+    )
+  })
+
+  it("keeps a key that a run used again after the caller listed it", async () => {
+    getIndexableRepositoryMock.mockResolvedValue({
+      zoektRepoId: zoektIds[old],
+      checkoutUsedRecently: true,
+    })
+
+    const res = await deleteKeys([old])
+
+    expect(await res.json()).toEqual({
+      deleted: [],
+      skipped: [{ checkoutKey: old, reason: "recent" }],
+    })
+    expect(await exists(join(checkoutsDir, old))).toBe(true)
+    expect(await exists(join(coldDir, shardName(old)))).toBe(true)
+  })
+
+  it("keeps the files of a longer key and of a repository whose id starts with this id", async () => {
+    // The SHA-256 key starts with the SHA-1 key; repo_abcdef271 starts with
+    // repo_abcdef27.
+    const longKey = `rev:${"b".repeat(64)}`
+    const otherRepo = `${REPO}1`
+    await mkdir(join(checkoutsDir, longKey), { recursive: true })
+    await writeFile(join(checkoutsDir, `${longKey}.scip`), "s")
+    await writeFile(join(coldDir, shardName(longKey)), "z")
+    const otherShard = `${zoektShardFilePrefix(
+      zoektRepositoryName({ orgId: ORG, repoId: otherRepo, checkoutKey: old }),
+    )}v16.00000.zoekt`
+    await mkdir(join(repoCacheDir, ORG, otherRepo, "checkouts", old), {
+      recursive: true,
+    })
+    await writeFile(join(coldDir, otherShard), "z")
+
+    const res = await deleteKeys([old])
+
+    expect(await res.json()).toMatchObject({ deleted: [{ checkoutKey: old }] })
+    expect(await exists(join(checkoutsDir, old))).toBe(false)
+    expect(await exists(join(coldDir, shardName(old)))).toBe(false)
+    for (const path of [
+      join(checkoutsDir, longKey),
+      join(checkoutsDir, `${longKey}.scip`),
+      join(coldDir, shardName(longKey)),
+      join(repoCacheDir, ORG, otherRepo, "checkouts", old),
+      join(coldDir, otherShard),
+    ])
+      expect(await exists(path)).toBe(true)
+  })
+
+  it("is idempotent: a key without a row is skipped", async () => {
+    getIndexableRepositoryMock.mockResolvedValue(null)
+
+    const res = await deleteKeys([old])
+
+    expect(await res.json()).toEqual({
+      deleted: [],
+      skipped: [{ checkoutKey: old, reason: "not_found" }],
+    })
+    expect(await exists(join(checkoutsDir, old))).toBe(true)
+  })
+
+  it("deletes nothing while an index job holds the repository", async () => {
+    let release = () => {}
+    const held = withRepositoryIndexOperation(
+      REPO,
+      () => new Promise<void>((resolve) => (release = resolve)),
+    )
+
+    const res = await deleteKeys([old])
+    release()
+    await held
+
+    expect(res.status).toBe(409)
+    expect(await exists(join(checkoutsDir, old))).toBe(true)
+    expect(await exists(join(coldDir, shardName(old)))).toBe(true)
+  })
+
+  it("refuses the default key and keys that are not checkout keys", async () => {
+    for (const key of [
+      "default",
+      "rev:../../etc",
+      `ws:a/b:${"c".repeat(40)}`,
+    ]) {
+      const res = await deleteKeys([key])
+      expect(res.status).toBe(400)
+    }
+    expect(await exists(join(checkoutsDir, "default"))).toBe(true)
+  })
+
+  it("refuses a caller that has no collection token for the repository", async () => {
+    const res = await deleteKeys([old], `repo-purge:${REPO}`)
+
+    expect(res.status).toBe(403)
+    expect(await exists(join(checkoutsDir, old))).toBe(true)
   })
 })

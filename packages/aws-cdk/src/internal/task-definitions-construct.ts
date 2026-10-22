@@ -1,3 +1,4 @@
+import { Duration } from "aws-cdk-lib";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
@@ -198,6 +199,10 @@ export class TaskDefinitionsConstruct extends Construct {
         ...otelHeaderSecrets,
       },
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-worker" }),
+      // ECS waits this long after SIGTERM before SIGKILL. The worker marks
+      // its step attempts stopped in this time, and its supervisor kills the
+      // worker after 25 seconds.
+      stopTimeout: Duration.seconds(30),
     });
     if (props.sandboxHost) {
       addSandboxHostClient(backendTask, backendContainer, backendImage, props.sandboxHost);
