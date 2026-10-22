@@ -49,8 +49,34 @@ SERVICE_VARIABLES = {
     },
     "ui": {"OTEL_EXPORTER_OTLP_HEADERS": "OBSERVABILITY_OTLP_HEADERS"},
     "falkordb": {"FALKORDB_PASSWORD": "FALKORDB_PASSWORD"},
-    # Observability project (GitHub Environment `observability`). Both
-    # telemetry services read Railway with the same workspace token.
+    # Observability project (GitHub Environment `observability`).
+    "clickhouse": {
+        "CLICKHOUSE_OTEL_PASSWORD": "CLICKHOUSE_OTEL_PASSWORD",
+        "CLICKHOUSE_LANGFUSE_PASSWORD": "CLICKHOUSE_LANGFUSE_PASSWORD",
+    },
+    # The workflow makes LANGFUSE_AUTH_STRING from the Langfuse project keys.
+    "collector": {
+        "HYPERDX_API_KEY": "HYPERDX_API_KEY",
+        "LANGFUSE_AUTH_STRING": "LANGFUSE_AUTH_STRING",
+    },
+    # langfuse-worker refers to the database URLs, SALT and ENCRYPTION_KEY of
+    # langfuse-web.
+    "langfuse-web": {
+        "DATABASE_URL": "LANGFUSE_DATABASE_URL",
+        "DIRECT_URL": "LANGFUSE_DIRECT_URL",
+        "NEXTAUTH_SECRET": "LANGFUSE_NEXTAUTH_SECRET",
+        "SALT": "LANGFUSE_SALT",
+        "ENCRYPTION_KEY": "LANGFUSE_ENCRYPTION_KEY",
+        "LANGFUSE_INIT_PROJECT_PUBLIC_KEY": "LANGFUSE_PUBLIC_KEY",
+        "LANGFUSE_INIT_PROJECT_SECRET_KEY": "LANGFUSE_SECRET_KEY",
+        "LANGFUSE_INIT_USER_EMAIL": "LANGFUSE_INIT_USER_EMAIL",
+        "LANGFUSE_INIT_USER_PASSWORD": "LANGFUSE_INIT_USER_PASSWORD",
+    },
+    # No secret of their own: they refer to the values above, so they only
+    # redeploy (--redeploy) after a change.
+    "hyperdx": {},
+    "langfuse-worker": {},
+    # Both telemetry services read Railway with the same workspace token.
     "cost-telemetry": {
         "OPENROUTER_MANAGEMENT_KEY": "COST_TELEMETRY_OPENROUTER_MANAGEMENT_KEY",
         "GITHUB_BILLING_TOKEN": "COST_TELEMETRY_GITHUB_BILLING_TOKEN",
@@ -80,7 +106,10 @@ OPTIONAL = {
     "COST_TELEMETRY_AWS_SESSION_TOKEN",
 }
 # Checked before any write, so a bad value never reaches a service.
-FORMATS = {"CONNECTION_SECRETS_ENCRYPTION_KEY": re.compile(r"[0-9a-fA-F]{64}")}
+FORMATS = {
+    "CONNECTION_SECRETS_ENCRYPTION_KEY": re.compile(r"[0-9a-fA-F]{64}"),
+    "LANGFUSE_ENCRYPTION_KEY": re.compile(r"[0-9a-fA-F]{64}"),
+}
 
 
 def graphql(query, variables, token):

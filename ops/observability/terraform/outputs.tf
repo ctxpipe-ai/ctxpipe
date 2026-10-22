@@ -8,14 +8,17 @@ output "collector_service_domain" {
   value       = railway_service_domain.collector.domain
 }
 
-output "cost_telemetry_service_id" {
-  description = "Railway cost telemetry service ID for post-apply credential sync."
-  value       = railway_service.cost_telemetry.id
-}
-
-output "railway_telemetry_service_id" {
-  description = "Railway telemetry service ID for post-apply credential sync."
-  value       = railway_service.railway_telemetry.id
+output "railway_service_ids" {
+  description = "Railway service IDs for the post-apply secret sync (scripts/railway-sync-variables.py)."
+  value = {
+    clickhouse        = railway_service.clickhouse.id
+    collector         = railway_service.collector.id
+    hyperdx           = railway_service.hyperdx.id
+    langfuse_web      = railway_service.langfuse_web.id
+    langfuse_worker   = railway_service.langfuse_worker.id
+    railway_telemetry = railway_service.railway_telemetry.id
+    cost_telemetry    = railway_service.cost_telemetry.id
+  }
 }
 
 output "hyperdx_dns_record" {

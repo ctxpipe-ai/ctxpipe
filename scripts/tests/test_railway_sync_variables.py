@@ -153,6 +153,10 @@ class RailwaySyncVariablesTest(unittest.TestCase):
         self.assertEqual(self.calls, ["read", "deploy", "poll"])
         self.assertFalse(changed.exists())
 
+    def test_a_service_with_no_secret_only_redeploys(self):
+        self.run_sync("--redeploy", service="langfuse-worker")
+        self.assertEqual(self.calls, ["read", "deploy", "poll"])
+
     def test_missing_credential_fails_before_any_railway_request(self):
         del self.environment["COST_TELEMETRY_NEON_API_KEY"]
         with self.assertRaisesRegex(RuntimeError, "COST_TELEMETRY_NEON_API_KEY"):

@@ -324,25 +324,56 @@ jobs:
       - name: Terraform apply
         run: terraform apply -input=false -auto-approve -lock-timeout=10m terraform.plan
 
-      - name: Sync cost telemetry credentials after apply
+      # Every observability secret comes from this environment, never from a
+      # value set by hand in Railway (scripts/railway-sync-variables.py).
+      # Write each value first. Then, when one changed or this is a re-run,
+      # redeploy in the order of the references: ClickHouse, the collector
+      # (its HYPERDX_API_KEY is in every OTLP header), HyperDX, Langfuse, and
+      # the telemetry services.
+      - name: Sync observability secrets to Railway
+        env:
+          CLICKHOUSE_OTEL_PASSWORD: ${{ secrets.CLICKHOUSE_OTEL_PASSWORD }}
+          CLICKHOUSE_LANGFUSE_PASSWORD: ${{ secrets.CLICKHOUSE_LANGFUSE_PASSWORD }}
+          HYPERDX_API_KEY: ${{ secrets.HYPERDX_API_KEY }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_DATABASE_URL: ${{ secrets.LANGFUSE_DATABASE_URL }}
+          LANGFUSE_DIRECT_URL: ${{ secrets.LANGFUSE_DIRECT_URL }}
+          LANGFUSE_NEXTAUTH_SECRET: ${{ secrets.LANGFUSE_NEXTAUTH_SECRET }}
+          LANGFUSE_SALT: ${{ secrets.LANGFUSE_SALT }}
+          LANGFUSE_ENCRYPTION_KEY: ${{ secrets.LANGFUSE_ENCRYPTION_KEY }}
+          LANGFUSE_INIT_USER_EMAIL: ${{ secrets.LANGFUSE_INIT_USER_EMAIL }}
+          LANGFUSE_INIT_USER_PASSWORD: ${{ secrets.LANGFUSE_INIT_USER_PASSWORD }}
         run: |
+          set -euo pipefail
           export PROJECT_ID="$RAILWAY_PROJECT_ID"
           export ENVIRONMENT_ID="5a0afd5c-5f12-47ef-8f8a-606107610f89"
-          export SERVICE_ID="$(terraform output -raw cost_telemetry_service_id)"
-          # A re-run redeploys in any case: the failed attempt may have
-          # written the values and then failed to redeploy.
-          if [[ "$GITHUB_RUN_ATTEMPT" != 1 ]]; then redeploy=--redeploy; else redeploy=--redeploy-on-change; fi
-          python3 -I ../../../scripts/railway-sync-variables.py --service cost-telemetry "$redeploy"
-
-      - name: Sync railway-telemetry credentials after apply
-        run: |
-          export PROJECT_ID="$RAILWAY_PROJECT_ID"
-          export ENVIRONMENT_ID="5a0afd5c-5f12-47ef-8f8a-606107610f89"
-          export SERVICE_ID="$(terraform output -raw railway_telemetry_service_id)"
-          # A re-run redeploys in any case: the failed attempt may have
-          # written the values and then failed to redeploy.
-          if [[ "$GITHUB_RUN_ATTEMPT" != 1 ]]; then redeploy=--redeploy; else redeploy=--redeploy-on-change; fi
-          python3 -I ../../../scripts/railway-sync-variables.py --service railway-telemetry "$redeploy"
+          : "${LANGFUSE_PUBLIC_KEY:?missing}" "${LANGFUSE_SECRET_KEY:?missing}"
+          LANGFUSE_AUTH_STRING="$(printf '%s:%s' "$LANGFUSE_PUBLIC_KEY" "$LANGFUSE_SECRET_KEY" | base64 -w0)"
+          echo "::add-mask::$LANGFUSE_AUTH_STRING"
+          export LANGFUSE_AUTH_STRING
+          ids="$(terraform output -json railway_service_ids)"
+          changed="$RUNNER_TEMP/railway-sync-changed"
+          : > "$changed"
+          sync() {
+            SERVICE_ID="$(jq -er --arg key "$2" '.[$key]' <<<"$ids")"
+            export SERVICE_ID
+            python3 -I ../../../scripts/railway-sync-variables.py --service "$1" --changed-file "$changed" "${@:3}"
+          }
+          sync clickhouse clickhouse
+          sync collector collector
+          sync langfuse-web langfuse_web
+          sync cost-telemetry cost_telemetry
+          sync railway-telemetry railway_telemetry
+          if [[ -s "$changed" || "$GITHUB_RUN_ATTEMPT" != 1 ]]; then
+            sync clickhouse clickhouse --redeploy
+            sync collector collector --redeploy
+            sync hyperdx hyperdx --redeploy
+            sync langfuse-web langfuse_web --redeploy
+            sync langfuse-worker langfuse_worker --redeploy
+            sync railway-telemetry railway_telemetry --redeploy
+            sync cost-telemetry cost_telemetry --redeploy
+          fi
 
       # Provider Update() never sends multiRegionConfig (issue #77).
       - name: Pin Railway observability region
