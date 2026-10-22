@@ -20,7 +20,8 @@ resource "railway_variable_collection" "clickhouse" {
   service_id     = railway_service.clickhouse.id
 
   # clickhouse-cold is Railway-owned (provider 0.6.1 has no bucket resource).
-  # CLICKHOUSE_OTEL_PASSWORD and CLICKHOUSE_LANGFUSE_PASSWORD stay on Railway.
+  # CLICKHOUSE_OTEL_PASSWORD and CLICKHOUSE_LANGFUSE_PASSWORD come from
+  # scripts/railway-sync-variables.mjs.
   variables = [
     {
       name  = "PORT"
@@ -275,6 +276,10 @@ resource "railway_variable_collection" "langfuse_web" {
       value = "https://${local.langfuse_domain}"
     },
     {
+      name  = "NODE_OPTIONS"
+      value = "--no-warnings"
+    },
+    {
       name  = "AUTH_DISABLE_SIGNUP"
       value = "true"
     },
@@ -293,10 +298,6 @@ resource "railway_variable_collection" "langfuse_web" {
     {
       name  = "LANGFUSE_INIT_PROJECT_NAME"
       value = local.langfuse_init_project_name
-    },
-    {
-      name  = "LANGFUSE_INIT_USER_NAME"
-      value = local.langfuse_init_user_name
     },
     {
       name  = "PORT"

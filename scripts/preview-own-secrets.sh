@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Give a Railway PR preview its own secrets. A preview runs branch code that
 # nobody has reviewed, so it must not hold a production secret or the Railway
-# account token of the deploy job. `environment new --duplicate production`
+# workspace token of the deploy job. `environment new --duplicate production`
 # copies the production AUTH_SECRET and CONNECTION_SECRETS_ENCRYPTION_KEY.
 #
 # - AUTH_SECRET and CONNECTION_SECRETS_ENCRYPTION_KEY: new random values on
@@ -10,7 +10,7 @@
 #   the preview.
 # - RAILWAY_TOKEN on the backend (worker wake): a Railway project token that
 #   Railway scopes to this preview environment only. The script never writes
-#   the account token RAILWAY_API_TOKEN into a service variable.
+#   the workspace token RAILWAY_API_TOKEN into a service variable.
 #
 # - The `jwkss` rows: the Neon branch copies the production JWKS keys, whose
 #   private keys the production AUTH_SECRET encrypted. The step deletes them in
@@ -61,7 +61,7 @@ sync_preview_own_secrets() {
     | jq -r '.data.projectTokenCreate // empty')" || wake_token=""
   if [[ -z "$wake_token" ]]; then
     echo "preview-own-secrets: Railway did not create a project token for $PR_ENV (projectTokenCreate)." >&2
-    echo "preview-own-secrets: the backend must not wake the worker with the account token RAILWAY_API_TOKEN, so the deploy stops." >&2
+    echo "preview-own-secrets: the backend must not wake the worker with the workspace token RAILWAY_API_TOKEN, so the deploy stops." >&2
     return 1
   fi
   preview_own_secrets_mask "$wake_token"
