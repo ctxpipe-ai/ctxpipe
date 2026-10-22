@@ -293,7 +293,7 @@ export const PullRequestOpen: Story = {
     await waitFor(async () =>
       expect(await canvas.findByText("Waiting for merge")).toBeVisible(),
     )
-    const link = canvas.getByRole("link", { name: "Pull request #42" })
+    const link = await canvas.findByRole("link", { name: "Pull request #42" })
     await waitFor(() => expect(link).toBeVisible())
     expect(link).toHaveAttribute("href", "https://github.com/acme/docs/pull/42")
     await waitFor(async () => expect(canvas.getByText("a1b2c3d")).toBeVisible())
@@ -333,7 +333,11 @@ export const WaitingForMerge: Story = {
         ),
       ).toBeVisible(),
     )
-    expect(canvas.getByRole("button", { name: /^Check again/ })).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: /^Check again/ }),
+      ).toBeVisible(),
+    )
   },
 }
 
@@ -455,7 +459,9 @@ export const NotesWithDetails: Story = {
       ).not.toBeVisible(),
     )
 
-    await userEvent.click(canvas.getByRole("button", { name: "Details" }))
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Details" }),
+    )
     await waitFor(() =>
       expect(
         canvas.getByText("Not moved: a Slack connection. It has no Workspace."),
@@ -719,7 +725,11 @@ export const FailedServerBusy: Story = {
         ),
       ).toBeVisible(),
     )
-    expect(canvas.getByRole("button", { name: /^Start again/ })).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: /^Start again/ }),
+      ).toBeVisible(),
+    )
   },
 }
 

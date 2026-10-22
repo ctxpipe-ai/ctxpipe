@@ -37,19 +37,21 @@ Product traces, logs, and metrics use public OTLP. `service.name` is `backend`, 
 
 ## Secrets
 
-Railway holds runtime values. Terraform holds references and does not list provider secret names, so apply cannot delete them. For `cost-telemetry`, the protected GitHub `observability` Environment also holds source copies; apply syncs them directly to Railway before connecting the image, without placing their values in Terraform state.
+No secret is set by hand in Railway. The protected GitHub `observability` Environment holds each one, and after each apply [`scripts/railway-sync-variables.mjs`](../../scripts/railway-sync-variables.mjs) writes it straight to the Railway service variables. The values do not enter Terraform inputs, plan output, or state. When a value changes, the apply job redeploys that service and the services that refer to it, in reference order. A re-run or a manual run redeploys every service. Terraform holds the values that are not secret and the references. `NEON_ORG_ID` and `CLOUDFLARE_ACCOUNT_ID` are GitHub variables, not secrets.
 
-| Service | Railway-owned | Terraform wires |
+| Service | GitHub Environment → Railway variable | Terraform wires |
 | --- | --- | --- |
 | clickhouse | `CLICKHOUSE_OTEL_PASSWORD`, `CLICKHOUSE_LANGFUSE_PASSWORD` | cold-bucket references |
-| collector | `HYPERDX_API_KEY`, `LANGFUSE_AUTH_STRING` | `CLICKHOUSE_PASSWORD` = `${{clickhouse.CLICKHOUSE_OTEL_PASSWORD}}` |
+| collector | `HYPERDX_API_KEY`; `LANGFUSE_AUTH_STRING` made from `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` | `CLICKHOUSE_PASSWORD` = `${{clickhouse.CLICKHOUSE_OTEL_PASSWORD}}` |
 | hyperdx | — | ClickHouse password and `HYPERDX_API_KEY` from those services |
-| langfuse-web | `DATABASE_URL`, `DIRECT_URL`, `NEXTAUTH_SECRET`, `SALT`, `ENCRYPTION_KEY`, init user email/password, project public/secret keys | ClickHouse password and the collector OTLP header |
+| langfuse-web | `LANGFUSE_DATABASE_URL` → `DATABASE_URL`, `LANGFUSE_DIRECT_URL` → `DIRECT_URL`, `LANGFUSE_NEXTAUTH_SECRET` → `NEXTAUTH_SECRET`, `LANGFUSE_SALT` → `SALT`, `LANGFUSE_ENCRYPTION_KEY` → `ENCRYPTION_KEY`, `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` → `LANGFUSE_INIT_PROJECT_*_KEY` | ClickHouse password and the collector OTLP header |
 | langfuse-worker | — | database, salt, and encryption key from langfuse-web |
-| railway-telemetry | `RAILWAY_API_TOKEN` | collector OTLP header |
-| cost-telemetry | `OPENROUTER_MANAGEMENT_KEY`, `GITHUB_BILLING_TOKEN`, `BLACKSMITH_TOKEN`, `NEON_API_KEY`, `NEON_ORG_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `RAILWAY_API_TOKEN`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN` (synced from GitHub Environment) | collector OTLP header |
+| railway-telemetry | `TELEMETRY_RAILWAY_WORKSPACE_TOKEN` → `RAILWAY_API_TOKEN` | collector OTLP header |
+| cost-telemetry | `COST_TELEMETRY_*` provider credentials, `TELEMETRY_RAILWAY_WORKSPACE_TOKEN` → `RAILWAY_API_TOKEN` | collector OTLP header |
 
-`LANGFUSE_AUTH_STRING` is `base64(pk:sk)` and must match the Langfuse project keys. `DATABASE_URL` and `DIRECT_URL` include `connection_limit=1&keepalives=0`.
+`DATABASE_URL` and `DIRECT_URL` include `connection_limit=1&keepalives=0`. The product GitHub secret `OBSERVABILITY_OTLP_HEADERS` is `authorization=<HYPERDX_API_KEY>`, so change both together.
+
+Langfuse reads the `LANGFUSE_INIT_PROJECT_*` values only to create a missing API key. It finds the key by its public key. So a key rotation needs a new `LANGFUSE_PUBLIC_KEY` and a new `LANGFUSE_SECRET_KEY` together; then delete the old key in the Langfuse project settings. The sync sets no `LANGFUSE_INIT_USER_*` value and deletes them from `langfuse-web`: Langfuse already has its user. Manage users and passwords in Langfuse. A new `SALT` does not revoke an old key. A new `ENCRYPTION_KEY` makes stored LLM connection keys unreadable: enter them again. While the services restart after a ClickHouse or key rotation, OTLP ingestion and LLM traces stop for a short time.
 
 ## Deploy
 
