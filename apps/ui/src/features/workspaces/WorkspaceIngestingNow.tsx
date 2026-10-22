@@ -66,7 +66,7 @@ export function WorkspaceIngestingNow(props: {
                       <UpgradeRunProgress
                         title={ingestionItemTitle(item)}
                         progress={ingestionProgress(item)}
-                        leaveHint={false}
+                        hideLeaveHint
                       />
                     </li>
                   ))}

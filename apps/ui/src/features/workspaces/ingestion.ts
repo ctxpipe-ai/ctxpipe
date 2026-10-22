@@ -2,7 +2,7 @@ import { queryOptions } from "@tanstack/react-query"
 import type { InferResponseType } from "hono/client"
 import type { UpgradeProgress } from "@/features/workspace-upgrades/upgrade-progress"
 import { type client, getApiClient } from "@/lib/api"
-import { readApiJson } from "@/lib/api-result"
+import { pollWhileOk, readApiJson } from "@/lib/api-result"
 
 type OrgIngestionResponse = InferResponseType<
   (typeof client)[":orgSlug"]["api"]["v1"]["workspace-ingestion"]["$get"],
@@ -28,10 +28,13 @@ const ingestionKeys = {
 
 /**
  * The poll interval: fast while work runs, so the progress moves; slow when
- * the Workspace is idle, so a new run shows in a minute or less.
+ * the Workspace is idle, so a new run shows in a minute or less. A failed
+ * read stops the poll.
  */
-function ingestionPollInterval(active: boolean) {
-  return active ? 5_000 : 60_000
+function ingestionPollInterval(query: {
+  state: { status: string; data?: readonly unknown[] }
+}) {
+  return pollWhileOk(query.state.data?.length ? 5_000 : 60_000)(query)
 }
 
 /** One read for the sidebar: every Workspace of the org that ingests now. */
@@ -48,8 +51,7 @@ export function orgIngestionOptions(orgSlug: string) {
       })
       return body.workspaces
     },
-    refetchInterval: (query) =>
-      ingestionPollInterval(Boolean(query.state.data?.length)),
+    refetchInterval: ingestionPollInterval,
   })
 }
 
@@ -70,8 +72,7 @@ export function workspaceIngestionOptions(
       })
       return body.items
     },
-    refetchInterval: (query) =>
-      ingestionPollInterval(Boolean(query.state.data?.length)),
+    refetchInterval: ingestionPollInterval,
   })
 }
 
@@ -88,30 +89,23 @@ export function ingestingLabel(
   return `Ingesting ${sources} ${sources === 1 ? "source" : "sources"}`
 }
 
-const STAGE_LABELS: Record<IngestionItem["stage"], string> = {
+const STAGE_LABELS: Record<NonNullable<IngestionItem["stage"]>, string> = {
   queued: "Queued. ctxpipe starts the run in a moment.",
   waiting: "Waiting for an earlier run of this repository",
   planning: "Planning the run",
   indexing: "Indexing the code for search",
   ingesting: "Reading the code",
   publishing: "Publishing the knowledge files",
-  syncing: "Syncing the sources",
-  reingesting: "Re-ingesting the sources",
-  hydrating: "Indexing the newest commit…",
 }
 
-/** The title of an item in the "Ingesting now" list. */
+/**
+ * The title of an item in the "Ingesting now" list. The list shows a hydrate
+ * as its own line, so it has no title here.
+ */
 export function ingestionItemTitle(item: IngestionItem): string {
-  switch (item.kind) {
-    case "repository":
-      return item.name
-    case "source_sync":
-      return `${item.name} sources`
-    case "reingest":
-      return "Upgrade re-ingestion"
-    case "hydrate":
-      return "Newest commit"
-  }
+  if (item.kind === "source_sync") return `${item.name} sources`
+  if (item.kind === "reingest") return "Upgrade re-ingestion"
+  return item.name ?? ""
 }
 
 /** The progress of an item, in the shape of the upgrade progress (PR #443). */
@@ -126,7 +120,11 @@ export function ingestionProgress(item: IngestionItem): UpgradeProgress {
         ? "part"
         : "parts"
   return {
-    label: STAGE_LABELS[item.stage],
+    label: item.stage
+      ? STAGE_LABELS[item.stage]
+      : item.kind === "source_sync"
+        ? "Syncing the sources"
+        : "Re-ingesting the sources",
     count: progress
       ? `${progress.done} of ${progress.total} ${unit} done`
       : null,

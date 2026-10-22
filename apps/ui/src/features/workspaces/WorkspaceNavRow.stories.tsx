@@ -101,27 +101,42 @@ const ingestingDocs = {
         id: "run_linear",
         kind: "source_sync",
         name: "Linear",
-        stage: "syncing",
+        stage: null,
         progress: null,
       }),
     ],
   }),
 }
 
-const idleReads: string[] = []
-
-/** No Workspace ingests: no pulse, and the row names only the Workspace. */
+/**
+ * Docs does not ingest: no pulse, and the row names only the Workspace. The
+ * other row ingests, so the play knows that the read is applied.
+ */
 export const NotIngesting: Story = {
+  render: (args) => (
+    <>
+      <WorkspaceNavRow {...args} />
+      <WorkspaceNavRow {...args} workspace={readOnlyWorkspace} />
+    </>
+  ),
   parameters: {
-    msw: { handlers: { ingestion: workspaceIngestionHandlers({}, idleReads) } },
+    msw: {
+      handlers: {
+        ingestion: workspaceIngestionHandlers({
+          handbook: [ingestionItemFixture()],
+        }),
+      },
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByRole("link", { name: "Open Docs" })
-    await waitFor(() => expect(idleReads.length).toBeGreaterThan(0))
-    await expect(
-      canvasElement.querySelector("[data-ingesting]"),
-    ).not.toBeInTheDocument()
+    await canvas.findByRole("link", {
+      name: "Open Handbook. Ingesting 1 source",
+    })
+    await waitFor(() => {
+      const docs = canvas.getByRole("link", { name: "Open Docs" })
+      expect(docs.querySelector("[data-ingesting]")).not.toBeInTheDocument()
+    })
   },
 }
 
@@ -139,9 +154,11 @@ export const Ingesting: Story = {
     const dot = await waitFor(() => {
       const found = row.querySelector<HTMLElement>("[data-ingesting] > span")
       expect(found).not.toBeNull()
+      expect(getComputedStyle(found as HTMLElement).animationName).toBe(
+        "ctx-status-pulse",
+      )
       return found as HTMLElement
     })
-    await expect(getComputedStyle(dot).animationName).toBe("ctx-status-pulse")
     await userEvent.hover(dot)
     await waitFor(() =>
       expect(
@@ -153,11 +170,17 @@ export const Ingesting: Story = {
   },
 }
 
-/** With reduced motion the dot stays, but it does not pulse. */
+/**
+ * With reduced motion the dot stays, but it does not pulse. The golden
+ * runner opens this story with `prefers-reduced-motion: reduce`.
+ */
 export const IngestingReducedMotion: Story = {
-  tags: ["reduced-motion"],
+  tags: ["workspace-golden", "reduced-motion"],
   parameters: { msw: { handlers: ingestingDocs } },
   play: async ({ canvasElement }) => {
+    expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(
+      true,
+    )
     const canvas = within(canvasElement)
     const row = await canvas.findByRole("link", {
       name: "Open Docs. Ingesting 2 sources",
@@ -165,12 +188,7 @@ export const IngestingReducedMotion: Story = {
     await waitFor(() => {
       const dot = row.querySelector<HTMLElement>("[data-ingesting] > span")
       expect(dot).not.toBeNull()
-      if (!dot) return
-      const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches
-      // The CI runner emulates reduced motion for this tag.
-      expect(getComputedStyle(dot).animationName).toBe(
-        reduced ? "none" : "ctx-status-pulse",
-      )
+      expect(getComputedStyle(dot as HTMLElement).animationName).toBe("none")
     })
   },
 }

@@ -56,6 +56,7 @@ export const requiredStories = [
   "FailedTouchIsCaught",
   "OrgGateTryAgainLoads",
   "LoadingUnderReducedMotion",
+  "IngestingReducedMotion",
   "DoubleClickMovesOneSlide",
   "AdminFlowCreateOrgLandsOnHome",
   "JoinerFinishLandsInApp",

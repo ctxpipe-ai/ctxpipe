@@ -21,13 +21,13 @@ const IngestionItemSchema = z
       description:
         "`repository`: an ingestion run of a source repository. `source_sync`: a sync of the sources of a connection. `reingest`: an upgrade re-ingestion. `hydrate`: ctxpipe reads the newest commit of the Workspace; only when it takes longer than 30 s.",
     }),
-    name: z.string().openapi({
+    name: z.string().nullable().openapi({
       description:
-        "`owner/name` of a repository, the provider of a sync, or the upgrade key of a re-ingestion.",
+        "`owner/name` of a repository, the provider of a sync, or the upgrade key of a re-ingestion. Null for a hydrate.",
     }),
-    stage: z.enum(INGESTION_STAGES).openapi({
+    stage: z.enum(INGESTION_STAGES).nullable().openapi({
       description:
-        "`waiting`: the run waits for an earlier run of the same repository. The other stages tell what the run does now.",
+        "The stage of a repository run. `indexing`: ctxpipe indexes the code for search. `waiting`: the run waits for an earlier run of the same repository. The other stages tell what the run does now. Null for the other kinds.",
     }),
     progress: z
       .object({
@@ -95,8 +95,10 @@ export const workspaceIngestionRoutes = new OpenAPIHono<AppEnv>().openapi(
       c.req.valid("param").workspaceSlug,
     )
     if (!workspace) return c.json({ error: "Not found" }, 404)
-    const items = await listActiveIngestion(orgId, [workspace.id])
-    return c.json({ items: items.get(workspace.id) ?? [] }, 200)
+    return c.json(
+      { items: await listActiveIngestion(orgId, workspace.id) },
+      200,
+    )
   },
 )
 

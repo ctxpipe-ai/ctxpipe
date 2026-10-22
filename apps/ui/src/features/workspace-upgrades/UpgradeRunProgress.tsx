@@ -11,7 +11,7 @@ export function UpgradeRunProgress(props: {
   title: string
   progress: UpgradeProgress
   /** A list of several runs says this one time, not on each run. */
-  leaveHint?: boolean
+  hideLeaveHint?: boolean
 }) {
   const { progress } = props
   const now = useNow(progress.since !== null)
@@ -57,7 +57,7 @@ export function UpgradeRunProgress(props: {
             .{" "}
           </>
         ) : null}
-        {props.leaveHint === false
+        {props.hideLeaveHint
           ? null
           : "You can leave this page. The work continues, and this card shows its state when you come back."}
       </p>

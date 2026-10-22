@@ -73,7 +73,7 @@ export const ConnectorSync: Story = {
       id: "run_linear",
       kind: "source_sync",
       name: "Linear",
-      stage: "syncing",
+      stage: null,
       progress: null,
       minutesAgo: 1,
     }),
@@ -118,8 +118,8 @@ export const SlowHydrate: Story = {
     ingestionItemFixture({
       id: "run_hydrate",
       kind: "hydrate",
-      name: "Newest commit",
-      stage: "hydrating",
+      name: null,
+      stage: null,
       progress: null,
       minutesAgo: 1,
     }),
@@ -127,6 +127,8 @@ export const SlowHydrate: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Indexing the newest commit…")
-    await expect(canvas.queryByRole("list")).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(canvas.queryByRole("list")).not.toBeInTheDocument(),
+    )
   },
 }

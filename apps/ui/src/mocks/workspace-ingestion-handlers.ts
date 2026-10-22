@@ -30,16 +30,13 @@ export function workspaceIngestionHandlers(
   state:
     | Record<string, IngestionItem[]>
     | (() => Record<string, IngestionItem[]>),
-  /** Each answered request path, so a play can wait for the read. */
-  answered?: string[],
 ) {
   const read = () => (typeof state === "function" ? state() : state)
   return [
     http.get(
       ({ request }) => pathnameOf(request).endsWith("/workspace-ingestion"),
-      ({ request }) => {
-        answered?.push(pathnameOf(request))
-        return HttpResponse.json({
+      () =>
+        HttpResponse.json({
           workspaces: Object.entries(read())
             .filter(([, items]) => items.length > 0)
             .map(([workspaceSlug, items]) => ({
@@ -47,14 +44,12 @@ export function workspaceIngestionHandlers(
               sources: items.filter((item) => item.kind !== "hydrate").length,
               hydrating: items.some((item) => item.kind === "hydrate"),
             })),
-        })
-      },
+        }),
     ),
     http.get(
       ({ request }) =>
         /\/workspaces\/[^/]+\/ingestion$/.test(pathnameOf(request)),
       ({ request }) => {
-        answered?.push(pathnameOf(request))
         const slug = pathnameOf(request).split("/").at(-2) ?? ""
         return HttpResponse.json({ items: read()[slug] ?? [] })
       },
