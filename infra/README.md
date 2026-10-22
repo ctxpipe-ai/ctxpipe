@@ -116,25 +116,14 @@ PR deploys are driven by `.github/workflows/pr-deploy.yaml`:
 
 ## Connection secrets key
 
-The backend and the worker encrypt the stored connection secrets (integration tokens, OAuth client secrets, webhook secrets, sandbox Git tokens) with `CONNECTION_SECRETS_ENCRYPTION_KEY`. The module sets it from the GitHub secret `CONNECTION_SECRETS_ENCRYPTION_KEY` of the `production` environment (64 hex characters, `openssl rand -hex 32`). Thus a rotation of `AUTH_SECRET` does not change this key. The PR plan gets a placeholder.
+The module sets `CONNECTION_SECRETS_ENCRYPTION_KEY` on backend and worker from the GitHub secret of the same name in `production` (`openssl rand -hex 32`). Without it, the key comes from `AUTH_SECRET`. The PR plan gets a placeholder.
 
-To change the key, or to move from the key that `AUTH_SECRET` made:
+To move the stored connection secrets to a new key:
 
-1. Stop the backend and the worker. Do not merge to `main` until step 5: each Deploy starts the stopped services again.
-2. Make the new key (`openssl rand -hex 32`). Use this same value in each step below.
-3. In Railway, set `CONNECTION_SECRETS_ENCRYPTION_KEY` to the new key on the `backend` and `openworkflow` services of `production`. Apply the change without a redeploy (for example `railway variables --set … --skip-deploys`, or deploy the staged change while the services stay stopped). Then make sure that the variable shows as set, not as staged. The Deploy workflow starts the new images before Terraform Apply sets the variables. Without this step, the services start with the old key and write new values with it.
-4. Run a dry run, then run it again with `--apply`. Use the owner database URL, because row-level security hides every row from `ctxpipe_app`. `read -s` keeps the values out of the shell history:
-
-   ```bash
-   read -rs DATABASE_URL; export DATABASE_URL                # owner URL
-   read -rs OLD_AUTH_SECRET; export OLD_AUTH_SECRET          # the AUTH_SECRET that made the current key
-   read -rs NEW_CONNECTION_SECRETS_ENCRYPTION_KEY; export NEW_CONNECTION_SECRETS_ENCRYPTION_KEY
-   pnpm --filter @ctxpipe/backend reencrypt-connection-secrets            # dry run
-   pnpm --filter @ctxpipe/backend reencrypt-connection-secrets --apply
-   ```
-
-   When the current key is an explicit key, set `OLD_CONNECTION_SECRETS_ENCRYPTION_KEY` in place of `OLD_AUTH_SECRET`. One transaction holds all rows. When a value decrypts with neither key, the script changes nothing and names each location. A second run changes nothing.
-5. Set the same key in the GitHub secret `CONNECTION_SECRETS_ENCRYPTION_KEY` of `production`. Then push to `main`, or run again the latest push run of Deploy. "Run workflow" (`workflow_dispatch`) skips the Terraform job.
+1. Stop backend and worker. Do not merge to `main` until step 4.
+2. In Railway, set the new key on `backend` and `openworkflow` without a redeploy. Deploy starts the images before Terraform sets variables.
+3. From `apps/backend`, with `DATABASE_URL` (owner URL), `OLD_AUTH_SECRET` and `NEW_CONNECTION_SECRETS_ENCRYPTION_KEY` exported, run `bun run src/scripts/reencryptConnectionSecrets.ts`, then the same with `--apply`.
+4. Set the same key in the GitHub secret, then push to `main`. "Run workflow" skips Terraform.
 
 ## PR Terraform plans (GitHub Actions)
 

@@ -1,64 +1,67 @@
 /**
- * Re-encrypts the stored connection secrets (integration tokens, OAuth client
- * secrets, webhook secrets, sandbox Git tokens) from an old key to a new key.
- * Run it while the backend and the worker are stopped. Procedure:
- * infra/README.md, "Connection secrets key".
- *
- * Environment: DATABASE_URL (owner URL), OLD_AUTH_SECRET (the AUTH_SECRET
- * that made the current key), NEW_CONNECTION_SECRETS_ENCRYPTION_KEY (64 hex
- * characters).
+ * One-off: re-encrypt the stored connection secrets from the key that
+ * OLD_AUTH_SECRET makes to NEW_CONNECTION_SECRETS_ENCRYPTION_KEY. Run it with
+ * the backend and the worker stopped, as the database owner (row-level
+ * security hides every row from ctxpipe_app). Without --apply, it rolls back.
  *
  *   bun run src/scripts/reencryptConnectionSecrets.ts [--apply]
- *
- * When the current key is an explicit key, set OLD_CONNECTION_SECRETS_ENCRYPTION_KEY
- * in place of OLD_AUTH_SECRET. Use the owner role (for example neondb_owner):
- * row-level security hides every row from ctxpipe_app. Without --apply, it
- * decrypts each value and rolls back. It prints a JSON report with counts
- * only, never a value.
  */
-import { Pool } from "pg"
-import { ownerUrlForMigrate } from "../db/owner-migrate-url.js"
-import { reencryptConnectionSecrets } from "../db/reencrypt-connection-secrets.js"
+import { Client } from "pg"
+import type { Env } from "../config/env.js"
+import {
+  decryptConnectionSecret,
+  encryptConnectionSecret,
+} from "../lib/connection-secrets.js"
 
-const databaseUrl = process.env.DATABASE_URL
-const oldKey = process.env.OLD_CONNECTION_SECRETS_ENCRYPTION_KEY
-const oldAuthSecret = process.env.OLD_AUTH_SECRET
-const newKey = process.env.NEW_CONNECTION_SECRETS_ENCRYPTION_KEY
-if (!databaseUrl) throw new Error("Set DATABASE_URL to the owner URL")
-if (!oldKey && !oldAuthSecret) {
-  throw new Error(
-    "Set OLD_AUTH_SECRET or OLD_CONNECTION_SECRETS_ENCRYPTION_KEY",
-  )
-}
-const hexKey = /^[0-9a-fA-F]{64}$/
-if (oldKey && !hexKey.test(oldKey)) {
-  throw new Error(
-    "OLD_CONNECTION_SECRETS_ENCRYPTION_KEY must be 64 hex characters",
-  )
-}
-if (!newKey || !hexKey.test(newKey)) {
-  throw new Error(
-    "Set NEW_CONNECTION_SECRETS_ENCRYPTION_KEY to 64 hex characters (openssl rand -hex 32)",
-  )
+const from = { AUTH_SECRET: process.env.OLD_AUTH_SECRET } as Env
+const to = {
+  CONNECTION_SECRETS_ENCRYPTION_KEY:
+    process.env.NEW_CONNECTION_SECRETS_ENCRYPTION_KEY,
+} as Env
+
+function reencrypt(value: unknown): unknown {
+  if (typeof value === "string" && value.startsWith("ctxv1:")) {
+    return encryptConnectionSecret(decryptConnectionSecret(value, from), to)
+  }
+  if (Array.isArray(value)) return value.map(reencrypt)
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, reencrypt(item)]),
+    )
+  }
+  return value
 }
 
-const url = new URL(ownerUrlForMigrate(databaseUrl))
-const pool = new Pool({ connectionString: url.toString(), max: 1 })
-const client = await pool.connect()
+const apply = process.argv.includes("--apply")
+const db = new Client({ connectionString: process.env.DATABASE_URL })
+await db.connect()
 try {
-  const report = await reencryptConnectionSecrets({
-    client,
-    from: {
-      AUTH_SECRET: oldAuthSecret ?? "",
-      CONNECTION_SECRETS_ENCRYPTION_KEY: oldKey,
-    },
-    to: { AUTH_SECRET: "", CONNECTION_SECRETS_ENCRYPTION_KEY: newKey },
-    apply: process.argv.includes("--apply"),
-  })
-  process.stdout.write(
-    `${JSON.stringify({ database: `${url.host}${url.pathname}`, ...report }, null, 2)}\n`,
+  await db.query("begin")
+  const connections = await db.query(
+    "select id, config from connections for update",
   )
+  for (const row of connections.rows) {
+    await db.query("update connections set config = $2 where id = $1", [
+      row.id,
+      reencrypt(row.config),
+    ])
+  }
+  const tokens = await db.query(
+    "select sandbox_id, token_ciphertext from workspace_sandbox_git_tokens for update",
+  )
+  for (const row of tokens.rows) {
+    await db.query(
+      "update workspace_sandbox_git_tokens set token_ciphertext = $2 where sandbox_id = $1",
+      [row.sandbox_id, reencrypt(row.token_ciphertext)],
+    )
+  }
+  await db.query(apply ? "commit" : "rollback")
+  process.stdout.write(
+    `${connections.rowCount} connections, ${tokens.rowCount} sandbox tokens${apply ? "" : " (dry run, rolled back)"}\n`,
+  )
+} catch (error) {
+  await db.query("rollback")
+  throw error
 } finally {
-  client.release()
-  await pool.end()
+  await db.end()
 }
