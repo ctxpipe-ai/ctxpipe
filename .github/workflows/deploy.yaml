@@ -212,7 +212,7 @@ jobs:
         timeout-minutes: 20
         working-directory: ${{ github.workspace }}/apps/backend
         env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           set -euo pipefail
           DATABASE_APP_PASSWORD="$(terraform -chdir="$GITHUB_WORKSPACE/infra" output -raw ctxpipe_app_password)"
