@@ -7,7 +7,9 @@
 # GitHub App, Vercel and the OTLP header.
 #
 # Uses the caller's railway_graphql. Writes with skipDeploys: the roll deploys
-# each service after this. Never prints a value.
+# each app service after this. FalkorDB is not in every roll, so it redeploys
+# here when its password changed; else the apps would get a password that
+# FalkorDB does not use yet. Never prints a value.
 set -euo pipefail
 
 sync_preview_secrets() {
@@ -30,7 +32,9 @@ sync_preview_secrets() {
     "openworkflow:$WORKER_SERVICE_ID" "codesearch:$CODESEARCH_SERVICE_ID" "ui:$UI_SERVICE_ID"; do
     service="${pair%%:*}"
     service_id="${pair#*:}"
+    local redeploy=()
+    [[ "$service" == falkordb ]] && redeploy=(--redeploy-on-change)
     PROJECT_ID="$RAILWAY_PROJECT_ID" ENVIRONMENT_ID="$ENV_ID" SERVICE_ID="$service_id" \
-      python3 -I "$script" --service "$service" --preview
+      python3 -I "$script" --service "$service" --preview "${redeploy[@]}"
   done
 }
