@@ -206,8 +206,11 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
-        run: terraform plan -no-color -input=false -lock=false -out=terraform.plan | tee plan.txt
+          # The plan runs PR branch code, so it gets no Railway token.
+          # -refresh=false compares the code with the state and calls no
+          # provider API; the provider needs only a non-empty token to start.
+          RAILWAY_TOKEN: pr-plan-no-access
+        run: terraform plan -refresh=false -no-color -input=false -lock=false -out=terraform.plan | tee plan.txt
 
       - name: Refuse plans that delete resources
         env:

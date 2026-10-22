@@ -65,8 +65,12 @@ jobs:
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
-          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          # The plan runs PR branch code, so it gets no Railway or Neon token.
+          # -refresh=false compares the code with the state and calls no
+          # provider API; the providers need only a non-empty token to start.
+          # Drift shows in the deploy plan.
+          RAILWAY_TOKEN: pr-plan-no-access
+          NEON_API_KEY: pr-plan-no-access
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
           timeout_minutes: 10
@@ -74,7 +78,7 @@ jobs:
           command: |
             set -euo pipefail
             cd "${GITHUB_WORKSPACE}/infra"
-            terraform plan -no-color -input=false > "${GITHUB_WORKSPACE}/infra/plan.txt"
+            terraform plan -refresh=false -no-color -input=false > "${GITHUB_WORKSPACE}/infra/plan.txt"
 
       - name: Generate Terraform Plan Comment
         if: always()
