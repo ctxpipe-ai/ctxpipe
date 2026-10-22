@@ -225,8 +225,11 @@ jobs:
       # Terraform inputs or state (scripts/railway-sync-variables.py). The app
       # services do not redeploy here: the next step deploys them on the new
       # image, and when a value changed it deploys them even when they already
-      # run that image, so a re-run applies a rotated secret. FalkorDB is not
-      # in that step, so it redeploys here, first.
+      # run that image, so a re-run applies a rotated secret. A re-run of a
+      # failed attempt forces it too: that attempt may have changed values
+      # that this one finds equal. FalkorDB is not in that step, so it
+      # redeploys here, last: a failure in an app service changes nothing on
+      # FalkorDB.
       - name: Sync production secrets to Railway
         id: sync
         working-directory: ${{ github.workspace }}
@@ -267,12 +270,14 @@ jobs:
             export SERVICE_ID
             python3 -I scripts/railway-sync-variables.py --service "$1" --changed-file "$changed" "${@:3}"
           }
-          sync falkordb falkordb --redeploy-on-change
           sync backend backend
           sync openworkflow open_workflow
           sync codesearch code_search
           sync ui ui
-          if [[ -s "$changed" ]]; then echo "force_deploy=1" >> "$GITHUB_OUTPUT"; fi
+          sync falkordb falkordb --redeploy-on-change
+          if [[ -s "$changed" || "$GITHUB_RUN_ATTEMPT" != 1 ]]; then
+            echo "force_deploy=1" >> "$GITHUB_OUTPUT"
+          fi
 
       # Provider Update() serviceConnects the image for every environment and
       # redeploys previews. App image tags are ignore_changes; this step

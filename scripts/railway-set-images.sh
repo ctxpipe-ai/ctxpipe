@@ -98,7 +98,7 @@ deploy_service() {
 railway_deploy_failed() {
   echo "Railway did not start a deployment of $1 ($2) in $ENVIRONMENT_NAME ($ENV_ID) at $IMAGE_TAG." >&2
   echo "Cause: Railway refused serviceInstanceDeployV2 (see the error above). \"Problem processing request\" is usually a Railway incident, for example paused builds or deploys: https://status.railway.com" >&2
-  echo "Fix: when Railway is healthy, re-run the failed jobs of this Deploy run. The re-run deploys each service whose running deployment is not $IMAGE_TAG." >&2
+  echo "Fix: when Railway is healthy, re-run the failed jobs of this Deploy run. The re-run deploys each service again (FORCE_DEPLOY), also one that already runs $IMAGE_TAG." >&2
 }
 
 wait_deploy() {
@@ -171,7 +171,7 @@ echo "Deploying Railway $ENVIRONMENT_NAME ($ENV_ID) images at $IMAGE_TAG"
 
 # Stateless services first. Codesearch has a volume; an image change does not
 # copy it, but it still restarts the single replica.
-for name in backend ui openworkflow codesearch; do
+for name in backend openworkflow ui codesearch; do
   deploy_image "$name"
 done
 

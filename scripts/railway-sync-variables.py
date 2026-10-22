@@ -160,6 +160,9 @@ def main():
                        "serviceId": service_id, "variables": changed, "skipDeploys": True}},
             token,
         )
+    # variableDelete has no skipDeploys, so a delete can redeploy the service
+    # on its current image. It happens only when an optional connector is
+    # turned off, and the service then starts without it.
     for name in removed:
         graphql(
             "mutation variableDelete($input: VariableDeleteInput!) { variableDelete(input: $input) }",
