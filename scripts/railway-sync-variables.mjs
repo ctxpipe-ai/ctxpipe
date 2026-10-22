@@ -102,6 +102,9 @@ const OPTIONAL = new Set([
   "COST_TELEMETRY_AWS_SESSION_TOKEN",
   "BETTER_AUTH_API_KEY",
   "CONFLUENCE_FORGE_INSTALL_URL",
+  // Optional for now: production has no value yet. Without it, the backend
+  // refuses each Notion webhook that has no stored verification token.
+  "NOTION_WEBHOOK_SECRET",
 ])
 // Variables that no code uses any more. The sync deletes them from each
 // service it writes.
