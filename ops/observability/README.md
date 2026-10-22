@@ -37,9 +37,9 @@ Product traces, logs, and metrics use public OTLP. `service.name` is `backend`, 
 
 ## Secrets
 
-No secret is set by hand in Railway. The protected GitHub `observability` Environment holds each one, and after each apply [`scripts/railway-sync-variables.py`](../../scripts/railway-sync-variables.py) writes it straight to the Railway service variables. The values do not enter Terraform inputs, plan output, or state. When a value changes, or on a re-run, the apply job redeploys the services in reference order. Terraform holds the values that are not secret and the references.
+No secret is set by hand in Railway. The protected GitHub `observability` Environment holds each one, and after each apply [`scripts/railway-sync-variables.py`](../../scripts/railway-sync-variables.py) writes it straight to the Railway service variables. The values do not enter Terraform inputs, plan output, or state. When a value changes, the apply job redeploys that service and the services that refer to it, in reference order. A re-run or a manual run redeploys every service. Terraform holds the values that are not secret and the references. `NEON_ORG_ID` and `CLOUDFLARE_ACCOUNT_ID` are GitHub variables, not secrets.
 
-| Service | GitHub secret → Railway variable | Terraform wires |
+| Service | GitHub Environment → Railway variable | Terraform wires |
 | --- | --- | --- |
 | clickhouse | `CLICKHOUSE_OTEL_PASSWORD`, `CLICKHOUSE_LANGFUSE_PASSWORD` | cold-bucket references |
 | collector | `HYPERDX_API_KEY`; `LANGFUSE_AUTH_STRING` made from `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` | `CLICKHOUSE_PASSWORD` = `${{clickhouse.CLICKHOUSE_OTEL_PASSWORD}}` |
@@ -51,7 +51,7 @@ No secret is set by hand in Railway. The protected GitHub `observability` Enviro
 
 `DATABASE_URL` and `DIRECT_URL` include `connection_limit=1&keepalives=0`. The product GitHub secret `OBSERVABILITY_OTLP_HEADERS` is `authorization=<HYPERDX_API_KEY>`, so change both together.
 
-Langfuse reads the `LANGFUSE_INIT_*` values only to create a missing user and API key. After a key rotation, delete the old API key in the Langfuse project settings. A new `LANGFUSE_INIT_USER_PASSWORD` does not change the password of the existing user: change it in Langfuse. A new `SALT` makes each old API key invalid. A new `ENCRYPTION_KEY` makes stored LLM connection keys unreadable: enter them again.
+Langfuse reads the `LANGFUSE_INIT_*` values only to create a missing user and API key. It finds the key by its public key. So a key rotation needs a new `LANGFUSE_PUBLIC_KEY` and a new `LANGFUSE_SECRET_KEY` together; then delete the old key in the Langfuse project settings. A new `LANGFUSE_INIT_USER_PASSWORD` does not change the password of the existing user: change it in Langfuse. A new `SALT` does not revoke an old key. A new `ENCRYPTION_KEY` makes stored LLM connection keys unreadable: enter them again. While the services restart after a ClickHouse or key rotation, OTLP ingestion and LLM traces stop for a short time.
 
 ## Deploy
 

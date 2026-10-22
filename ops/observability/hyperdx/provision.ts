@@ -2,7 +2,7 @@
  * Idempotent upsert of HyperDX dashboards and saved searches.
  *
  * Runs in the observability workflow after every apply on main. Locally, from the repo root:
- *   HYPERDX_ACCESS_KEY=... bun ops/observability/hyperdx/provision.ts
+ *   HYPERDX_ACCESS_KEY=... CLICKHOUSE_OTEL_PASSWORD=... bun ops/observability/hyperdx/provision.ts
  *
  * Typecheck (no API calls): pnpm --filter hyperdx typecheck
  *
@@ -16,8 +16,9 @@
  */
 const apiUrl = "https://hyperdx.ctxpipe.ai/api";
 const accessKey = process.env.HYPERDX_ACCESS_KEY;
-if (!accessKey) {
-  console.error("HYPERDX_ACCESS_KEY is required");
+const clickhousePassword = process.env.CLICKHOUSE_OTEL_PASSWORD;
+if (!accessKey || !clickhousePassword) {
+  console.error("HYPERDX_ACCESS_KEY and CLICKHOUSE_OTEL_PASSWORD are required");
   process.exit(1);
 }
 
@@ -168,6 +169,24 @@ const connectionsResponse = await api("GET", "/api/v2/connections");
 if (connectionsResponse.status !== 200) fail("GET /api/v2/connections", connectionsResponse.status, connectionsResponse.json);
 const connectionsByName = namesById(unwrapList(connectionsResponse.json));
 console.log(`connections: ${[...connectionsByName.keys()].sort().join(", ") || "(none)"}`);
+
+// HyperDX keeps the ClickHouse password of a connection in its own database:
+// DEFAULT_CONNECTIONS seeds it only for a new team. Set it on each run, so a
+// rotation of CLICKHOUSE_OTEL_PASSWORD reaches HyperDX. The API never returns
+// the password.
+const clickhouseConnection = unwrapList(connectionsResponse.json).find(
+  (item) => isRecord(item) && item.name === "ctxpipe ClickHouse",
+);
+if (!isRecord(clickhouseConnection) || typeof clickhouseConnection.id !== "string") {
+  fail("Find connection ctxpipe ClickHouse", connectionsResponse.status, connectionsResponse.json);
+}
+const { id: clickhouseConnectionId, ...clickhouseConnectionBody } = clickhouseConnection;
+const passwordUpdate = await api("PUT", `/api/v2/connections/${clickhouseConnectionId}`, {
+  ...clickhouseConnectionBody,
+  password: clickhousePassword,
+});
+if (passwordUpdate.status !== 200) fail("PUT /api/v2/connections (password)", passwordUpdate.status, passwordUpdate.json);
+console.log("connection ctxpipe ClickHouse: password set");
 
 const sourcesResponse = await api("GET", "/api/v2/sources");
 if (sourcesResponse.status !== 200) fail("GET /api/v2/sources", sourcesResponse.status, sourcesResponse.json);

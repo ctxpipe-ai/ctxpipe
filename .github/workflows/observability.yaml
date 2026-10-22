@@ -326,10 +326,12 @@ jobs:
 
       # Every observability secret comes from this environment, never from a
       # value set by hand in Railway (scripts/railway-sync-variables.py).
-      # Write each value first. Then, when one changed or this is a re-run,
-      # redeploy in the order of the references: ClickHouse, the collector
-      # (its HYPERDX_API_KEY is in every OTLP header), HyperDX, Langfuse, and
-      # the telemetry services.
+      # Write each value first, then redeploy in the order of the references.
+      # A change on ClickHouse or the collector (its HYPERDX_API_KEY is in
+      # every OTLP header) redeploys every service. A change on one other
+      # service redeploys it and the services that refer to it. A re-run or a
+      # manual run redeploys every service: an earlier run may have written
+      # the values and then failed to redeploy.
       - name: Sync observability secrets to Railway
         env:
           CLICKHOUSE_OTEL_PASSWORD: ${{ secrets.CLICKHOUSE_OTEL_PASSWORD }}
@@ -365,15 +367,24 @@ jobs:
           sync langfuse-web langfuse_web
           sync cost-telemetry cost_telemetry
           sync railway-telemetry railway_telemetry
-          if [[ -s "$changed" || "$GITHUB_RUN_ATTEMPT" != 1 ]]; then
-            sync clickhouse clickhouse --redeploy
-            sync collector collector --redeploy
-            sync hyperdx hyperdx --redeploy
-            sync langfuse-web langfuse_web --redeploy
-            sync langfuse-worker langfuse_worker --redeploy
-            sync railway-telemetry railway_telemetry --redeploy
-            sync cost-telemetry cost_telemetry --redeploy
+          has() { grep -qx "$1" "$changed"; }
+          if [[ "$GITHUB_RUN_ATTEMPT" != 1 || "$GITHUB_EVENT_NAME" == workflow_dispatch ]] || has clickhouse || has collector; then
+            all=1
+          else
+            all=0
           fi
+          redeploy() { sync "$1" "$2" --redeploy; }
+          if (( all )); then
+            redeploy clickhouse clickhouse
+            redeploy collector collector
+            redeploy hyperdx hyperdx
+          fi
+          if (( all )) || has langfuse-web; then
+            redeploy langfuse-web langfuse_web
+            redeploy langfuse-worker langfuse_worker
+          fi
+          if (( all )) || has railway-telemetry; then redeploy railway-telemetry railway_telemetry; fi
+          if (( all )) || has cost-telemetry; then redeploy cost-telemetry cost_telemetry; fi
 
       # Provider Update() never sends multiRegionConfig (issue #77).
       - name: Pin Railway observability region
@@ -389,6 +400,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           HYPERDX_ACCESS_KEY: ${{ secrets.HYPERDX_ACCESS_KEY }}
+          CLICKHOUSE_OTEL_PASSWORD: ${{ secrets.CLICKHOUSE_OTEL_PASSWORD }}
         run: |
           for _ in $(seq 1 36); do
             curl -fsS -o /dev/null --max-time 10 https://hyperdx.ctxpipe.ai/ && break

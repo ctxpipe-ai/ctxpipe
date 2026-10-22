@@ -17,7 +17,7 @@ A security incident on Railway required a rotation of every secret.
 1. **The GitHub Environment is the only source of each secret.** `production` holds the product secrets. `observability` holds the observability secrets. No secret is set by hand in Railway.
 2. **One script writes them to Railway.** `scripts/railway-sync-variables.py` maps each GitHub secret to the variables of each Railway service and writes it with the Railway API. An empty optional secret is deleted from the service.
 3. **Terraform holds no secret value.** It holds the values that are not secret and the Railway references (`${{service.VARIABLE}}`). A value that Terraform itself makes, such as a database password, is the only secret in the state.
-4. **The deploy applies a change.** The product deploy writes the secrets before the new images start. The observability apply writes them after Terraform. When a value changes, or on a re-run, the deploy redeploys the services that read it, in the order of their references.
+4. **The deploy applies a change.** The product deploy writes the secrets before the new images start. The observability apply writes them after Terraform. When a value changes, the deploy redeploys the services that read it, in the order of their references. A re-run redeploys every such service.
 5. **Each environment holds its own value.** `production` and `Preview` never share a credential (see `AGENTS.md`).
 
 ## Consequences
