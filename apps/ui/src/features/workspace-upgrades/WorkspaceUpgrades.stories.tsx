@@ -333,9 +333,11 @@ export const WaitingForMerge: Story = {
         ),
       ).toBeVisible(),
     )
-    expect(
-      await canvas.findByRole("button", { name: /^Check again/ }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: /^Check again/ }),
+      ).toBeVisible(),
+    )
   },
 }
 
@@ -723,9 +725,11 @@ export const FailedServerBusy: Story = {
         ),
       ).toBeVisible(),
     )
-    expect(
-      await canvas.findByRole("button", { name: /^Start again/ }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: /^Start again/ }),
+      ).toBeVisible(),
+    )
   },
 }
 
