@@ -23,6 +23,31 @@ const envSchema = z.object({
       .regex(/^[0-9a-fA-F]{64}$/)
       .optional(),
   ),
+  /**
+   * Keys that encrypted the stored connector secrets before a key change,
+   * comma separated. Each entry is a 64-hex key or `auth-secret:<old
+   * AUTH_SECRET>`. Decrypt tries them after the current key.
+   * `secrets:reencrypt` moves the stored values to the current key.
+   */
+  CONNECTION_SECRETS_PREVIOUS_KEYS: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z
+      .string()
+      .refine(
+        (v) =>
+          v
+            .split(",")
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+            .every(
+              (entry) =>
+                /^[0-9a-fA-F]{64}$/.test(entry) ||
+                /^auth-secret:.{32,}$/.test(entry),
+            ),
+        "Each entry must be 64 hex characters or auth-secret:<old AUTH_SECRET>",
+      )
+      .optional(),
+  ),
   GITHUB_CLIENT_ID: z.string().min(1).optional(),
   GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
   GOOGLE_CLIENT_ID: z.string().min(1).optional(),
