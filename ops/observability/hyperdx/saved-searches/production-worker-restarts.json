@@ -10,7 +10,7 @@
       "type": "sql",
       "condition": "ResourceAttributes['deployment.environment'] IN ('production')"
     },
-    { "type": "sql", "condition": "ServiceName = 'openworkflow'" }
+    { "type": "sql", "condition": "ServiceName IN ('openworkflow')" }
   ],
   "tags": ["ctxpipe", "production"]
 }
