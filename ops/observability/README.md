@@ -1,6 +1,6 @@
-# ctxpipe-observability
+# observability
 
-Internal ClickStack (HyperDX + ClickHouse) and Langfuse. Railway project `ctxpipe-observability` (`305aa114-c6f3-4aca-b883-0faa9c331aa2`), `has_pr_deploys = false`, region `us-east4-eqdc4a`. Not the product project. Product apps export OTLP to `https://telemetry.ctxpipe.ai`. Decision: [ADR-038](../../.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md).
+Internal ClickStack (HyperDX + ClickHouse) and Langfuse. Railway project `observability` (`305aa114-c6f3-4aca-b883-0faa9c331aa2`), `has_pr_deploys = false`, region `us-east4-eqdc4a`. Not the product project. Product apps export OTLP to `https://telemetry.ctxpipe.ai`. Decision: [ADR-038](../../.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md).
 
 Querying: [USING.md](./USING.md). Deploy: [terraform/README.md](./terraform/README.md).
 

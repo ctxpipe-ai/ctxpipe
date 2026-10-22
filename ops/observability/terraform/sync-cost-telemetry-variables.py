@@ -30,7 +30,7 @@ def graphql(query, variables, token):
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "User-Agent": "ctxpipe-observability-ci/1.0",
+            "User-Agent": "observability-ci/1.0",
         },
     )
     try:

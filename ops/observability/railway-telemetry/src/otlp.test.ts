@@ -205,7 +205,7 @@ describe("mapMetricsToOtlp", () => {
 
     const obs = mapMetricsToOtlp({
       projectId: OBSERVABILITY_PROJECT_ID,
-      projectName: "ctxpipe-observability",
+      projectName: "observability",
       environmentId: "env-obs",
       railwayEnvironmentName: "production",
       serviceNames: { ch: "clickhouse" },
@@ -222,7 +222,7 @@ describe("mapMetricsToOtlp", () => {
     expect(attr(attributes, "service.name")).toBe("clickhouse")
     expect(attr(attributes, "service.namespace")).toBe("ctxpipe")
     expect(attr(attributes, "deployment.environment")).toBe("observability")
-    expect(attr(attributes, "railway.project")).toBe("ctxpipe-observability")
+    expect(attr(attributes, "railway.project")).toBe("observability")
     expect(attr(attributes, "railway.project.id")).toBe(OBSERVABILITY_PROJECT_ID)
     expect(attr(attributes, "railway.service.id")).toBe("ch")
     expect(attr(attributes, "railway.environment.id")).toBe("env-obs")
@@ -253,7 +253,7 @@ describe("mapMetricsToOtlp", () => {
 describe("mapLogsToOtlp", () => {
   const payload = mapLogsToOtlp({
     projectId: OBSERVABILITY_PROJECT_ID,
-    projectName: "ctxpipe-observability",
+    projectName: "observability",
     environmentId: "env-obs",
     railwayEnvironmentName: "production",
     serviceNames: { col: "collector", self: "railway-telemetry" },
