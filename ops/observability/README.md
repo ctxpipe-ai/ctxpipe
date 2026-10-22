@@ -37,7 +37,7 @@ Product traces, logs, and metrics use public OTLP. `service.name` is `backend`, 
 
 ## Secrets
 
-No secret is set by hand in Railway. The protected GitHub `observability` Environment holds each one, and after each apply [`scripts/railway-sync-variables.py`](../../scripts/railway-sync-variables.py) writes it straight to the Railway service variables. The values do not enter Terraform inputs, plan output, or state. When a value changes, the apply job redeploys that service and the services that refer to it, in reference order. A re-run or a manual run redeploys every service. Terraform holds the values that are not secret and the references. `NEON_ORG_ID` and `CLOUDFLARE_ACCOUNT_ID` are GitHub variables, not secrets.
+No secret is set by hand in Railway. The protected GitHub `observability` Environment holds each one, and after each apply [`scripts/railway-sync-variables.mjs`](../../scripts/railway-sync-variables.mjs) writes it straight to the Railway service variables. The values do not enter Terraform inputs, plan output, or state. When a value changes, the apply job redeploys that service and the services that refer to it, in reference order. A re-run or a manual run redeploys every service. Terraform holds the values that are not secret and the references. `NEON_ORG_ID` and `CLOUDFLARE_ACCOUNT_ID` are GitHub variables, not secrets.
 
 | Service | GitHub Environment → Railway variable | Terraform wires |
 | --- | --- | --- |

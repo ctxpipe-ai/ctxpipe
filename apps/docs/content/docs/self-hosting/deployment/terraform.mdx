@@ -48,7 +48,7 @@ terraform -chdir=infra apply
 
 Keep each app secret in your CI secret store. Before the images start, the
 deploy writes them to the Railway service variables with
-`scripts/railway-sync-variables.py`, which lists each secret and the services
+`scripts/railway-sync-variables.mjs`, which lists each secret and the services
 that get it. An optional connector (Slack, Linear, PagerDuty) is on when you set
 its secrets. Each provider still requires its operator-side App, OAuth,
 callback, and webhook configuration.

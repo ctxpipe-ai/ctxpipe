@@ -131,7 +131,7 @@ connect_source_image_and_deploy() {
 
   # Values come from the protected GitHub Environment. Sync before connecting
   # the image so the first cron run and image updates start with valid tokens.
-  python3 -I "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../scripts/railway-sync-variables.py" --service cost-telemetry
+  node "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../scripts/railway-sync-variables.mjs" --service cost-telemetry
 
   # shellcheck disable=SC2016
   railway_graphql \

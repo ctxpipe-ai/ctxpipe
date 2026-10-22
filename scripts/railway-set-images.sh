@@ -148,7 +148,7 @@ deploy_image() {
   meta="$(echo "$state" | jq -c '.data.serviceInstance.latestDeployment.meta // {}')"
   deployed="$(echo "$state" | jq -r '.data.serviceInstance.latestDeployment.meta.image // empty')"
   status="$(echo "$state" | jq -r '.data.serviceInstance.latestDeployment.status // empty')"
-  # FORCE_DEPLOY=1: the variables changed (railway-sync-variables.py), so a
+  # FORCE_DEPLOY=1: the variables changed (railway-sync-variables.mjs), so a
   # deployment that already runs $desired still has the old values.
   if [[ "${FORCE_DEPLOY:-}" != "1" && "$meta" == *"$desired"* && ( "$status" == "SUCCESS" || "$status" == "SLEEPING" ) ]]; then
     echo "Skipping $name ($service_id): latest deployment already runs $desired ($status)"

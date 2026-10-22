@@ -12,7 +12,7 @@ jq -e '[.resource_changes[] | select((.change.actions | index("delete")) and (.a
 
 A replace is a delete followed by a create, so every other replace fails the same check. An intentional removal uses a `removed` block with `lifecycle { destroy = false }`.
 
-Terraform holds references and the values that are not secret. The protected GitHub `observability` Environment holds every secret, and [`railway-sync-variables.py`](../../../scripts/railway-sync-variables.py) writes them to Railway after each apply, and also before the `cost-telemetry` image is connected. Ownership: [../README.md](../README.md#secrets). `TELEMETRY_RAILWAY_WORKSPACE_TOKEN` must read the observability and product projects. The values do not enter Terraform inputs, plan output, or state.
+Terraform holds references and the values that are not secret. The protected GitHub `observability` Environment holds every secret, and [`railway-sync-variables.mjs`](../../../scripts/railway-sync-variables.mjs) writes them to Railway after each apply, and also before the `cost-telemetry` image is connected. Ownership: [../README.md](../README.md#secrets). `TELEMETRY_RAILWAY_WORKSPACE_TOKEN` must read the observability and product projects. The values do not enter Terraform inputs, plan output, or state.
 
 `DEFAULT_CONNECTIONS` and `DEFAULT_SOURCES` seed a new HyperDX team that has none. They do not update an existing team; `provision.ts` sets the ClickHouse password of the existing connection. Dashboards: [../hyperdx/README.md](../hyperdx/README.md).
 

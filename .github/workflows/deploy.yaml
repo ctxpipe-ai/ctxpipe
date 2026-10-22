@@ -222,7 +222,7 @@ jobs:
           pnpm exec tsx src/db/migrate.ts
 
       # Secret values go from this environment straight to Railway, never into
-      # Terraform inputs or state (scripts/railway-sync-variables.py). The app
+      # Terraform inputs or state (scripts/railway-sync-variables.mjs). The app
       # services do not redeploy here: the next step deploys them on the new
       # image, and when a value changed it deploys them even when they already
       # run that image, so a re-run applies a rotated secret. A re-run of a
@@ -271,7 +271,7 @@ jobs:
           sync() {
             SERVICE_ID="$(jq -er --arg key "$2" '.[$key]' <<<"$ids")"
             export SERVICE_ID
-            python3 -I scripts/railway-sync-variables.py --service "$1" --changed-file "$changed" "${@:3}"
+            node scripts/railway-sync-variables.mjs --service "$1" --changed-file "$changed" "${@:3}"
           }
           sync backend backend
           sync openworkflow open_workflow

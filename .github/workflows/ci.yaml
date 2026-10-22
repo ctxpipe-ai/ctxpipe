@@ -70,7 +70,7 @@ jobs:
           bash scripts/tests/preview-sandbox-vars.test.sh
           bash scripts/tests/preview-github-app-vars.test.sh
           bash scripts/tests/preview-own-secrets.test.sh
-          python3 -m unittest discover -s scripts/tests -p "test_*.py"
+          node --test scripts/tests/railway-sync-variables.test.mjs
           bash scripts/tests/preview-app-db-password.test.sh
           bash scripts/tests/preview-neon-branch.test.sh
           bash scripts/tests/railway-environment-id.test.sh

@@ -10,13 +10,13 @@ on:
     paths:
       - "ops/observability/**"
       - "scripts/railway-*.sh"
-      - "scripts/railway-sync-variables.py"
+      - "scripts/railway-sync-variables.mjs"
       - ".github/workflows/observability.yaml"
   pull_request:
     paths:
       - "ops/observability/**"
       - "scripts/railway-*.sh"
-      - "scripts/railway-sync-variables.py"
+      - "scripts/railway-sync-variables.mjs"
       - ".github/workflows/observability.yaml"
   workflow_dispatch:
 
@@ -328,7 +328,7 @@ jobs:
         run: terraform apply -input=false -auto-approve -lock-timeout=10m terraform.plan
 
       # Every observability secret comes from this environment, never from a
-      # value set by hand in Railway (scripts/railway-sync-variables.py).
+      # value set by hand in Railway (scripts/railway-sync-variables.mjs).
       # Write each value first, then redeploy in the order of the references.
       # A change on ClickHouse or the collector (its HYPERDX_API_KEY is in
       # every OTLP header) redeploys every service. A change on one other
@@ -363,7 +363,7 @@ jobs:
           sync() {
             SERVICE_ID="$(jq -er --arg key "$2" '.[$key]' <<<"$ids")"
             export SERVICE_ID
-            python3 -I ../../../scripts/railway-sync-variables.py --service "$1" --changed-file "$changed" "${@:3}"
+            node ../../../scripts/railway-sync-variables.mjs --service "$1" --changed-file "$changed" "${@:3}"
           }
           sync clickhouse clickhouse
           sync collector collector

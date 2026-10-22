@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Give a Railway PR preview the secrets of the GitHub Environment `Preview`.
 # `environment new --duplicate production` copies every production variable.
-# railway-sync-variables.py --preview writes each Preview value and deletes
+# railway-sync-variables.mjs --preview writes each Preview value and deletes
 # each one that Preview does not set, so no production secret stays. The other
 # preview scripts own AUTH_SECRET, CONNECTION_SECRETS_ENCRYPTION_KEY, the
 # GitHub App, Vercel and the OTLP header.
@@ -26,7 +26,7 @@ sync_preview_secrets() {
     "$(jq -nc --arg id "$RAILWAY_PROJECT_ID" '{id:$id}')" \
     | jq -er '.data.project.services.edges[].node | select(.name == "falkordb") | .id')"
   local script
-  script="$(dirname "${BASH_SOURCE[0]}")/railway-sync-variables.py"
+  script="$(dirname "${BASH_SOURCE[0]}")/railway-sync-variables.mjs"
   local pair service service_id
   for pair in "falkordb:$falkordb_service_id" "backend:$BACKEND_SERVICE_ID" \
     "openworkflow:$WORKER_SERVICE_ID" "codesearch:$CODESEARCH_SERVICE_ID" "ui:$UI_SERVICE_ID"; do
@@ -35,6 +35,6 @@ sync_preview_secrets() {
     local redeploy=()
     [[ "$service" == falkordb ]] && redeploy=(--redeploy-on-change)
     PROJECT_ID="$RAILWAY_PROJECT_ID" ENVIRONMENT_ID="$ENV_ID" SERVICE_ID="$service_id" \
-      python3 -I "$script" --service "$service" --preview "${redeploy[@]}"
+      node "$script" --service "$service" --preview "${redeploy[@]}"
   done
 }

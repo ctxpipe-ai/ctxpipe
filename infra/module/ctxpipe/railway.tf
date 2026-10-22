@@ -62,7 +62,7 @@ locals {
     name  = "PAGERDUTY_REDIRECT_URI"
     value = var.pagerduty_redirect_uri
   }] : []
-  # Secret values are not here: scripts/railway-sync-variables.py writes them
+  # Secret values are not here: scripts/railway-sync-variables.mjs writes them
   # from the GitHub Environment, so they never enter the Terraform state.
   shared_backend_env_variables = concat([
     {
@@ -408,7 +408,7 @@ resource "railway_variable_collection" "falkordb_config" {
 # The *_env collections held the secret values too. Terraform forgets them and
 # does not delete their variables: an Update or Delete of a collection deletes
 # each variable that leaves it. The *_config collections take over the values
-# that are not secret, and railway-sync-variables.py owns the secret ones.
+# that are not secret, and railway-sync-variables.mjs owns the secret ones.
 # Delete these blocks after the first apply that forgets the collections.
 removed {
   from = railway_variable_collection.ui_env

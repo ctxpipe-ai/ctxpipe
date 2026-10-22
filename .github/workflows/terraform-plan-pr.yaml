@@ -42,7 +42,7 @@ jobs:
       TF_VAR_linear_redirect_uri: ${{ vars.LINEAR_REDIRECT_URI }}
       TF_VAR_pagerduty_redirect_uri: ${{ vars.PAGERDUTY_REDIRECT_URI }}
       # No secret value: Terraform does not hold the app secrets
-      # (scripts/railway-sync-variables.py writes them to Railway).
+      # (scripts/railway-sync-variables.mjs writes them to Railway).
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1

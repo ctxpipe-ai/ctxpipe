@@ -26,7 +26,7 @@ locals {
   observability_resource_attributes = "deployment.environment=observability,service.namespace=ctxpipe"
 
   # DATABASE_URL, DIRECT_URL, SALT, and ENCRYPTION_KEY are on langfuse-web,
-  # from scripts/railway-sync-variables.py.
+  # from scripts/railway-sync-variables.mjs.
   # langfuse-events is Railway-owned (provider 0.6.1 has no bucket resource).
   langfuse_shared_env = [
     {

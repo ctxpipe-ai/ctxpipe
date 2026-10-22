@@ -21,7 +21,7 @@ resource "railway_variable_collection" "clickhouse" {
 
   # clickhouse-cold is Railway-owned (provider 0.6.1 has no bucket resource).
   # CLICKHOUSE_OTEL_PASSWORD and CLICKHOUSE_LANGFUSE_PASSWORD come from
-  # scripts/railway-sync-variables.py.
+  # scripts/railway-sync-variables.mjs.
   variables = [
     {
       name  = "PORT"

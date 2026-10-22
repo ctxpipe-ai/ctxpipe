@@ -9,7 +9,7 @@ output "collector_service_domain" {
 }
 
 output "railway_service_ids" {
-  description = "Railway service IDs for the post-apply secret sync (scripts/railway-sync-variables.py)."
+  description = "Railway service IDs for the post-apply secret sync (scripts/railway-sync-variables.mjs)."
   value = {
     clickhouse        = railway_service.clickhouse.id
     collector         = railway_service.collector.id
