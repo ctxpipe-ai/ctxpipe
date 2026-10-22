@@ -239,7 +239,7 @@ jobs:
           CONNECTION_SECRETS_ENCRYPTION_KEY: ${{ secrets.CONNECTION_SECRETS_ENCRYPTION_KEY }}
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
           SMTP_CONNECTION_URL: ${{ secrets.SMTP_CONNECTION_URL }}
-          GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
           GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
           GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
           ATLASSIAN_CLIENT_ID: ${{ secrets.ATLASSIAN_CLIENT_ID }}
