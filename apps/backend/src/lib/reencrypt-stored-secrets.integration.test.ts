@@ -140,7 +140,9 @@ async function runWhileRowLocked(
     const { rows } = await tx.execute<{ pid: number }>(
       sql`select pg_backend_pid() as pid`,
     )
-    holderPid.resolve(rows[0].pid)
+    const pidRow = rows[0]
+    if (!pidRow) throw new Error("pg_backend_pid returned no row")
+    holderPid.resolve(pidRow.pid)
     locked.resolve()
     // A failed wait rolls back this transaction, so the lock goes.
     await onBlocked(await blocked.promise, tx)
