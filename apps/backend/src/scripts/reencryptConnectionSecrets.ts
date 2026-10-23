@@ -2,11 +2,15 @@
  * One-off: re-encrypt the stored connection secrets from the old key to
  * NEW_CONNECTION_SECRETS_ENCRYPTION_KEY. The old key is
  * OLD_CONNECTION_SECRETS_ENCRYPTION_KEY, or the key that OLD_AUTH_SECRET makes
- * when that is not set. Run it with the backend and the worker stopped, as the
- * database owner. Without --apply, it rolls back.
+ * when that is not set. When OLD_AUTH_SECRET and NEW_AUTH_SECRET are set, it
+ * also re-encrypts the Better Auth two-factor rows (the TOTP secret and the
+ * backup codes) from OLD_AUTH_SECRET to NEW_AUTH_SECRET in the same
+ * transaction. Run it with the backend and the worker stopped, as the database
+ * owner. Without --apply, it rolls back.
  *
  *   bun run src/scripts/reencryptConnectionSecrets.ts [--apply]
  */
+import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto"
 import { Client } from "pg"
 import type { Env } from "../config/env.js"
 import {
@@ -37,6 +41,30 @@ function reencrypt(value: unknown): unknown {
   return value
 }
 
+const oldAuthSecret = process.env.OLD_AUTH_SECRET
+const newAuthSecret = process.env.NEW_AUTH_SECRET
+
+/**
+ * Better Auth gets `secret: AUTH_SECRET` and no `secrets` list, so the
+ * two-factor plugin encrypts with the plain secret string as the key.
+ */
+async function reencryptTwoFactor(
+  id: string,
+  value: string,
+  from: string,
+  to: string,
+): Promise<string> {
+  let plaintext: string
+  try {
+    plaintext = await symmetricDecrypt({ key: from, data: value })
+  } catch {
+    throw new Error(
+      `two_factors row ${id} does not decrypt with OLD_AUTH_SECRET. Nothing changed.`,
+    )
+  }
+  return symmetricEncrypt({ key: to, data: plaintext })
+}
+
 const apply = process.argv.includes("--apply")
 const db = new Client({ connectionString: process.env.DATABASE_URL })
 await db.connect()
@@ -45,7 +73,7 @@ try {
   // Row-level security hides every row from ctxpipe_app, and the run would
   // then change nothing and still report success.
   const rls = await db.query(
-    "select row_security_active('connections') or row_security_active('workspace_sandbox_git_tokens') as active",
+    "select row_security_active('connections') or row_security_active('workspace_sandbox_git_tokens') or row_security_active('two_factors') as active",
   )
   if (rls.rows[0]?.active) {
     throw new Error(
@@ -70,9 +98,37 @@ try {
       [row.sandbox_id, reencrypt(row.token_ciphertext)],
     )
   }
+  let twoFactorSummary =
+    "two-factor rows skipped: set OLD_AUTH_SECRET and NEW_AUTH_SECRET when AUTH_SECRET changes"
+  if (oldAuthSecret && newAuthSecret) {
+    const twoFactors = await db.query(
+      "select id, secret, backup_codes from two_factors for update",
+    )
+    for (const row of twoFactors.rows) {
+      await db.query(
+        "update two_factors set secret = $2, backup_codes = $3 where id = $1",
+        [
+          row.id,
+          await reencryptTwoFactor(
+            row.id,
+            row.secret,
+            oldAuthSecret,
+            newAuthSecret,
+          ),
+          await reencryptTwoFactor(
+            row.id,
+            row.backup_codes,
+            oldAuthSecret,
+            newAuthSecret,
+          ),
+        ],
+      )
+    }
+    twoFactorSummary = `${twoFactors.rowCount} two-factor rows`
+  }
   await db.query(apply ? "commit" : "rollback")
   process.stdout.write(
-    `${connections.rowCount} connections, ${tokens.rowCount} sandbox tokens${apply ? "" : " (dry run, rolled back)"}\n`,
+    `${connections.rowCount} connections, ${tokens.rowCount} sandbox tokens, ${twoFactorSummary}${apply ? "" : " (dry run, rolled back)"}\n`,
   )
 } catch (error) {
   await db.query("rollback")
