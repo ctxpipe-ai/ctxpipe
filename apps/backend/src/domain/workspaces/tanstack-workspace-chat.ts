@@ -390,7 +390,16 @@ async function* streamTanstackWorkspaceChatBody(
   // run must not spend a model call or rename the conversation.
   let titleStarted = false
   let titleName: string | null = null
-  yield workspaceChatSandboxSetupChunk("ready")
+  // The chat runs, and releases the conversation, only once it is read. A
+  // client that leaves before that would keep the conversation locked.
+  let chatRead = false
+  try {
+    yield workspaceChatSandboxSetupChunk("ready")
+    chatRead = true
+  } finally {
+    if (!chatRead)
+      await prepared.stop(new Error("The client left before the chat started"))
+  }
   const masked = createChunkMasker()
   for await (const chunk of prepared.stream) {
     const typed = chunk as StreamChunk
@@ -621,7 +630,13 @@ type WorkspaceChatStart =
  */
 async function startWorkspaceChat(
   turnInput: TanstackWorkspaceChatInput,
-): Promise<WorkspaceChatStart> {
+): Promise<
+  | (Extract<WorkspaceChatStart, { ok: true }> & {
+      /** Ends a turn whose chat was never read. */
+      stop: (error: unknown) => Promise<void>
+    })
+  | Extract<WorkspaceChatStart, { ok: false }>
+> {
   // The run record is stored before `chat()`, which would make the id.
   const input = { ...turnInput, runId: turnInput.runId ?? randomUUID() }
   const persistence = workspaceChatPersistence({
@@ -659,8 +674,11 @@ async function startWorkspaceChat(
       abortController,
       lease,
     })
-    if (!started.ok) await turn.stop(new Error(started.error))
-    return started
+    if (!started.ok) {
+      await turn.stop(new Error(started.error))
+      return started
+    }
+    return { ...started, stop: (error) => turn.stop(error, true) }
   } catch (error) {
     await turn.stop(error, abortController.signal.aborted)
     throw error
