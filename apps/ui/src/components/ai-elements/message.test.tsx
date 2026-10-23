@@ -1,11 +1,20 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
+import { createTreeFileResolver } from "@/lib/workspace-file-path"
 import { MessageResponse } from "./message"
 
-function render(markdown: string) {
+function renderWithTree(markdown: string, treePaths: string[]) {
   return renderToStaticMarkup(
-    <MessageResponse onOpenFile={() => {}}>{markdown}</MessageResponse>,
+    <MessageResponse
+      fileLinks={{ resolve: createTreeFileResolver(treePaths), open: () => {} }}
+    >
+      {markdown}
+    </MessageResponse>,
   )
+}
+
+function render(markdown: string) {
+  return renderWithTree(markdown, ["knowledge/x.md"])
 }
 
 describe("MessageResponse file links", () => {
@@ -90,5 +99,33 @@ describe("MessageResponse file links", () => {
     const html = render("See [site](HTTPS://example.com) now.")
     expect(html).not.toContain("data-ctx-file-link")
     expect(html).not.toContain("href=")
+  })
+})
+
+describe("MessageResponse file links with a git tree", () => {
+  const treePaths = [
+    "knowledge/apis/anthropic.md",
+    "knowledge/apis/anthropic-2.md",
+  ]
+  const renderTree = (markdown: string) => renderWithTree(markdown, treePaths)
+
+  it("links a bare name to the one tree file with that name", () => {
+    const html = renderTree("See `anthropic-2.md` now.")
+    expect(html).toContain("data-ctx-file-link")
+    const linked = renderTree("See [notes](anthropic-2.md) now.")
+    expect(linked).toContain("data-ctx-file-link")
+  })
+
+  it("shows plain text for a name that no tree file has", () => {
+    const html = renderTree("See `missing.md` and [notes](missing.md) now.")
+    expect(html).not.toContain("data-ctx-file-link")
+    expect(html).toContain("missing.md")
+    expect(html).toContain("notes")
+  })
+
+  it("shows plain text with an empty tree, such as a conversation with no tree yet", () => {
+    const html = renderWithTree("See `package.json` and [a](notes.md).", [])
+    expect(html).not.toContain("data-ctx-file-link")
+    expect(html).toContain("package.json")
   })
 })
