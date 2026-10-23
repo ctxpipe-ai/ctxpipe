@@ -74,3 +74,25 @@ export function workspaceFilePathFromHref(href: string): string | null {
     .replace(/^\/workspace\//, "")
   return workspaceFilePath(cleaned)
 }
+
+/**
+ * Returns a function that maps a path in a chat answer to the path of the file
+ * in the tree that it means, or null. An exact path in the tree wins. A name
+ * with no folder matches the one tree file that has this name. No match, or
+ * more than one, gives null. The index is built once, not per lookup.
+ */
+export function createTreeFileResolver(
+  treePaths: readonly string[],
+): (path: string) => string | null {
+  const all = new Set(treePaths)
+  const byName = new Map<string, string | null>()
+  for (const candidate of all) {
+    const name = candidate.split("/").at(-1) ?? candidate
+    byName.set(name, byName.has(name) ? null : candidate)
+  }
+  return (path) => {
+    if (all.has(path)) return path
+    if (path.includes("/")) return null
+    return byName.get(path) ?? null
+  }
+}
