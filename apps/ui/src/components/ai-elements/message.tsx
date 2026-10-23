@@ -15,7 +15,6 @@ import { defaultRehypePlugins, Streamdown } from "streamdown"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import {
-  resolveTreeFilePath,
   workspaceFilePath,
   workspaceFilePathFromHref,
 } from "@/lib/workspace-file-path"
@@ -61,14 +60,18 @@ export const MessageContent = ({
   </div>
 )
 
+export type AnswerFileLinks = {
+  resolve: (path: string) => string | null
+  open: (path: string) => void
+}
+
 type MessageResponseProps = ComponentProps<typeof Streamdown> & {
-  /** Opens a workspace file. When set, file paths in the answer become buttons. */
-  onOpenFile?: (path: string) => void
   /**
-   * The file paths in the current git tree. When set, only a path in this
-   * tree (or a bare name that matches one tree file) becomes a file button.
+   * When set, file paths in the answer become buttons. `resolve` gives the
+   * tree path for a path in the answer, or null (the text stays text).
+   * Keep this value stable: it keys the memoized plugins.
    */
-  treePaths?: readonly string[]
+  fileLinks?: AnswerFileLinks
 }
 
 const streamdownPlugins = { cjk, code, math, mermaid }
@@ -128,13 +131,12 @@ function rewriteFileHrefs() {
  * before harden, which blocks relative links.
  */
 function markAnswerLinks(options: {
-  files: boolean
-  treePaths?: ReadonlySet<string>
+  resolve?: (path: string) => string | null
+  id?: number
 }) {
+  const files = options.resolve !== undefined
   const resolve = (path: string | null) =>
-    path && options.treePaths
-      ? resolveTreeFilePath(path, options.treePaths)
-      : path
+    path && options.resolve ? options.resolve(path) : null
   const visit = (parent: HastNode) => {
     parent.children = parent.children?.map((node) => {
       if (node.type !== "element") return node
@@ -152,11 +154,9 @@ function markAnswerLinks(options: {
           ]
           return node
         }
-        const path = options.files
-          ? resolve(workspaceFilePathFromHref(href))
-          : null
+        const path = files ? resolve(workspaceFilePathFromHref(href)) : null
         if (path) return fileLinkNode(path, node.children ?? [])
-        if (options.files && !href.startsWith("#")) {
+        if (files && !href.startsWith("#")) {
           // Harden would show "[blocked]" after a link it cannot keep, so
           // keep only the content of a link that is not a file, http(s) or an
           // in-page anchor.
@@ -170,11 +170,7 @@ function markAnswerLinks(options: {
           return content
         }
       }
-      if (
-        node.tagName === "code" &&
-        parent.tagName !== "pre" &&
-        options.files
-      ) {
+      if (node.tagName === "code" && parent.tagName !== "pre" && files) {
         const path = resolve(workspaceFilePath(hastText(node)))
         if (path) return fileLinkNode(path, [node])
       }
@@ -185,25 +181,36 @@ function markAnswerLinks(options: {
   return visit
 }
 
+// Streamdown caches its processor by plugin name and JSON.stringify(options),
+// which drops a function. Without a distinct `id` per resolver, every resolver
+// would reuse the processor (and the tree) of the first one.
+const resolverIds = new WeakMap<object, number>()
+const resolverId = (resolve: object) => {
+  let id = resolverIds.get(resolve)
+  if (id === undefined) {
+    id = nextResolverId++
+    resolverIds.set(resolve, id)
+  }
+  return id
+}
+let nextResolverId = 0
+
 const answerRehypePlugins = (
-  files: boolean,
-  treePaths?: ReadonlySet<string>,
+  resolve?: (path: string) => string | null,
 ): ComponentProps<typeof Streamdown>["rehypePlugins"] => [
   defaultRehypePlugins.raw,
-  ...(files ? [rewriteFileHrefs] : []),
+  ...(resolve ? [rewriteFileHrefs] : []),
   defaultRehypePlugins.sanitize,
-  [markAnswerLinks, { files, treePaths }],
+  [markAnswerLinks, { resolve, id: resolve && resolverId(resolve) }],
   defaultRehypePlugins.harden,
 ]
-const chatRehypePlugins = answerRehypePlugins(false)
-const workspaceRehypePlugins = answerRehypePlugins(true)
+const chatRehypePlugins = answerRehypePlugins()
 
 export const MessageResponse = memo(
   ({
     className,
     isAnimating = false,
-    onOpenFile,
-    treePaths,
+    fileLinks,
     ...props
   }: MessageResponseProps) => {
     const components = useMemo(
@@ -223,7 +230,7 @@ export const MessageResponse = memo(
         }) => (
           <AriaButton
             data-ctx-file-link=""
-            onPress={() => onOpenFile?.(String(path))}
+            onPress={() => fileLinks?.open(String(path))}
             className={cn(
               "inline cursor-pointer rounded-md text-left text-teal-400 underline decoration-teal-400/40 underline-offset-2 transition-colors hover:decoration-teal-400",
               focusVisibleClassName,
@@ -233,16 +240,12 @@ export const MessageResponse = memo(
           </AriaButton>
         ),
       }),
-      [onOpenFile],
+      [fileLinks],
     )
     const rehypePlugins = useMemo(
       () =>
-        !onOpenFile
-          ? chatRehypePlugins
-          : treePaths
-            ? answerRehypePlugins(true, new Set(treePaths))
-            : workspaceRehypePlugins,
-      [onOpenFile, treePaths],
+        fileLinks ? answerRehypePlugins(fileLinks.resolve) : chatRehypePlugins,
+      [fileLinks],
     )
     return (
       <Streamdown

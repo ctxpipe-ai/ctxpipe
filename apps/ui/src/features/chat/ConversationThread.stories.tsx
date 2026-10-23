@@ -15,6 +15,7 @@ import {
   streamingToolMessages,
   thoughtsBetweenToolsMessages,
 } from "@/features/workspaces/workspace-fixtures"
+import { createTreeFileResolver } from "@/lib/workspace-file-path"
 import { ConversationThread } from "./ConversationThread"
 
 const meta = {
@@ -460,20 +461,31 @@ const answerLinkMessages: ChatMessage[] = [
 export const AnswerLinksInWorkspace: Story = {
   args: {
     messages: answerLinkMessages,
-    onOpenFile: fn(),
+    fileLinks: {
+      resolve: createTreeFileResolver([
+        "apps/ui/src/styles.css",
+        "apps/ui/src/components/ai-elements/message.tsx",
+        "package.json",
+        "knowledge/x.md",
+        "knowledge/y.md",
+        "knowledge/z.md",
+        "knowledge/w.md",
+      ]),
+      open: fn(),
+    },
   },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
       canvas.getByRole("button", { name: "apps/ui/src/styles.css" }),
     )
-    await expect(args.onOpenFile).toHaveBeenLastCalledWith(
+    await expect(args.fileLinks?.open).toHaveBeenLastCalledWith(
       "apps/ui/src/styles.css",
     )
     await userEvent.click(
       canvas.getByRole("button", { name: "the message component" }),
     )
-    await expect(args.onOpenFile).toHaveBeenLastCalledWith(
+    await expect(args.fileLinks?.open).toHaveBeenLastCalledWith(
       "apps/ui/src/components/ai-elements/message.tsx",
     )
     await expect(
@@ -504,10 +516,10 @@ export const AnswerLinksInWorkspace: Story = {
       "knowledge/w.md",
     ]) {
       await userEvent.click(canvas.getByRole("button", { name: path }))
-      await expect(args.onOpenFile).toHaveBeenLastCalledWith(path)
+      await expect(args.fileLinks?.open).toHaveBeenLastCalledWith(path)
     }
     await expect(canvas.queryByText(/blocked/)).toBeNull()
-    await expect(args.onOpenFile).toHaveBeenCalledTimes(6)
+    await expect(args.fileLinks?.open).toHaveBeenCalledTimes(6)
   },
 }
 
@@ -651,15 +663,20 @@ export const AnswerLinksWithTree: Story = {
         ],
       },
     ],
-    treePaths: ["knowledge/apis/anthropic.md", "knowledge/apis/anthropic-2.md"],
-    onOpenFile: fn(),
+    fileLinks: {
+      resolve: createTreeFileResolver([
+        "knowledge/apis/anthropic.md",
+        "knowledge/apis/anthropic-2.md",
+      ]),
+      open: fn(),
+    },
   },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
       canvas.getByRole("button", { name: "anthropic-2.md" }),
     )
-    await expect(args.onOpenFile).toHaveBeenLastCalledWith(
+    await expect(args.fileLinks?.open).toHaveBeenLastCalledWith(
       "knowledge/apis/anthropic-2.md",
     )
     await expect(

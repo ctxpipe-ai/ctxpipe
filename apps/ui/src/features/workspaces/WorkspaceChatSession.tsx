@@ -22,6 +22,7 @@ import type {
   ConversationListInfiniteData,
   ConversationListItem,
 } from "@/features/chat/types"
+import { createTreeFileResolver } from "@/lib/workspace-file-path"
 import { ConversationSyncEntry } from "./ConversationSyncEntry"
 import { ConversationTitleButton } from "./ConversationTitleButton"
 import { ConversationTurnChangesCard } from "./ConversationTurnChangesCard"
@@ -119,6 +120,19 @@ export function WorkspaceChatSession(props: {
   )
   const treeQuery = useQuery(
     conversationGitTreeOptions(orgSlug, conversationId),
+  )
+  const treePaths = treeQuery.data?.paths
+  const onOpenPane = props.onOpenPane
+  // Without a known tree there is no file to link, so file links stay off.
+  const fileLinks = useMemo(
+    () =>
+      treePaths && onOpenPane
+        ? {
+            resolve: createTreeFileResolver(treePaths),
+            open: (path: string) => onOpenPane({ kind: "file", path }),
+          }
+        : undefined,
+    [treePaths, onOpenPane],
   )
   const queryClient = useQueryClient()
   const [headerTitle, setHeaderTitle] = useState(title)
@@ -453,14 +467,7 @@ export function WorkspaceChatSession(props: {
           ]
           return after.length > 0 ? after : null
         }}
-        treePaths={
-          treeQuery.data?.paths.length ? treeQuery.data.paths : undefined
-        }
-        onOpenFile={
-          props.onOpenPane
-            ? (path) => props.onOpenPane?.({ kind: "file", path })
-            : undefined
-        }
+        fileLinks={fileLinks}
       />
       <MessageInputBox
         layout="thread"

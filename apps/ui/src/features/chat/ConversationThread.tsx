@@ -14,6 +14,7 @@ import {
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation"
 import {
+  type AnswerFileLinks,
   Message,
   MessageContent,
   MessageResponse,
@@ -218,8 +219,7 @@ function renderAssistantParts(
   options: {
     working: boolean
     systemStatus: string | null
-    onOpenFile?: (path: string) => void
-    treePaths?: readonly string[]
+    fileLinks?: AnswerFileLinks
   },
 ): ReactElement[] {
   const entries = activityLog(message.parts)
@@ -257,8 +257,7 @@ function renderAssistantParts(
         <MessageResponse
           key={key}
           isAnimating={options.working}
-          onOpenFile={options.onOpenFile}
-          treePaths={options.treePaths}
+          fileLinks={options.fileLinks}
         >
           {partText(part)}
         </MessageResponse>,
@@ -301,10 +300,11 @@ export function ConversationThread(props: {
    * live (for example, the files a turn changed).
    */
   renderAfterMessage?: (messageId: string) => ReactNode
-  /** Opens a workspace file from a file path in an answer. */
-  onOpenFile?: (path: string) => void
-  /** The git tree file paths. Only these paths (or a unique bare name) become file links. */
-  treePaths?: readonly string[]
+  /**
+   * Turns file paths in an answer into buttons that open the file. Only a path
+   * that `resolve` finds in the git tree becomes a button. Keep it stable.
+   */
+  fileLinks?: AnswerFileLinks
   /**
    * Set when the last turn stopped before its first answer. The thread then
    * shows that the turn stopped, with a Retry action.
@@ -342,8 +342,7 @@ export function ConversationThread(props: {
                   ? renderAssistantParts(message, {
                       working,
                       systemStatus: waitLabel ?? null,
-                      onOpenFile: props.onOpenFile,
-                      treePaths: props.treePaths,
+                      fileLinks: props.fileLinks,
                     })
                   : renderUserParts(message)
 
