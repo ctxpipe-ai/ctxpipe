@@ -132,8 +132,8 @@ To rotate the `ctxpipe_app` password, change `keepers.rotation` of `random_passw
 `CONNECTION_SECRETS_ENCRYPTION_KEY` (64 hex characters, `openssl rand -hex 32`) encrypts the stored connection secrets. Without it, the key comes from `AUTH_SECRET`. Do not change it like the other secrets: the stored values stay on the old key. To move the stored connection secrets to a new key:
 
 1. Stop backend and worker. Do not merge to `main` until step 3.
-2. From `apps/backend`, with `DATABASE_URL` (owner URL), `OLD_AUTH_SECRET` and `NEW_CONNECTION_SECRETS_ENCRYPTION_KEY` exported, run `bun run src/scripts/reencryptConnectionSecrets.ts`, then the same with `--apply`. When the current key is an explicit key, export `OLD_CONNECTION_SECRETS_ENCRYPTION_KEY` in place of `OLD_AUTH_SECRET`.
-3. Set the same key in the GitHub secret, then push to `main`. The sync writes the key before the services start.
+2. From `apps/backend`, with `DATABASE_URL` (owner URL), `OLD_AUTH_SECRET` and `NEW_CONNECTION_SECRETS_ENCRYPTION_KEY` exported, run `bun run src/scripts/reencryptConnectionSecrets.ts`, then the same with `--apply`. When the current key is an explicit key, also export `OLD_CONNECTION_SECRETS_ENCRYPTION_KEY`. When `AUTH_SECRET` changes, do these steps too and also export `NEW_AUTH_SECRET`: the script then re-encrypts the two-factor secrets and backup codes from `OLD_AUTH_SECRET` to `NEW_AUTH_SECRET`. Keep `OLD_AUTH_SECRET` set also when the connection key is an explicit key, because the script stops when `NEW_AUTH_SECRET` is set without `OLD_AUTH_SECRET`. When only `AUTH_SECRET` changes and the connection key is an explicit key, set `OLD_CONNECTION_SECRETS_ENCRYPTION_KEY` and `NEW_CONNECTION_SECRETS_ENCRYPTION_KEY` to the same current key. Without `NEW_AUTH_SECRET`, the script does not change the two-factor rows.
+3. Set the same key in the GitHub secret. When `AUTH_SECRET` changes, also set the GitHub secret `AUTH_SECRET` to the `NEW_AUTH_SECRET` value. Then push to `main`. The sync writes the values before the services start.
 
 ## PR Terraform plans (GitHub Actions)
 
