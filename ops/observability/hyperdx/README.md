@@ -12,9 +12,11 @@ HYPERDX_ACCESS_KEY=... CLICKHOUSE_OTEL_PASSWORD=... bun ops/observability/hyperd
 
 Typecheck: `pnpm --filter hyperdx typecheck`.
 
-The script sets the password of the `ctxpipe ClickHouse` connection from `CLICKHOUSE_OTEL_PASSWORD`, because HyperDX keeps it in its own database and `DEFAULT_CONNECTIONS` seeds it only for a new team. It upserts `dashboards/*.json` and `saved-searches/*.json` by name (`POST` or `PUT`). It resolves source and connection names to ids. Dashboards not in the repo are left in place. Saved searches: **Request by id**, **Request by id (traces)**, **Production logs**, **Production traces**, **Production errors**, **Production worker restarts**.
+The script sets the password of the `ctxpipe ClickHouse` connection from `CLICKHOUSE_OTEL_PASSWORD`, because HyperDX keeps it in its own database and `DEFAULT_CONNECTIONS` seeds it only for a new team. It upserts `dashboards/*.json` and `saved-searches/*.json` by name (`POST` or `PUT`). It resolves source and connection names to ids. Dashboards not in the repo are left in place. Saved searches: **Request by id**, **Request by id (traces)**, **Production logs**, **Production traces**, **Production errors**, **Production worker restarts**, **Production FalkorDB connection errors**.
 
 **Production worker restarts** has one row for each start of the OpenWorkflow worker (`openworkflow.config-loaded`). The provision script does not write alerts. Add its alert in the HyperDX UI: more than 3 rows in 10 minutes, to the on-call webhook.
+
+**Production FalkorDB connection errors** has one row for each `graph.falkordb.connection` error of the backend or the worker. Each row is a lost connection to the graph store. Add its alert in the HyperDX UI: more than 3 rows in 10 minutes, to the on-call webhook.
 
 ## Environment filter
 
