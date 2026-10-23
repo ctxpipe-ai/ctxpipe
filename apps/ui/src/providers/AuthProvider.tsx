@@ -30,6 +30,10 @@ function toEmailVerificationIfSignUp(href: string): string {
   return href
 }
 
+// Signing in unverified sends a fresh link (sendOnSignIn), so this is a notice.
+const emailNotVerifiedMessage =
+  "Verify your email to sign in. We sent a new link to your inbox."
+
 function AuthLinkFallback({
   href,
   ...props
@@ -143,10 +147,12 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
         }}
         persistClient={false}
         credentials={{ forgotPassword: true }}
-        // Signing in unverified sends a fresh link (sendOnSignIn).
-        localization={{
-          EMAIL_NOT_VERIFIED:
-            "Verify your email to sign in. We sent a new link to your inbox.",
+        localization={{ EMAIL_NOT_VERIFIED: emailNotVerifiedMessage }}
+        // better-auth-ui sends every sign-in failure as an error toast.
+        toast={({ variant = "default", message }) => {
+          if (message === emailNotVerifiedMessage) toast.info(message)
+          else if (variant === "default") toast(message)
+          else toast[variant](message)
         }}
         twoFactor={["totp"]}
         account={{ basePath: "/.auth/account" }}
