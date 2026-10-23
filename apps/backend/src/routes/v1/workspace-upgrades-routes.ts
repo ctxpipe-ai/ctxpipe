@@ -2,7 +2,10 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
-import { enableAutomaticUpgrades } from "../../domain/upgrades/automatic.js"
+import {
+  readUpgradeMode,
+  setUpgradeMode,
+} from "../../domain/upgrades/automatic.js"
 import {
   classifyUpgradeFailure,
   UPGRADE_FAILURE_CODES,
@@ -40,6 +43,8 @@ import {
 const UpgradeStatusSchema = z.enum(
   Object.values(UPGRADE_STATUSES) as [UpgradeStatus, ...UpgradeStatus[]],
 )
+
+const UpgradeModeSchema = z.enum(["manual", "automatic"])
 
 const RangeSchema = z.object({ low: z.number(), high: z.number() })
 
@@ -377,7 +382,22 @@ const automaticUpgradesRoute = createRoute(
     {
       method: "post",
       path: "/{workspaceSlug}/upgrades/automatic",
-      request: { params: WorkspaceSlugParamsSchema },
+      request: {
+        params: WorkspaceSlugParamsSchema,
+        body: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: z.object({
+                mode: UpgradeModeSchema.openapi({
+                  description:
+                    "`automatic`: the upgrade scan starts each upgrade of this Workspace with no click. `manual`: an owner or admin starts each upgrade.",
+                }),
+              }),
+            },
+          },
+        },
+      },
       responses: {
         202: {
           content: {
@@ -392,7 +412,7 @@ const automaticUpgradesRoute = createRoute(
             },
           },
           description:
-            "Always update: ctxpipe commits `upgrades: automatic` into `.ctxpipe/workspace.yaml` on the default branch of the Workspace repository. From then on, the upgrade scan starts each upgrade of this Workspace with no click. A merge of a git upgrade pull request still needs a person. When the job is done, ctxpipe starts the waiting upgrades of the Workspace itself, so that their pull request contains the setting. The caller sends no second request and need not wait for the job.",
+            "Automatic upgrades on or off: ctxpipe commits `upgrades: <mode>` into `.ctxpipe/workspace.yaml` on the default branch of the Workspace repository. With `automatic`, the upgrade scan starts each upgrade of this Workspace with no click. A merge of a git upgrade pull request still needs a person. When the job is done, ctxpipe starts the waiting upgrades of the Workspace itself, so that their pull request contains the setting. The caller sends no second request and need not wait for the job.",
         },
         401: {
           content: { "application/json": { schema: ErrorResponseSchema } },
@@ -411,6 +431,36 @@ const automaticUpgradesRoute = createRoute(
     { orgAdmin: true },
   ),
 )
+
+const upgradeModeRoute = createRoute({
+  method: "get",
+  path: "/{workspaceSlug}/upgrades/automatic",
+  request: { params: WorkspaceSlugParamsSchema },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            mode: UpgradeModeSchema.nullable().openapi({
+              description:
+                "The `upgrades` setting of `.ctxpipe/workspace.yaml` at the tip that ctxpipe read last. No key is `manual`. `null`: ctxpipe has read no tip, or the format file is not valid.",
+            }),
+          }),
+        },
+      },
+      description:
+        "The automatic-upgrades setting of the Workspace. ctxpipe reads it from git on each request, so do not poll it.",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+  },
+})
 
 const routes = new OpenAPIHono<AppEnv>()
   .openapi(listUpgradesRoute, async (c) => {
@@ -448,6 +498,18 @@ const routes = new OpenAPIHono<AppEnv>()
     await enqueueWorkspaceUpgradeScan({ orgId, trigger: `check:${minute}` })
     return c.json({ queued }, 202)
   })
+  .openapi(upgradeModeRoute, async (c) => {
+    const orgId = c.get("orgId")
+    if (!c.get("user") || !c.get("session") || !orgId)
+      return c.json({ error: "Unauthorized" }, 401)
+    const { workspaceSlug } = c.req.valid("param")
+    const workspace = await getWorkspaceBySlug(workspaceSlug)
+    if (!workspace) return c.json({ error: "Not found" }, 404)
+    return c.json(
+      { mode: await readUpgradeMode(orgId, workspace, c.var.env) },
+      200,
+    )
+  })
   .openapi(automaticUpgradesRoute, async (c) => {
     const orgId = c.get("orgId")
     if (!c.get("user") || !c.get("session") || !orgId)
@@ -456,8 +518,9 @@ const routes = new OpenAPIHono<AppEnv>()
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
     const jobId = generateObjectId("wjob")
-    const admitted = await enableAutomaticUpgrades(
-      { jobId, orgId, workspace },
+    const { mode } = c.req.valid("json")
+    const admitted = await setUpgradeMode(
+      { jobId, orgId, workspace, mode },
       c.get("log"),
     )
     if (!admitted.started)
@@ -511,7 +574,8 @@ const routes = new OpenAPIHono<AppEnv>()
 const gated = new OpenAPIHono<AppEnv>()
 gated.use("/:workspaceSlug/upgrades/:key/start", requireOrgAdminOrOwner)
 gated.use("/:workspaceSlug/upgrades/check", requireOrgAdminOrOwner)
-gated.use("/:workspaceSlug/upgrades/automatic", requireOrgAdminOrOwner)
+// A member may read the setting. Only an owner or admin may change it.
+gated.post("/:workspaceSlug/upgrades/automatic", requireOrgAdminOrOwner)
 export const workspaceUpgradeRoutes = gated.route("/", routes)
 
 const PendingWorkspaceUpgradesSchema = z

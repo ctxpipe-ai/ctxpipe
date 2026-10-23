@@ -6,16 +6,15 @@ import { getSystemDb } from "../../db/client.js"
 import { getWorkspaceUpgradeRow } from "../../models/workspace-upgrades.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
+import { workspaceUpgradeRoutes } from "../../routes/v1/workspace-upgrades-routes.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { readIngestSkillBundle } from "../ingestion/skill-bundle.js"
 import {
   readWorkspaceFormat,
   WORKSPACE_FORMAT_PATH,
 } from "../workspaces/workspace-format.js"
-import {
-  AUTOMATIC_UPGRADE_APPROVER,
-  enableAutomaticUpgrades,
-} from "./automatic.js"
+import { AUTOMATIC_UPGRADE_APPROVER, setUpgradeMode } from "./automatic.js"
 import {
   GIT_UPGRADE_STEPS,
   type GitUpgradeStep,
@@ -117,25 +116,25 @@ it(
           )
         const show = (ref: string, path: string) =>
           f.git("--git-dir", f.remote, "show", `${ref}:${path}`)
-        try {
-          await worker.start()
-          // Without the setting, the scan records the upgrade and starts nothing.
-          expect(await runScan("manual")).toMatchObject({
-            workspaces: [{ kind: "pending", key: KEY }],
-            automatic: [],
-          })
-          expect((await row())?.status).toBe("awaiting_operator")
-
-          // Always update: a commit on the default branch sets the setting
-          // and keeps the format.
-          const jobId = `wjob_${f.id}_automatic`
+        // The settings toggle reads the setting from git at the tip.
+        const readMode = async () => {
+          const response = await workspaceHttpApp(
+            f.org,
+            workspaceUpgradeRoutes,
+          ).request("/workspaces/knowledge/upgrades/automatic")
+          expect(response.status).toBe(200)
+          return ((await response.json()) as { mode: string | null }).mode
+        }
+        const saveMode = async (mode: "manual" | "automatic") => {
+          const jobId = `wjob_${f.id}_${mode}`
           expect(
             await withOrgIdContext(f.org, () =>
-              enableAutomaticUpgrades(
+              setUpgradeMode(
                 {
                   jobId,
                   orgId: f.org.id,
                   workspace: { id: f.workspaceId, formatVersion: 2 },
+                  mode,
                 },
                 {
                   error: (error) => {
@@ -155,6 +154,20 @@ it(
               { timeout: 30_000 },
             )
             .toBe("completed")
+        }
+        try {
+          await worker.start()
+          expect(await readMode()).toBe("manual")
+          // Without the setting, the scan records the upgrade and starts nothing.
+          expect(await runScan("manual")).toMatchObject({
+            workspaces: [{ kind: "pending", key: KEY }],
+            automatic: [],
+          })
+          expect((await row())?.status).toBe("awaiting_operator")
+
+          // Always update: a commit on the default branch sets the setting
+          // and keeps the format.
+          await saveMode("automatic")
           const tip = f.git(
             "--git-dir",
             f.remote,
@@ -181,6 +194,11 @@ it(
               show(`refs/heads/${BRANCH}`, WORKSPACE_FORMAT_PATH),
             ),
           ).toEqual({ kind: "format", format: 3, upgrades: "automatic" })
+          expect(await readMode()).toBe("automatic")
+
+          // Turn off: a second commit sets the setting back to manual.
+          await saveMode("manual")
+          await expect.poll(readMode, { timeout: 30_000 }).toBe("manual")
         } finally {
           await worker.stop()
           await backend.stop()
@@ -233,11 +251,12 @@ it(
           await worker.start()
           expect(
             await withOrgIdContext(f.org, () =>
-              enableAutomaticUpgrades(
+              setUpgradeMode(
                 {
                   jobId,
                   orgId: f.org.id,
                   workspace: { id: f.workspaceId, formatVersion: 2 },
+                  mode: "automatic",
                 },
                 {
                   error: (error) => {

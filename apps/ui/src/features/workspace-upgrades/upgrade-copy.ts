@@ -29,7 +29,7 @@ export function upgradeNotices(
 
 /**
  * The one short line of the Home toast. The full description stays in
- * Workspace settings, Upgrades (CTX-939).
+ * Workspace settings, Status (CTX-939).
  */
 export function upgradeToastLine(
   item: Pick<WorkspaceUpgradeItem, "kind" | "targetFormat">,
@@ -44,40 +44,41 @@ export function upgradeCanStart(item: WorkspaceUpgradeItem): boolean {
   return item.status === "awaiting_operator" || item.status === "failed"
 }
 
+/** The colors of a status tag: one map for the item tags and the headline. */
+const STATUS_TONE = {
+  attention: "border-amber-400/30 bg-amber-400/10 text-amber-200",
+  good: "border-teal-400/30 bg-teal-400/10 text-teal-200",
+  neutral: "border-border bg-zinc-800 text-muted-foreground",
+  error: "border-red-400/30 bg-red-400/10 text-red-200",
+} as const
+
 const UPGRADE_STATUS_TAG: Record<
   UpgradeStatus,
   { label: string; className: string; pulse?: boolean }
 > = {
   awaiting_operator: {
     label: "Ready to start",
-    className: "border-amber-400/30 bg-amber-400/10 text-amber-200",
+    className: STATUS_TONE.attention,
   },
-  queued: {
-    label: "Queued",
-    className: "border-border bg-zinc-800 text-muted-foreground",
-    pulse: true,
-  },
+  queued: { label: "Queued", className: STATUS_TONE.neutral, pulse: true },
   running: {
     label: "Preparing the pull request",
-    className: "border-border bg-zinc-800 text-muted-foreground",
+    className: STATUS_TONE.neutral,
     pulse: true,
   },
-  pr_open: {
-    label: "Waiting for merge",
-    className: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-  },
-  completed: {
-    label: "Applied",
-    className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
-  },
-  failed: {
-    label: "Failed",
-    className: "border-red-400/30 bg-red-400/10 text-red-200",
-  },
-  blocked: {
-    label: "Blocked",
-    className: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-  },
+  pr_open: { label: "Waiting for merge", className: STATUS_TONE.attention },
+  completed: { label: "Applied", className: STATUS_TONE.good },
+  failed: { label: "Failed", className: STATUS_TONE.error },
+  blocked: { label: "Blocked", className: STATUS_TONE.attention },
+}
+
+/**
+ * The tag of a blocked item in Working now: it waits for ctxpipe, for
+ * example for the format upgrade that ctxpipe reads now.
+ */
+export const UPGRADE_WAITS_TAG = {
+  label: "Waiting",
+  className: STATUS_TONE.neutral,
 }
 
 type BlockedCopy = { title: string; body: string }
@@ -176,13 +177,13 @@ export function upgradeStatusTag(
   if (item.status === "pr_open" && item.mergedAt)
     return {
       label: "Merged. Reading the new format",
-      className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
+      className: STATUS_TONE.good,
       pulse: true,
     }
   if (upgradeIsCheckingFormat(item, formatVersion))
     return {
       label: "Checking the new format",
-      className: "border-border bg-zinc-800 text-muted-foreground",
+      className: STATUS_TONE.neutral,
       pulse: true,
     }
   // A re-ingestion opens no pull request while it runs.
@@ -254,9 +255,9 @@ export function formatHealthLine(
   if (formatVersion === null)
     return "ctxpipe has not read the repository format."
   if (formatVersion < 0)
-    return "The format file in the repository is not valid."
+    return "The format file in the repository is not valid. Fix .ctxpipe/workspace.yaml: it must hold format, an integer of 0 or more."
   if (formatVersion > codeFormat)
-    return `The repository uses format ${formatVersion}. ctxpipe reads format ${codeFormat}. This Workspace needs a newer ctxpipe version.`
+    return `The repository uses format ${formatVersion}. ctxpipe reads format ${codeFormat}. This Workspace needs a newer ctxpipe version. Ask the operator of ctxpipe to update it.`
   // Up to date: the format is meta text, not a status (CTX-980).
   if (formatVersion === codeFormat) return `Format ${formatVersion}`
   return `The repository uses format ${formatVersion}. ctxpipe reads format ${codeFormat}.`
@@ -265,10 +266,12 @@ export function formatHealthLine(
 /** The text of the next action for a member. */
 export const MEMBER_ASK_ADMIN = "Ask an admin"
 
+type UpgradeGroup = "needs_you" | "working" | "done"
+
 /**
  * The group of an item in the Status group (CTX-980). `needs_you`: the item
- * waits for a person (start, merge, a fix). `working`: ctxpipe works on it, and
- * nobody must act. `done`: applied.
+ * waits for a person (start, merge, a fix). `working`: ctxpipe works on it, or
+ * waits for ctxpipe, and nobody must act. `done`: applied.
  */
 export function upgradeGroup(
   item: Pick<
@@ -276,45 +279,100 @@ export function upgradeGroup(
     "kind" | "status" | "blockedReason" | "targetFormat" | "mergedAt"
   >,
   formatVersion: number | null,
-): "needs_you" | "working" | "done" {
+): UpgradeGroup {
   if (item.status === "completed") return "done"
   if (
     item.status === "queued" ||
     item.status === "running" ||
     (item.status === "pr_open" && item.mergedAt) ||
-    upgradeIsCheckingFormat(item, formatVersion)
+    upgradeIsCheckingFormat(item, formatVersion) ||
+    // ctxpipe has not read the format of the tip yet: a wait on ctxpipe. A
+    // format file that is not valid needs you through the format health.
+    (item.status === "blocked" && item.blockedReason === "ingestion_v2_off")
   )
     return "working"
   return "needs_you"
 }
 
 /**
- * The headline of the Status group: the most urgent group of the items. Its
- * line is the first line of the group and says if the user must act.
+ * The items of the Status group in their groups, in one pass. A checking
+ * state in `expired` is older than a minute: it is blocked again. A
+ * re-ingestion that waits for the format, while a format item is open, goes
+ * in the group of that format item and does not count: the format item is
+ * the one thing to do. `count` gives the items that the headline counts.
  */
-export function upgradeHeadline(groups: ReturnType<typeof upgradeGroup>[]): {
-  label: string
-  className: string
-  pulse?: boolean
-  line: string
-} {
-  const needsYou = groups.filter((group) => group === "needs_you").length
+export function upgradeGroups(
+  items: WorkspaceUpgradeItem[],
+  formatVersion: number | null,
+  expired: ReadonlySet<string>,
+) {
+  const own = (item: WorkspaceUpgradeItem) =>
+    upgradeGroup(item, expired.has(item.key) ? null : formatVersion)
+  const format = items.find(
+    (item) => item.kind === "format" && item.status !== "completed",
+  )
+  const lists: Record<UpgradeGroup, WorkspaceUpgradeItem[]> = {
+    needs_you: [],
+    working: [],
+    done: [],
+  }
+  const groupOf = new Map<string, UpgradeGroup>()
+  const count = { needs_you: 0, working: 0 }
+  for (const item of items) {
+    const follows =
+      format !== undefined &&
+      item.kind === "reingest" &&
+      item.status === "blocked" &&
+      item.blockedReason === "needs_format" &&
+      own(item) === "needs_you"
+    const group = follows ? own(format) : own(item)
+    lists[group].push(item)
+    groupOf.set(item.key, group)
+    if (!follows && group !== "done") count[group]++
+  }
+  return { lists, groupOf, count }
+}
+
+const items = (count: number) => `${count} ${count === 1 ? "item" : "items"}`
+
+/**
+ * The headline of the Status group: the most urgent state. Its line is the
+ * first line of the group and says if the user must act. The format health
+ * counts too: a format file that ctxpipe cannot read needs you, and a format
+ * below the newest with no item means that ctxpipe checks the repository.
+ */
+export function upgradeHeadline(input: {
+  count: { needs_you: number; working: number }
+  formatVersion: number | null
+  codeFormat: number
+}): { label: string; className: string; pulse?: boolean; line: string } {
+  const { formatVersion, codeFormat } = input
+  const unreadable =
+    formatVersion !== null && (formatVersion < 0 || formatVersion > codeFormat)
+  const needsYou = input.count.needs_you + (unreadable ? 1 : 0)
   if (needsYou > 0)
     return {
       label: "Needs you",
-      className: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-      line: `Action needed. ${needsYou} ${needsYou === 1 ? "item needs" : "items need"} you.`,
+      className: STATUS_TONE.attention,
+      line: `Action needed. ${items(needsYou)} ${needsYou === 1 ? "needs" : "need"} you.`,
     }
-  if (groups.includes("working"))
+  if (input.count.working > 0)
     return {
       label: "Working",
-      className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
+      className: STATUS_TONE.good,
       pulse: true,
-      line: "No action needed. ctxpipe works on this Workspace now.",
+      line: `No action needed. ctxpipe works on ${items(input.count.working)} now.`,
+    }
+  if (formatVersion !== null && formatVersion < codeFormat)
+    return {
+      label: "Working",
+      className: STATUS_TONE.good,
+      pulse: true,
+      line: "No action needed. ctxpipe checks the format of the repository now.",
     }
   return {
     label: "Up to date",
-    className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
+    className: STATUS_TONE.good,
     line: "No action needed. Upgrades show here and on Home when one is ready.",
   }
 }
@@ -325,21 +383,20 @@ export function upgradeHeadline(groups: ReturnType<typeof upgradeGroup>[]): {
  * ctxpipe knows no spend.
  */
 export function upgradeSpendLine(
-  item: Pick<WorkspaceUpgradeItem, "kind" | "repositories">,
+  item: Pick<WorkspaceUpgradeItem, "kind" | "repositories" | "status">,
 ): string | null {
   if (item.kind !== "reingest") return null
-  const known = item.repositories.filter(
-    (repository) => repository.spendUsd !== null,
+  const known = item.repositories.flatMap((repository) =>
+    repository.spendUsd === null ? [] : [repository.spendUsd],
   )
   if (known.length === 0) return null
-  const total = known.reduce(
-    (sum, repository) => sum + (repository.spendUsd ?? 0),
-    0,
-  )
+  const total = known.reduce((sum, spend) => sum + spend, 0)
   const unknown = item.repositories.some(
     (repository) => repository.spendUnknown,
   )
-  return `Spend so far: ${unknown ? "at least " : ""}$${total.toFixed(2)}`
+  // An applied re-ingestion spends no more.
+  const label = item.status === "completed" ? "Spend" : "Spend so far"
+  return `${label}: ${unknown ? "at least " : ""}$${total.toFixed(2)}`
 }
 
 /** The History label: the count of applied items and the date of the last one. */
@@ -347,9 +404,11 @@ export function upgradeHistoryLine(
   applied: Pick<WorkspaceUpgradeItem, "updatedAt">[],
 ): string {
   const last = Math.max(...applied.map((item) => Date.parse(item.updatedAt)))
+  // An absolute date in one zone: the same day for each user and each test.
   const date = new Date(last).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
+    timeZone: "UTC",
   })
   return `History · ${applied.length} applied, last on ${date}`
 }

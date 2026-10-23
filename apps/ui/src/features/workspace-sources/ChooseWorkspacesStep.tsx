@@ -138,7 +138,7 @@ export function ChooseWorkspacesStep(props: {
                       href={workspaceUpgradesHref(orgSlug, workspace.slug)}
                       variant="secondary"
                     >
-                      Open Upgrades
+                      Review upgrade
                     </TextLink>
                   </span>
                 </div>

@@ -9,7 +9,7 @@ import { ToastStack } from "@/components/ui/ToastStack"
 import { workspaceUpgradesHref } from "@/features/workspace-upgrades/format-gate"
 import {
   automaticUpgradesJobOptions,
-  enableAutomaticWorkspaceUpgrades,
+  saveWorkspaceUpgradeMode,
   type WorkspaceUpgradeItem,
   workspaceUpgradeKeys,
 } from "@/features/workspace-upgrades/queries"
@@ -48,7 +48,7 @@ import { useHomeNotices } from "./use-home-notices"
  * the member line.
  *
  * The toast has a title and one short line. The full description stays in
- * Workspace settings, Upgrades, which keeps the item and its state after the
+ * Workspace settings, Status, which keeps the item and its state after the
  * toast goes.
  *
  * Always update answers at once. The server saves the setting and then
@@ -67,7 +67,8 @@ function UpgradeToast(props: {
   const startOnce = useStartWorkspaceUpgrade(orgSlug, workspace.slug, item)
   const [savingJobId, setSavingJobId] = useState<string | null>(null)
   const always = useMutation({
-    mutationFn: () => enableAutomaticWorkspaceUpgrades(orgSlug, workspace.slug),
+    mutationFn: () =>
+      saveWorkspaceUpgradeMode(orgSlug, workspace.slug, "automatic"),
     onSuccess: ({ jobId }) => setSavingJobId(jobId),
     onError: (error: Error) => {
       toast.error(error.message)
@@ -106,7 +107,7 @@ function UpgradeToast(props: {
           {saving
             ? "ctxpipe saves the setting. It starts the upgrade when the setting is saved. You can leave this page."
             : saveFailed
-              ? `ctxpipe could not save the setting. ${job.data?.failureReason ?? ""} Press Update once to start the upgrade now, or open Upgrades.`
+              ? `ctxpipe could not save the setting. ${job.data?.failureReason ?? ""} Press Update once to start the upgrade now, or press Review upgrade.`
               : jobStatus === "completed"
                 ? "ctxpipe saved the setting. The upgrade starts in a moment."
                 : upgradeToastLine(item)}
@@ -141,7 +142,7 @@ function UpgradeToast(props: {
             Always update
           </Button>
           {saveFailed ? (
-            <OpenUpgradesButton
+            <ReviewUpgradeButton
               orgSlug={orgSlug}
               workspaceSlug={workspace.slug}
               label={label}
@@ -162,7 +163,7 @@ function UpgradeToast(props: {
   )
 }
 
-function OpenUpgradesButton(props: {
+function ReviewUpgradeButton(props: {
   orgSlug: string
   workspaceSlug: string
   label: string
@@ -172,9 +173,9 @@ function OpenUpgradesButton(props: {
       variant="secondary"
       size="sm"
       href={workspaceUpgradesHref(props.orgSlug, props.workspaceSlug)}
-      aria-label={`Open Upgrades: ${props.label}`}
+      aria-label={`Review upgrade: ${props.label}`}
     >
-      Open Upgrades
+      Review upgrade
     </Button>
   )
 }
@@ -182,7 +183,7 @@ function OpenUpgradesButton(props: {
 /**
  * One failed upgrade. A failure with a repeatable cause fails again on a
  * retry, so the toast offers no Update once and no Always update (CTX-936).
- * It shows the cause and two next steps: ask the agent, or open Upgrades,
+ * It shows the cause and two next steps: ask the agent, or review the upgrade,
  * where the card names the step that failed and the fix. Every role sees it.
  */
 function FailedUpgradeToast(props: {
@@ -227,7 +228,7 @@ function FailedUpgradeToast(props: {
         >
           Ask the agent
         </Button>
-        <OpenUpgradesButton
+        <ReviewUpgradeButton
           orgSlug={orgSlug}
           workspaceSlug={workspace.slug}
           label={label}

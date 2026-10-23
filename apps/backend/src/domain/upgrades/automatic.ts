@@ -4,6 +4,7 @@ import type { listOrgWorkspaces } from "../../models/workspaces.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import {
   WORKSPACE_FORMAT_PATH,
+  type WorkspaceUpgradeMode,
   withWorkspaceFormatFields,
 } from "../workspaces/workspace-format.js"
 import { UPGRADE_STATUSES } from "./registry.js"
@@ -15,22 +16,23 @@ import { startWorkspaceUpgrade } from "./start.js"
 export const AUTOMATIC_UPGRADE_APPROVER = "ctxpipe:automatic-upgrades"
 
 /**
- * Always update: write `upgrades: automatic` into the format file of the
- * Workspace, with a commit on the default branch through the file job write
- * path. The job keeps the format of the tree that it commits on. The caller
- * checks the role.
+ * Automatic upgrades on or off: write `upgrades: automatic` or
+ * `upgrades: manual` into the format file of the Workspace, with a commit on
+ * the default branch through the file job write path. The job keeps the
+ * format of the tree that it commits on. The caller checks the role.
  */
-export async function enableAutomaticUpgrades(
+export async function setUpgradeMode(
   input: {
     jobId: string
     orgId: string
     workspace: { id: string; formatVersion: number | null }
+    mode: WorkspaceUpgradeMode
   },
   log: { error: (err: Error) => void },
 ): Promise<{ started: boolean }> {
   const content = withWorkspaceFormatFields(null, {
     format: Math.max(input.workspace.formatVersion ?? 0, 0),
-    upgrades: "automatic",
+    upgrades: input.mode,
   })
   if (content === null) return { started: false }
   return enqueueWorkspaceWriteCommit(
@@ -44,6 +46,20 @@ export async function enableAutomaticUpgrades(
     },
     log,
   )
+}
+
+/**
+ * The upgrade setting of the Workspace, from the format file at the tip that
+ * ctxpipe read last. Null when ctxpipe has read no tip, or when the file is
+ * not valid. Git is the source of truth, so this reads git and not a cache.
+ */
+export async function readUpgradeMode(
+  orgId: string,
+  workspace: Parameters<typeof readWorkspaceFormatFileAt>[1],
+  env: Env,
+): Promise<WorkspaceUpgradeMode | null> {
+  const file = await readWorkspaceFormatFileAt(orgId, workspace, env)
+  return file?.kind === "format" ? file.upgrades : null
 }
 
 /**

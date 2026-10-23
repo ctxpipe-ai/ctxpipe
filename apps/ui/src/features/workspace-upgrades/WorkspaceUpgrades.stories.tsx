@@ -2,10 +2,15 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+import {
+  expectSkeletonMatchesLoaded,
+  SkeletonMatchFrame,
+} from "@/components/ui/skeletonMatchStory"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 import {
   upgradeItemFixture,
   upgradesFixture,
+  workspaceUpgradeAutomaticHandlers,
   workspaceUpgradeCheckHandler,
   workspaceUpgradeStartHandler,
   workspaceUpgradesHandler,
@@ -35,7 +40,10 @@ async function expectHeadline(
 
 const startRequests: string[] = []
 const checkRequests: string[] = []
+const automaticRequests: string[] = []
 const state = { started: false, checked: false }
+const setting: { mode: "manual" | "automatic" | null } = { mode: "manual" }
+const realDateNow = Date.now
 
 const meta = {
   title: "Components/Workspaces/Upgrades",
@@ -54,6 +62,11 @@ const meta = {
     checkRequests.length = 0
     state.started = false
     state.checked = false
+    automaticRequests.length = 0
+    setting.mode = "manual"
+    return () => {
+      Date.now = realDateNow
+    }
   },
   parameters: {
     layout: "fullscreen",
@@ -68,6 +81,10 @@ const meta = {
           workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
           workspaceUpgradeStartHandler({ requests: startRequests }),
           workspaceUpgradeCheckHandler({ requests: checkRequests }),
+          ...workspaceUpgradeAutomaticHandlers({
+            requests: automaticRequests,
+            setting,
+          }),
         ],
       },
     },
@@ -90,6 +107,10 @@ function withUpgrades(
           ...handlers,
           workspaceUpgradeStartHandler({ requests: startRequests }),
           workspaceUpgradeCheckHandler({ requests: checkRequests }),
+          ...workspaceUpgradeAutomaticHandlers({
+            requests: automaticRequests,
+            setting,
+          }),
         ],
       },
     },
@@ -188,7 +209,7 @@ export const AdminStartsUpgrade: Story = {
     await expectHeadline(
       canvas,
       "Working",
-      "No action needed. ctxpipe works on this Workspace now.",
+      "No action needed. ctxpipe works on 1 item now.",
     )
     await waitFor(() =>
       expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull(),
@@ -264,13 +285,13 @@ export const WaitingForSandbox: Story = {
     await expectHeadline(
       canvas,
       "Working",
-      "No action needed. ctxpipe works on this Workspace now.",
+      "No action needed. ctxpipe works on 1 item now.",
     )
     await waitFor(() =>
       expect(
-        within(
-          canvas.getByRole("list", { name: "Working now · No action needed" }),
-        ).getByText("No action needed."),
+        within(canvas.getByRole("list", { name: "Working now" })).getByText(
+          "No action needed.",
+        ),
       ).toBeVisible(),
     )
     await waitFor(() =>
@@ -322,7 +343,7 @@ export const ReingestWorkingWithSpend: Story = {
     await expectHeadline(
       canvas,
       "Working",
-      "No action needed. ctxpipe works on this Workspace now.",
+      "No action needed. ctxpipe works on 1 item now.",
     )
     await waitFor(() =>
       expect(
@@ -1075,16 +1096,25 @@ export const ReingestSandboxUnavailable: Story = {
   },
 }
 
+/**
+ * ctxpipe has not read a valid format file at the tip yet: a wait on ctxpipe,
+ * so the item is in Working now with no warning.
+ */
 export const ReingestIngestionV2Off: Story = {
   parameters: blockedReingest("ingestion_v2_off"),
   play: async ({ canvasElement }) => {
-    const canvas = await expectReingestCard(
-      canvasElement,
-      "The re-ingestion cannot run here yet",
+    const canvas = within(canvasElement)
+    await expectHeadline(
+      canvas,
+      "Working",
+      "No action needed. ctxpipe works on 1 item now.",
     )
-    await waitFor(() =>
-      expect(canvas.getByText(/valid format file/)).toBeVisible(),
-    )
+    const working = within(canvas.getByRole("list", { name: "Working now" }))
+    expect(working.getByText("Waiting")).toBeVisible()
+    expect(working.getByText(/valid format file/)).toBeVisible()
+    expect(
+      canvas.queryByText("The re-ingestion cannot run here yet"),
+    ).toBeNull()
   },
 }
 
@@ -1287,5 +1317,218 @@ export const RoleNeverAnswers: Story = {
     )
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
     expect(canvas.queryByText("Ask an admin")).toBeNull()
+  },
+}
+
+/**
+ * CTX-980. The checking state ends after a minute. The headline changes to
+ * Needs you in the same render as the card: one clock drives both. The clock
+ * of the page jumps a minute ahead, and the next tick shows the change.
+ */
+export const CheckingEndsAfterAMinute: Story = {
+  // An own Workspace: the minute counts from the first sight of this item.
+  args: { workspaceSlug: "docs-clock" },
+  parameters: withUpgrades(
+    workspaceUpgradesHandler(
+      upgradesFixture(
+        [
+          upgradeItemFixture({
+            key: "reingest-bundle",
+            kind: "reingest",
+            title: "Fresh re-ingestion of the source repositories",
+            steps: [],
+            status: "blocked",
+            blockedReason: "needs_format",
+          }),
+        ],
+        { formatVersion: 3 },
+      ),
+    ),
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expectHeadline(
+      canvas,
+      "Working",
+      "No action needed. ctxpipe works on 1 item now.",
+    )
+    expect(canvas.getByText("Checking the new format")).toBeVisible()
+    const start = realDateNow()
+    Date.now = () => realDateNow() - start + start + 61_000
+    await waitFor(() =>
+      expect(
+        canvas.getByText("Action needed. 1 item needs you."),
+      ).toBeVisible(),
+    )
+    // No await between the two checks: the card changed in the same render.
+    const needsYou = within(canvas.getByRole("list", { name: "Needs you" }))
+    expect(needsYou.getByText("Blocked")).toBeVisible()
+    expect(needsYou.getByText("Apply the format upgrade first")).toBeVisible()
+    expect(canvas.queryByText("Checking the new format")).toBeNull()
+    expect(canvas.queryByRole("list", { name: "Working now" })).toBeNull()
+  },
+}
+
+/** A format file that ctxpipe cannot read needs a person, also with no item. */
+export const InvalidFormatFile: Story = {
+  beforeEach: () => {
+    setting.mode = null
+  },
+  parameters: withUpgrades(
+    workspaceUpgradesHandler(upgradesFixture([], { formatVersion: -1 })),
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expectHeadline(
+      canvas,
+      "Needs you",
+      "Action needed. 1 item needs you.",
+    )
+    expect(
+      canvas.getByText(/The format file in the repository is not valid\./),
+    ).toBeVisible()
+    expect(canvas.queryByText(UP_TO_DATE_LINE)).toBeNull()
+    // ctxpipe cannot read the setting from a file that is not valid.
+    expect(canvas.queryByText(/Automatic upgrades:/)).toBeNull()
+  },
+}
+
+/**
+ * The format pull request is merged, and ctxpipe has not read the new format
+ * yet. The re-ingestion waits for it: it is in Working now with the format
+ * upgrade, and the headline counts one item.
+ */
+export const MergedFormatWithReingestWaiting: Story = {
+  parameters: withUpgrades(
+    workspaceUpgradesHandler(
+      upgradesFixture(
+        [
+          upgradeItemFixture({
+            status: "pr_open",
+            pullRequest: {
+              number: 5,
+              url: "https://github.com/acme/docs/pull/5",
+            },
+            mergedAt: "2026-10-16T10:00:00.000Z",
+          }),
+          upgradeItemFixture({
+            key: "reingest-bundle",
+            kind: "reingest",
+            title: "Fresh re-ingestion of the source repositories",
+            steps: [],
+            status: "blocked",
+            blockedReason: "needs_format",
+            note: "Re-ingestion needs format 3. Merge the format upgrade first.",
+          }),
+        ],
+        { formatVersion: 2 },
+      ),
+    ),
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expectHeadline(
+      canvas,
+      "Working",
+      "No action needed. ctxpipe works on 1 item now.",
+    )
+    const working = within(canvas.getByRole("list", { name: "Working now" }))
+    expect(
+      working.getByRole("heading", { name: "Upgrade to format 3" }),
+    ).toBeVisible()
+    expect(
+      working.getByRole("heading", {
+        name: "Fresh re-ingestion of the source repositories",
+      }),
+    ).toBeVisible()
+    expect(working.getByText("Waiting")).toBeVisible()
+    expect(
+      working.getByText(
+        "This starts after ctxpipe reads the format upgrade above.",
+      ),
+    ).toBeVisible()
+    expect(canvas.queryByRole("list", { name: "Needs you" })).toBeNull()
+    expect(canvas.queryByText("Apply the format upgrade first")).toBeNull()
+  },
+}
+
+/** An owner or admin turns automatic upgrades on, then off again (CTX-980). */
+export const AutomaticUpgradesOnAndOff: Story = {
+  parameters: withUpgrades(
+    workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByText("Automatic upgrades: Off")).toBeVisible(),
+    )
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Turn on automatic upgrades" }),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText("Automatic upgrades: On")).toBeVisible(),
+    )
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Turn off automatic upgrades" }),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText("Automatic upgrades: Off")).toBeVisible(),
+    )
+    expect(automaticRequests.filter((line) => line.startsWith("POST"))).toEqual(
+      [
+        "POST /acme/api/v1/workspaces/docs/upgrades/automatic automatic",
+        "POST /acme/api/v1/workspaces/docs/upgrades/automatic manual",
+      ],
+    )
+  },
+}
+
+/** A member sees the setting and no button. */
+export const MemberSeesAutomaticUpgrades: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          activeMemberRoleHandler("member"),
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+          ...workspaceUpgradeAutomaticHandlers({ setting }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByText("Automatic upgrades: Off")).toBeVisible(),
+    )
+    expect(
+      canvas.queryByRole("button", { name: /automatic upgrades/ }),
+    ).toBeNull()
+  },
+}
+
+/** The skeleton has the box of the Up to date state (DESIGN.md Loading, Match). */
+export const SkeletonMatchesLoaded: Story = {
+  parameters: withUpgrades(
+    workspaceUpgradesHandler("loading", "loading"),
+    workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 }), "docs"),
+  ),
+  render: () => (
+    <SkeletonMatchFrame
+      skeleton={<WorkspaceUpgrades orgSlug="acme" workspaceSlug="loading" />}
+      loaded={<WorkspaceUpgrades orgSlug="acme" workspaceSlug="docs" />}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(
+        within(canvas.getByTestId("loaded-box")).getByRole("button", {
+          name: "Turn on automatic upgrades",
+        }),
+      ).toBeVisible(),
+    )
+    expect(canvas.getByText("Loading upgrades")).toBeInTheDocument()
+    await expectSkeletonMatchesLoaded(canvasElement)
   },
 }

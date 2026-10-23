@@ -28,11 +28,11 @@ export function FormatUpgradeWorkspacesNotice(props: {
               variant="secondary"
               size="sm"
               href={workspaceUpgradesHref(orgSlug, workspace.slug)}
-              aria-label={`Open Upgrades: ${workspace.displayName}`}
+              aria-label={`Review upgrade: ${workspace.displayName}`}
             >
               {workspaces.length === 1
-                ? "Open Upgrades"
-                : `Open Upgrades: ${workspace.displayName}`}
+                ? "Review upgrade"
+                : `Review upgrade: ${workspace.displayName}`}
             </Button>
           ))}
           {isAdmin === false ? (

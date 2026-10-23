@@ -1,6 +1,6 @@
 ---
 title: Workspace settings
-description: Manage the sources of a Workspace, and read its write access, upgrade, and status messages.
+description: Manage the sources of a Workspace, and read its status, write access, and upgrade messages.
 ---
 
 Open a Workspace and choose the **Settings** tab. The pane has two tags at the
@@ -10,11 +10,63 @@ top and these groups:
 | --- | --- |
 | Write access tag | Whether ctxpipe can save changes. See [Write access](#write-access). |
 | Hydrate tag | The state of the last read of the repository. See [Hydrate and skipped files](#hydrate-and-skipped-files). |
+| **Status** | Whether you must do something, the work that ctxpipe does now, the repository format, and the automatic-upgrades setting. |
 | **General** | **Name** and **URL name**. |
 | **Repositories** | The **Context repository** and the **Root folder**. |
 | **Sources** | The source files of the Workspace, grouped by provider. |
-| **Upgrades** | The repository format and the upgrade items. |
 | **Danger zone** | **Delete Workspace**. |
+
+## Status
+
+The **Status** group is the first group of the pane. Its first line is a
+headline tag and one sentence. They tell you if you must do something:
+
+| Headline | Sentence | Meaning |
+| --- | --- | --- |
+| **Needs you** | "Action needed. N items need you." | An item waits for a person: a start, a merge, or a fix. A format file that ctxpipe cannot read also counts as one item. |
+| **Working** | "No action needed. ctxpipe works on N items now." | ctxpipe runs an item, or reads a merged pull request. |
+| **Working** | "No action needed. ctxpipe checks the format of the repository now." | The repository is below the newest format, and ctxpipe has not recorded the upgrade yet. |
+| **Up to date** | "No action needed. Upgrades show here and on Home when one is ready." | No item is open. |
+
+While an item is open, the group also says: "ctxpipe keeps this Workspace
+current. Some upgrades open a pull request for you to merge. Others run here and
+use model calls." The open items are in two lists, **Needs you** and **Working
+now**. Each item in **Working now** says "No action needed." A re-ingestion also
+shows its spend, for example "Spend so far: $1.20". A re-ingestion that waits
+for an open format upgrade is in the list of that upgrade. The headline counts
+the two items as one item.
+
+Every member can read the group. Only an organization owner or admin can start
+an item. A member sees **Ask an admin** in place of the button.
+
+After the lists, the health line compares the repository format with the format
+that ctxpipe reads:
+
+| Health line | Meaning |
+| --- | --- |
+| "Format N" | The repository has the newest format. |
+| "The repository uses format N. ctxpipe reads format M." | An upgrade is available. |
+| "The repository uses format N. ctxpipe reads format M. This Workspace needs a newer ctxpipe version. Ask the operator of ctxpipe to update it." | The repository is newer than ctxpipe. The Workspace is **Read-only**. The headline is **Needs you**. |
+| "The format file in the repository is not valid. Fix .ctxpipe/workspace.yaml: it must hold format, an integer of 0 or more." | Repair `.ctxpipe/workspace.yaml`. The Workspace is **Read-only**. The headline is **Needs you**. |
+| "ctxpipe has not read the repository format." | The first hydrate did not finish. |
+
+Items that are done show under **History**, for example "History · 2 applied,
+last on Oct 21". The Home page shows one alert for each Workspace that has an
+item to finish. It names the Workspace and reads "has N upgrades to finish".
+**Review upgrades** opens this group.
+
+### Automatic upgrades
+
+The health line also shows "Automatic upgrades: Off" or "Automatic upgrades:
+On". An owner or admin chooses **Turn on** or **Turn off**. ctxpipe then commits
+`upgrades: automatic` or `upgrades: manual` into `.ctxpipe/workspace.yaml` on
+the default branch. The message "Automatic upgrades are on. ctxpipe starts each
+upgrade by itself." confirms the change.
+
+When automatic upgrades are on, ctxpipe starts each upgrade item when it finds
+it. A merge of a pull request always needs a person. **Always update** on the
+Home alert does the same as **Turn on**. The setting does not show when ctxpipe
+cannot read the format file.
 
 ## General
 
@@ -128,7 +180,7 @@ change `sources/` without that review. The buttons show only when ctxpipe can
 open a pull request: the Workspace must have a connected GitHub repository and
 must allow edits. See [Write access](#write-access). A context repository
 that is below format 2 refuses each change with **Upgrade this Workspace first**.
-See [Upgrades](#upgrades).
+See [Status](#status).
 
 ### Add a source
 
@@ -180,7 +232,7 @@ See [Upgrades](#upgrades).
 ### Add source shows an error
 
 - **Upgrade this Workspace first.** The context repository does not use one file
-  for each source yet. An owner or admin starts the upgrade in **Upgrades**.
+  for each source yet. An owner or admin starts the upgrade in **Status**.
   Merge the pull request, then add the source again.
 - **This Workspace is read-only.** ctxpipe cannot open a pull request. See
   [Write access](#write-access).
@@ -285,29 +337,6 @@ Each path segment after the provider folder matches
 `[a-z0-9][a-z0-9._-]{0,99}`. `id` and `kind` are not allowed in the front
 matter. Do not repeat the front matter in the body.
 
-## Upgrades
-
-The **Upgrades** group says: "Upgrades move your Workspace repository to the
-layout that this version of ctxpipe reads. Nothing changes until you merge the pull
-request." Every member can read the group. Only an organization owner or admin
-can start an item. A member sees **Ask an admin** in place of the button.
-
-The first line is the health line. It compares the repository format with the
-format that ctxpipe reads:
-
-| Health line | Meaning |
-| --- | --- |
-| "The repository uses format N. It is up to date." | The repository has the newest format. |
-| "The repository uses format N. ctxpipe reads format M." | An upgrade is available. |
-| "The repository uses format N. ctxpipe reads format M. This Workspace needs a newer ctxpipe version." | The repository is newer than ctxpipe. The Workspace is **Read-only**. |
-| "The format file in the repository is not valid." | Repair `.ctxpipe/workspace.yaml`. The Workspace is **Read-only**. |
-| "ctxpipe has not read the repository format." | The first hydrate did not finish. |
-
-When nothing is pending, the group says "No upgrades are pending." Items that are
-done show under **History**. The Home page shows one alert for each Workspace
-that has an item to finish. It names the Workspace and reads "has N upgrades to
-finish". **Review upgrades** opens this group.
-
 ### Upgrade items
 
 There are two kinds of item.
@@ -326,12 +355,13 @@ Each item shows one status:
 | **Queued** | The start is recorded. The run did not begin. | Wait. |
 | **Preparing the pull request** | The run builds the commits. | Wait. |
 | **Waiting for merge** | The pull request is open. | Review and merge it. If the card does not change after a few minutes, an owner or admin chooses **Check again**. |
+| **Waiting** | The item is in **Working now** and waits for ctxpipe, for example for the format upgrade that ctxpipe reads now. | None. |
 | **Applied** | The upgrade is done. | None. |
 | **Failed** | The run stopped. The card shows "The upgrade failed" and the reason. | Fix the cause, then an owner or admin chooses **Start again**. |
 | **Blocked** | ctxpipe cannot start the item. The card shows a title and a reason. | Remove the cause. See [Blocked items](#blocked-items). |
 
-Nothing starts by itself. This is true for hosted and for self-hosted
-deployments.
+Nothing starts by itself, unless [automatic upgrades](#automatic-upgrades) are
+on. This is true for hosted and for self-hosted deployments.
 
 ### The merge step
 
@@ -369,27 +399,30 @@ For the spend, the throttle, and the restart rules, see
 
 ### Blocked items
 
-A blocked card shows a title and a reason. The title tells the cause:
+A blocked card shows a title and a reason. The title tells the cause. A
+re-ingestion that waits until ctxpipe reads a valid format file shows
+**Waiting** in **Working now** and needs no action.
 
 | Title | Item | Cause |
 | --- | --- | --- |
 | "ctxpipe cannot open the upgrade pull request" | Format upgrade | ctxpipe has no write access through the GitHub App. See [Write access](#write-access). |
 | "ctxpipe cannot publish the re-ingestion" | Re-ingestion | ctxpipe has no write access through the GitHub App. See [Write access](#write-access). |
-| "Apply the format upgrade first" | Re-ingestion | The repository is below format 3. Merge the format upgrade. An owner or admin chooses **Check again** on the card. |
+| "Apply the format upgrade first" | Re-ingestion | The repository is below format 3. Merge the format upgrade. An owner or admin chooses **Check again** on the card. After the merge, the item shows **Waiting** in **Working now** until ctxpipe reads the new format. |
 | "This deployment cannot run the re-ingestion" | Re-ingestion | The deployment has no ingest sandbox. The operator must configure one. |
-| "The re-ingestion cannot run here yet" | Re-ingestion | ctxpipe has not read a valid format file of this Workspace. |
 
 ### Repository format
 
 Each context repository holds `.ctxpipe/workspace.yaml`, below its root folder.
-The file has one key:
+The file has the key `format`. The key `upgrades` is optional. It holds
+`manual` (the default) or `automatic`. See [Automatic upgrades](#automatic-upgrades).
 
 ```yaml
 format: 3
+upgrades: manual
 ```
 
 The format is the version of the repository layout. ctxpipe reads the file at each
-hydrate. The **Upgrades** health line shows it.
+hydrate. The **Status** health line shows it.
 
 | Format | Layout |
 | --- | --- |
@@ -398,8 +431,8 @@ hydrate. The **Upgrades** health line shows it.
 | 2 | One Markdown file for each source under `sources/`. |
 | 3 | The ownership front matter that ingestion writes in each knowledge file. This is the current format. |
 
-- Only the setup commit of a new Workspace and an upgrade pull request write the
-  file. No agent or chat write can change it.
+- Only the setup commit of a new Workspace, an upgrade pull request, and the
+  automatic-upgrades setting write the file. No agent or chat write can change it.
 - A change that needs a newer layout refuses on an older repository. A source
   change on a repository below format 2 shows **Upgrade this Workspace first**:
   "Its repository does not use one file for each source yet. Run the Workspace

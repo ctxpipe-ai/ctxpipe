@@ -80,9 +80,9 @@ export function formatUpgradeStatusLine(
     case "pr_open":
       return "The upgrade pull request is open. Merge it on GitHub. Then ctxpipe reads the new format."
     case "blocked":
-      return `${item.note ?? "ctxpipe cannot start the upgrade now."} Open Upgrades for the next step.`
+      return `${item.note ?? "ctxpipe cannot start the upgrade now."} Press Review upgrade for the next step.`
     case undefined:
-      return "ctxpipe has not found the upgrade yet. Open Upgrades to check the repository again."
+      return "ctxpipe has not found the upgrade yet. Press Review upgrade to check the repository again."
     default:
       return ""
   }

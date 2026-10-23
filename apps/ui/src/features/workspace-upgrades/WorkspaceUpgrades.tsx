@@ -4,6 +4,7 @@ import {
   IconGitPullRequest,
 } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import type { ReactNode } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import {
@@ -20,10 +21,8 @@ import {
 } from "@/components/ui/Skeleton"
 import { StatusTag } from "@/features/workspaces/StatusTag"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
-import {
-  checkingFormatExpired,
-  useCheckingFormatExpired,
-} from "./checking-format-clock"
+import { AutomaticUpgradesToggle } from "./AutomaticUpgradesToggle"
+import { useExpiredCheckingKeys } from "./checking-format-clock"
 import {
   checkWorkspaceUpgradesAndWait,
   type WorkspaceUpgradeItem,
@@ -37,10 +36,11 @@ import {
   formatHealthLine,
   MEMBER_ASK_ADMIN,
   STATUS_INTRO,
+  UPGRADE_WAITS_TAG,
   upgradeBlockedCopy,
   upgradeCanCheck,
   upgradeCanStart,
-  upgradeGroup,
+  upgradeGroups,
   upgradeHeadline,
   upgradeHistoryLine,
   upgradeIsCheckingFormat,
@@ -58,16 +58,22 @@ import {
 import { upgradeCheckResult, upgradeProgress } from "./upgrade-progress"
 import { useStartWorkspaceUpgrade } from "./use-start-upgrade"
 
+type UpgradeGroup = "needs_you" | "working" | "done"
+
 /**
  * One upgrade. `isAdmin` is `null` while the role loads: no action shows.
  * The card shows no cost or time estimate: the p50 to p90 range was too
  * wide to help (CTX-894). The description says that a re-ingestion costs
- * money.
+ * money. The Status group gives the group and the checking clock, so the
+ * card and the headline always agree.
  */
 function UpgradeItemCard(props: {
   item: WorkspaceUpgradeItem
   /** The format that ctxpipe read last: a re-ingestion that needs it can be stale. */
   formatVersion: number | null
+  group: UpgradeGroup
+  /** The checking state of this item is older than a minute: it is blocked again. */
+  checkingExpired: boolean
   isAdmin: boolean | null
   onStart: () => void
   onCheck?: () => void
@@ -77,26 +83,26 @@ function UpgradeItemCard(props: {
   orgSlug?: string
   workspaceSlug?: string
   /** Opens the chat with this prompt ("Fix using agent"). */
-  onFixWithAgent?: (prompt: string) => void
+  onFixWithAgent?: ((prompt: string) => void) | undefined
 }) {
   const { item, isAdmin, onStart, onCheck, isStarting, isChecking } = props
   // After a minute, the checking state ends and the blocked line comes back.
-  const formatChecking = upgradeIsCheckingFormat(item, props.formatVersion)
-  const checkingExpired = useCheckingFormatExpired(
-    `${props.orgSlug}/${props.workspaceSlug}/${item.key}`,
-    formatChecking,
-  )
-  const checkingFormat = formatChecking && !checkingExpired
+  const formatVersion = props.checkingExpired ? null : props.formatVersion
+  const checkingFormat = upgradeIsCheckingFormat(item, formatVersion)
+  const working = props.group === "working"
+  // A blocked item in Working now waits for ctxpipe, not for a person.
+  const blockedWaits = working && item.status === "blocked" && !checkingFormat
   const waiting = checkingFormat
     ? CHECKING_FORMAT_COPY
-    : upgradeWaitingCopy(item)
+    : blockedWaits
+      ? item.blockedReason === "needs_format"
+        ? "This starts after ctxpipe reads the format upgrade above."
+        : upgradeBlockedCopy(item).body
+      : upgradeWaitingCopy(item)
   const notices = upgradeNotices(item)
   const progress = upgradeProgress(item)
   const checkResult = upgradeCheckResult(item, props.formatVersion)
   const stepsWithReport = item.steps.filter((step) => step.report.length > 0)
-  const working =
-    upgradeGroup(item, checkingExpired ? null : props.formatVersion) ===
-    "working"
   const spend = upgradeSpendLine(item)
   const meta = [
     working ? "No action needed." : null,
@@ -119,10 +125,9 @@ function UpgradeItemCard(props: {
           </p>
         </div>
         <StatusTag
-          {...upgradeStatusTag(
-            item,
-            checkingExpired ? null : props.formatVersion,
-          )}
+          {...(blockedWaits
+            ? UPGRADE_WAITS_TAG
+            : upgradeStatusTag(item, formatVersion))}
         />
       </div>
 
@@ -216,7 +221,7 @@ function UpgradeItemCard(props: {
         </Disclosure>
       ) : null}
 
-      {checkingFormat ? null : item.status === "blocked" ? (
+      {checkingFormat || blockedWaits ? null : item.status === "blocked" ? (
         <div className="mt-3">
           <InlineAlert variant="warning" title={upgradeBlockedCopy(item).title}>
             <p>{upgradeBlockedCopy(item).body}</p>
@@ -357,10 +362,12 @@ function UpgradeFailureAlert(props: {
 function UpgradeItemRow(props: {
   item: WorkspaceUpgradeItem
   formatVersion: number | null
+  group: UpgradeGroup
+  checkingExpired: boolean
   orgSlug: string
   workspaceSlug: string
   isAdmin: boolean | null
-  onFixWithAgent?: (prompt: string) => void
+  onFixWithAgent: ((prompt: string) => void) | undefined
 }) {
   const { item, orgSlug, workspaceSlug, isAdmin } = props
   const queryClient = useQueryClient()
@@ -410,6 +417,8 @@ function UpgradeItemRow(props: {
     <UpgradeItemCard
       item={item}
       formatVersion={props.formatVersion}
+      group={props.group}
+      checkingExpired={props.checkingExpired}
       isAdmin={isAdmin}
       isStarting={startMutation.isPending}
       isChecking={checkMutation.isPending}
@@ -417,23 +426,26 @@ function UpgradeItemRow(props: {
       onCheck={() => checkMutation.mutate()}
       orgSlug={orgSlug}
       workspaceSlug={workspaceSlug}
-      {...(props.onFixWithAgent
-        ? { onFixWithAgent: props.onFixWithAgent }
-        : {})}
+      onFixWithAgent={props.onFixWithAgent}
     />
   )
 }
 
+/**
+ * The loading state of the Status group. It has the box of the Up to date
+ * state: the headline row and the format row (DESIGN.md Loading, Match).
+ */
 function UpgradesSkeleton() {
   return (
-    <div
-      className="flex flex-col gap-3 rounded-md border border-white/[0.06] px-4 py-3"
-      aria-busy
-    >
+    <div className="flex flex-col gap-4" aria-busy>
       <span className="sr-only">Loading upgrades</span>
-      <SkeletonText className="text-sm" boneClassName="h-3.5 w-40" />
-      <SkeletonText className="text-xs" boneClassName="w-64" />
-      <Skeleton className="h-8 w-24" />
+      <div className="flex flex-wrap items-center gap-3">
+        <Skeleton className="h-5.5 w-24" />
+        <SkeletonText className="text-sm" boneClassName="w-80" />
+      </div>
+      <div className="flex min-h-7 items-center">
+        <SkeletonText className="text-xs" boneClassName="w-56" />
+      </div>
     </div>
   )
 }
@@ -442,32 +454,14 @@ function UpgradesSkeleton() {
 function UpgradeItemList(props: {
   label: string
   items: WorkspaceUpgradeItem[]
-  formatVersion: number | null
-  orgSlug: string
-  workspaceSlug: string
-  isAdmin: boolean | null
-  onFixWithAgent?: (prompt: string) => void
+  row: (item: WorkspaceUpgradeItem) => ReactNode
 }) {
   if (props.items.length === 0) return null
   return (
     <div>
-      <h3 className="text-xs font-medium text-muted-foreground">
-        {props.label}
-      </h3>
+      <p className="text-xs font-medium text-muted-foreground">{props.label}</p>
       <ul className="mt-2 flex flex-col gap-3" aria-label={props.label}>
-        {props.items.map((item) => (
-          <UpgradeItemRow
-            key={item.key}
-            item={item}
-            formatVersion={props.formatVersion}
-            orgSlug={props.orgSlug}
-            workspaceSlug={props.workspaceSlug}
-            isAdmin={props.isAdmin}
-            {...(props.onFixWithAgent
-              ? { onFixWithAgent: props.onFixWithAgent }
-              : {})}
-          />
-        ))}
+        {props.items.map(props.row)}
       </ul>
     </div>
   )
@@ -490,30 +484,31 @@ export function WorkspaceUpgrades(props: {
   const loading = useSkeletonHold(upgradesQuery.isPending)
   const isAdmin = useIsOrgAdmin(orgSlug)
   const data = upgradesQuery.data
-  // A checking state older than a minute is blocked again: it needs you.
-  const groupOf = (item: WorkspaceUpgradeItem) => {
-    const formatVersion = data?.formatVersion ?? null
-    const expired = checkingFormatExpired(
-      `${orgSlug}/${workspaceSlug}/${item.key}`,
-      upgradeIsCheckingFormat(item, formatVersion),
-    )
-    return upgradeGroup(item, expired ? null : formatVersion)
-  }
+  const formatVersion = data?.formatVersion ?? null
   const items = data?.items ?? []
-  const groups = items.map(groupOf)
-  const inGroup = (group: (typeof groups)[number]) =>
-    items.filter((_, index) => groups[index] === group)
-  const needsYou = inGroup("needs_you")
-  const working = inGroup("working")
-  const applied = inGroup("done")
-  const headline = upgradeHeadline(groups)
-  const listProps = {
-    formatVersion: data?.formatVersion ?? null,
-    orgSlug,
-    workspaceSlug,
-    isAdmin,
-    ...(props.onFixWithAgent ? { onFixWithAgent: props.onFixWithAgent } : {}),
-  }
+  // One clock for the group: a checking state older than a minute needs you.
+  const expired = useExpiredCheckingKeys(
+    `${orgSlug}/${workspaceSlug}`,
+    items,
+    formatVersion,
+  )
+  const { lists, groupOf, count } = upgradeGroups(items, formatVersion, expired)
+  const headline =
+    data &&
+    upgradeHeadline({ count, formatVersion, codeFormat: data.codeFormat })
+  const row = (item: WorkspaceUpgradeItem) => (
+    <UpgradeItemRow
+      key={item.key}
+      item={item}
+      formatVersion={formatVersion}
+      group={groupOf.get(item.key) ?? "needs_you"}
+      checkingExpired={expired.has(item.key)}
+      orgSlug={orgSlug}
+      workspaceSlug={workspaceSlug}
+      isAdmin={isAdmin}
+      onFixWithAgent={props.onFixWithAgent}
+    />
+  )
 
   return (
     <section aria-labelledby="workspace-upgrades">
@@ -521,76 +516,70 @@ export function WorkspaceUpgrades(props: {
       <h2 id="workspace-upgrades" className="sr-only">
         Status
       </h2>
-      <div className="flex flex-col gap-4">
-        {loading ? (
-          <UpgradesSkeleton />
-        ) : upgradesQuery.isError ? (
-          <InlineAlert
-            variant="error"
-            actions={
-              <Button
-                variant="secondary"
-                onPress={() => void upgradesQuery.refetch()}
-              >
-                Try again
-              </Button>
-            }
-          >
-            Could not load the upgrades.
-          </InlineAlert>
-        ) : data ? (
-          <>
-            <div className="flex flex-col gap-1">
-              <div className="flex flex-wrap items-center gap-3">
-                <StatusTag {...headline} />
-                <p className="text-sm text-foreground">{headline.line}</p>
-              </div>
-              {needsYou.length + working.length > 0 ? (
-                <p className="text-xs text-muted-foreground">{STATUS_INTRO}</p>
-              ) : null}
+      {loading ? (
+        <UpgradesSkeleton />
+      ) : upgradesQuery.isError ? (
+        <InlineAlert
+          variant="error"
+          actions={
+            <Button
+              variant="secondary"
+              onPress={() => void upgradesQuery.refetch()}
+            >
+              Try again
+            </Button>
+          }
+        >
+          Could not load the upgrades.
+        </InlineAlert>
+      ) : data && headline ? (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-3">
+              <StatusTag {...headline} />
+              <p className="text-sm text-foreground">{headline.line}</p>
             </div>
-            <UpgradeItemList
-              label="Needs you"
-              items={needsYou}
-              {...listProps}
-            />
-            <UpgradeItemList
-              label="Working now · No action needed"
-              items={working}
-              {...listProps}
-            />
-            <p className="text-xs text-muted-foreground">
-              {formatHealthLine(data.formatVersion, data.codeFormat)}
-            </p>
-            {applied.length > 0 ? (
-              <Disclosure className="-mx-2">
-                <DisclosureHeader>
-                  <span className="text-xs text-muted-foreground">
-                    {upgradeHistoryLine(applied)}
-                  </span>
-                </DisclosureHeader>
-                <DisclosurePanel className="px-2">
-                  <ul
-                    className="flex flex-col gap-3 pt-1"
-                    aria-label="Applied upgrades"
-                  >
-                    {applied.map((item) => (
-                      <UpgradeItemRow
-                        key={item.key}
-                        item={item}
-                        formatVersion={data.formatVersion}
-                        orgSlug={orgSlug}
-                        workspaceSlug={workspaceSlug}
-                        isAdmin={isAdmin}
-                      />
-                    ))}
-                  </ul>
-                </DisclosurePanel>
-              </Disclosure>
+            {count.needs_you + count.working > 0 ? (
+              <p className="text-xs text-muted-foreground">{STATUS_INTRO}</p>
             ) : null}
-          </>
-        ) : null}
-      </div>
+          </div>
+          <UpgradeItemList
+            label="Needs you"
+            items={lists.needs_you}
+            row={row}
+          />
+          <UpgradeItemList
+            label="Working now"
+            items={lists.working}
+            row={row}
+          />
+          <div className="flex min-h-7 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+            <span>{formatHealthLine(data.formatVersion, data.codeFormat)}</span>
+            <AutomaticUpgradesToggle
+              orgSlug={orgSlug}
+              workspaceSlug={workspaceSlug}
+              isAdmin={isAdmin}
+            />
+          </div>
+          {lists.done.length > 0 ? (
+            <Disclosure className="-mx-2">
+              <DisclosureHeader>
+                <span className="text-xs text-muted-foreground">
+                  {upgradeHistoryLine(lists.done)}
+                </span>
+              </DisclosureHeader>
+              <DisclosurePanel className="px-2">
+                <ul
+                  className="flex flex-col gap-3 pt-1"
+                  aria-label="Applied upgrades"
+                >
+                  {lists.done.map(row)}
+                </ul>
+              </DisclosurePanel>
+            </Disclosure>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   )
 }

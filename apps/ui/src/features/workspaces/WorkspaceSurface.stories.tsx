@@ -325,7 +325,7 @@ export const ComposeNeedsFormatUpgrade: Story = {
     await canvas.findByText("This Workspace needs the format upgrade")
     await canvas.findByRole("button", { name: "Start the upgrade" })
     await expect(
-      canvas.getByRole("link", { name: "Open Upgrades" }),
+      canvas.getByRole("link", { name: "Review upgrade" }),
     ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
     // The chat stays usable below the banner.
     await expect(
