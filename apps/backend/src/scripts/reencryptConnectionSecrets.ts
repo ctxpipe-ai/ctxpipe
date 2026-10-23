@@ -2,10 +2,10 @@
  * One-off: re-encrypt the stored connection secrets from the old key to
  * NEW_CONNECTION_SECRETS_ENCRYPTION_KEY. The old key is
  * OLD_CONNECTION_SECRETS_ENCRYPTION_KEY, or the key that OLD_AUTH_SECRET makes
- * when that is not set. When OLD_AUTH_SECRET and NEW_AUTH_SECRET are set, it
- * also re-encrypts the Better Auth two-factor rows (the TOTP secret and the
- * backup codes) from OLD_AUTH_SECRET to NEW_AUTH_SECRET in the same
- * transaction. Run it with the backend and the worker stopped, as the database
+ * when that is not set. When NEW_AUTH_SECRET is set, it also re-encrypts the
+ * Better Auth two-factor rows (the TOTP secret and the backup codes) from
+ * OLD_AUTH_SECRET to NEW_AUTH_SECRET in the same transaction. NEW_AUTH_SECRET
+ * without OLD_AUTH_SECRET stops the script before it changes a row. Run it with the backend and the worker stopped, as the database
  * owner. Without --apply, it rolls back.
  *
  *   bun run src/scripts/reencryptConnectionSecrets.ts [--apply]
@@ -30,6 +30,11 @@ const to = {
 
 function reencrypt(value: unknown): unknown {
   if (typeof value === "string" && value.startsWith("ctxv1:")) {
+    if (!to.CONNECTION_SECRETS_ENCRYPTION_KEY) {
+      throw new Error(
+        "Connection secrets exist and NEW_CONNECTION_SECRETS_ENCRYPTION_KEY is not set. Export it (the current key when only AUTH_SECRET changes). Nothing changed.",
+      )
+    }
     return encryptConnectionSecret(decryptConnectionSecret(value, from), to)
   }
   if (Array.isArray(value)) return value.map(reencrypt)
@@ -43,6 +48,13 @@ function reencrypt(value: unknown): unknown {
 
 const oldAuthSecret = process.env.OLD_AUTH_SECRET
 const newAuthSecret = process.env.NEW_AUTH_SECRET
+// Without the old secret, the two-factor rows stay on it while the services
+// start on the new one, and every user with two-factor sign-in is locked out.
+if (newAuthSecret && !oldAuthSecret) {
+  throw new Error(
+    "NEW_AUTH_SECRET is set and OLD_AUTH_SECRET is not. Export OLD_AUTH_SECRET with the current AUTH_SECRET value, or unset NEW_AUTH_SECRET when AUTH_SECRET does not change. Nothing changed.",
+  )
+}
 
 /**
  * Better Auth gets `secret: AUTH_SECRET` and no `secrets` list, so the
@@ -51,18 +63,18 @@ const newAuthSecret = process.env.NEW_AUTH_SECRET
 async function reencryptTwoFactor(
   id: string,
   value: string,
-  from: string,
-  to: string,
+  oldKey: string,
+  newKey: string,
 ): Promise<string> {
   let plaintext: string
   try {
-    plaintext = await symmetricDecrypt({ key: from, data: value })
+    plaintext = await symmetricDecrypt({ key: oldKey, data: value })
   } catch {
     throw new Error(
       `two_factors row ${id} does not decrypt with OLD_AUTH_SECRET. Nothing changed.`,
     )
   }
-  return symmetricEncrypt({ key: to, data: plaintext })
+  return symmetricEncrypt({ key: newKey, data: plaintext })
 }
 
 const apply = process.argv.includes("--apply")
@@ -98,8 +110,7 @@ try {
       [row.sandbox_id, reencrypt(row.token_ciphertext)],
     )
   }
-  let twoFactorSummary =
-    "two-factor rows skipped: set OLD_AUTH_SECRET and NEW_AUTH_SECRET when AUTH_SECRET changes"
+  let twoFactorSummary = ""
   if (oldAuthSecret && newAuthSecret) {
     const twoFactors = await db.query(
       "select id, secret, backup_codes from two_factors for update",
@@ -124,11 +135,11 @@ try {
         ],
       )
     }
-    twoFactorSummary = `${twoFactors.rowCount} two-factor rows`
+    twoFactorSummary = `, ${twoFactors.rowCount} two-factor rows`
   }
   await db.query(apply ? "commit" : "rollback")
   process.stdout.write(
-    `${connections.rowCount} connections, ${tokens.rowCount} sandbox tokens, ${twoFactorSummary}${apply ? "" : " (dry run, rolled back)"}\n`,
+    `${connections.rowCount} connections, ${tokens.rowCount} sandbox tokens${twoFactorSummary}${apply ? "" : " (dry run, rolled back)"}\n`,
   )
 } catch (error) {
   await db.query("rollback")
