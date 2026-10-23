@@ -25,9 +25,11 @@ async function expectHeadline(
   label: string,
   line: string | RegExp,
 ) {
+  // The Needs you list has a heading with the same word: look in the headline row.
   await waitFor(async () => {
-    expect(await canvas.findByText(label)).toBeVisible()
-    expect(canvas.getByText(line)).toBeVisible()
+    const row = (await canvas.findByText(line)).parentElement
+    if (!row) throw new Error("The headline row is missing")
+    expect(within(row).getByText(label)).toBeVisible()
   })
 }
 
