@@ -251,6 +251,8 @@ beforeAll(async () => {
     "pnpm-workspace.yaml": 'packages:\n  - "."\n  - services/*\n',
     "services/orders/package.json": '{ "name": "orders" }\n',
     "services/orders/src/index.ts": "export const orders = []\n",
+    "services/orders/README.md":
+      "# Orders\n\nThe orders service keeps each order of the checkout.\n",
     "README.md": "# Checkout API\n",
   })
   for (const name of contexts)
@@ -276,7 +278,14 @@ beforeAll(async () => {
   // model skill of the plan.
   const real = await readIngestSkillBundle()
   bundleDir = join(folder, "bundle")
-  const kept = ["bin", "discover-roots", "repository", "libraries", "ownership"]
+  const kept = [
+    "bin",
+    "discover-roots",
+    "repository",
+    "libraries",
+    "ownership",
+    "readmes",
+  ]
   for (const file of real.files.filter((f) =>
     kept.includes(f.path.split("/")[0] ?? ""),
   )) {
@@ -551,6 +560,13 @@ describe("ingestion v2 in shadow mode", () => {
         expect(orders).toContain("generated_by: ctxpipe-extract")
         // The host root of each root step's package unit (CTX-657).
         expect(orders).toContain("root: services/orders")
+        // The readmes step quoted the README of the root into the file.
+        expect(orders).toContain(
+          "summary: The orders service keeps each order of the checkout.",
+        )
+        expect(orders).toContain(
+          "## Overview\n\n> The orders service keeps each order of the checkout.\n\nSource: `services/orders/README.md`",
+        )
         expect(
           git(
             join(remotes, name),

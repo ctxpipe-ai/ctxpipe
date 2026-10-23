@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -1296,6 +1297,595 @@ describe("ownership skill", () => {
         reason: "A root path has characters that the script does not quote",
       },
     ])
+  })
+})
+
+/** A package file that classify-kind wrote and the host stamped. */
+const packageFile = (
+  name: string,
+  root: string,
+  extra: { sources?: string[]; summary?: string; body?: string } = {},
+) =>
+  front(
+    {
+      kind: "Service",
+      name,
+      summary: extra.summary ?? "A service in the example-org/shop repository.",
+      generated_by: "ctxpipe-extract",
+      sources: extra.sources ?? [SOURCE_PATH],
+      root,
+      source_sha: "0".repeat(40),
+      skill: "classify-kind",
+      bundle: "ingest-0000000000000000",
+    },
+    extra.body ??
+      `# ${name}\n\nA script classified it as a service.\n\n## Related\n\n- \`example-org/shop\` has it at \`${root}\` (\`${root}/package.json\`)\n`,
+  )
+
+const fence = "```"
+
+const API_README = [
+  '<p align="center"><img src="logo.png" alt="logo"></p>',
+  "",
+  "# API",
+  "",
+  "[![CI](https://github.com/example-org/shop/actions/workflows/ci.yml/badge.svg)](https://github.com/example-org/shop/actions) [![npm](https://img.shields.io/npm/v/api.svg)](https://www.npmjs.com/package/api)",
+  "",
+  "The API serves the shop catalog and orders over HTTP.",
+  "See the [guide](./docs/guide.md), the [hosting notes](https://hosting.example.com/notes), and `<Cart />`.",
+  "",
+  "![diagram](./docs/diagram.png)",
+  "",
+  "<!-- maintainers: keep this short -->",
+  "",
+  "## Usage",
+  "",
+  `${fence}sh`,
+  "pnpm --filter api dev   # http://localhost:3000",
+  fence,
+  "",
+  "Read <https://other.example.org/x>, [the root](../../README.md#setup), and [setup](#setup).",
+  "",
+  "[ref]: https://other.example.org/ref",
+  "",
+].join("\n")
+
+const frontOf = (text: string) =>
+  parse(/^---\n([\s\S]*?)\n---\n/.exec(text)?.[1] ?? "") as Record<
+    string,
+    unknown
+  >
+
+describe("readmes skill", () => {
+  it("quotes a package README into an Overview section and replaces the stub summary", async () => {
+    const s = step(
+      { ...PNPM_SHOP, "apps/api/README.md": API_README },
+      {
+        "knowledge/services/api.md": packageFile("api", "apps/api"),
+        "knowledge/services/web.md": packageFile("web", "apps/web"),
+      },
+    )
+    s.mapFiles({
+      "apps/api": ["knowledge/services/api.md"],
+      "apps/web": ["knowledge/services/web.md"],
+    })
+    const out = s.run("readmes")
+    // apps/web has no README, so its file does not change.
+    expect(out.ops).toEqual([
+      { op: "update", path: "knowledge/services/api.md" },
+    ])
+
+    const result = await s.validate("readmes")
+    expect(result.rejections).toEqual([])
+    const api = s.show(result.tree, "knowledge/services/api.md")
+    expect(frontOf(api).summary).toBe(
+      "The API serves the shop catalog and orders over HTTP. See the guide, the hosting notes, and `<Cart />`.",
+    )
+    expect(api).toContain(
+      [
+        "# api",
+        "",
+        "A script classified it as a service.",
+        "",
+        "## Overview",
+        "",
+        "> The API serves the shop catalog and orders over HTTP.",
+        "> See the guide, the hosting notes, and `<Cart />`.",
+        ">",
+        "> ## Usage",
+        "",
+        "Source: `apps/api/README.md`",
+        "",
+        `${fence}sh`,
+        "pnpm --filter api dev   # http://localhost:3000",
+        fence,
+        "",
+        "Source: `apps/api/README.md`",
+        "",
+        "> Read, the root, and setup.",
+        "",
+        "Source: `apps/api/README.md`",
+        "",
+        "## Related",
+        "",
+      ].join("\n"),
+    )
+    // Badges, images, HTML, and links to other hosts do not carry over.
+    expect(api).not.toMatch(
+      /shields|npmjs|diagram|logo|maintainers|other\.example|hosting\.example/,
+    )
+  })
+
+  it("updates the section when the README changes, and changes nothing when it does not", async () => {
+    const first = step(
+      { ...PNPM_SHOP, "apps/api/README.md": "# API\n\nServes orders.\n" },
+      { "knowledge/services/api.md": packageFile("api", "apps/api") },
+    )
+    first.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+    first.run("readmes")
+    const written = first.show(
+      (await first.validate("readmes")).tree,
+      "knowledge/services/api.md",
+    )
+    expect(frontOf(written).summary).toBe("Serves orders.")
+
+    // The next run: the root steps changed nothing, so the root map names
+    // no file. The script finds the file by its host root.
+    const changed = step(
+      {
+        ...PNPM_SHOP,
+        "apps/api/README.md": "# API\n\nServes orders and refunds.\n",
+      },
+      { "knowledge/services/api.md": written },
+    )
+    expect(changed.run("readmes").ops).toEqual([
+      { op: "update", path: "knowledge/services/api.md" },
+    ])
+    const result = await changed.validate("readmes")
+    expect(result.rejections).toEqual([])
+    const api = changed.show(result.tree, "knowledge/services/api.md")
+    expect(frontOf(api).summary).toBe("Serves orders and refunds.")
+    expect(api.match(/^## Overview$/gm)).toHaveLength(1)
+    expect(api).toContain("> Serves orders and refunds.\n")
+    expect(api).not.toContain("> Serves orders.\n")
+    expect(api.trimEnd().endsWith("(`apps/api/package.json`)")).toBe(true)
+
+    const same = step(
+      {
+        ...PNPM_SHOP,
+        "apps/api/README.md": "# API\n\nServes orders and refunds.\n",
+      },
+      { "knowledge/services/api.md": api },
+    )
+    expect(same.run("readmes")).toEqual({ ops: [], skipped: [], more: false })
+  })
+
+  it("keeps a summary that is not a stub, and skips a shared file and an Overview that it did not write", async () => {
+    const s = step(
+      {
+        ...PNPM_SHOP,
+        "apps/api/README.md": "# API\n\nServes orders.\n",
+        "apps/web/README.md": "# Web\n\nThe shop front.\n",
+        "README.md": "# Shop\n\nThe shop monorepo.\n",
+      },
+      {
+        "knowledge/services/api.md": packageFile("api", "apps/api", {
+          summary: "The order API.",
+          body: "# api\n\n## Overview\n\nA person wrote this.\n",
+        }),
+        "knowledge/services/web.md": packageFile("web", "apps/web", {
+          sources: [SOURCE_PATH, "sources/github/example-org/other.md"],
+        }),
+        "knowledge/codebases/shop.md": front(
+          {
+            kind: "Repository",
+            name: "example-org/shop",
+            summary: "The source repository example-org/shop.",
+            generated_by: "ctxpipe-extract",
+            sources: [SOURCE_PATH],
+            root: ".",
+          },
+          "# example-org/shop\n\nA script wrote this file.\n",
+        ),
+      },
+    )
+    s.mapFiles({
+      "apps/api": ["knowledge/services/api.md"],
+      "apps/web": ["knowledge/services/web.md"],
+    })
+    const out = s.run("readmes")
+    // The repository unit gets the README at the top of the repository.
+    expect(out.ops).toEqual([
+      { op: "update", path: "knowledge/codebases/shop.md" },
+    ])
+    expect(out.skipped).toEqual([
+      {
+        path: "knowledge/services/api.md",
+        reason: "The file has an Overview section that the skill did not write",
+      },
+      {
+        path: "knowledge/services/web.md",
+        reason: "The source does not own the file alone",
+      },
+    ])
+    const result = await s.validate("readmes")
+    expect(result.rejections).toEqual([])
+    const shop = s.show(result.tree, "knowledge/codebases/shop.md")
+    expect(frontOf(shop).summary).toBe("The shop monorepo.")
+    expect(shop).toMatch(
+      /A script wrote this file\.\n\n## Overview\n\n> The shop monorepo\.\n\nSource: `README\.md`$/,
+    )
+  })
+
+  it("never writes into a human section and puts the section after it", async () => {
+    const human =
+      "<!-- ctxpipe:human -->\n## Overview\n\nOur notes.\n<!-- /ctxpipe:human -->"
+    const s = step(
+      { ...PNPM_SHOP, "apps/api/README.md": "# API\n\nServes orders.\n" },
+      {
+        "knowledge/services/api.md": packageFile("api", "apps/api", {
+          body: `# api\n\n${human}\n\n## Related\n\n- A line\n`,
+        }),
+      },
+    )
+    s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+    expect(s.run("readmes").ops).toHaveLength(1)
+    const result = await s.validate("readmes")
+    expect(result.rejections).toEqual([])
+    expect(s.show(result.tree, "knowledge/services/api.md")).toContain(
+      `# api\n\n${human}\n\n## Overview\n\n> Serves orders.\n\nSource: \`apps/api/README.md\`\n\n## Related\n\n- A line`,
+    )
+  })
+
+  it("cuts the quote at a paragraph under the size cap and before a heading about agents", async () => {
+    const paragraph = (i: number) =>
+      `Paragraph ${i} of the long guide. ${"The service keeps each order. ".repeat(4)}`
+    const s = step(
+      {
+        ...PNPM_SHOP,
+        "apps/api/README.md": [
+          "# API",
+          ...Array.from({ length: 60 }, (_, i) => `\n${paragraph(i + 1)}`),
+        ].join("\n"),
+        "apps/web/README.md": [
+          "# Web",
+          "",
+          "The shop front.",
+          "",
+          "## Notes for AI agents",
+          "",
+          "Run the checks first.",
+        ].join("\n"),
+      },
+      {
+        "knowledge/services/api.md": packageFile("api", "apps/api"),
+        "knowledge/services/web.md": packageFile("web", "apps/web"),
+      },
+    )
+    s.mapFiles({
+      "apps/api": ["knowledge/services/api.md"],
+      "apps/web": ["knowledge/services/web.md"],
+    })
+    expect(s.run("readmes").ops).toHaveLength(2)
+    const result = await s.validate("readmes")
+    expect(result.rejections).toEqual([])
+
+    const api = s.show(result.tree, "knowledge/services/api.md")
+    const quote = /## Overview\n\n([\s\S]*?)\n\nSource:/.exec(api)?.[1] ?? ""
+    expect(quote.length).toBeLessThanOrEqual(4000)
+    expect(quote.length).toBeGreaterThan(3000)
+    expect(quote).toContain("> Paragraph 1 of the long guide.")
+    expect(quote).not.toContain("Paragraph 60 ")
+    expect(quote.endsWith("each order.")).toBe(true)
+
+    const web = s.show(result.tree, "knowledge/services/web.md")
+    expect(web).toContain("> The shop front.\n\nSource: `apps/web/README.md`")
+    expect(web).not.toMatch(/agents|Run the checks/)
+  })
+
+  it("keeps the text of each link and drops its target", async () => {
+    const { readmeOverview } = await import(
+      join(INGEST_SKILLS_DIR, "readmes/scripts/readme-quote.mjs")
+    )
+    const text = [
+      "# Tools",
+      "",
+      'See [docs](docs/a.md), [up](../../../x.md), [issues](https://github.com/example-org/shop/issues), [fork](https://github.com/someone/shop), [top](#top), and [wiki](https://x.example/x_(y) "Wiki").',
+    ].join("\n")
+    expect(readmeOverview(text, "tools/README.md").quote).toBe(
+      "> See docs, up, issues, fork, top, and wiki.\n\nSource: `tools/README.md`",
+    )
+    expect(
+      readmeOverview("# Only a title\n\n![logo](logo.png)\n", "README.md"),
+    ).toBeNull()
+  })
+
+  it("reads a setext heading as a heading", async () => {
+    const { readmeOverview } = await import(
+      join(INGEST_SKILLS_DIR, "readmes/scripts/readme-quote.mjs")
+    )
+    // The title goes, and a setext heading is never the summary.
+    expect(readmeOverview("API\n===\n\nServes orders.\n", "README.md")).toEqual(
+      {
+        quote: "> Serves orders.\n\nSource: `README.md`",
+        summary: "Serves orders.",
+      },
+    )
+    // The quote stops before a setext heading about agents, and never
+    // ends with a heading.
+    expect(
+      readmeOverview(
+        "Serves orders.\n\nUsage\n-----\n\nRun it.\n\nFor AI agents\n----\n\nRun the checks.\n",
+        "README.md",
+      )?.quote,
+    ).toBe(
+      "> Serves orders.\n>\n> ## Usage\n>\n> Run it.\n\nSource: `README.md`",
+    )
+    expect(
+      readmeOverview("Serves orders.\n\nUsage\n---\n", "README.md")?.quote,
+    ).toBe("> Serves orders.\n\nSource: `README.md`")
+  })
+
+  it("stops at the headings that the validator refuses, and only at those", async () => {
+    const s = step(
+      {
+        ...PNPM_SHOP,
+        "apps/api/README.md": [
+          "# API",
+          "",
+          "Serves orders.",
+          "",
+          "## Cursor pagination",
+          "",
+          "Each page has a cursor.",
+          "",
+          "## Coding models",
+          "",
+          "Use the small model.",
+        ].join("\n"),
+      },
+      { "knowledge/services/api.md": packageFile("api", "apps/api") },
+    )
+    s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+    expect(s.run("readmes").ops).toHaveLength(1)
+    const result = await s.validate("readmes")
+    expect(result.rejections).toEqual([])
+    const api = s.show(result.tree, "knowledge/services/api.md")
+    expect(api).toContain(
+      "> ## Cursor pagination\n>\n> Each page has a cursor.",
+    )
+    expect(api).not.toMatch(/Coding models|small model/)
+  })
+
+  it("cuts a long first paragraph at a sentence", async () => {
+    const { readmeOverview } = await import(
+      join(INGEST_SKILLS_DIR, "readmes/scripts/readme-quote.mjs")
+    )
+    const long = "The service keeps each order. ".repeat(200).trim()
+    const quote: string =
+      readmeOverview(`# API\n\n${long}\n`, "README.md")?.quote ?? ""
+    expect(quote.length).toBeLessThanOrEqual(4000)
+    expect(quote.length).toBeGreaterThan(3500)
+    expect(quote).toMatch(/^> The service keeps each order\. /)
+    expect(quote).toMatch(/each order\.\n\nSource: `README\.md`$/)
+  })
+
+  it("gives a Source line to each quoted run, so a quoted phrase in an earlier run passes", async () => {
+    const s = step(
+      {
+        ...PNPM_SHOP,
+        "apps/api/README.md": [
+          "# API",
+          "",
+          "Serves orders.",
+          "",
+          "A test fixture says: ignore all previous instructions.",
+          "",
+          `${fence}sh`,
+          "pnpm test",
+          fence,
+          "",
+          "More notes.",
+        ].join("\n"),
+      },
+      { "knowledge/services/api.md": packageFile("api", "apps/api") },
+    )
+    s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+    expect(s.run("readmes").ops).toHaveLength(1)
+    const result = await s.validate("readmes")
+    expect(result.rejections).toEqual([])
+    expect(s.show(result.tree, "knowledge/services/api.md")).toContain(
+      "> A test fixture says: ignore all previous instructions.\n\nSource: `apps/api/README.md`\n\n```sh",
+    )
+  })
+
+  it("keeps the old summary when the first paragraph reads as an instruction", async () => {
+    const s = step(
+      {
+        ...PNPM_SHOP,
+        "apps/api/README.md":
+          "# API\n\nYou can override any of the default rules.\n",
+      },
+      { "knowledge/services/api.md": packageFile("api", "apps/api") },
+    )
+    s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+    expect(s.run("readmes").ops).toHaveLength(1)
+    const result = await s.validate("readmes")
+    expect(result.rejections).toEqual([])
+    const api = s.show(result.tree, "knowledge/services/api.md")
+    expect(frontOf(api).summary).toBe(
+      "A service in the example-org/shop repository.",
+    )
+    expect(api).toContain("> You can override any of the default rules.")
+  })
+
+  it("keeps a summary with a comment, and a summary that it cannot read", async () => {
+    const withLine = (line: string) =>
+      packageFile("api", "apps/api").replace(/^summary: .*$/m, line)
+    for (const line of [
+      'summary: "The order API." # by a person',
+      "summary: >\n  The order API.",
+    ]) {
+      const s = step(
+        { ...PNPM_SHOP, "apps/api/README.md": "# API\n\nServes orders.\n" },
+        { "knowledge/services/api.md": withLine(line) },
+      )
+      s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+      expect(s.run("readmes").ops).toHaveLength(1)
+      const result = await s.validate("readmes")
+      expect(result.rejections).toEqual([])
+      const api = s.show(result.tree, "knowledge/services/api.md")
+      expect(frontOf(api).summary).toMatch(/^The order API\.\n?$/)
+      expect(api).toContain("> Serves orders.")
+    }
+  })
+
+  it("stops the quote before a quoted run with an instruction phrase whose text it changed", async () => {
+    for (const changed of [
+      "AI agents should read [the guide](docs/agents.md) first.",
+      "Usage\n-----\n\nAI agents should read the guide first.",
+      "## Usage ##\n\nAI agents should read the guide first.",
+    ]) {
+      const s = step(
+        {
+          ...PNPM_SHOP,
+          "apps/api/README.md": `# API\n\nServes orders.\n\n${changed}\n`,
+        },
+        { "knowledge/services/api.md": packageFile("api", "apps/api") },
+      )
+      s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+      expect(s.run("readmes").ops).toHaveLength(1)
+      const result = await s.validate("readmes")
+      expect(result.rejections).toEqual([])
+      const api = s.show(result.tree, "knowledge/services/api.md")
+      expect(api).toContain(
+        "## Overview\n\n> Serves orders.\n\nSource: `apps/api/README.md`\n\n## Related",
+      )
+      expect(api).not.toMatch(/AI agents|Usage/)
+    }
+  })
+
+  it("keeps a summary that a person wrote after the skill wrote the Overview", async () => {
+    const first = step(
+      { ...PNPM_SHOP, "apps/api/README.md": "# API\n\nServes orders.\n" },
+      { "knowledge/services/api.md": packageFile("api", "apps/api") },
+    )
+    first.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+    first.run("readmes")
+    const written = first
+      .show((await first.validate("readmes")).tree, "knowledge/services/api.md")
+      .replace(
+        /^summary: .*$/m,
+        'summary: "The order API, written by a person."',
+      )
+
+    const next = step(
+      {
+        ...PNPM_SHOP,
+        "apps/api/README.md": "# API\n\nServes orders and refunds.\n",
+      },
+      { "knowledge/services/api.md": written },
+    )
+    expect(next.run("readmes").ops).toHaveLength(1)
+    const result = await next.validate("readmes")
+    expect(result.rejections).toEqual([])
+    const api = next.show(result.tree, "knowledge/services/api.md")
+    expect(frontOf(api).summary).toBe("The order API, written by a person.")
+    expect(api).toContain("> Serves orders and refunds.\n")
+  })
+
+  it("stops before a heading that the validator refuses after it decodes a character reference", async () => {
+    for (const heading of ["## For &#65;I agents", "## Coding&nbsp;models"]) {
+      const s = step(
+        {
+          ...PNPM_SHOP,
+          "apps/api/README.md": `# API\n\nServes orders.\n\n${heading}\n\nRun the checks.\n`,
+        },
+        { "knowledge/services/api.md": packageFile("api", "apps/api") },
+      )
+      s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+      expect(s.run("readmes").ops).toHaveLength(1)
+      const result = await s.validate("readmes")
+      expect(result.rejections).toEqual([])
+      const api = s.show(result.tree, "knowledge/services/api.md")
+      expect(api).toContain("> Serves orders.\n\nSource: `apps/api/README.md`")
+      expect(api).not.toContain("Run the checks")
+    }
+  })
+
+  it("updates its own summary again after a README version that gives no summary", async () => {
+    for (const middle of [
+      "```\nnpm i\n```",
+      "AI agents should read the guide.\n\nServes refunds.",
+    ]) {
+      let file = packageFile("api", "apps/api")
+      for (const text of ["Serves orders.", middle, "Serves carts."]) {
+        const s = step(
+          { ...PNPM_SHOP, "apps/api/README.md": `# API\n\n${text}\n` },
+          { "knowledge/services/api.md": file },
+        )
+        s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+        s.run("readmes")
+        const result = await s.validate("readmes")
+        expect(result.rejections).toEqual([])
+        file = s.show(result.tree, "knowledge/services/api.md")
+      }
+      expect(frontOf(file).summary).toBe("Serves carts.")
+    }
+  })
+
+  it("stops before a block that holds a heading that the validator refuses", async () => {
+    for (const block of [
+      "[#](x) For AI agents",
+      "> ## For AI agents",
+      "- ## For AI agents",
+    ]) {
+      const s = step(
+        {
+          ...PNPM_SHOP,
+          "apps/api/README.md": `# API\n\nServes orders.\n\n${block}\n\nRun the checks.\n`,
+        },
+        { "knowledge/services/api.md": packageFile("api", "apps/api") },
+      )
+      s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+      expect(s.run("readmes").ops).toHaveLength(1)
+      const result = await s.validate("readmes")
+      expect(result.rejections).toEqual([])
+      const api = s.show(result.tree, "knowledge/services/api.md")
+      expect(api).toContain(
+        "## Overview\n\n> Serves orders.\n\nSource: `apps/api/README.md`\n\n## Related",
+      )
+      expect(api).not.toMatch(/AI agents|Run the checks/)
+    }
+  })
+
+  it("keeps a block quote with a heading that the validator accepts", async () => {
+    const s = step(
+      {
+        ...PNPM_SHOP,
+        "apps/api/README.md":
+          "# API\n\nServes orders.\n\n> ## Usage\n\nRun it.\n",
+      },
+      { "knowledge/services/api.md": packageFile("api", "apps/api") },
+    )
+    s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+    expect(s.run("readmes").ops).toHaveLength(1)
+    const result = await s.validate("readmes")
+    expect(result.rejections).toEqual([])
+    expect(s.show(result.tree, "knowledge/services/api.md")).toContain(
+      "> Run it.",
+    )
+  })
+
+  it("reads no README that is a symbolic link", () => {
+    const s = step(PNPM_SHOP, {
+      "knowledge/services/api.md": packageFile("api", "apps/api"),
+    })
+    symlinkSync("../../package.json", join(s.sourceDir, "apps/api/README.md"))
+    git(s.sourceDir, "add", "-A")
+    git(s.sourceDir, "commit", "-q", "-m", "link")
+    s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+    expect(s.run("readmes")).toEqual({ ops: [], skipped: [], more: false })
   })
 })
 

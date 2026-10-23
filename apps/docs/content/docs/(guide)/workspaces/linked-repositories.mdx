@@ -167,6 +167,9 @@ Indexing runs again when the linked branch or tag of the repository changes.
 - **Extracted knowledge**: services, APIs, libraries, infrastructure, and
   instructions such as `AGENTS.md`, skills, and ADRs, committed to the
   workspace repository as knowledge files with claims.
+- **Package overviews**: the start of the README of each package,
+  quoted in the knowledge file of that package. When a README changes, the
+  next indexing updates the quote.
 
 Extraction uses models on parts of the code. Treat extracted claims like any
 other knowledge file: review them in git and correct them when they are wrong.

@@ -60,8 +60,9 @@ describe("ingestion v2 plan", () => {
     })
   })
 
-  it("runs the repository unit first, dependencies also on the assembled ref, and datasources-infra only there", () => {
+  it("runs the repository unit first, dependencies also on the assembled ref, datasources-infra only there, and readmes last", () => {
     const bundle = [
+      "readmes",
       "repository",
       "classify-kind",
       "apis",
@@ -89,6 +90,7 @@ describe("ingestion v2 plan", () => {
       "datasources-infra",
       "decisions",
       "instruction-areas",
+      "readmes",
     ])
   })
 

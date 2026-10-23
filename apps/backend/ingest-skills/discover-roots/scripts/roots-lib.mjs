@@ -99,6 +99,29 @@ export function trackedFiles(source) {
     .filter(Boolean)
 }
 
+/** Tracked regular files at HEAD with sizes: [{ path, bytes }]. A symbolic link is not one. */
+export function trackedSizes(source) {
+  const out = execFileSync(
+    "git",
+    ["-C", source, "ls-tree", "-r", "-l", "-z", "HEAD"],
+    { maxBuffer: 256 * 1024 * 1024 },
+  ).toString("utf8")
+  const files = []
+  for (const record of out.split("\0")) {
+    if (!record) continue
+    const tab = record.indexOf("\t")
+    const [mode, type, , size] = record.slice(0, tab).trim().split(/\s+/)
+    if (type === "blob" && mode !== "120000")
+      files.push({ path: record.slice(tab + 1), bytes: Number(size) || 0 })
+  }
+  return files
+}
+
+/** True for the path of a package README: `readme.md` in any letter case. */
+export function isReadme(path) {
+  return /^readme\.md$/i.test(path.split("/").at(-1) ?? "")
+}
+
 /** Text of a tracked file at HEAD; "" when it is missing or larger than 1 MiB (a manifest is small). */
 export function readTracked(source, path) {
   try {

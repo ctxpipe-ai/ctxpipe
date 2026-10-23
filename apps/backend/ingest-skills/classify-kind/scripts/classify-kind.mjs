@@ -21,6 +21,7 @@ import {
   nameKey,
   relativeTo,
   stepArgs,
+  stubSummary,
   writeStep,
 } from "../../bin/knowledge-lib.mjs"
 import {
@@ -243,7 +244,7 @@ finish([
       : {
           kind,
           name,
-          summary: `${label[0].toUpperCase()}${label.slice(1)} in the ${repository} repository.`,
+          summary: stubSummary(kind, repository),
           intro:
             result.decidedBy === "script"
               ? `A script classified it as ${label}: ${reason} (\`${evidence}\`).`
