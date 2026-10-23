@@ -346,7 +346,9 @@ function withTurnSnapshotTimeout<T>(work: Promise<T>): Promise<T> {
 export async function* streamTanstackWorkspaceChat(
   input: TanstackWorkspaceChatInput,
 ): AsyncGenerator<StreamChunk> {
-  const turnId = input.runId ?? input.conversationId
+  // One run id for the whole turn: the stream events, the stored run, the
+  // telemetry turn, and the run capabilities.
+  const turnId = input.runId ?? randomUUID()
   const turnContext = beginWorkspaceChatTurn(input.conversationId, turnId, {
     orgId: input.orgId,
     orgSlug: input.orgSlug,
@@ -358,7 +360,7 @@ export async function* streamTanstackWorkspaceChat(
   try {
     yield* iterateInWorkspaceChatTurn(
       turnContext,
-      streamTanstackWorkspaceChatBody(input, turnId),
+      streamTanstackWorkspaceChatBody({ ...input, runId: turnId }),
     )
   } catch (error) {
     finishWorkspaceChatTurn(turnId, {
@@ -373,16 +375,16 @@ export async function* streamTanstackWorkspaceChat(
 }
 
 async function* streamTanstackWorkspaceChatBody(
-  input: TanstackWorkspaceChatInput,
-  turnId: string,
+  input: TanstackWorkspaceChatInput & { runId: string },
 ): AsyncGenerator<StreamChunk> {
+  const turnId = input.runId
   yield workspaceChatRunStartedChunk({
     threadId: input.conversationId,
     runId: turnId,
   })
   yield workspaceChatSandboxSetupChunk("starting")
   const resolved = input.resolveRuntime ? await input.resolveRuntime() : {}
-  const turn: TanstackWorkspaceChatInput = { ...input, ...resolved }
+  const turn = { ...input, ...resolved, runId: turnId }
   await turn.onUserPersist?.()
   const prepared = await startWorkspaceChat(turn)
   if (!prepared.ok) throw new Error(prepared.error)
@@ -391,45 +393,50 @@ async function* streamTanstackWorkspaceChatBody(
   let titleStarted = false
   let titleName: string | null = null
   // The chat runs, and releases the conversation, only once it is read. A
-  // client that leaves before that would keep the conversation locked.
-  let chatRead = false
+  // client that leaves before that, or a chat that fails before its end
+  // hooks run, would keep the conversation locked. After the end hooks,
+  // `abortRun` and `failRun` do nothing.
+  let failure: unknown
   try {
     yield workspaceChatSandboxSetupChunk("ready")
-    chatRead = true
-  } finally {
-    if (!chatRead)
-      await prepared.stop(new Error("The client left before the chat started"))
-  }
-  const masked = createChunkMasker()
-  for await (const chunk of prepared.stream) {
-    const typed = chunk as StreamChunk
-    if (typed.type === "RUN_STARTED") {
-      if (!titleStarted) {
-        titleStarted = true
-        void saveConversationTitle(turn).then((name) => {
-          titleName = name
-        })
+    const masked = createChunkMasker()
+    for await (const chunk of prepared.stream) {
+      const typed = chunk as StreamChunk
+      if (typed.type === "RUN_STARTED") {
+        if (!titleStarted) {
+          titleStarted = true
+          void saveConversationTitle(turn).then((name) => {
+            titleName = name
+          })
+        }
+        continue
       }
-      continue
+      if (typed.type === "RUN_ERROR") await turn.onError?.()
+      if (typed.type === "RUN_FINISHED") {
+        // The final event does not wait for the title. A title that is not
+        // ready yet is still saved. The stream sends no rename for it, so the
+        // client reads the conversation until it has a name.
+        if (titleName) yield conversationRenameChunk(titleName)
+        await turn.onFinish?.()
+      }
+      if (
+        typed.type === "TEXT_MESSAGE_CONTENT" ||
+        typed.type === "REASONING_MESSAGE_CONTENT" ||
+        typed.type === "TOOL_CALL_START"
+      )
+        markWorkspaceChatFirstShownToken(turnId)
+      // Tool arguments, tool output and model text can repeat a credential.
+      yield* masked.push(typed)
     }
-    if (typed.type === "RUN_ERROR") await turn.onError?.()
-    if (typed.type === "RUN_FINISHED") {
-      // The final event does not wait for the title. A title that is not
-      // ready yet is still saved. The stream sends no rename for it, so the
-      // client reads the conversation until it has a name.
-      if (titleName) yield conversationRenameChunk(titleName)
-      await turn.onFinish?.()
-    }
-    if (
-      typed.type === "TEXT_MESSAGE_CONTENT" ||
-      typed.type === "REASONING_MESSAGE_CONTENT" ||
-      typed.type === "TOOL_CALL_START"
-    )
-      markWorkspaceChatFirstShownToken(turnId)
-    // Tool arguments, tool output and model text can repeat a credential.
-    yield* masked.push(typed)
+    yield* masked.end()
+  } catch (error) {
+    failure = error
+    throw error
+  } finally {
+    await (failure === undefined
+      ? prepared.abortRun()
+      : prepared.failRun(failure))
   }
-  yield* masked.end()
 }
 
 /** Conversations that have a title call in flight in this process. */
@@ -616,34 +623,31 @@ export async function warmTanstackWorkspaceChat(
   }
 }
 
-type WorkspaceChatStart =
-  | {
-      ok: true
-      stream: AsyncIterable<object>
-    }
-  | { ok: false; status: number; error: string }
-
 /**
  * Hold the conversation and store the question and the running run, then set
- * up the sandbox and start the chat. The first step is quick; the setup can
+ * up the sandbox and start the chat. The first step is quick. The setup can
  * take a minute, and a chat that opens again meanwhile shows the turn.
  */
 async function startWorkspaceChat(
-  turnInput: TanstackWorkspaceChatInput,
+  input: TanstackWorkspaceChatInput & { runId: string },
 ): Promise<
-  | (Extract<WorkspaceChatStart, { ok: true }> & {
-      /** Ends a turn whose chat was never read. */
-      stop: (error: unknown) => Promise<void>
-    })
-  | Extract<WorkspaceChatStart, { ok: false }>
+  | {
+      ok: true
+      stream: AsyncIterable<object>
+      /**
+       * End a turn whose chat did not reach its end hooks: release the
+       * conversation, then revoke the turn's GitHub tokens.
+       */
+      abortRun: () => Promise<void>
+      failRun: (error: unknown) => Promise<void>
+    }
+  | { ok: false; status: number; error: string }
 > {
-  // The run record is stored before `chat()`, which would make the id.
-  const input = { ...turnInput, runId: turnInput.runId ?? randomUUID() }
   const persistence = workspaceChatPersistence({
     threadId: input.conversationId,
   })
   const abortController = abortControllerFrom(input.abortSignal)
-  const lease: { owner?: string } = {}
+  let lockOwner: string | undefined
   const turn = await holdWorkspaceChatTurn({
     locks: postgresSandboxLocks(
       input.orgId,
@@ -651,445 +655,446 @@ async function startWorkspaceChat(
       undefined,
       (acquired) => {
         if (acquired.key === `chat-thread:${input.conversationId}`)
-          lease.owner = acquired.owner
+          lockOwner = acquired.owner
       },
     ),
     stores: persistence.stores,
     threadId: input.conversationId,
     runId: input.runId,
+    // An MCP call sends no history: this is only its question.
     messages: convertMessagesToModelMessages(
-      (input.messages
-        ? messagesForOpenCodeChat(input.messages, input.prompt)
-        : []) as Array<ModelMessage | UIMessage>,
+      messagesForOpenCodeChat(input.messages, input.prompt) as Array<
+        ModelMessage | UIMessage
+      >,
     ),
     onLost: () => {
       if (!abortController.signal.aborted)
         abortController.abort("Chat thread lock ownership lost")
     },
   })
+  // Revoke this turn's GitHub tokens once, as soon as it ends. A failure is
+  // left for the sandbox sweep and never fails the turn.
+  let revokeTurnGitTokens = async () => {}
+  // The conversation is released first, so a run capability can mint
+  // nothing after the revoke.
+  const end = async (ended: Promise<void>) => {
+    await ended
+    await revokeTurnGitTokens()
+  }
   try {
-    const started = await startHeldWorkspaceChat(input, {
-      turn,
-      persistence,
-      abortController,
-      lease,
-    })
-    if (!started.ok) {
-      await turn.stop(new Error(started.error))
-      return started
+    // One label per turn: the turn end revokes exactly its own token.
+    const cloneLabel = `clone:${input.runId}`
+    const built = await buildWorkspaceChatSandbox(input, cloneLabel)
+    if (!built.ok) {
+      await turn.failRun(new Error(built.error))
+      return built
     }
-    return { ...started, stop: (error) => turn.stop(error, true) }
-  } catch (error) {
-    await turn.stop(error, abortController.signal.aborted)
-    throw error
-  }
-}
-
-async function startHeldWorkspaceChat(
-  input: TanstackWorkspaceChatInput & { runId: string },
-  held: {
-    turn: Awaited<ReturnType<typeof holdWorkspaceChatTurn>>
-    persistence: ReturnType<typeof workspaceChatPersistence>
-    abortController: AbortController
-    lease: { owner?: string }
-  },
-): Promise<WorkspaceChatStart> {
-  const { persistence, abortController, lease } = held
-  // One label per turn: the turn end revokes exactly its own token.
-  const cloneLabel = `clone:${input.runId}`
-  const built = await buildWorkspaceChatSandbox(input, cloneLabel)
-  if (!built.ok) return built
-  // Read in parallel with the sandbox setup; the agent gets it as a system
-  // prompt. A failed read only leaves the orientation out.
-  const orientation = loadWorkspaceChatOrientation({
-    orgId: input.orgId,
-    workspaceId: input.workspaceId,
-    rootPath: workspaceRootPath(built.revision),
-  }).catch((error: unknown) => {
-    log.warn({
-      step: "workspace-chat-orientation",
-      message: `The Workspace orientation read failed: ${String(error)}`,
-      conversationId: input.conversationId,
-    })
-    return undefined
-  })
-  let orientationPrompt: string | undefined
-  let activeSandbox: SandboxHandle | undefined
-  const runtime = workspaceChatRuntimeConfig({
-    writeStatus: input.writeStatus,
-    getCurrentBranch: async () => {
-      if (!activeSandbox) throw new Error("Chat sandbox is not ready")
-      const current = await activeSandbox.process.exec(
-        `${SANDBOX_GIT_GUARD}git branch --show-current`,
-      )
-      if (current.exitCode !== 0)
-        throw new Error("Chat working branch is unavailable")
-      return current.stdout.trim()
-    },
-    defaultBranch: input.defaultBranch,
-    // Hosted: the firewall. Docker: all egress goes through Agent Vault.
-    openNetwork: built.isolation !== "unsandboxed",
-  })
-  const { session, callbackHost, definition } = built
-  // OpenCode treats `--port=0` as 4096, so overlapping unsandboxed sends must
-  // claim distinct loopback ports before serve starts.
-  let opencodeListen: { port: number; hostname?: "127.0.0.1" } = {
-    port: WORKSPACE_CHAT_OPENCODE_PORT,
-  }
-  if (built.isolation === "unsandboxed") {
-    opencodeListen = {
-      hostname: "127.0.0.1",
-      port: await new Promise<number>((resolve, reject) => {
-        const server = createServer()
-        server.once("error", reject)
-        server.listen(0, "127.0.0.1", () => {
-          const address = server.address()
-          if (!address || typeof address === "string") {
-            server.close()
-            reject(new Error("Unsandboxed OpenCode listen port missing"))
-            return
-          }
-          const allocated = address.port
-          server.close((error) => (error ? reject(error) : resolve(allocated)))
-        })
-      }),
+    let revoked: Promise<void> | undefined
+    revokeTurnGitTokens = () => {
+      revoked ??= built.release()
+      return revoked
     }
-  }
-  let revisionConflict: WorkspaceRevision | undefined
-  const chatStarted = Date.now()
-  // Hosted: the firewall, and the turn's tool bridge, known before the run
-  // so the firewall can add its token.
-  const hosted = built.firewall
-    ? {
-        firewall: built.firewall,
-        bridge: {
-          id: randomBytes(16).toString("hex"),
-          token: randomBytes(24).toString("hex"),
-        },
-        sandboxId: undefined as string | undefined,
-      }
-    : undefined
-  // The turn's credentials leave the firewall before the conversation lock
-  // is released, so this cannot replace the next turn's rules. A failure is
-  // logged: the model capability stops working when the lock is released,
-  // the bridge closes with the run, and the next update replaces the rules.
-  const closeHostedTurn = async () => {
-    if (!hosted?.sandboxId) return
-    await hosted.firewall.closeTurn(hosted.sandboxId).catch((error: unknown) =>
+    // Read in parallel with the sandbox setup; the agent gets it as a system
+    // prompt. A failed read only leaves the orientation out.
+    const orientation = loadWorkspaceChatOrientation({
+      orgId: input.orgId,
+      workspaceId: input.workspaceId,
+      rootPath: workspaceRootPath(built.revision),
+    }).catch((error: unknown) => {
       log.warn({
-        step: "workspace-chat-firewall-close",
-        message: `Removing the turn's credentials from the sandbox firewall failed: ${String(error)}`,
-        conversationId: input.conversationId,
-      }),
-    )
-  }
-  // The files this turn changed: a snapshot of the work tree when the turn
-  // starts and when it ends. Runs before the conversation lock is released,
-  // so a Files read that waits for the lock sees the stored result. A
-  // failure is logged and does not fail the turn.
-  let turnStart:
-    | { handle: JobSandboxHandle; key: string; snapshot: TurnSnapshot }
-    | undefined
-  const recordTurnChanges = async (ctx: {
-    runId: string
-    messages: ReadonlyArray<{ role: string }>
-  }) => {
-    const start = turnStart
-    turnStart = undefined
-    if (!start) return
-    try {
-      const end = await withTurnSnapshotTimeout(
-        snapshotConversationTurn(start.handle, start.key, "end"),
-      )
-      const files = await withTurnSnapshotTimeout(
-        conversationTurnFiles(start.handle, start.snapshot, end),
-      )
-      if (files.length > 0)
-        await saveConversationTurnChanges({
-          orgId: input.orgId,
-          conversationId: input.conversationId,
-          changes: {
-            runId: ctx.runId,
-            turn: ctx.messages.filter((message) => message.role === "user")
-              .length,
-            startTree: start.snapshot.tree,
-            endTree: end.tree,
-            finishedAt: Date.now(),
-            files,
-          },
-        })
-      await withTurnSnapshotTimeout(
-        pruneConversationTurnSnapshots(start.handle, KEPT_TURN_SNAPSHOTS),
-      )
-    } catch (error) {
-      log.warn({
-        step: "workspace-chat-turn-changes",
-        message: `Recording the files the turn changed failed: ${String(error)}`,
+        step: "workspace-chat-orientation",
+        message: `The Workspace orientation read failed: ${String(error)}`,
         conversationId: input.conversationId,
       })
+      return undefined
+    })
+    let orientationPrompt: string | undefined
+    let activeSandbox: SandboxHandle | undefined
+    const runtime = workspaceChatRuntimeConfig({
+      writeStatus: input.writeStatus,
+      getCurrentBranch: async () => {
+        if (!activeSandbox) throw new Error("Chat sandbox is not ready")
+        const current = await activeSandbox.process.exec(
+          `${SANDBOX_GIT_GUARD}git branch --show-current`,
+        )
+        if (current.exitCode !== 0)
+          throw new Error("Chat working branch is unavailable")
+        return current.stdout.trim()
+      },
+      defaultBranch: input.defaultBranch,
+      // Hosted: the firewall. Docker: all egress goes through Agent Vault.
+      openNetwork: built.isolation !== "unsandboxed",
+    })
+    const { session, callbackHost, definition } = built
+    // OpenCode treats `--port=0` as 4096, so overlapping unsandboxed sends must
+    // claim distinct loopback ports before serve starts.
+    let opencodeListen: { port: number; hostname?: "127.0.0.1" } = {
+      port: WORKSPACE_CHAT_OPENCODE_PORT,
     }
-  }
-  // The idle clock starts when the turn ends. Runs before the conversation
-  // lock is released, so the sweep never sees a free lock with a stale time.
-  // The sweep it schedules is due exactly 5 minutes after this use.
-  const markSandboxUsed = async (ctx: { runId: string }) => {
-    const usedAt = new Date()
-    try {
-      await heartbeatSandboxInstance(
-        definition.key({
-          threadId: input.conversationId,
-          runId: ctx.runId,
-          tenant: { userId: undefined, orgId: input.orgId },
+    if (built.isolation === "unsandboxed") {
+      opencodeListen = {
+        hostname: "127.0.0.1",
+        port: await new Promise<number>((resolve, reject) => {
+          const server = createServer()
+          server.once("error", reject)
+          server.listen(0, "127.0.0.1", () => {
+            const address = server.address()
+            if (!address || typeof address === "string") {
+              server.close()
+              reject(new Error("Unsandboxed OpenCode listen port missing"))
+              return
+            }
+            const allocated = address.port
+            server.close((error) =>
+              error ? reject(error) : resolve(allocated),
+            )
+          })
         }),
-        usedAt,
-        input.orgId,
-      )
-    } catch (error) {
-      log.warn({
-        step: "workspace-chat-sandbox-used",
-        message: `Recording the sandbox's last use failed: ${String(error)}`,
-        conversationId: input.conversationId,
-      })
+      }
     }
-    if (built.isolation !== "unsandboxed")
-      await scheduleIdleStop(input.orgId, usedAt)
-  }
-  // Revoke this turn's GitHub tokens as soon as it ends; a failure is left
-  // for the sandbox sweep and never fails the turn.
-  const revokeTurnGitTokens = () => built.release()
-  const stream = await chat({
-    adapter: withOrderedTranscript(
-      opencodeText(built.contract.opencodeModel, {
-        ...opencodeListen,
-        permissionMode: runtime.permissionMode,
-        onPermissionRequest: runtime.onPermissionRequest,
-      }),
-    ),
-    threadId: input.conversationId,
-    runId: input.runId,
-    context: {
-      orgId: input.orgId,
-      orgSlug: session.orgSlug,
-      workspaceId: input.workspaceId,
-    },
-    messages: held.turn.messages,
-    abortController,
-    tools: workspaceChatEngineTools({
-      conversationId: input.conversationId,
-      orgId: input.orgId,
-      orgSlug: session.orgSlug,
-      workspaceId: input.workspaceId,
-      sandbox: () => activeSandbox,
-    }),
-    middleware: [
-      workspaceChatOtelMiddleware(),
-      defineChatMiddleware({
-        name: "workspace-chat-sandbox-used",
-        onFinish: markSandboxUsed,
-        onError: markSandboxUsed,
-        onAbort: markSandboxUsed,
-      }),
-      // Before the thread lock: TanStack runs onFinish in this order.
-      defineChatMiddleware({
-        name: "workspace-chat-firewall",
-        onFinish: closeHostedTurn,
-        onError: closeHostedTurn,
-        onAbort: closeHostedTurn,
-      }),
-      defineChatMiddleware({
-        name: "workspace-chat-turn-changes-end",
-        onFinish: recordTurnChanges,
-        onError: recordTurnChanges,
-        onAbort: recordTurnChanges,
-      }),
-      // The conversation's lock, taken before the setup.
-      held.turn.middleware,
-      // After the thread lock: TanStack runs onFinish in this order, so the
-      // lock is released first and a run capability can mint nothing after
-      // the revoke. A mint already in flight is recorded for the sweep, and
-      // the route does not return it.
-      defineChatMiddleware({
-        name: "workspace-chat-run-git-tokens",
-        onFinish: revokeTurnGitTokens,
-        onError: revokeTurnGitTokens,
-        onAbort: revokeTurnGitTokens,
-      }),
-      withPersistence(persistence, { snapshotStreaming: true }),
-      withSandbox(definition, {
-        instances: built.instances,
-        locks: postgresSandboxLocks(
+    let revisionConflict: WorkspaceRevision | undefined
+    const chatStarted = Date.now()
+    // Hosted: the firewall, and the turn's tool bridge, known before the run
+    // so the firewall can add its token.
+    const hosted = built.firewall
+      ? {
+          firewall: built.firewall,
+          bridge: {
+            id: randomBytes(16).toString("hex"),
+            token: randomBytes(24).toString("hex"),
+          },
+          sandboxId: undefined as string | undefined,
+        }
+      : undefined
+    // The turn's credentials leave the firewall before the conversation lock
+    // is released, so this cannot replace the next turn's rules. A failure is
+    // logged: the model capability stops working when the lock is released,
+    // the bridge closes with the run, and the next update replaces the rules.
+    const closeHostedTurn = async () => {
+      if (!hosted?.sandboxId) return
+      await hosted.firewall
+        .closeTurn(hosted.sandboxId)
+        .catch((error: unknown) =>
+          log.warn({
+            step: "workspace-chat-firewall-close",
+            message: `Removing the turn's credentials from the sandbox firewall failed: ${String(error)}`,
+            conversationId: input.conversationId,
+          }),
+        )
+    }
+    // The files this turn changed: a snapshot of the work tree when the turn
+    // starts and when it ends. Runs before the conversation lock is released,
+    // so a Files read that waits for the lock sees the stored result. A
+    // failure is logged and does not fail the turn.
+    let turnStart:
+      | { handle: JobSandboxHandle; key: string; snapshot: TurnSnapshot }
+      | undefined
+    const recordTurnChanges = async (ctx: {
+      runId: string
+      messages: ReadonlyArray<{ role: string }>
+    }) => {
+      const start = turnStart
+      turnStart = undefined
+      if (!start) return
+      try {
+        const end = await withTurnSnapshotTimeout(
+          snapshotConversationTurn(start.handle, start.key, "end"),
+        )
+        const files = await withTurnSnapshotTimeout(
+          conversationTurnFiles(start.handle, start.snapshot, end),
+        )
+        if (files.length > 0)
+          await saveConversationTurnChanges({
+            orgId: input.orgId,
+            conversationId: input.conversationId,
+            changes: {
+              runId: ctx.runId,
+              turn: ctx.messages.filter((message) => message.role === "user")
+                .length,
+              startTree: start.snapshot.tree,
+              endTree: end.tree,
+              finishedAt: Date.now(),
+              files,
+            },
+          })
+        await withTurnSnapshotTimeout(
+          pruneConversationTurnSnapshots(start.handle, KEPT_TURN_SNAPSHOTS),
+        )
+      } catch (error) {
+        log.warn({
+          step: "workspace-chat-turn-changes",
+          message: `Recording the files the turn changed failed: ${String(error)}`,
+          conversationId: input.conversationId,
+        })
+      }
+    }
+    // The idle clock starts when the turn ends. Runs before the conversation
+    // lock is released, so the sweep never sees a free lock with a stale time.
+    // The sweep it schedules is due exactly 5 minutes after this use.
+    const markSandboxUsed = async (ctx: { runId: string }) => {
+      const usedAt = new Date()
+      try {
+        await heartbeatSandboxInstance(
+          definition.key({
+            threadId: input.conversationId,
+            runId: ctx.runId,
+            tenant: { userId: undefined, orgId: input.orgId },
+          }),
+          usedAt,
           input.orgId,
-          abortController,
-          `workspace-sandboxes:${input.workspaceId}`,
-        ),
+        )
+      } catch (error) {
+        log.warn({
+          step: "workspace-chat-sandbox-used",
+          message: `Recording the sandbox's last use failed: ${String(error)}`,
+          conversationId: input.conversationId,
+        })
+      }
+      if (built.isolation !== "unsandboxed")
+        await scheduleIdleStop(input.orgId, usedAt)
+    }
+    const stream = await chat({
+      adapter: withOrderedTranscript(
+        opencodeText(built.contract.opencodeModel, {
+          ...opencodeListen,
+          permissionMode: runtime.permissionMode,
+          onPermissionRequest: runtime.onPermissionRequest,
+        }),
+      ),
+      threadId: input.conversationId,
+      runId: input.runId,
+      context: {
+        orgId: input.orgId,
+        orgSlug: session.orgSlug,
+        workspaceId: input.workspaceId,
+      },
+      messages: turn.messages,
+      abortController,
+      tools: workspaceChatEngineTools({
+        conversationId: input.conversationId,
+        orgId: input.orgId,
+        orgSlug: session.orgSlug,
+        workspaceId: input.workspaceId,
+        sandbox: () => activeSandbox,
       }),
-      defineChatMiddleware({
-        name: "workspace-chat-revision",
-        requires: [SandboxCapability],
-        async setup(ctx) {
-          return timeSandboxLifecycle("revision-setup", async () => {
-            const handle = getSandbox(ctx)
-            const updated = await updateConversationSandboxRevision({
-              handle,
-              orgId: input.orgId,
-              sandboxKey: definition.key({
-                threadId: input.conversationId,
-                runId: ctx.runId,
-                tenant: { userId: undefined, orgId: input.orgId },
-              }),
-              desired: built.revision,
-              signal: abortController.signal,
-            })
-            if (updated.conflict) revisionConflict = updated.effective
-            else
-              await checkoutSessionBranch({
+      middleware: [
+        workspaceChatOtelMiddleware(),
+        defineChatMiddleware({
+          name: "workspace-chat-sandbox-used",
+          onFinish: markSandboxUsed,
+          onError: markSandboxUsed,
+          onAbort: markSandboxUsed,
+        }),
+        // Before the thread lock: TanStack runs onFinish in this order.
+        defineChatMiddleware({
+          name: "workspace-chat-firewall",
+          onFinish: closeHostedTurn,
+          onError: closeHostedTurn,
+          onAbort: closeHostedTurn,
+        }),
+        defineChatMiddleware({
+          name: "workspace-chat-turn-changes-end",
+          onFinish: recordTurnChanges,
+          onError: recordTurnChanges,
+          onAbort: recordTurnChanges,
+        }),
+        withPersistence(persistence, { snapshotStreaming: true }),
+        // The conversation's lock, taken before the setup. After
+        // `withPersistence`: TanStack runs onFinish in this order, so the
+        // final thread is stored before the next turn can take the lock.
+        turn.middleware,
+        // After the thread lock, so the lock is released first and a run
+        // capability can mint nothing after the revoke. A mint already in
+        // flight is recorded for the sweep, and the route does not return it.
+        defineChatMiddleware({
+          name: "workspace-chat-run-git-tokens",
+          onFinish: revokeTurnGitTokens,
+          onError: revokeTurnGitTokens,
+          onAbort: revokeTurnGitTokens,
+        }),
+        withSandbox(definition, {
+          instances: built.instances,
+          locks: postgresSandboxLocks(
+            input.orgId,
+            abortController,
+            `workspace-sandboxes:${input.workspaceId}`,
+          ),
+        }),
+        defineChatMiddleware({
+          name: "workspace-chat-revision",
+          requires: [SandboxCapability],
+          async setup(ctx) {
+            return timeSandboxLifecycle("revision-setup", async () => {
+              const handle = getSandbox(ctx)
+              const updated = await updateConversationSandboxRevision({
                 handle,
                 orgId: input.orgId,
-                conversationId: input.conversationId,
+                sandboxKey: definition.key({
+                  threadId: input.conversationId,
+                  runId: ctx.runId,
+                  tenant: { userId: undefined, orgId: input.orgId },
+                }),
                 desired: built.revision,
+                signal: abortController.signal,
               })
-            orientationPrompt = await orientation
-          })
-        },
-        onConfig(_ctx, config) {
-          const rootPath = workspaceRootPath(built.revision)
-          // The push refuses a change outside the root folder; this tells the agent first.
-          // The orientation follows: it changes only with the revision, so
-          // the prompt cache keeps it across turns.
-          const rootPrompts = [
-            ...(rootPath
-              ? [
-                  JSON.stringify({
-                    type: "workspace_root_folder",
-                    rootPath,
-                    instructions: `The Workspace is the folder ${rootPath}/ of this repository. Read and change files only below it. Do not change, add, or delete a file outside it: ctxpipe refuses to push such a commit.`,
-                  }),
-                ]
-              : []),
-            ...(orientationPrompt ? [orientationPrompt] : []),
-          ]
-          const prompts = [
-            ...rootPrompts,
-            ...(revisionConflict
-              ? [
-                  JSON.stringify({
-                    type: "workspace_revision_conflict",
-                    effectiveSha: revisionConflict.sha,
-                    desiredSha: built.revision.sha,
-                    instructions:
-                      "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted update is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can move to the new commit. Never discard saved edits without the user's request.",
-                  }),
-                ]
-              : []),
-          ]
-          // TanStack calls onConfig at the start and again before each model
-          // call: add each prompt once.
-          const missing = prompts.filter(
-            (prompt) => !config.systemPrompts.includes(prompt),
-          )
-          return missing.length
-            ? { systemPrompts: [...config.systemPrompts, ...missing] }
-            : undefined
-        },
-      }),
-      defineChatMiddleware({
-        name: "workspace-chat-turn-changes-start",
-        requires: [SandboxCapability],
-        async setup(ctx) {
-          const handle = adaptTanstackHandle(getSandbox(ctx))
-          const key = turnSnapshotKey(ctx.runId, Date.now())
-          try {
-            turnStart = {
-              handle,
-              key,
-              snapshot: await withTurnSnapshotTimeout(
-                snapshotConversationTurn(handle, key, "start"),
-              ),
-            }
-          } catch (error) {
-            log.warn({
-              step: "workspace-chat-turn-changes",
-              message: `The turn start snapshot failed: ${String(error)}`,
-              conversationId: input.conversationId,
+              if (updated.conflict) revisionConflict = updated.effective
+              else
+                await checkoutSessionBranch({
+                  handle,
+                  orgId: input.orgId,
+                  conversationId: input.conversationId,
+                  desired: built.revision,
+                })
+              orientationPrompt = await orientation
             })
-          }
-        },
-      }),
-      workspaceChatCallbackMiddleware(
-        callbackHost,
-        built.publicBaseUrl && hosted
-          ? { publicBaseUrl: built.publicBaseUrl, bridge: hosted.bridge }
-          : undefined,
-        built.vault,
-      ),
-      defineChatMiddleware({
-        name: "workspace-chat-permissions",
-        requires: [SandboxCapability],
-        async setup(ctx) {
-          return timeSandboxLifecycle("permissions-setup", async () => {
-            activeSandbox = getSandbox(ctx)
-            abortController.signal.throwIfAborted()
-            if (!lease.owner)
-              throw new Error("Conversation lock ownership is unavailable")
-            const authority = {
-              expectedOwner: lease.owner,
-              authSecret: process.env.AUTH_SECRET?.trim() ?? "",
-              orgId: input.orgId,
-              orgSlug: session.orgSlug,
-              conversationId: input.conversationId,
-              revision: built.revision,
-            }
-            const mint = (purpose: WorkspaceChatRunCapabilityPurpose) =>
-              mintWorkspaceChatRunCapability({
-                ...authority,
-                runId: input.runId,
-                purpose,
-              })
-            // A turn starts with no agent process of an earlier turn: such a
-            // process would get this turn's capability, rules or session.
-            if (built.isolation !== "unsandboxed")
-              await stopEarlierTurnProcesses(activeSandbox)
-            // The conversation lock is held and OpenCode has not started.
-            // Its subprocesses inherit these values (none when hosted, a
-            // placeholder on Docker).
-            await activeSandbox.env.set(
-              await workspaceChatRunCapabilities(
-                built.isolation,
-                built.vault,
-                session.proxyUrl,
-                mint,
-              ),
+          },
+          onConfig(_ctx, config) {
+            const rootPath = workspaceRootPath(built.revision)
+            // The push refuses a change outside the root folder; this tells the agent first.
+            // The orientation follows: it changes only with the revision, so
+            // the prompt cache keeps it across turns.
+            const rootPrompts = [
+              ...(rootPath
+                ? [
+                    JSON.stringify({
+                      type: "workspace_root_folder",
+                      rootPath,
+                      instructions: `The Workspace is the folder ${rootPath}/ of this repository. Read and change files only below it. Do not change, add, or delete a file outside it: ctxpipe refuses to push such a commit.`,
+                    }),
+                  ]
+                : []),
+              ...(orientationPrompt ? [orientationPrompt] : []),
+            ]
+            const prompts = [
+              ...rootPrompts,
+              ...(revisionConflict
+                ? [
+                    JSON.stringify({
+                      type: "workspace_revision_conflict",
+                      effectiveSha: revisionConflict.sha,
+                      desiredSha: built.revision.sha,
+                      instructions:
+                        "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted update is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can move to the new commit. Never discard saved edits without the user's request.",
+                    }),
+                  ]
+                : []),
+            ]
+            // TanStack calls onConfig at the start and again before each model
+            // call: add each prompt once.
+            const missing = prompts.filter(
+              (prompt) => !config.systemPrompts.includes(prompt),
             )
-            abortController.signal.throwIfAborted()
-            if (hosted) {
-              // The firewall adds the turn's credentials; the sandbox sends
-              // placeholders.
-              hosted.sandboxId = activeSandbox.id
-              await hosted.firewall.openTurn(activeSandbox.id, {
-                modelProxyPath: new URL(session.proxyUrl).pathname,
-                modelCapability: await mint("workspace-chat-model"),
-                bridgePath: workspaceChatToolBridgePath(hosted.bridge.id),
-                bridgeToken: hosted.bridge.token,
+            return missing.length
+              ? { systemPrompts: [...config.systemPrompts, ...missing] }
+              : undefined
+          },
+        }),
+        defineChatMiddleware({
+          name: "workspace-chat-turn-changes-start",
+          requires: [SandboxCapability],
+          async setup(ctx) {
+            const handle = adaptTanstackHandle(getSandbox(ctx))
+            const key = turnSnapshotKey(ctx.runId, Date.now())
+            try {
+              turnStart = {
+                handle,
+                key,
+                snapshot: await withTurnSnapshotTimeout(
+                  snapshotConversationTurn(handle, key, "start"),
+                ),
+              }
+            } catch (error) {
+              log.warn({
+                step: "workspace-chat-turn-changes",
+                message: `The turn start snapshot failed: ${String(error)}`,
+                conversationId: input.conversationId,
               })
-              abortController.signal.throwIfAborted()
             }
-          })
-        },
-      }),
-      openCodeTrailingUserMiddleware(input.prompt),
-    ],
-  })
-  log.info({
-    step: "workspace-chat-timing",
-    phase: "chat-create",
-    message: `workspace chat timing chat-create ${Date.now() - chatStarted}ms`,
-    ms: Date.now() - chatStarted,
-    attached: workspaceChatDockerOwnership.ensures,
-    conversationId: input.conversationId,
-  })
-  return {
-    ok: true,
-    stream,
+          },
+        }),
+        workspaceChatCallbackMiddleware(
+          callbackHost,
+          built.publicBaseUrl && hosted
+            ? { publicBaseUrl: built.publicBaseUrl, bridge: hosted.bridge }
+            : undefined,
+          built.vault,
+        ),
+        defineChatMiddleware({
+          name: "workspace-chat-permissions",
+          requires: [SandboxCapability],
+          async setup(ctx) {
+            return timeSandboxLifecycle("permissions-setup", async () => {
+              activeSandbox = getSandbox(ctx)
+              abortController.signal.throwIfAborted()
+              if (!lockOwner)
+                throw new Error("Conversation lock ownership is unavailable")
+              const authority = {
+                expectedOwner: lockOwner,
+                authSecret: process.env.AUTH_SECRET?.trim() ?? "",
+                orgId: input.orgId,
+                orgSlug: session.orgSlug,
+                conversationId: input.conversationId,
+                revision: built.revision,
+              }
+              const mint = (purpose: WorkspaceChatRunCapabilityPurpose) =>
+                mintWorkspaceChatRunCapability({
+                  ...authority,
+                  runId: input.runId,
+                  purpose,
+                })
+              // A turn starts with no agent process of an earlier turn: such a
+              // process would get this turn's capability, rules or session.
+              if (built.isolation !== "unsandboxed")
+                await stopEarlierTurnProcesses(activeSandbox)
+              // The conversation lock is held and OpenCode has not started.
+              // Its subprocesses inherit these values (none when hosted, a
+              // placeholder on Docker).
+              await activeSandbox.env.set(
+                await workspaceChatRunCapabilities(
+                  built.isolation,
+                  built.vault,
+                  session.proxyUrl,
+                  mint,
+                ),
+              )
+              abortController.signal.throwIfAborted()
+              if (hosted) {
+                // The firewall adds the turn's credentials; the sandbox sends
+                // placeholders.
+                hosted.sandboxId = activeSandbox.id
+                await hosted.firewall.openTurn(activeSandbox.id, {
+                  modelProxyPath: new URL(session.proxyUrl).pathname,
+                  modelCapability: await mint("workspace-chat-model"),
+                  bridgePath: workspaceChatToolBridgePath(hosted.bridge.id),
+                  bridgeToken: hosted.bridge.token,
+                })
+                abortController.signal.throwIfAborted()
+              }
+            })
+          },
+        }),
+        openCodeTrailingUserMiddleware(input.prompt),
+      ],
+    })
+    log.info({
+      step: "workspace-chat-timing",
+      phase: "chat-create",
+      message: `workspace chat timing chat-create ${Date.now() - chatStarted}ms`,
+      ms: Date.now() - chatStarted,
+      attached: workspaceChatDockerOwnership.ensures,
+      conversationId: input.conversationId,
+    })
+    return {
+      ok: true,
+      stream,
+      abortRun: () => end(turn.abortRun()),
+      failRun: (error) => end(turn.failRun(error)),
+    }
+  } catch (error) {
+    await end(
+      abortController.signal.aborted ? turn.abortRun() : turn.failRun(error),
+    )
+    throw error
   }
 }
 

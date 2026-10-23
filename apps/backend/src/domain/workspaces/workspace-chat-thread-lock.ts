@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util"
 import { defineChatMiddleware, type ModelMessage } from "@tanstack/ai"
 import type { LockStore } from "@tanstack/ai/locks"
 import type { MessageStore, RunStore } from "@tanstack/ai-persistence"
@@ -22,13 +23,19 @@ function questionIds(messages: ReadonlyArray<ModelMessage>): string[] {
 }
 
 /**
- * The thread that chat persistence stores for a send: the stored messages up
- * to the newest one that the send also has, with the sent version of each
- * message, then the sent messages that the store does not have. A copy of
- * `mergeStoredMessages` in `@tanstack/ai-persistence` 0.7.1, which the package
- * does not export. The merge is not idempotent for a message without an id (a
- * tool result), thus the turn gives the merged thread to `chat()`: a merge of
- * the thread with itself gives the same thread.
+ * The thread that chat persistence stores for a send. It holds the stored
+ * messages up to the newest one that the send also has, with the sent version
+ * of each message. Then it holds the sent messages that the store does not
+ * have.
+ *
+ * This is a copy of `mergeStoredMessages` in `@tanstack/ai-persistence`
+ * 0.7.1, which the package does not export. When that package changes
+ * version, compare this copy with it again. A unit test sends one history
+ * through both and expects the same stored thread.
+ *
+ * One change is deliberate. For a message without an id (a tool result), the
+ * package compares the content with `===`. This copy compares the structure,
+ * so a resent tool result with content parts is not added twice.
  */
 function mergeStoredMessages(
   stored: ReadonlyArray<ModelMessage>,
@@ -68,7 +75,7 @@ function mergeStoredMessages(
       existing &&
       existing.id === undefined &&
       existing.role === message.role &&
-      existing.content === message.content
+      isDeepStrictEqual(existing.content, message.content)
     )
       return
     merged.push(message)
@@ -87,16 +94,20 @@ function mergeStoredMessages(
  * across replicas, and a queued send whose history no longer matches the
  * saved transcript is rejected instead of overwriting it.
  *
- * Give `messages` and `middleware` to `chat()`, the middleware before
- * `withPersistence`: it releases the lock when the run ends. If the turn
- * stops before `chat()` runs, call `stop`.
+ * Give `messages` and `middleware` to `chat()`, the middleware after
+ * `withPersistence`. TanStack runs `onFinish` in the array order, thus the
+ * final thread is stored before the lock is released. If the turn stops
+ * before `chat()` runs, call `abortRun` or `failRun`.
  */
 export async function holdWorkspaceChatTurn(input: {
   locks: LockStore
   stores: { messages: MessageStore; runs: RunStore }
   threadId: string
   runId: string
-  /** The messages that the turn gives to `chat()`, as model messages. */
+  /**
+   * The messages that the turn gives to `chat()`, as model messages. For an
+   * MCP call, only its question.
+   */
   messages: ReadonlyArray<ModelMessage>
   /** Stops the turn when the lock's lease is lost. */
   onLost: () => void
@@ -137,7 +148,9 @@ export async function holdWorkspaceChatTurn(input: {
   try {
     const { messages, runs } = input.stores
     const stored = await messages.loadThread(input.threadId)
-    if (input.messages.length > 0) {
+    // An MCP call sends no history: only its question, without an id.
+    const history = input.messages.some((message) => message.id !== undefined)
+    if (history) {
       const sent = questionIds(input.messages)
       if (questionIds(stored).some((id, index) => id !== sent[index]))
         throw new ConversationChangedError()
@@ -147,12 +160,29 @@ export async function holdWorkspaceChatTurn(input: {
       threadId: input.threadId,
       startedAt: Date.now(),
     })
-    thread = mergeStoredMessages(stored, input.messages)
+    thread = history
+      ? mergeStoredMessages(stored, input.messages)
+      : [...stored, ...input.messages]
     if (input.messages.length > 0)
       await messages.saveThread(input.threadId, thread)
   } catch (error) {
     await settle()
     throw error
+  }
+
+  /** End the run of a turn that stopped before `chat()`, then release. */
+  const end = async (
+    result: Omit<Parameters<RunStore["update"]>[1], "finishedAt">,
+  ) => {
+    if (!open) return
+    try {
+      await input.stores.runs.update(input.runId, {
+        ...result,
+        finishedAt: Date.now(),
+      })
+    } finally {
+      await settle()
+    }
   }
 
   return {
@@ -164,28 +194,15 @@ export async function holdWorkspaceChatTurn(input: {
       onError: settle,
       onAbort: settle,
     }),
-    /**
-     * End the run of a turn that stopped before `chat()`, then release. A
-     * stop by the user or a lost lease is `aborted`, other errors `failed`.
-     */
-    async stop(error: unknown, aborted = false) {
-      if (!open) return
-      try {
-        await input.stores.runs.update(input.runId, {
-          finishedAt: Date.now(),
-          ...(aborted
-            ? { status: "aborted" }
-            : {
-                status: "failed",
-                error: {
-                  message:
-                    error instanceof Error ? error.message : String(error),
-                },
-              }),
-        })
-      } finally {
-        await settle()
-      }
-    },
+    /** End the run of a turn that the user or a lost lease stopped. */
+    abortRun: () => end({ status: "aborted" }),
+    /** End the run of a turn that failed before `chat()` ran. */
+    failRun: (error: unknown) =>
+      end({
+        status: "failed",
+        error: {
+          message: error instanceof Error ? error.message : String(error),
+        },
+      }),
   }
 }

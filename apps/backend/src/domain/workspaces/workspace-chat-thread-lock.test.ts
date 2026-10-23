@@ -162,8 +162,8 @@ function conversation(model: ScriptedModel) {
           },
         ],
         middleware: [
-          turn.middleware,
           withPersistence(persistence, { snapshotStreaming: true }),
+          turn.middleware,
           openCodeTrailingUserMiddleware(prompt),
         ],
       }) as AsyncIterable<StreamChunk>) {
@@ -250,4 +250,134 @@ it("rejects a send whose history does not hold the stored questions", async () =
       { id: "u2", role: "user", content: "Next" },
     ]),
   ).toEqual([])
+})
+
+// A stored thread with a tool result, which has no id.
+const storedThread: ModelMessage[] = [
+  { id: "u1", role: "user", content: "First question" },
+  {
+    id: "a1",
+    role: "assistant",
+    content: null,
+    toolCalls: [
+      {
+        id: "c1",
+        type: "function",
+        function: { name: "lookup", arguments: "{}" },
+      },
+    ],
+  },
+  { role: "tool", content: "found", toolCallId: "c1" },
+  { id: "a2", role: "assistant", content: "Found it" },
+]
+// A reload sends the stored thread again, as new objects, and a question.
+const reloadHistory = (): ModelMessage[] => [
+  ...structuredClone(storedThread),
+  { id: "u2", role: "user", content: "Second question" },
+]
+
+async function storedWith(thread: ModelMessage[]) {
+  const persistence = memoryPersistence()
+  await persistence.stores.messages.saveThread("thread", thread)
+  return persistence
+}
+
+const hold = (
+  persistence: ReturnType<typeof memoryPersistence>,
+  messages: ModelMessage[],
+) =>
+  holdWorkspaceChatTurn({
+    locks: new InMemoryLockStore(),
+    stores: persistence.stores,
+    threadId: "thread",
+    runId: "r2",
+    messages,
+    onLost: () => undefined,
+  })
+
+const drain = async (stream: unknown) => {
+  for await (const _ of stream as AsyncIterable<StreamChunk>);
+}
+
+it("stores the same thread as chat persistence alone for a reload", async () => {
+  const plain = await storedWith(storedThread)
+  await drain(
+    chat({
+      adapter: new ScriptedModel([text("p9", "Answer")]),
+      threadId: "thread",
+      runId: "r2",
+      messages: reloadHistory(),
+      middleware: [withPersistence(plain)],
+    }),
+  )
+  const held = await storedWith(storedThread)
+  const turn = await hold(held, reloadHistory())
+  await drain(
+    chat({
+      adapter: new ScriptedModel([text("p9", "Answer")]),
+      threadId: "thread",
+      runId: "r2",
+      messages: turn.messages,
+      middleware: [withPersistence(held), turn.middleware],
+    }),
+  )
+  expect(await held.stores.messages.loadThread("thread")).toEqual(
+    await plain.stores.messages.loadThread("thread"),
+  )
+})
+
+it("does not add a resent tool result with content parts twice", async () => {
+  const thread = storedThread.map((message) =>
+    message.role === "tool"
+      ? { ...message, content: [{ type: "text" as const, content: "found" }] }
+      : message,
+  )
+  const persistence = await storedWith(thread)
+  const turn = await hold(persistence, [
+    ...structuredClone(thread),
+    { id: "u2", role: "user", content: "Second question" },
+  ])
+  expect(turn.messages.filter((message) => message.role === "tool")).toEqual([
+    thread[2],
+  ])
+})
+
+it("stores the question of an MCP call, which sends no history", async () => {
+  const persistence = await storedWith(storedThread)
+  const question: ModelMessage = { role: "user", content: "From MCP" }
+  const turn = await hold(persistence, [question])
+  expect(await persistence.stores.messages.loadThread("thread")).toEqual([
+    ...storedThread,
+    question,
+  ])
+  expect(turn.messages).toEqual([...storedThread, question])
+})
+
+it("fails the run when the chat throws before its end hooks run", async () => {
+  const persistence = await storedWith([])
+  const turn = await hold(persistence, [
+    { id: "u1", role: "user", content: "First question" },
+  ])
+  const broken = {
+    get model(): string {
+      throw new Error("No model")
+    },
+  }
+  await expect(
+    drain(
+      chat({
+        adapter: broken as never,
+        threadId: "thread",
+        runId: "r2",
+        messages: turn.messages,
+        middleware: [withPersistence(persistence), turn.middleware],
+      }),
+    ),
+  ).rejects.toThrow("No model")
+  // The lock middleware did not run, so `fail` still ends the run.
+  await turn.failRun(new Error("No model"))
+  expect(await persistence.stores.runs.get("r2")).toMatchObject({
+    status: "failed",
+    error: { message: "No model" },
+  })
 })
