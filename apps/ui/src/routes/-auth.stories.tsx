@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
+import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   authConfigHandler,
@@ -61,6 +62,61 @@ export const SignIn: Story = {
         page: [sessionSignedOutHandler, organizationListEmptyHandler],
       },
     },
+  },
+}
+
+/**
+ * Sign-in with an email that is not verified. Better Auth sends a new link
+ * (sendOnSignIn) and answers 403, so the toast is a notice, not an error.
+ */
+export const SignInUnverifiedEmail: Story = {
+  name: "Sign-in, unverified email",
+  render: () => <SignInRoutePage />,
+  decorators: [
+    (Story) => (
+      <>
+        <Story />
+        <Toaster richColors position="top-center" />
+      </>
+    ),
+  ],
+  parameters: {
+    storyRoute: {
+      pattern: "flat",
+      path: "/.auth/sign-in",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          sessionSignedOutHandler,
+          organizationListEmptyHandler,
+          http.post("*/.auth/api/v1/auth/sign-in/email", () =>
+            HttpResponse.json(
+              { code: "EMAIL_NOT_VERIFIED", message: "Email not verified" },
+              { status: 403 },
+            ),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.type(
+      await canvas.findByLabelText("Email"),
+      "member@example.com",
+    )
+    await userEvent.type(canvas.getByLabelText("Password"), "password-1234")
+    await userEvent.click(canvas.getByRole("button", { name: "Login" }))
+    await waitFor(() =>
+      expect(
+        within(document.body)
+          .getByText(
+            "Verify your email to sign in. We sent a new link to your inbox.",
+          )
+          .closest("[data-sonner-toast]"),
+      ).toHaveAttribute("data-type", "info"),
+    )
   },
 }
 
