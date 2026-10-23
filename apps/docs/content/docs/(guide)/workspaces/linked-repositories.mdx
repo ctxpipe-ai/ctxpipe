@@ -167,6 +167,12 @@ Indexing runs again when the linked branch or tag of the repository changes.
 - **Extracted knowledge**: services, APIs, libraries, infrastructure, and
   instructions such as `AGENTS.md`, skills, and ADRs, committed to the
   workspace repository as knowledge files with claims.
+- **GitHub Actions workflows**: one knowledge file in `knowledge/workflows/`
+  for each workflow file in `.github/workflows/`. It lists the triggers and
+  the job ids, and it links to the services, apps, and libraries whose
+  folders the path filters and working directories name. It does not copy
+  commands, environment values, or secrets. A merged pull request that
+  changes a workflow file links to that knowledge file.
 
 Extraction uses models on parts of the code. Treat extracted claims like any
 other knowledge file: review them in git and correct them when they are wrong.

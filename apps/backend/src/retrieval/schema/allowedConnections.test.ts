@@ -121,4 +121,13 @@ describe("ingestion v2 skill claims (ADR-052 section 6)", () => {
       )
     expect(isAllowedConnection("App", "RUNS_ON", "Infrastructure")).toBe(true)
   })
+
+  it("allows a Workflow to mention a package, and a pull request to change a Workflow", () => {
+    for (const kind of ["Service", "App", "Library"])
+      expect(isAllowedConnection("Workflow", "MENTIONS", kind), kind).toBe(true)
+    expect(isAllowedConnection("Workflow", "MENTIONS", "Repository")).toBe(
+      false,
+    )
+    expect(isAllowedConnection("PullRequest", "CHANGED", "Workflow")).toBe(true)
+  })
 })

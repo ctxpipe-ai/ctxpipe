@@ -1,6 +1,7 @@
 import { posix, win32 } from "node:path"
 import { log } from "../../observability/logger.js"
 import { type HydrateClaim, sourcePathOf } from "./hydrate.js"
+import { WORKFLOW_FILE_PATTERN } from "./layout.js"
 import { WORKSPACE_LINK_SCHEME } from "./mirror-units.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
@@ -10,7 +11,8 @@ import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
  * the package units (Service, App, Library) of the same repository. The
  * host writes `root` on these units; the model never writes it. The deepest
  * root that holds the file wins. A file outside every root changes the
- * Repository unit only. The claim is valid from the merge date.
+ * Repository unit only. A changed workflow file also changes its Workflow
+ * unit (`workflow_file`). The claim is valid from the merge date.
  */
 
 const PACKAGE_KINDS: ReadonlySet<string> = new Set([
@@ -27,6 +29,20 @@ type Unit = {
 
 type Target = { path: string; root: string | null }
 
+/** The repository key of each `sources` value of a unit. */
+function repositoryKeys(
+  unit: Unit,
+  sourceRepositories: ReadonlyMap<string, string>,
+): string[] {
+  return stringList(unit.attributes.sources).map((source) => {
+    const path = sourcePathOf(source)
+    return (
+      (path && sourceRepositories.get(path)) ??
+      normalizeWorkspaceRepositoryUrl(source)
+    )
+  })
+}
+
 export function pullRequestChangedClaims(
   units: readonly Unit[],
   /**
@@ -37,7 +53,29 @@ export function pullRequestChangedClaims(
 ): Map<string, HydrateClaim[]> {
   let invalidRoots = 0
   const targets = new Map<string, Target[]>()
+  // Repository key → workflow file → the Workflow units of that file.
+  const workflows = new Map<string, Map<string, string[]>>()
   for (const unit of units) {
+    if (unit.kind === "Workflow") {
+      const file = unit.attributes.workflow_file
+      // Only a file that the workflows skill wrote, for a workflow file
+      // directly in `.github/workflows/` (as the validator checks).
+      if (
+        unit.attributes.generated_by !== "ctxpipe-extract" ||
+        !unit.path.startsWith("knowledge/workflows/") ||
+        typeof file !== "string" ||
+        !WORKFLOW_FILE_PATTERN.test(file) ||
+        !Array.isArray(unit.attributes.sources) ||
+        unit.attributes.sources.length !== 1
+      )
+        continue
+      for (const key of repositoryKeys(unit, sourceRepositories)) {
+        const files = workflows.get(key) ?? new Map<string, string[]>()
+        files.set(file, [...(files.get(file) ?? []), unit.path])
+        workflows.set(key, files)
+      }
+      continue
+    }
     const isPackage = PACKAGE_KINDS.has(unit.kind ?? "")
     if (!isPackage && unit.kind !== "Repository") continue
     if (isPackage && unit.attributes.generated_by !== "ctxpipe-extract")
@@ -53,11 +91,7 @@ export function pullRequestChangedClaims(
       if (unit.attributes.root !== undefined) invalidRoots++
       continue
     }
-    for (const source of stringList(unit.attributes.sources)) {
-      const path = sourcePathOf(source)
-      const key =
-        (path && sourceRepositories.get(path)) ??
-        normalizeWorkspaceRepositoryUrl(source)
+    for (const key of repositoryKeys(unit, sourceRepositories)) {
       const list = targets.get(key) ?? []
       list.push({ path: unit.path, root })
       targets.set(key, list)
@@ -93,6 +127,8 @@ export function pullRequestChangedClaims(
       if (!hits.length)
         hits = candidates.filter((t) => t.root === null).map((t) => t.path)
       for (const path of hits) changed.add(path)
+      for (const path of workflows.get(pull.repositoryUrl)?.get(file) ?? [])
+        changed.add(path)
     }
     if (!changed.size) continue
     claims.set(

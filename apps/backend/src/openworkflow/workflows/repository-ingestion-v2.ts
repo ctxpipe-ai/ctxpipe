@@ -525,14 +525,14 @@ export function defineRepositoryIngestionV2Workflow(
                         resolve: resolveIngestConflicts,
                         source: { url: input.source.url, sha: input.sha },
                         sourcePath: destination.sourcePath,
-                        sourcePathExists: (path) =>
+                        sourcePathExists: (path, type) =>
                           ingestSourceTree({
                             orgId: input.orgId,
                             runId: run.id,
                             source: input.source,
                             sha: input.sha,
                             env: env(),
-                          }).exists(path),
+                          }).exists(path, type),
                         readSourceFile: (path) =>
                           ingestSourceTree({
                             orgId: input.orgId,

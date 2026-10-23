@@ -4,7 +4,7 @@ Naming: `ADR-NNN-title-slug.md`. Status | Date | Tags; Context; Decision; Conseq
 
 Parent: [`.ai/memory/README.md`](../README.md).
 
-**Updated:** 2026-10-16
+**Updated:** 2026-10-20
 
 ## Index
 
@@ -42,7 +42,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-030](ADR-030-organization-owned-mcp-api-keys.md) | Organization-owned MCP API keys | Accepted (amended 2026-09-27: OpenCode HOME hashing; amended by ADR-051: `org` argument, personal-key org sets) |
 | [ADR-031](ADR-031-github-pr-scoped-mirror.md) | GitHub pull-request scoped mirror (revised: follows linked repositories) | Accepted (revised 2026-10-03); sync repository superseded by ADR-050 |
 | [ADR-032](ADR-032-path-located-graph-edges.md) | Path-located graph edges | Accepted (amended by ADR-033) |
-| [ADR-033](ADR-033-graph-ontology-v2.md) | Graph ontology v2: relation families, shared identity, deterministic connector extraction | Accepted (amended by ADR-037) |
+| [ADR-033](ADR-033-graph-ontology-v2.md) | Graph ontology v2: relation families, shared identity, deterministic connector extraction | Accepted (amended by ADR-037; revised 2026-10-20: `Workflow` kind) |
 | [ADR-034](ADR-034-pagerduty-connector-git-native-mirror.md) | PagerDuty connector Git-native mirror | Accepted; sync repository superseded by ADR-050; source incidents under `pagerduty/services/<serviceId>/` |
 | [ADR-037](ADR-037-committed-memory-reaches-the-graph.md) | Committed memory reaches the graph | Accepted (amended by ADR-051: `ctx_advisor` removed) |
 | [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) | Self-hosted ClickStack + Langfuse (ops observability) | Accepted (amended 2026-09-29; item 11 superseded by ADR-054) |
@@ -59,7 +59,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md) | Self-host chat sandboxes: stock Docker on DinD and an EC2 host; Agent Vault adds their credentials | Accepted |
 | [ADR-050](ADR-050-workspace-sources-config-file.md) | Workspace sources as node files (`sources/*.md`); connections hold auth only | Accepted (revised 2026-10-16: one Markdown file per source, `Source` nodes, `FROM_SOURCE` provenance; revised 2026-10-16: the migration is upgrade format 1; revised 2026-10-18: plain git sources) |
 | [ADR-051](ADR-051-mcp-read-surface.md) | MCP read surface: small read tools, slugs, scopes, and an org set per grant | Accepted (clarified: capped hubs, parallel chat claims, answers-first ranking with strong query hits, and shared fallback budgets; amended by ADR-050: `provenance` intent) 
-| [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) | Ingestion as sandbox skills that write patches | Accepted (amended by ADR-050: `sources` holds source paths; revised 2026-10-16: publish gate at format 3, re-ingestion in the upgrade; revised 2026-10-17: no rollback to the old pipeline; revised 2026-10-18: plain git sources) |
+| [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) | Ingestion as sandbox skills that write patches | Accepted (amended by ADR-050: `sources` holds source paths; revised 2026-10-16: publish gate at format 3, re-ingestion in the upgrade; revised 2026-10-17: no rollback to the old pipeline; revised 2026-10-18: plain git sources; revised 2026-10-20: `workflows` skill) |
 | [ADR-053](ADR-053-minor-upgrades-expand-only-sql-workspace-format.md) | Minor upgrades: expand-only SQL and Workspace format versions in git | Accepted |
 | [ADR-054](ADR-054-secrets-sync-from-github-to-railway.md) | Secrets go from GitHub Environments straight to Railway, not through Terraform | Accepted |
 

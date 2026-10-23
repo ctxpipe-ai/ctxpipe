@@ -12,9 +12,16 @@ import { isDeepStrictEqual } from "node:util"
 import { fromMarkdown } from "mdast-util-from-markdown"
 import { parseDocument, stringify, type YAMLSeq } from "yaml"
 import { z } from "zod"
+import {
+  DENIED_HEADINGS,
+  INJECTION_PHRASES,
+} from "../../../ingest-skills/bin/guard-patterns.mjs"
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { isHostOnlyPath } from "../workspaces/host-only.js"
-import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
+import {
+  KNOWLEDGE_KIND_FOLDERS,
+  WORKFLOW_FILE_PATTERN,
+} from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { type AreaFile, checkAreaChange, parseAreaBody } from "./area-file.js"
 import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
@@ -81,8 +88,11 @@ export type PatchStepInput = {
   sourcePath: string
   skill: string
   bundle: string
-  /** True when `path` exists in the source repository at `source.sha`. */
-  sourcePathExists: (path: string) => Promise<boolean>
+  /**
+   * True when `path` exists in the source repository at `source.sha`. With
+   * `"blob"`, true only when it is a file: a folder or a gitlink is not.
+   */
+  sourcePathExists: (path: string, type?: "blob") => Promise<boolean>
   /**
    * The text of the file `path` in the source repository at `source.sha`, or
    * null when it is not a file or is too large to read.
@@ -110,7 +120,7 @@ export type PatchStepInput = {
   rootPath?: string
 }
 
-/** The 12 allowlist folders and their kinds. Patterns are not extracted (ADR-052). */
+/** The 13 allowlist folders and their kinds. Patterns are not extracted (ADR-052). */
 const FOLDER_KINDS: ReadonlyMap<string, string> = new Map(
   Object.entries(KNOWLEDGE_KIND_FOLDERS)
     .filter(([kind]) => kind !== "Pattern")
@@ -213,6 +223,8 @@ const FrontMatterSchema = z
         "A file has at most 200 claims",
       )
       .optional(),
+    /** The workflow file that a Workflow file describes, and no other kind. */
+    workflow_file: z.string().optional(),
     generated_by: z.string().optional(),
     sources: z.array(z.string()).optional(),
     root: z.string().optional(),
@@ -339,9 +351,31 @@ export function gitSource(
 function gitSourcePathExists(
   repoDir: string,
   sha: string,
-): (path: string) => Promise<boolean> {
+): PatchStepInput["sourcePathExists"] {
   let paths: Promise<Set<string>> | undefined
-  return async (path) => {
+  return async (path, type) => {
+    if (type === "blob") {
+      // A blob lookup reads the one tree entry and no content.
+      const out = await git(repoDir, [
+        "--literal-pathspecs",
+        "ls-tree",
+        "-z",
+        sha,
+        "--",
+        path,
+      ]).catch((error: unknown) => {
+        if (error instanceof GitOutputTooLargeError) throw error
+        return Buffer.alloc(0)
+      })
+      return out
+        .toString("utf8")
+        .split("\0")
+        .some(
+          (r) =>
+            r.split("\t")[0]?.split(" ")[1] === "blob" &&
+            r.slice(r.indexOf("\t") + 1) === path,
+        )
+    }
     paths ??= git(repoDir, ["ls-tree", "-r", "-t", "-z", "--name-only", sha])
       .then((out) => new Set(out.toString("utf8").split("\0")))
       .catch((error: unknown) => {
@@ -536,6 +570,8 @@ export async function validatePatchStep(
     root: input.root,
     meter,
     evidenceExists,
+    // The lookup reads no content, so it uses no read or byte budget.
+    sourceFileExists: (path) => input.sourcePathExists(path, "blob"),
     quoteInSource: (path, quote) =>
       sourceIncludes(quotableSource(path), quotableText(quote)),
     patternInSource: (path, pattern) =>
@@ -739,6 +775,8 @@ type CheckContext = {
   root: string | undefined
   meter: WorkMeter
   evidenceExists: (path: string) => Promise<boolean>
+  /** True when the path is a file (a blob) of the source. */
+  sourceFileExists: (path: string) => Promise<boolean>
   /** True when the quote, whitespace normalized, is text of the source file. */
   quoteInSource: (path: string, quote: string) => Promise<boolean | "spent">
   /** True when the source file holds the pattern of an inferred rule. */
@@ -992,6 +1030,27 @@ async function checkFullWrite(
       return { rule: "front_matter", reason: `Only the host sets ${field}` }
   }
 
+  if (attributes.kind !== "Workflow" && attributes.workflow_file !== undefined)
+    return {
+      rule: "front_matter",
+      reason: "Only a Workflow file has workflow_file",
+    }
+  // A GitHub Actions workflow file of the source: GitHub runs only the
+  // files directly in `.github/workflows/`. It must be a file, not a
+  // folder. Hydrate joins a merged pull request that changes it to the
+  // Workflow file (`PullRequest CHANGED Workflow`).
+  if (
+    attributes.kind === "Workflow" &&
+    !(
+      WORKFLOW_FILE_PATTERN.test(attributes.workflow_file ?? "") &&
+      (await context.sourceFileExists(attributes.workflow_file ?? ""))
+    )
+  )
+    return {
+      rule: "front_matter",
+      reason: "workflow_file must name a workflow file of the source",
+    }
+
   const human = humanSectionProblem(front, before)
   if (human) return human
 
@@ -1063,6 +1122,9 @@ async function checkFullWrite(
     ...(attributes.summary === undefined
       ? {}
       : { summary: attributes.summary }),
+    ...(attributes.workflow_file === undefined
+      ? {}
+      : { workflow_file: attributes.workflow_file }),
     ...(outClaims.length ? { claims: outClaims } : {}),
     generated_by: GENERATED_BY,
     sources: [context.sourcePath],
@@ -1322,14 +1384,6 @@ function contentProblem(text: string): CheckFailure | null {
   return null
 }
 
-const DENIED_HEADINGS = [
-  /\bsystem\s+prompts?\b/i,
-  /\b(?:ai|llm|coding|autonomous)\s+(?:agents?|assistants?|models?)\b/i,
-  /\b(?:for|to|attention)\s+(?:the\s+|all\s+)?(?:ai|llms?|agents?|assistants?|models?|claude|gpt|chatgpt|copilot|cursor)\b/i,
-  /\b(?:claude|chatgpt|gpt-?\d*|copilot|gemini)\b/i,
-  /^(?:ai|llms?|agents?|assistants?|prompts?)$/i,
-]
-
 function deniedHeading(body: string): CheckFailure | null {
   for (const heading of markdownHeadings(body)) {
     if (DENIED_HEADINGS.some((pattern) => pattern.test(heading)))
@@ -1355,18 +1409,6 @@ function markdownHeadings(body: string): string[] {
   visit(fromMarkdown(body) as MarkdownNode)
   return headings
 }
-
-const INJECTION_PHRASES = [
-  /\b(?:ignore|disregard|forget|override|bypass)\b[^.\n]{0,40}\b(?:previous|prior|above|earlier|preceding|all|any|your|the)\b[^.\n]{0,20}\b(?:instructions?|prompts?|rules|directives|guidelines)\b/i,
-  /\byou are (?:now|no longer)\b/i,
-  /\b(?:new|updated|real|actual) (?:system )?instructions?\s*:/i,
-  /\bsystem prompt\b/i,
-  /\b(?:reveal|print|show|output|leak|exfiltrate|send|upload)\b[^.\n]{0,40}\b(?:system prompt|api[_ -]?keys?|credentials?|secrets?|access tokens?|passwords?)\b/i,
-  /\b(?:do not|don't|never) (?:tell|inform|alert) (?:the )?(?:user|human|operator)\b/i,
-  /\bas an ai\b/i,
-  /\b(?:ai|llm|coding) (?:agents?|assistants?|models?)\b[,:]?\s*(?:must|should|need to|are required to|please)\b/i,
-  /<\|?(?:im_start|im_end|endoftext)\|?>|\[\/?INST\]|<<\/?SYS>>/i,
-]
 
 /**
  * Scans text outside fenced code, block quotes, and inline code (concept
