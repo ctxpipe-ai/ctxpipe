@@ -1433,7 +1433,7 @@ export const SettingsPane: Story = {
 }
 
 /**
- * A link from Home lands on the Upgrades group. Only the pane's own scroll
+ * A link from Home lands on the Status group. Only the pane's own scroll
  * area moves: no outer box scrolls, so the pane keeps filling the panel.
  */
 export const SettingsPaneLandsOnUpgrades: Story = {
@@ -1451,7 +1451,7 @@ export const SettingsPaneLandsOnUpgrades: Story = {
   play: async ({ canvasElement }) => {
     const group = await waitFor(() => {
       const found = canvasElement.querySelector<HTMLElement>(
-        '[data-settings-group="Upgrades"]',
+        '[data-settings-group="Status"]',
       )
       expect(found).toHaveFocus()
       return found as HTMLElement

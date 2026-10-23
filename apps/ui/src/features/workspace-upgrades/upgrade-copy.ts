@@ -1,10 +1,5 @@
 import type { UpgradeStatus, WorkspaceUpgradeItem } from "./queries"
 
-/** An item that still needs work. Only `completed` is done. */
-export function upgradeIsPending(item: WorkspaceUpgradeItem): boolean {
-  return item.status !== "completed"
-}
-
 type UpgradeNotice = NonNullable<
   WorkspaceUpgradeItem["steps"][number]["notices"]
 >[number]
@@ -69,7 +64,7 @@ const UPGRADE_STATUS_TAG: Record<
   },
   pr_open: {
     label: "Waiting for merge",
-    className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
+    className: "border-amber-400/30 bg-amber-400/10 text-amber-200",
   },
   completed: {
     label: "Applied",
@@ -262,10 +257,103 @@ export function formatHealthLine(
     return "The format file in the repository is not valid."
   if (formatVersion > codeFormat)
     return `The repository uses format ${formatVersion}. ctxpipe reads format ${codeFormat}. This Workspace needs a newer ctxpipe version.`
-  if (formatVersion === codeFormat)
-    return `The repository uses format ${formatVersion}. It is up to date.`
+  // Up to date: the format is meta text, not a status (CTX-980).
+  if (formatVersion === codeFormat) return `Format ${formatVersion}`
   return `The repository uses format ${formatVersion}. ctxpipe reads format ${codeFormat}.`
 }
 
 /** The text of the next action for a member. */
 export const MEMBER_ASK_ADMIN = "Ask an admin"
+
+/**
+ * The group of an item in the Status group (CTX-980). `needs_you`: the item
+ * waits for a person (start, merge, a fix). `working`: ctxpipe works on it, and
+ * nobody must act. `done`: applied.
+ */
+export function upgradeGroup(
+  item: Pick<
+    WorkspaceUpgradeItem,
+    "kind" | "status" | "blockedReason" | "targetFormat" | "mergedAt"
+  >,
+  formatVersion: number | null,
+): "needs_you" | "working" | "done" {
+  if (item.status === "completed") return "done"
+  if (
+    item.status === "queued" ||
+    item.status === "running" ||
+    (item.status === "pr_open" && item.mergedAt) ||
+    upgradeIsCheckingFormat(item, formatVersion)
+  )
+    return "working"
+  return "needs_you"
+}
+
+/**
+ * The headline of the Status group: the most urgent group of the items. Its
+ * line is the first line of the group and says if the user must act.
+ */
+export function upgradeHeadline(groups: ReturnType<typeof upgradeGroup>[]): {
+  label: string
+  className: string
+  pulse?: boolean
+  line: string
+} {
+  const needsYou = groups.filter((group) => group === "needs_you").length
+  if (needsYou > 0)
+    return {
+      label: "Needs you",
+      className: "border-amber-400/30 bg-amber-400/10 text-amber-200",
+      line: `Action needed. ${needsYou} ${needsYou === 1 ? "item needs" : "items need"} you.`,
+    }
+  if (groups.includes("working"))
+    return {
+      label: "Working",
+      className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
+      pulse: true,
+      line: "No action needed. ctxpipe works on this Workspace now.",
+    }
+  return {
+    label: "Up to date",
+    className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
+    line: "No action needed. Upgrades show here and on Home when one is ready.",
+  }
+}
+
+/**
+ * The spend of a re-ingestion: the sum of the known spend of its
+ * repositories. "At least" when a model step reported no usage. Null when
+ * ctxpipe knows no spend.
+ */
+export function upgradeSpendLine(
+  item: Pick<WorkspaceUpgradeItem, "kind" | "repositories">,
+): string | null {
+  if (item.kind !== "reingest") return null
+  const known = item.repositories.filter(
+    (repository) => repository.spendUsd !== null,
+  )
+  if (known.length === 0) return null
+  const total = known.reduce(
+    (sum, repository) => sum + (repository.spendUsd ?? 0),
+    0,
+  )
+  const unknown = item.repositories.some(
+    (repository) => repository.spendUnknown,
+  )
+  return `Spend so far: ${unknown ? "at least " : ""}$${total.toFixed(2)}`
+}
+
+/** The History label: the count of applied items and the date of the last one. */
+export function upgradeHistoryLine(
+  applied: Pick<WorkspaceUpgradeItem, "updatedAt">[],
+): string {
+  const last = Math.max(...applied.map((item) => Date.parse(item.updatedAt)))
+  const date = new Date(last).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  })
+  return `History · ${applied.length} applied, last on ${date}`
+}
+
+/** The intro of the Status group. It shows only while an item is open. */
+export const STATUS_INTRO =
+  "ctxpipe keeps this Workspace current. Some upgrades open a pull request for you to merge. Others run here and use model calls."

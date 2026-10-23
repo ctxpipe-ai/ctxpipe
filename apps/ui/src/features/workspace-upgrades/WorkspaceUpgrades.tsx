@@ -20,7 +20,10 @@ import {
 } from "@/components/ui/Skeleton"
 import { StatusTag } from "@/features/workspaces/StatusTag"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
-import { useCheckingFormatExpired } from "./checking-format-clock"
+import {
+  checkingFormatExpired,
+  useCheckingFormatExpired,
+} from "./checking-format-clock"
 import {
   checkWorkspaceUpgradesAndWait,
   type WorkspaceUpgradeItem,
@@ -33,12 +36,16 @@ import {
   CHECKING_FORMAT_COPY,
   formatHealthLine,
   MEMBER_ASK_ADMIN,
+  STATUS_INTRO,
   upgradeBlockedCopy,
   upgradeCanCheck,
   upgradeCanStart,
+  upgradeGroup,
+  upgradeHeadline,
+  upgradeHistoryLine,
   upgradeIsCheckingFormat,
-  upgradeIsPending,
   upgradeNotices,
+  upgradeSpendLine,
   upgradeStatusTag,
   upgradeWaitingCopy,
 } from "./upgrade-copy"
@@ -87,6 +94,16 @@ function UpgradeItemCard(props: {
   const progress = upgradeProgress(item)
   const checkResult = upgradeCheckResult(item, props.formatVersion)
   const stepsWithReport = item.steps.filter((step) => step.report.length > 0)
+  const working =
+    upgradeGroup(item, checkingExpired ? null : props.formatVersion) ===
+    "working"
+  const spend = upgradeSpendLine(item)
+  const meta = [
+    working ? "No action needed." : null,
+    spend ? `${spend}.` : null,
+  ]
+    .filter(Boolean)
+    .join(" ")
   return (
     <li
       className="rounded-md border border-white/[0.06] px-4 py-3"
@@ -215,6 +232,10 @@ function UpgradeItemCard(props: {
 
       {checkResult ? (
         <p className="mt-3 text-xs text-muted-foreground">{checkResult}</p>
+      ) : null}
+
+      {meta ? (
+        <p className="mt-3 text-xs text-muted-foreground">{meta}</p>
       ) : null}
 
       {item.status === "failed" ? (
@@ -417,7 +438,45 @@ function UpgradesSkeleton() {
   )
 }
 
-/** The Upgrades group of Workspace settings. */
+/** One list of the Status group: Needs you or Working now. */
+function UpgradeItemList(props: {
+  label: string
+  items: WorkspaceUpgradeItem[]
+  formatVersion: number | null
+  orgSlug: string
+  workspaceSlug: string
+  isAdmin: boolean | null
+  onFixWithAgent?: (prompt: string) => void
+}) {
+  if (props.items.length === 0) return null
+  return (
+    <div>
+      <h3 className="text-xs font-medium text-muted-foreground">
+        {props.label}
+      </h3>
+      <ul className="mt-2 flex flex-col gap-3" aria-label={props.label}>
+        {props.items.map((item) => (
+          <UpgradeItemRow
+            key={item.key}
+            item={item}
+            formatVersion={props.formatVersion}
+            orgSlug={props.orgSlug}
+            workspaceSlug={props.workspaceSlug}
+            isAdmin={props.isAdmin}
+            {...(props.onFixWithAgent
+              ? { onFixWithAgent: props.onFixWithAgent }
+              : {})}
+          />
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/**
+ * The Status group of Workspace settings (CTX-980). Its first line says if the
+ * user must act: Needs you, Working (no action needed), or Up to date.
+ */
 export function WorkspaceUpgrades(props: {
   orgSlug: string
   workspaceSlug: string
@@ -431,20 +490,38 @@ export function WorkspaceUpgrades(props: {
   const loading = useSkeletonHold(upgradesQuery.isPending)
   const isAdmin = useIsOrgAdmin(orgSlug)
   const data = upgradesQuery.data
-  const pending = data?.items.filter(upgradeIsPending) ?? []
-  const applied = data?.items.filter((item) => !upgradeIsPending(item)) ?? []
+  // A checking state older than a minute is blocked again: it needs you.
+  const groupOf = (item: WorkspaceUpgradeItem) => {
+    const formatVersion = data?.formatVersion ?? null
+    const expired = checkingFormatExpired(
+      `${orgSlug}/${workspaceSlug}/${item.key}`,
+      upgradeIsCheckingFormat(item, formatVersion),
+    )
+    return upgradeGroup(item, expired ? null : formatVersion)
+  }
+  const items = data?.items ?? []
+  const groups = items.map(groupOf)
+  const inGroup = (group: (typeof groups)[number]) =>
+    items.filter((_, index) => groups[index] === group)
+  const needsYou = inGroup("needs_you")
+  const working = inGroup("working")
+  const applied = inGroup("done")
+  const headline = upgradeHeadline(groups)
+  const listProps = {
+    formatVersion: data?.formatVersion ?? null,
+    orgSlug,
+    workspaceSlug,
+    isAdmin,
+    ...(props.onFixWithAgent ? { onFixWithAgent: props.onFixWithAgent } : {}),
+  }
 
   return (
     <section aria-labelledby="workspace-upgrades">
       {/* The settings group eyebrow names this section on screen. */}
       <h2 id="workspace-upgrades" className="sr-only">
-        Upgrades
+        Status
       </h2>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Upgrades move your Workspace repository to the layout that this version
-        of ctxpipe reads. Nothing changes until you merge the pull request.
-      </p>
-      <div className="mt-3 flex flex-col gap-3">
+      <div className="flex flex-col gap-4">
         {loading ? (
           <UpgradesSkeleton />
         ) : upgradesQuery.isError ? (
@@ -463,34 +540,34 @@ export function WorkspaceUpgrades(props: {
           </InlineAlert>
         ) : data ? (
           <>
+            <div className="flex flex-col gap-1">
+              <div className="flex flex-wrap items-center gap-3">
+                <StatusTag {...headline} />
+                <p className="text-sm text-foreground">{headline.line}</p>
+              </div>
+              {needsYou.length + working.length > 0 ? (
+                <p className="text-xs text-muted-foreground">{STATUS_INTRO}</p>
+              ) : null}
+            </div>
+            <UpgradeItemList
+              label="Needs you"
+              items={needsYou}
+              {...listProps}
+            />
+            <UpgradeItemList
+              label="Working now · No action needed"
+              items={working}
+              {...listProps}
+            />
             <p className="text-xs text-muted-foreground">
               {formatHealthLine(data.formatVersion, data.codeFormat)}
             </p>
-            {pending.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No upgrades are pending.
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-3">
-                {pending.map((item) => (
-                  <UpgradeItemRow
-                    key={item.key}
-                    item={item}
-                    formatVersion={data.formatVersion}
-                    orgSlug={orgSlug}
-                    workspaceSlug={workspaceSlug}
-                    isAdmin={isAdmin}
-                    {...(props.onFixWithAgent
-                      ? { onFixWithAgent: props.onFixWithAgent }
-                      : {})}
-                  />
-                ))}
-              </ul>
-            )}
             {applied.length > 0 ? (
               <Disclosure className="-mx-2">
                 <DisclosureHeader>
-                  <span className="text-xs text-muted-foreground">History</span>
+                  <span className="text-xs text-muted-foreground">
+                    {upgradeHistoryLine(applied)}
+                  </span>
                 </DisclosureHeader>
                 <DisclosurePanel className="px-2">
                   <ul

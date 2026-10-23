@@ -35,7 +35,7 @@ export function workspaceNeedsFormatUpgrade(state: {
   )
 }
 
-/** The Workspace settings link that lands on the Upgrades group. */
+/** The Workspace settings link that lands on the Status group. */
 export function workspaceUpgradesHref(
   orgSlug: string,
   workspaceSlug: string,
