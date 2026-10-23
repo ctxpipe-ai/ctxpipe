@@ -50,11 +50,13 @@ export function AutomaticUpgradesToggle(props: {
         `${error.message.replace(/\.$/, "")}. Press ${next === "automatic" ? "Turn on" : "Turn off"} to try again.`,
       )
     },
-    // With the setting on, the server starts the waiting upgrades.
-    onSettled: () =>
-      queryClient.invalidateQueries({
+    // With the setting on, the server starts the waiting upgrades. The
+    // button does not wait for this read.
+    onSettled: () => {
+      void queryClient.invalidateQueries({
         queryKey: workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
-      }),
+      })
+    },
   })
   if (mode === undefined || mode === null) return null
   const on = mode === "automatic"

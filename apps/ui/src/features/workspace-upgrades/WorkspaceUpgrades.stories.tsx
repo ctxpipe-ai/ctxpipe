@@ -466,19 +466,23 @@ export const CheckAgainAfterMerge: Story = {
         page: [
           activeMemberRoleHandler("admin"),
           workspaceUpgradesHandler(() =>
-            upgradesFixture([
-              upgradeItemFixture(
-                state.checked
-                  ? { status: "completed" }
-                  : {
-                      status: "pr_open",
-                      pullRequest: {
-                        number: 42,
-                        url: "https://github.com/acme/docs/pull/42",
+            upgradesFixture(
+              [
+                upgradeItemFixture(
+                  state.checked
+                    ? { status: "completed" }
+                    : {
+                        status: "pr_open",
+                        pullRequest: {
+                          number: 42,
+                          url: "https://github.com/acme/docs/pull/42",
+                        },
                       },
-                    },
-              ),
-            ]),
+                ),
+              ],
+              // The applied upgrade wrote the new format.
+              { formatVersion: state.checked ? 3 : 2 },
+            ),
           ),
           workspaceUpgradeCheckHandler({
             requests: checkRequests,
@@ -1355,10 +1359,13 @@ export const CheckingEndsAfterAMinute: Story = {
     expect(canvas.getByText("Checking the new format")).toBeVisible()
     const start = realDateNow()
     Date.now = () => realDateNow() - start + start + 61_000
-    await waitFor(() =>
-      expect(
-        canvas.getByText("Action needed. 1 item needs you."),
-      ).toBeVisible(),
+    // The clock ticks each second: the next tick shows the change.
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByText("Action needed. 1 item needs you."),
+        ).toBeVisible(),
+      { timeout: 5_000 },
     )
     // No await between the two checks: the card changed in the same render.
     const needsYou = within(canvas.getByRole("list", { name: "Needs you" }))

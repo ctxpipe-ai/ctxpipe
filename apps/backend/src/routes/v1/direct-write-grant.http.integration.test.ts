@@ -129,6 +129,7 @@ const DIRECT_WRITE_ROUTES: ReadonlyArray<{
   {
     method: "POST",
     path: "/workspaces/missing-ws/upgrades/automatic",
+    body: { mode: "automatic" },
     expectedStatus: 404,
     orgAdmin: true,
   },
