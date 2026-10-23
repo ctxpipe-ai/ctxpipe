@@ -58,6 +58,12 @@ resource "neon_branch" "production" {
 resource "random_password" "app_database" {
   length  = 40
   special = false
+
+  # Change this value to make a new password. The deploy then sets it on the
+  # role (migrate) and in the Railway DATABASE_URL (apply).
+  keepers = {
+    rotation = "2026-10-railway-incident"
+  }
 }
 
 # Older states can hold the API role. Forget it and do not drop it: migrate

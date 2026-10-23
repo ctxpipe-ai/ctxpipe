@@ -62,7 +62,14 @@ function buildAppForConnection(row: ConnectionRow, env: Env): App {
   const stored = parseGithubConnectionStored(
     row.config as Record<string, unknown>,
   )
-  const fromRow = decodeGithubAppCredentials(stored, env)
+  // A row without its own App is on the deployment App, also when it stores a
+  // copy of the deployment App's credentials. It signs with the env key, so a
+  // rotated GITHUB_PRIVATE_KEY reaches the rows that still hold an old copy.
+  const onDeploymentApp =
+    !githubRowHasOwnApp(row, env) && Boolean(env.GITHUB_PRIVATE_KEY?.trim())
+  const fromRow = onDeploymentApp
+    ? undefined
+    : decodeGithubAppCredentials(stored, env)
   let appId: string | undefined
   let privateKey: string | undefined
 
@@ -142,7 +149,13 @@ export async function getWebhookSecretForGithubConnection(
   const stored = parseGithubConnectionStored(
     row.config as Record<string, unknown>,
   )
-  return decodeGithubAppCredentials(stored, env)?.webhookSecret
+  const fromRow = decodeGithubAppCredentials(stored, env)
+  if (!fromRow) return undefined
+  // A stored copy of the deployment App's credentials takes the deployment's
+  // current secret, as it takes the env key in buildAppForConnection.
+  return !githubRowHasOwnApp(row, env) && env.GITHUB_WEBHOOK_SECRET
+    ? env.GITHUB_WEBHOOK_SECRET
+    : fromRow.webhookSecret
 }
 
 export async function createDraftGithubConnection(input: {
