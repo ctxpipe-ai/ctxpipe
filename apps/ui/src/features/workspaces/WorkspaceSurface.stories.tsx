@@ -1874,12 +1874,13 @@ export const DeleteFromConversationShowsNoError: Story = {
 let demoStart = 0
 
 /**
- * The ingestion state of the demo at `seconds` after the story starts: idle,
- * then a repository run in its shards, a Linear sync, a second run that
- * waits for the first one and a slow hydrate, then idle again.
+ * The ingestion state of the demo at `seconds` after the story starts: a
+ * repository run in its shards, a Linear sync, a second run that waits for
+ * the first one and a slow hydrate, then idle. The demo starts with work,
+ * because the sidebar reads an idle org only once a minute.
  */
 function ingestionDemoState(seconds: number): Record<string, IngestionItem[]> {
-  if (seconds < 4 || seconds >= 30) return {}
+  if (seconds >= 30) return {}
   const startedAt = (ago: number) =>
     new Date(demoStart + (4 - ago) * 1000).toISOString()
   const shards = Math.max(0, Math.min(8, Math.floor((seconds - 7) / 2)))
@@ -1929,7 +1930,7 @@ function ingestionDemoState(seconds: number): Record<string, IngestionItem[]> {
 }
 
 /**
- * The demo of CTX-959 for a video: the sidebar goes from idle to ingesting,
+ * The demo of CTX-959 for a video: the sidebar shows the ingesting dot,
  * Workspace settings shows the progress move, and the list empties when the
  * work ends (about 30 s). The state changes with time, on each read.
  */
