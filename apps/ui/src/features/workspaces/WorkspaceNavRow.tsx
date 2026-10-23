@@ -4,7 +4,7 @@ import {
   IconFolder,
   IconMessageCirclePlus,
 } from "@tabler/icons-react"
-import { useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useRouter, useSearch } from "@tanstack/react-router"
 import { useState } from "react"
 import { Link } from "react-aria-components"
@@ -17,6 +17,7 @@ import {
 } from "@/components/SideNav/sideNavStyles"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { prefetchWorkspaceRouteData } from "./ensure-route-data"
+import { ingestingLabel, orgIngestionOptions } from "./ingestion"
 import { workspaceTitleAction } from "./nav"
 import { paneSearchForOtherConversation, workspaceSearch } from "./pane"
 import {
@@ -57,6 +58,14 @@ export function WorkspaceNavRow(props: {
     onExpand,
   } = props
   const [hovered, setHovered] = useState(false)
+  // One read for every row of the org; each row selects its Workspace.
+  const { data: ingesting = null } = useQuery({
+    ...orgIngestionOptions(orgSlug),
+    select: (workspaces) =>
+      ingestingLabel(
+        workspaces.find((entry) => entry.workspaceSlug === workspace.slug),
+      ),
+  })
   const titleAction = workspaceTitleAction({
     workspaceCount,
     isCurrent: current,
@@ -166,6 +175,14 @@ export function WorkspaceNavRow(props: {
               <IconChevronRight className="size-4" stroke={1.4} />
             )}
           </span>
+          {ingesting && !navExpanded ? (
+            // The row tooltip gives the text in the collapsed sidebar.
+            <span
+              data-ingesting="true"
+              aria-hidden
+              className="ctx-status-pulse absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-teal-400"
+            />
+          ) : null}
         </span>
       </span>
       <span
@@ -176,13 +193,19 @@ export function WorkspaceNavRow(props: {
       >
         {workspace.displayName}
       </span>
+      {ingesting && navExpanded ? <IngestingDot label={ingesting} /> : null}
     </>
   )
-  const titleAriaLabel = collapsible
-    ? current
-      ? `${open ? "Collapse" : "Expand"} ${workspace.displayName}`
-      : `Open ${workspace.displayName}`
-    : `New conversation in ${workspace.displayName}`
+  const titleAriaLabel = [
+    collapsible
+      ? current
+        ? `${open ? "Collapse" : "Expand"} ${workspace.displayName}`
+        : `Open ${workspace.displayName}`
+      : `New conversation in ${workspace.displayName}`,
+    ingesting,
+  ]
+    .filter(Boolean)
+    .join(". ")
 
   const row = (
     <div
@@ -243,7 +266,14 @@ export function WorkspaceNavRow(props: {
       {navExpanded ? (
         row
       ) : (
-        <SideNavTooltip label={workspace.displayName} enabled>
+        <SideNavTooltip
+          label={
+            ingesting
+              ? `${workspace.displayName}: ${ingesting}`
+              : workspace.displayName
+          }
+          enabled
+        >
           {row}
         </SideNavTooltip>
       )}
@@ -257,5 +287,25 @@ export function WorkspaceNavRow(props: {
         />
       ) : null}
     </li>
+  )
+}
+
+/**
+ * The teal pulse of a Workspace that ingests now (CTX-959), with its text in
+ * a tooltip. The pulse stops with reduced motion; the dot stays.
+ */
+function IngestingDot(props: { label: string }) {
+  return (
+    <SideNavTooltip label={props.label} enabled>
+      <span
+        data-ingesting="true"
+        className="mr-1 flex size-4 shrink-0 items-center justify-center"
+      >
+        <span
+          aria-hidden
+          className="ctx-status-pulse size-1.5 rounded-full bg-teal-400"
+        />
+      </span>
+    </SideNavTooltip>
   )
 }

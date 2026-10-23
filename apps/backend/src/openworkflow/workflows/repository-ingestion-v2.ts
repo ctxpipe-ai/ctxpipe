@@ -1,4 +1,3 @@
-import { gunzipSync, gzipSync } from "node:zlib"
 import type { Attributes } from "@opentelemetry/api"
 import type { Workflow } from "openworkflow"
 import { parseEnv } from "../../config/env.js"
@@ -19,8 +18,10 @@ import {
 } from "../../domain/ingestion/ingest-telemetry.js"
 import {
   INGEST_SHARD_MAX_ROOTS,
+  packRoots,
   planIngestRoots,
   plannedIngestSkills,
+  unpackRoots,
 } from "../../domain/ingestion/ingestion-plan.js"
 import {
   INGESTION_V2_WORKFLOW_NAME,
@@ -53,7 +54,6 @@ import { cleanUpUnlessParked, settledChildren } from "../isSleepSignal.js"
 import {
   addStepFailures,
   guardedSkillStep,
-  type IngestionRoot,
   type IngestionShardInput,
   type IngestionShardOutput,
   type IngestionShardWorkspace,
@@ -790,23 +790,6 @@ export function defineRepositoryIngestionV2Workflow(
       }
     },
   )
-}
-
-/** The root list in a step output: gzip, then base64. */
-function packRoots(roots: IngestionRoot[]): string {
-  return gzipSync(
-    JSON.stringify(
-      roots.map((r) => ({
-        path: r.path,
-        manifests: r.manifests,
-        evidence: r.evidence,
-      })),
-    ),
-  ).toString("base64")
-}
-
-function unpackRoots(packed: string): IngestionRoot[] {
-  return JSON.parse(gunzipSync(Buffer.from(packed, "base64")).toString("utf8"))
 }
 
 export const repositoryIngestionV2 = defineRepositoryIngestionV2Workflow({

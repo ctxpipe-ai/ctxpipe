@@ -48,6 +48,7 @@ import { pendingAtlassianClaimRoutes } from "./pending-atlassian-claim.js"
 import { repositoryRoutes } from "./repositories.js"
 import { orgActivityRoutes } from "./workspace-activity-routes.js"
 import { workspaceChatOpenaiRoutes } from "./workspace-chat-openai.js"
+import { orgWorkspaceIngestionRoutes } from "./workspace-ingestion-routes.js"
 import {
   connectionSyncRoutes,
   connectionUsageRoutes,
@@ -118,6 +119,7 @@ function createOrgScopedV1<BasePath extends string>(
     .route("/repositories", repositoryRoutes)
     .route("/workspaces", workspaceRoutes)
     .route("/workspace-upgrades", orgPendingUpgradeRoutes)
+    .route("/workspace-ingestion", orgWorkspaceIngestionRoutes)
     .route("/activity", orgActivityRoutes)
     .route("/conversations", conversationRoutes)
     .route("/github/installation", githubInstallationReadRoutes)
