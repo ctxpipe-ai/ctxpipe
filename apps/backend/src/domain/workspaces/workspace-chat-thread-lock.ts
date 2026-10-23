@@ -1,9 +1,6 @@
 import { defineChatMiddleware, type ModelMessage } from "@tanstack/ai"
-// No public API stores the question before setup. The pending-turn test fails
-// if this export moves or changes shape.
-import { getPendingTurn } from "@tanstack/ai/adapter-internals"
 import type { LockStore } from "@tanstack/ai/locks"
-import type { RunStore } from "@tanstack/ai-persistence"
+import type { MessageStore, RunStore } from "@tanstack/ai-persistence"
 
 class ConversationChangedError extends Error {
   constructor() {
@@ -25,92 +22,170 @@ function questionIds(messages: ReadonlyArray<ModelMessage>): string[] {
 }
 
 /**
- * Hold the conversation's lock for the whole run, so two sends to one
- * conversation never interleave across replicas. A queued send whose history
- * no longer matches the saved transcript is rejected instead of overwriting it.
- * The check runs when the lock is held, before any middleware stores the turn.
- * Place before `withPersistence`.
+ * The thread that chat persistence stores for a send: the stored messages up
+ * to the newest one that the send also has, with the sent version of each
+ * message, then the sent messages that the store does not have. A copy of
+ * `mergeStoredMessages` in `@tanstack/ai-persistence` 0.7.1, which the package
+ * does not export. The merge is not idempotent for a message without an id (a
+ * tool result), thus the turn gives the merged thread to `chat()`: a merge of
+ * the thread with itself gives the same thread.
  */
-export function workspaceChatThreadLock(input: {
-  locks: LockStore
-  loadThread: (threadId: string) => Promise<ReadonlyArray<ModelMessage>>
-}) {
-  let release: (() => void) | undefined
-  let held: Promise<void> | undefined
-
-  const settle = async () => {
-    const pending = held
-    release?.()
-    release = undefined
-    held = undefined
-    try {
-      await pending
-    } catch {
-      // The run already ended; a lost lease surfaced through the abort signal.
+function mergeStoredMessages(
+  stored: ReadonlyArray<ModelMessage>,
+  incoming: ReadonlyArray<ModelMessage>,
+): ModelMessage[] {
+  if (incoming.length === 0) return [...stored]
+  let cutoff = stored.length
+  for (let index = incoming.length - 1; index >= 0; index--) {
+    const id = incoming[index]?.id
+    if (id === undefined) continue
+    const storedIndex = stored.findIndex((message) => message.id === id)
+    if (storedIndex >= 0) {
+      cutoff = storedIndex + 1
+      break
     }
   }
-
-  return defineChatMiddleware({
-    name: "workspace-chat-thread-lock",
-    async setup(ctx) {
-      let ready!: () => void
-      let failed!: (error: unknown) => void
-      const acquired = new Promise<void>((resolve, reject) => {
-        ready = resolve
-        failed = reject
-      })
-      const finished = new Promise<void>((resolve) => {
-        release = resolve
-      })
-      held = input.locks.withLock(
-        `chat-thread:${ctx.threadId}`,
-        async (signal) => {
-          const lost = () => {
-            if (!ctx.signal?.aborted)
-              ctx.abort("Chat thread lock ownership lost")
-          }
-          signal.addEventListener("abort", lost, { once: true })
-          try {
-            signal.throwIfAborted()
-            ready()
-            await finished
-          } finally {
-            signal.removeEventListener("abort", lost)
-          }
-        },
-      )
-      held.catch(failed)
-      await acquired
-      if (ctx.messages.length === 0) return
-      const stored = questionIds(await input.loadThread(ctx.threadId))
-      const sent = questionIds(ctx.messages)
-      if (stored.some((id, index) => id !== sent[index]))
-        throw new ConversationChangedError()
-    },
-    onFinish: settle,
-    onError: settle,
-    onAbort: settle,
+  const incomingById = new Map<string, ModelMessage>()
+  for (const message of incoming)
+    if (message.id) incomingById.set(message.id, message)
+  const storedIds = new Set<string>()
+  const merged: ModelMessage[] = []
+  for (const message of stored.slice(0, cutoff)) {
+    if (message.id) {
+      storedIds.add(message.id)
+      merged.push(incomingById.get(message.id) ?? message)
+      continue
+    }
+    merged.push(message)
+  }
+  incoming.forEach((message, index) => {
+    if (message.id) {
+      if (!storedIds.has(message.id)) merged.push(message)
+      return
+    }
+    const existing = merged[index]
+    if (
+      existing &&
+      existing.id === undefined &&
+      existing.role === message.role &&
+      existing.content === message.content
+    )
+      return
+    merged.push(message)
   })
+  return merged
 }
 
 /**
- * Store the question and a running run record before the sandbox setup, which
- * can take a minute. Chat persistence stores the turn only after every setup.
- * Thus a reload during the setup shows the question and attaches to the run,
- * and a turn that stops during the setup keeps the question. Place after the
- * thread lock and `withPersistence`, and before `withSandbox`.
+ * Start a turn: take the conversation's lock for the whole run, then store
+ * the question and a running run record. Call it before the runtime and
+ * sandbox setup, which can take a minute. Thus a chat that opens again during
+ * the setup shows the question and attaches to the run, and a turn that stops
+ * during the setup keeps the question.
+ *
+ * The lock comes first, so two sends to one conversation never interleave
+ * across replicas, and a queued send whose history no longer matches the
+ * saved transcript is rejected instead of overwriting it.
+ *
+ * Give `messages` and `middleware` to `chat()`, the middleware before
+ * `withPersistence`: it releases the lock when the run ends. If the turn
+ * stops before `chat()` runs, call `stop`.
  */
-export function workspaceChatPendingTurn(runs: RunStore) {
-  return defineChatMiddleware({
-    name: "workspace-chat-pending-turn",
-    async setup(ctx) {
-      await runs.createOrResume({
-        runId: ctx.runId,
-        threadId: ctx.threadId,
-        startedAt: Date.now(),
-      })
-      // `withPersistence` gives this capability, but does not declare it.
-      await getPendingTurn(ctx).snapshot()
-    },
+export async function holdWorkspaceChatTurn(input: {
+  locks: LockStore
+  stores: { messages: MessageStore; runs: RunStore }
+  threadId: string
+  runId: string
+  /** The messages that the turn gives to `chat()`, as model messages. */
+  messages: ReadonlyArray<ModelMessage>
+  /** Stops the turn when the lock's lease is lost. */
+  onLost: () => void
+}) {
+  let release!: () => void
+  const finished = new Promise<void>((resolve) => {
+    release = resolve
   })
+  let ready!: () => void
+  const acquired = new Promise<void>((resolve) => {
+    ready = resolve
+  })
+  const held = input.locks.withLock(
+    `chat-thread:${input.threadId}`,
+    async (signal) => {
+      signal.addEventListener("abort", input.onLost, { once: true })
+      try {
+        signal.throwIfAborted()
+        ready()
+        await finished
+      } finally {
+        signal.removeEventListener("abort", input.onLost)
+      }
+    },
+  )
+  // A lost lease after the start surfaces through `onLost`.
+  held.catch(() => undefined)
+  let open = true
+  const settle = async () => {
+    if (!open) return
+    open = false
+    release()
+    await held.catch(() => undefined)
+  }
+
+  await Promise.race([acquired, held])
+  let thread: ModelMessage[]
+  try {
+    const { messages, runs } = input.stores
+    const stored = await messages.loadThread(input.threadId)
+    if (input.messages.length > 0) {
+      const sent = questionIds(input.messages)
+      if (questionIds(stored).some((id, index) => id !== sent[index]))
+        throw new ConversationChangedError()
+    }
+    await runs.createOrResume({
+      runId: input.runId,
+      threadId: input.threadId,
+      startedAt: Date.now(),
+    })
+    thread = mergeStoredMessages(stored, input.messages)
+    if (input.messages.length > 0)
+      await messages.saveThread(input.threadId, thread)
+  } catch (error) {
+    await settle()
+    throw error
+  }
+
+  return {
+    /** The stored thread with the question: the messages for `chat()`. */
+    messages: thread,
+    middleware: defineChatMiddleware({
+      name: "workspace-chat-thread-lock",
+      onFinish: settle,
+      onError: settle,
+      onAbort: settle,
+    }),
+    /**
+     * End the run of a turn that stopped before `chat()`, then release. A
+     * stop by the user or a lost lease is `aborted`, other errors `failed`.
+     */
+    async stop(error: unknown, aborted = false) {
+      if (!open) return
+      try {
+        await input.stores.runs.update(input.runId, {
+          finishedAt: Date.now(),
+          ...(aborted
+            ? { status: "aborted" }
+            : {
+                status: "failed",
+                error: {
+                  message:
+                    error instanceof Error ? error.message : String(error),
+                },
+              }),
+        })
+      } finally {
+        await settle()
+      }
+    },
+  }
 }

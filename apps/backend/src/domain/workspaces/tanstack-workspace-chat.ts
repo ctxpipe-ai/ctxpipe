@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto"
 import { createServer } from "node:net"
 import {
   chat,
+  convertMessagesToModelMessages,
   defineChatMiddleware,
   type ModelMessage,
   type StreamChunk,
@@ -145,10 +146,7 @@ import {
   mintWorkspaceChatRunCapability,
   type WorkspaceChatRunCapabilityPurpose,
 } from "./workspace-chat-run-capability.js"
-import {
-  workspaceChatPendingTurn,
-  workspaceChatThreadLock,
-} from "./workspace-chat-thread-lock.js"
+import { holdWorkspaceChatTurn } from "./workspace-chat-thread-lock.js"
 import {
   baseForNewSandbox,
   startingFromBase,
@@ -609,15 +607,78 @@ export async function warmTanstackWorkspaceChat(
   }
 }
 
-async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
+type WorkspaceChatStart =
   | {
       ok: true
       stream: AsyncIterable<object>
     }
   | { ok: false; status: number; error: string }
-> {
+
+/**
+ * Hold the conversation and store the question and the running run, then set
+ * up the sandbox and start the chat. The first step is quick; the setup can
+ * take a minute, and a chat that opens again meanwhile shows the turn.
+ */
+async function startWorkspaceChat(
+  turnInput: TanstackWorkspaceChatInput,
+): Promise<WorkspaceChatStart> {
+  // The run record is stored before `chat()`, which would make the id.
+  const input = { ...turnInput, runId: turnInput.runId ?? randomUUID() }
+  const persistence = workspaceChatPersistence({
+    threadId: input.conversationId,
+  })
+  const abortController = abortControllerFrom(input.abortSignal)
+  const lease: { owner?: string } = {}
+  const turn = await holdWorkspaceChatTurn({
+    locks: postgresSandboxLocks(
+      input.orgId,
+      abortController,
+      undefined,
+      (acquired) => {
+        if (acquired.key === `chat-thread:${input.conversationId}`)
+          lease.owner = acquired.owner
+      },
+    ),
+    stores: persistence.stores,
+    threadId: input.conversationId,
+    runId: input.runId,
+    messages: convertMessagesToModelMessages(
+      (input.messages
+        ? messagesForOpenCodeChat(input.messages, input.prompt)
+        : []) as Array<ModelMessage | UIMessage>,
+    ),
+    onLost: () => {
+      if (!abortController.signal.aborted)
+        abortController.abort("Chat thread lock ownership lost")
+    },
+  })
+  try {
+    const started = await startHeldWorkspaceChat(input, {
+      turn,
+      persistence,
+      abortController,
+      lease,
+    })
+    if (!started.ok) await turn.stop(new Error(started.error))
+    return started
+  } catch (error) {
+    await turn.stop(error, abortController.signal.aborted)
+    throw error
+  }
+}
+
+async function startHeldWorkspaceChat(
+  input: TanstackWorkspaceChatInput & { runId: string },
+  held: {
+    turn: Awaited<ReturnType<typeof holdWorkspaceChatTurn>>
+    persistence: ReturnType<typeof workspaceChatPersistence>
+    abortController: AbortController
+    lease: { owner?: string }
+  },
+): Promise<WorkspaceChatStart> {
+  const { persistence, abortController, lease } = held
   // One label per turn: the turn end revokes exactly its own token.
-  const cloneLabel = `clone:${input.runId ?? randomUUID()}`
+  const cloneLabel = `clone:${input.runId}`
   const built = await buildWorkspaceChatSandbox(input, cloneLabel)
   if (!built.ok) return built
   // Read in parallel with the sandbox setup; the agent gets it as a system
@@ -677,12 +738,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
     }
   }
   let revisionConflict: WorkspaceRevision | undefined
-  const persistence = workspaceChatPersistence({
-    threadId: input.conversationId,
-  })
   const chatStarted = Date.now()
-  const abortController = abortControllerFrom(input.abortSignal)
-  let transcriptOwner: string | undefined
   // Hosted: the firewall, and the turn's tool bridge, known before the run
   // so the firewall can add its token.
   const hosted = built.firewall
@@ -798,9 +854,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       orgSlug: session.orgSlug,
       workspaceId: input.workspaceId,
     },
-    messages: (input.messages
-      ? messagesForOpenCodeChat(input.messages, input.prompt)
-      : []) as Array<ModelMessage | UIMessage>,
+    messages: held.turn.messages,
     abortController,
     tools: workspaceChatEngineTools({
       conversationId: input.conversationId,
@@ -830,19 +884,8 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         onError: recordTurnChanges,
         onAbort: recordTurnChanges,
       }),
-      workspaceChatThreadLock({
-        locks: postgresSandboxLocks(
-          input.orgId,
-          abortController,
-          undefined,
-          (lease) => {
-            if (lease.key === `chat-thread:${input.conversationId}`)
-              transcriptOwner = lease.owner
-          },
-        ),
-        loadThread: (threadId) =>
-          persistence.stores.messages.loadThread(threadId),
-      }),
+      // The conversation's lock, taken before the setup.
+      held.turn.middleware,
       // After the thread lock: TanStack runs onFinish in this order, so the
       // lock is released first and a run capability can mint nothing after
       // the revoke. A mint already in flight is recorded for the sweep, and
@@ -854,7 +897,6 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         onAbort: revokeTurnGitTokens,
       }),
       withPersistence(persistence, { snapshotStreaming: true }),
-      workspaceChatPendingTurn(persistence.stores.runs),
       withSandbox(definition, {
         instances: built.instances,
         locks: postgresSandboxLocks(
@@ -969,10 +1011,10 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
           return timeSandboxLifecycle("permissions-setup", async () => {
             activeSandbox = getSandbox(ctx)
             abortController.signal.throwIfAborted()
-            if (!transcriptOwner)
+            if (!lease.owner)
               throw new Error("Conversation lock ownership is unavailable")
             const authority = {
-              expectedOwner: transcriptOwner,
+              expectedOwner: lease.owner,
               authSecret: process.env.AUTH_SECRET?.trim() ?? "",
               orgId: input.orgId,
               orgSlug: session.orgSlug,
