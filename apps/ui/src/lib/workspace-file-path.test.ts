@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  createTreeFileResolver,
   workspaceFilePath,
   workspaceFilePathFromHref,
 } from "./workspace-file-path"
@@ -72,5 +73,34 @@ describe("workspaceFilePathFromHref", () => {
     "../x.md",
   ])("returns null for %j", (href) => {
     expect(workspaceFilePathFromHref(href)).toBeNull()
+  })
+})
+
+describe("createTreeFileResolver", () => {
+  const resolve = createTreeFileResolver([
+    "knowledge/apis/anthropic.md",
+    "knowledge/apis/anthropic-2.md",
+    "notes/a.md",
+    "other/a.md",
+  ])
+
+  it("finds the one file that has a bare name", () => {
+    expect(resolve("anthropic-2.md")).toBe("knowledge/apis/anthropic-2.md")
+  })
+
+  it("keeps an exact path in the tree", () => {
+    expect(resolve("notes/a.md")).toBe("notes/a.md")
+  })
+
+  it("returns null when no file has the name", () => {
+    expect(resolve("missing.md")).toBeNull()
+  })
+
+  it("returns null when more than one file has the name", () => {
+    expect(resolve("a.md")).toBeNull()
+  })
+
+  it("returns null for a path with a folder that is not in the tree", () => {
+    expect(resolve("src/index.ts")).toBeNull()
   })
 })
