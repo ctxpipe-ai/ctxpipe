@@ -15,6 +15,7 @@ import { defaultRehypePlugins, Streamdown } from "streamdown"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import {
+  resolveTreeFilePath,
   workspaceFilePath,
   workspaceFilePathFromHref,
 } from "@/lib/workspace-file-path"
@@ -63,6 +64,11 @@ export const MessageContent = ({
 type MessageResponseProps = ComponentProps<typeof Streamdown> & {
   /** Opens a workspace file. When set, file paths in the answer become buttons. */
   onOpenFile?: (path: string) => void
+  /**
+   * The file paths in the current git tree. When set, only a path in this
+   * tree (or a bare name that matches one tree file) becomes a file button.
+   */
+  treePaths?: readonly string[]
 }
 
 const streamdownPlugins = { cjk, code, math, mermaid }
@@ -121,7 +127,14 @@ function rewriteFileHrefs() {
  * It runs after sanitize, so model HTML cannot make these elements, and
  * before harden, which blocks relative links.
  */
-function markAnswerLinks(options: { files: boolean }) {
+function markAnswerLinks(options: {
+  files: boolean
+  treePaths?: ReadonlySet<string>
+}) {
+  const resolve = (path: string | null) =>
+    path && options.treePaths
+      ? resolveTreeFilePath(path, options.treePaths)
+      : path
   const visit = (parent: HastNode) => {
     parent.children = parent.children?.map((node) => {
       if (node.type !== "element") return node
@@ -139,7 +152,9 @@ function markAnswerLinks(options: { files: boolean }) {
           ]
           return node
         }
-        const path = options.files ? workspaceFilePathFromHref(href) : null
+        const path = options.files
+          ? resolve(workspaceFilePathFromHref(href))
+          : null
         if (path) return fileLinkNode(path, node.children ?? [])
         if (options.files && !href.startsWith("#")) {
           // Harden would show "[blocked]" after a link it cannot keep, so
@@ -160,7 +175,7 @@ function markAnswerLinks(options: { files: boolean }) {
         parent.tagName !== "pre" &&
         options.files
       ) {
-        const path = workspaceFilePath(hastText(node))
+        const path = resolve(workspaceFilePath(hastText(node)))
         if (path) return fileLinkNode(path, [node])
       }
       visit(node)
@@ -172,11 +187,12 @@ function markAnswerLinks(options: { files: boolean }) {
 
 const answerRehypePlugins = (
   files: boolean,
+  treePaths?: ReadonlySet<string>,
 ): ComponentProps<typeof Streamdown>["rehypePlugins"] => [
   defaultRehypePlugins.raw,
   ...(files ? [rewriteFileHrefs] : []),
   defaultRehypePlugins.sanitize,
-  [markAnswerLinks, { files }],
+  [markAnswerLinks, { files, treePaths }],
   defaultRehypePlugins.harden,
 ]
 const chatRehypePlugins = answerRehypePlugins(false)
@@ -187,6 +203,7 @@ export const MessageResponse = memo(
     className,
     isAnimating = false,
     onOpenFile,
+    treePaths,
     ...props
   }: MessageResponseProps) => {
     const components = useMemo(
@@ -218,6 +235,15 @@ export const MessageResponse = memo(
       }),
       [onOpenFile],
     )
+    const rehypePlugins = useMemo(
+      () =>
+        !onOpenFile
+          ? chatRehypePlugins
+          : treePaths
+            ? answerRehypePlugins(true, new Set(treePaths))
+            : workspaceRehypePlugins,
+      [onOpenFile, treePaths],
+    )
     return (
       <Streamdown
         {...props}
@@ -238,7 +264,7 @@ export const MessageResponse = memo(
         controls={{ code: true, mermaid: true, table: true }}
         isAnimating={isAnimating}
         plugins={streamdownPlugins}
-        rehypePlugins={onOpenFile ? workspaceRehypePlugins : chatRehypePlugins}
+        rehypePlugins={rehypePlugins}
         shikiTheme={streamdownShikiTheme}
       />
     )

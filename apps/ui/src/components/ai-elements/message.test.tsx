@@ -92,3 +92,35 @@ describe("MessageResponse file links", () => {
     expect(html).not.toContain("href=")
   })
 })
+
+describe("MessageResponse file links with a git tree", () => {
+  const treePaths = [
+    "knowledge/apis/anthropic.md",
+    "knowledge/apis/anthropic-2.md",
+  ]
+  const renderTree = (markdown: string) =>
+    renderToStaticMarkup(
+      <MessageResponse onOpenFile={() => {}} treePaths={treePaths}>
+        {markdown}
+      </MessageResponse>,
+    )
+
+  it("links a bare name to the one tree file with that name", () => {
+    const html = renderTree("See `anthropic-2.md` now.")
+    expect(html).toContain("data-ctx-file-link")
+    const linked = renderTree("See [notes](anthropic-2.md) now.")
+    expect(linked).toContain("data-ctx-file-link")
+  })
+
+  it("shows plain text when no tree file has the name", () => {
+    const html = renderTree("See `missing.md` and [notes](missing.md) now.")
+    expect(html).not.toContain("data-ctx-file-link")
+    expect(html).toContain("missing.md")
+    expect(html).toContain("notes")
+  })
+
+  it("shows plain text for a linked-repository path that is not in the tree", () => {
+    const html = renderTree("See `src/index.ts` now.")
+    expect(html).not.toContain("data-ctx-file-link")
+  })
+})

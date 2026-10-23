@@ -635,3 +635,36 @@ export const PushEntryUnderCard: Story = {
     )
   },
 }
+
+/** With the git tree, a bare file name opens the one tree file; a name not in the tree stays text. */
+export const AnswerLinksWithTree: Story = {
+  args: {
+    messages: [
+      {
+        id: "msg_links_tree",
+        role: "assistant",
+        parts: [
+          {
+            type: "text",
+            content: "Read `anthropic-2.md`, then `missing.md`.",
+          },
+        ],
+      },
+    ],
+    treePaths: ["knowledge/apis/anthropic.md", "knowledge/apis/anthropic-2.md"],
+    onOpenFile: fn(),
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      canvas.getByRole("button", { name: "anthropic-2.md" }),
+    )
+    await expect(args.onOpenFile).toHaveBeenLastCalledWith(
+      "knowledge/apis/anthropic-2.md",
+    )
+    await expect(
+      canvas.queryByRole("button", { name: "missing.md" }),
+    ).toBeNull()
+    await expect(canvas.getByText("missing.md")).toBeVisible()
+  },
+}

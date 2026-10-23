@@ -33,6 +33,7 @@ import {
 } from "./conversationPublish"
 import type { ParsedPane } from "./pane"
 import {
+  conversationGitTreeOptions,
   conversationTurnChangesOptions,
   isDefaultConversationName,
   refreshConversationAfterTurn,
@@ -115,6 +116,9 @@ export function WorkspaceChatSession(props: {
   const [started, setStarted] = useState((initialMessages?.length ?? 0) > 0)
   const turnChanges = useQuery(
     conversationTurnChangesOptions(orgSlug, conversationId, started),
+  )
+  const treeQuery = useQuery(
+    conversationGitTreeOptions(orgSlug, conversationId),
   )
   const queryClient = useQueryClient()
   const [headerTitle, setHeaderTitle] = useState(title)
@@ -449,6 +453,9 @@ export function WorkspaceChatSession(props: {
           ]
           return after.length > 0 ? after : null
         }}
+        treePaths={
+          treeQuery.data?.paths.length ? treeQuery.data.paths : undefined
+        }
         onOpenFile={
           props.onOpenPane
             ? (path) => props.onOpenPane?.({ kind: "file", path })

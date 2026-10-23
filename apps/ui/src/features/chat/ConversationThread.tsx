@@ -219,6 +219,7 @@ function renderAssistantParts(
     working: boolean
     systemStatus: string | null
     onOpenFile?: (path: string) => void
+    treePaths?: readonly string[]
   },
 ): ReactElement[] {
   const entries = activityLog(message.parts)
@@ -257,6 +258,7 @@ function renderAssistantParts(
           key={key}
           isAnimating={options.working}
           onOpenFile={options.onOpenFile}
+          treePaths={options.treePaths}
         >
           {partText(part)}
         </MessageResponse>,
@@ -301,6 +303,8 @@ export function ConversationThread(props: {
   renderAfterMessage?: (messageId: string) => ReactNode
   /** Opens a workspace file from a file path in an answer. */
   onOpenFile?: (path: string) => void
+  /** The git tree file paths. Only these paths (or a unique bare name) become file links. */
+  treePaths?: readonly string[]
   /**
    * Set when the last turn stopped before its first answer. The thread then
    * shows that the turn stopped, with a Retry action.
@@ -339,6 +343,7 @@ export function ConversationThread(props: {
                       working,
                       systemStatus: waitLabel ?? null,
                       onOpenFile: props.onOpenFile,
+                      treePaths: props.treePaths,
                     })
                   : renderUserParts(message)
 
