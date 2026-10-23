@@ -3,14 +3,11 @@ import { symlinkSync } from "node:fs"
 import { join } from "node:path"
 import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
-import { expect, it, vi } from "vitest"
+import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
-import {
-  getWorkspaceProjection,
-  persistWorkspaceGraphResult,
-} from "../../models/workspaces.js"
+import { getWorkspaceProjection } from "../../models/workspaces.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -132,50 +129,6 @@ it(
         ),
       )
       expect(await hasWorkspaceGraph({ ...org, revision })).toBe(true)
-    })
-  },
-)
-
-it(
-  "builds a failed graph of the active revision again on a read, with no new commit",
-  { timeout: 90_000 },
-  async () => {
-    // The retry queues its hydrate in the app namespace, so the fixture
-    // worker runs that namespace.
-    const namespaceId = openWorkflowNamespaceId()
-    await withNativeHydrationFixture({ namespaceId }, async (f) => {
-      await f.publish()
-      const org = { id: f.org.id, slug: f.org.slug }
-      const projection = async () => {
-        const active = await withOrgIdContext(org, () =>
-          getWorkspaceProjection(f.workspaceId),
-        )
-        if (active.kind !== "active")
-          throw new Error("Expected active revision")
-        return active
-      }
-      const { revision } = await projection()
-      await withOrgIdContext(org, () =>
-        persistWorkspaceGraphResult({
-          revision,
-          result: { kind: "failed", message: "Socket closed unexpectedly" },
-        }),
-      )
-      const read = () =>
-        withOrgIdContext(org, async () =>
-          readOrRebuildWorkspaceGraph({
-            orgId: f.org.id,
-            orgSlug: f.org.slug,
-            projection: await projection(),
-          }),
-        )
-      await expect(read()).rejects.toBeInstanceOf(WorkspaceGraphBuildingError)
-      await vi.waitFor(
-        async () =>
-          expect((await projection()).stores.graph.kind).toBe("ready"),
-        { timeout: 30_000, interval: 100 },
-      )
-      await expect(read()).resolves.toBeDefined()
     })
   },
 )

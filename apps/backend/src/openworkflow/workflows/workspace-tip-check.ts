@@ -96,9 +96,11 @@ function tipJobKey(revision: WorkspaceRevision, hour: string): string {
 const workspaceTipCheckInputSchema = z.object({
   orgId: z.string().min(1),
   /**
-   * The UTC hour (`YYYY-MM-DDTHH`) that the retry keys hold. The cron does not
-   * give it, so the check uses the current hour. A test gives it, so that its
-   * keys do not depend on the clock.
+   * The UTC hour (`YYYY-MM-DDTHH`) that the retry keys hold. The hourly
+   * schedule (`workspace-tip-check-schedule`) gives the hour of its run. A
+   * webhook or a lifecycle event does not give it, so the check uses the
+   * current hour. A test gives it, so that its keys do not depend on the
+   * clock.
    */
   hour: z
     .string()
