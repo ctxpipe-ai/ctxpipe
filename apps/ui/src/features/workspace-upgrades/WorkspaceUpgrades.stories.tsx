@@ -42,7 +42,10 @@ const startRequests: string[] = []
 const checkRequests: string[] = []
 const automaticRequests: string[] = []
 const state = { started: false, checked: false }
-const setting: { mode: "manual" | "automatic" | null } = { mode: "manual" }
+const setting: {
+  mode: "manual" | "automatic" | null
+  reason: "no_tip" | "invalid_format" | "unreadable" | null
+} = { mode: "manual", reason: null }
 const realDateNow = Date.now
 
 const meta = {
@@ -64,6 +67,7 @@ const meta = {
     state.checked = false
     automaticRequests.length = 0
     setting.mode = "manual"
+    setting.reason = null
     return () => {
       Date.now = realDateNow
     }
@@ -287,13 +291,12 @@ export const WaitingForSandbox: Story = {
       "Working",
       "No action needed. ctxpipe works on 1 item now.",
     )
-    await waitFor(() =>
-      expect(
-        within(canvas.getByRole("list", { name: "Working now" })).getByText(
-          "No action needed.",
-        ),
-      ).toBeVisible(),
-    )
+    // The headline says it. A working card does not say it again.
+    expect(
+      within(canvas.getByRole("list", { name: "Working now" })).queryByText(
+        "No action needed.",
+      ),
+    ).toBeNull()
     await waitFor(() =>
       expect(canvas.queryByText("Preparing the pull request")).toBeNull(),
     )
@@ -346,9 +349,7 @@ export const ReingestWorkingWithSpend: Story = {
       "No action needed. ctxpipe works on 1 item now.",
     )
     await waitFor(() =>
-      expect(
-        canvas.getByText("No action needed. Spend so far: at least $1.75."),
-      ).toBeVisible(),
+      expect(canvas.getByText("Spend so far: at least $1.75.")).toBeVisible(),
     )
     await waitFor(() =>
       expect(canvas.getByText(/1 of 2 repositories done/)).toBeVisible(),
@@ -1380,6 +1381,7 @@ export const CheckingEndsAfterAMinute: Story = {
 export const InvalidFormatFile: Story = {
   beforeEach: () => {
     setting.mode = null
+    setting.reason = "invalid_format"
   },
   parameters: withUpgrades(
     workspaceUpgradesHandler(upgradesFixture([], { formatVersion: -1 })),
@@ -1395,8 +1397,16 @@ export const InvalidFormatFile: Story = {
       canvas.getByText(/The format file in the repository is not valid\./),
     ).toBeVisible()
     expect(canvas.queryByText(UP_TO_DATE_LINE)).toBeNull()
-    // ctxpipe cannot read the setting from a file that is not valid.
-    expect(canvas.queryByText(/Automatic upgrades:/)).toBeNull()
+    // ctxpipe cannot read the setting from a file that is not valid: the
+    // line names the cause and the fix, and offers no button.
+    expect(
+      await canvas.findByText(
+        "Automatic upgrades: the format file .ctxpipe/workspace.yaml is not valid. Fix it on the default branch.",
+      ),
+    ).toBeVisible()
+    expect(
+      canvas.queryByRole("button", { name: /automatic upgrades/ }),
+    ).toBeNull()
   },
 }
 

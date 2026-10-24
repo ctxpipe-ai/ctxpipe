@@ -104,12 +104,6 @@ function UpgradeItemCard(props: {
   const checkResult = upgradeCheckResult(item, props.formatVersion)
   const stepsWithReport = item.steps.filter((step) => step.report.length > 0)
   const spend = upgradeSpendLine(item)
-  const meta = [
-    working ? "No action needed." : null,
-    spend ? `${spend}.` : null,
-  ]
-    .filter(Boolean)
-    .join(" ")
   return (
     <li
       className="rounded-md border border-white/[0.06] px-4 py-3"
@@ -117,7 +111,7 @@ function UpgradeItemCard(props: {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-sm font-medium text-foreground">{item.title}</h3>
+          <h4 className="text-sm font-medium text-foreground">{item.title}</h4>
           <p className="mt-1 text-xs text-muted-foreground">
             {item.kind === "reingest"
               ? item.description
@@ -239,8 +233,8 @@ function UpgradeItemCard(props: {
         <p className="mt-3 text-xs text-muted-foreground">{checkResult}</p>
       ) : null}
 
-      {meta ? (
-        <p className="mt-3 text-xs text-muted-foreground">{meta}</p>
+      {spend ? (
+        <p className="mt-3 text-xs text-muted-foreground">{spend}.</p>
       ) : null}
 
       {item.status === "failed" ? (

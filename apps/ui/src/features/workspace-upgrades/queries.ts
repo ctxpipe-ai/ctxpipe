@@ -199,9 +199,10 @@ export async function saveWorkspaceUpgradeMode(
 }
 
 /**
- * The automatic-upgrades setting of the Workspace. The server reads it from
- * git on each request, so this read does not poll. Null: ctxpipe has read no
- * tip, or the format file is not valid.
+ * The automatic-upgrades setting of the Workspace, from git at the head of
+ * the default branch. The server reads git on each request, so this read
+ * does not poll and does not read again on window focus. When `mode` is
+ * null, `reason` tells why.
  */
 export function workspaceUpgradeModeOptions(
   orgSlug: string,
@@ -209,16 +210,17 @@ export function workspaceUpgradeModeOptions(
 ) {
   return queryOptions({
     queryKey: ["workspace-upgrade-mode", orgSlug, workspaceSlug] as const,
-    queryFn: async (): Promise<WorkspaceUpgradeMode | null> => {
+    queryFn: async () => {
       const client = await getApiClient()
-      const body = await readApiJson(
+      return readApiJson(
         await client[":orgSlug"].api.v1.workspaces[
           ":workspaceSlug"
         ].upgrades.automatic.$get({ param: { orgSlug, workspaceSlug } }),
         { message: "Failed to read the setting" },
       )
-      return body.mode
     },
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   })
 }
 

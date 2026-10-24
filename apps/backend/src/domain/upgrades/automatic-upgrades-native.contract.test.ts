@@ -116,14 +116,20 @@ it(
           )
         const show = (ref: string, path: string) =>
           f.git("--git-dir", f.remote, "show", `${ref}:${path}`)
-        // The settings toggle reads the setting from git at the tip.
+        // The settings toggle reads the setting from git at the head of the
+        // default branch, so a saved setting shows at once.
         const readMode = async () => {
           const response = await workspaceHttpApp(
             f.org,
             workspaceUpgradeRoutes,
           ).request("/workspaces/knowledge/upgrades/automatic")
           expect(response.status).toBe(200)
-          return ((await response.json()) as { mode: string | null }).mode
+          const body = (await response.json()) as {
+            mode: string | null
+            reason: string | null
+          }
+          expect(body.reason).toBeNull()
+          return body.mode
         }
         const saveMode = async (mode: "manual" | "automatic") => {
           const jobId = `wjob_${f.id}_${mode}`
@@ -133,7 +139,7 @@ it(
                 {
                   jobId,
                   orgId: f.org.id,
-                  workspace: { id: f.workspaceId, formatVersion: 2 },
+                  workspace: { id: f.workspaceId },
                   mode,
                 },
                 {
@@ -166,7 +172,7 @@ it(
           expect((await row())?.status).toBe("awaiting_operator")
 
           // Always update: a commit on the default branch sets the setting
-          // and keeps the format.
+          // and keeps the format of the tree (the request names no format).
           await saveMode("automatic")
           const tip = f.git(
             "--git-dir",
@@ -196,9 +202,10 @@ it(
           ).toEqual({ kind: "format", format: 3, upgrades: "automatic" })
           expect(await readMode()).toBe("automatic")
 
-          // Turn off: a second commit sets the setting back to manual.
+          // Turn off: a second commit sets the setting back to manual, and
+          // the read shows it as soon as the job is done.
           await saveMode("manual")
-          await expect.poll(readMode, { timeout: 30_000 }).toBe("manual")
+          expect(await readMode()).toBe("manual")
         } finally {
           await worker.stop()
           await backend.stop()
@@ -255,7 +262,7 @@ it(
                 {
                   jobId,
                   orgId: f.org.id,
-                  workspace: { id: f.workspaceId, formatVersion: 2 },
+                  workspace: { id: f.workspaceId },
                   mode: "automatic",
                 },
                 {

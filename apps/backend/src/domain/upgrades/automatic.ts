@@ -3,6 +3,14 @@ import { listWorkspaceUpgradeRows } from "../../models/workspace-upgrades.js"
 import type { listOrgWorkspaces } from "../../models/workspaces.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import {
+  readFileAtGitSha,
+  resolveGitRemoteTip,
+} from "../../services/git/clone-tree.js"
+import { workspaceRepositoryPath } from "../../services/git/root-folder.js"
+import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
+import { workspaceRootPath } from "../workspaces/root-path.js"
+import {
+  readWorkspaceFormat,
   WORKSPACE_FORMAT_PATH,
   type WorkspaceUpgradeMode,
   withWorkspaceFormatFields,
@@ -18,22 +26,20 @@ export const AUTOMATIC_UPGRADE_APPROVER = "ctxpipe:automatic-upgrades"
 /**
  * Automatic upgrades on or off: write `upgrades: automatic` or
  * `upgrades: manual` into the format file of the Workspace, with a commit on
- * the default branch through the file job write path. The job keeps the
- * format of the tree that it commits on. The caller checks the role.
+ * the default branch through the file job write path. The request names only
+ * the setting: the job takes `upgrades` from it and keeps the format of the
+ * tree that it commits on. The caller checks the role.
  */
 export async function setUpgradeMode(
   input: {
     jobId: string
     orgId: string
-    workspace: { id: string; formatVersion: number | null }
+    workspace: { id: string }
     mode: WorkspaceUpgradeMode
   },
   log: { error: (err: Error) => void },
 ): Promise<{ started: boolean }> {
-  const content = withWorkspaceFormatFields(null, {
-    format: Math.max(input.workspace.formatVersion ?? 0, 0),
-    upgrades: input.mode,
-  })
+  const content = withWorkspaceFormatFields(null, { upgrades: input.mode })
   if (content === null) return { started: false }
   return enqueueWorkspaceWriteCommit(
     {
@@ -49,17 +55,71 @@ export async function setUpgradeMode(
 }
 
 /**
- * The upgrade setting of the Workspace, from the format file at the tip that
- * ctxpipe read last. Null when ctxpipe has read no tip, or when the file is
- * not valid. Git is the source of truth, so this reads git and not a cache.
+ * Why ctxpipe cannot show the upgrade setting. `no_tip`: ctxpipe has not read
+ * the repository yet. `invalid_format`: the format file is not valid.
+ * `unreadable`: git or the credential failed.
  */
-export async function readUpgradeMode(
+export type UpgradeSettingReason = "no_tip" | "invalid_format" | "unreadable"
+
+/**
+ * The upgrade setting of the Workspace, from the format file at the head of
+ * the default branch. The head shows a saved setting at once, before hydrate
+ * moves the projected commit. Git is the source of truth, so this reads git
+ * and not a cache.
+ */
+export async function readUpgradeSetting(
   orgId: string,
-  workspace: Parameters<typeof readWorkspaceFormatFileAt>[1],
+  workspace: {
+    id: string
+    desiredSha: string | null
+    desiredDefaultBranch?: string | null
+    workspaceRepositoryUrl: string
+    githubConnectionId: string | null
+    rootPath: string | null
+  },
   env: Env,
-): Promise<WorkspaceUpgradeMode | null> {
-  const file = await readWorkspaceFormatFileAt(orgId, workspace, env)
-  return file?.kind === "format" ? file.upgrades : null
+  log: { error: (err: Error) => void },
+): Promise<
+  | { mode: WorkspaceUpgradeMode; reason: null }
+  | { mode: null; reason: UpgradeSettingReason }
+> {
+  if (!workspace.desiredSha) return { mode: null, reason: "no_tip" }
+  try {
+    const url = workspace.workspaceRepositoryUrl
+    const token = await resolveRepositoryReadCredential({
+      orgId,
+      env,
+      remote: { url, connectionId: workspace.githubConnectionId },
+    })
+    const tip = await resolveGitRemoteTip({
+      url,
+      branch: workspace.desiredDefaultBranch,
+      token,
+    })
+    const file = await readFileAtGitSha({
+      url,
+      sha: tip?.sha ?? workspace.desiredSha,
+      path: workspaceRepositoryPath(
+        workspaceRootPath(workspace),
+        WORKSPACE_FORMAT_PATH,
+      ),
+      token,
+    })
+    const read = readWorkspaceFormat(
+      file.kind === "bytes" ? Buffer.from(file.bytes).toString("utf8") : null,
+    )
+    return read.kind === "format"
+      ? { mode: read.upgrades, reason: null }
+      : { mode: null, reason: "invalid_format" }
+  } catch (error) {
+    // The token goes to git in a header, not in the message.
+    log.error(
+      new Error(
+        `ctxpipe could not read the upgrade setting of Workspace ${workspace.id}: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    )
+    return { mode: null, reason: "unreadable" }
+  }
 }
 
 /**

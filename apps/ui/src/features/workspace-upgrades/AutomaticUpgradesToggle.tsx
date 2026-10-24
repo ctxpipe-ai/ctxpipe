@@ -12,7 +12,8 @@ import {
  * Off" with Turn on, or "On" with Turn off (CTX-980). Git holds the setting:
  * the server reads it on each request, and a save is a commit. The button
  * waits for the commit, then shows the new setting. Only an owner or admin
- * sees the button. The setting does not show while ctxpipe cannot read it.
+ * sees the button. When ctxpipe cannot read the setting, the line shows the
+ * cause and the fix.
  */
 export function AutomaticUpgradesToggle(props: {
   orgSlug: string
@@ -22,7 +23,7 @@ export function AutomaticUpgradesToggle(props: {
   const { orgSlug, workspaceSlug } = props
   const queryClient = useQueryClient()
   const modeOptions = workspaceUpgradeModeOptions(orgSlug, workspaceSlug)
-  const mode = useQuery(modeOptions).data
+  const setting = useQuery(modeOptions).data
   const save = useMutation({
     mutationFn: (next: "manual" | "automatic") =>
       saveWorkspaceUpgradeModeAndWait(
@@ -38,7 +39,10 @@ export function AutomaticUpgradesToggle(props: {
         )
         return
       }
-      queryClient.setQueryData(modeOptions.queryKey, next)
+      queryClient.setQueryData(modeOptions.queryKey, {
+        mode: next,
+        reason: null,
+      })
       toast.success(
         next === "automatic"
           ? "Automatic upgrades are on. ctxpipe starts each upgrade by itself."
@@ -52,14 +56,30 @@ export function AutomaticUpgradesToggle(props: {
     },
     // With the setting on, the server starts the waiting upgrades. The
     // button does not wait for this read.
-    onSettled: () => {
-      void queryClient.invalidateQueries({
-        queryKey: workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
-      })
+    onSettled: (_result, _error, next) => {
+      if (next === "automatic")
+        void queryClient.invalidateQueries({
+          queryKey: workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
+        })
     },
   })
-  if (mode === undefined || mode === null) return null
-  const on = mode === "automatic"
+  if (!setting) return null
+  if (setting.mode === null) {
+    const problem = {
+      no_tip: "ctxpipe has not read the repository yet. Refresh the Workspace.",
+      invalid_format:
+        "the format file .ctxpipe/workspace.yaml is not valid. Fix it on the default branch.",
+      unreadable:
+        "ctxpipe could not read the repository. Check the GitHub connection on the Connectors page, then reload this page.",
+    }[setting.reason ?? "unreadable"]
+    return (
+      <>
+        <span aria-hidden>·</span>
+        <span>Automatic upgrades: {problem}</span>
+      </>
+    )
+  }
+  const on = setting.mode === "automatic"
   return (
     <>
       <span aria-hidden>·</span>

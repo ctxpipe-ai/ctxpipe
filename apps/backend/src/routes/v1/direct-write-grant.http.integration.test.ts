@@ -129,7 +129,6 @@ const DIRECT_WRITE_ROUTES: ReadonlyArray<{
   {
     method: "POST",
     path: "/workspaces/missing-ws/upgrades/automatic",
-    body: { mode: "automatic" },
     expectedStatus: 404,
     orgAdmin: true,
   },
@@ -493,6 +492,155 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
           await backend.cancelWorkflowRun({ workflowRunId: run.id })
       await backend.stop()
     }
+  })
+
+  describe("the automatic-upgrades setting", () => {
+    const tag = generateObjectId("ws").slice(-8).toLowerCase()
+    // ctxpipe has read no tip of this Workspace yet.
+    const tipless = `mode-new-${tag}`
+    // ctxpipe read a tip, but git cannot reach the repository now.
+    const unreachable = `mode-gone-${tag}`
+    const setting = (slug: string) => `/workspaces/${slug}/upgrades/automatic`
+
+    beforeAll(async () => {
+      const s = requireSeed()
+      await withOrgDbContext(s.orgId, (db) =>
+        db.insert(workspaces).values([
+          {
+            id: generateObjectId("ws"),
+            orgId: s.orgId,
+            slug: tipless,
+            displayName: "Setting workspace",
+            workspaceRepositoryUrl: `https://git.example.test/acme/${tipless}.git`,
+            desiredDefaultBranch: "main",
+          },
+          {
+            id: generateObjectId("ws"),
+            orgId: s.orgId,
+            slug: unreachable,
+            displayName: "Unreachable workspace",
+            workspaceRepositoryUrl: `file:///nonexistent/${unreachable}.git`,
+            desiredDefaultBranch: "main",
+            desiredSha: "0".repeat(40),
+          },
+        ]),
+      )
+    })
+
+    async function asRole<T>(
+      role: "member" | "admin",
+      body: () => Promise<T>,
+    ): Promise<T> {
+      const s = requireSeed()
+      const ownerOfSeed = and(
+        eq(members.organizationId, s.orgId),
+        eq(members.userId, s.userId),
+      )
+      const db = getSystemDb()
+      await db.update(members).set({ role }).where(ownerOfSeed)
+      try {
+        return await body()
+      } finally {
+        await db.update(members).set({ role: "owner" }).where(ownerOfSeed)
+      }
+    }
+
+    function post(slug: string, init: { body?: string; type?: string }) {
+      const s = requireSeed()
+      return createApp().request(
+        `http://backend.test/${s.orgSlug}/api/v1${setting(slug)}`,
+        {
+          method: "POST",
+          headers: {
+            cookie: s.cookie,
+            ...(init.type ? { "content-type": init.type } : {}),
+          },
+          body: init.body,
+        },
+      )
+    }
+
+    it("lets a plain member read the setting, with the cause when ctxpipe cannot read it, and refuses the member a change", async () => {
+      await asRole("member", async () => {
+        const read = await send(
+          { method: "GET", path: setting(tipless) },
+          { cookie: requireSeed().cookie },
+        )
+        expect(read.status).toBe(200)
+        expect(await read.json()).toEqual({ mode: null, reason: "no_tip" })
+        await expectOrgAdminRefusal(
+          await send(
+            {
+              method: "POST",
+              path: setting(tipless),
+              body: { mode: "automatic" },
+            },
+            { cookie: requireSeed().cookie },
+          ),
+        )
+      })
+    })
+
+    it("reads `unreadable` when git cannot reach the repository", async () => {
+      const read = await send(
+        { method: "GET", path: setting(unreachable) },
+        { cookie: requireSeed().cookie },
+      )
+      expect(read.status).toBe(200)
+      expect(await read.json()).toEqual({ mode: null, reason: "unreadable" })
+    })
+
+    it("takes no body, an empty body and each mode from an admin, and names the cause and the fix when it cannot save", async () => {
+      await asRole("admin", async () => {
+        for (const init of [
+          {},
+          { type: "application/json", body: "" },
+          { type: "application/json", body: JSON.stringify({}) },
+          {
+            type: "application/json",
+            body: JSON.stringify({ mode: "manual" }),
+          },
+          {
+            type: "application/json",
+            body: JSON.stringify({ mode: "automatic" }),
+          },
+        ]) {
+          const response = await post(tipless, init)
+          expect(response.status).toBe(409)
+          expect(await response.json()).toEqual({
+            error:
+              "ctxpipe has not read the Workspace repository yet. Refresh the Workspace, then try again.",
+          })
+        }
+        const unwritable = await post(unreachable, {
+          type: "application/json",
+          body: JSON.stringify({ mode: "manual" }),
+        })
+        expect(unwritable.status).toBe(409)
+        expect(await unwritable.json()).toEqual({
+          error:
+            "ctxpipe cannot write to the Workspace repository now. Check the GitHub connection of the Workspace on the Connectors page, then try again.",
+        })
+      })
+    })
+
+    it("refuses a mode that is not known, and a body that is not sent as JSON", async () => {
+      await asRole("admin", async () => {
+        const unknown = await post(tipless, {
+          type: "application/json",
+          body: JSON.stringify({ mode: "sometimes" }),
+        })
+        expect(unknown.status).toBe(400)
+        const untyped = await post(tipless, {
+          body: JSON.stringify({ mode: "manual" }),
+        })
+        expect(untyped.status).toBe(400)
+        expect(await untyped.json()).toEqual({
+          error:
+            "Send the body as JSON with the header `content-type: application/json`.",
+        })
+      })
+    })
   })
 
   for (const { path, expectedStatus } of READ_ROUTES) {

@@ -65,8 +65,16 @@ upgrade by itself." confirms the change.
 
 When automatic upgrades are on, ctxpipe starts each upgrade item when it finds
 it. A merge of a pull request always needs a person. **Always update** on the
-Home alert does the same as **Turn on**. The setting does not show when ctxpipe
-cannot read the format file.
+Home alert does the same as **Turn on**.
+
+When ctxpipe cannot read the setting, the health line shows the cause and the
+fix in place of the button:
+
+| Line | Fix |
+| --- | --- |
+| ctxpipe has not read the repository yet. | Refresh the Workspace. |
+| The format file `.ctxpipe/workspace.yaml` is not valid. | Fix the file on the default branch. |
+| ctxpipe could not read the repository. | Check the GitHub connection on the Connectors page, then reload the page. |
 
 ## General
 

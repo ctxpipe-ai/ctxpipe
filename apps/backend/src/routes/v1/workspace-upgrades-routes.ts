@@ -3,8 +3,9 @@ import type { AppEnv } from "../../app/env.js"
 import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
 import {
-  readUpgradeMode,
+  readUpgradeSetting,
   setUpgradeMode,
+  type UpgradeSettingReason,
 } from "../../domain/upgrades/automatic.js"
 import {
   classifyUpgradeFailure,
@@ -385,13 +386,13 @@ const automaticUpgradesRoute = createRoute(
       request: {
         params: WorkspaceSlugParamsSchema,
         body: {
-          required: true,
+          required: false,
           content: {
             "application/json": {
               schema: z.object({
-                mode: UpgradeModeSchema.openapi({
+                mode: UpgradeModeSchema.optional().openapi({
                   description:
-                    "`automatic`: the upgrade scan starts each upgrade of this Workspace with no click. `manual`: an owner or admin starts each upgrade.",
+                    "`automatic` (also no body): the upgrade scan starts each upgrade of this Workspace with no click. `manual`: an owner or admin starts each upgrade.",
                 }),
               }),
             },
@@ -412,7 +413,7 @@ const automaticUpgradesRoute = createRoute(
             },
           },
           description:
-            "Automatic upgrades on or off: ctxpipe commits `upgrades: <mode>` into `.ctxpipe/workspace.yaml` on the default branch of the Workspace repository. With `automatic`, the upgrade scan starts each upgrade of this Workspace with no click. A merge of a git upgrade pull request still needs a person. When the job is done, ctxpipe starts the waiting upgrades of the Workspace itself, so that their pull request contains the setting. The caller sends no second request and need not wait for the job.",
+            "Automatic upgrades on or off: ctxpipe commits `upgrades: <mode>` into `.ctxpipe/workspace.yaml` on the default branch of the Workspace repository and keeps its `format`. The caller sends no second request and need not wait for the job. With `automatic`, the upgrade scan starts each upgrade of this Workspace with no click. When the job is done, ctxpipe starts the waiting upgrades of the Workspace itself, so that their pull request contains the setting. A merge of a git upgrade pull request still needs a person. With `manual`, an owner or admin starts each upgrade. An upgrade that already started continues.",
         },
         401: {
           content: { "application/json": { schema: ErrorResponseSchema } },
@@ -422,15 +423,34 @@ const automaticUpgradesRoute = createRoute(
           content: { "application/json": { schema: ErrorResponseSchema } },
           description: "Not found",
         },
+        400: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description:
+            "The body is not JSON, or `mode` is not `automatic` or `manual`",
+        },
         409: {
           content: { "application/json": { schema: ErrorResponseSchema } },
-          description: "ctxpipe cannot write to the Workspace repository now",
+          description:
+            "ctxpipe cannot save the setting now. `error` names the cause and the fix: ctxpipe has not read the repository yet, `.ctxpipe/workspace.yaml` is not valid, or ctxpipe cannot write to the repository.",
         },
       },
     },
     { orgAdmin: true },
   ),
 )
+
+/** The 409 text of the setting: the cause and the fix. */
+const UPGRADE_SETTING_REFUSALS: Record<
+  Exclude<UpgradeSettingReason, "unreadable"> | "unwritable",
+  string
+> = {
+  no_tip:
+    "ctxpipe has not read the Workspace repository yet. Refresh the Workspace, then try again.",
+  invalid_format:
+    "`.ctxpipe/workspace.yaml` in the Workspace repository is not valid. Fix the file on the default branch, then try again.",
+  unwritable:
+    "ctxpipe cannot write to the Workspace repository now. Check the GitHub connection of the Workspace on the Connectors page, then try again.",
+}
 
 const upgradeModeRoute = createRoute({
   method: "get",
@@ -443,8 +463,15 @@ const upgradeModeRoute = createRoute({
           schema: z.object({
             mode: UpgradeModeSchema.nullable().openapi({
               description:
-                "The `upgrades` setting of `.ctxpipe/workspace.yaml` at the tip that ctxpipe read last. No key is `manual`. `null`: ctxpipe has read no tip, or the format file is not valid.",
+                "The `upgrades` setting of `.ctxpipe/workspace.yaml` at the head of the default branch. No key is `manual`. `null` when ctxpipe cannot read the setting: see `reason`.",
             }),
+            reason: z
+              .enum(["no_tip", "invalid_format", "unreadable"])
+              .nullable()
+              .openapi({
+                description:
+                  "Why `mode` is `null`. `no_tip`: ctxpipe has not read the repository yet. `invalid_format`: `.ctxpipe/workspace.yaml` is not valid. `unreadable`: ctxpipe could not read the repository (git or the GitHub connection failed). `null` when `mode` has a value.",
+              }),
           }),
         },
       },
@@ -506,7 +533,7 @@ const routes = new OpenAPIHono<AppEnv>()
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
     return c.json(
-      { mode: await readUpgradeMode(orgId, workspace, c.var.env) },
+      await readUpgradeSetting(orgId, workspace, c.var.env, c.get("log")),
       200,
     )
   })
@@ -517,20 +544,25 @@ const routes = new OpenAPIHono<AppEnv>()
     const { workspaceSlug } = c.req.valid("param")
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
+    // Before this body, the route took no body: no body is `automatic`.
+    const mode = c.req.valid("json").mode ?? "automatic"
+    const setting = await readUpgradeSetting(
+      orgId,
+      workspace,
+      c.var.env,
+      c.get("log"),
+    )
+    // A file job also fails on a format file that is not valid, but later and
+    // out of sight. Refuse before the job, with the cause and the fix.
+    if (setting.reason === "no_tip" || setting.reason === "invalid_format")
+      return c.json({ error: UPGRADE_SETTING_REFUSALS[setting.reason] }, 409)
     const jobId = generateObjectId("wjob")
-    const { mode } = c.req.valid("json")
     const admitted = await setUpgradeMode(
       { jobId, orgId, workspace, mode },
       c.get("log"),
     )
     if (!admitted.started)
-      return c.json(
-        {
-          error:
-            "ctxpipe could not save the setting. Refresh the Workspace and try again.",
-        },
-        409,
-      )
+      return c.json({ error: UPGRADE_SETTING_REFUSALS.unwritable }, 409)
     return c.json({ queued: true as const, jobId }, 202)
   })
   .openapi(startUpgradeRoute, async (c) => {
@@ -575,7 +607,29 @@ const gated = new OpenAPIHono<AppEnv>()
 gated.use("/:workspaceSlug/upgrades/:key/start", requireOrgAdminOrOwner)
 gated.use("/:workspaceSlug/upgrades/check", requireOrgAdminOrOwner)
 // A member may read the setting. Only an owner or admin may change it.
-gated.post("/:workspaceSlug/upgrades/automatic", requireOrgAdminOrOwner)
+gated.post(
+  "/:workspaceSlug/upgrades/automatic",
+  requireOrgAdminOrOwner,
+  // The JSON validator refuses an empty body with a JSON content type, and
+  // ignores a body without one. No body (or an empty one) is the default
+  // mode; a body that is not JSON gets a 400 with the fix.
+  async (c, next) => {
+    if (!(await c.req.text()).trim()) c.req.bodyCache.json = {}
+    else if (
+      !/^application\/([a-z-.]+\+)?json/.test(
+        c.req.header("content-type") ?? "",
+      )
+    )
+      return c.json(
+        {
+          error:
+            "Send the body as JSON with the header `content-type: application/json`.",
+        },
+        400,
+      )
+    return next()
+  },
+)
 export const workspaceUpgradeRoutes = gated.route("/", routes)
 
 const PendingWorkspaceUpgradesSchema = z
