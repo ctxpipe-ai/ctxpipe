@@ -19,6 +19,7 @@ These lessons moved to the instructions that agents always read. Do not add them
 | `rounded-md`, React Aria first, CSS-first responsive layout, selected chrome on the click, no shell remount | [apps/ui/AGENTS.md](../../apps/ui/AGENTS.md) |
 | Pierre for the Files pane | [ADR-040](decisions/ADR-040-pierre-files-pane-chrome.md) |
 | RLS with the `ctxpipe_app` role | [ADR-042](decisions/ADR-042-postgres-rls-app-role.md) |
+| Harness-agnostic agent setup: shared content in `.agents/` and `AGENTS.md`, thin per-harness adapters; an orchestrator app starts Claude and Codex agents; Cursor stays dormant | [ADR-055](decisions/ADR-055-harness-agnostic-agent-setup.md) and root [AGENTS.md](../../AGENTS.md) |
 
 ## Entries
 

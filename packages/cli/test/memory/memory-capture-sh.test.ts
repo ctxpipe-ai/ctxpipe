@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../../..")
-const WRAPPER_SRC = join(REPO_ROOT, ".cursor/hooks/memory-capture.sh")
+const WRAPPER_SRC = join(REPO_ROOT, ".agents/hooks/memory-capture.sh")
 
 function pathWithoutBun(extra: string[] = []): string {
   const filtered = (process.env.PATH ?? "")
@@ -31,7 +31,7 @@ function seedWrapperRepo(opts: { turbo?: "ok" | "fail" | "missing" } = {}): {
 } {
   const turboMode = opts.turbo ?? "ok"
   const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-memory-capture-sh-"))
-  const wrapper = join(cwd, ".cursor/hooks/memory-capture.sh")
+  const wrapper = join(cwd, ".agents/hooks/memory-capture.sh")
   mkdirSync(dirname(wrapper), { recursive: true })
   mkdirSync(join(cwd, "packages/cli/src"), { recursive: true })
   mkdirSync(join(cwd, "packages/cli/bin"), { recursive: true })

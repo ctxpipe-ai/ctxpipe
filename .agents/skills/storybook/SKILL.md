@@ -13,9 +13,9 @@ This repo’s UI lives in **`apps/ui`**. Storybook is configured under **`apps/u
 
 ## Storybook MCP (`ctxpipe-storybook`)
 
-The project registers the Storybook MCP in **[.agents/mcp.json](../../mcp.json)** as **`ctxpipe-storybook`**, pointing at **`http://127.0.0.1:6006/mcp`**.
+The project registers the Storybook MCP in **[.mcp.json](../../../.mcp.json)** as **`ctxpipe-storybook`**, pointing at **`http://127.0.0.1:6006/mcp`**.
 
-- **The Storybook dev server must be running** for the MCP to respond. Start it with `pnpm --filter @ctxpipe/ui storybook` before relying on the tools. If the port changed, update the URL in `mcp.json` to match.
+- **The Storybook dev server must be running** for the MCP to respond. Start it with `pnpm --filter @ctxpipe/ui storybook` before relying on the tools. If the port changed, update the URL in `.mcp.json`, `.codex/config.toml`, and `.cursor/mcp.json` to match.
 - **What it’s for**: browse manifests, doc toolsets, story authoring help, and (when [Storybook Test](https://storybook.js.org/docs/writing-tests) is wired) test runs. Official overview: [Storybook MCP](https://storybook.js.org/docs/ai/mcp/overview).
 - **Do not guess design-system or app props** when a component might have non-obvious APIs. Use MCP tools (e.g. `list-all-documentation`, `get-documentation`, `get-documentation-for-story`) before using props. Call **`get-storybook-story-instructions`** when creating or changing stories to align with Storybook’s current guidance. Use **`run-story-tests`** to validate when the test addon is available (this project does not yet ship Storybook’s Vitest test runner; see “Testing in Storybook” below).
 - If tools fail, confirm the dev server is up and the URL still matches the script’s port in **`apps/ui/package.json`**.
