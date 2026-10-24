@@ -10,7 +10,7 @@ When working on `apps/backend`, follow these instructions in addition to the roo
 - **Drizzle**: Use the **`beta`** dist-tag for `drizzle-orm` and `drizzle-kit`; follow the v1 API. See [.ai/memory/decisions/ADR-003-drizzle-beta.md](../../.ai/memory/decisions/ADR-003-drizzle-beta.md).
 - **Transactions**: wrap each multi-table operation in `db.transaction(async (tx) => { ... })`, and use `tx` for every query inside it.
 - **DB migration**: Don't generate migration SQL files yourself. Run `pnpm run db:generate` instead. See [.agents/skills/drizzle-migrations/](../../.agents/skills/drizzle-migrations/) for the full workflow.
-- **Connections**: every connector (GitHub, Confluence/Forge, Slack, Linear, Notion, PagerDuty) is a row in `connections` (`con_*`, `type`, `config` jsonb). Repos use `github_connection_id`; Confluence tables use `connection_id`; the other connectors keep their binding in `connections.config`. An org can have more than one connector: use an explicit `connectionId`, a list endpoint, or `repository_id`. `GET /:orgSlug/api/v1/connectors` returns metadata only (no `config`). To design or change a connector (also provider read fan-out and import resume), use the **[source-connectors skill](../../.agents/skills/source-connectors/SKILL.md)**. See [ADR-018](../../.ai/memory/decisions/ADR-018-unified-connections-table.md) and the connector ADRs in [decisions/index.md](../../.ai/memory/decisions/index.md).
+- **Connections**: every connector (GitHub, Confluence/Forge, Slack, Linear, Notion, PagerDuty) is a row in `connections` (`con_*`, `type`, `config` jsonb). The legacy `github_installations` / `forge_installations` tables are removed. Repos use `github_connection_id`; Confluence tables use `connection_id`; the other connectors keep their binding in `connections.config`. An org can have more than one connector: use an explicit `connectionId`, a list endpoint, or `repository_id`. `GET /:orgSlug/api/v1/connectors` returns metadata only (no `config`). To design or change a connector (also provider read fan-out and import resume), use the **[source-connectors skill](../../.agents/skills/source-connectors/SKILL.md)**. See [ADR-018](../../.ai/memory/decisions/ADR-018-unified-connections-table.md) and the connector ADRs in [decisions/index.md](../../.ai/memory/decisions/index.md).
 - **TypeScript**: Keep `tsconfig` minimal (Hono-style). Enable stricter options: `noUncheckedIndexedAccess`, `noImplicitReturns`, `noFallthroughCasesInSwitch`, `noUnusedLocals`, `noUnusedParameters`.
 
 ## Logging (evlog)
@@ -30,7 +30,7 @@ What to fake: [root AGENTS.md → Testing](../../AGENTS.md#testing). Name Postgr
 
 ## Agent tools (ingestion + conversation)
 
-- Shared explorer tools (Zoekt search and symbols, ast-grep, SCIP `graph_*`, `get_file`) live in [`src/tools/repoExplorerTools.ts`](src/tools/repoExplorerTools.ts). The production **codesearch** image installs the SCIP indexer matrix and ast-grep; see [`apps/codesearch/Dockerfile`](../codesearch/Dockerfile).
+- Shared explorer tools (`glob_files`, `search`, `find_symbol_definitions` (Zoekt `sym:`), `find_symbol_references` (heuristic regexp), `structural_search` (ast-grep), SCIP `graph_*`, `get_file`) live in [`src/tools/repoExplorerTools.ts`](src/tools/repoExplorerTools.ts). The production **codesearch** image installs the SCIP indexer matrix and ast-grep; see [`apps/codesearch/Dockerfile`](../codesearch/Dockerfile).
 
 ### Public MCP tools
 
@@ -40,10 +40,11 @@ What to fake: [root AGENTS.md → Testing](../../AGENTS.md#testing). Name Postgr
 
 - **Host dev**: follow the runbook in root [AGENTS.md](../../AGENTS.md#local-development), from the repo root. `pnpm db:migrate` runs [`scripts/db-migrate.sh`](../../scripts/db-migrate.sh): it migrates as the owner, then GRANTs `ctxpipe_app`. The backend proxies unmatched routes to `UI_PROXY_URL` ([`src/routes/ui.ts`](src/routes/ui.ts)).
 - **Env**: `DATABASE_URL` in `apps/backend/.env.local` uses `ctxpipe_app` on the database that migrate uses (one database per linked worktree). `GRAPH_DB_URI` is FalkorDB / OpenCypher. See `src/config/env.ts` and [Graph databases (docs)](../docs/content/docs/self-hosting/(configuration)/graph-databases.mdx).
-- **Backend alone**: start `docker compose up -d postgres falkordb`, then run root `pnpm dev:backend`.
+- **Backend alone**: start `docker compose up -d postgres falkordb`, then run root `pnpm dev:backend`. Or run `pnpm dev` from `apps/backend` with env that points at the host ports.
 - **Public URL**: with portless or a non-default port, set `AUTH_BASE_URL` and `AUTH_ALLOWED_ORIGINS` to the browser origin (`PORTLESS_URL` when it applies).
+- **MCP URLs**: this app serves the HTTP MCP (see **MCP (product)**). The base URL and the org slug follow your dev env: see root [AGENTS.md](../../AGENTS.md) and [`.env.example`](.env.example).
 - **MCP OAuth**: the OAuth provider issues JWT access tokens (`oauthProvider` in [`src/auth/config.ts`](src/auth/config.ts)). They live 4h, but **MCP clients must refresh** before expiry. A stale Bearer token gets **401** on `/mcp`.
 
 ### Better Auth JWT / `jwkss`
 
-The `jwt()` plugin keeps JWKS keys in `jwkss`, encrypted with `AUTH_SECRET`. If that secret changes while old rows stay (a new `.env.local`, a database from another machine), `get-session` and other JWT paths return **500** with *Failed to decrypt private key*. **Dev recovery**: run `DELETE FROM jwkss;` against the backend database (for example `docker compose --profile infra exec -T postgres psql -U ctxpipe -d <db> -c 'DELETE FROM jwkss;'`, where `<db>` is the name in `DATABASE_URL`), restart the backend, and sign in again. **Production**: rotate secrets only with a planned JWKS and session strategy; do not delete keys lightly.
+A **500** with *Failed to decrypt private key*: see [`.ai/agents/backend-jwks-recovery.md`](../../.ai/agents/backend-jwks-recovery.md).

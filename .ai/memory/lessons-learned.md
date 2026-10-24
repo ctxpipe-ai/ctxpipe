@@ -19,6 +19,7 @@ These lessons moved to the instructions that agents always read. Do not add them
 | `rounded-md`, React Aria first, CSS-first responsive layout, selected chrome on the click, no shell remount | [apps/ui/AGENTS.md](../../apps/ui/AGENTS.md) |
 | Pierre for the Files pane | [ADR-040](decisions/ADR-040-pierre-files-pane-chrome.md) |
 | RLS with the `ctxpipe_app` role | [ADR-042](decisions/ADR-042-postgres-rls-app-role.md) |
+| Harness-agnostic agent setup: shared content in `.agents/` and `AGENTS.md`, thin per-harness adapters; an orchestrator app starts Claude and Codex agents; Cursor stays dormant | [ADR-055](decisions/ADR-055-harness-agnostic-agent-setup.md) and root [AGENTS.md](../../AGENTS.md) |
 
 ## Entries
 
@@ -614,9 +615,3 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Category:** docs
 - **Date:** 2026-10-19
 - **Source:** CTO correction during the README update for PR 280
-
-### Agent setup is harness-agnostic; Claude Code and Codex are primary
-- **Rule:** The team uses Claude Code as the primary agent harness, with Codex as the second model family. The team does not use Cursor now, but it can come back. Keep the agent setup of this repository independent of one harness: put shared content (instructions, skills, hooks, MCP server lists) in one neutral place, and keep each harness directory (`.claude/`, `.codex/`, `.cursor/`) a thin adapter to it. Do not add a feature that only one harness can read when a shared form exists. An orchestrator app (Paseo now, T3 before) starts the Claude and Codex agents and picks their models, so a cross-model handoff goes through the orchestrator, not through a repo script. Keep the dormant Cursor files until the team decides otherwise.
-- **Category:** tooling
-- **Date:** 2026-10-21
-- **Source:** CTO decision when the team stopped its Cursor plan

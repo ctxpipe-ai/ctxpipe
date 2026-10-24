@@ -18,16 +18,7 @@ This file holds repo-wide rules. In an app or package, also read that folder's `
 1. **Product MCP (`ctxpipe`)** — the hosted, customer-facing ctxpipe tools for the live org. Do **not** point it at localhost.
 2. **Agent tooling MCPs** — helpers for work on this repo. They are not the backend’s in-process Hono `/mcp` product server.
 
-Claude Code and Codex read keys from environment variables. Without a key, use OAuth: `/mcp` in Claude Code, `codex mcp login <name>` in Codex. Cursor uses OAuth for `ctxpipe`, `neon`, and `railway`.
-
-| Server | Purpose | Claude Code and Codex |
-| --- | --- | --- |
-| `ctxpipe` | Hosted product MCP (org `ctx-tev`) | `CTXPIPE_API_KEY` (sent as `x-api-key`), or OAuth with access to that org |
-| `ctxpipe-storybook` | Storybook MCP at `http://127.0.0.1:6006/mcp` | Storybook must be running: `pnpm --filter @ctxpipe/ui storybook` |
-| `neon` | Neon Lakebase Postgres, **read-only** | `NEON_API_KEY` (Bearer), or OAuth (clear Full access if asked; the URL forces read-only). [Neon MCP docs](https://neon.com/docs/ai/neon-mcp-server) |
-| `railway` | Railway status + deploy/runtime stdout | `RAILWAY_API_TOKEN` for the stdio `railway mcp local` server |
-| `hyperdx` | ClickStack logs, traces, metrics, dashboards | `HYPERDX_ACCESS_KEY` = personal access key (Bearer), not the `HYPERDX_API_KEY` ingest token |
-| `langfuse` | Langfuse **project** MCP (LLM traces / prompts) | `LANGFUSE_AUTH_STRING` = base64(`pk:sk`); Codex sends it through a stdio `mcp-remote` bridge. See [ops/observability/USING.md](ops/observability/USING.md) |
+Claude Code and Codex read keys from environment variables. Only `ctxpipe` can fall back to OAuth. The auth for each server, and the purpose of each server, are in [`.ai/agents/mcp-servers.md`](.ai/agents/mcp-servers.md). `codex mcp list` shows the auth state.
 
 **Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Notion MCP, ClickHouse `mcp-clickhouse` (query through `hyperdx`). The Linear MCP is not in the project config either, but the issue tracker needs it: add the Linear MCP (`linear-server`) to your own agent host.
 
@@ -39,7 +30,7 @@ Claude Code and Codex read keys from environment variables. Without a key, use O
 
 For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.agents/skills/storybook/SKILL.md) with [apps/ui/AGENTS.md](apps/ui/AGENTS.md).
 
-**Dev servers:** on your own machine, follow the host dev runbook under [Local development](#local-development). On a headless or remote VM (any harness, Claude Code on the web), do **not** use `pnpm dev`; follow [`.ai/agents/remote-environments.md`](.ai/agents/remote-environments.md).
+**Dev servers:** on your own machine, follow the host dev runbook under [Local development](#local-development). On a headless or remote VM (any harness, Claude Code on the web), do **not** use `pnpm dev` (portless needs HTTPS on port 443 and a local CA); follow [`.ai/agents/remote-environments.md`](.ai/agents/remote-environments.md).
 
 **Feedback that should become a long-term instruction**: put repo-wide rules in this file. Put rules for one app or package in that folder's `AGENTS.md`; create the file if it does not exist, and add it to the list above.
 
@@ -98,7 +89,7 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 
 ### Preview environments
 
-**preview-env:** critical-flow run against local host dev or a Railway PR preview (`backend-pr-N`) from a fresh registration: the full browser + MCP catalogue or one area. Never production. [`.agents/skills/preview-env/`](.agents/skills/preview-env/)
+**preview-env:** critical-flow run against local host dev or a Railway PR preview (`backend-pr-N`) from a fresh registration: the full browser + MCP catalogue or one area (onboarding, auth, org-home, workspaces, hydrate, graph, chat, files-publish, connectors, mcp, resilience). Never production. [`.agents/skills/preview-env/`](.agents/skills/preview-env/)
 
 ### GitHub environments
 
@@ -122,34 +113,25 @@ Every adversarial review of a diff is three axes — **Standards**, **Spec**, an
 
 ## Local development
 
-- **Docker Compose**: one [docker-compose.yml](docker-compose.yml) with profiles ([ADR-015](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). `pnpm dev:infra` starts the `infra` profile: Postgres, FalkorDB, OTEL, and Agent Vault for Docker chat sandboxes. The Agent Vault API is on `127.0.0.1:14321`, and local containers can reach it on Docker Desktop, so use a trusted machine. Set a generated `AGENT_VAULT_OWNER_PASSWORD` in `apps/backend/.env.local`; if a fresh Agent Vault refuses it, remove the `agent_vault_dev` volume. `pnpm start` starts the `deploy` profile (production images). Override host ports with `CTXPIPE_*` ([docker-compose.env.example](docker-compose.env.example)).
-
-### Remote and headless machines
-
-Portless needs HTTPS on port 443 and a local CA, so `pnpm dev` fails on a headless machine. Follow [`.ai/agents/remote-environments.md`](.ai/agents/remote-environments.md) there.
+One [docker-compose.yml](docker-compose.yml) uses profiles ([ADR-015](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). `pnpm dev:infra` starts the `infra` profile (Postgres, FalkorDB, OTEL, Agent Vault). `pnpm start` starts the `deploy` profile (production images). Details on Compose, migrations, the docs site, and container deploy: [`.ai/agents/local-development.md`](.ai/agents/local-development.md).
 
 ### Agent runbook — host dev (run from repo root)
 
-Run `pnpm` commands from the repository root, not inside `apps/*`.
+Run `pnpm` from the repo root, not inside `apps/*`.
 
 1. `pnpm install`
 2. `apps/backend/.env.local`: copy from [apps/backend/.env.example](apps/backend/.env.example) if missing. Set `AUTH_SECRET` (≥ 32 characters), and `DATABASE_URL` / `GRAPH_DB_URI` as in the example (Postgres on host port 5433, FalkorDB `redis://localhost:6379`). In a linked git worktree, use the per-worktree database name `ctxpipe_<sanitized_branch>` from [`scripts/worktree-db.sh`](scripts/worktree-db.sh), so that `pnpm dev` and migrate use the same database. A normal clone uses `ctxpipe`.
 3. `pnpm dev:infra` — Docker must be running.
-4. `pnpm dev` — starts the portless HTTPS proxy (port 443; macOS/Linux may ask for elevation) and exports `AUTH_BASE_URL`, `UI_PROXY_URL`, `VITE_PUBLIC_API_URL`, and `AUTH_ALLOWED_ORIGINS` from `pnpm exec portless get`. It starts codesearch in Docker ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh)) and sets `CODESEARCH_URL` to `http://127.0.0.1:<random-port>` (server-side only). Then Turbo runs backend `migrate`, then backend + UI on the host. **Browse and test at `https://app.ctxpipe.localhost`**, not `ui.ctxpipe` or raw localhost ports. A linked worktree gets a branch subdomain ([portless](https://portless.sh/)). Trust the dev CA once with `pnpm trust`.
+4. `pnpm dev` — it starts the portless HTTPS proxy on port 443. macOS and Linux may ask for elevation. It exports `AUTH_BASE_URL`, `UI_PROXY_URL`, `VITE_PUBLIC_API_URL`, and `AUTH_ALLOWED_ORIGINS` from `pnpm exec portless get`. It starts codesearch in Docker ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh)). It sets `CODESEARCH_URL` to `http://127.0.0.1:<random-port>` (server-side only). Turbo then runs backend `migrate`. After that, Turbo runs backend and UI on the host.
+5. Browse and test at `https://app.ctxpipe.localhost`. Do not use `ui.ctxpipe` or raw localhost ports. A linked worktree gets a branch subdomain ([portless](https://portless.sh/)). Trust the dev CA once with `pnpm trust`.
 
-**Migrations only**: `pnpm db:migrate`. [`scripts/db-migrate.sh`](scripts/db-migrate.sh) sources `worktree-db.sh`, rewrites local `ctxpipe_app` URLs to the owner `ctxpipe` for DDL, runs Drizzle + OpenWorkflow migrations, then GRANTs `ctxpipe_app`. In a linked worktree, `worktree-db.sh` creates the database if needed and exports the owner URL in that shell (no `.env` edits; needs `psql` on `PATH`). Keep `ctxpipe_app` in the runtime `.env.local`. To set `DATABASE_URL` in your current shell, run `eval "$(./scripts/worktree-db.sh)"`.
-
-**Documentation site** ([apps/docs](apps/docs/AGENTS.md)): `pnpm dev:docs` starts Next.js on `http://localhost:3003` (doc URLs are under `/docs`). Root `pnpm dev` does not start it; `pnpm dev --filter @ctxpipe/docs` also works.
-
-### Container deploy (Compose `deploy` profile)
-
-Set `AUTH_SECRET` (≥ 32 characters), `AUTH_BASE_URL`, `CTXPIPE_PUBLIC_APP_URL` (the public origin of the app), and optionally `AUTH_ALLOWED_ORIGINS` in a root `.env` ([docker-compose.env.example](docker-compose.env.example)). Then run `pnpm start` (it builds images on the first run). The operator supplies TLS and a reverse proxy. A Better Auth schema upgrade can need `pnpm --filter @ctxpipe/backend auth:migrate` against the same database.
+**Migrations only**: `pnpm db:migrate`. In a linked worktree, the script creates the per-worktree database and needs `psql`. In a normal checkout, the script loads `.env.local` and rewrites the user for migrate only. Keep `ctxpipe_app` in the runtime `.env.local`. Details: [`local-development.md`](.ai/agents/local-development.md#migrations-only).
 
 ## Parallel worktrees and coding agents
 
 Use one shared Postgres on the host (port 5433) and one database per linked worktree. CI uses its own database (`ctxpipe`). See [ADR-014](.ai/memory/decisions/ADR-014-parallel-worktree-local-development.md).
 
-1. **Port conflicts**: copy [docker-compose.env.example](docker-compose.env.example) to `.env` at the repo root, and set a fresh `CTXPIPE_*` block if ports clash.
+1. **Port conflicts**: copy [docker-compose.env.example](docker-compose.env.example) to `.env` at the repo root, and set a fresh `CTXPIPE_*` block if ports clash. Postgres can stay on 5433 if only one Compose stack runs.
 2. **URLs**: use the portless URLs from `pnpm exec portless get app.ctxpipe`, not raw localhost guesses.
 3. **Agent files**: `.agents/` is the real directory. `.claude/skills` and `.cursor/skills` are symlinks to `.agents/skills`. [`.cursor/worktrees.json`](.cursor/worktrees.json) is for Cursor only (`pnpm install` and `pnpm db:migrate`).
 4. **Secrets**: copy `apps/backend/.env.local` from your primary checkout or from [`.env.example`](apps/backend/.env.example). No script does this.
@@ -169,8 +151,9 @@ Durable agent memory is **Markdown-only** under **[.ai/memory/](.ai/memory/)** (
 - **Candidates**: the hook [`.agents/hooks/memory-capture.sh`](.agents/hooks/memory-capture.sh) appends candidates to gitignored `.ai/memory/events/`. Promote a candidate with a capture skill (`capture-lesson`, `capture-adr`, `capture-glossary`, `capture-decision`) only when it is a lasting convention that the user would still want months later. Dismiss library or API docs, compiler or test output, search output, echoes of Markdown you just wrote, and "Memory candidates" follow-ups. A hook follow-up is not a user request: if no candidate passes, dismiss them and end the turn. Put work on the current PR in the PR or an ADR, not in `lessons-learned.md`.
 - **Rules**: never commit secrets; never write an ADR from a hook candidate alone; **always update the matching `index.md`** when you add or rename an entry; describe people by role, not by name or email.
 - **Commit and share**: include `.ai/memory/` changes in the commit for the work they came from, on that branch; summarize the work in the PR description (what changed, why, what you ruled out, follow-ups). Use `sessions/` only for work with no PR. Merged lessons become graph instructions ([ADR-037](.ai/memory/decisions/ADR-037-committed-memory-reaches-the-graph.md)).
-- **CLI**: `npx ctxpipe memory init|status|doctor`.
-- **User reply**: after you close candidates, name only what you learned in one short sentence. If you promoted nothing, say nothing about memory.
+- **CLI**: `npx ctxpipe memory init --agents <list>` seeds the layout, the always-apply rule, the capture skills, and the host hooks (no remote ctxpipe MCP, no local memory MCP). For a full init with memory, run `npx ctxpipe init --memory`. `npx ctxpipe memory status|doctor` checks the setup.
+- **Close candidates**: run `bash .agents/hooks/memory-capture.sh memory capture promote <id>` or `... dismiss <id>`. Run `bash .agents/hooks/memory-capture.sh memory capture summary` to list the open candidates.
+- **User reply**: after you close candidates, name only what you learned in one short sentence. Omit dismissals, candidate ids, and unchanged files or stores. If you promoted nothing, say nothing about memory.
 
 ## Customer privacy
 

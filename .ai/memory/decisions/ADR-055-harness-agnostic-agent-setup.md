@@ -4,7 +4,7 @@
 
 ## Context
 
-The team builds with coding agents. It used Cursor first, so the shared agent files lived under `.cursor/`, and `.agents/` was a symlink to it. The team then moved to Claude Code as the primary harness and Codex as a second model family. An orchestrator app starts the agents in each harness. Each harness reads its own config directory, but the skills, the hooks, and the instructions must stay the same for all of them. Codex reads only the first 32 KiB of the `AGENTS.md` files on its path.
+The team builds with coding agents. It used Cursor first, so the shared agent files lived under `.cursor/`, and `.agents/` was a symlink to it. The team then moved to Claude Code as the primary harness and Codex as a second model family. An orchestrator app (Paseo now) starts the agents in each harness and picks the model for each agent. Each harness reads its own config directory, but the skills, the hooks, and the instructions must stay the same for all of them. Codex reads only the first 32 KiB of the `AGENTS.md` files on its path.
 
 ## Decision
 

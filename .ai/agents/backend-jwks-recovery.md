@@ -1,0 +1,3 @@
+# Backend: Better Auth JWT and `jwkss` recovery
+
+The `jwt()` plugin keeps JWKS keys in `jwkss`, encrypted with `AUTH_SECRET`. If that secret changes while old rows stay (a new `.env.local`, a database from another machine), `get-session` and other JWT paths return **500** with *Failed to decrypt private key*. **Dev recovery**: run `DELETE FROM jwkss;` against the backend database (for example `docker compose --profile infra exec -T postgres psql -U ctxpipe -d <db> -c 'DELETE FROM jwkss;'`, where `<db>` is the name in `DATABASE_URL`), restart the backend, and sign in again. **Production**: rotate secrets only with a planned JWKS and session strategy; do not delete keys lightly.
