@@ -34,6 +34,15 @@ railway_graphql() {
   printf '%s' "$body"
 }
 
+# railway_service_instance_update <environment-id> <service-id> <input-json>
+# Send one serviceInstanceUpdate with the given ServiceInstanceUpdateInput.
+railway_service_instance_update() {
+  local env_id="$1" service_id="$2" input="$3"
+  railway_graphql \
+    'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+    "$(jq -nc --arg env "$env_id" --arg service "$service_id" --argjson input "$input" '{environmentId:$env, serviceId:$service, input:$input}')"
+}
+
 load_project() {
   local project_json
   project_json="$(railway_graphql \

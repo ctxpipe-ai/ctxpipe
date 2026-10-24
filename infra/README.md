@@ -9,6 +9,7 @@ Mirrors [ops/infra/index.ts](../ops/infra/index.ts):
 - **Railway**
   - Project + `production` environment
   - Region: **`us-east4-eqdc4a`** (Virginia), from module variable `railway_regions` (default in [`module/ctxpipe/variables.tf`](module/ctxpipe/variables.tf); [`main.tf`](main.tf) passes the same value) — same metro as Neon. Terraform documents and creates with this value; **updates** go through [`scripts/railway-set-regions.sh`](../scripts/railway-set-regions.sh) (Railway provider 0.6.x never sends `multiRegionConfig` on Update). Do not hardcode Singapore in the module.
+  - **FalkorDB restart policy:** `scripts/railway-set-regions.sh` sets `restartPolicyType: ALWAYS` on the production `falkordb` service in the same update as the region pin, and redeploys it once when either value is wrong. The Terraform provider has no restart policy field. PR previews keep `ON_FAILURE` (see `pr-deploy.yaml`), because a serverless preview must stay down after an idle exit.
   - Services: UI, backend, codesearch (+ volume), OpenWorkflow worker, FalkorDB (+ volume)
   - Service variables: `FALKORDB_PORT`, `GRAPH_DB_URI`
   - App services pull public GHCR images (`ghcr.io/ctxpipe-ai/{backend,worker,ui,codesearch}`) tagged by Git commit SHA from GitHub Actions (no Railway registry credentials). Production tag updates are [`scripts/railway-set-images.sh`](../scripts/railway-set-images.sh), not `railway_service` Update (ADR-039).
