@@ -1039,8 +1039,9 @@ jobs:
             update_preview_worker_service_instance() {
               local service_id="$1"
               local image="$2"
-              railway_service_instance_update "$ENV_ID" "$service_id" \
-                "$(jq -nc --arg img "$image" '{source:{image:$img}, sleepApplication:true, restartPolicyType:"ON_FAILURE"}')"
+              railway_graphql \
+                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" '{environmentId:$env, serviceId:$service, input:{source:{image:$img}, sleepApplication:true, restartPolicyType:"ON_FAILURE"}}')"
               echo "Updated preview worker image, serverless, and restart policy ON_FAILURE for $service_id"
             }
 
@@ -1120,7 +1121,9 @@ jobs:
               # Production sets restartPolicyType ALWAYS on FalkorDB, and
               # `environment new --duplicate production` copies it. A serverless
               # preview must stay down after an idle exit, so set ON_FAILURE.
-              railway_service_instance_update "$ENV_ID" "$service_id" '{"sleepApplication":true,"restartPolicyType":"ON_FAILURE"}'
+              railway_graphql \
+                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service, input:{sleepApplication:true, restartPolicyType:"ON_FAILURE"}}')"
             }
 
             # Preview compute next to Neon (aws-us-east-1). Duplicate-from-production
