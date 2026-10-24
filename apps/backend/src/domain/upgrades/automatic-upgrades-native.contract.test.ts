@@ -204,7 +204,28 @@ it(
 
           // Turn off: a second commit sets the setting back to manual, and
           // the read shows it as soon as the job is done.
-          await saveMode("manual")
+          // The request goes through the HTTP route, so the mode in the body
+          // must reach the job.
+          const response = await workspaceHttpApp(
+            f.org,
+            workspaceUpgradeRoutes,
+          ).request("/workspaces/knowledge/upgrades/automatic", {
+            method: "POST",
+            headers: { "content-type": "Application/JSON" },
+            body: JSON.stringify({ mode: "manual" }),
+          })
+          expect(response.status).toBe(202)
+          const { jobId } = (await response.json()) as { jobId: string }
+          await expect
+            .poll(
+              async () =>
+                withOrgIdContext(
+                  f.org,
+                  async () => (await reconcileWorkspaceWriteJob(jobId))?.status,
+                ),
+              { timeout: 30_000 },
+            )
+            .toBe("completed")
           expect(await readMode()).toBe("manual")
         } finally {
           await worker.stop()

@@ -3,6 +3,7 @@ import type { AppEnv } from "../../app/env.js"
 import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
 import {
+  clearUpgradeSettingCache,
   readUpgradeSetting,
   setUpgradeMode,
   type UpgradeSettingReason,
@@ -563,6 +564,7 @@ const routes = new OpenAPIHono<AppEnv>()
     )
     if (!admitted.started)
       return c.json({ error: UPGRADE_SETTING_REFUSALS.unwritable }, 409)
+    clearUpgradeSettingCache(workspace.id)
     return c.json({ queued: true as const, jobId }, 202)
   })
   .openapi(startUpgradeRoute, async (c) => {
@@ -624,7 +626,7 @@ gated.post(
         body: "{}",
       })
     } else if (
-      !/^application\/([a-z-.]+\+)?json/.test(
+      !/^application\/([a-z-.]+\+)?json/i.test(
         c.req.header("content-type") ?? "",
       )
     )

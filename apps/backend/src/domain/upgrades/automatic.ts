@@ -61,11 +61,26 @@ export async function setUpgradeMode(
  */
 export type UpgradeSettingReason = "no_tip" | "invalid_format" | "unreadable"
 
+type UpgradeSetting =
+  | { mode: WorkspaceUpgradeMode; reason: null }
+  | { mode: null; reason: UpgradeSettingReason }
+
+/** One read for each Workspace and commit. The save of a mode clears it. */
+const upgradeSettingCache = new Map<
+  string,
+  { sha: string; expiresAt: number; value: UpgradeSetting }
+>()
+
+/** Forget the cached setting of a Workspace, after a save. */
+export function clearUpgradeSettingCache(workspaceId: string): void {
+  upgradeSettingCache.delete(workspaceId)
+}
+
 /**
  * The upgrade setting of the Workspace, from the format file at the head of
  * the default branch. The head shows a saved setting at once, before hydrate
  * moves the projected commit. Git is the source of truth, so this reads git
- * and not a cache.
+ * and not a cache, except for a short cache of 45 seconds.
  */
 export async function readUpgradeSetting(
   orgId: string,
@@ -79,10 +94,7 @@ export async function readUpgradeSetting(
   },
   env: Env,
   log: { error: (err: Error) => void },
-): Promise<
-  | { mode: WorkspaceUpgradeMode; reason: null }
-  | { mode: null; reason: UpgradeSettingReason }
-> {
+): Promise<UpgradeSetting> {
   if (!workspace.desiredSha) return { mode: null, reason: "no_tip" }
   try {
     const url = workspace.workspaceRepositoryUrl
@@ -96,21 +108,34 @@ export async function readUpgradeSetting(
       branch: workspace.desiredDefaultBranch,
       token,
     })
+    const sha = tip?.sha ?? workspace.desiredSha
+    // A new commit on the branch is a new key, so a saved setting shows at once.
+    const cached = upgradeSettingCache.get(workspace.id)
+    if (cached && cached.sha === sha && cached.expiresAt > Date.now())
+      return cached.value
     const file = await readFileAtGitSha({
       url,
-      sha: tip?.sha ?? workspace.desiredSha,
+      sha,
       path: workspaceRepositoryPath(
         workspaceRootPath(workspace),
         WORKSPACE_FORMAT_PATH,
       ),
       token,
+      treesOnly: true,
     })
     const read = readWorkspaceFormat(
       file.kind === "bytes" ? Buffer.from(file.bytes).toString("utf8") : null,
     )
-    return read.kind === "format"
-      ? { mode: read.upgrades, reason: null }
-      : { mode: null, reason: "invalid_format" }
+    const value: UpgradeSetting =
+      read.kind === "format"
+        ? { mode: read.upgrades, reason: null }
+        : { mode: null, reason: "invalid_format" }
+    upgradeSettingCache.set(workspace.id, {
+      sha,
+      expiresAt: Date.now() + 45_000,
+      value,
+    })
+    return value
   } catch (error) {
     // The token goes to git in a header, not in the message.
     log.error(
