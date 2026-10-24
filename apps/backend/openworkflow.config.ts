@@ -11,6 +11,7 @@ import { wakeParkedParents } from "./src/openworkflow/wake-parked-parents.js"
 import { scheduleCodesearchCheckoutGc } from "./src/openworkflow/workflows/codesearch-checkout-gc.js"
 import { scheduleSweepsForOrgsNeedingIt } from "./src/openworkflow/workflows/conversation-sandbox-sweep.js"
 import { scheduleDailySourcesSync } from "./src/openworkflow/workflows/workspace-sources-daily-sync.js"
+import { scheduleWorkspaceTipChecks } from "./src/openworkflow/workflows/workspace-tip-check-schedule.js"
 import { scheduleUpgradeScansForAllOrgs } from "./src/openworkflow/workflows/workspace-upgrade-scan.js"
 
 const databaseUrl = process.env.DATABASE_URL
@@ -70,8 +71,23 @@ const wakeParents = () =>
         message: `Waking the parked parent runs failed: ${String(error)}`,
       }),
     )
+// Start the hourly chain that queues the tip check of each org with a
+// Workspace (ADR-046), at start and every 5 minutes, so a lost run of the
+// chain stops it for 5 minutes at most. The key is per hour, so a second
+// call in the same hour queues nothing new.
+const armTipChecks = () =>
+  void scheduleWorkspaceTipChecks(new Date()).catch((error: unknown) =>
+    log.error({
+      step: "workspace-tip-check-schedule-start",
+      message: `Scheduling the hourly tip checks failed: ${String(error)}`,
+    }),
+  )
 wakeParents()
-setInterval(wakeParents, 5 * 60_000).unref()
+armTipChecks()
+setInterval(() => {
+  wakeParents()
+  armTipChecks()
+}, 5 * 60_000).unref()
 
 /**
  * On SIGTERM or SIGINT, mark the guarded step attempts of this process

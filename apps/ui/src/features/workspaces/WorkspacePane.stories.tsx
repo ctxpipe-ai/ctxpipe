@@ -871,7 +871,10 @@ const graphPaneRoute = {
 
 const graphGets = { count: 0 }
 
-/** The graph phase is pending: the pane waits and does not read the graph. */
+/**
+ * The graph phase is pending: the pane waits and does not read the graph.
+ * A retry of a failed graph also sets the phase to pending while it builds.
+ */
 export const GraphPhasePending: Story = {
   tags: ["workspace-golden"],
   args: {
