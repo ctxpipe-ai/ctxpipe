@@ -256,6 +256,23 @@ export async function createNativeIndexFixture(
     worker = runner.newWorker({ concurrency: 2 })
     await worker.start()
     const indexInput = { orgId: org.id, revision }
+    // Workspace code reads use the published checkout: an ingestion indexes
+    // `rev:<sha>` and the repository row publishes it.
+    const publish = async () => {
+      const published = await runner.runWorkflow(repositoryIndex.spec, {
+        repositoryId,
+        orgId: org.id,
+        targetHash: sha,
+        ingestionV2: true,
+      })
+      expect(await published.result({ timeoutMs: 30_000 })).toMatchObject({
+        searchIndexOk: true,
+        targetHash: sha,
+      })
+      await withOrgIdContext(org, () =>
+        markRepositoryIndexingReady({ repositoryId, targetHash: sha }),
+      )
+    }
     return {
       databaseUrl,
       directory,
@@ -275,22 +292,9 @@ export async function createNativeIndexFixture(
       runner,
       indexInput,
       cleanup,
+      publish,
       index: async () => {
-        // Workspace code reads use the published checkout: an ingestion
-        // indexes `rev:<sha>` and the repository row publishes it.
-        const published = await runner.runWorkflow(repositoryIndex.spec, {
-          repositoryId,
-          orgId: org.id,
-          targetHash: sha,
-          ingestionV2: true,
-        })
-        expect(await published.result({ timeoutMs: 30_000 })).toMatchObject({
-          searchIndexOk: true,
-          targetHash: sha,
-        })
-        await withOrgIdContext(org, () =>
-          markRepositoryIndexingReady({ repositoryId, targetHash: sha }),
-        )
+        await publish()
         const handle = await runner.runWorkflow(workspaceIndex.spec, indexInput)
         expect(await handle.result({ timeoutMs: 30_000 })).toEqual({
           published: true,

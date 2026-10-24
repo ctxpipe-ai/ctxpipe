@@ -1,4 +1,4 @@
-import { rename, rm, writeFile } from "node:fs/promises"
+import { rename, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { eq, sql } from "drizzle-orm"
 import { expect, it } from "vitest"
@@ -185,6 +185,7 @@ it(
         repositoryId,
         sha,
       } = f
+      await f.publish()
       const handle = await runner.runWorkflow(workspaceIndex.spec, indexInput)
       expect(await handle.result({ timeoutMs: 30_000 })).toEqual({
         published: true,
@@ -487,13 +488,11 @@ it(
 )
 
 it(
-  "an initial search-index failure preserves Postgres and a retry publishes search",
+  "a Workspace index with no published checkout fails, and a retry after the ingestion publishes search",
   { timeout: 60_000 },
   async () =>
     withNativeIndexFixture(async (f) => {
-      const { cold, runner, indexInput, org, workspaceId, revision } = f
-      await rename(cold, `${cold}-previous`)
-      await writeFile(cold, "This fixture prevents search index output")
+      const { runner, indexInput, org, workspaceId, revision } = f
       const failed = await runner.runWorkflow(workspaceIndex.spec, indexInput)
       expect(await failed.result({ timeoutMs: 30_000 })).toEqual({
         published: false,
@@ -509,8 +508,7 @@ it(
           await codeSearch(org.id, { workspaceId, query: "amberquartz" }),
         ).toEqual([])
       })
-      await rm(cold)
-      await rename(`${cold}-previous`, cold)
+      await f.publish()
       const retried = await runner.runWorkflow(workspaceIndex.spec, indexInput)
       expect(await retried.result({ timeoutMs: 30_000 })).toEqual({
         published: true,
@@ -823,7 +821,7 @@ it(
 )
 
 it(
-  "chat get_file reads its captured index after membership and remote removal",
+  "chat get_file reads the published checkout after the remote is gone",
   { timeout: 60_000 },
   async () => {
     await withNativeIndexFixture(async (f) => {
@@ -836,11 +834,6 @@ it(
         workspaceId: f.workspaceId,
         snapshot,
       })
-      await withOrgDbContext(f.org.id, (db) =>
-        db
-          .delete(repositoryCheckouts)
-          .where(eq(repositoryCheckouts.repositoryId, f.repositoryId)),
-      )
       await rename(f.remote, `${f.remote}-unavailable`)
       const result = await tools
         .find((tool) => tool.name === "get_file")
@@ -856,7 +849,7 @@ it(
 )
 
 it(
-  "chat glob_files keeps its captured checkout after membership and remote removal",
+  "chat glob_files reads the published checkout after the remote is gone",
   { timeout: 60_000 },
   async () => {
     await withNativeIndexFixture(async (f) => {
@@ -869,11 +862,6 @@ it(
         workspaceId: f.workspaceId,
         snapshot,
       })
-      await withOrgDbContext(f.org.id, (db) =>
-        db
-          .delete(repositoryCheckouts)
-          .where(eq(repositoryCheckouts.repositoryId, f.repositoryId)),
-      )
       await rename(f.remote, `${f.remote}-unavailable`)
       const result = await tools
         .find((tool) => tool.name === "glob_files")
