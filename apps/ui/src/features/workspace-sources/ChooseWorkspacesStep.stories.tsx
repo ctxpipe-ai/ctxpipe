@@ -201,7 +201,7 @@ export const OneWorkspaceNeedsUpgrade: Story = {
       canvas.getByText(/Needs the format upgrade first/),
     ).toBeVisible()
     await expect(
-      canvas.getByRole("link", { name: "Open Upgrades" }),
+      canvas.getByRole("link", { name: "Review upgrade" }),
     ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
     // Some Workspace can still take the source: no page-level notice.
     await expect(
@@ -279,7 +279,7 @@ export const BelowFormatWithNoUpgradeRowYet: Story = {
       ).toBeEnabled(),
     )
     await expect(
-      canvas.getByRole("link", { name: "Open Upgrades" }),
+      canvas.getByRole("link", { name: "Review upgrade" }),
     ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
   },
 }

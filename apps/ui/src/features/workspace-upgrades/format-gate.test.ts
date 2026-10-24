@@ -98,7 +98,7 @@ describe("format upgrade copy", () => {
     )
     expect(
       formatUpgradeStatusLine({ status: "blocked", note: "No write access." }),
-    ).toMatch(/^No write access\. Open Upgrades/)
+    ).toMatch(/^No write access\. Press Review upgrade/)
     expect(
       formatUpgradeStatusLine({ status: "awaiting_operator", note: null }),
     ).toBe("")

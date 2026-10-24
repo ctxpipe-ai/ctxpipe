@@ -132,10 +132,10 @@ export const Populated: Story = {
     const canvas = within(canvasElement)
     await canvas.findByText("acme/api")
     const eyebrows = [
+      "Status",
       "General",
       "Repositories",
       "Sources",
-      "Upgrades",
       "Danger zone",
     ]
     const labels = [...canvasElement.querySelectorAll(".ctx-label")].map(
@@ -220,7 +220,7 @@ export const SkippedFiles: Story = {
   },
 }
 
-/** A link with the upgrades hash lands on the Upgrades group. */
+/** A link with the upgrades hash lands on the Status group. */
 export const LandsOnUpgrades: Story = {
   parameters: {
     storyRoute: {
@@ -232,7 +232,7 @@ export const LandsOnUpgrades: Story = {
   play: async ({ canvasElement }) => {
     await waitFor(() =>
       expect(
-        canvasElement.querySelector('[data-settings-group="Upgrades"]'),
+        canvasElement.querySelector('[data-settings-group="Status"]'),
       ).toHaveFocus(),
     )
   },

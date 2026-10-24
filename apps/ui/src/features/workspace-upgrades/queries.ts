@@ -37,7 +37,7 @@ type PendingUpgradesResponse = InferResponseType<
 /** The pending upgrades of the org, one entry for each Workspace that has one. */
 type PendingWorkspaceUpgrades = PendingUpgradesResponse["workspaces"]
 
-/** The hash of the Workspace settings link that lands on the Upgrades group. */
+/** The hash of the Workspace settings link that lands on the Status group. */
 export const WORKSPACE_UPGRADES_HASH = "upgrades"
 
 /**
@@ -172,27 +172,60 @@ async function checkWorkspaceUpgrades(
   return readApiJson(res, { message: "Failed to check the upgrade" })
 }
 
+type WorkspaceUpgradeMode = "manual" | "automatic"
+
 /**
- * Always update: ctxpipe commits `upgrades: automatic` into the format file of
- * the Workspace repository. The reply comes at once with the id of the file
- * job. The server starts the waiting upgrades when the commit is done, so the
- * browser sends no second request and does not wait for the commit.
+ * Automatic upgrades on (Always update) or off: ctxpipe commits
+ * `upgrades: <mode>` into the format file of the Workspace repository. The
+ * reply comes at once with the id of the file job. With `automatic`, the
+ * server starts the waiting upgrades when the commit is done, so the browser
+ * sends no second request and does not wait for the commit.
  */
-export async function enableAutomaticWorkspaceUpgrades(
+export async function saveWorkspaceUpgradeMode(
   orgSlug: string,
   workspaceSlug: string,
+  mode: WorkspaceUpgradeMode,
 ): Promise<{ jobId: string }> {
   const client = await getApiClient()
   return readApiJson(
     await client[":orgSlug"].api.v1.workspaces[
       ":workspaceSlug"
-    ].upgrades.automatic.$post({ param: { orgSlug, workspaceSlug } }),
+    ].upgrades.automatic.$post({
+      param: { orgSlug, workspaceSlug },
+      json: { mode },
+    }),
     { message: "Failed to save the setting" },
   )
 }
 
 /**
- * The file job of Always update, read every 2 s until it is done. A job whose
+ * The automatic-upgrades setting of the Workspace, from git at the head of
+ * the default branch. The server reads git on each request, so this read
+ * does not poll and does not read again on window focus. When `mode` is
+ * null, `reason` tells why.
+ */
+export function workspaceUpgradeModeOptions(
+  orgSlug: string,
+  workspaceSlug: string,
+) {
+  return queryOptions({
+    queryKey: ["workspace-upgrade-mode", orgSlug, workspaceSlug] as const,
+    queryFn: async () => {
+      const client = await getApiClient()
+      return readApiJson(
+        await client[":orgSlug"].api.v1.workspaces[
+          ":workspaceSlug"
+        ].upgrades.automatic.$get({ param: { orgSlug, workspaceSlug } }),
+        { message: "Failed to read the setting" },
+      )
+    },
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  })
+}
+
+/**
+ * The file job of the automatic-upgrades setting, read every 2 s until it is done. A job whose
  * run ended with an error comes back `failed` with the cause, so the poll
  * ends. The read is progress only: the server does not need it.
  */
@@ -219,6 +252,33 @@ export function automaticUpgradesJobOptions(
         ? false
         : 2_000,
   })
+}
+
+/**
+ * Save the automatic-upgrades setting, and wait for its commit, up to about a
+ * minute. It throws the cause when the commit fails. It returns `"pending"`
+ * when the commit is not done by then: the server still saves it.
+ */
+export async function saveWorkspaceUpgradeModeAndWait(
+  queryClient: QueryClient,
+  orgSlug: string,
+  workspaceSlug: string,
+  mode: WorkspaceUpgradeMode,
+): Promise<"saved" | "pending"> {
+  const { jobId } = await saveWorkspaceUpgradeMode(orgSlug, workspaceSlug, mode)
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const job = await queryClient.fetchQuery({
+      ...automaticUpgradesJobOptions(orgSlug, workspaceSlug, jobId),
+      staleTime: 0,
+    })
+    if (job.status === "completed") return "saved"
+    if (job.status === "failed")
+      throw new Error(
+        `ctxpipe could not save the setting. ${job.failureReason ?? "ctxpipe gives no reason."}`,
+      )
+    await new Promise((resolve) => setTimeout(resolve, 2_000))
+  }
+  return "pending"
 }
 
 /**

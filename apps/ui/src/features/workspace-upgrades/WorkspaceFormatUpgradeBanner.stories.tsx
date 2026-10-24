@@ -73,10 +73,9 @@ export const OwnerCanStart: Story = {
     expect(
       canvas.getByText(/Until you merge the upgrade, the sources/),
     ).toBeVisible()
-    expect(canvas.getByRole("link", { name: "Open Upgrades" })).toHaveAttribute(
-      "href",
-      "/acme/ws/docs?pane=settings#upgrades",
-    )
+    expect(
+      canvas.getByRole("link", { name: "Review upgrade" }),
+    ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
     // The role loads after the banner, so the button comes late.
     await userEvent.click(
       await canvas.findByRole("button", { name: "Start the upgrade" }),
@@ -99,7 +98,7 @@ export const MemberAsksAdmin: Story = {
     expect(
       canvas.queryByRole("button", { name: "Start the upgrade" }),
     ).toBeNull()
-    expect(canvas.getByRole("link", { name: "Open Upgrades" })).toBeVisible()
+    expect(canvas.getByRole("link", { name: "Review upgrade" })).toBeVisible()
     expect(startRequests).toEqual([])
   },
 }
@@ -114,7 +113,7 @@ export const NoItemYet: Story = {
     expect(
       canvas.queryByRole("button", { name: "Start the upgrade" }),
     ).toBeNull()
-    expect(canvas.getByRole("link", { name: "Open Upgrades" })).toBeVisible()
+    expect(canvas.getByRole("link", { name: "Review upgrade" })).toBeVisible()
   },
 }
 
@@ -179,7 +178,7 @@ export const Failed: Story = {
     const canvas = within(canvasElement)
     await canvas.findByText("The format upgrade failed")
     expect(canvas.getByText(/does not know the cause/)).toBeVisible()
-    expect(canvas.getByRole("link", { name: "Open Upgrades" })).toBeVisible()
+    expect(canvas.getByRole("link", { name: "Review upgrade" })).toBeVisible()
     expect(
       canvas.queryByRole("button", { name: "Start the upgrade" }),
     ).toBeNull()
@@ -203,7 +202,7 @@ export const Blocked: Story = {
     expect(
       canvas.getByText(/The GitHub App cannot write to this repository\./),
     ).toBeVisible()
-    expect(canvas.getByRole("link", { name: "Open Upgrades" })).toBeVisible()
+    expect(canvas.getByRole("link", { name: "Review upgrade" })).toBeVisible()
   },
 }
 
@@ -220,6 +219,6 @@ export const UpToDate: Story = {
     // The read must be answered before the check, or it passes too early.
     await waitFor(() => expect(answered).not.toHaveLength(0))
     expect(canvas.queryByText(title)).toBeNull()
-    expect(canvas.queryByRole("link", { name: "Open Upgrades" })).toBeNull()
+    expect(canvas.queryByRole("link", { name: "Review upgrade" })).toBeNull()
   },
 }

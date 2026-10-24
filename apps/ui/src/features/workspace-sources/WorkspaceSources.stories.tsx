@@ -1768,7 +1768,7 @@ export const BeforeFormatUpgrade: Story = {
       canvas.getByText(/The format upgrade moves them/),
     ).toBeVisible()
     await expect(
-      canvas.getByRole("link", { name: "Open Upgrades" }),
+      canvas.getByRole("link", { name: "Review upgrade" }),
     ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
     await expect(canvas.queryByText(/No sources yet/)).toBeNull()
     await expect(canvas.queryByRole("button", { name: /Add/ })).toBeNull()

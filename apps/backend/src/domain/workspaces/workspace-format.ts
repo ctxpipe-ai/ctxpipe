@@ -54,7 +54,7 @@ const workspaceFormatSchema = z
  * `automatic`: ctxpipe starts each upgrade item of the Workspace when the scan
  * finds it. `manual` (also no key): an owner or admin starts each item.
  */
-type WorkspaceUpgradeMode = "manual" | "automatic"
+export type WorkspaceUpgradeMode = "manual" | "automatic"
 
 type WorkspaceFormatRead =
   | { kind: "format"; format: number; upgrades: WorkspaceUpgradeMode }
