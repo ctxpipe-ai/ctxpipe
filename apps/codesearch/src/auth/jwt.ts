@@ -122,26 +122,12 @@ export async function verifyCodesearchJwt(input: {
         .regex(/^[a-zA-Z0-9_-]+$/)
         .optional(),
       workspaceRepositoryIds: z.array(z.string().min(1)).min(1).optional(),
-      // The claim shape of the previous release, while the backend and
-      // codesearch can run different releases. Remove it in the next one.
-      workspaceRevisions: z
-        .array(
-          z.object({
-            repositoryId: z.string().min(1),
-            sha: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/),
-          }),
-        )
-        .min(1)
-        .optional(),
+      // The old Workspace claim. A token that carries it gets 401.
+      workspaceRevisions: z.undefined(),
     })
     .safeParse(payload)
   if (!scope.success) return null
-  const { workspaceId } = scope.data
-  if (scope.data.workspaceRepositoryIds && scope.data.workspaceRevisions)
-    return null
-  const workspaceRepositoryIds =
-    scope.data.workspaceRepositoryIds ??
-    scope.data.workspaceRevisions?.map((revision) => revision.repositoryId)
+  const { workspaceId, workspaceRepositoryIds } = scope.data
   if (
     (scope.data.repositoryRevisions &&
       Boolean(workspaceId || workspaceRepositoryIds)) ||

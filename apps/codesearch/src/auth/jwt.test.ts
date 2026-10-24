@@ -48,6 +48,21 @@ describe("checkoutKeyFromAuth", () => {
     expect(response.status).toBe(401)
     expect(await response.json()).toEqual({ error: "Unauthorized" })
   })
+  it("rejects a Workspace token with the old claim at the native HTTP boundary", async () => {
+    const response = await createApp(env).request("/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${await signToken("ws_alpha", {
+          workspaceRevisions: [
+            { repositoryId: "repo_linked", sha: "c".repeat(40) },
+          ],
+        })}`,
+      },
+      body: JSON.stringify({ Q: "anything" }),
+    })
+    expect(response.status).toBe(401)
+  })
   it("uses the default checkout for a verified legacy JWT without workspaceId", async () => {
     const auth = await verifyCodesearchJwt({
       env,
@@ -86,21 +101,12 @@ describe("checkoutKeyFromAuth", () => {
     ).resolves.toBeNull()
   })
 
-  it.each([
-    ["repository ids", { workspaceRepositoryIds: ["repo_linked"] }],
-    [
-      "the previous release's revisions",
-      {
-        workspaceRevisions: [
-          { repositoryId: "repo_linked", sha: "c".repeat(40) },
-        ],
-      },
-    ],
-  ])("maps a Workspace token with %s to the published checkout of each linked repository only", async (_shape, claims) => {
+  it("maps a Workspace token to the published checkout of each linked repository in its own org only", async () => {
     const auth = (await verifyCodesearchJwt({
       env,
-      authorizationHeader: `Bearer ${await signToken("ws_alpha", claims)}`,
+      authorizationHeader: `Bearer ${await signToken("ws_alpha", { workspaceRepositoryIds: ["repo_linked"] })}`,
     })) as VerifiedToken
+    expect(auth.orgId).toBe("org_test")
     expect(auth.workspaceRepositoryIds).toEqual(["repo_linked"])
     const published = `rev:${"b".repeat(40)}`
 
@@ -118,6 +124,15 @@ describe("checkoutKeyFromAuth", () => {
   })
 
   it.each([
+    [
+      "the old Workspace claim",
+      "ws_alpha",
+      {
+        workspaceRevisions: [
+          { repositoryId: "repo_linked", sha: "c".repeat(40) },
+        ],
+      },
+    ],
     [
       "both Workspace claim shapes",
       "ws_alpha",

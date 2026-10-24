@@ -169,8 +169,7 @@ load_project
 
 echo "Deploying Railway $ENVIRONMENT_NAME ($ENV_ID) images at $IMAGE_TAG"
 
-# Codesearch first: the server deploys before its clients. It accepts both
-# claim shapes for one release, so the new backend never meets an old codesearch.
+# Codesearch first: the server deploys before its clients.
 # It has a volume; an image change does not copy it, but it restarts the replica.
 for name in codesearch backend openworkflow ui; do
   deploy_image "$name"
