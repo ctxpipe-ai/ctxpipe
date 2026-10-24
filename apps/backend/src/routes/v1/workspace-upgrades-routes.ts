@@ -611,11 +611,19 @@ gated.post(
   "/:workspaceSlug/upgrades/automatic",
   requireOrgAdminOrOwner,
   // The JSON validator refuses an empty body with a JSON content type, and
-  // ignores a body without one. No body (or an empty one) is the default
-  // mode; a body that is not JSON gets a 400 with the fix.
+  // ignores a body without one. No body (or an empty one) gets the default
+  // mode; a body that is not sent as JSON gets a 400 with the fix.
   async (c, next) => {
-    if (!(await c.req.text()).trim()) c.req.bodyCache.json = {}
-    else if (
+    const raw = c.req.raw
+    if (!(await raw.clone().text()).trim()) {
+      const headers = new Headers(raw.headers)
+      headers.set("content-type", "application/json")
+      c.req.raw = new Request(raw.url, {
+        method: raw.method,
+        headers,
+        body: "{}",
+      })
+    } else if (
       !/^application\/([a-z-.]+\+)?json/.test(
         c.req.header("content-type") ?? "",
       )

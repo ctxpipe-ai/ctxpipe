@@ -1399,11 +1399,13 @@ export const InvalidFormatFile: Story = {
     expect(canvas.queryByText(UP_TO_DATE_LINE)).toBeNull()
     // ctxpipe cannot read the setting from a file that is not valid: the
     // line names the cause and the fix, and offers no button.
-    expect(
-      await canvas.findByText(
-        "Automatic upgrades: the format file .ctxpipe/workspace.yaml is not valid. Fix it on the default branch.",
-      ),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(
+          "Automatic upgrades: the format file .ctxpipe/workspace.yaml is not valid. Fix it on the default branch.",
+        ),
+      ).toBeVisible(),
+    )
     expect(
       canvas.queryByRole("button", { name: /automatic upgrades/ }),
     ).toBeNull()
