@@ -11,7 +11,7 @@ import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import { InMemoryLockStore } from "@tanstack/ai/locks"
 import { ChatClient, stream } from "@tanstack/ai-client"
 import { memoryPersistence, withPersistence } from "@tanstack/ai-persistence"
-import { expect, it } from "vitest"
+import { afterEach, expect, it, vi } from "vitest"
 import {
   openCodeExtractableUserText,
   openCodeTrailingUserMiddleware,
@@ -299,7 +299,13 @@ const drain = async (stream: unknown) => {
   for await (const _ of stream as AsyncIterable<StreamChunk>);
 }
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 it("stores the same thread as chat persistence alone for a reload", async () => {
+  // The stored answer has a `createdAt`: both runs get the same clock.
+  vi.useFakeTimers({ toFake: ["Date"], now: 0 })
   const plain = await storedWith(storedThread)
   await drain(
     chat({
