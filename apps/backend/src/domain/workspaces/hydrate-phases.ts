@@ -10,8 +10,19 @@ export type HydratePhaseRecord = {
   embeddingError?: string
   revision?: WorkspaceRevision
   publishedIndex?: WorkspaceRevision | null
-  graph?: { revision: WorkspaceRevision; result: DerivedStoreResult }
-  index?: { revision: WorkspaceRevision; result: DerivedStoreResult }
+  graph?: DerivedPhaseRecord
+  index?: DerivedPhaseRecord
+}
+
+/**
+ * The result of a derived phase of one revision. `failure` is the first
+ * failure of this revision since its last success: a retry keeps it while the
+ * phase is pending again, so the tip check can space out its retries.
+ */
+export type DerivedPhaseRecord = {
+  revision: WorkspaceRevision
+  result: DerivedStoreResult
+  failure?: { message: string; at: string }
 }
 
 /** Git SHAs are hex; ISO timestamps and calendar dates are not. */

@@ -15,6 +15,7 @@ import {
   resolveWorkspaceReadRevision,
 } from "../../domain/workspaces/resolve-revision.js"
 import {
+  type ProjectionState,
   publishedProjection,
   type WorkspaceRevision,
 } from "../../domain/workspaces/revision.js"
@@ -42,11 +43,13 @@ import { failStoppedUpgradeRun } from "../../models/workspace-upgrades.js"
 import {
   claimPausedWriteJob,
   ensureOrgFirstWorkspace,
+  getWorkspaceById,
   getWorkspaceProjection,
   listOrgLinkedRepositories,
   listOrgWorkspaces,
   listPausedWriteJobs,
   persistWriteStatus,
+  projectionFromWorkspace,
   reconcileStaleWriteJobs,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
@@ -261,19 +264,32 @@ export const workspaceTipCheck = defineWorkflow(
       // (ADR-053), so the tip check never writes it to the default branch.
       for (const workspace of workspaces) {
         if (noAccess.has(workspace.id)) continue
-        const projection = await getWorkspaceProjection(workspace.id)
+        const row = await getWorkspaceById(workspace.id)
+        const projection: ProjectionState = row
+          ? projectionFromWorkspace(row)
+          : { kind: "absent" }
         const desired = desiredProjectionRevision(projection)
         // An earlier run can store the tip in `desired_sha` and then fail
         // before it queues the hydrate. Thus compare `desired_sha` with the
         // served SHA, not the tip with `desired_sha`. A hydrate of the same
         // SHA that is not finished blocks a second one. The key names the
         // served SHA, the desired SHA and the UTC hour, so a failed or stale
-        // pair is queued again at most once an hour.
+        // pair is queued again at most once an hour. A failed graph or index
+        // waits longer after each check (`failedPhaseRetryDue`).
         if (
           desired &&
           !unfinishedHydrates.has(`${workspace.id}:${desired.sha}`) &&
           (servedSha(projection, desired) !== desired.sha ||
-            shouldEnqueueCronHydrate({ projection }))
+            shouldEnqueueCronHydrate({
+              projection,
+              retry: {
+                hour,
+                failedAt: {
+                  graph: row?.hydratePhases?.graph?.failure?.at,
+                  index: row?.hydratePhases?.index?.failure?.at,
+                },
+              },
+            }))
         ) {
           // A run can also fail after it stores the tip and before it queues
           // the index job below. Queue it again with the same rule and hour

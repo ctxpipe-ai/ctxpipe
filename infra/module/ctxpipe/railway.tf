@@ -361,13 +361,14 @@ resource "railway_variable_collection" "open_workflow_config" {
   ])
 }
 
-# A fixed FalkorDB image: the digest that CI tests with
-# (.github/actions/falkordb). An unpinned image can change on each redeploy.
+# A fixed FalkorDB image: the tag that CI also uses
+# (.github/actions/falkordb); CI pins the digest. An unpinned image can
+# change on each redeploy.
 resource "railway_service" "falkordb" {
   project_id   = railway_project.this.id
   name         = "falkordb"
   regions      = local.regions
-  source_image = "falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d"
+  source_image = "falkordb/falkordb:v4.20.7"
   volume = {
     name       = "falkordb-volume"
     mount_path = "/var/lib/falkordb/data"
@@ -387,14 +388,13 @@ resource "railway_variable_collection" "falkordb_config" {
     {
       # The image puts these after `--loadmodule falkordb.so`. Module options
       # come first; each `--` option after them is a Redis option.
-      # FALKORDB_ARGS replaces the image default, so the first three values
-      # repeat that default, as in CI. CMD_INFO no: in 4.20.7 the module load
-      # can start a cron task before its lock is ready, and the server then
-      # stops answering (see .github/actions/falkordb). Fixed thread counts:
-      # by default FalkorDB starts threads for each host CPU, and the
-      # container hit its thread limit ("libgomp: Thread creation failed").
+      # CMD_INFO no: in 4.20.7 the module load can start a cron task before
+      # its lock is ready, and the server then stops answering (see
+      # .github/actions/falkordb). Fixed thread counts: by default FalkorDB
+      # starts threads for each host CPU, and the container hit its thread
+      # limit ("libgomp: Thread creation failed").
       name  = "FALKORDB_ARGS",
-      value = "MAX_QUEUED_QUERIES 25 TIMEOUT 1000 RESULTSET_SIZE 10000 CMD_INFO no THREAD_COUNT 8 OMP_THREAD_COUNT 2 --port ${local.falkordb_port} --bind 0.0.0.0 :: --protected-mode no"
+      value = "CMD_INFO no THREAD_COUNT 8 OMP_THREAD_COUNT 2 --port ${local.falkordb_port} --bind 0.0.0.0 :: --protected-mode no"
     },
     {
       name  = "FALKORDB_PORT",

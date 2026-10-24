@@ -42,15 +42,6 @@ void scheduleCodesearchCheckoutGc(new Date()).catch((error: unknown) =>
     message: `Scheduling the checkout collection failed: ${String(error)}`,
   }),
 )
-// Start the hourly chain that queues the tip check of each org with a
-// Workspace (ADR-046). The key is per hour, so a restart in the same hour
-// queues nothing new.
-void scheduleWorkspaceTipChecks(new Date()).catch((error: unknown) =>
-  log.error({
-    step: "workspace-tip-check-schedule-start",
-    message: `Scheduling the hourly tip checks failed: ${String(error)}`,
-  }),
-)
 // Find the pending Workspace upgrades of each org after a deploy (ADR-053).
 // The key is per org and release, so a restart on the same day queues no
 // second scan. The scans only record the upgrades; each one waits for an
@@ -80,8 +71,23 @@ const wakeParents = () =>
         message: `Waking the parked parent runs failed: ${String(error)}`,
       }),
     )
+// Start the hourly chain that queues the tip check of each org with a
+// Workspace (ADR-046), at start and every 5 minutes, so a lost run of the
+// chain stops it for 5 minutes at most. The key is per hour, so a second
+// call in the same hour queues nothing new.
+const armTipChecks = () =>
+  void scheduleWorkspaceTipChecks(new Date()).catch((error: unknown) =>
+    log.error({
+      step: "workspace-tip-check-schedule-start",
+      message: `Scheduling the hourly tip checks failed: ${String(error)}`,
+    }),
+  )
 wakeParents()
-setInterval(wakeParents, 5 * 60_000).unref()
+armTipChecks()
+setInterval(() => {
+  wakeParents()
+  armTipChecks()
+}, 5 * 60_000).unref()
 
 /**
  * On SIGTERM or SIGINT, mark the guarded step attempts of this process

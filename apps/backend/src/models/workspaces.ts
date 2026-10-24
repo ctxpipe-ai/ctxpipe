@@ -1803,6 +1803,27 @@ export async function persistWriteStatus(
   })
 }
 
+/**
+ * The new record of a derived phase. A failure keeps the time of the first
+ * failure of the same revision, and a retry (`pending`) keeps the whole
+ * failure, so that a crash in the retry loses neither. A success clears it.
+ */
+function derivedPhaseSql(
+  key: "graph" | "index",
+  input: { revision: WorkspaceRevision; result: DerivedStoreResult },
+) {
+  const revision = JSON.stringify(input.revision)
+  const record = sql`jsonb_build_object('revision', ${revision}::jsonb, 'result', ${JSON.stringify(input.result)}::jsonb)`
+  if (input.result.kind === "ready") return record
+  const phase = sql`${workspaces.hydratePhases}->${sql.raw(`'${key}'`)}`
+  const prior = sql`case when ${phase}->'revision' = ${revision}::jsonb then ${phase}->'failure' end`
+  const failure =
+    input.result.kind === "failed"
+      ? sql`jsonb_build_object('message', ${input.result.message}::text, 'at', coalesce(${prior}->>'at', ${new Date().toISOString()}::text))`
+      : prior
+  return sql`${record} || case when ${failure} is null then '{}'::jsonb else jsonb_build_object('failure', ${failure}) end`
+}
+
 /** Record derived index freshness without changing the published PostgreSQL content. */
 export async function persistWorkspaceIndexResult(input: {
   revision: WorkspaceRevision
@@ -1815,13 +1836,10 @@ export async function persistWorkspaceIndexResult(input: {
         ...(input.result.kind === "ready"
           ? { indexedSha: input.revision.sha }
           : {}),
-        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || ${JSON.stringify(
-          {
-            index: input,
-            ...(input.result.kind === "ready"
-              ? { publishedIndex: input.revision }
-              : {}),
-          },
+        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || jsonb_build_object('index', ${derivedPhaseSql("index", input)}) || ${JSON.stringify(
+          input.result.kind === "ready"
+            ? { publishedIndex: input.revision }
+            : {},
         )}::jsonb`,
         updatedAt: new Date(),
       })
@@ -2129,7 +2147,7 @@ export async function persistWorkspaceGraphResult(input: {
     const [updated] = await getOrgDb()
       .update(workspaces)
       .set({
-        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || ${JSON.stringify({ graph: input })}::jsonb`,
+        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || jsonb_build_object('graph', ${derivedPhaseSql("graph", input)})`,
         updatedAt: new Date(),
       })
       .where(

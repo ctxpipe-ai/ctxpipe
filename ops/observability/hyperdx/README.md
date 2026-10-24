@@ -16,7 +16,7 @@ The script sets the password of the `ctxpipe ClickHouse` connection from `CLICKH
 
 **Production worker restarts** has one row for each start of the OpenWorkflow worker (`openworkflow.config-loaded`). The provision script does not write alerts. Add its alert in the HyperDX UI: more than 3 rows in 10 minutes, to the on-call webhook.
 
-**Production FalkorDB connection errors** has one row for each `graph.falkordb.connection` error of the backend or the worker. Each row is a lost connection to the graph store. Add its alert in the HyperDX UI: more than 3 rows in 10 minutes, to the on-call webhook.
+**Production FalkorDB connection errors** has one row for each `graph.falkordb.connection` error of the backend or the worker. Each row is a lost connection to the graph store or a failed connect. Add its alert in the HyperDX UI: more than 3 rows in 10 minutes, to the on-call webhook.
 
 ## Environment filter
 
