@@ -1,6 +1,6 @@
 # ADR-046: Workspace revision and projection identity
 
-**Status:** Accepted (revised 2026-10-16) | **Date:** 2026-09-08 | **Tags:** workspace, git, postgres
+**Status:** Accepted (revised 2026-10-24) | **Date:** 2026-09-08 | **Tags:** workspace, git, postgres
 
 ## Context
 
@@ -13,7 +13,7 @@ What "current" meant for a Workspace was spread over loosely coupled fields (des
 - **`ProjectionState`** (`absent` / `building` / `active` / `failed`, plus `legacy` for pre-upgrade data) is the only way readers learn what is served. A building or failed replacement keeps the previous projection serving.
 - **Activation** replaces knowledge units and linked membership and records the active revision in one Postgres transaction, guarded by a compare-and-set on generation, URL, connection and SHA. Relinking advances the generation; a same-SHA relink is still a new revision.
 - **Derived stores** (graph, embeddings, codesearch) are keyed by the revision and report their own freshness. Failure leaves Postgres serving; they retry from Postgres without refetching git. Missing graph data is "unavailable", never an empty graph.
-- **Codesearch** indexes immutable checkouts (`ws:<workspaceId>:<sha>`); a replacement index is built beside the published one and only the publish step switches it. Backend-signed claims bind repositories to SHAs.
+- **Codesearch** keeps one checkout of each repository for readers: the published checkout, at the newest commit of the default branch. Workspace code reads use it (see the revision of 2026-10-24). An ingestion run indexes its own immutable `rev:<sha>` checkout beside the published one, and only the publish step switches it. Backend-signed claims bind an ingestion run to its SHA.
 - Hot paths compare stored SHAs only; git remotes are contacted by webhooks (as triggers), our pushes, hydrate/index jobs, and a periodic tip check.
 
 ## Consequences
@@ -47,3 +47,12 @@ The pinned ref and SHAs of each linked repository (`LinkedRevision`) move from `
   - `format_ahead`: the format is above the `CODE_FORMAT` of the running code (for example after a rollback). Hydrate and the read paths serve the Workspace. Every write path refuses. No upgrade is offered.
   - `format_invalid`: the file does not parse. Hydrate serves the Workspace. Every write path refuses. The UI offers a "Repair" pull request.
 - The format file is host-only, as all of `.ctxpipe/` is.
+
+## Revision 2026-10-24: Workspace code reads use the published checkout
+
+- **Readers.** Workspace chat, the graph tools, and the MCP read surface ([ADR-051](ADR-051-mcp-read-surface.md)) read the code of each linked repository at its published checkout, which is the newest commit of the default branch. They do not read the revision SHA of the Workspace. A claim in the graph can point to code that changed after its revision. We accept this: code search shows the current code.
+- **No Workspace copies.** Codesearch makes no checkout for a Workspace (no `ws:<workspaceId>:<sha>` key). The Workspace index is ready when the repository has a published checkout. The cleanup deletes the old Workspace keys.
+- **Access.** A Workspace token lists the repositories that the Workspace links. Codesearch serves each listed repository from its published checkout, and refuses any other repository with 403. A Workspace token cannot index. An ingestion run token still reads only its own `rev:<sha>`.
+- **Storage.** Each repository has one shared bare clone. Only that clone fetches, deepens, and unshallows. Each checkout key is a git worktree of the clone at the same path as before, so readers do not change. An ingestion run removes its worktree when it ends, unless it is the published checkout. Git work on one shared clone runs one operation at a time.
+- **Cleanup.** The hourly cleanup also deletes files that no checkout row names, after one hour, under the purge lock of the repository. It never deletes the published checkout or a key that an unfinished run reads.
+- **Why.** One pinned copy for each Workspace revision doubled the disk use and the indexing work for each commit, with no reader that needed the old code.
