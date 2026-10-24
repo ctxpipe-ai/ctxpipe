@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { createServer } from "node:net"
 import {
+  type ChatMiddleware,
   chat,
   convertMessagesToModelMessages,
   defineChatMiddleware,
@@ -624,6 +625,66 @@ export async function warmTanstackWorkspaceChat(
 }
 
 /**
+ * End a turn whose chat did not reach its end hooks: release the
+ * conversation, then revoke the turn's GitHub tokens. A turn that the signal
+ * aborted is recorded as aborted, even when it also threw. The revoke runs
+ * even when the release throws, and the first error is kept.
+ */
+export async function endWorkspaceChatTurn(input: {
+  turn: {
+    abortRun: () => Promise<void>
+    failRun: (e: unknown) => Promise<void>
+  }
+  aborted: boolean
+  failure?: { error: unknown }
+  revoke: () => Promise<void>
+}): Promise<void> {
+  let first: { error: unknown } | undefined
+  try {
+    await (input.aborted || !input.failure
+      ? input.turn.abortRun()
+      : input.turn.failRun(input.failure.error))
+  } catch (error) {
+    first = { error }
+  }
+  try {
+    await input.revoke()
+  } catch (error) {
+    first ??= { error }
+  }
+  if (first) throw first.error
+}
+
+/**
+ * The middleware that store the thread, hold the conversation lock, and
+ * revoke the turn's GitHub tokens, in the order TanStack runs `onFinish`:
+ * the final thread is stored before the lock is released (the lock comes
+ * after `withPersistence`), and the lock is released before the tokens are
+ * revoked, so a run capability can mint nothing after the revoke. A mint
+ * already in flight is recorded for the sweep, and the route does not return
+ * it.
+ */
+export function workspaceChatLockMiddleware<
+  Persistence extends ChatMiddleware,
+  Lock extends ChatMiddleware,
+>(parts: {
+  persistence: Persistence
+  lock: Lock
+  revokeGitTokens: () => Promise<void>
+}): [Persistence, Lock, ChatMiddleware] {
+  return [
+    parts.persistence,
+    parts.lock,
+    defineChatMiddleware({
+      name: "workspace-chat-run-git-tokens",
+      onFinish: parts.revokeGitTokens,
+      onError: parts.revokeGitTokens,
+      onAbort: parts.revokeGitTokens,
+    }),
+  ]
+}
+
+/**
  * Hold the conversation and store the question and the running run, then set
  * up the sandbox and start the chat. The first step is quick. The setup can
  * take a minute, and a chat that opens again meanwhile shows the turn.
@@ -677,10 +738,13 @@ async function startWorkspaceChat(
   let revokeTurnGitTokens = async () => {}
   // The conversation is released first, so a run capability can mint
   // nothing after the revoke.
-  const end = async (ended: Promise<void>) => {
-    await ended
-    await revokeTurnGitTokens()
-  }
+  const end = (failure?: { error: unknown }) =>
+    endWorkspaceChatTurn({
+      turn,
+      aborted: abortController.signal.aborted,
+      failure,
+      revoke: () => revokeTurnGitTokens(),
+    })
   try {
     // One label per turn: the turn end revokes exactly its own token.
     const cloneLabel = `clone:${input.runId}`
@@ -898,19 +962,12 @@ async function startWorkspaceChat(
           onError: recordTurnChanges,
           onAbort: recordTurnChanges,
         }),
-        withPersistence(persistence, { snapshotStreaming: true }),
-        // The conversation's lock, taken before the setup. After
-        // `withPersistence`: TanStack runs onFinish in this order, so the
-        // final thread is stored before the next turn can take the lock.
-        turn.middleware,
-        // After the thread lock, so the lock is released first and a run
-        // capability can mint nothing after the revoke. A mint already in
-        // flight is recorded for the sweep, and the route does not return it.
-        defineChatMiddleware({
-          name: "workspace-chat-run-git-tokens",
-          onFinish: revokeTurnGitTokens,
-          onError: revokeTurnGitTokens,
-          onAbort: revokeTurnGitTokens,
+        ...workspaceChatLockMiddleware({
+          persistence: withPersistence(persistence, {
+            snapshotStreaming: true,
+          }),
+          lock: turn.middleware,
+          revokeGitTokens: () => revokeTurnGitTokens(),
         }),
         withSandbox(definition, {
           instances: built.instances,
@@ -1087,13 +1144,11 @@ async function startWorkspaceChat(
     return {
       ok: true,
       stream,
-      abortRun: () => end(turn.abortRun()),
-      failRun: (error) => end(turn.failRun(error)),
+      abortRun: () => end(),
+      failRun: (error) => end({ error }),
     }
   } catch (error) {
-    await end(
-      abortController.signal.aborted ? turn.abortRun() : turn.failRun(error),
-    )
+    await end({ error })
     throw error
   }
 }
