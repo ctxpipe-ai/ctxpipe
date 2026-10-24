@@ -99,6 +99,18 @@ async function installPublishedScipFixture(f: NativeIndexFixture) {
   )
 }
 
+/** The request of the one ingestion that a Workspace index queued. */
+async function queuedIngestionRequest(f: NativeIndexFixture) {
+  const requests = await withOrgDbContext(f.org.id, (db) =>
+    db
+      .select({ requestId: repositoryIngestionRequests.requestId })
+      .from(repositoryIngestionRequests)
+      .where(eq(repositoryIngestionRequests.repositoryId, f.repositoryId)),
+  )
+  expect(requests).toHaveLength(1)
+  return requests[0]?.requestId
+}
+
 /** The `workspace-index` jobs that the app client queued for the org. */
 async function queuedWorkspaceIndexes(f: NativeIndexFixture) {
   const queued = await getSystemDb().execute<{
@@ -584,15 +596,9 @@ it(
         ).toEqual([])
       })
       // The index started the ingestion of the repository.
-      const requests = await withOrgDbContext(org.id, (db) =>
-        db
-          .select({ id: repositoryIngestionRequests.repositoryId })
-          .from(repositoryIngestionRequests)
-          .where(eq(repositoryIngestionRequests.repositoryId, repositoryId)),
-      )
-      expect(requests).toHaveLength(1)
+      const requestId = await queuedIngestionRequest(f)
       // The ingestion publishes and queues the index of the Workspace.
-      await f.publish()
+      await f.publish(requestId)
       expect(await queuedWorkspaceIndexes(f)).toEqual([])
       expect(
         await withOrgIdContext(org, () =>
@@ -673,7 +679,7 @@ it(
         published: false,
         reason: "no_published_checkout",
       })
-      await f.publish()
+      await f.publish(await queuedIngestionRequest(f))
       await withOrgIdContext(org, () =>
         enqueueWorkspaceIndexesAfterPublish(
           { orgId: org.id, repositoryId, sha },

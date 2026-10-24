@@ -141,8 +141,9 @@ describe("workspace chat explorer tools (msw codesearch)", () => {
     expect(seen[0]?.path).toBe("/repo_bound/files-query")
     expect(seen[0]?.claims).toMatchObject({
       workspaceId: "ws_chat",
-      workspaceRevisions: [{ repositoryId: "repo_bound", sha: SHA }],
+      workspaceRepositoryIds: ["repo_bound"],
     })
+    expect(seen[0]?.claims).not.toHaveProperty("workspaceRevisions")
   })
 
   it("lists the linked repository for a legacy projection too", async () => {
@@ -152,7 +153,7 @@ describe("workspace chat explorer tools (msw codesearch)", () => {
     })
     expect(seen[0]?.claims).toMatchObject({
       workspaceId: "ws_chat",
-      workspaceRevisions: [{ repositoryId: "repo_bound", sha: SHA }],
+      workspaceRepositoryIds: ["repo_bound"],
     })
     expect(seen[0]?.claims).not.toHaveProperty("legacyWorkspace")
   })
@@ -169,7 +170,7 @@ describe("workspace chat explorer tools (msw codesearch)", () => {
     expect(seen[0]?.path).toBe("/search")
     expect(seen[0]?.body).toMatchObject({ RepoIDs: [7] })
     expect(seen[0]?.claims).toMatchObject({
-      workspaceRevisions: [{ repositoryId: "repo_bound", sha: SHA }],
+      workspaceRepositoryIds: ["repo_bound"],
     })
   })
 

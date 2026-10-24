@@ -257,8 +257,9 @@ export async function createNativeIndexFixture(
     await worker.start()
     const indexInput = { orgId: org.id, revision }
     // Workspace code reads use the published checkout: an ingestion indexes
-    // `rev:<sha>` and the repository row publishes it.
-    const publish = async () => {
+    // `rev:<sha>` and the repository row publishes it. Give the request of
+    // a queued ingestion when one exists: it owns the repository row.
+    const publish = async (requestId?: string) => {
       const published = await runner.runWorkflow(repositoryIndex.spec, {
         repositoryId,
         orgId: org.id,
@@ -270,7 +271,11 @@ export async function createNativeIndexFixture(
         targetHash: sha,
       })
       await withOrgIdContext(org, () =>
-        markRepositoryIndexingReady({ repositoryId, targetHash: sha }),
+        markRepositoryIndexingReady({
+          repositoryId,
+          targetHash: sha,
+          requestId,
+        }),
       )
     }
     return {
