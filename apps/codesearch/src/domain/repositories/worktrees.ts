@@ -144,7 +144,8 @@ export async function ensureCheckoutWorktree(input: {
     )
     return
   }
-  // The checkout collection deletes a `.tmp` entry that a crash left.
+  // A crash can leave a `.tmp` directory. The hourly cleanup deletes it and
+  // prunes its worktree registration.
   const newPath = `${input.checkoutPath}.${randomUUID()}.tmp`
   const oldPath = `${input.checkoutPath}.${randomUUID()}.old.tmp`
   await git(["worktree", "prune"], input.sharedPath)

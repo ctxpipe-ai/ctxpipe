@@ -318,4 +318,35 @@ describe("sweepRepositoryDisk", () => {
     expect(result.deletedBytes).toBeGreaterThan(0)
     expect(await worktreeList(repoId)).not.toContain(join(checkouts, orphan))
   })
+
+  it("deletes a temporary directory that a stopped swap left, and goes on to the shards", async () => {
+    const id = "repo_sweep_tmp"
+    const key = rev(shas[5] as string)
+    await phaseCloneCheckout(context(id, key), { targetHash: shas[5] })
+    const checkouts = join(cacheRoot, "repo-cache", ORG, id, "checkouts")
+    const leftover = join(checkouts, `${key}.1234.old.tmp`)
+    await git(
+      ["worktree", "add", "--force", "--detach", leftover, shas[5] as string],
+      repoSharedClonePath(ORG, id),
+    )
+    const orphanShard = join(
+      zoektDir,
+      `${encodeURIComponent(zoektRepositoryName({ orgId: ORG, repoId: id, checkoutKey: rev(shas[3] as string) }))}_v16.00000.zoekt`,
+    )
+    await mkdir(zoektDir, { recursive: true })
+    await writeFile(orphanShard, "shard")
+    for (const path of [leftover, orphanShard]) await utimes(path, old, old)
+
+    await sweepRepositoryDisk({
+      orgId: ORG,
+      repoId: id,
+      rowKeys: new Set(),
+      publishedCheckoutKey: key,
+      minAgeMs: 3_600_000,
+    })
+
+    await expect(stat(leftover)).rejects.toThrow()
+    await expect(stat(orphanShard)).rejects.toThrow()
+    expect(await worktreeList(id)).not.toContain(leftover)
+  })
 })

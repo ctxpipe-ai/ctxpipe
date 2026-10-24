@@ -117,7 +117,10 @@ export async function sweepRepositoryDisk(input: {
       )
         continue
       const size = await entrySize(path)
-      if (name.endsWith(".scip") || temporary) await rm(path, { force: true })
+      // A stopped swap leaves a `.tmp` worktree directory; `pruneWorktrees`
+      // below drops its registration.
+      if (name.endsWith(".scip") || temporary)
+        await rm(path, { recursive: true, force: true })
       else await removeCheckoutWorktree({ sharedPath, checkoutPath: path })
       result.deletedEntries += 1
       result.deletedBytes += size
