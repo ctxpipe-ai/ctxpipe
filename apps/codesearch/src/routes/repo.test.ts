@@ -897,12 +897,12 @@ describe("POST /{repoId}/checkouts/delete", () => {
   const coldDir = join(cacheRoot, "zoekt-index")
   const published = `rev:${"a".repeat(40)}`
   const old = `rev:${"b".repeat(40)}`
-  const oldWorkspace = `ws:ws_one:${"c".repeat(40)}`
+  const older = `rev:${"c".repeat(40)}`
   const zoektIds: Record<string, number> = {
     default: 1,
     [published]: 2,
     [old]: 3,
-    [oldWorkspace]: 4,
+    [older]: 4,
   }
 
   const shardName = (checkoutKey: string) =>
@@ -973,11 +973,11 @@ describe("POST /{repoId}/checkouts/delete", () => {
   })
 
   it("deletes only the listed keys and keeps the published and default checkouts", async () => {
-    const res = await deleteKeys([old, oldWorkspace, published])
+    const res = await deleteKeys([old, older, published])
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      deleted: [{ checkoutKey: old }, { checkoutKey: oldWorkspace }],
+      deleted: [{ checkoutKey: old }, { checkoutKey: older }],
       skipped: [{ checkoutKey: published, reason: "published" }],
     })
     expect((await readdir(checkoutsDir)).sort()).toEqual(
@@ -1102,11 +1102,13 @@ describe("POST /{repoId}/checkouts/delete", () => {
     expect(await exists(join(coldDir, shardName(old)))).toBe(true)
   })
 
-  it("refuses the default key and keys that are not checkout keys", async () => {
+  it("refuses the default key, an old Workspace key, and keys that are not checkout keys", async () => {
     for (const key of [
       "default",
       "rev:../../etc",
       `ws:a/b:${"c".repeat(40)}`,
+      `ws:ws_one:${"c".repeat(40)}`,
+      "ws:ws_one",
     ]) {
       const res = await deleteKeys([key])
       expect(res.status).toBe(400)
