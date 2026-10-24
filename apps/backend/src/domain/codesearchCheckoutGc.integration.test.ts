@@ -16,6 +16,7 @@ import {
   collectRepositoryCheckouts,
   listCollectableCheckouts,
   listLiveShas,
+  releaseRunCheckout,
 } from "./codesearchCheckoutGc.js"
 
 const sha = () => randomBytes(20).toString("hex")
@@ -65,14 +66,17 @@ const keys = {
   fresh: `rev:${shas.fresh}`,
 }
 const deleteRequests: string[][] = []
+const runEndedRequests: string[][] = []
 const codesearch = setupServer(
   http.post(
     `${codesearchUrl}/${repositoryId}/checkouts/delete`,
     async ({ request }) => {
-      const { checkoutKeys } = (await request.json()) as {
+      const { checkoutKeys, runEnded } = (await request.json()) as {
         checkoutKeys: string[]
+        runEnded?: boolean
       }
-      deleteRequests.push(checkoutKeys)
+      if (runEnded) runEndedRequests.push(checkoutKeys)
+      else deleteRequests.push(checkoutKeys)
       // A run takes the key again while codesearch deletes its files.
       if (checkoutKeys.includes(keys.raced))
         await ensureRepositoryRevisionCheckout({
@@ -212,7 +216,7 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
     await closeDb()
   })
 
-  it("keeps the published, running, current Workspace, recent, and default checkouts", async () => {
+  it("keeps the published, running, recent, and default checkouts, and collects every old Workspace key", async () => {
     const collectable = await listCollectableCheckouts({
       orgId,
       repositoryId,
@@ -225,6 +229,8 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
         keys.finished,
         keys.oldStepOutput,
         keys.raced,
+        keys.wsLegacy,
+        keys.wsCurrent,
         keys.wsOld,
         keys.wsGone,
       ].sort(),
@@ -234,7 +240,7 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
   it("deletes the rows of the checkouts that codesearch deleted, but not of a key a run took again", async () => {
     const result = await collectRepositoryCheckouts({ orgId, repositoryId })
 
-    expect(result).toEqual({ deletedKeys: 4 })
+    expect(result).toEqual({ deletedKeys: 6 })
     expect(await storedKeys()).toEqual(
       [
         keys.default,
@@ -243,8 +249,6 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
         keys.pending,
         keys.sleeping,
         keys.stepOutput,
-        keys.wsLegacy,
-        keys.wsCurrent,
         keys.wsGone,
         keys.fresh,
         keys.raced,
@@ -260,6 +264,33 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
     // Only the skipped `wsGone` is left, and it is asked for once.
     expect(deleteRequests).toEqual([[keys.wsGone]])
   })
+  it("deletes the recent checkout of an ended run, but keeps the published key and a key another run reads", async () => {
+    runEndedRequests.length = 0
+    const ended = `run_${sha()}`
+
+    expect(
+      await releaseRunCheckout({ orgId, sha: published, runId: ended }),
+    ).toEqual({ deletedKeys: 0 })
+    expect(
+      await releaseRunCheckout({ orgId, sha: shas.live, runId: ended }),
+    ).toEqual({ deletedKeys: 0 })
+    expect(runEndedRequests).toEqual([])
+
+    // The running parent run reads `live`; when it ends, its key goes.
+    expect(
+      await releaseRunCheckout({ orgId, sha: shas.live, runId: runIds.parent }),
+    ).toEqual({ deletedKeys: 1 })
+    // `fresh` changed less than one hour ago; an ended run still deletes it.
+    expect(
+      await releaseRunCheckout({ orgId, sha: shas.fresh, runId: ended }),
+    ).toEqual({ deletedKeys: 1 })
+    expect(runEndedRequests).toEqual([[keys.live], [keys.fresh]])
+    const stored = await storedKeys()
+    expect(stored).toContain(keys.published)
+    expect(stored).not.toContain(keys.live)
+    expect(stored).not.toContain(keys.fresh)
+  })
+
   it("stops after maxBatches calls when more keys are left", async () => {
     const old = new Date(Date.now() - 2 * 3_600_000)
     await withOrgDbContext(orgId, (db) =>

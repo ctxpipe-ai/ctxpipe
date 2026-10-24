@@ -112,7 +112,7 @@ function snapshot(
         gitUrl: "https://example.test/bound.git",
         zoektRepoId: 7,
         sha: SHA,
-        checkoutKey: `ws:ws_chat:${SHA}`,
+        checkoutKey: `rev:${SHA}`,
       },
     ],
   }
@@ -131,7 +131,7 @@ async function tool(name: string, kind: "active" | "legacy" = "active") {
 }
 
 describe("workspace chat explorer tools (msw codesearch)", () => {
-  it("reads a bound repository at its Workspace revision", async () => {
+  it("reads a bound repository, named by its Workspace link", async () => {
     const result = await (await tool("get_file")).execute({
       repositoryId: "repo_bound",
       path: "OWNERS",
@@ -145,16 +145,16 @@ describe("workspace chat explorer tools (msw codesearch)", () => {
     })
   })
 
-  it("reads the legacy Workspace checkout of a legacy projection", async () => {
+  it("lists the linked repository for a legacy projection too", async () => {
     await (await tool("get_file", "legacy")).execute({
       repositoryId: "repo_bound",
       path: "OWNERS",
     })
     expect(seen[0]?.claims).toMatchObject({
       workspaceId: "ws_chat",
-      legacyWorkspace: true,
+      workspaceRevisions: [{ repositoryId: "repo_bound", sha: SHA }],
     })
-    expect(seen[0]?.claims).not.toHaveProperty("workspaceRevisions")
+    expect(seen[0]?.claims).not.toHaveProperty("legacyWorkspace")
   })
 
   it("searches the bound Zoekt repository and keeps compact output", async () => {

@@ -145,6 +145,7 @@ async function withSearchProjection(
         orgId: org.id,
         name: "Published context",
         gitUrl: url,
+        lastIngestedHash: revision.sha,
       })
       const [checkout] = await db
         .insert(repositoryCheckouts)
@@ -153,7 +154,7 @@ async function withSearchProjection(
           orgId: org.id,
           repositoryId,
           ref: revision.sha,
-          checkoutKey: `ws:${workspaceId}:${revision.sha}`,
+          checkoutKey: `rev:${revision.sha}`,
           commitSha: revision.sha,
         })
         .returning()
@@ -165,6 +166,7 @@ async function withSearchProjection(
         orgId: org.id,
         name: "Linked context",
         gitUrl: url + "-linked",
+        lastIngestedHash: "cccccccccccccccccccccccccccccccccccccccc",
       })
       await insertLinkedRepositoryRows(db, {
         id: "wlr_" + id,
@@ -182,7 +184,7 @@ async function withSearchProjection(
           repositoryId: linkedRepoId,
           ref: "cccccccccccccccccccccccccccccccccccccccc",
           commitSha: "cccccccccccccccccccccccccccccccccccccccc",
-          checkoutKey: `ws:${workspaceId}:cccccccccccccccccccccccccccccccccccccccc`,
+          checkoutKey: `rev:cccccccccccccccccccccccccccccccccccccccc`,
         })
         .returning()
       if (!linkedCheckout) throw new Error("Missing linked checkout")
@@ -205,7 +207,7 @@ async function withSearchProjection(
       zoektName: zoektRepositoryName({
         orgId: org.id,
         repoId: repositoryId,
-        checkoutKey: `ws:${workspaceId}:${revision.sha}`,
+        checkoutKey: `rev:${revision.sha}`,
       }),
     })
     await unpinRepo({
@@ -213,7 +215,7 @@ async function withSearchProjection(
       zoektName: zoektRepositoryName({
         orgId: org.id,
         repoId: repositoryId + "_linked",
-        checkoutKey: `ws:${workspaceId}:cccccccccccccccccccccccccccccccccccccccc`,
+        checkoutKey: `rev:cccccccccccccccccccccccccccccccccccccccc`,
       }),
     })
     await withOrgDbContext(org.id, async (db) => {

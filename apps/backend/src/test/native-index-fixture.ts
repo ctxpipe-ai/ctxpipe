@@ -16,6 +16,7 @@ import { repositories } from "../db/schema/repositories.js"
 import { orgFirstWorkspaces, workspaces } from "../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
 import { generateObjectId } from "../lib/id.js"
+import { markRepositoryIndexingReady } from "../models/repositories.js"
 import { repositoryIndex } from "../openworkflow/workflows/repository-index.js"
 import { workspaceIndex } from "../openworkflow/workflows/workspace-index.js"
 import { workspaceTipCheck } from "../openworkflow/workflows/workspace-tip-check.js"
@@ -275,6 +276,21 @@ export async function createNativeIndexFixture(
       indexInput,
       cleanup,
       index: async () => {
+        // Workspace code reads use the published checkout: an ingestion
+        // indexes `rev:<sha>` and the repository row publishes it.
+        const published = await runner.runWorkflow(repositoryIndex.spec, {
+          repositoryId,
+          orgId: org.id,
+          targetHash: sha,
+          ingestionV2: true,
+        })
+        expect(await published.result({ timeoutMs: 30_000 })).toMatchObject({
+          searchIndexOk: true,
+          targetHash: sha,
+        })
+        await withOrgIdContext(org, () =>
+          markRepositoryIndexingReady({ repositoryId, targetHash: sha }),
+        )
         const handle = await runner.runWorkflow(workspaceIndex.spec, indexInput)
         expect(await handle.result({ timeoutMs: 30_000 })).toEqual({
           published: true,

@@ -11,7 +11,6 @@ import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
-import { ensureWorkspaceCheckout } from "../../models/repositories.js"
 import {
   captureWorkspaceRevision,
   commitHydrateProjection,
@@ -39,16 +38,7 @@ import type { WorkspaceRevision } from "./revision.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
 
 async function prepareUnpublishedIndex(f: NativeIndexFixture) {
-  const {
-    remote,
-    remoteUrl,
-    git,
-    org,
-    repositoryId,
-    workspaceId,
-    runner,
-    revision,
-  } = f
+  const { remote, git, org, repositoryId, runner } = f
   await writeFile(
     join(remote, "AGENTS.md"),
     "# Next revision\nUse cobaltmeadow instructions.\n",
@@ -68,17 +58,13 @@ async function prepareUnpublishedIndex(f: NativeIndexFixture) {
     "Unpublished index",
   )
   const nextSha = git("rev-parse", "HEAD")
-  await withOrgIdContext(org, () =>
-    ensureWorkspaceCheckout({ repositoryId, workspaceId, ref: nextSha }),
-  )
+  // An ingestion run indexes its own `rev:<sha>`; the repository row does
+  // not publish it, so Workspace reads keep the published checkout.
   const unpublishedIndex = await runner.runWorkflow(repositoryIndex.spec, {
     repositoryId,
     orgId: org.id,
-    workspaceId,
     targetHash: nextSha,
-    jobGeneration: 1,
-    jobWorkspaceUrl: remoteUrl,
-    revision: { ...revision, sha: nextSha },
+    ingestionV2: true,
   })
   expect(await unpublishedIndex.result({ timeoutMs: 30_000 })).toMatchObject({
     searchIndexOk: true,
@@ -88,7 +74,7 @@ async function prepareUnpublishedIndex(f: NativeIndexFixture) {
 }
 
 async function installPublishedScipFixture(f: NativeIndexFixture) {
-  const { directory, org, repositoryId, workspaceId, sha } = f
+  const { directory, org, repositoryId, sha } = f
   const symbol =
     "scip-typescript npm fixture 1.0.0 sample.js/publishedHelper()."
   await writeFile(
@@ -98,7 +84,7 @@ async function installPublishedScipFixture(f: NativeIndexFixture) {
       org.id,
       repositoryId,
       "checkouts",
-      `ws:${workspaceId}:${sha}.scip`,
+      `rev:${sha}.scip`,
     ),
     encodeScipIndex({
       documents: [
@@ -417,35 +403,51 @@ it(
 )
 
 it(
-  "an explicit legacy workspace with no checkout returns no search matches",
+  "a Workspace token reads only the repositories that the Workspace links",
   { timeout: 60_000 },
   async () =>
     withNativeIndexFixture(async (f) => {
-      const { repositoryId, org } = f
-      const missingCheckoutToken = await signUpstreamJwt({
-        env: parseEnv(process.env),
-        audience: "codesearch",
-        claims: {
-          sub: `repo:${repositoryId}`,
-          orgId: org.id,
-          principal: "service",
-          workspaceId: generateObjectId("ws"),
-          legacyWorkspace: true,
-        },
-      })
-      const missingCheckoutSearch = await fetch(
-        `${process.env.CODESEARCH_URL}/search`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${missingCheckoutToken}`,
+      const { repositoryId, org, workspaceId } = f
+      const sign = (claims: Record<string, unknown>) =>
+        signUpstreamJwt({
+          env: parseEnv(process.env),
+          audience: "codesearch",
+          claims: {
+            sub: `repo:${repositoryId}`,
+            orgId: org.id,
+            principal: "service",
+            workspaceId,
+            ...claims,
           },
-          body: JSON.stringify({ Q: "amberquartz" }),
+        })
+      const request = async (token: string, path: string) =>
+        fetch(`${process.env.CODESEARCH_URL}${path}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      // A token that lists no repository is refused.
+      const unbound = await sign({})
+      expect((await request(unbound, `/${repositoryId}/tree`)).status).toBe(401)
+      // A token that lists another repository cannot read this one.
+      const other = await sign({
+        workspaceRevisions: [
+          { repositoryId: generateObjectId("repo"), sha: "a".repeat(40) },
+        ],
+      })
+      for (const path of [
+        `/${repositoryId}/tree`,
+        `/${repositoryId}/files/AGENTS.md`,
+      ])
+        expect((await request(other, path)).status).toBe(403)
+      const otherSearch = await fetch(`${process.env.CODESEARCH_URL}/search`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${other}`,
         },
-      )
-      expect(missingCheckoutSearch.status).toBe(200)
-      expect(await missingCheckoutSearch.json()).toEqual({ Files: [] })
+        body: JSON.stringify({ Q: "amberquartz" }),
+      })
+      expect(otherSearch.status).toBe(200)
+      expect(await otherSearch.json()).toEqual({ Files: [] })
     }, true),
 )
 
