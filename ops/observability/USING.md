@@ -1,6 +1,6 @@
 # Using the stack
 
-How to read hosted telemetry and how to send a laptop into it. What runs and how it is deployed: [README.md](./README.md). Agents: [observability skill](../../.cursor/skills/observability/SKILL.md).
+How to read hosted telemetry and how to send a laptop into it. What runs and how it is deployed: [README.md](./README.md). Agents: [observability skill](../../.agents/skills/observability/SKILL.md).
 
 HyperDX: https://hyperdx.ctxpipe.ai. Langfuse: https://langfuse.ctxpipe.ai. OTLP: https://telemetry.ctxpipe.ai with `OTEL_EXPORTER_OTLP_HEADERS=authorization=<HYPERDX_API_KEY>` (the ingest token, not the personal access key).
 
@@ -34,13 +34,13 @@ Sessions charts stay empty while browser replay is off.
 
 ## MCP
 
-Repo config: [`.cursor/mcp.json`](../../.cursor/mcp.json).
+Repo config: [`.mcp.json`](../../.mcp.json) (Claude Code) and [`.codex/config.toml`](../../.codex/config.toml) (Codex). The server lists are the same.
 
 | Server | URL | Header | Secret |
 | --- | --- | --- | --- |
 | `hyperdx` | `https://hyperdx.ctxpipe.ai/api/mcp` | `Authorization: Bearer <HYPERDX_ACCESS_KEY>` | `HYPERDX_ACCESS_KEY` |
 | `langfuse` | `https://langfuse.ctxpipe.ai/api/public/mcp` | `Authorization: Basic <LANGFUSE_AUTH_STRING>` | `LANGFUSE_AUTH_STRING` |
-| `railway` | `https://mcp.railway.com` | Cursor OAuth | — |
+| `railway` | stdio `railway mcp local` | — | `RAILWAY_API_TOKEN` |
 
 `HYPERDX_ACCESS_KEY` is the personal key. `HYPERDX_API_KEY` is the ingest token. A wrong HyperDX key often shows up as HTTP 405 while the client probes OAuth.
 
@@ -51,7 +51,7 @@ claude mcp add --transport http langfuse https://langfuse.ctxpipe.ai/api/public/
   --header "Authorization: Basic ${LANGFUSE_AUTH_STRING}"
 ```
 
-Cloud agents need `HYPERDX_ACCESS_KEY` and `LANGFUSE_AUTH_STRING`. Railway MCP uses Cursor OAuth and may be absent headless (Claude Code's `.mcp.json` uses `railway mcp local` with `RAILWAY_API_TOKEN`). HyperDX does not sleep, so the first call works.
+Cloud agents need `HYPERDX_ACCESS_KEY` and `LANGFUSE_AUTH_STRING`. Railway MCP needs `RAILWAY_API_TOKEN`. HyperDX does not sleep, so the first call works.
 
 ClickHouse has no public hostname (`clickhouse.railway.internal:8123`). Query it through HyperDX `clickstack_*`. Publishing port 8123 is not done.
 
@@ -61,7 +61,7 @@ Leave `OTEL_EXPORTER_OTLP_*` unset unless this run needs a backend. `pnpm dev` d
 
 **Laptop collector.** `pnpm dev:infra` publishes `${CTXPIPE_OTEL_COLLECTOR_HOST_PORT:-4318}:4318` on every interface. Point the app at `http://127.0.0.1:4318/v1/traces`, `/v1/logs`, and `/v1/metrics`. Omit the headers. `OTEL_SERVICE_NAME` is `backend`, `openworkflow`, or `codesearch`. The collector prints OTLP to its own logs. There is no local HyperDX.
 
-**Shared collector (opt-in).** Use it when the hosted dashboards should show this run; [preview-env](../../.cursor/skills/preview-env/run-setup.md#local-trace-export) local runs always do. The 4 GiB ClickHouse node and the Langfuse prompt store are why it stays opt-in.
+**Shared collector (opt-in).** Use it when the hosted dashboards should show this run; [preview-env](../../.agents/skills/preview-env/run-setup.md#local-trace-export) local runs always do. The 4 GiB ClickHouse node and the Langfuse prompt store are why it stays opt-in.
 
 Put these lines in `apps/backend/.env.local` (gitignored; never commit the key):
 
