@@ -247,9 +247,8 @@ it(
         workspaceTipCheckSchedule.fn,
       )
       // The schedule queues the tip check of each org in the database. This
-      // test reads the queued runs; it must not run the checks of the orgs
-      // of other test files.
-      runner.implementWorkflow(workspaceTipCheck.spec, async () => ({}))
+      // worker runs only the schedule. It never runs a tip check, so it
+      // cannot claim the real runs of other test files.
       const worker = runner.newWorker({ concurrency: 1 })
       await worker.start()
       try {

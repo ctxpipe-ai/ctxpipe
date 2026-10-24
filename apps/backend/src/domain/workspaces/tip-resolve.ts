@@ -63,6 +63,8 @@ export function shouldEnqueueCronHydrate(input: {
  * A failed phase is built again in the check of the UTC hour that is 1, 2,
  * 4, 8 or 16 hours after the hour of its first failure, then each 24 hours.
  * A phase with no stored failure time is built again in each check.
+ * A retry slot is an exact hour. A late or skipped hour misses its slot, and
+ * the retry waits for the next slot.
  */
 export function failedPhaseRetryDue(
   failedAt: string | undefined,
