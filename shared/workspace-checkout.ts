@@ -4,8 +4,8 @@ function workspaceCheckoutBase(workspaceId: string): string {
   return `ws:${workspaceId}`
 }
 
-/** Bind this prefix in SQL when the immutable SHA is a database expression. */
-export function workspaceCheckoutPrefix(workspaceId: string): string {
+/** The prefix of the Workspace keys of one Workspace. */
+function workspaceCheckoutPrefix(workspaceId: string): string {
   return `${workspaceCheckoutBase(workspaceId)}:`
 }
 
