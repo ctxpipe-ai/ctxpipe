@@ -77,4 +77,26 @@ describe("resetCacheForLayout", () => {
     expect(existsSync(join(cache, "org_a"))).toBe(true)
     expect(existsSync(marker)).toBe(false)
   })
+
+  it("refuses a directory inside the other and deletes nothing", async () => {
+    const nested = join(cache, "zoekt-index")
+    mkdirSync(nested)
+    writeFileSync(join(nested, "a.zoekt"), "shard")
+    await expect(
+      resetCacheForLayout({ markerPath: marker, dirs: [cache, nested] }),
+    ).rejects.toThrow("separate paths")
+    await expect(
+      resetCacheForLayout({ markerPath: marker, dirs: [nested, cache] }),
+    ).rejects.toThrow("separate paths")
+    expect(existsSync(join(nested, "a.zoekt"))).toBe(true)
+    expect(existsSync(join(cache, "org_a"))).toBe(true)
+    expect(existsSync(marker)).toBe(false)
+  })
+
+  it("accepts the same directory twice", async () => {
+    await expect(
+      resetCacheForLayout({ markerPath: marker, dirs: [cache, cache] }),
+    ).resolves.toEqual({ reset: true })
+    expect(readdirSync(cache)).toEqual([".codesearch-layout"])
+  })
 })

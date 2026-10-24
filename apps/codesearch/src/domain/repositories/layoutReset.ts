@@ -1,5 +1,12 @@
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
-import { dirname, isAbsolute, join, parse } from "node:path"
+import {
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises"
+import { dirname, isAbsolute, join, parse, relative } from "node:path"
 import { log } from "../../observability/logger.js"
 
 /**
@@ -28,6 +35,15 @@ export async function resetCacheForLayout(input: {
       throw new Error(
         `Cache directory must be an absolute non-root path: ${dir}`,
       )
+  const resolved = await Promise.all(
+    input.dirs.map((dir) => realpath(dir).catch(() => dir)),
+  )
+  for (const [i, a] of resolved.entries())
+    for (const [j, b] of resolved.entries()) {
+      const inside = relative(a, b)
+      if (i !== j && inside !== "" && !inside.startsWith(".."))
+        throw nestedError(input.dirs[i], input.dirs[j])
+    }
   const cleared: Record<string, number> = {}
   for (const dir of input.dirs) {
     const names = await readdir(dir).catch(() => [] as string[])
@@ -48,4 +64,10 @@ export async function resetCacheForLayout(input: {
     layout: CACHE_LAYOUT,
   })
   return { reset: true }
+}
+
+function nestedError(outer: string | undefined, inner: string | undefined) {
+  const message = `Cache directory ${inner} is inside ${outer}, so the reset would delete both. Set the repository cache and the Zoekt index to separate paths.`
+  log.error({ step: "codesearch.cache_layout_reset_refused", message })
+  return new Error(message)
 }
