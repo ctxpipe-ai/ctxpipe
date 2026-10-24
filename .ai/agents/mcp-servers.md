@@ -12,4 +12,3 @@ Claude Code and Codex read keys from environment variables. Only `ctxpipe` can f
 | `railway` | Railway status + deploy/runtime stdout | Stdio server (`railway mcp local`). Set `RAILWAY_API_TOKEN`, or run `railway login` |
 | `hyperdx` | ClickStack logs, traces, metrics, dashboards | `HYPERDX_ACCESS_KEY` = personal access key (Bearer), not the `HYPERDX_API_KEY` ingest token. It is required |
 | `langfuse` | Langfuse **project** MCP (LLM traces / prompts) | `LANGFUSE_AUTH_STRING` = base64(`pk:sk`) is required. Codex sends it through a stdio `mcp-remote` bridge. See [ops/observability/USING.md](../../ops/observability/USING.md) |
-
