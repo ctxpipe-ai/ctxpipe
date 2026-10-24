@@ -223,7 +223,9 @@ const IngestCapabilityClaimsSchema = z.object({
 
 /**
  * The claims of a step's tool-bridge capability (T04): the checkouts that
- * the bridge may read, each at its pinned commit. The capability length cap
+ * the bridge may read. The source checkout has its pinned commit; a
+ * destination Workspace checkout has no commit, because codesearch serves
+ * the published checkout of the repository. The capability length cap
  * limits the number of checkouts; the mint fails above it.
  */
 export const WorkspaceIngestToolsClaimsSchema = z.object({
@@ -234,7 +236,10 @@ export const WorkspaceIngestToolsClaimsSchema = z.object({
       z.object({
         repositoryId: z.string().min(1),
         checkoutKey: z.string().min(1),
-        sha: z.string().regex(/^[0-9a-f]{40}$/),
+        sha: z
+          .string()
+          .regex(/^[0-9a-f]{40}$/)
+          .optional(),
       }),
     )
     .min(1),

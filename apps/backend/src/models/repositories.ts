@@ -3,6 +3,7 @@ import {
   count,
   eq,
   inArray,
+  isNotNull,
   isNull,
   lte,
   ne,
@@ -60,7 +61,12 @@ const touchCheckoutOnReuse = {
   set: { updatedAt: sql`now()` },
 }
 
-/** True when the repository has the checkout that code reads use (see `publishedRepositoryCheckoutKey`). */
+/**
+ * True when an ingestion published the repository and the checkout that code
+ * reads use exists (see `publishedRepositoryCheckoutKey`). A new repository
+ * has a `default` row before its first ingestion, so the row alone is not
+ * enough.
+ */
 export async function hasPublishedCheckout(
   repositoryId: string,
 ): Promise<boolean> {
@@ -75,7 +81,12 @@ export async function hasPublishedCheckout(
           eq(repositoryCheckouts.checkoutKey, publishedRepositoryCheckoutKey()),
         ),
       )
-      .where(eq(repositories.id, repositoryId))
+      .where(
+        and(
+          eq(repositories.id, repositoryId),
+          isNotNull(repositories.lastIngestedHash),
+        ),
+      )
       .limit(1)
     return Boolean(row)
   })

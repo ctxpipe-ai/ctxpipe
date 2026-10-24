@@ -59,8 +59,6 @@ export type CodesearchIndexAuth = {
   repositoryId: string
   orgId: string
   repositoryRevisions?: Array<{ repositoryId: string; sha: string }>
-  workspaceId?: string
-  workspaceRevisions?: Array<{ repositoryId: string; sha: string }>
 }
 
 async function authorizedCodesearchFetch(
@@ -79,10 +77,6 @@ async function authorizedCodesearchFetch(
       ...(auth.repositoryRevisions
         ? { repositoryRevisions: auth.repositoryRevisions }
         : {}),
-      ...(auth.workspaceRevisions
-        ? { workspaceRevisions: auth.workspaceRevisions }
-        : {}),
-      ...(auth.workspaceId ? { workspaceId: auth.workspaceId } : {}),
     },
   })
   return fetch(`${codesearchBaseUrl()}/${auth.repositoryId}${path}`, {

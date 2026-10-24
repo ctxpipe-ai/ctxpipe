@@ -68,9 +68,11 @@ async function fetchWithAuth(
       ...(sourceSha
         ? { repositoryRevisions: [{ repositoryId, sha: sourceSha }] }
         : {}),
-      ...(extras?.workspaceId ? { workspaceId: extras.workspaceId } : {}),
-      ...(extras?.sha && extras.workspaceId
-        ? { workspaceRevisions: [{ repositoryId, sha: extras.sha }] }
+      ...(extras?.workspaceId
+        ? {
+            workspaceId: extras.workspaceId,
+            workspaceRepositoryIds: [repositoryId],
+          }
         : {}),
     },
   })

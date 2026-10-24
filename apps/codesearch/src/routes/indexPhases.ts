@@ -21,13 +21,13 @@ import {
 } from "../domain/indexing/phases.js"
 import {
   repoCheckoutPath,
+  repoSharedClonePath,
   scipIndexPath,
 } from "../domain/repositories/paths.js"
 import {
   getAccessibleRepository,
   getIndexableRepository,
 } from "../domain/repositories/service.js"
-import { repoSharedClonePath } from "../domain/repositories/worktrees.js"
 import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
 import {
   createLogger,

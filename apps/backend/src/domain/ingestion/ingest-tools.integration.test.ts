@@ -254,8 +254,7 @@ function checkoutsOf(org: Pick<Org, "source" | "context">) {
     },
     {
       repositoryId: org.context,
-      checkoutKey: `ws:${workspaceId}:${CONTEXT_SHA}`,
-      sha: CONTEXT_SHA,
+      checkoutKey: `ws:${workspaceId}`,
     },
   ]
 }
@@ -338,7 +337,7 @@ describe("ingest tool bridge through registerV1Routes (Postgres, msw codesearch)
     expect(names).not.toContain("list_repositories")
     const checkouts = await callTool(token, "list_checkouts", {})
     expect(checkouts.text).toContain(`rev:${SOURCE_SHA}`)
-    expect(checkouts.text).toContain(`ws:${workspaceId}:${CONTEXT_SHA}`)
+    expect(checkouts.text).toContain(`ws:${workspaceId}`)
   })
 
   it("runs get_file, search, structural_search, and a graph tool on the source checkout with its revision claim", async () => {
@@ -377,20 +376,21 @@ describe("ingest tool bridge through registerV1Routes (Postgres, msw codesearch)
     expect(seen[1]?.body).not.toHaveProperty("RepoIDs")
   })
 
-  it("searches a destination Workspace checkout with its Workspace revision claim", async () => {
+  it("searches a destination Workspace checkout with its Workspace repository claim", async () => {
     const org = await createOrg()
     const { token } = await step(org)
     const result = await callTool(token, "search", {
       repositoryId: org.context,
-      checkoutKey: `ws:${workspaceId}:${CONTEXT_SHA}`,
+      checkoutKey: `ws:${workspaceId}`,
       query: "billing",
     })
     expect(result.isError).toBe(false)
     expect(seen).toHaveLength(1)
     expect(seen[0]?.claims).toMatchObject({
       workspaceId,
-      workspaceRevisions: [{ repositoryId: org.context, sha: CONTEXT_SHA }],
+      workspaceRepositoryIds: [org.context],
     })
+    expect(seen[0]?.claims).not.toHaveProperty("workspaceRevisions")
     expect(seen[0]?.claims).not.toHaveProperty("repositoryRevisions")
     expect(seen[0]?.body).not.toHaveProperty("RepoIDs")
   })
@@ -402,9 +402,9 @@ describe("ingest tool bridge through registerV1Routes (Postgres, msw codesearch)
       { repositoryId: org.source, checkoutKey: `rev:${OTHER_SHA}` },
       {
         repositoryId: org.context,
-        checkoutKey: `ws:${workspaceId}:${OTHER_SHA}`,
+        checkoutKey: `ws:${workspaceId}:${CONTEXT_SHA}`,
       },
-      { repositoryId: org.context, checkoutKey: `ws:ws_other:${CONTEXT_SHA}` },
+      { repositoryId: org.context, checkoutKey: "ws:ws_other" },
       { repositoryId: org.context, checkoutKey: `rev:${SOURCE_SHA}` },
       { repositoryId: "repo_other", checkoutKey: `rev:${SOURCE_SHA}` },
       { repositoryId: org.source },

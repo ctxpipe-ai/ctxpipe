@@ -33,7 +33,7 @@ export type GraphRequestBody = {
 export async function codesearchGraphQuery(
   repository: Pick<ZoektRepositoryRow, "id" | "orgId">,
   body: GraphRequestBody,
-  workspace?: { workspaceId: string; sha: string },
+  workspace?: { workspaceId: string },
   transport?: CodesearchHttpOptions,
 ): Promise<Record<string, unknown>> {
   const source = capturedSourceRevision(repository.orgId, repository.id)
@@ -54,12 +54,10 @@ export async function codesearchGraphQuery(
             ],
           }
         : {}),
-      ...(workspace ? { workspaceId: workspace.workspaceId } : {}),
       ...(workspace
         ? {
-            workspaceRevisions: [
-              { repositoryId: repository.id, sha: workspace.sha },
-            ],
+            workspaceId: workspace.workspaceId,
+            workspaceRepositoryIds: [repository.id],
           }
         : {}),
     },

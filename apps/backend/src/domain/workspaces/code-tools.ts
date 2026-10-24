@@ -36,7 +36,7 @@ export type ExplorerTool = { name: string; description: string }
  */
 export type CodeCheckout = { repositoryId: string } & (
   | { source: { sha: string } }
-  | { workspace: { workspaceId: string; sha: string } }
+  | { workspace: { workspaceId: string } }
 )
 
 /** Runs a Zoekt query on the checkout and gives the raw response. */

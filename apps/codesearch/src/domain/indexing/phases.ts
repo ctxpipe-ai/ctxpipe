@@ -243,18 +243,18 @@ async function runCommandOutput(
 }
 
 /**
- * A clone needs at least this much free disk. One ingestion peak (a clone,
- * its Zoekt shards, and its SCIP files) uses up to about 7 GB.
+ * Fails when the cache volume has less than 5 GB of free disk. One ingestion
+ * peak (a fetch, a checkout, its Zoekt shards, and its SCIP files) uses up to
+ * about 7 GB.
  */
-const MIN_FREE_BYTES_FOR_CLONE = 5 * 1024 ** 3
-
-async function assertFreeSpaceForClone(path: string): Promise<void> {
+async function assertFreeDiskSpace(path: string): Promise<void> {
+  const minFreeBytes = 5 * 1024 ** 3
   const fs = await statfs(path)
   const free = fs.bavail * fs.bsize
-  if (free >= MIN_FREE_BYTES_FOR_CLONE) return
+  if (free >= minFreeBytes) return
   const gb = (bytes: number) => (bytes / 1e9).toFixed(1)
   throw new Error(
-    `Codesearch has only ${gb(free)} GB of free disk space, and a clone needs at least ${gb(MIN_FREE_BYTES_FOR_CLONE)} GB. ` +
+    `Codesearch has only ${gb(free)} GB of free disk space, and an ingestion needs at least ${gb(minFreeBytes)} GB. ` +
       "To fix it, make the codesearch volume larger, or wait for the hourly checkout cleanup. Then run the ingestion again.",
   )
 }
@@ -270,7 +270,7 @@ async function ensureSharedClone(params: {
 }): Promise<void> {
   const { remote } = params
   await mkdir(dirname(params.sharedPath), { recursive: true })
-  await assertFreeSpaceForClone(dirname(params.sharedPath))
+  await assertFreeDiskSpace(dirname(params.sharedPath))
   if (await pathExists(join(params.sharedPath, "HEAD"))) {
     // Use the plain remote URL; the credential comes per command.
     await runCommand(["git", "remote", "set-url", "origin", remote.url], {
@@ -631,71 +631,79 @@ export async function phaseCloneCheckout(
   })
 
   // Fetches and worktree changes of one shared clone run one at a time.
-  return withSharedClone(ctx.sharedClonePath, async () => {
-    const shared = ctx.sharedClonePath
-    await writeStep("cloning")
-    await withPhase("clone", () =>
-      ensureSharedClone({ remote, sharedPath: shared }),
-    )
+  return withSharedClone(
+    ctx.sharedClonePath,
+    async () => {
+      const shared = ctx.sharedClonePath
+      await writeStep("cloning")
+      await withPhase("clone", () =>
+        ensureSharedClone({ remote, sharedPath: shared }),
+      )
 
-    await writeStep("checking_out")
-    const resolvedTarget = await withPhase("resolve_commit", () =>
-      resolveTargetCommitHash({
-        remote,
-        clonePath: shared,
-        targetHash: params.targetHash,
-      }),
-    )
-
-    let ingestMode: "full" | "partial" = "full"
-    let changedPaths: string[] = []
-    let deletedPaths: string[] = []
-    let renames: { from: string; to: string }[] = []
-
-    if (params.fromHash && params.fromHash.trim().length > 0) {
-      const fromHash = params.fromHash.trim()
-      const diffResult = await withPhase("diff", async () => {
-        const fromResolved = await ensureCommitInRepo(shared, fromHash, remote)
-        await ensureMergeBaseAvailable(
-          shared,
-          fromResolved,
-          resolvedTarget,
+      await writeStep("checking_out")
+      const resolvedTarget = await withPhase("resolve_commit", () =>
+        resolveTargetCommitHash({
           remote,
-        )
-        if (!(await isAncestor(shared, fromResolved, resolvedTarget)))
-          return null
-        return parseNameStatus(
-          await diffRangeNameStatus({
-            clonePath: shared,
-            fromSha: fromResolved,
-            toSha: resolvedTarget,
-          }),
-        )
-      })
-      if (diffResult) {
-        ingestMode = "partial"
-        changedPaths = diffResult.changedPaths
-        deletedPaths = diffResult.deletedPaths
-        renames = diffResult.renames
+          clonePath: shared,
+          targetHash: params.targetHash,
+        }),
+      )
+
+      let ingestMode: "full" | "partial" = "full"
+      let changedPaths: string[] = []
+      let deletedPaths: string[] = []
+      let renames: { from: string; to: string }[] = []
+
+      if (params.fromHash && params.fromHash.trim().length > 0) {
+        const fromHash = params.fromHash.trim()
+        const diffResult = await withPhase("diff", async () => {
+          const fromResolved = await ensureCommitInRepo(
+            shared,
+            fromHash,
+            remote,
+          )
+          await ensureMergeBaseAvailable(
+            shared,
+            fromResolved,
+            resolvedTarget,
+            remote,
+          )
+          if (!(await isAncestor(shared, fromResolved, resolvedTarget)))
+            return null
+          return parseNameStatus(
+            await diffRangeNameStatus({
+              clonePath: shared,
+              fromSha: fromResolved,
+              toSha: resolvedTarget,
+            }),
+          )
+        })
+        if (diffResult) {
+          ingestMode = "partial"
+          changedPaths = diffResult.changedPaths
+          deletedPaths = diffResult.deletedPaths
+          renames = diffResult.renames
+        }
       }
-    }
 
-    await withPhase("checkout", () =>
-      ensureCheckoutWorktree({
-        sharedPath: shared,
-        checkoutPath: ctx.clonePath,
-        sha: resolvedTarget,
-      }),
-    )
+      await withPhase("checkout", () =>
+        ensureCheckoutWorktree({
+          sharedPath: shared,
+          checkoutPath: ctx.clonePath,
+          sha: resolvedTarget,
+        }),
+      )
 
-    return {
-      targetHash: resolvedTarget,
-      ingestMode,
-      changedPaths,
-      deletedPaths,
-      renames,
-    }
-  })
+      return {
+        targetHash: resolvedTarget,
+        ingestMode,
+        changedPaths,
+        deletedPaths,
+        renames,
+      }
+    },
+    ctx.clonePath,
+  )
 }
 
 export async function phaseZoekt(ctx: IndexPhaseRepoContext): Promise<void> {

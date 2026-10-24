@@ -224,11 +224,11 @@ async function deleteOnCodesearch(
   orgId: string,
   repositoryId: string,
   checkoutKeys: string[],
-  runEnded?: true,
+  runEndedAt?: string,
 ): Promise<z.infer<typeof deleteResponseSchema> | "busy"> {
   const response = await postCollection(orgId, repositoryId, "delete", {
     checkoutKeys,
-    ...(runEnded ? { runEnded } : {}),
+    ...(runEndedAt ? { runEndedAt } : {}),
   })
   if (response.status === 409) {
     await response.body?.cancel()
@@ -316,8 +316,10 @@ export async function collectRepositoryCheckouts(input: {
 /**
  * Deletes the `rev:<sha>` checkout of an ingestion run that ended, with or
  * without success, in each repository of the org that has it. It keeps the
- * published revision and a SHA that another unfinished run reads. The
- * hourly collection deletes what this leaves. Never throws.
+ * published revision and a SHA that another unfinished run reads. A run
+ * that starts after the list of unfinished runs touches the row after
+ * `endedAt`, so its key stays. The hourly collection deletes what this
+ * leaves. Never throws.
  */
 export async function releaseRunCheckout(input: {
   orgId: string
@@ -327,6 +329,15 @@ export async function releaseRunCheckout(input: {
   let deletedKeys = 0
   try {
     const key = repositoryRevisionCheckoutKey(input.sha)
+    // The database clock, read before the list: the same clock sets
+    // `updated_at` when a run touches the row.
+    const [clock] = (
+      await getSystemDb().execute<{ ended_at: string }>(
+        sql`select to_json(now()) #>> '{}' as ended_at`,
+      )
+    ).rows
+    if (!clock) throw new Error("The database gave no time")
+    const endedAt = clock.ended_at
     const liveShas = await listLiveShas(input.runId)
     const candidates = await withOrgDbContext(input.orgId, (db) =>
       db.execute<{ repository_id: string }>(sql`
@@ -334,6 +345,7 @@ export async function releaseRunCheckout(input: {
         from repository_checkouts c
         join repositories r on r.id = c.repository_id
         where c.checkout_key = ${key}
+          and c.updated_at <= ${endedAt}::timestamptz
           and ${collectable(textArray(liveShas), false)}
       `),
     )
@@ -342,7 +354,7 @@ export async function releaseRunCheckout(input: {
         input.orgId,
         repositoryId,
         [key],
-        true,
+        new Date(endedAt).toISOString(),
       )
       // An index job of the repository runs now: the hourly job deletes it.
       if (result === "busy") continue

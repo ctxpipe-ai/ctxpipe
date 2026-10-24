@@ -21,7 +21,7 @@ export type StructuralSearchBody = {
   limit?: number
 }
 
-type StructuralSearchWorkspace = { workspaceId: string; sha: string }
+type StructuralSearchWorkspace = { workspaceId: string }
 
 /** The parsed codesearch answer, or the status and detail of a 4xx. A 5xx throws. */
 export async function codesearchStructuralSearchJson(
@@ -51,12 +51,10 @@ export async function codesearchStructuralSearchJson(
             ],
           }
         : {}),
-      ...(workspace ? { workspaceId: workspace.workspaceId } : {}),
       ...(workspace
         ? {
-            workspaceRevisions: [
-              { repositoryId: repository.id, sha: workspace.sha },
-            ],
+            workspaceId: workspace.workspaceId,
+            workspaceRepositoryIds: [repository.id],
           }
         : {}),
     },

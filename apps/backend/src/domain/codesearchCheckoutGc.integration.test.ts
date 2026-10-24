@@ -67,16 +67,19 @@ const keys = {
 }
 const deleteRequests: string[][] = []
 const runEndedRequests: string[][] = []
+const runEndedTimes: string[] = []
 const codesearch = setupServer(
   http.post(
     `${codesearchUrl}/${repositoryId}/checkouts/delete`,
     async ({ request }) => {
-      const { checkoutKeys, runEnded } = (await request.json()) as {
+      const { checkoutKeys, runEndedAt } = (await request.json()) as {
         checkoutKeys: string[]
-        runEnded?: boolean
+        runEndedAt?: string
       }
-      if (runEnded) runEndedRequests.push(checkoutKeys)
-      else deleteRequests.push(checkoutKeys)
+      if (runEndedAt) {
+        runEndedRequests.push(checkoutKeys)
+        runEndedTimes.push(runEndedAt)
+      } else deleteRequests.push(checkoutKeys)
       // A run takes the key again while codesearch deletes its files.
       if (checkoutKeys.includes(keys.raced))
         await ensureRepositoryRevisionCheckout({
@@ -285,10 +288,37 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
       await releaseRunCheckout({ orgId, sha: shas.fresh, runId: ended }),
     ).toEqual({ deletedKeys: 1 })
     expect(runEndedRequests).toEqual([[keys.live], [keys.fresh]])
+    // Codesearch gets the time before the list of unfinished runs, so it
+    // keeps a row that a run touches after that time.
+    for (const at of runEndedTimes)
+      expect(Date.parse(at)).toBeLessThanOrEqual(Date.now())
     const stored = await storedKeys()
     expect(stored).toContain(keys.published)
     expect(stored).not.toContain(keys.live)
     expect(stored).not.toContain(keys.fresh)
+  })
+
+  it("keeps the checkout of an ended run when another run touched it after the run ended", async () => {
+    runEndedRequests.length = 0
+    const retried = sha()
+    // A retry of the same SHA starts after the list of unfinished runs: its
+    // touch is later than the end time.
+    await withOrgDbContext(orgId, (db) =>
+      db.insert(repositoryCheckouts).values({
+        id: generateObjectId("co"),
+        orgId,
+        repositoryId,
+        ref: retried,
+        checkoutKey: `rev:${retried}`,
+        updatedAt: new Date(Date.now() + 60_000),
+      }),
+    )
+
+    expect(
+      await releaseRunCheckout({ orgId, sha: retried, runId: `run_${sha()}` }),
+    ).toEqual({ deletedKeys: 0 })
+    expect(runEndedRequests).toEqual([])
+    expect(await storedKeys()).toContain(`rev:${retried}`)
   })
 
   it("stops after maxBatches calls when more keys are left", async () => {

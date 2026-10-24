@@ -1,6 +1,7 @@
 import {
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   stat,
@@ -8,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import type { Db } from "../../db/client.js"
 import {
@@ -32,8 +33,7 @@ import {
   deleteCheckoutFromDisk,
   sweepRepositoryDisk,
 } from "../repositories/checkoutGc.js"
-import { repoCheckoutPath } from "../repositories/paths.js"
-import { repoSharedClonePath } from "../repositories/worktrees.js"
+import { repoCheckoutPath, repoSharedClonePath } from "../repositories/paths.js"
 import { zoektRepositoryName } from "../zoekt/shardPrefix.js"
 import { phaseCloneCheckout } from "./phases.js"
 
@@ -151,6 +151,62 @@ describe("checkouts as worktrees of one shared clone", () => {
     await phaseCloneCheckout(ctx, { targetHash: shas[5] })
     expect((await stat(join(ctx.clonePath, ".git"))).isFile()).toBe(true)
     expect(await worktreeList("repo_old")).toContain(ctx.clonePath)
+  })
+
+  it("keeps the old standalone clone readable until the new worktree takes its place", async () => {
+    const ctx = context("repo_swap", rev(shas[5] as string))
+    // Make the shared clone first, with another key.
+    await phaseCloneCheckout(context("repo_swap", rev(shas[4] as string)), {
+      targetHash: shas[4],
+    })
+    await git(["clone", "-q", ctx.repoGitUrl, ctx.clonePath])
+    await writeFile(join(ctx.clonePath, "marker"), "old")
+    // `worktree add` runs the post-checkout hook of the shared clone. The
+    // hook records whether the old directory is still at the key path.
+    const seen = join(root, "swap-seen")
+    const hook = join(repoSharedClonePath(ORG, "repo_swap"), "hooks")
+    await mkdir(hook, { recursive: true })
+    await writeFile(
+      join(hook, "post-checkout"),
+      `#!/bin/sh\n[ -f '${ctx.clonePath}/marker' ] && echo present > '${seen}'\nexit 0\n`,
+      { mode: 0o755 },
+    )
+    try {
+      await phaseCloneCheckout(ctx, { targetHash: shas[5] })
+    } finally {
+      await rm(join(hook, "post-checkout"), { force: true })
+    }
+    expect(await readFile(seen, "utf8")).toBe("present\n")
+    expect((await stat(join(ctx.clonePath, ".git"))).isFile()).toBe(true)
+    await expect(stat(join(ctx.clonePath, "marker"))).rejects.toThrow()
+    expect(await git(["rev-parse", "HEAD"], ctx.clonePath)).toBe(shas[5])
+    expect(await worktreeList("repo_swap")).toContain(ctx.clonePath)
+    // No temporary or old directory stays beside the key.
+    const names = await readdir(dirname(ctx.clonePath))
+    expect(names.filter((name) => name.endsWith(".tmp"))).toEqual([])
+  })
+
+  it("removes a stale git lock of its own key and keeps the locks of other keys", async () => {
+    const a = context("repo_lock", rev(shas[5] as string))
+    const b = context("repo_lock", rev(shas[4] as string))
+    await phaseCloneCheckout(a, { targetHash: shas[5] })
+    await phaseCloneCheckout(b, { targetHash: shas[4] })
+    // A crashed git leaves `index.lock` in the admin directory of the worktree.
+    const adminDir = (checkoutPath: string) =>
+      git(["rev-parse", "--path-format=absolute", "--git-dir"], checkoutPath)
+    const lockA = join(await adminDir(a.clonePath), "index.lock")
+    const lockB = join(await adminDir(b.clonePath), "index.lock")
+    await writeFile(lockA, "")
+    await writeFile(lockB, "")
+
+    // A checkout to another commit needs the index, so a stale lock stops it.
+    const result = await phaseCloneCheckout(a, { targetHash: shas[3] })
+    expect(result.targetHash).toBe(shas[3])
+    expect(await git(["rev-parse", "HEAD"], a.clonePath)).toBe(shas[3])
+    await expect(stat(lockA)).rejects.toThrow()
+    // Another key can have a git command that runs now: its lock stays.
+    expect((await stat(lockB)).isFile()).toBe(true)
+    await rm(lockB, { force: true })
   })
 
   it("removes the worktree and its registration when a key is deleted", async () => {

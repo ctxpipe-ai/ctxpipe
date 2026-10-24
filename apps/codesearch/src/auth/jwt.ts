@@ -14,9 +14,9 @@ export type VerifiedToken = {
   /**
    * The repositories that the Workspace links, as the backend minted them.
    * A Workspace token reads only these repositories, each at its published
-   * checkout. The SHA is not used to select a checkout.
+   * checkout.
    */
-  workspaceRevisions?: Array<{ repositoryId: string; sha: string }>
+  workspaceRepositoryIds?: string[]
 }
 
 /**
@@ -32,7 +32,7 @@ export type VerifiedToken = {
 export function checkoutKeyFromAuth(
   auth: Pick<
     VerifiedToken,
-    "workspaceId" | "workspaceRevisions" | "repositoryRevisions"
+    "workspaceId" | "workspaceRepositoryIds" | "repositoryRevisions"
   >,
   repositoryId?: string,
   publishedCheckoutKey?: string,
@@ -60,13 +60,12 @@ export function checkoutKeyFromAuth(
 
 /** True when the Workspace token lists `repositoryId` exactly once. */
 export function workspaceLinksRepository(
-  auth: Pick<VerifiedToken, "workspaceRevisions">,
+  auth: Pick<VerifiedToken, "workspaceRepositoryIds">,
   repositoryId: string | undefined,
 ): boolean {
   return (
-    auth.workspaceRevisions?.filter(
-      (revision) => revision.repositoryId === repositoryId,
-    ).length === 1
+    auth.workspaceRepositoryIds?.filter((id) => id === repositoryId).length ===
+    1
   )
 }
 
@@ -122,6 +121,9 @@ export async function verifyCodesearchJwt(input: {
         .string()
         .regex(/^[a-zA-Z0-9_-]+$/)
         .optional(),
+      workspaceRepositoryIds: z.array(z.string().min(1)).min(1).optional(),
+      // The claim shape of the previous release, while the backend and
+      // codesearch can run different releases. Remove it in the next one.
       workspaceRevisions: z
         .array(
           z.object({
@@ -133,14 +135,19 @@ export async function verifyCodesearchJwt(input: {
         .optional(),
     })
     .safeParse(payload)
+  if (!scope.success) return null
+  const { workspaceId } = scope.data
+  if (scope.data.workspaceRepositoryIds && scope.data.workspaceRevisions)
+    return null
+  const workspaceRepositoryIds =
+    scope.data.workspaceRepositoryIds ??
+    scope.data.workspaceRevisions?.map((revision) => revision.repositoryId)
   if (
-    !scope.success ||
     (scope.data.repositoryRevisions &&
-      Boolean(scope.data.workspaceId || scope.data.workspaceRevisions)) ||
-    Boolean(scope.data.workspaceId) !== Boolean(scope.data.workspaceRevisions)
+      Boolean(workspaceId || workspaceRepositoryIds)) ||
+    Boolean(workspaceId) !== Boolean(workspaceRepositoryIds)
   )
     return null
-  const { workspaceId, workspaceRevisions } = scope.data
 
   return {
     sub: subject,
@@ -150,7 +157,7 @@ export async function verifyCodesearchJwt(input: {
     orgId,
     principal,
     ...(workspaceId ? { workspaceId } : {}),
-    ...(workspaceRevisions ? { workspaceRevisions } : {}),
+    ...(workspaceRepositoryIds ? { workspaceRepositoryIds } : {}),
   }
 }
 

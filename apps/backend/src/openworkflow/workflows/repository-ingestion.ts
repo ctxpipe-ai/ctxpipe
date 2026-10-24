@@ -19,6 +19,7 @@ import { captureRepositoryIngestionRequest } from "../../models/repository-inges
 import { flushWorkflowLog, getLogger } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
+import { enqueueWorkspaceIndexesAfterPublish } from "../enqueue-workspace-index.js"
 import { indexingOutcome } from "../indexing-outcome.js"
 import { cleanUpUnlessParked } from "../isSleepSignal.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
@@ -358,6 +359,28 @@ export const repositoryIngestion = defineWorkflow(
           repositoryId: input.repositoryId,
           targetHash: result.targetHash,
         })
+
+        // A Workspace that waits for this repository becomes readable now,
+        // with no new push (CTX-991).
+        await step.run({ name: "enqueue-workspace-indexes" }, () =>
+          wls("enqueue-workspace-indexes", () =>
+            enqueueWorkspaceIndexesAfterPublish(
+              {
+                orgId: input.orgId,
+                repositoryId: input.repositoryId,
+                sha: result.targetHash,
+              },
+              {
+                error: (err) =>
+                  getLogger().error(err, {
+                    step: "repository-ingestion.enqueue-workspace-indexes",
+                    repositoryId: input.repositoryId,
+                    orgId: input.orgId,
+                  }),
+              },
+            ),
+          ),
+        )
 
         // Outside org tx: if tip moved while we were ingesting, start one
         // follow-up for this repo only (no auto-chain on failure paths).

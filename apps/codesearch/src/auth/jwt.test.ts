@@ -86,15 +86,22 @@ describe("checkoutKeyFromAuth", () => {
     ).resolves.toBeNull()
   })
 
-  it("maps a Workspace token to the published checkout of each linked repository only", async () => {
-    const auth = (await verifyCodesearchJwt({
-      env,
-      authorizationHeader: `Bearer ${await signToken("ws_alpha", {
+  it.each([
+    ["repository ids", { workspaceRepositoryIds: ["repo_linked"] }],
+    [
+      "the previous release's revisions",
+      {
         workspaceRevisions: [
           { repositoryId: "repo_linked", sha: "c".repeat(40) },
         ],
-      })}`,
+      },
+    ],
+  ])("maps a Workspace token with %s to the published checkout of each linked repository only", async (_shape, claims) => {
+    const auth = (await verifyCodesearchJwt({
+      env,
+      authorizationHeader: `Bearer ${await signToken("ws_alpha", claims)}`,
     })) as VerifiedToken
+    expect(auth.workspaceRepositoryIds).toEqual(["repo_linked"])
     const published = `rev:${"b".repeat(40)}`
 
     expect(checkoutKeyFromAuth(auth, "repo_linked", published)).toBe(published)
@@ -108,6 +115,42 @@ describe("checkoutKeyFromAuth", () => {
     expect(() =>
       indexCheckoutFromAuth(auth, "repo_linked", "c".repeat(40)),
     ).toThrow(expect.objectContaining({ status: 403 }))
+  })
+
+  it.each([
+    [
+      "both Workspace claim shapes",
+      "ws_alpha",
+      {
+        workspaceRepositoryIds: ["repo_linked"],
+        workspaceRevisions: [
+          { repositoryId: "repo_linked", sha: "c".repeat(40) },
+        ],
+      },
+    ],
+    [
+      "repository ids without a Workspace",
+      undefined,
+      { workspaceRepositoryIds: ["repo_linked"] },
+    ],
+    ["an empty repository list", "ws_alpha", { workspaceRepositoryIds: [] }],
+    [
+      "a run revision and a Workspace",
+      "ws_alpha",
+      {
+        workspaceRepositoryIds: ["repo_linked"],
+        repositoryRevisions: [
+          { repositoryId: "repo_linked", sha: "c".repeat(40) },
+        ],
+      },
+    ],
+  ])("rejects a token with %s", async (_case, workspaceId, claims) => {
+    await expect(
+      verifyCodesearchJwt({
+        env,
+        authorizationHeader: `Bearer ${await signToken(workspaceId, claims)}`,
+      }),
+    ).resolves.toBeNull()
   })
 
   it("keeps an ingestion run token on its own revision", async () => {

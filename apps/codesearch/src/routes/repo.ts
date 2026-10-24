@@ -20,6 +20,7 @@ import {
   listCheckoutFilePaths,
 } from "../domain/repositories/globFiles.js"
 import {
+  DEFAULT_CHECKOUT_KEY,
   readContainedDirectory,
   readContainedFile,
   repoCheckoutPath,
@@ -180,11 +181,12 @@ const deleteCheckoutsRequestSchema = z
       .min(1)
       .max(10),
     /**
-     * The ingestion run that used these keys ended, and the backend found
-     * that no other running run uses them. Then a row that changed in the
-     * last hour does not keep the files.
+     * The database time before the backend found that no other running run
+     * uses these keys; the ingestion run that used them ended. Then only a
+     * row that a run used after this time keeps the files, not each row
+     * that changed in the last hour.
      */
-    runEnded: z.boolean().optional(),
+    runEndedAt: z.iso.datetime({ offset: true }).optional(),
   })
   .openapi("DeleteCheckoutsRequest")
 
@@ -572,7 +574,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const { repoId } = c.req.valid("param")
     if (auth.principal !== "service" || auth.sub !== `repo-gc:${repoId}`)
       return c.json({ error: "Access denied" }, 403)
-    const { checkoutKeys, runEnded } = c.req.valid("json")
+    const { checkoutKeys, runEndedAt } = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) return c.json(repositoryNotFoundBody, 404)
     const result = await tryWithRepositoryPurgeOperation(repoId, async () => {
@@ -599,7 +601,12 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
         // A run took the key again after the caller listed it. The index
         // operation of that run waits for this lock, so the row is read
         // under the lock.
-        if (row.checkoutUsedRecently && !runEnded) {
+        if (
+          runEndedAt
+            ? (row.checkoutUsedAt?.getTime() ?? Number.POSITIVE_INFINITY) >
+              Date.parse(runEndedAt)
+            : row.checkoutUsedRecently
+        ) {
           skipped.push({ checkoutKey, reason: "recent" })
           continue
         }
@@ -644,7 +651,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
         // Read under the purge operation: a new run adds its row before it
         // indexes, and its index operation waits for this one.
         rowKeys: await listCheckoutKeys(db, repoId, auth.orgId),
-        publishedCheckoutKey: repo.publishedCheckoutKey ?? "default",
+        publishedCheckoutKey: repo.publishedCheckoutKey ?? DEFAULT_CHECKOUT_KEY,
         minAgeMs: 60 * 60 * 1000,
       }),
     )

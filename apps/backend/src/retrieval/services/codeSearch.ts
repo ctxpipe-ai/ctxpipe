@@ -112,13 +112,13 @@ export async function codeSearch(
       // at its published checkout, and only these.
       ...(workspace && publishedProjection(workspace.projection)
         ? {
-            workspaceRevisions: workspace.repositories
+            workspaceRepositoryIds: workspace.repositories
               .filter((repo) =>
                 repos.some(
                   (selected) => selected.zoektRepoId === repo.zoektRepoId,
                 ),
               )
-              .map((repo) => ({ repositoryId: repo.id, sha: repo.sha })),
+              .map((repo) => repo.id),
           }
         : {}),
     },

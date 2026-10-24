@@ -942,12 +942,12 @@ describe("POST /{repoId}/checkouts/delete", () => {
   const deleteKeys = (
     checkoutKeys: string[],
     sub?: string,
-    runEnded?: boolean,
+    runEndedAt?: string,
   ) =>
     gcApp(sub).request(`/${REPO}/checkouts/delete`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ checkoutKeys, runEnded }),
+      body: JSON.stringify({ checkoutKeys, runEndedAt }),
     })
 
   const exists = (path: string) =>
@@ -1015,15 +1015,32 @@ describe("POST /{repoId}/checkouts/delete", () => {
     getIndexableRepositoryMock.mockResolvedValue({
       zoektRepoId: zoektIds[old],
       checkoutUsedRecently: true,
+      checkoutUsedAt: new Date("2026-10-24T10:00:00.000Z"),
     })
 
-    const res = await deleteKeys([old], undefined, true)
+    const res = await deleteKeys([old], undefined, "2026-10-24T10:00:00.000Z")
 
     expect(await res.json()).toEqual({
       deleted: [{ checkoutKey: old }],
       skipped: [],
     })
     expect(await exists(join(checkoutsDir, old))).toBe(false)
+  })
+
+  it("keeps the key of an ended run when a run used it after the run ended", async () => {
+    getIndexableRepositoryMock.mockResolvedValue({
+      zoektRepoId: zoektIds[old],
+      checkoutUsedRecently: true,
+      checkoutUsedAt: new Date("2026-10-24T10:00:00.001Z"),
+    })
+
+    const res = await deleteKeys([old], undefined, "2026-10-24T10:00:00.000Z")
+
+    expect(await res.json()).toEqual({
+      deleted: [],
+      skipped: [{ checkoutKey: old, reason: "recent" }],
+    })
+    expect(await exists(join(checkoutsDir, old))).toBe(true)
   })
 
   it("keeps the files of a longer key and of a repository whose id starts with this id", async () => {
@@ -1125,7 +1142,7 @@ describe("Workspace token reads", () => {
         orgId: "org_mock123",
         principal: "service",
         workspaceId: "ws_alpha",
-        workspaceRevisions: [{ repositoryId: linkedRepositoryId, sha: pinned }],
+        workspaceRepositoryIds: [linkedRepositoryId],
       } as AppEnv["Variables"]["auth"])
       await next()
     })

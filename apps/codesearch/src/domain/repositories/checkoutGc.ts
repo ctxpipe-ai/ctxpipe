@@ -1,16 +1,15 @@
 import { lstat, readdir, rm } from "node:fs/promises"
 import { join } from "node:path"
-import {
-  REPO_CACHE_DIR,
-  ZOEKT_HOT_DIR,
-  ZOEKT_INDEX_DIR,
-} from "../../config/paths.js"
+import { ZOEKT_HOT_DIR, ZOEKT_INDEX_DIR } from "../../config/paths.js"
 import { purgeZoektShardsForRepo } from "../zoekt/pinManager.js"
-import { zoektRepositoryName } from "../zoekt/shardPrefix.js"
+import {
+  parseZoektShardBasename,
+  zoektRepositoryName,
+} from "../zoekt/shardPrefix.js"
+import { repoCheckoutsDir, repoSharedClonePath } from "./paths.js"
 import {
   pruneWorktrees,
   removeCheckoutWorktree,
-  repoSharedClonePath,
   withSharedClone,
 } from "./worktrees.js"
 
@@ -41,12 +40,7 @@ export async function deleteCheckoutFromDisk(input: {
 }): Promise<void> {
   if (!COLLECTABLE_CHECKOUT_KEY.test(input.checkoutKey))
     throw new Error(`Checkout key cannot be collected: ${input.checkoutKey}`)
-  const checkoutsDir = join(
-    REPO_CACHE_DIR,
-    input.orgId,
-    input.repoId,
-    "checkouts",
-  )
+  const checkoutsDir = repoCheckoutsDir(input.orgId, input.repoId)
   const names = await readdir(checkoutsDir).catch(() => [] as string[])
   const paths = names
     .filter(
@@ -110,12 +104,7 @@ export async function sweepRepositoryDisk(input: {
     return Boolean(info && now - info.mtimeMs >= input.minAgeMs)
   }
   const sharedPath = repoSharedClonePath(input.orgId, input.repoId)
-  const checkoutsDir = join(
-    REPO_CACHE_DIR,
-    input.orgId,
-    input.repoId,
-    "checkouts",
-  )
+  const checkoutsDir = repoCheckoutsDir(input.orgId, input.repoId)
   await withSharedClone(sharedPath, async () => {
     for (const name of await readdir(checkoutsDir).catch(
       () => [] as string[],
@@ -142,18 +131,10 @@ export async function sweepRepositoryDisk(input: {
   const base = zoektRepositoryName({ orgId: input.orgId, repoId: input.repoId })
   const basePrefix = encodeURIComponent(base)
   const shardKey = (fileName: string): string | null => {
-    const match = /^(.+)_v\d+\.\d{5}\.zoekt(?:\.meta)?(\.[^.]+\.tmp)?$/.exec(
-      fileName,
-    )
-    const encoded = match?.[1]
-    if (!encoded) return null
-    let name: string
-    try {
-      name = decodeURIComponent(encoded.replaceAll("+", "%20"))
-    } catch {
-      return null
-    }
-    if (match[2])
+    const parsed = parseZoektShardBasename(fileName)
+    if (!parsed) return null
+    const { zoektName: name, temporary } = parsed
+    if (temporary)
       return name === base || name.startsWith(`${base}:checkout:`) ? "" : null
     if (name === base) return "default"
     return name.startsWith(`${base}:checkout:`)

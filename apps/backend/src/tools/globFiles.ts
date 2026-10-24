@@ -13,16 +13,7 @@ const MAX_GLOB_FILES_ENTRIES = 500
 const DEFAULT_GLOB_LIMIT = 100
 
 export const globFilesTool = tool(
-  async ({
-    repositoryId,
-    pattern,
-    path,
-    onlyFiles,
-    dot,
-    limit,
-    offset,
-    workspaceId,
-  }) => {
+  async ({ repositoryId, pattern, path, onlyFiles, dot, limit, offset }) => {
     const repository = await getRepositoryForOrg(
       requireCurrentOrgId(),
       repositoryId,
@@ -36,7 +27,6 @@ export const globFilesTool = tool(
     return globCheckoutPaths({
       repositoryId,
       orgId: repository.orgId,
-      workspaceId,
       pattern,
       path,
       onlyFiles,
@@ -65,7 +55,6 @@ export const globFilesTool = tool(
       dot: z.boolean().optional(),
       limit: z.number().int().positive().max(MAX_GLOB_FILES_ENTRIES).optional(),
       offset: z.number().int().min(0).optional(),
-      workspaceId: z.string().min(1).optional(),
     }),
   },
 )

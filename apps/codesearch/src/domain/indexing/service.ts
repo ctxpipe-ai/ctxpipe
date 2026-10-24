@@ -1,7 +1,7 @@
 import type { Db } from "../../db/client.js"
 import { log } from "../../observability/logger.js"
 import { trySetRepositoryIndexingStep } from "../indexingSteps.js"
-import { repoSharedClonePath } from "../repositories/worktrees.js"
+import { repoSharedClonePath } from "../repositories/paths.js"
 import { zoektRepositoryName } from "../zoekt/shardPrefix.js"
 import {
   withIndexConcurrency,
