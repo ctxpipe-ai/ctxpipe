@@ -40,13 +40,40 @@ export function isDefaultBranchPush(
 
 export function shouldEnqueueCronHydrate(input: {
   projection: ProjectionState
+  /**
+   * The UTC hour of the check and the first failure time of each failed
+   * phase. With it, a failed graph or index is built again only when
+   * `failedPhaseRetryDue` says so.
+   */
+  retry?: { hour: string; failedAt: { graph?: string; index?: string } }
 }): boolean {
   const projection = input.projection
   if (!desiredProjectionRevision(projection)) return false
-  return (
-    projection.kind !== "active" ||
-    projection.stores.graph.kind !== "ready" ||
-    projection.stores.embeddings.kind !== "ready" ||
-    projection.stores.index.kind !== "ready"
-  )
+  if (projection.kind !== "active") return true
+  if (projection.stores.embeddings.kind !== "ready") return true
+  const retry = input.retry
+  return (["graph", "index"] as const).some((phase) => {
+    const kind = projection.stores[phase].kind
+    if (kind !== "failed") return kind !== "ready"
+    return !retry || failedPhaseRetryDue(retry.failedAt[phase], retry.hour)
+  })
+}
+
+/**
+ * A failed phase is built again in the check of the UTC hour that is 1, 2,
+ * 4, 8 or 16 hours after the hour of its first failure, then each 24 hours.
+ * A phase with no stored failure time is built again in each check.
+ * A retry slot is an exact hour. A late or skipped hour misses its slot, and
+ * the retry waits for the next slot.
+ */
+export function failedPhaseRetryDue(
+  failedAt: string | undefined,
+  hour: string,
+): boolean {
+  if (!failedAt) return true
+  const hours =
+    Math.floor(Date.parse(`${hour}:00:00.000Z`) / 3_600_000) -
+    Math.floor(Date.parse(failedAt) / 3_600_000)
+  if (hours <= 16) return [1, 2, 4, 8, 16].includes(hours)
+  return (hours - 16) % 24 === 0
 }

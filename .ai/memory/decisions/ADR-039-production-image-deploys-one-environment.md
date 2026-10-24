@@ -15,7 +15,7 @@ On 2026-09-28, apply of `c22338c6` updated codesearch first ([job 108996933119](
 - SHA-tagged app services (`ui`, `backend`, `code_search`, `open_workflow`) set `lifecycle.ignore_changes` on `source_image` as well as `regions`.
 - Production image writes are [`scripts/railway-set-images.sh`](../../../scripts/railway-set-images.sh), run from [`deploy.yaml`](../../../.github/workflows/deploy.yaml) before `terraform plan`. It sets `source.image` and calls `serviceInstanceDeployV2` only for the named environment (default `production`).
 - Image repositories stay the module defaults in [`variables.tf`](../../../infra/module/ctxpipe/variables.tf). The script lists the same four repositories.
-- FalkorDB keeps a Terraform `source_image` (`falkordb/falkordb`). It is not retagged on each commit. Changing that image still goes through provider Update.
+- FalkorDB keeps a Terraform `source_image` (`falkordb/falkordb`, pinned to one version). It is not retagged on each commit. Changing that image still goes through provider Update.
 
 ## Consequences
 

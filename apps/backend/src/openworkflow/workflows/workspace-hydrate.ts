@@ -689,6 +689,19 @@ export function defineWorkspaceHydrateWorkflow() {
           if (newGithubLinks.length) await enqueueBackfills(newGithubLinks)
 
           if (activated && pending.graph) {
+            // A retry of a failed graph sets the phase back to pending, so
+            // that readers show the graph as building, not as failed. The
+            // phase keeps its first failure, so a crash in the retry loses
+            // neither its message nor its time, and the tip check spaces out
+            // the next retries from that time. The next tip check retries a
+            // phase that stays pending.
+            if (active?.stores.graph.kind === "failed")
+              await step.run({ name: "persist-graph-retry" }, () =>
+                persistWorkspaceGraphResult({
+                  revision,
+                  result: { kind: "pending" },
+                }),
+              )
             try {
               await projectWorkspaceGraph(revision)
             } catch (error) {
