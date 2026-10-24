@@ -76,6 +76,26 @@ export async function getIndexableRepository(
   })
 }
 
+/** The checkout keys that have a `repository_checkouts` row for the repository. */
+export async function listCheckoutKeys(
+  db: NonNullable<AppEnv["Variables"]["db"]>,
+  repoId: string,
+  orgId: string,
+): Promise<Set<string>> {
+  return withOrgDbContext(db, orgId, async (tx) => {
+    const rows = await tx
+      .select({ checkoutKey: repositoryCheckouts.checkoutKey })
+      .from(repositoryCheckouts)
+      .where(
+        and(
+          eq(repositoryCheckouts.repositoryId, repoId),
+          eq(repositoryCheckouts.orgId, orgId),
+        ),
+      )
+    return new Set(rows.map((row) => row.checkoutKey))
+  })
+}
+
 /** Same published source selection as the backend; workspace snapshots stay explicit. */
 export function publishedRepositoryCheckoutKey() {
   return sql<string>`coalesce((select published.checkout_key from repository_checkouts published

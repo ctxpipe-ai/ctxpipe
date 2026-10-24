@@ -28,4 +28,5 @@ export const ZOEKT_HOT_DIR = zoektHotDirFromIndexDir(ZOEKT_INDEX_DIR)
  * production (Railway) where both processes share a single container it should
  * be overridden to http://localhost:6070 via the ZOEKT_WEBSERVER_URL env var.
  */
-export const ZOEKT_WEBSERVER_URL = process.env["ZOEKT_WEBSERVER_URL"] ?? "http://zoekt-webserver:6070"
+export const ZOEKT_WEBSERVER_URL =
+  process.env["ZOEKT_WEBSERVER_URL"] ?? "http://zoekt-webserver:6070"

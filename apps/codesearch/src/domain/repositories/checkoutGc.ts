@@ -1,19 +1,30 @@
-import { readdir, rm } from "node:fs/promises"
+import { lstat, readdir, rm } from "node:fs/promises"
 import { join } from "node:path"
-import { REPO_CACHE_DIR } from "../../config/paths.js"
+import {
+  REPO_CACHE_DIR,
+  ZOEKT_HOT_DIR,
+  ZOEKT_INDEX_DIR,
+} from "../../config/paths.js"
 import { purgeZoektShardsForRepo } from "../zoekt/pinManager.js"
 import { zoektRepositoryName } from "../zoekt/shardPrefix.js"
+import {
+  pruneWorktrees,
+  removeCheckoutWorktree,
+  repoSharedClonePath,
+  withSharedClone,
+} from "./worktrees.js"
 
 const SHA = "[0-9a-f]{40}(?:[0-9a-f]{24})?"
 
 /**
  * The checkout keys that garbage collection can delete: an immutable source
- * revision (`rev:<sha>`) or a Workspace projection (`ws:<id>:<sha>`). The
- * `default` checkout and other key shapes are never deleted. The pattern also
- * keeps each key a single safe path segment.
+ * revision (`rev:<sha>`), or a Workspace checkout (`ws:<id>:<sha>` and the
+ * older `ws:<id>`), which no reader uses now. The `default` checkout and
+ * other key shapes are never deleted. The pattern also keeps each key a
+ * single safe path segment.
  */
 export const COLLECTABLE_CHECKOUT_KEY = new RegExp(
-  `^(?:rev:${SHA}|ws:[A-Za-z0-9_-]+:${SHA})$`,
+  `^(?:rev:${SHA}|ws:[A-Za-z0-9_-]+(?::${SHA})?)$`,
 )
 
 /**
@@ -49,6 +60,120 @@ export async function deleteCheckoutFromDisk(input: {
     repoId: input.repoId,
     checkoutKey: input.checkoutKey,
   })
-  for (const path of paths) await rm(path, { recursive: true, force: true })
+  const sharedPath = repoSharedClonePath(input.orgId, input.repoId)
+  await withSharedClone(sharedPath, async () => {
+    for (const path of paths)
+      if (path.endsWith(".scip")) await rm(path, { force: true })
+      else await removeCheckoutWorktree({ sharedPath, checkoutPath: path })
+  })
   await purgeZoektShardsForRepo({ zoektRepoId: input.zoektRepoId, zoektName })
+}
+
+/** The checkout key of an entry in `checkouts/`: the name up to its first `.`. */
+function checkoutKeyOfEntry(name: string): string {
+  return name.split(".")[0] ?? name
+}
+
+async function entrySize(path: string): Promise<number> {
+  const info = await lstat(path).catch(() => null)
+  if (!info) return 0
+  if (!info.isDirectory()) return info.size
+  const names = await readdir(path).catch(() => [] as string[])
+  let total = 0
+  for (const name of names) total += await entrySize(join(path, name))
+  return total
+}
+
+/**
+ * Deletes the files of one repository that no checkout row names, so that
+ * no reader can reach them: a checkout directory or `.scip` file of a key
+ * with no row, a Zoekt shard of a key with no row, and a temporary file that
+ * a stopped index build left. It keeps the published key and each key in
+ * `rowKeys`, and each file that changed in the last `minAgeMs`. The caller
+ * holds the purge operation of the repository, so no index build of it runs.
+ * It gives the count and the size of what it deleted.
+ */
+export async function sweepRepositoryDisk(input: {
+  orgId: string
+  repoId: string
+  rowKeys: ReadonlySet<string>
+  publishedCheckoutKey: string
+  minAgeMs: number
+  now?: number
+}): Promise<{ deletedEntries: number; deletedBytes: number }> {
+  const now = input.now ?? Date.now()
+  const result = { deletedEntries: 0, deletedBytes: 0 }
+  const keep = (key: string) =>
+    input.rowKeys.has(key) || key === input.publishedCheckoutKey
+  const oldEnough = async (path: string) => {
+    const info = await lstat(path).catch(() => null)
+    return Boolean(info && now - info.mtimeMs >= input.minAgeMs)
+  }
+  const sharedPath = repoSharedClonePath(input.orgId, input.repoId)
+  const checkoutsDir = join(
+    REPO_CACHE_DIR,
+    input.orgId,
+    input.repoId,
+    "checkouts",
+  )
+  await withSharedClone(sharedPath, async () => {
+    for (const name of await readdir(checkoutsDir).catch(
+      () => [] as string[],
+    )) {
+      const path = join(checkoutsDir, name)
+      const temporary = name.endsWith(".tmp")
+      if (
+        (!temporary && keep(checkoutKeyOfEntry(name))) ||
+        !(await oldEnough(path))
+      )
+        continue
+      const size = await entrySize(path)
+      if (name.endsWith(".scip") || temporary) await rm(path, { force: true })
+      else await removeCheckoutWorktree({ sharedPath, checkoutPath: path })
+      result.deletedEntries += 1
+      result.deletedBytes += size
+    }
+    await pruneWorktrees(sharedPath)
+  })
+
+  // Zoekt shards: `<name>_v16.00000.zoekt`, its `.meta`, and a stopped
+  // build's `<shard>.<n>.tmp`. The name of a key is the base name of the
+  // repository plus `:checkout:<key>`, or the base name for `default`.
+  const base = zoektRepositoryName({ orgId: input.orgId, repoId: input.repoId })
+  const basePrefix = encodeURIComponent(base)
+  const shardKey = (fileName: string): string | null => {
+    const match = /^(.+)_v\d+\.\d{5}\.zoekt(?:\.meta)?(\.[^.]+\.tmp)?$/.exec(
+      fileName,
+    )
+    const encoded = match?.[1]
+    if (!encoded) return null
+    let name: string
+    try {
+      name = decodeURIComponent(encoded.replaceAll("+", "%20"))
+    } catch {
+      return null
+    }
+    if (match[2])
+      return name === base || name.startsWith(`${base}:checkout:`) ? "" : null
+    if (name === base) return "default"
+    return name.startsWith(`${base}:checkout:`)
+      ? name.slice(`${base}:checkout:`.length)
+      : null
+  }
+  for (const name of await readdir(ZOEKT_INDEX_DIR).catch(
+    () => [] as string[],
+  )) {
+    if (!name.startsWith(basePrefix)) continue
+    const key = shardKey(name)
+    // "" is a temporary file of this repository: no row keeps it.
+    if (key === null || (key !== "" && keep(key))) continue
+    const path = join(ZOEKT_INDEX_DIR, name)
+    if (!(await oldEnough(path))) continue
+    const size = (await lstat(path).catch(() => null))?.size ?? 0
+    await rm(join(ZOEKT_HOT_DIR, name), { force: true })
+    await rm(path, { force: true })
+    result.deletedEntries += 1
+    result.deletedBytes += size
+  }
+  return result
 }

@@ -1,9 +1,10 @@
 import { SignJWT } from "jose"
 import { describe, expect, it } from "vitest"
-import type { Env } from "../config/env.js"
 import { createApp } from "../app/app.js"
+import type { Env } from "../config/env.js"
 import {
   checkoutKeyFromAuth,
+  indexCheckoutFromAuth,
   type VerifiedToken,
   verifyCodesearchJwt,
 } from "./jwt.js"
@@ -18,13 +19,13 @@ const env: Env = {
 
 async function signToken(
   workspaceId?: string,
-  legacyWorkspace?: true,
+  claims: Record<string, unknown> = {},
 ): Promise<string> {
   return new SignJWT({
     orgId: "org_test",
     principal: "service",
     ...(workspaceId ? { workspaceId } : {}),
-    ...(legacyWorkspace ? { legacyWorkspace } : {}),
+    ...claims,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject("repo:repo_test")
@@ -76,13 +77,50 @@ describe("checkoutKeyFromAuth", () => {
     ).resolves.toBeNull()
   })
 
-  it("derives the legacy checkout only from an explicit legacy workspace token", async () => {
-    const auth = await verifyCodesearchJwt({
-      env,
-      authorizationHeader: `Bearer ${await signToken("ws_alpha", true)}`,
-    })
+  it("rejects a legacy workspace token that lists no repository", async () => {
+    await expect(
+      verifyCodesearchJwt({
+        env,
+        authorizationHeader: `Bearer ${await signToken("ws_alpha", { legacyWorkspace: true })}`,
+      }),
+    ).resolves.toBeNull()
+  })
 
-    expect(auth).not.toBeNull()
-    expect(checkoutKeyFromAuth(auth as VerifiedToken)).toBe("ws:ws_alpha")
+  it("maps a Workspace token to the published checkout of each linked repository only", async () => {
+    const auth = (await verifyCodesearchJwt({
+      env,
+      authorizationHeader: `Bearer ${await signToken("ws_alpha", {
+        workspaceRevisions: [
+          { repositoryId: "repo_linked", sha: "c".repeat(40) },
+        ],
+      })}`,
+    })) as VerifiedToken
+    const published = `rev:${"b".repeat(40)}`
+
+    expect(checkoutKeyFromAuth(auth, "repo_linked", published)).toBe(published)
+    expect(() => checkoutKeyFromAuth(auth, "repo_other", published)).toThrow(
+      expect.objectContaining({ status: 403 }),
+    )
+    // A write path gives no published key: a Workspace token cannot write.
+    expect(() => checkoutKeyFromAuth(auth, "repo_linked")).toThrow(
+      expect.objectContaining({ status: 403 }),
+    )
+    expect(() =>
+      indexCheckoutFromAuth(auth, "repo_linked", "c".repeat(40)),
+    ).toThrow(expect.objectContaining({ status: 403 }))
+  })
+
+  it("keeps an ingestion run token on its own revision", async () => {
+    const sha = "d".repeat(40)
+    const auth = (await verifyCodesearchJwt({
+      env,
+      authorizationHeader: `Bearer ${await signToken(undefined, {
+        repositoryRevisions: [{ repositoryId: "repo_run", sha }],
+      })}`,
+    })) as VerifiedToken
+    expect(checkoutKeyFromAuth(auth, "repo_run", "rev:other")).toBe(
+      `rev:${sha}`,
+    )
+    expect(indexCheckoutFromAuth(auth, "repo_run", sha)).toBe(`rev:${sha}`)
   })
 })

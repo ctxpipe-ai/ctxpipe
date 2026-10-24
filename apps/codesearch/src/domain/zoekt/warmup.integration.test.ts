@@ -1,16 +1,16 @@
-import { spawn, type ChildProcess } from "node:child_process"
+import { type ChildProcess, spawn } from "node:child_process"
 import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { pinRepos, resetPinManagerForTests } from "./pinManager.js"
+import { zoektRepositoryName } from "./shardPrefix.js"
 import {
   listLoadedZoektRepoIds,
   waitUntilZoektReposLoaded,
   ZoektWarmupTimeoutError,
 } from "./warmup.js"
-import { zoektRepositoryName } from "./shardPrefix.js"
 
 const hasZoekt = (() => {
   const dirs = (process.env.PATH ?? "").split(":")

@@ -11,6 +11,7 @@ import { cloneAndIndexRepository } from "../domain/indexing/service.js"
 import {
   COLLECTABLE_CHECKOUT_KEY,
   deleteCheckoutFromDisk,
+  sweepRepositoryDisk,
 } from "../domain/repositories/checkoutGc.js"
 import {
   GlobInvalidRequestError,
@@ -30,6 +31,7 @@ import { resolveRepositoryRef } from "../domain/repositories/resolveRef.js"
 import {
   getAccessibleRepository,
   getIndexableRepository,
+  listCheckoutKeys,
 } from "../domain/repositories/service.js"
 import {
   createLogger,
@@ -172,11 +174,17 @@ const purgeRepositoryRoute = createRoute({
 
 const deleteCheckoutsRequestSchema = z
   .object({
-    /** `rev:<sha>` or `ws:<workspaceId>:<sha>` keys; never `default`. */
+    /** `rev:<sha>`, `ws:<workspaceId>:<sha>`, or `ws:<workspaceId>` keys; never `default`. */
     checkoutKeys: z
       .array(z.string().regex(COLLECTABLE_CHECKOUT_KEY))
       .min(1)
       .max(10),
+    /**
+     * The ingestion run that used these keys ended, and the backend found
+     * that no other running run uses them. Then a row that changed in the
+     * last hour does not keep the files.
+     */
+    runEnded: z.boolean().optional(),
   })
   .openapi("DeleteCheckoutsRequest")
 
@@ -210,6 +218,45 @@ const deleteCheckoutsRoute = createRoute({
       },
       description:
         "Clones, SCIP files, and Zoekt shards of the listed checkouts removed. The caller deletes the checkout rows of `deleted`.",
+    },
+    403: {
+      content: {
+        "application/json": { schema: z.object({ error: z.string() }) },
+      },
+      description: "The token is not a collection token for this repository",
+    },
+    404: repositoryNotFoundResponse,
+    409: {
+      content: {
+        "application/json": { schema: z.object({ error: z.string() }) },
+      },
+      description:
+        "An index job of the repository runs now. Nothing was deleted; try again later.",
+    },
+    503: {
+      content: {
+        "application/json": { schema: z.object({ error: z.string() }) },
+      },
+      description: "Database not available",
+    },
+  },
+})
+
+const sweepCheckoutsResponseSchema = z
+  .object({ deletedEntries: z.number(), deletedBytes: z.number() })
+  .openapi("SweepCheckoutsResponse")
+
+const sweepCheckoutsRoute = createRoute({
+  method: "post",
+  path: "/{repoId}/checkouts/sweep",
+  request: { params: z.object({ repoId: repoIdParam }) },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: sweepCheckoutsResponseSchema },
+      },
+      description:
+        "Checkout directories, SCIP files, Zoekt shards, and temporary files with no checkout row and older than one hour removed",
     },
     403: {
       content: {
@@ -525,7 +572,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const { repoId } = c.req.valid("param")
     if (auth.principal !== "service" || auth.sub !== `repo-gc:${repoId}`)
       return c.json({ error: "Access denied" }, 403)
-    const { checkoutKeys } = c.req.valid("json")
+    const { checkoutKeys, runEnded } = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) return c.json(repositoryNotFoundBody, 404)
     const result = await tryWithRepositoryPurgeOperation(repoId, async () => {
@@ -552,7 +599,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
         // A run took the key again after the caller listed it. The index
         // operation of that run waits for this lock, so the row is read
         // under the lock.
-        if (row.checkoutUsedRecently) {
+        if (row.checkoutUsedRecently && !runEnded) {
           skipped.push({ checkoutKey, reason: "recent" })
           continue
         }
@@ -576,6 +623,41 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       repoId,
       deletedKeys: result.value.deleted.length,
       skippedKeys: result.value.skipped.length,
+    })
+    return c.json(result.value, 200)
+  })
+
+  app.openapi(sweepCheckoutsRoute, async (c) => {
+    const db = c.get("db")
+    if (!db) return c.json({ error: "Database not configured" }, 503)
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
+    const { repoId } = c.req.valid("param")
+    if (auth.principal !== "service" || auth.sub !== `repo-gc:${repoId}`)
+      return c.json({ error: "Access denied" }, 403)
+    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
+    if (!repo) return c.json(repositoryNotFoundBody, 404)
+    const result = await tryWithRepositoryPurgeOperation(repoId, async () =>
+      sweepRepositoryDisk({
+        orgId: repo.orgId,
+        repoId: repo.id,
+        // Read under the purge operation: a new run adds its row before it
+        // indexes, and its index operation waits for this one.
+        rowKeys: await listCheckoutKeys(db, repoId, auth.orgId),
+        publishedCheckoutKey: repo.publishedCheckoutKey ?? "default",
+        minAgeMs: 60 * 60 * 1000,
+      }),
+    )
+    if (!result.acquired)
+      return c.json(
+        { error: "An index job of this repository runs now; try again later" },
+        409,
+      )
+    getLogger().set({
+      step: "codesearch.checkout_sweep",
+      repoId,
+      deletedEntries: result.value.deletedEntries,
+      deletedBytes: result.value.deletedBytes,
     })
     return c.json(result.value, 200)
   })
@@ -719,7 +801,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     let publishedCheckoutKey: string | undefined
-    if (!auth.workspaceId && !auth.repositoryRevisions) {
+    if (!auth.repositoryRevisions) {
       const db = c.get("db")
       if (!db) return c.json({ error: "Database not configured" }, 503)
       const repository = await getAccessibleRepository(db, repoId, auth.orgId)

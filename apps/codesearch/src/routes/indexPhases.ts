@@ -27,6 +27,7 @@ import {
   getAccessibleRepository,
   getIndexableRepository,
 } from "../domain/repositories/service.js"
+import { repoSharedClonePath } from "../domain/repositories/worktrees.js"
 import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
 import {
   createLogger,
@@ -343,6 +344,7 @@ async function resolvePhaseContext(
       repoGitUrl: repo.gitUrl,
       checkoutKey,
       clonePath: repoCheckoutPath(repo.orgId, repo.id, checkoutKey),
+      sharedClonePath: repoSharedClonePath(repo.orgId, repo.id),
       scipIndexPath: scipIndexPath(repo.orgId, repo.id, checkoutKey),
       zoektRepoId: indexable.zoektRepoId,
       zoektName: zoektRepositoryName({
