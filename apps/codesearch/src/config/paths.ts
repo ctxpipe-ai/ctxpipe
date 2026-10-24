@@ -16,6 +16,13 @@ export const ZOEKT_INDEX_DIR =
 export const REPO_CACHE_DIR =
   process.env["REPO_CACHE_DIR"] ?? "/data/repo-cache"
 
+/**
+ * The cache layout version file, in the repository cache: Docker Compose
+ * mounts that directory as its own volume, so the file stays with the cache.
+ * No org id starts with `.`, so no repository path uses this name.
+ */
+export const CACHE_LAYOUT_MARKER = join(REPO_CACHE_DIR, ".codesearch-layout")
+
 /** Hot symlink dir for zoekt-webserver: sibling `zoekt-hot` of the cold index. */
 export function zoektHotDirFromIndexDir(indexDir: string): string {
   return join(dirname(indexDir), "zoekt-hot")
@@ -28,4 +35,5 @@ export const ZOEKT_HOT_DIR = zoektHotDirFromIndexDir(ZOEKT_INDEX_DIR)
  * production (Railway) where both processes share a single container it should
  * be overridden to http://localhost:6070 via the ZOEKT_WEBSERVER_URL env var.
  */
-export const ZOEKT_WEBSERVER_URL = process.env["ZOEKT_WEBSERVER_URL"] ?? "http://zoekt-webserver:6070"
+export const ZOEKT_WEBSERVER_URL =
+  process.env["ZOEKT_WEBSERVER_URL"] ?? "http://zoekt-webserver:6070"

@@ -18,13 +18,11 @@ import {
   codesearchIndexScipLang,
   codesearchIndexZoekt,
 } from "../../src/domain/codeIngestion/codesearchIndexPhases.js"
-import { workspaceCheckoutKey } from "../../src/domain/workspaces/derived-stores.js"
 import { projectWorkspaceGraph } from "../../src/domain/workspaces/graph-projection.js"
 import { hydrateKnowledgeTree } from "../../src/domain/workspaces/hydrate.js"
 import {
   createOrGetRepository,
   ensureRepositoryRevisionCheckout,
-  ensureWorkspaceCheckout,
   markRepositoryIndexingReady,
 } from "../../src/models/repositories.js"
 import { replaceWorkspaceSourceRows } from "../../src/models/workspace-sources.js"
@@ -290,22 +288,26 @@ async function publishWorkspaceRevision(input: {
     name: fixture.key,
     gitUrl: workspace.workspaceRepositoryUrl,
   })
-  await ensureWorkspaceCheckout({
+  // Workspace code reads use the published checkout of the repository.
+  await ensureRepositoryRevisionCheckout({
+    orgId: org.id,
     repositoryId: repository.id,
-    workspaceId: workspace.id,
-    ref: revision.sha,
+    sha: revision.sha,
   })
   await indexRepository(
     {
       repositoryId: repository.id,
       orgId: org.id,
-      workspaceId: workspace.id,
-      workspaceRevisions: [{ repositoryId: repository.id, sha: revision.sha }],
+      repositoryRevisions: [{ repositoryId: repository.id, sha: revision.sha }],
     },
     revision.sha,
-    workspaceCheckoutKey(workspace.id, revision.sha),
+    `rev:${revision.sha}`,
     workspace.workspaceRepositoryUrl,
   )
+  await markRepositoryIndexingReady({
+    repositoryId: repository.id,
+    targetHash: revision.sha,
+  })
   if (
     !(await persistWorkspaceIndexResult({
       revision,

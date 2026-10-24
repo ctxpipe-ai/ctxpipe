@@ -18,6 +18,8 @@ The script sets the password of the `ctxpipe ClickHouse` connection from `CLICKH
 
 **Production FalkorDB connection errors** has one row for each `graph.falkordb.connection` error of the backend or the worker. Each row is a lost connection to the graph store or a failed connect. Add its alert in the HyperDX UI: more than 3 rows in 10 minutes, to the on-call webhook.
 
+**Codesearch disk usage (production)** is a tile on the **Railway Infrastructure** dashboard. It shows the highest `railway.disk.usage` of the codesearch volume. Railway does not send the volume size as a metric, so the alert uses a fixed number. Add its alert in the HyperDX UI: the tile value is more than 70% of the volume size (70 GB for a 100 GB volume) for 15 minutes, to the on-call webhook. When you resize the volume, change the number. Steady state is about one copy of each repository, about 8 to 15 GB for 19 repositories, with peaks of up to 7 GB during an ingestion.
+
 ## Environment filter
 
 HyperDX 2.39.1 does not default every search to `production`. The shared filter field is `ResourceAttributes['deployment.environment']`, with no value pinned. `provision.ts` does not write pinned filters. Dashboard chips use that map expression. Hand-written SQL filters `DeploymentEnvironment`.

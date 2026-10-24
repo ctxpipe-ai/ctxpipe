@@ -9,8 +9,8 @@ type UpstreamClaims = {
   principal: UpstreamPrincipal
   repositoryRevisions?: Array<{ repositoryId: string; sha: string }>
   workspaceId?: string
-  legacyWorkspace?: true
-  workspaceRevisions?: Array<{ repositoryId: string; sha: string }>
+  /** The repositories that a Workspace token may read. */
+  workspaceRepositoryIds?: string[]
 }
 
 function getSigningSecret(env: Env): Uint8Array {
@@ -33,9 +33,8 @@ export async function signUpstreamJwt(input: {
     ...(input.claims.repositoryRevisions
       ? { repositoryRevisions: input.claims.repositoryRevisions }
       : {}),
-    ...(input.claims.legacyWorkspace ? { legacyWorkspace: true } : {}),
-    ...(input.claims.workspaceRevisions
-      ? { workspaceRevisions: input.claims.workspaceRevisions }
+    ...(input.claims.workspaceRepositoryIds
+      ? { workspaceRepositoryIds: input.claims.workspaceRepositoryIds }
       : {}),
     ...(input.claims.workspaceId
       ? { workspaceId: input.claims.workspaceId }

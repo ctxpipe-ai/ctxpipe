@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { startFirstOrgIngestion } from "../../domain/workspace-sources/first-ingestion.js"
 import {
   linkedRevisionSchema,
   sameLinkedReadBinding,
@@ -9,8 +10,8 @@ import {
 } from "../../domain/workspaces/revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
-  ensureWorkspaceCheckout,
   findRepositoriesByNormalizedGitUrls,
+  hasPublishedCheckout,
 } from "../../models/repositories.js"
 import {
   getDesiredWorkspaceRevision,
@@ -19,7 +20,6 @@ import {
   persistWorkspaceIndexResult,
 } from "../../models/workspaces.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { repositoryIndex } from "./repository-index.js"
 
 export const workspaceIndexInputSchema = z
   .object({
@@ -78,26 +78,31 @@ export const workspaceIndex = defineWorkflow(
           })
         return { published: false, reason: "no_repository" as const }
       }
-      await ensureWorkspaceCheckout({
-        repositoryId,
-        workspaceId: revision.workspaceId,
-        ref: target.sha,
-      })
-      const indexed = await step.runWorkflow(
-        repositoryIndex.spec,
-        {
-          repositoryId,
-          orgId: input.orgId,
-          targetHash: target.sha,
-          workspaceId: revision.workspaceId,
-          ...(linked ? { linkedRevision: linked } : { revision }),
-        },
-        { name: "repository-index" },
+      // Workspace code reads use the published checkout of the repository
+      // (the newest commit of its default branch), so this run makes no
+      // copy of its own. It is ready when that checkout exists. With no
+      // checkout, it starts the ingestion of the repository; an ingestion
+      // that runs already absorbs the request. When that ingestion
+      // publishes, it queues this index again.
+      const hasCheckout = await step.run({ name: "published-checkout" }, () =>
+        hasPublishedCheckout(repositoryId),
       )
+      if (!hasCheckout)
+        await step.run({ name: "start-ingestion" }, async () => {
+          await startFirstOrgIngestion({
+            orgId: input.orgId,
+            repository: { id: repositoryId, ingested: false },
+            step: "workspace_index.enqueue_ingestion",
+          })
+          return { requested: true }
+        })
       return withOrgDbContext(input.orgId, async () => {
         if (linked) {
-          if (!indexed.searchIndexOk)
-            return { published: false, reason: "search_index_failed" as const }
+          if (!hasCheckout)
+            return {
+              published: false,
+              reason: "no_published_checkout" as const,
+            }
           return {
             published: await persistLinkedIndexedSha(linked),
             role: "linked" as const,
@@ -105,15 +110,16 @@ export const workspaceIndex = defineWorkflow(
         }
         const published = await persistWorkspaceIndexResult({
           revision,
-          result: indexed.searchIndexOk
+          result: hasCheckout
             ? { kind: "ready" }
             : {
                 kind: "failed",
-                message: indexed.searchIndexError ?? "Search index unavailable",
+                message:
+                  "Code search has no copy of this repository yet. An ingestion of the repository started; the Workspace index runs again when it finishes. If it does not, start an ingestion of the repository.",
               },
         })
         return {
-          published: indexed.searchIndexOk && published,
+          published: hasCheckout && published,
           role: "workspace" as const,
         }
       })

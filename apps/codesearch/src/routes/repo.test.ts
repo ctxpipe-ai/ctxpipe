@@ -897,12 +897,12 @@ describe("POST /{repoId}/checkouts/delete", () => {
   const coldDir = join(cacheRoot, "zoekt-index")
   const published = `rev:${"a".repeat(40)}`
   const old = `rev:${"b".repeat(40)}`
-  const oldWorkspace = `ws:ws_one:${"c".repeat(40)}`
+  const older = `rev:${"c".repeat(40)}`
   const zoektIds: Record<string, number> = {
     default: 1,
     [published]: 2,
     [old]: 3,
-    [oldWorkspace]: 4,
+    [older]: 4,
   }
 
   const shardName = (checkoutKey: string) =>
@@ -939,11 +939,15 @@ describe("POST /{repoId}/checkouts/delete", () => {
     return app
   }
 
-  const deleteKeys = (checkoutKeys: string[], sub?: string) =>
+  const deleteKeys = (
+    checkoutKeys: string[],
+    sub?: string,
+    runEndedAt?: string,
+  ) =>
     gcApp(sub).request(`/${REPO}/checkouts/delete`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ checkoutKeys }),
+      body: JSON.stringify({ checkoutKeys, runEndedAt }),
     })
 
   const exists = (path: string) =>
@@ -969,11 +973,11 @@ describe("POST /{repoId}/checkouts/delete", () => {
   })
 
   it("deletes only the listed keys and keeps the published and default checkouts", async () => {
-    const res = await deleteKeys([old, oldWorkspace, published])
+    const res = await deleteKeys([old, older, published])
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      deleted: [{ checkoutKey: old }, { checkoutKey: oldWorkspace }],
+      deleted: [{ checkoutKey: old }, { checkoutKey: older }],
       skipped: [{ checkoutKey: published, reason: "published" }],
     })
     expect((await readdir(checkoutsDir)).sort()).toEqual(
@@ -1005,6 +1009,38 @@ describe("POST /{repoId}/checkouts/delete", () => {
     })
     expect(await exists(join(checkoutsDir, old))).toBe(true)
     expect(await exists(join(coldDir, shardName(old)))).toBe(true)
+  })
+
+  it("deletes a recently used key when the run that used it ended", async () => {
+    getIndexableRepositoryMock.mockResolvedValue({
+      zoektRepoId: zoektIds[old],
+      checkoutUsedRecently: true,
+      checkoutUsedAt: new Date("2026-10-24T10:00:00.000Z"),
+    })
+
+    const res = await deleteKeys([old], undefined, "2026-10-24T10:00:00.000Z")
+
+    expect(await res.json()).toEqual({
+      deleted: [{ checkoutKey: old }],
+      skipped: [],
+    })
+    expect(await exists(join(checkoutsDir, old))).toBe(false)
+  })
+
+  it("keeps the key of an ended run when a run used it after the run ended", async () => {
+    getIndexableRepositoryMock.mockResolvedValue({
+      zoektRepoId: zoektIds[old],
+      checkoutUsedRecently: true,
+      checkoutUsedAt: new Date("2026-10-24T10:00:00.001Z"),
+    })
+
+    const res = await deleteKeys([old], undefined, "2026-10-24T10:00:00.000Z")
+
+    expect(await res.json()).toEqual({
+      deleted: [],
+      skipped: [{ checkoutKey: old, reason: "recent" }],
+    })
+    expect(await exists(join(checkoutsDir, old))).toBe(true)
   })
 
   it("keeps the files of a longer key and of a repository whose id starts with this id", async () => {
@@ -1066,11 +1102,13 @@ describe("POST /{repoId}/checkouts/delete", () => {
     expect(await exists(join(coldDir, shardName(old)))).toBe(true)
   })
 
-  it("refuses the default key and keys that are not checkout keys", async () => {
+  it("refuses the default key, an old Workspace key, and keys that are not checkout keys", async () => {
     for (const key of [
       "default",
       "rev:../../etc",
       `ws:a/b:${"c".repeat(40)}`,
+      `ws:ws_one:${"c".repeat(40)}`,
+      "ws:ws_one",
     ]) {
       const res = await deleteKeys([key])
       expect(res.status).toBe(400)
@@ -1083,5 +1121,86 @@ describe("POST /{repoId}/checkouts/delete", () => {
 
     expect(res.status).toBe(403)
     expect(await exists(join(checkoutsDir, old))).toBe(true)
+  })
+})
+
+describe("Workspace token reads", () => {
+  const published = `rev:${"b".repeat(40)}`
+  const pinned = "c".repeat(40)
+
+  function createWorkspaceApp(linkedRepositoryId: string) {
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("db", {} as AppEnv["Variables"]["db"])
+      c.set("env", {
+        NODE_ENV: "test",
+        PORT: 3001,
+      } as AppEnv["Variables"]["env"])
+      c.set("log", {
+        error: (error: Error | string) => loggedErrors.push(String(error)),
+      } as unknown as AppEnv["Variables"]["log"])
+      c.set("auth", {
+        sub: "org:org_mock123",
+        orgId: "org_mock123",
+        principal: "service",
+        workspaceId: "ws_alpha",
+        workspaceRepositoryIds: [linkedRepositoryId],
+      } as AppEnv["Variables"]["auth"])
+      await next()
+    })
+    registerRepoRoutes(app)
+    return app
+  }
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    getAccessibleRepositoryMock.mockResolvedValue({
+      ...MOCK_REPO,
+      publishedCheckoutKey: published,
+    })
+    const checkouts = join(
+      repoCacheDir,
+      "org_mock123",
+      "repo_abcdef27",
+      "checkouts",
+    )
+    await mkdir(join(checkouts, published), { recursive: true })
+    await writeFile(join(checkouts, published, "a.txt"), "published\n")
+    await mkdir(join(checkouts, `ws:ws_alpha:${pinned}`), { recursive: true })
+    await writeFile(
+      join(checkouts, `ws:ws_alpha:${pinned}`, "a.txt"),
+      "workspace copy\n",
+    )
+  })
+
+  it("reads the published checkout of a linked repository, not the pinned copy", async () => {
+    const app = createWorkspaceApp("repo_abcdef27")
+    const file = await app.request("/repo_abcdef27/files/a.txt")
+    expect(file.status).toBe(200)
+    expect(await file.text()).toBe("published\n")
+    const tree = await app.request("/repo_abcdef27/tree")
+    expect(tree.status).toBe(200)
+    expect(await tree.json()).toEqual({ paths: ["a.txt"] })
+  })
+
+  it("answers 403 for a repository that the Workspace does not link", async () => {
+    const app = createWorkspaceApp("repo_other")
+    for (const path of ["/repo_abcdef27/files/a.txt", "/repo_abcdef27/tree"]) {
+      const res = await app.request(path)
+      expect(res.status).toBe(403)
+    }
+  })
+
+  it("does not let a Workspace token index", async () => {
+    const res = await createWorkspaceApp("repo_abcdef27").request(
+      "/repo_abcdef27/index",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ targetHash: pinned }),
+      },
+    )
+    expect(res.status).toBe(403)
+    expect(getIndexableRepositoryMock).not.toHaveBeenCalled()
   })
 })

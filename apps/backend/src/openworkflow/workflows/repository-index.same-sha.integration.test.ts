@@ -22,6 +22,8 @@ import {
 import { generateObjectId } from "../../lib/id.js"
 import { markRepositoryIndexingReady } from "../../models/repositories.js"
 import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
+import { openWorkflowNamespaceId } from "../namespace.js"
+import { startPublishedRebuilds } from "./codesearch-checkout-gc.js"
 import { repositoryIndex } from "./repository-index.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
@@ -210,4 +212,64 @@ describeWithDatabase("repository-index same-SHA coalescing", () => {
       expect(row).toEqual({ indexingStep: null, indexingStepKey: null })
     },
   )
+
+  it(
+    "indexes the published SHA again for a rebuild, with no request and no status change",
+    { timeout: 45_000 },
+    async () => {
+      if (!runner) throw new Error("OpenWorkflow runner missing")
+      await withOrgDbContext(orgId, () =>
+        markRepositoryIndexingReady({ repositoryId, targetHash: NEWER }),
+      )
+      const status = () =>
+        withOrgDbContext(orgId, (db) =>
+          db
+            .select({
+              indexingStatus: repositories.indexingStatus,
+              lastIngestedHash: repositories.lastIngestedHash,
+              indexingStepKey: repositories.indexingStepKey,
+            })
+            .from(repositories)
+            .where(eq(repositories.id, repositoryId)),
+        )
+      const before = await status()
+      const calls = cloneCheckouts.length
+
+      const rebuild = await runner.runWorkflow(repositoryIndex.spec, {
+        orgId,
+        repositoryId,
+        targetHash: NEWER,
+        ingestionV2: true,
+        rebuild: true,
+      })
+      expect(await rebuild.result({ timeoutMs: 15_000 })).toMatchObject({
+        targetHash: NEWER,
+        searchIndexOk: true,
+      })
+      expect(cloneCheckouts.slice(calls)).toEqual([NEWER])
+      expect(await status()).toEqual(before)
+    },
+  )
+
+  it("queues a codesearch-only index of each lost published revision", async () => {
+    const hour = "2026-10-24T09"
+    await startPublishedRebuilds([{ orgId, repositoryId, sha: NEWER }], hour)
+    // The same hour queues no second run.
+    await startPublishedRebuilds([{ orgId, repositoryId, sha: NEWER }], hour)
+    const { rows } = await getSystemDb().execute<{ input: unknown }>(
+      sql`select input from openworkflow.workflow_runs
+        where namespace_id = ${openWorkflowNamespaceId()}
+          and workflow_name = 'repository-index'
+          and input->>'orgId' = ${orgId}`,
+    )
+    expect(rows.map((row) => row.input)).toEqual([
+      expect.objectContaining({
+        orgId,
+        repositoryId,
+        targetHash: NEWER,
+        ingestionV2: true,
+        rebuild: true,
+      }),
+    ])
+  })
 })

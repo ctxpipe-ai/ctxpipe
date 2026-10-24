@@ -2,7 +2,10 @@ import { gunzipSync, gzipSync } from "node:zlib"
 import type { Attributes } from "@opentelemetry/api"
 import type { Workflow } from "openworkflow"
 import { parseEnv } from "../../config/env.js"
-import { collectRepositoryCheckouts } from "../../domain/codesearchCheckoutGc.js"
+import {
+  collectRepositoryCheckouts,
+  releaseRunCheckout,
+} from "../../domain/codesearchCheckoutGc.js"
 import {
   IngestRefRefusedError,
   ingestRefName,
@@ -157,12 +160,19 @@ export function defineRepositoryIngestionV2Workflow(
     },
     async ({ input, step, run }) => {
       // A failed run also deletes the worker's copy of the source tree,
-      // and the index repositories of its repository step (shard 0).
+      // and the index repositories of its repository step (shard 0). Each
+      // run that ends deletes its codesearch checkout, unless it is the
+      // published revision.
       return cleanUpUnlessParked(
         () => ingestWithSpan(),
         async () => {
           await releaseIngestSourceTree(run.id, input.sha)
           await releaseIngestStepIndexes(run.id, 0)
+          await releaseRunCheckout({
+            orgId: input.orgId,
+            sha: input.sha,
+            runId: run.id,
+          })
         },
       )
 

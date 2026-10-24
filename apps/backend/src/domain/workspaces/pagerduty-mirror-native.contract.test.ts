@@ -6,14 +6,18 @@ import { connections } from "../../db/schema/connections.js"
 import { encodePagerdutyTokensForDb } from "../../lib/connection-config.js"
 import { upsertConnectionDirectory } from "../../models/connection-directory.js"
 import { getPagerdutyBindingWithRepoByConnectionId } from "../../models/pagerduty-connector.js"
+import {
+  ensureRepositoryRevisionCheckout,
+  markRepositoryIndexingReady,
+} from "../../models/repositories.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { pagerdutySyncContent } from "../../openworkflow/workflows/pagerduty-sync-content.js"
 import { pagerdutySyncEntity } from "../../openworkflow/workflows/pagerduty-sync-entity.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
-import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
+import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 
 const PAGERDUTY_CONFIG = `version: 1
 source: pagerduty
@@ -62,6 +66,20 @@ it.each(["entity", "full", "no_workspace", "read_only", "not_live"] as const)(
           }),
         )
         if (!workspaceRepo) throw new Error("Fixture repository missing")
+        // An ingestion published the Workspace repository, so its Workspace
+        // index starts no ingestion. The check below then proves that the
+        // mirror starts none.
+        await ensureRepositoryRevisionCheckout({
+          orgId: f.org.id,
+          repositoryId: workspaceRepo.id,
+          sha: f.sha,
+        })
+        await withOrgIdContext(f.org, () =>
+          markRepositoryIndexingReady({
+            repositoryId: workspaceRepo.id,
+            targetHash: f.sha,
+          }),
+        )
         // GitHub confirms read access before the binding. Write access goes away after it.
         if (mode === "read_only") f.loseWriteAccess()
         const destRepo =

@@ -32,17 +32,17 @@ describe("get_file", () => {
     )
   })
 
-  it("reads the workspace checkout through the shared helper", async () => {
+  it("reads the published checkout and ignores a Workspace id from the model", async () => {
+    // A Workspace claim comes only from a verified Workspace snapshot.
     const result = await getFileTool.invoke({
       repositoryId: REPO_ID,
       path: "src/a.ts",
       workspaceId: "ws_1",
       mode: "full",
-    })
+    } as Parameters<typeof getFileTool.invoke>[0])
     expect(fetchCheckoutFileBytes).toHaveBeenCalledWith({
       repositoryId: REPO_ID,
       orgId: "org_1",
-      workspaceId: "ws_1",
       path: "src/a.ts",
     })
     expect(String(result)).toContain("line one")
@@ -54,7 +54,6 @@ describe("get_file", () => {
       getFileTool.invoke({
         repositoryId: REPO_ID,
         path: "missing.ts",
-        workspaceId: "ws_1",
       }),
     ).rejects.toThrow("file not found: missing.ts")
   })

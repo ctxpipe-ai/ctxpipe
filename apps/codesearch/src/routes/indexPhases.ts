@@ -21,6 +21,7 @@ import {
 } from "../domain/indexing/phases.js"
 import {
   repoCheckoutPath,
+  repoSharedClonePath,
   scipIndexPath,
 } from "../domain/repositories/paths.js"
 import {
@@ -343,6 +344,7 @@ async function resolvePhaseContext(
       repoGitUrl: repo.gitUrl,
       checkoutKey,
       clonePath: repoCheckoutPath(repo.orgId, repo.id, checkoutKey),
+      sharedClonePath: repoSharedClonePath(repo.orgId, repo.id),
       scipIndexPath: scipIndexPath(repo.orgId, repo.id, checkoutKey),
       zoektRepoId: indexable.zoektRepoId,
       zoektName: zoektRepositoryName({

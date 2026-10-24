@@ -109,6 +109,7 @@ async function withChatProjection(
             orgId: org.id,
             name: "Published",
             gitUrl: revision.remote.url,
+            lastIngestedHash: revision.sha,
           },
           {
             id: excludedRepositoryId,
@@ -121,7 +122,7 @@ async function withChatProjection(
           id: generateObjectId("co"),
           orgId: org.id,
           repositoryId,
-          checkoutKey: `ws:${workspaceId}:${revision.sha}`,
+          checkoutKey: `rev:${revision.sha}`,
           ref: revision.sha,
           commitSha: revision.sha,
         })

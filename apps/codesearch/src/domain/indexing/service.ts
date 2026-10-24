@@ -1,6 +1,7 @@
 import type { Db } from "../../db/client.js"
 import { log } from "../../observability/logger.js"
 import { trySetRepositoryIndexingStep } from "../indexingSteps.js"
+import { repoSharedClonePath } from "../repositories/paths.js"
 import { zoektRepositoryName } from "../zoekt/shardPrefix.js"
 import {
   withIndexConcurrency,
@@ -84,6 +85,7 @@ function toPhaseContext(input: IndexInput): IndexPhaseRepoContext {
     repoGitUrl: input.repoGitUrl,
     checkoutKey: input.checkoutKey,
     clonePath: input.clonePath,
+    sharedClonePath: repoSharedClonePath(input.orgId, input.repoId),
     scipIndexPath: input.scipIndexPath,
     zoektRepoId: input.zoektRepoId,
     zoektName: zoektRepositoryName({

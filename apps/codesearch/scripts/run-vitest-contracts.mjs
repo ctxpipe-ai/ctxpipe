@@ -22,6 +22,7 @@ try {
     "src/domain/indexing/scipIndexers.native.test.ts",
     "src/domain/indexing/phases.credentials.test.ts",
     "src/domain/indexing/phases.plainGit.test.ts",
+    "src/domain/indexing/phases.worktrees.test.ts",
   ]
   for (const file of bun)
     if (!files.includes(file)) throw new Error(`Missing Bun contract: ${file}`)
