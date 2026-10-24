@@ -39,7 +39,7 @@ Claude Code and Codex read keys from environment variables. Without a key, use O
 
 For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.agents/skills/storybook/SKILL.md) with [apps/ui/AGENTS.md](apps/ui/AGENTS.md).
 
-**Dev servers:** on your own machine, follow the host dev runbook under [Local development](#local-development). On a remote or headless machine (a cloud VM, Claude Code on the web), do **not** use `pnpm dev`; follow [`.ai/agents/remote-environments.md`](.ai/agents/remote-environments.md).
+**Dev servers:** on your own machine, follow the host dev runbook under [Local development](#local-development). On a headless or remote VM (any harness, Claude Code on the web), do **not** use `pnpm dev`; follow [`.ai/agents/remote-environments.md`](.ai/agents/remote-environments.md).
 
 **Feedback that should become a long-term instruction**: put repo-wide rules in this file. Put rules for one app or package in that folder's `AGENTS.md`; create the file if it does not exist, and add it to the list above.
 

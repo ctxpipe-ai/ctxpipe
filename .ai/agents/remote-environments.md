@@ -2,48 +2,37 @@
 
 Use this file when an agent runs on a remote or headless machine. On your own machine, follow the host dev runbook in the root [`AGENTS.md`](../../AGENTS.md#local-development).
 
-Cursor is not in use now. Its files under `.cursor/` (`Dockerfile`, `environment.json`, `start.sh`, `hooks.json`, `mcp.json`, `worktrees.json`) stay dormant, so you can start Cursor again with no new setup. The Cursor section below applies only when Cursor runs again.
+Cursor is not in use now. Its files under `.cursor/` (`Dockerfile`, `environment.json`, `start.sh`, `hooks.json`, `mcp.json`, `worktrees.json`) stay dormant, so you can start Cursor again with no new setup.
 
-## Cursor Cloud (dormant)
+## Headless VM (any harness)
 
-Cloud agents run on an isolated Ubuntu machine. This repo provides a default cloud-agent environment config at [`.cursor/environment.json`](../../.cursor/environment.json).
+Use this section when you need the running app (API, proxied UI, and auth in the browser) on a machine without a desktop. Do not use `pnpm dev` there. Portless needs HTTPS on port 443 and a local CA, and a headless machine has neither. A job that only runs lint or tests needs no servers: run `pnpm lint`, `pnpm --filter @ctxpipe/backend test`, or `pnpm --filter @ctxpipe/ui test`.
 
-- **Default for remote agents:** When you need the **running app** (API + proxied UI + auth in the browser), use **Running dev servers on cloud VMs** below — not `pnpm dev` (portless). Lint/tests-only work can skip servers; see **Suggested verification commands** below.
-- **Docker image**: the environment is built from [`.cursor/Dockerfile`](../../.cursor/Dockerfile) following Cursor’s **Running Docker** guidance ([Cloud Agent setup](https://cursor.com/docs/cloud-agent/setup)): Docker CE + `fuse-overlayfs` + `iptables-legacy`, plus **Node.js**, **pnpm**, and **Bun** (matches root `package.json` `engines` and backend dev scripts). **`start`** runs [`.cursor/start.sh`](../../.cursor/start.sh): `sudo service docker start` and wait until `docker info` succeeds so `docker compose` is ready before tasks.
-- **Personal dashboard overrides**: A personal Cloud Agent environment (dashboard) can override the committed `.cursor/environment.json`. If agents boot without Docker/Bun after enabling Builds, the active environment is likely a snapshot-only personal config that never built this Dockerfile—either Save an updated personal install/start that includes Docker tooling, or remove the personal override so the repo Dockerfile is used.
-- **Rebuild after changing the Dockerfile**: Cursor only applies `.cursor/environment.json` when the cloud image is (re)built. If `docker` is missing on the agent VM, the environment is not using this Dockerfile—rebuild at [cursor.com/onboard](https://cursor.com/onboard) or bump the image so the **build** step runs again.
-- **Install/update**: after the image boots, Cursor runs `corepack enable && pnpm install` from the repo root (`install` in `environment.json`).
-- **Docker + Postgres**:
-  - **Important**: `localhost` in cloud agents is the **cloud VM**, not your laptop.
-  - If Docker is available on the VM, the agent can start the same infra stack you use locally with **`pnpm dev:infra`** (Postgres on `localhost:5433`, FalkorDB on `localhost:6379` by default; see [docker-compose.yml](../../docker-compose.yml) and [docker-compose.env.example](../../docker-compose.env.example)).
-  - If **`pnpm dev:infra`** fails with **permission denied** on `/var/run/docker.sock` even after [`.cursor/start.sh`](../../.cursor/start.sh), run **`sudo docker compose --profile infra up -d`** from the repo root (same Compose file as `pnpm dev:infra`).
-  - If Docker is **not** available or you prefer managed services, use a hosted Postgres and set `DATABASE_URL` via Secrets.
-- **Secrets (Cursor dashboard → Cloud Agents → Secrets)**:
-  - **Required**: `AUTH_SECRET` (≥ 32 chars) for backend auth initialization/tests (see [apps/backend/.env.example](../../apps/backend/.env.example)).
-  - **Database**: set `DATABASE_URL` to the **ctxpipe_app** runtime role (not the owner/migrate role). Compose on the VM defaults to `ctxpipe_app` via [`.cursor/start.sh`](../../.cursor/start.sh); `pnpm db:migrate` still connects as owner `ctxpipe`.
-  - **Optional**: `GRAPH_DB_URI` (when running graph features; use `redis://localhost:6379` if FalkorDB is started by `pnpm dev:infra`), and any model/API keys you need for specific tasks.
-- **Suggested verification commands** (no full dev stack):
-  - `pnpm lint`
-  - `pnpm --filter @ctxpipe/backend test`
-  - `pnpm --filter @ctxpipe/ui test`
-- **GitHub Actions after a cloud-agent push:** CI, CLI tests, Changeset Guard, and PR Deploy listen to both `push` and `pull_request` because Cloud Agent commits sometimes skip `synchronize`. Jobs run **exactly one** of those events: `cursor[bot]` / `cursoragent` on `push` only; everyone else on `pull_request` only. Concurrency is keyed by event name so a skipped `pull_request` run does not cancel the agent `push` suite. PR Deploy is the exception: one concurrency group per PR branch holds a whole run, and a run that it skips gets its own group. The PR-close cleanup has its own group for each PR, so a later push cannot cancel it. Manual fallback: Actions → PR Deploy → Run workflow, with the **PR branch** as the branch, then the PR number. PR Deploy refuses a run from `main`, because every branch can read the Actions cache of `main`.
-- **Running dev servers on cloud VMs** (without portless) — **default for Cursor Cloud and headless VMs**:
-  - **Why:** Portless requires HTTPS on port 443 and a local CA; that does not work on headless cloud VMs. **`pnpm dev`** invokes portless via [`scripts/dev-apps.sh`](../../scripts/dev-apps.sh) — skip it here.
-  - **Steps** (run migrations once after infra is up):
-    1. **`pnpm dev:infra`** — Postgres, FalkorDB, OTEL. If the socket error above applies, use **`sudo docker compose --profile infra up -d`** from the repo root instead.
-    2. **`pnpm db:migrate`** — from repo root; applies schema to the database in `apps/backend/.env.local`.
-    3. **Backend:** `cd apps/backend && bun --env-file=.env.local run --hot src/server.ts` — **`http://localhost:3000`**. Use **`--env-file=.env.local`** so secrets and `DATABASE_URL` load reliably.
-    4. **UI** (second process): `cd apps/ui && VITE_PUBLIC_API_URL=http://localhost:3000 npx vite dev --host 0.0.0.0 --port 3002` — Vite on port **3002**.
-  - **Browser entry point:** **`http://localhost:3000`** (backend). The backend proxies SPA routes to **`UI_PROXY_URL`** (`http://localhost:3002` — [`.cursor/start.sh`](../../.cursor/start.sh) sets this when it generates `.env.local`). The auth client uses `window.location.origin`; use **port 3000** in the browser, not 3002 alone (avoids Better Auth / “Request failed” issues).
-  - **Optional — noisy OTLP:** If the shell exports `OTEL_EXPORTER_OTLP_*` to an unreachable collector, evlog may log connection errors when handling requests. For a quiet run, unset those variables when starting Bun (example: `env -u OTEL_EXPORTER_OTLP_LOGS_ENDPOINT -u OTEL_EXPORTER_OTLP_TRACES_ENDPOINT -u OTEL_EXPORTER_OTLP_METRICS_ENDPOINT -u OTEL_RESOURCE_ATTRIBUTES`).
-  - **Codesearch:** This path does **not** start Zoekt/codesearch (that is wired by **`pnpm dev`** or Compose **`deploy`**). UI/auth/API work without it; repository search/MCP features that need codesearch require full host dev or **`pnpm start`**.
-  - **`.env.local` and secrets:** [`.cursor/start.sh`](../../.cursor/start.sh) auto-generates `apps/backend/.env.local` from Cursor secrets (`AUTH_SECRET`, `DATABASE_URL`, `GRAPH_DB_URI`) when the file is missing, and sets **`AUTH_BASE_URL`**, **`UI_PROXY_URL`**, and **`AUTH_ALLOWED_ORIGINS`** for this HTTP layout. If you maintain `.env.local` by hand, keep those aligned with **localhost:3000** / **localhost:3002** for this runbook.
-  - **Docker + Bun**: handled automatically by [`.cursor/start.sh`](../../.cursor/start.sh) (dockerd fallback + socket permissions) and [`environment.json`](../../.cursor/environment.json) (bun install fallback). See those files if debugging startup.
+Preconditions:
 
-### Agent runbook — Cursor Cloud / headless VMs (copy-paste)
+- Docker with Compose. `localhost` is the VM, not your laptop.
+- Node.js, pnpm, and Bun (versions as in the root `package.json` `engines`).
+- `pnpm install` has run from the repo root.
+- `psql` on `PATH` when the checkout is a linked git worktree. `pnpm db:migrate` needs it.
+
+Create `apps/backend/.env.local` with these values:
 
 ```bash
-# repo root
+DATABASE_URL=postgresql://ctxpipe_app:ctxpipe@localhost:5433/ctxpipe
+GRAPH_DB_URI=redis://localhost:6379
+AUTH_SECRET=<a random string of 32 or more characters>
+AUTH_BASE_URL=http://localhost:3000
+UI_PROXY_URL=http://localhost:3002
+AUTH_ALLOWED_ORIGINS=http://localhost:3002,http://localhost:3000
+```
+
+- `DATABASE_URL` uses the `ctxpipe_app` runtime role, not the owner role. `pnpm db:migrate` connects as the owner `ctxpipe` by itself. The value above is the default of the Compose `infra` profile. In a linked worktree, use the per-worktree database name (see the root [`AGENTS.md`](../../AGENTS.md#local-development)). To use a hosted Postgres, set its URL here.
+- `AUTH_BASE_URL`, `UI_PROXY_URL`, and `AUTH_ALLOWED_ORIGINS` must match ports 3000 and 3002. The auth client uses `window.location.origin`, so a mismatch gives "Request failed" errors.
+- Other [apps/backend/.env.example](../../apps/backend/.env.example) values are optional. A run with chat or ingestion needs `MODEL_PROVIDER_API_KEY`.
+
+Then run this sequence from the repo root:
+
+```bash
 pnpm dev:infra                    # or: sudo docker compose --profile infra up -d
 pnpm db:migrate
 cd apps/backend && bun --env-file=.env.local run --hot src/server.ts
@@ -51,7 +40,25 @@ cd apps/backend && bun --env-file=.env.local run --hot src/server.ts
 cd apps/ui && VITE_PUBLIC_API_URL=http://localhost:3000 npx vite dev --host 0.0.0.0 --port 3002
 ```
 
-Open **`http://localhost:3000`** for the integrated app.
+Open `http://localhost:3000` for the integrated app. Do not use port 3002 alone.
+
+Notes:
+
+- If `pnpm dev:infra` fails with "permission denied" on `/var/run/docker.sock`, use the `sudo docker compose` form above.
+- Use `--env-file=.env.local` so that the secrets and `DATABASE_URL` load reliably.
+- This sequence does not start Zoekt or codesearch. UI, auth, and API work without it. Repository search and the MCP features that need codesearch need `pnpm start` or the full host dev runbook.
+- If the shell exports `OTEL_EXPORTER_OTLP_*` to a collector that is not reachable, evlog logs connection errors. To stop them, start Bun with `env -u OTEL_EXPORTER_OTLP_LOGS_ENDPOINT -u OTEL_EXPORTER_OTLP_TRACES_ENDPOINT -u OTEL_EXPORTER_OTLP_METRICS_ENDPOINT -u OTEL_RESOURCE_ATTRIBUTES`.
+
+## Cursor Cloud (dormant)
+
+Cursor is not in use now. Use this section only when Cursor Cloud runs again. Follow the shared runbook above for the dev servers.
+
+- [`.cursor/environment.json`](../../.cursor/environment.json) sets the environment. It builds from [`.cursor/Dockerfile`](../../.cursor/Dockerfile) (Docker CE, Node.js, pnpm, Bun) and runs `corepack enable && pnpm install` after boot.
+- [`.cursor/start.sh`](../../.cursor/start.sh) starts Docker and waits for `docker info`. It also writes `apps/backend/.env.local` from the Cursor secrets `AUTH_SECRET`, `DATABASE_URL`, and `GRAPH_DB_URI` when the file is missing. It uses the values in the shared runbook.
+- Set the secrets in the Cursor dashboard under Cloud Agents. `AUTH_SECRET` (32 or more characters) is required. `DATABASE_URL` and `GRAPH_DB_URI` are optional.
+- A personal dashboard environment can override the committed `environment.json`. If agents boot without Docker or Bun, remove the override or save a personal install that includes them.
+- Cursor applies `environment.json` only when it builds the image. If `docker` is missing on the VM, rebuild at [cursor.com/onboard](https://cursor.com/onboard).
+- CI, CLI tests, Changeset Guard, and PR Deploy listen to both `push` and `pull_request`, because Cursor Cloud commits sometimes skip `synchronize`. A job runs on exactly one of these events: `cursor[bot]` and `cursoragent` on `push`, everyone else on `pull_request`. PR Deploy keeps one concurrency group for each PR branch. Manual fallback: Actions, PR Deploy, Run workflow. Select the PR branch (never `main`), then enter the PR number.
 
 ## Claude Code on the web
 
