@@ -637,6 +637,17 @@ gated.post(
         },
         400,
       )
+    else {
+      // The JSON validator matches the header with a case-sensitive pattern
+      // and ignores a body that it does not match.
+      const headers = new Headers(raw.headers)
+      headers.set("content-type", "application/json")
+      c.req.raw = new Request(raw.url, {
+        method: raw.method,
+        headers,
+        body: await raw.arrayBuffer(),
+      })
+    }
     return next()
   },
 )
