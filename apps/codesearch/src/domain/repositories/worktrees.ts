@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto"
-import { lstat, readFile, realpath, rename, rm, stat } from "node:fs/promises"
+import { lstat, readFile, realpath, rm, stat } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 
 const queues = new Map<string, Promise<unknown>>()
@@ -126,11 +125,8 @@ async function realpathOrSelf(path: string): Promise<string> {
 
 /**
  * Makes `checkoutPath` a detached worktree of the shared clone at `sha`.
- * A worktree that exists is moved to `sha`. Any other directory at the path
- * (an old standalone clone from before the shared clone) is replaced: the
- * new worktree is made at a temporary path beside it, and then renamed into
- * place. Thus a reader can use the old directory until the swap. The cache
- * holds nothing that cannot be made again. Call it inside `withSharedClone`.
+ * A worktree that exists is moved to `sha`; otherwise a new worktree is
+ * added at the path. Call it inside `withSharedClone`.
  */
 export async function ensureCheckoutWorktree(input: {
   sharedPath: string
@@ -144,29 +140,11 @@ export async function ensureCheckoutWorktree(input: {
     )
     return
   }
-  // A crash can leave a `.tmp` directory. The hourly cleanup deletes it and
-  // prunes its worktree registration.
-  const newPath = `${input.checkoutPath}.${randomUUID()}.tmp`
-  const oldPath = `${input.checkoutPath}.${randomUUID()}.old.tmp`
   await git(["worktree", "prune"], input.sharedPath)
   await git(
-    ["worktree", "add", "--force", "--detach", newPath, input.sha],
+    ["worktree", "add", "--force", "--detach", input.checkoutPath, input.sha],
     input.sharedPath,
   )
-  try {
-    await rename(input.checkoutPath, oldPath).catch((error: unknown) => {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-    })
-    await rename(newPath, input.checkoutPath)
-    // The shared clone still has the temporary path of the worktree.
-    await git(["worktree", "repair", input.checkoutPath], input.sharedPath)
-  } catch (error) {
-    await rm(newPath, { recursive: true, force: true })
-    await git(["worktree", "prune"], input.sharedPath)
-    throw error
-  } finally {
-    await rm(oldPath, { recursive: true, force: true })
-  }
 }
 
 /**

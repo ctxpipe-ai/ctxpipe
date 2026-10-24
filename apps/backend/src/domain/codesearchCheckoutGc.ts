@@ -1,4 +1,4 @@
-import { type SQL, sql } from "drizzle-orm"
+import { eq, type SQL, sql } from "drizzle-orm"
 import { z } from "zod"
 import { repositoryRevisionCheckoutKey } from "../../../../shared/workspace-checkout.js"
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
@@ -9,6 +9,7 @@ import {
   withOrgDbContext,
 } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
+import { repositories } from "../db/schema/repositories.js"
 import { formatUnknownError } from "../db/transientDbRetry.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
 import { log } from "../observability/logger.js"
@@ -83,10 +84,8 @@ export async function listLiveShas(exceptRunId?: string): Promise<string[]> {
 
 /**
  * The checkouts (alias `c`, with its repository `r`) that no reader needs.
- * Only `rev:<sha>` and Workspace keys (`ws:<id>:<sha>` and `ws:<id>`) are
- * candidates; `default` and other shapes stay. Workspace code reads use the
- * published checkout, so no reader uses a Workspace key. A candidate stays
- * when:
+ * Only `rev:<sha>` keys are candidates; `default` and other shapes stay. A
+ * candidate stays when:
  * - it is the published revision of its repository (`rev:<last_ingested_hash>`),
  * - its SHA is in `liveShas` (a running ingestion or index job),
  * - its row changed in the last hour, unless `windowed` is false. A run
@@ -96,7 +95,7 @@ export async function listLiveShas(exceptRunId?: string): Promise<string[]> {
  */
 function collectable(liveShas: SQL, windowed = true): SQL {
   return sql`
-    c.checkout_key ~ ${`^(rev:${SHA}|ws:[A-Za-z0-9_-]+(:${SHA})?)$`}
+    c.checkout_key ~ ${`^rev:${SHA}$`}
     ${windowed ? sql`and greatest(c.created_at, c.updated_at) < now() - interval '1 hour'` : sql``}
     and c.checkout_key <> ('rev:' || coalesce(r.last_ingested_hash, ''))
     and not (regexp_replace(c.checkout_key, '^.*:', '') = any(${liveShas}))
@@ -167,7 +166,7 @@ export async function listCollectableCheckouts(input: {
 
 /**
  * Deletes the rows of `checkoutKeys` that are still collectable now: the
- * live SHAs, the published revision, the Workspace rows, and the one-hour
+ * live SHAs, the published revision, and the one-hour
  * window are read again in the same statement. A run that started to use a
  * key after the list touched its row, so that row stays.
  */
@@ -386,17 +385,53 @@ export async function releaseRunCheckout(input: {
 const sweepResponseSchema = z.object({
   deletedEntries: z.number(),
   deletedBytes: z.number(),
+  // An older codesearch does not send it.
+  publishedMissing: z.boolean().default(false),
 })
+
+/** A published revision whose codesearch checkout is gone: index it again. */
+export type PublishedRebuild = {
+  orgId: string
+  repositoryId: string
+  sha: string
+}
+
+/**
+ * The published revision of a repository, when it is not in `liveShas`: no
+ * unfinished run indexes it now.
+ */
+async function publishedShaToRebuild(
+  orgId: string,
+  repositoryId: string,
+  liveShas: string[],
+): Promise<string | undefined> {
+  const [row] = await withOrgDbContext(orgId, (db) =>
+    db
+      .select({ sha: repositories.lastIngestedHash })
+      .from(repositories)
+      .where(eq(repositories.id, repositoryId))
+      .limit(1),
+  )
+  const sha = row?.sha ?? undefined
+  return sha && !liveShas.includes(sha) ? sha : undefined
+}
 
 /**
  * Asks codesearch to delete the files of one repository that no checkout
  * row names and that are older than one hour (orphan directories, Zoekt
- * shards, and temporary files). Never throws.
+ * shards, and temporary files). When codesearch has no published checkout
+ * (after its cache reset or a lost volume), it gives the published revision
+ * to index again, with no knowledge ingestion. Never throws.
  */
-async function sweepRepositoryDisk(
+export async function sweepRepositoryDisk(
   orgId: string,
   repositoryId: string,
-): Promise<z.infer<typeof sweepResponseSchema>> {
+  liveShas: string[],
+): Promise<{
+  deletedEntries: number
+  deletedBytes: number
+  rebuild?: PublishedRebuild
+}> {
   const none = { deletedEntries: 0, deletedBytes: 0 }
   try {
     const response = await postCollection(orgId, repositoryId, "sweep")
@@ -408,7 +443,9 @@ async function sweepRepositoryDisk(
       throw new Error(
         `codesearch checkout sweep failed: ${response.status} ${(await response.text()).slice(0, 300)}`,
       )
-    const result = sweepResponseSchema.parse(await response.json())
+    const { publishedMissing, ...result } = sweepResponseSchema.parse(
+      await response.json(),
+    )
     if (result.deletedEntries > 0)
       log.info({
         step: "codesearch-checkout-gc.sweep",
@@ -417,7 +454,10 @@ async function sweepRepositoryDisk(
         repositoryId,
         ...result,
       })
-    return result
+    const sha = publishedMissing
+      ? await publishedShaToRebuild(orgId, repositoryId, liveShas)
+      : undefined
+    return sha ? { ...result, rebuild: { orgId, repositoryId, sha } } : result
   } catch (error) {
     log.error({
       step: "codesearch-checkout-gc.sweep",
@@ -438,12 +478,14 @@ export async function collectAllCheckouts(): Promise<{
   deletedKeys: number
   sweptEntries: number
   sweptBytes: number
+  rebuilds: PublishedRebuild[]
 }> {
   const totals = {
     repositories: 0,
     deletedKeys: 0,
     sweptEntries: 0,
     sweptBytes: 0,
+    rebuilds: [] as PublishedRebuild[],
   }
   const liveShas = await listLiveShas()
   const orgs = await getSystemDb()
@@ -474,15 +516,18 @@ export async function collectAllCheckouts(): Promise<{
     // After the rows: a key whose row the pass deleted has no files left,
     // and the sweep deletes files that no row names.
     for (const repositoryId of await listOrgRepositories(orgId)) {
-      const swept = await sweepRepositoryDisk(orgId, repositoryId)
+      const swept = await sweepRepositoryDisk(orgId, repositoryId, liveShas)
       totals.sweptEntries += swept.deletedEntries
       totals.sweptBytes += swept.deletedBytes
+      if (swept.rebuild) totals.rebuilds.push(swept.rebuild)
     }
   }
+  const { rebuilds, ...counts } = totals
   log.info({
     step: "codesearch-checkout-gc.all",
-    message: `Deleted ${totals.deletedKeys} old checkouts in ${totals.repositories} repositories, and ${totals.sweptEntries} files with no checkout row (${totals.sweptBytes} bytes)`,
-    ...totals,
+    message: `Deleted ${totals.deletedKeys} old checkouts in ${totals.repositories} repositories, and ${totals.sweptEntries} files with no checkout row (${totals.sweptBytes} bytes); ${rebuilds.length} published checkouts to index again`,
+    ...counts,
+    rebuilds: rebuilds.length,
   })
   return totals
 }

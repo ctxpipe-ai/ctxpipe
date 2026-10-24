@@ -245,7 +245,12 @@ const deleteCheckoutsRoute = createRoute({
 })
 
 const sweepCheckoutsResponseSchema = z
-  .object({ deletedEntries: z.number(), deletedBytes: z.number() })
+  .object({
+    deletedEntries: z.number(),
+    deletedBytes: z.number(),
+    /** The published checkout has no directory: index it again. */
+    publishedMissing: z.boolean(),
+  })
   .openapi("SweepCheckoutsResponse")
 
 const sweepCheckoutsRoute = createRoute({
@@ -665,6 +670,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       repoId,
       deletedEntries: result.value.deletedEntries,
       deletedBytes: result.value.deletedBytes,
+      publishedMissing: result.value.publishedMissing,
     })
     return c.json(result.value, 200)
   })

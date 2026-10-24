@@ -43,12 +43,22 @@ const repositoryIndexInputSchema = z
      * capture one and does not write the indexing-step columns.
      */
     ingestionV2: z.literal(true).optional(),
+    /**
+     * Index the published revision again after codesearch lost its checkout
+     * (the hourly checkout collection finds it). The repository row says the
+     * revision is published, so the run does not skip it.
+     */
+    rebuild: z.literal(true).optional(),
     fromHash: z.string().optional(),
     githubConnectionId: z.string().optional(),
   })
   .refine(
     (input) => !input.ingestionV2 || !input.requestId,
     "An ingestion v2 index cannot own a request",
+  )
+  .refine(
+    (input) => !input.rebuild || input.ingestionV2,
+    "A rebuild index owns no request",
   )
 
 const indexRetryPolicy = {
@@ -256,11 +266,12 @@ export const repositoryIndex = defineWorkflow(
     })
 
     if (
-      await repositoryIndexAlreadyPublished(
+      !input.rebuild &&
+      (await repositoryIndexAlreadyPublished(
         input.orgId,
         input.repositoryId,
         input.targetHash,
-      )
+      ))
     ) {
       logMilestone("repository-index.skipped", {
         repositoryId: input.repositoryId,

@@ -17,14 +17,10 @@ const SHA = "[0-9a-f]{40}(?:[0-9a-f]{24})?"
 
 /**
  * The checkout keys that garbage collection can delete: an immutable source
- * revision (`rev:<sha>`), or a Workspace checkout (`ws:<id>:<sha>` and the
- * older `ws:<id>`), which no reader uses now. The `default` checkout and
- * other key shapes are never deleted. The pattern also keeps each key a
- * single safe path segment.
+ * revision (`rev:<sha>`). The `default` checkout and other key shapes are
+ * never deleted. The pattern also keeps each key a single safe path segment.
  */
-export const COLLECTABLE_CHECKOUT_KEY = new RegExp(
-  `^(?:rev:${SHA}|ws:[A-Za-z0-9_-]+(?::${SHA})?)$`,
-)
+export const COLLECTABLE_CHECKOUT_KEY = new RegExp(`^rev:${SHA}$`)
 
 /**
  * Deletes one checkout key of a repository from disk: the clone directory,
@@ -85,7 +81,9 @@ async function entrySize(path: string): Promise<number> {
  * a stopped index build left. It keeps the published key and each key in
  * `rowKeys`, and each file that changed in the last `minAgeMs`. The caller
  * holds the purge operation of the repository, so no index build of it runs.
- * It gives the count and the size of what it deleted.
+ * It gives the count and the size of what it deleted, and whether the
+ * published checkout directory is missing (after the cache layout reset or a
+ * lost volume), so that the backend indexes the published revision again.
  */
 export async function sweepRepositoryDisk(input: {
   orgId: string
@@ -94,9 +92,13 @@ export async function sweepRepositoryDisk(input: {
   publishedCheckoutKey: string
   minAgeMs: number
   now?: number
-}): Promise<{ deletedEntries: number; deletedBytes: number }> {
+}): Promise<{
+  deletedEntries: number
+  deletedBytes: number
+  publishedMissing: boolean
+}> {
   const now = input.now ?? Date.now()
-  const result = { deletedEntries: 0, deletedBytes: 0 }
+  const result = { deletedEntries: 0, deletedBytes: 0, publishedMissing: false }
   const keep = (key: string) =>
     input.rowKeys.has(key) || key === input.publishedCheckoutKey
   const oldEnough = async (path: string) => {
@@ -126,6 +128,9 @@ export async function sweepRepositoryDisk(input: {
       result.deletedBytes += size
     }
     await pruneWorktrees(sharedPath)
+    result.publishedMissing = !(await lstat(
+      join(checkoutsDir, input.publishedCheckoutKey),
+    ).catch(() => null))
   })
 
   // Zoekt shards: `<name>_v16.00000.zoekt`, its `.meta`, and a stopped
