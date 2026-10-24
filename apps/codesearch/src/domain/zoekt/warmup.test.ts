@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
-import { waitUntilZoektReposLoaded, ZoektWarmupTimeoutError } from "./warmup.js"
+import {
+  waitUntilZoektReposLoaded,
+  ZoektWarmupTimeoutError,
+} from "./warmup.js"
 
 describe("waitUntilZoektReposLoaded", () => {
   it("resolves once /api/list includes every expected repo id", async () => {
@@ -57,11 +60,9 @@ describe("waitUntilZoektReposLoaded", () => {
   })
 
   it("times out when repos never appear", async () => {
-    const fetchFn = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(JSON.stringify({ List: { Repos: [] } }), { status: 200 }),
-      )
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ List: { Repos: [] } }), { status: 200 }),
+    )
 
     await expect(
       waitUntilZoektReposLoaded({
