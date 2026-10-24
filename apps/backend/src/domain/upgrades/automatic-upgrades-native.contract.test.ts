@@ -3,7 +3,7 @@ import { HttpResponse, http } from "msw"
 import { expect, it } from "vitest"
 import { cleanupSeededOrg, seedOrg } from "../../../test/db.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
-import { getSystemDb } from "../../db/client.js"
+import { getSystemDb, initDb } from "../../db/client.js"
 import { members } from "../../db/schema/auth.js"
 import { getWorkspaceUpgradeRow } from "../../models/workspace-upgrades.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
@@ -255,6 +255,8 @@ it(
         },
       )
     } finally {
+      // The fixture closed the database pool.
+      initDb(process.env.DATABASE_URL ?? "")
       await cleanupSeededOrg(seed)
     }
   },
