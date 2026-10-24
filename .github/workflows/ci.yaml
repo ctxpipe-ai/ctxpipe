@@ -51,6 +51,7 @@ jobs:
         run: pnpm knip
       - run: node scripts/ci/check-workflow-credentials.mjs
       - run: node scripts/ci/check-secret-jobs.mjs
+      - run: node scripts/ci/check-agent-harness.mjs
       - name: Fetch Gate 0 classification pin
         run: git fetch origin 7dfa6b93a5baedc3eb2c86dd1056662e89cace00 --no-tags
       - name: Reject skipped proof and owned mocks
