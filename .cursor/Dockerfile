@@ -1,6 +1,6 @@
 # Cursor Cloud Agent: Docker + Compose for `pnpm dev:infra` (see
 # https://cursor.com/docs/cloud-agent/setup — "Running Docker" / recommended Dockerfile).
-# Paths in environment.json `build` are relative to `.cursor` (this repo: `.agents` symlink).
+# Paths in environment.json `build` are relative to `.cursor`.
 
 FROM ubuntu:24.04
 

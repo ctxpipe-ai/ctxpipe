@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# In-repo Cursor memory-capture entrypoint.
+# In-repo memory-capture entrypoint for each agent harness (Claude Code, Codex, Cursor).
 # Prefer TypeScript source so `git pull` is what the hook runs — not a stale
 # packages/cli/dist and not published npx ctxpipe, which recaptures follow-ups.
 set -euo pipefail
@@ -20,7 +20,7 @@ fi
 # Compiled fallback only: Turbo must successfully refresh dist before we run
 # it. Never wrap bun-from-source in Turbo. Never execute an unverified dist
 # (failed/missing Turbo used to keep the stale-classifier hole open).
-# Turbo writes a banner to stdout; discard it so Cursor still sees JSON.
+# Turbo writes a banner to stdout; discard it so the harness still sees JSON.
 if [[ ! -x "$TURBO" ]]; then
   fail_open
 fi

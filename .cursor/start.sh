@@ -17,7 +17,7 @@ fix_docker_sock() {
 }
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "cloud-agent: docker CLI not found. Rebuild the environment from .agents/Dockerfile (see Cursor Cloud setup docs)." >&2
+  echo "cloud-agent: docker CLI not found. Rebuild the environment from .cursor/Dockerfile (see Cursor Cloud setup docs)." >&2
   exit 1
 fi
 
@@ -29,7 +29,7 @@ if ! docker_ok; then
 
   if ! docker_ok; then
     # Only start a new daemon if nothing is listening yet.
-    # Do not pass --storage-driver: .agents/Dockerfile writes it to
+    # Do not pass --storage-driver: .cursor/Dockerfile writes it to
     # /etc/docker/daemon.json, and repeating the flag makes dockerd exit.
     if ! sudo docker info >/dev/null 2>&1; then
       sudo dockerd >/tmp/dockerd.log 2>&1 &
