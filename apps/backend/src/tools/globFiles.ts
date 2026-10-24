@@ -85,7 +85,6 @@ export async function globCheckoutPaths({
   orgId,
   workspaceId,
   sha,
-  legacy,
   pattern,
   path,
   onlyFiles,
@@ -97,7 +96,6 @@ export async function globCheckoutPaths({
   orgId: string
   workspaceId?: string
   sha?: string
-  legacy?: true
 }) {
   let payload: GlobFilesResponse
   try {
@@ -106,7 +104,6 @@ export async function globCheckoutPaths({
       orgId,
       workspaceId,
       sha,
-      legacy,
       request: {
         pattern,
         path: path ?? "",

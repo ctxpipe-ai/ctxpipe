@@ -200,10 +200,7 @@ function wrapExplorerTool(input: {
         orgId: input.orgId,
         checkout: {
           repositoryId: repository.id,
-          workspace:
-            input.projection.kind === "active"
-              ? { workspaceId: input.workspaceId, sha: repository.sha }
-              : { workspaceId: input.workspaceId, legacy: true },
+          workspace: { workspaceId: input.workspaceId, sha: repository.sha },
         },
         search: async (query) => {
           const matches = await codeSearch(input.orgId, {

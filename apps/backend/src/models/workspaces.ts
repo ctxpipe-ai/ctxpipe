@@ -11,7 +11,6 @@ import {
 } from "drizzle-orm"
 import type { AnyPgColumn } from "drizzle-orm/pg-core"
 import { createError } from "evlog"
-import { workspaceCheckoutPrefix } from "../../../../shared/workspace-checkout.js"
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { conversations } from "../db/schema/conversations.js"
@@ -24,7 +23,6 @@ import {
   workspaceKnowledgeUnits,
   workspaces,
 } from "../db/schema/workspaces.js"
-import { workspaceCheckoutKey } from "../domain/workspaces/derived-stores.js"
 import { firstConnectorTarget } from "../domain/workspaces/dest-workspace-first.js"
 import {
   type HydrateSkip,
@@ -463,7 +461,9 @@ async function readWorkspaceProjectionSnapshot(
           ))
           from ${repositories} join ${repositoryCheckouts} on ${qualified(repositoryCheckouts.repositoryId)} = ${qualified(repositories.id)}
           where ${qualified(repositories.orgId)} = ${qualified(workspaces.orgId)}
-          and (${qualified(repositoryCheckouts.checkoutKey)} = ${workspaceCheckoutKey(workspaceId)} or ${qualified(repositoryCheckouts.checkoutKey)} = ${workspaceCheckoutPrefix(workspaceId)} || ${qualified(repositoryCheckouts.commitSha)})
+          and ${qualified(repositoryCheckouts.orgId)} = ${qualified(repositories.orgId)}
+          and ${qualified(repositoryCheckouts.checkoutKey)} = 'rev:' || ${qualified(repositories.lastIngestedHash)}
+          and ${qualified(repositoryCheckouts.commitSha)} = ${qualified(repositories.lastIngestedHash)}
         ), '[]'::jsonb)`,
       })
       .from(workspaces)
@@ -473,22 +473,19 @@ async function readWorkspaceProjectionSnapshot(
       ? projectionFromWorkspace(first.workspace)
       : { kind: "absent" }
     const active = publishedProjection(projection)
-    const allowed = new Map<string, Set<string>>()
-    const allow = (url: string, sha: string) => {
-      const key = normalizeWorkspaceRepositoryUrl(url)
-      const revisions = allowed.get(key) ?? new Set<string>()
-      revisions.add(sha)
-      allowed.set(key, revisions)
-    }
+    // The repositories that the Workspace links: its own repository once
+    // its index is published, and each linked source once it is indexed.
+    const allowed = new Set<string>()
+    const allow = (url: string) =>
+      allowed.add(normalizeWorkspaceRepositoryUrl(url))
     if (active?.kind === "active" && active.stores.index.published) {
-      const indexed = active.stores.index.published
-      allow(indexed.remote.url, indexed.sha)
+      allow(active.stores.index.published.remote.url)
     } else if (active?.kind === "legacy" && active.url) {
-      allow(active.url, active.sha)
+      allow(active.url)
     }
     if (active)
       for (const linked of linkedSourcePins(first?.linkedSources ?? [])) {
-        if (linked.indexedSha) allow(linked.gitUrl, linked.indexedSha)
+        if (linked.indexedSha) allow(linked.gitUrl)
       }
     return {
       projection,
@@ -497,19 +494,15 @@ async function readWorkspaceProjectionSnapshot(
       repositories: (first?.indexedRepositories ?? []).flatMap(
         ({ repository, checkout }) => {
           if (!repository || !checkout) return []
+          // Workspace code reads use the published checkout of each
+          // linked repository: the newest commit of its default branch.
           const sha = checkout.sha
           if (
             !sha ||
-            !allowed
-              .get(normalizeWorkspaceRepositoryUrl(repository.gitUrl))
-              ?.has(sha)
+            !allowed.has(normalizeWorkspaceRepositoryUrl(repository.gitUrl))
           )
             return []
-          const checkoutKey = workspaceCheckoutKey(
-            workspaceId,
-            active?.kind === "active" ? sha : undefined,
-          )
-          if (checkout.checkoutKey !== checkoutKey) return []
+          const checkoutKey = checkout.checkoutKey
           return [
             {
               ...repository,

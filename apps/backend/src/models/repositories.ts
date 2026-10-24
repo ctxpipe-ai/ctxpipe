@@ -25,7 +25,6 @@ import {
   notifyCodesearchRepositoryDeleted,
   purgeRepositoryPostgres,
 } from "../domain/repositoryDeletion.js"
-import { workspaceCheckoutKey } from "../domain/workspaces/derived-stores.js"
 import {
   normalizeWorkspaceRepositoryUrl,
   repositoryKeyFromGitUrl,
@@ -61,24 +60,27 @@ const touchCheckoutOnReuse = {
   set: { updatedAt: sql`now()` },
 }
 
-export async function ensureWorkspaceCheckout(input: {
-  repositoryId: string
-  workspaceId: string
-  ref: string
-}): Promise<void> {
-  await orgSql(async () => {
-    await getOrgDb()
-      .insert(repositoryCheckouts)
-      .values({
-        id: generateObjectId("co"),
-        orgId: requireCurrentOrgId(),
-        repositoryId: input.repositoryId,
-        ref: input.ref,
-        checkoutKey: workspaceCheckoutKey(input.workspaceId, input.ref),
-      })
-      .onConflictDoUpdate(touchCheckoutOnReuse)
+/** True when the repository has the checkout that code reads use (see `publishedRepositoryCheckoutKey`). */
+export async function hasPublishedCheckout(
+  repositoryId: string,
+): Promise<boolean> {
+  return orgSql(async () => {
+    const [row] = await getOrgDb()
+      .select({ id: repositoryCheckouts.id })
+      .from(repositories)
+      .innerJoin(
+        repositoryCheckouts,
+        and(
+          eq(repositoryCheckouts.repositoryId, repositories.id),
+          eq(repositoryCheckouts.checkoutKey, publishedRepositoryCheckoutKey()),
+        ),
+      )
+      .where(eq(repositories.id, repositoryId))
+      .limit(1)
+    return Boolean(row)
   })
 }
+
 /** Select only the successfully published immutable source, falling back to pre-upgrade artifacts. */
 export function publishedRepositoryCheckoutKey() {
   return sql<string>`coalesce((select published.checkout_key from repository_checkouts published

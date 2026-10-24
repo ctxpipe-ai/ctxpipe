@@ -108,12 +108,9 @@ export async function codeSearch(
       orgId,
       principal: "service",
       ...(params.workspaceId ? { workspaceId: params.workspaceId } : {}),
-      ...(workspace &&
-      publishedProjection(workspace.projection)?.kind === "legacy"
-        ? { legacyWorkspace: true as const }
-        : {}),
-      ...(workspace &&
-      publishedProjection(workspace.projection)?.kind === "active"
+      // The repositories that the Workspace links. Codesearch reads each
+      // at its published checkout, and only these.
+      ...(workspace && publishedProjection(workspace.projection)
         ? {
             workspaceRevisions: workspace.repositories
               .filter((repo) =>

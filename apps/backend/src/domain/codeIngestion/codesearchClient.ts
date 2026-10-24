@@ -36,7 +36,6 @@ export class CodesearchCheckoutError extends Error {
 
 type CodesearchAuthExtras = {
   sha?: string
-  legacy?: true
   workspaceId?: string
   retries?: number
 }
@@ -73,7 +72,6 @@ async function fetchWithAuth(
       ...(extras?.sha && extras.workspaceId
         ? { workspaceRevisions: [{ repositoryId, sha: extras.sha }] }
         : {}),
-      ...(extras?.legacy ? { legacyWorkspace: true as const } : {}),
     },
   })
   const retries = extras?.retries ?? 10
@@ -144,13 +142,12 @@ export async function globFiles(
   return (await res.json()) as GlobFilesResponse
 }
 
-/** Fail-fast glob of the codesearch checkout. Pass workspaceId for `ws:<id>`. */
+/** Fail-fast glob of the codesearch checkout. Pass workspaceId for a Workspace read of the published checkout. */
 export async function globCheckoutFiles(input: {
   repositoryId: string
   orgId: string
   workspaceId?: string
   sha?: string
-  legacy?: true
   request?: GlobFilesRequest
 }): Promise<GlobFilesResponse> {
   return globFiles(
@@ -160,7 +157,6 @@ export async function globCheckoutFiles(input: {
     {
       workspaceId: input.workspaceId,
       sha: input.sha,
-      legacy: input.legacy,
       retries: 0,
     },
   )
@@ -172,7 +168,6 @@ export async function listCheckoutTree(input: {
   orgId: string
   workspaceId?: string
   sha?: string
-  legacy?: true
 }): Promise<string[]> {
   const res = await fetchWithAuth(
     `${codesearchBaseUrl()}/${input.repositoryId}/tree`,
@@ -182,7 +177,6 @@ export async function listCheckoutTree(input: {
     {
       workspaceId: input.workspaceId,
       sha: input.sha,
-      legacy: input.legacy,
       retries: 0,
     },
   )
@@ -225,13 +219,12 @@ export async function fetchFiles(
   return result
 }
 
-/** Fail-fast file bytes from the codesearch checkout. Pass workspaceId for `ws:<id>`. */
+/** Fail-fast file bytes from the codesearch checkout. Pass workspaceId for a Workspace read of the published checkout. */
 type CheckoutFileQuery = {
   repositoryId: string
   orgId: string
   workspaceId?: string
   sha?: string
-  legacy?: true
   path: string
   /**
    * A folder of the checkout: `path` is relative to it, and codesearch never
@@ -284,7 +277,6 @@ async function queryCheckoutFile(
     {
       workspaceId: input.workspaceId,
       sha: input.sha,
-      legacy: input.legacy,
       retries: 0,
     },
   )

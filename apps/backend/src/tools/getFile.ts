@@ -76,7 +76,6 @@ export async function readCheckoutFile({
   orgId,
   workspaceId,
   sha,
-  legacy,
   path,
   startLine,
   endLine,
@@ -87,14 +86,12 @@ export async function readCheckoutFile({
   orgId: string
   workspaceId?: string
   sha?: string
-  legacy?: true
 }) {
   const bytes = await fetchCheckoutFileBytes({
     repositoryId,
     orgId,
     workspaceId,
     sha,
-    legacy,
     path,
   })
   if (!bytes) {

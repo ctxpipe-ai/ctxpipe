@@ -1,5 +1,6 @@
 import { type SQL, sql } from "drizzle-orm"
 import { z } from "zod"
+import { repositoryRevisionCheckoutKey } from "../../../../shared/workspace-checkout.js"
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
 import {
@@ -33,7 +34,7 @@ const SHA = "[0-9a-f]{40}(?:[0-9a-f]{24})?"
  * input and the latest output of each step of an ingestion, index, or
  * hydrate run. A child run of one of these is of one of these workflows too.
  */
-function liveShasQuery(): SQL {
+function liveShasQuery(exceptRunId?: string): SQL {
   const ns = openWorkflowNamespaceId()
   const workflows = [
     "repository-ingestion",
@@ -49,6 +50,7 @@ function liveShasQuery(): SQL {
       select id, input from openworkflow.workflow_runs
       where namespace_id = ${ns}
         and status in ('pending', 'running', 'sleeping')
+        ${exceptRunId ? sql`and id <> ${exceptRunId}` : sql``}
         and workflow_name in (${sql.join(
           workflows.map((name) => sql`${name}`),
           sql`, `,
@@ -72,48 +74,54 @@ function liveShasQuery(): SQL {
 }
 
 /** The SHAs that unfinished runs can still read (see `liveShasQuery`). */
-export async function listLiveShas(): Promise<string[]> {
-  const result = await getSystemDb().execute<{ sha: string }>(liveShasQuery())
+export async function listLiveShas(exceptRunId?: string): Promise<string[]> {
+  const result = await getSystemDb().execute<{ sha: string }>(
+    liveShasQuery(exceptRunId),
+  )
   return result.rows.map((row) => row.sha)
 }
 
 /**
  * The checkouts (alias `c`, with its repository `r`) that no reader needs.
- * Only `rev:<sha>` and `ws:<id>:<sha>` keys are candidates; `default` and
- * other shapes stay. A candidate stays when:
+ * Only `rev:<sha>` and Workspace keys (`ws:<id>:<sha>` and `ws:<id>`) are
+ * candidates; `default` and other shapes stay. Workspace code reads use the
+ * published checkout, so no reader uses a Workspace key. A candidate stays
+ * when:
  * - it is the published revision of its repository (`rev:<last_ingested_hash>`),
  * - its SHA is in `liveShas` (a running ingestion or index job),
- * - it is a `ws:<id>:<sha>` key and the Workspace row or its source rows hold
- *   the SHA (the active, desired, indexed, and linked revisions),
- * - its row changed in the last hour. A run touches the row when it starts
- *   to use the key, so a run that has only just started keeps its key.
- *
- * Chat tools read the current Workspace projection on each call, so the
- * Workspace rule keeps what chat reads. A call that started on the revision
- * before keeps it through the one-hour window.
+ * - its row changed in the last hour, unless `windowed` is false. A run
+ *   touches the row when it starts to use the key, so a run that has only
+ *   just started keeps its key. A run that ended gives `windowed: false`
+ *   for its own key.
  */
-function collectable(liveShas: SQL): SQL {
+function collectable(liveShas: SQL, windowed = true): SQL {
   return sql`
-    c.checkout_key ~ ${`^(rev:${SHA}|ws:[A-Za-z0-9_-]+:${SHA})$`}
-    and greatest(c.created_at, c.updated_at) < now() - interval '1 hour'
+    c.checkout_key ~ ${`^(rev:${SHA}|ws:[A-Za-z0-9_-]+(:${SHA})?)$`}
+    ${windowed ? sql`and greatest(c.created_at, c.updated_at) < now() - interval '1 hour'` : sql``}
     and c.checkout_key <> ('rev:' || coalesce(r.last_ingested_hash, ''))
     and not (regexp_replace(c.checkout_key, '^.*:', '') = any(${liveShas}))
-    and not exists (
-      select 1 from workspaces w
-      where starts_with(c.checkout_key, 'ws:' || w.id || ':')
-        and strpos(
-          to_jsonb(w)::text || coalesce((
-            select string_agg(to_jsonb(s)::text, '')
-            from workspace_sources s where s.workspace_id = w.id
-          ), ''),
-          split_part(c.checkout_key, ':', 3)
-        ) > 0
-    )
   `
 }
 
 const textArray = (values: string[]) =>
   sql`string_to_array(${values.join(",")}, ',')`
+
+/** Every repository of an org. Never throws; a failure gives none. */
+async function listOrgRepositories(orgId: string): Promise<string[]> {
+  try {
+    const result = await withOrgDbContext(orgId, (db) =>
+      db.execute<{ id: string }>(sql`select id from repositories order by id`),
+    )
+    return result.rows.map((row) => row.id)
+  } catch (error) {
+    log.error({
+      step: "codesearch-checkout-gc.org",
+      message: `Listing repositories failed: ${formatUnknownError(error)}`,
+      orgId,
+    })
+    return []
+  }
+}
 
 /** The repositories of an org that have a checkout to collect. */
 async function listCandidateRepositories(
@@ -167,6 +175,7 @@ async function deleteCollectableRows(
   orgId: string,
   repositoryId: string,
   checkoutKeys: string[],
+  run?: { endedRunId: string },
 ): Promise<string[]> {
   const result = await withOrgDbContext(orgId, (db) =>
     db.execute<{ checkout_key: string }>(sql`
@@ -175,7 +184,7 @@ async function deleteCollectableRows(
       where r.id = c.repository_id
         and c.repository_id = ${repositoryId}
         and c.checkout_key = any(${textArray(checkoutKeys)})
-        and ${collectable(sql`array(${liveShasQuery()})`)}
+        and ${collectable(sql`array(${liveShasQuery(run?.endedRunId)})`, !run)}
       returning c.checkout_key
     `),
   )
@@ -187,11 +196,13 @@ const deleteResponseSchema = z.object({
   skipped: z.array(z.object({ checkoutKey: z.string(), reason: z.string() })),
 })
 
-async function deleteOnCodesearch(
+/** POST a collection call for one repository, with a `repo-gc` token. */
+async function postCollection(
   orgId: string,
   repositoryId: string,
-  checkoutKeys: string[],
-): Promise<z.infer<typeof deleteResponseSchema> | "busy"> {
+  action: "delete" | "sweep",
+  body?: unknown,
+): Promise<Response> {
   assertNotInOrgDbContext()
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const token = await signUpstreamJwt({
@@ -199,17 +210,26 @@ async function deleteOnCodesearch(
     audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
     claims: { sub: `repo-gc:${repositoryId}`, orgId, principal: "service" },
   })
-  const response = await fetch(
-    `${codesearchBaseUrl()}/${repositoryId}/checkouts/delete`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ checkoutKeys }),
+  return fetch(`${codesearchBaseUrl()}/${repositoryId}/checkouts/${action}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
     },
-  )
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  })
+}
+
+async function deleteOnCodesearch(
+  orgId: string,
+  repositoryId: string,
+  checkoutKeys: string[],
+  runEnded?: true,
+): Promise<z.infer<typeof deleteResponseSchema> | "busy"> {
+  const response = await postCollection(orgId, repositoryId, "delete", {
+    checkoutKeys,
+    ...(runEnded ? { runEnded } : {}),
+  })
   if (response.status === 409) {
     await response.body?.cancel()
     return "busy"
@@ -294,14 +314,125 @@ export async function collectRepositoryCheckouts(input: {
 }
 
 /**
+ * Deletes the `rev:<sha>` checkout of an ingestion run that ended, with or
+ * without success, in each repository of the org that has it. It keeps the
+ * published revision and a SHA that another unfinished run reads. The
+ * hourly collection deletes what this leaves. Never throws.
+ */
+export async function releaseRunCheckout(input: {
+  orgId: string
+  sha: string
+  runId: string
+}): Promise<{ deletedKeys: number }> {
+  let deletedKeys = 0
+  try {
+    const key = repositoryRevisionCheckoutKey(input.sha)
+    const liveShas = await listLiveShas(input.runId)
+    const candidates = await withOrgDbContext(input.orgId, (db) =>
+      db.execute<{ repository_id: string }>(sql`
+        select c.repository_id
+        from repository_checkouts c
+        join repositories r on r.id = c.repository_id
+        where c.checkout_key = ${key}
+          and ${collectable(textArray(liveShas), false)}
+      `),
+    )
+    for (const { repository_id: repositoryId } of candidates.rows) {
+      const result = await deleteOnCodesearch(
+        input.orgId,
+        repositoryId,
+        [key],
+        true,
+      )
+      // An index job of the repository runs now: the hourly job deletes it.
+      if (result === "busy") continue
+      const filesDeleted = result.deleted.map((d) => d.checkoutKey)
+      const rowsDeleted = filesDeleted.length
+        ? await deleteCollectableRows(input.orgId, repositoryId, filesDeleted, {
+            endedRunId: input.runId,
+          })
+        : []
+      deletedKeys += rowsDeleted.length
+      log.info({
+        step: "codesearch-checkout-gc.run-ended",
+        message: `Deleted ${rowsDeleted.length} checkouts of an ended run`,
+        orgId: input.orgId,
+        repositoryId,
+        deletedKeys: rowsDeleted.join(","),
+      })
+    }
+  } catch (error) {
+    log.error({
+      step: "codesearch-checkout-gc.run-ended",
+      message: `Deleting the checkout of an ended run failed: ${formatUnknownError(error)}`,
+      orgId: input.orgId,
+    })
+  }
+  return { deletedKeys }
+}
+
+const sweepResponseSchema = z.object({
+  deletedEntries: z.number(),
+  deletedBytes: z.number(),
+})
+
+/**
+ * Asks codesearch to delete the files of one repository that no checkout
+ * row names and that are older than one hour (orphan directories, Zoekt
+ * shards, and temporary files). Never throws.
+ */
+async function sweepRepositoryDisk(
+  orgId: string,
+  repositoryId: string,
+): Promise<z.infer<typeof sweepResponseSchema>> {
+  const none = { deletedEntries: 0, deletedBytes: 0 }
+  try {
+    const response = await postCollection(orgId, repositoryId, "sweep")
+    if (response.status === 409) {
+      await response.body?.cancel()
+      return none
+    }
+    if (!response.ok)
+      throw new Error(
+        `codesearch checkout sweep failed: ${response.status} ${(await response.text()).slice(0, 300)}`,
+      )
+    const result = sweepResponseSchema.parse(await response.json())
+    if (result.deletedEntries > 0)
+      log.info({
+        step: "codesearch-checkout-gc.sweep",
+        message: `Deleted ${result.deletedEntries} files with no checkout row (${result.deletedBytes} bytes)`,
+        orgId,
+        repositoryId,
+        ...result,
+      })
+    return result
+  } catch (error) {
+    log.error({
+      step: "codesearch-checkout-gc.sweep",
+      message: `Sweeping files with no checkout row failed: ${formatUnknownError(error)}`,
+      orgId,
+      repositoryId,
+    })
+    return none
+  }
+}
+
+/**
  * Collects the old checkouts of every repository of every org. It reads the
  * live SHAs once for the pass.
  */
 export async function collectAllCheckouts(): Promise<{
   repositories: number
   deletedKeys: number
+  sweptEntries: number
+  sweptBytes: number
 }> {
-  const totals = { repositories: 0, deletedKeys: 0 }
+  const totals = {
+    repositories: 0,
+    deletedKeys: 0,
+    sweptEntries: 0,
+    sweptBytes: 0,
+  }
   const liveShas = await listLiveShas()
   const orgs = await getSystemDb()
     .select({ id: organizations.id })
@@ -328,10 +459,17 @@ export async function collectAllCheckouts(): Promise<{
       totals.repositories += 1
       totals.deletedKeys += result.deletedKeys
     }
+    // After the rows: a key whose row the pass deleted has no files left,
+    // and the sweep deletes files that no row names.
+    for (const repositoryId of await listOrgRepositories(orgId)) {
+      const swept = await sweepRepositoryDisk(orgId, repositoryId)
+      totals.sweptEntries += swept.deletedEntries
+      totals.sweptBytes += swept.deletedBytes
+    }
   }
   log.info({
     step: "codesearch-checkout-gc.all",
-    message: `Deleted ${totals.deletedKeys} old checkouts in ${totals.repositories} repositories`,
+    message: `Deleted ${totals.deletedKeys} old checkouts in ${totals.repositories} repositories, and ${totals.sweptEntries} files with no checkout row (${totals.sweptBytes} bytes)`,
     ...totals,
   })
   return totals
