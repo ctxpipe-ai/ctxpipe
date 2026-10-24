@@ -6,6 +6,7 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb } from "../../db/client.js"
 import {
   captureWorkspaceRevision,
+  getWorkspaceById,
   getWorkspaceProjection,
   getWorkspaceProjectionSnapshot,
   persistWorkspaceGraphResult,
@@ -651,8 +652,16 @@ it(
   async () => {
     await withGraphHydration({}, async (f, _graph, db) => {
       await withGraphWriteDenied(f, db, () => f.publish())
+      const failedAt = (
+        await withOrgIdContext(f.org, () => getWorkspaceById(f.workspaceId))
+      )?.hydratePhases?.graph?.failure?.at
+      if (!failedAt) throw new Error("Expected a stored graph failure")
+      // The first retry is in the check of the hour after the failure.
       const run = await f.runner.runWorkflow(workspaceTipCheck.spec, {
         orgId: f.org.id,
+        hour: new Date(Date.parse(failedAt) + 3_600_000)
+          .toISOString()
+          .slice(0, 13),
       })
       await run.result({ timeoutMs: 30_000 })
       const queued = await getSystemDb().execute<{
