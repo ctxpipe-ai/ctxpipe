@@ -22,7 +22,9 @@
 #   STATELESS_WAIT_SECONDS (default: 600)
 #   VOLUME_WAIT_SECONDS    (default: 2700)  # 50GB volume copy
 #
-# In the product set it also sets restartPolicyType ALWAYS on falkordb.
+# In the product set it also sets restartPolicyType ALWAYS on falkordb, in
+# the same update as the region pin. Railway applies a policy change only
+# when a new deployment starts, so FalkorDB redeploys when either is wrong.
 #
 # Both hosted Railway projects use the same Virginia region as Neon
 # (ADR-029 / ADR-038). Terraform ignore_changes + provider issue #77
@@ -137,46 +139,71 @@ already_on_region() {
   [[ "$regions" == "$(jq -nc --arg r "$REGION" '[$r]')" ]]
 }
 
+# pin_region <service-id> [extra-input-json]
+# The optional second argument merges into the same serviceInstanceUpdate input.
 pin_region() {
   local service_id="$1"
-  # shellcheck disable=SC2016
-  railway_graphql \
-    'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
-    "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg region "$REGION" --argjson replicas "$NUM_REPLICAS" '{
-      environmentId: $env,
-      serviceId: $service,
-      input: {
-        multiRegionConfig: {
-          ($region): {"numReplicas": $replicas}
-        }
-      }
-    }')" >/dev/null
+  local extra='{}'
+  [[ $# -ge 2 ]] && extra="$2"
+  railway_service_instance_update "$ENV_ID" "$service_id" \
+    "$(jq -nc --arg region "$REGION" --argjson replicas "$NUM_REPLICAS" --argjson extra "$extra" \
+      '{multiRegionConfig: {($region): {"numReplicas": $replicas}}} + $extra')" >/dev/null
 }
 
-# The Railway Terraform provider has no restart policy field. Set it here on
-# every run (idempotent) so FalkorDB always restarts after an exit.
-set_restart_always() {
+current_restart_policy() {
+  local service_id="$1"
+  local response
+  # shellcheck disable=SC2016
+  response="$(railway_graphql \
+    'query serviceInstanceMeta($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { latestDeployment { id status meta } } }' \
+    "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')")"
+  echo "$response" | jq -r '.data.serviceInstance.latestDeployment.meta.serviceManifest.deploy.restartPolicyType // empty'
+}
+
+# Read the stored policy back from the service instance and fail when it is
+# not ALWAYS.
+verify_restart_always() {
   local label="$1"
   local service_id="$2"
-  echo "Setting restart policy ALWAYS on $label ($service_id)"
+  local response policy
   # shellcheck disable=SC2016
-  railway_graphql \
-    'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
-    "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service, input:{restartPolicyType:"ALWAYS"}}')" >/dev/null
+  response="$(railway_graphql \
+    'query serviceInstanceRestartPolicy($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { restartPolicyType } }' \
+    "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')")"
+  policy="$(printf '%s' "$response" | jq -r '.data.serviceInstance.restartPolicyType // empty')"
+  if [[ "$policy" != "ALWAYS" ]]; then
+    echo "::error::Expected restartPolicyType=ALWAYS on $label, got ${policy:-empty}. Cause: Railway did not keep the update. Fix: re-run the deploy, or set the restart policy to Always on the $label service in the Railway dashboard." >&2
+    printf '%s\n' "$response" >&2
+    return 1
+  fi
 }
 
 pin_and_maybe_deploy() {
   local label="$1"
   local service_id="$2"
   local wait_seconds="$3"
+  local extra='{}'
+  local want_always=0 suffix=''
+  local region_ok=0 policy_ok=1
 
-  if already_on_region "$service_id"; then
-    echo "Skipping $label ($service_id): latest deployment already on $REGION"
+  if [[ "$label" == "falkordb" && "$SERVICE_SET" == "product" ]]; then
+    want_always=1
+    suffix=' with restart policy ALWAYS'
+    extra='{"restartPolicyType":"ALWAYS"}'
+    [[ "$(current_restart_policy "$service_id")" == "ALWAYS" ]] || policy_ok=0
+  fi
+  already_on_region "$service_id" && region_ok=1
+
+  if (( region_ok == 1 && policy_ok == 1 )); then
+    echo "Skipping $label ($service_id): latest deployment already on $REGION$suffix"
     return 0
   fi
 
-  echo "Pinning $label ($service_id) to $REGION x$NUM_REPLICAS"
-  pin_region "$service_id"
+  echo "Pinning $label ($service_id) to $REGION x$NUM_REPLICAS$suffix"
+  pin_region "$service_id" "$extra"
+  if (( want_always == 1 )); then
+    verify_restart_always "$label" "$service_id"
+  fi
   echo "Deploying $label"
   deploy_service "$service_id"
   wait_deploy "$label" "$service_id" "$wait_seconds"
@@ -212,12 +239,10 @@ resolve_id() {
   echo "$ids_by_name" | jq -r --arg name "$name" '.[$name] // empty'
 }
 
-if [[ "$SERVICE_SET" == "product" ]]; then
-  falkordb_id="$(resolve_id falkordb)"
-  if [[ -n "$falkordb_id" ]]; then
-    set_restart_always falkordb "$falkordb_id"
-  else
-    echo "Warning: no Railway service named falkordb; skipping restart policy" >&2
+if [[ "$SERVICE_SET" == "product" && "$ENVIRONMENT_NAME" == "production" ]]; then
+  if [[ -z "$(resolve_id falkordb)" ]]; then
+    echo "::error::No Railway service named falkordb in production. Cause: the service was renamed or removed, so the restart policy ALWAYS cannot be set. Fix: restore the falkordb service name in Railway, or update scripts/railway-set-regions.sh." >&2
+    exit 1
   fi
 fi
 
