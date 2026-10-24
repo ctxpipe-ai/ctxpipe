@@ -116,6 +116,7 @@ PR deploys are driven by `.github/workflows/pr-deploy.yaml`:
 - Enable **Serverless** on backend, ui, codesearch, openworkflow, and **FalkorDB**.
 - **Langfuse in PR**: shared ClickStack collector + `env:pr-N` tags; in-app Langfuse handler remains request-scoped
 - For the PR **openworkflow worker**, image + Serverless + `restartPolicyType: ON_FAILURE` so idle supervisor exits (status 0) stay down until woken
+- In production, `scripts/railway-set-regions.sh` sets `restartPolicyType: ALWAYS` on `falkordb` at every deploy, because the Terraform provider has no restart policy field
 
 ## Secrets
 

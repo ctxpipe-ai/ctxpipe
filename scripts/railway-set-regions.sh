@@ -22,6 +22,8 @@
 #   STATELESS_WAIT_SECONDS (default: 600)
 #   VOLUME_WAIT_SECONDS    (default: 2700)  # 50GB volume copy
 #
+# In the product set it also sets restartPolicyType ALWAYS on falkordb.
+#
 # Both hosted Railway projects use the same Virginia region as Neon
 # (ADR-029 / ADR-038). Terraform ignore_changes + provider issue #77
 # never correct a create that landed in the workspace preferred region
@@ -151,6 +153,18 @@ pin_region() {
     }')" >/dev/null
 }
 
+# The Railway Terraform provider has no restart policy field. Set it here on
+# every run (idempotent) so FalkorDB always restarts after an exit.
+set_restart_always() {
+  local label="$1"
+  local service_id="$2"
+  echo "Setting restart policy ALWAYS on $label ($service_id)"
+  # shellcheck disable=SC2016
+  railway_graphql \
+    'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+    "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service, input:{restartPolicyType:"ALWAYS"}}')" >/dev/null
+}
+
 pin_and_maybe_deploy() {
   local label="$1"
   local service_id="$2"
@@ -197,6 +211,15 @@ resolve_id() {
   # shellcheck disable=SC2154
   echo "$ids_by_name" | jq -r --arg name "$name" '.[$name] // empty'
 }
+
+if [[ "$SERVICE_SET" == "product" ]]; then
+  falkordb_id="$(resolve_id falkordb)"
+  if [[ -n "$falkordb_id" ]]; then
+    set_restart_always falkordb "$falkordb_id"
+  else
+    echo "Warning: no Railway service named falkordb; skipping restart policy" >&2
+  fi
+fi
 
 for name in "${STATELESS_NAMES[@]}"; do
   sid="$(resolve_id "$name")"
