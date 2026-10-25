@@ -82,11 +82,16 @@ Subscribe to these events:
 - **Push**
 - **Repository**
 
-The pull request events mirror closed pull requests of every linked repository
-into the Workspaces that link it. The **Issues** and **Issue comment** events
-mirror the issues of every linked repository in the same way. The App
-installation must be able to read those linked repositories. Required-check
-conclusions are not mirrored.
+With the pull request events, ctxpipe mirrors the closed pull requests of every
+linked repository into the Workspaces that link it. With the **Issues** and
+**Issue comment** events, ctxpipe mirrors the issues of every linked repository
+in the same way. The App installation must be able to read those linked
+repositories. ctxpipe does not mirror required-check conclusions.
+
+A backfill of the issues of one linked repository reads up to 200 of the most
+recently updated issues. It sends one GraphQL request for each 50 issues, with
+the 100 most recent comments of each issue, and writes all the files in one
+commit.
 
 ### Add the Issues permission to an existing App
 
@@ -103,9 +108,9 @@ Read-only** or the **Issues** event. Do these steps:
 
 Until the owner of an installation accepts the permission, ctxpipe does not
 mirror the issues of that installation. The pull request mirror and indexing
-continue to work. After the owner accepts, new issue changes are mirrored.
-Issues that did not change after you linked the repository are not mirrored
-until they change, or until you link the repository again.
+continue to work. When the owner accepts, GitHub sends an `installation` event,
+and ctxpipe backfills the issues of each linked repository of that account.
+After that, ctxpipe mirrors each issue change.
 
 Write access is required because ctxpipe commits to workspace repositories and
 opens pull requests for connector configuration and Workspace chat. Limit the App
@@ -179,10 +184,16 @@ another connection.
 
 ### Issues do not appear in the Workspace
 
-Confirm that the App has **Issues: Read-only**, that it subscribes to the
-**Issues** event, and that the owner of the installation accepted the
-permission. The backend logs `github_issue_mirror_no_permission` for each
-repository that it cannot read issues from.
+Confirm that the App has **Issues: Read-only** and that it subscribes to the
+**Issues** event. Then find the cause in the backend logs:
+
+- `github_issue_mirror_no_permission`: the owner of the installation did not
+  accept the Issues permission. Tell the owner to accept it on the installation
+  settings page in GitHub. ctxpipe then backfills the issues.
+- `github_issue_mirror_repository_not_covered`: the installation does not have
+  access to the repository. Add the repository to the repository access of the
+  installation in GitHub. After that, ctxpipe mirrors each issue change of
+  that repository.
 
 ### Connector writes fail
 

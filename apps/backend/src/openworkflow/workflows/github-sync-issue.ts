@@ -1,23 +1,19 @@
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
-import { stampMirrorFiles } from "../../domain/workspace-sources/stamp-sources.js"
-import { getLogger } from "../../observability/logger.js"
+import type { GithubMirrorFile } from "../../services/github/github-mirror.js"
 import { GITHUB_ISSUES_PREFIX } from "../../services/github/issue-mirror/converter.js"
 import {
   captureGithubIssue,
   captureGithubIssuePage,
   GITHUB_ISSUE_BACKFILL_MAX,
 } from "../../services/github/issue-mirror/sync.js"
-import type { GithubPrMirrorFile } from "../../services/github/pull-request-mirror/types.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import {
   captureGithubMirrorTarget,
-  readGithubMirrorStampsToWrite,
-} from "./github-sync-pull-request.js"
-import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
+  commitGithubMirror,
+} from "../github-mirror-steps.js"
 
 const GithubSyncIssueInputSchema = z.object({
   orgId: z.string().min(1),
@@ -58,7 +54,7 @@ export const githubSyncIssue = defineWorkflow(
       connectionId: target.connectionId,
       repository: target.repository,
     }
-    const files: GithubPrMirrorFile[] = []
+    const files: GithubMirrorFile[] = []
     let deletePaths: string[] = []
     if (input.number) {
       const number = input.number
@@ -88,70 +84,57 @@ export const githubSyncIssue = defineWorkflow(
         if (!after || issues >= GITHUB_ISSUE_BACKFILL_MAX) break
       }
     }
-    const sourcePath = target.sourcePath
-    // Stamp each file with the source file of the repository (ADR-050),
-    // and restamp from Git the issues of an older stamp.
-    const stamped = sourcePath
-      ? stampMirrorFiles(
-          files,
-          sourcePath,
-          (
-            await step.run({ name: "read-github-issue-mirror-stamps" }, () =>
-              readGithubMirrorStampsToWrite({
-                orgId: input.orgId,
-                workspaceId: input.workspaceId,
-                prefix: `${GITHUB_ISSUES_PREFIX}${target.repository}/`,
-                sourcePath,
-              }),
-            )
-          ).filter((blob) => !deletePaths.includes(blob.path)),
-        )
-      : files
-    if (stamped.length === 0 && deletePaths.length === 0) return { written: 0 }
-    await step.runWorkflow(
-      workspaceConnectorMirror.spec,
-      {
-        orgId: input.orgId,
-        workspaceId: input.workspaceId,
-        revision: target.revision,
-        mirror: { provider: "github", gitUrl: input.gitUrl },
-        jobId: `wjob_${run.id}_mirror`,
-        files: stamped,
-        deletePaths,
+    const written = await commitGithubMirror(step, {
+      orgId: input.orgId,
+      workspaceId: input.workspaceId,
+      gitUrl: input.gitUrl,
+      runId: run.id,
+      target,
+      files,
+      deletePaths,
+      prefix: `${GITHUB_ISSUES_PREFIX}${target.repository}/`,
+      reason: "Mirroring GitHub issues",
+      stepNames: {
+        readStamps: "read-github-issue-mirror-stamps",
+        commit: "commit-github-issues",
       },
-      { name: "commit-github-issues" },
-    )
-    if (target.workspaceRepositoryId)
-      await runConnectorRepositoryIngestionWorkflow(
-        step,
-        {
-          orgId: input.orgId,
-          repositoryId: target.workspaceRepositoryId,
-          targetBranch: target.revision.defaultBranch,
-          indexingReason: "Mirroring GitHub issues",
-        },
-        { error: (error) => getLogger().error(error) },
-      )
-    return { written: stamped.length, deleted: deletePaths.length }
+    })
+    if (written === 0 && deletePaths.length === 0) return { written: 0 }
+    return { written, deleted: deletePaths.length }
   },
 )
 
 /**
- * Hydrate calls this with the new links from `findNewGithubPrBackfillLinks`,
- * after it records their source rows. The key makes replays and a repeated
- * hydrate of the same link start one backfill.
+ * Start one backfill per link. Hydrate calls this with the new links from
+ * `findNewGithubPrBackfillLinks`, after it records their source rows; the key
+ * makes replays and a repeated hydrate of the same link start one backfill.
+ * An installation that accepts the Issues permission later calls it with the
+ * webhook delivery id in the key, so that the link gets one more backfill.
  */
 export async function enqueueGithubIssueBackfills(input: {
   orgId: string
   workspaceId: string
   gitUrls: readonly string[]
+  /** The installation connection that reads the repositories. */
+  connectionId?: string
+  deliveryId?: string
 }): Promise<void> {
   for (const gitUrl of input.gitUrls)
     await runWorkflowWithWorkerWake(
       githubSyncIssue.spec,
-      { orgId: input.orgId, workspaceId: input.workspaceId, gitUrl },
       {
-        idempotencyKey: `github-issue-backfill:${input.workspaceId}:${gitUrl}`,
+        orgId: input.orgId,
+        workspaceId: input.workspaceId,
+        gitUrl,
+        ...(input.connectionId ? { connectionId: input.connectionId } : {}),
+      },
+      {
+        idempotencyKey: [
+          "github-issue-backfill",
+          input.workspaceId,
+          gitUrl,
+          ...(input.deliveryId ? [input.deliveryId] : []),
+        ].join(":"),
       },
     )
 }

@@ -1,3 +1,5 @@
+import type { GithubActor } from "../github-mirror.js"
+
 export const GITHUB_PR_FILE_STATUSES = [
   "added",
   "modified",
@@ -9,11 +11,6 @@ export const GITHUB_PR_FILE_STATUSES = [
 
 export type GithubPrFileStatus = (typeof GITHUB_PR_FILE_STATUSES)[number]
 
-export type GithubPrActor = {
-  login: string
-  type: "human" | "bot"
-}
-
 export type GithubPrFileChange = {
   path: string
   status: GithubPrFileStatus
@@ -22,7 +19,7 @@ export type GithubPrFileChange = {
 
 export type GithubPrReview = {
   id: number
-  author: GithubPrActor
+  author: GithubActor
   state: string
   body: string
   submittedAt: string | null
@@ -31,7 +28,7 @@ export type GithubPrReview = {
 export type GithubPrComment = {
   id: number
   kind: "conversation" | "review"
-  author: GithubPrActor
+  author: GithubActor
   body: string
   createdAt: string
   path?: string
@@ -53,7 +50,7 @@ export type GithubPullRequestSnapshot = {
   state: "open" | "closed"
   merged: boolean
   draft: boolean
-  author: GithubPrActor
+  author: GithubActor
   base: { ref: string; sha: string }
   head: { ref: string; sha: string }
   reviewDecision: string | null
@@ -66,9 +63,4 @@ export type GithubPullRequestSnapshot = {
   reviews: GithubPrReview[]
   comments: GithubPrComment[]
   requiredChecks: GithubPrRequiredCheck[]
-}
-
-export type GithubPrMirrorFile = {
-  path: string
-  content: string
 }

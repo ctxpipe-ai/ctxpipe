@@ -83,7 +83,8 @@ describe("fetchGithubIssuePage", () => {
       repository: "acme/api",
       state: "closed",
       stateReason: "completed",
-      author: { login: "renovate", type: "bot" },
+      // GraphQL drops the suffix that REST and the pull request mirror show.
+      author: { login: "renovate[bot]", type: "bot" },
       labels: ["bug"],
       assignees: ["bob"],
       closedBy: ["https://github.com/acme/api/pull/9"],
@@ -102,63 +103,42 @@ describe("fetchGithubIssuePage", () => {
     expect(second.issues[0]).toMatchObject({ state: "open", closedAt: null })
   })
 
-  it("reads further comments only for an issue with more than one page of them", async () => {
-    const calls = serveGraphql(({ query }) =>
-      query.includes("GithubIssueComments")
-        ? {
-            data: {
-              repository: {
-                issue: {
-                  comments: connection([
-                    {
-                      author: null,
-                      body: "Late comment",
-                      createdAt: "2026-03-03T00:00:00Z",
-                    },
-                  ]),
-                },
+  it("asks for the 100 most recent comments of each issue and reads no more", async () => {
+    const calls = serveGraphql(() => ({
+      data: {
+        repository: {
+          issues: connection([
+            issue(1, {
+              comments: {
+                nodes: [
+                  {
+                    author: null,
+                    body: "Late comment",
+                    createdAt: "2026-03-03T00:00:00Z",
+                  },
+                ],
               },
-            },
-          }
-        : {
-            data: {
-              repository: {
-                issues: connection([
-                  issue(1),
-                  issue(2, {
-                    comments: connection(
-                      [
-                        {
-                          author: { login: "dan", __typename: "User" },
-                          body: "First",
-                          createdAt: "2026-03-01T00:00:00Z",
-                        },
-                      ],
-                      "comments-1",
-                    ),
-                  }),
-                ]),
-              },
-            },
-          },
-    )
+            }),
+          ]),
+        },
+      },
+    }))
     const page = await fetchGithubIssuePage({
       graphql,
       repository: "acme/api",
       first: 50,
       after: null,
     })
-    expect(calls).toHaveLength(2)
-    expect(calls[1]?.variables).toMatchObject({
-      number: 2,
-      after: "comments-1",
-    })
-    expect(page.issues[1]?.comments.map((comment) => comment.body)).toEqual([
-      "First",
-      "Late comment",
-    ])
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.query).toContain("comments(last: 100)")
     // A deleted account has no author.
-    expect(page.issues[1]?.comments[1]?.author.login).toBe("unknown")
+    expect(page.issues[0]?.comments).toEqual([
+      {
+        author: { login: "unknown", type: "human" },
+        body: "Late comment",
+        createdAt: "2026-03-03T00:00:00Z",
+      },
+    ])
   })
 
   it("keeps the issues when GitHub hides a closing pull request of another repository", async () => {

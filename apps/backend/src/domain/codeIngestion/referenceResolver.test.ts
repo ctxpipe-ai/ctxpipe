@@ -6,11 +6,11 @@ import {
   extractUrls,
   findAdrReferences,
   findLinearIdentifiers,
+  githubIssueOrPullDedupKey,
   githubTeamDedupKey,
   isoDateOf,
   issueDedupKey,
   isUnresolvedProviderIdentity,
-  parseGithubPullRequestUrl,
   parseGithubTeamOwner,
   parseLinearIssueUrl,
   parseSlackPermalink,
@@ -19,32 +19,27 @@ import {
 } from "./referenceResolver.js"
 
 describe("GitHub pull request references", () => {
-  it("parses pull URLs and ignores issues, commits and other hosts", () => {
+  it("keys issue and pull URLs of one number alike and ignores other URLs", () => {
     expect(
-      parseGithubPullRequestUrl("https://github.com/acme/api/pull/42"),
-    ).toEqual({
-      owner: "acme",
-      repo: "api",
-      repository: "acme/api",
-      number: 42,
-    })
+      githubIssueOrPullDedupKey("https://github.com/acme/api/pull/42"),
+    ).toBe("ghn:acme/api#42")
     expect(
-      parseGithubPullRequestUrl(
+      githubIssueOrPullDedupKey("https://github.com/Acme/API/issues/42"),
+    ).toBe("ghn:acme/api#42")
+    expect(
+      githubIssueOrPullDedupKey(
         "https://github.com/acme/api/pull/42/files#diff-1",
       ),
-    ).toMatchObject({ number: 42 })
+    ).toBe("ghn:acme/api#42")
     expect(
-      parseGithubPullRequestUrl("https://github.com/acme/api/issues/42"),
+      githubIssueOrPullDedupKey("https://github.com/acme/api/commit/abc"),
     ).toBeNull()
     expect(
-      parseGithubPullRequestUrl("https://github.com/acme/api/commit/abc"),
-    ).toBeNull()
-    expect(
-      parseGithubPullRequestUrl(
+      githubIssueOrPullDedupKey(
         "https://gitlab.com/acme/api/-/merge_requests/1",
       ),
     ).toBeNull()
-    expect(parseGithubPullRequestUrl("not a url")).toBeNull()
+    expect(githubIssueOrPullDedupKey("not a url")).toBeNull()
   })
 
   it("keys pull requests by source repository id, else by GitHub name", () => {

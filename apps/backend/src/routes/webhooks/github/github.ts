@@ -22,7 +22,10 @@ import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueu
 import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
-import { maybeEnqueueGithubIssueMirror } from "./github-issue-mirror-events.js"
+import {
+  maybeEnqueueGithubIssueBackfillsOnPermissionsAccepted,
+  maybeEnqueueGithubIssueMirror,
+} from "./github-issue-mirror-events.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
 import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.js"
@@ -61,6 +64,8 @@ type GithubWebhookContext = {
 type ProcessGithubWebhookOpts = {
   /** Present when a connection-specific secret authenticated the request. */
   connectionId?: string
+  /** `X-GitHub-Delivery`; a redelivery keeps it. */
+  deliveryId?: string
 }
 
 async function githubConnectionAllowsWebhookPayload(input: {
@@ -408,6 +413,11 @@ export async function processGithubWebhookPayload(
       return
     case "installation":
       await processInstallationEvent(opts?.connectionId, payload, ctx)
+      await maybeEnqueueGithubIssueBackfillsOnPermissionsAccepted({
+        payload,
+        githubConnectionId: opts?.connectionId,
+        deliveryId: opts?.deliveryId,
+      })
       return
     case "installation_repositories":
       await processInstallationRepositoriesEvent(
@@ -505,7 +515,7 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
       eventName,
       payload,
       { log, env },
-      { connectionId },
+      { connectionId, deliveryId: c.req.header("x-github-delivery") },
     )
     return c.body(null, 200)
   })
@@ -537,7 +547,12 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Bad request" }, 400)
     }
 
-    await processGithubWebhookPayload(eventName, payload, { log, env })
+    await processGithubWebhookPayload(
+      eventName,
+      payload,
+      { log, env },
+      { deliveryId: c.req.header("x-github-delivery") },
+    )
     return c.body(null, 200)
   })
 }

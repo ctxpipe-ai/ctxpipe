@@ -1,17 +1,25 @@
+import { OpenAPIHono } from "@hono/zod-openapi"
+import { Webhooks } from "@octokit/webhooks"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { OpenWorkflow } from "openworkflow"
 import { expect, it } from "vitest"
 
+import type { AppEnv } from "../../app/env.js"
+import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { upsertConnectionDirectory } from "../../models/connection-directory.js"
+import { createLogger } from "../../observability/logger.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { githubSyncIssue } from "../../openworkflow/workflows/github-sync-issue.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
 import { maybeEnqueueGithubIssueMirror } from "../../routes/webhooks/github/github-issue-mirror-events.js"
+import { registerGithubWebhookRoute } from "../../routes/webhooks/github/github.js"
+import { captureGithubIssuePage } from "../../services/github/issue-mirror/sync.js"
+import { contextStorage } from "../../test/hono-test-logger.js"
 import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
@@ -277,30 +285,79 @@ it(
 )
 
 it(
-  "skips the issues when the installation has not accepted the Issues permission",
-  { timeout: 120_000 },
+  "skips the issues until the owner accepts the Issues permission, then backfills them",
+  { timeout: 180_000 },
   async () => {
     await withNativeHydrationFixture(fixtureOptions, async (f) => {
       const requests = serveIssues(f, new Map([[3, graphqlIssue(3)]]))
-      // GitHub refuses a credential with a permission the owner did not accept.
+      let accepted = false
+      // GitHub refuses a credential with a permission the owner did not
+      // accept, or for a repository that the installation does not cover.
       f.server.use(
         http.post(
           "https://api.github.com/app/installations/123456789/access_tokens",
           async ({ request }) => {
             const body = (await request.clone().json()) as {
               permissions?: Record<string, string>
+              repositories?: string[]
             }
-            if (!body.permissions?.issues) return undefined
+            const covered = !body.repositories?.includes("outside-app")
+            if (!body.permissions?.issues || (accepted && covered))
+              return undefined
             return HttpResponse.json(
-              {
-                message:
-                  "The permissions requested are not granted to this installation.",
-              },
+              { message: "Not granted or not accessible" },
               { status: 422 },
             )
           },
         ),
+        http.get("https://api.github.com/app/installations/123456789", () =>
+          HttpResponse.json({
+            permissions: accepted
+              ? { contents: "read", issues: "read" }
+              : { contents: "read" },
+          }),
+        ),
       )
+      const [row] = await withOrgDbContext(f.org.id, (db) =>
+        db.select().from(connections).where(eq(connections.id, f.connectionId)),
+      )
+      if (!row) throw new Error("Fixture connection missing")
+      await upsertConnectionDirectory(row)
+      const env = parseEnv({
+        ...process.env,
+        GITHUB_WEBHOOK_SECRET: "synthetic-issue-permission-proof",
+      })
+      const app = new OpenAPIHono<AppEnv>()
+      app.use(contextStorage())
+      app.use("*", async (c, next) => {
+        c.set("env", env)
+        c.set("log", createLogger({ proof: "webhook" }))
+        await next()
+      })
+      registerGithubWebhookRoute(app)
+      const permissionsAccepted = async (deliveryId: string) => {
+        const body = JSON.stringify({
+          action: "new_permissions_accepted",
+          installation: {
+            id: 123456789,
+            account: { login: "fixture" },
+            permissions: { contents: "read", issues: "read" },
+          },
+        })
+        const response = await app.request("/api/v1/webhook/github", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-github-event": "installation",
+            "x-github-delivery": deliveryId,
+            "x-hub-signature-256": await new Webhooks({
+              secret: "synthetic-issue-permission-proof",
+            }).sign(body),
+          },
+          body,
+        })
+        expect(response.status).toBe(200)
+      }
       const worker = await startWorker(f)
       try {
         const [backfill] = await settledIssueRuns(f, 1)
@@ -310,6 +367,35 @@ it(
         })
         expect(requests).toHaveLength(0)
         expect(filesIn(f)).not.toContain(issuePath(3))
+
+        // The owner accepts; GitHub redelivers the event once.
+        accepted = true
+        await permissionsAccepted("delivery-accept")
+        await permissionsAccepted("delivery-accept")
+        const runs = await settledIssueRuns(f, 2)
+        expect(runs).toHaveLength(2)
+        expect(runs).toContainEqual(
+          expect.objectContaining({
+            status: "completed",
+            input: expect.objectContaining({
+              gitUrl: SOURCE_URL,
+              connectionId: f.connectionId,
+            }),
+            output: expect.objectContaining({ written: 1 }),
+          }),
+        )
+        expect(filesIn(f)).toContain(issuePath(3))
+
+        // A repository outside the installation skips with its own cause.
+        expect(
+          await captureGithubIssuePage({
+            orgId: f.org.id,
+            env: parseEnv(process.env),
+            connectionId: f.connectionId,
+            repository: "fixture/outside-app",
+            after: null,
+          }),
+        ).toEqual({ skipped: "repository_not_covered" })
       } finally {
         await stopAll(f, worker)
       }

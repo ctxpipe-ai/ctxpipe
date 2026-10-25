@@ -1,6 +1,6 @@
 import { stringify } from "yaml"
 
-import type { GithubPrActor } from "../pull-request-mirror/types.js"
+import { actorLine, splitRepository } from "../github-mirror.js"
 import type { GithubIssueSnapshot } from "./client.js"
 
 export const GITHUB_ISSUES_PREFIX = "github/issues/"
@@ -10,14 +10,8 @@ export function githubIssueMarkdownPath(
   repository: string,
   number: number,
 ): string {
-  const [owner, repo] = repository.split("/")
-  if (!owner || !repo)
-    throw new Error(`Invalid repository name "${repository}"`)
+  const { owner, repo } = splitRepository(repository)
   return `${GITHUB_ISSUES_PREFIX}${owner}/${repo}/${number}.md`
-}
-
-function actorLine(actor: GithubPrActor): string {
-  return actor.type === "bot" ? `${actor.login} (bot)` : actor.login
 }
 
 export function renderGithubIssue(issue: GithubIssueSnapshot): {

@@ -1,9 +1,13 @@
 import { parse as parseYaml, stringify } from "yaml"
 
+import {
+  actorLine,
+  type GithubActor,
+  type GithubMirrorFile,
+  splitRepository,
+} from "../github-mirror.js"
 import type {
-  GithubPrActor,
   GithubPrFileChange,
-  GithubPrMirrorFile,
   GithubPrRequiredCheck,
   GithubPullRequestSnapshot,
 } from "./types.js"
@@ -16,19 +20,12 @@ export function githubPullRequestMarkdownPath(
   number: number,
   id: number,
 ): string {
-  const [owner, repo] = repository.split("/")
-  if (!owner || !repo) {
-    throw new Error(`Invalid repository name "${repository}"`)
-  }
+  const { owner, repo } = splitRepository(repository)
   return `${GITHUB_PR_PULLS_PREFIX}${owner}/${repo}/${number}--${id}.md`
 }
 
 function frontmatter(metadata: Record<string, unknown>): string {
   return `---\n${stringify(metadata).trimEnd()}\n---`
-}
-
-function actorLine(actor: GithubPrActor): string {
-  return actor.type === "bot" ? `${actor.login} (bot)` : actor.login
 }
 
 function heading(title: string): string {
@@ -38,7 +35,7 @@ function heading(title: string): string {
 
 export function renderGithubPullRequest(
   snapshot: GithubPullRequestSnapshot,
-): GithubPrMirrorFile {
+): GithubMirrorFile {
   const sections = [
     frontmatter({
       source: "github",
@@ -120,7 +117,7 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null
 }
 
-function parseActor(login: unknown, type: unknown): GithubPrActor | null {
+function parseActor(login: unknown, type: unknown): GithubActor | null {
   const name = asString(login)
   if (!name) return null
   return { login: name, type: type === "bot" ? "bot" : "human" }
@@ -186,7 +183,7 @@ type ParsedGithubPullRequest = {
   state: "open" | "closed"
   merged: boolean
   draft: boolean
-  author: GithubPrActor
+  author: GithubActor
   base: { ref: string; sha: string }
   head: { ref: string; sha: string }
   reviewDecision: string | null

@@ -1,7 +1,10 @@
 import type { Env } from "../../../config/env.js"
-import { getInstallationOctokitForOrg } from "../../../models/github-installation.js"
+import {
+  getGithubAppInstallationPermissions,
+  getInstallationOctokitForOrg,
+} from "../../../models/github-installation.js"
 import { getLogger } from "../../../observability/logger.js"
-import type { GithubPrMirrorFile } from "../pull-request-mirror/types.js"
+import type { GithubMirrorFile } from "../github-mirror.js"
 import { fetchGithubIssue, fetchGithubIssuePage } from "./client.js"
 import { githubIssueMarkdownPath, renderGithubIssue } from "./converter.js"
 
@@ -23,14 +26,19 @@ type GithubIssueSource = {
   repository: string
 }
 
-/** The installation has not accepted the "Issues: Read-only" permission. */
-type NoIssuesPermission = { skipped: "no_issues_permission" }
+/**
+ * Why GitHub refused the issue credential (422): the installation has not
+ * accepted the "Issues: Read-only" permission, or it does not cover the
+ * repository.
+ */
+type IssuesSkipped = {
+  skipped: "no_issues_permission" | "repository_not_covered"
+}
 
 /**
  * A GraphQL client with a credential that can read the issues of the
- * repository. GitHub refuses the credential (422) when the owner of the
- * installation has not accepted the Issues permission yet; the mirror then
- * skips, and the pull request mirror is not affected.
+ * repository, or why GitHub refused it. The issue mirror then skips; the
+ * pull request mirror is a separate workflow and is not affected.
  */
 async function graphqlFor(input: GithubIssueSource) {
   try {
@@ -47,12 +55,31 @@ async function graphqlFor(input: GithubIssueSource) {
     return installation.octokit.graphql
   } catch (error) {
     if ((error as { status?: number } | null)?.status !== 422) throw error
-    getLogger().warn("github_issue_mirror_no_permission", {
+    const permissions = await getGithubAppInstallationPermissions(
+      input.orgId,
+      input.env,
+      input.connectionId,
+    )
+    const fields = {
       repository: input.repository,
       connectionId: input.connectionId,
-      fix: "Accept the Issues permission on the GitHub App installation",
+    }
+    if (permissions?.issues) {
+      getLogger().warn("github_issue_mirror_repository_not_covered", {
+        ...fields,
+        cause:
+          "The GitHub App installation does not have access to the repository",
+        fix: "Add the repository to the repository access of the GitHub App installation",
+      })
+      return { skipped: "repository_not_covered" } as const
+    }
+    getLogger().warn("github_issue_mirror_no_permission", {
+      ...fields,
+      cause:
+        "The owner of the GitHub App installation has not accepted the Issues permission",
+      fix: "Accept the Issues permission on the GitHub App installation settings page",
     })
-    return null
+    return { skipped: "no_issues_permission" } as const
   }
 }
 
@@ -60,11 +87,11 @@ async function graphqlFor(input: GithubIssueSource) {
 export async function captureGithubIssuePage(
   input: GithubIssueSource & { after: string | null },
 ): Promise<
-  | { files: GithubPrMirrorFile[]; issues: number; nextAfter: string | null }
-  | NoIssuesPermission
+  | { files: GithubMirrorFile[]; issues: number; nextAfter: string | null }
+  | IssuesSkipped
 > {
   const graphql = await graphqlFor(input)
-  if (!graphql) return { skipped: "no_issues_permission" }
+  if (typeof graphql !== "function") return graphql
   const page = await fetchGithubIssuePage({
     graphql,
     repository: input.repository,
@@ -85,10 +112,10 @@ export async function captureGithubIssuePage(
 export async function captureGithubIssue(
   input: GithubIssueSource & { number: number },
 ): Promise<
-  { files: GithubPrMirrorFile[]; deletePaths: string[] } | NoIssuesPermission
+  { files: GithubMirrorFile[]; deletePaths: string[] } | IssuesSkipped
 > {
   const graphql = await graphqlFor(input)
-  if (!graphql) return { skipped: "no_issues_permission" }
+  if (typeof graphql !== "function") return graphql
   const issue = await fetchGithubIssue({
     graphql,
     repository: input.repository,

@@ -21,3 +21,19 @@ export async function listGithubPrMirrorWorkspaceIds(input: {
     ),
   ].sort()
 }
+
+/** Each linked repository of this org, once per Workspace that links it. */
+export async function listGithubMirrorLinks(
+  orgId: string,
+): Promise<Array<{ workspaceId: string; gitUrl: string }>> {
+  const pins = await withOrgDbContext(orgId, (db) =>
+    listLinkedRepositoryPins(db, { orgId }),
+  )
+  const links = new Map(
+    pins.map((pin) => [
+      `${pin.workspaceId} ${pin.gitUrl}`,
+      { workspaceId: pin.workspaceId, gitUrl: pin.gitUrl },
+    ]),
+  )
+  return [...links.values()]
+}

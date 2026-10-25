@@ -1,5 +1,6 @@
 import type { Env } from "../../../config/env.js"
 import { getInstallationOctokitForOrg } from "../../../models/github-installation.js"
+import { type GithubMirrorFile, splitRepository } from "../github-mirror.js"
 import {
   fetchClosedPullRequestPage,
   fetchPullRequestsByNumber,
@@ -7,11 +8,7 @@ import {
 } from "./client.js"
 import { renderGithubPullRequest } from "./converter.js"
 import { shouldMirrorGithubPullRequest } from "./policy.js"
-import type {
-  GithubPrMirrorFile,
-  GithubPrReview,
-  GithubPullRequestSnapshot,
-} from "./types.js"
+import type { GithubPrReview, GithubPullRequestSnapshot } from "./types.js"
 
 /**
  * Backfill size per linked repository. ADR-028 caps one Git write at 250
@@ -58,9 +55,7 @@ type GithubPrSource = {
 }
 
 async function clientFor(input: GithubPrSource) {
-  const [owner, repo] = input.repository.split("/")
-  if (!owner || !repo)
-    throw new Error(`Invalid repository name "${input.repository}"`)
+  const { owner, repo } = splitRepository(input.repository)
   const installation = await getInstallationOctokitForOrg(
     input.orgId,
     input.env,
@@ -79,7 +74,7 @@ async function clientFor(input: GithubPrSource) {
   return { octokit, owner, repo }
 }
 
-function render(snapshots: GithubPullRequestSnapshot[]): GithubPrMirrorFile[] {
+function render(snapshots: GithubPullRequestSnapshot[]): GithubMirrorFile[] {
   return snapshots.flatMap((snapshot) => {
     if (!shouldMirrorGithubPullRequest(snapshot)) return []
     snapshot.reviewDecision = reviewDecisionFromReviews(snapshot.reviews)
@@ -90,7 +85,7 @@ function render(snapshots: GithubPullRequestSnapshot[]): GithubPrMirrorFile[] {
 /** Render the named pull requests that the policy mirrors, in one provider request. */
 export async function captureGithubPullRequests(
   input: GithubPrSource & { numbers: number[] },
-): Promise<{ files: GithubPrMirrorFile[] }> {
+): Promise<{ files: GithubMirrorFile[] }> {
   return {
     files: render(
       await fetchPullRequestsByNumber({
@@ -105,7 +100,7 @@ export async function captureGithubPullRequests(
 export async function captureClosedGithubPullRequestPage(
   input: GithubPrSource & { after: string | null },
 ): Promise<{
-  files: GithubPrMirrorFile[]
+  files: GithubMirrorFile[]
   pulls: number
   nextAfter: string | null
 }> {

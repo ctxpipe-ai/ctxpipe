@@ -103,22 +103,24 @@ configuration file.
 
 ### Issues follow linked repositories
 
-The issues of a linked repository, open and closed, are mirrored in the same
-way. Each issue is one file at `github/issues/<owner>/<repo>/<number>.md`, with
-its description, labels, assignees, state, and comments:
+ctxpipe mirrors the issues of a linked repository, open and closed, in the
+same way. Each issue is one file at `github/issues/<owner>/<repo>/<number>.md`,
+with its description, labels, assignees, state, and its 100 most recent
+comments:
 
 - **When you link** the repository, ctxpipe backfills up to 200 of its most
   recently updated issues.
-- **After that**, each change to an issue, and each comment on it, is mirrored
-  as GitHub reports it. When an issue is deleted or moved to another
-  repository, its file is removed.
+- **After that**, ctxpipe mirrors each change to an issue, and each comment on
+  it, as GitHub reports it. When someone deletes an issue or moves it to
+  another repository, ctxpipe removes its file.
 - After indexing, the graph has an `Issue` for each file. An issue links to the
   pull requests that closed it, and a pull request links to each mirrored
   issue whose URL it contains.
 
-The GitHub App needs the **Issues: Read-only** permission. If the owner of your
-GitHub installation has not accepted that permission, issues are not mirrored,
-and pull requests and code continue to work.
+The GitHub App needs the **Issues: Read-only** permission. Until the owner of
+your GitHub installation accepts that permission, ctxpipe does not mirror
+issues, and pull requests and code continue to work. When the owner accepts
+it, ctxpipe backfills the issues of each linked repository of that account.
 
 ## After you connect
 

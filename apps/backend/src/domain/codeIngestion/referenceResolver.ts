@@ -8,36 +8,6 @@ import { isConnectorMirrorPath } from "./connectorMirrorPaths.js"
  * Pure functions only.
  */
 
-type GithubPullRequestRef = {
-  owner: string
-  repo: string
-  repository: string
-  number: number
-}
-
-export function parseGithubPullRequestUrl(
-  rawUrl: string,
-): GithubPullRequestRef | null {
-  let url: URL
-  try {
-    url = new URL(rawUrl.trim())
-  } catch {
-    return null
-  }
-  if (url.hostname.toLowerCase() !== "github.com") return null
-  const parts = url.pathname.split("/").filter(Boolean)
-  const [owner, repo, kind, number] = parts
-  if (!owner || !repo || kind !== "pull" || !number || !/^\d+$/.test(number)) {
-    return null
-  }
-  return {
-    owner,
-    repo,
-    repository: `${owner}/${repo}`,
-    number: Number(number),
-  }
-}
-
 /**
  * `ghn:<owner>/<repo>#<number>` for a GitHub issue or pull request URL.
  * GitHub numbers issues and pull requests from one sequence, so both URL

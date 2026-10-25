@@ -1,4 +1,9 @@
-import type { GithubPrActor } from "../pull-request-mirror/types.js"
+import {
+  actorFromGraphql,
+  type GithubActor,
+  type GraphqlActor,
+  splitRepository,
+} from "../github-mirror.js"
 
 /** `octokit.graphql`: the response is typed by the query it sends. */
 type GithubGraphql = <T>(
@@ -7,7 +12,7 @@ type GithubGraphql = <T>(
 ) => Promise<T>
 
 type GithubIssueComment = {
-  author: GithubPrActor
+  author: GithubActor
   body: string
   createdAt: string
 }
@@ -21,7 +26,7 @@ export type GithubIssueSnapshot = {
   body: string
   state: "open" | "closed"
   stateReason: string | null
-  author: GithubPrActor
+  author: GithubActor
   labels: string[]
   assignees: string[]
   createdAt: string
@@ -32,18 +37,16 @@ export type GithubIssueSnapshot = {
   closedBy: string[]
 }
 
-const COMMENTS = `
-  pageInfo { hasNextPage endCursor }
-  nodes { author { login __typename } body createdAt }
-`
-
-/** Everything the mirror renders, inlined so that one request returns a page. */
+/**
+ * Everything the mirror renders, inlined so that one request returns a page.
+ * An issue keeps its 100 most recent comments.
+ */
 const ISSUE_FIELDS = `
   id number url title body state stateReason createdAt updatedAt closedAt
   author { login __typename }
   labels(first: 100) { nodes { name } }
   assignees(first: 20) { nodes { login } }
-  comments(first: 100) { ${COMMENTS} }
+  comments(last: 100) { nodes { author { login __typename } body createdAt } }
   closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { url } }
 `
 
@@ -66,22 +69,12 @@ const ISSUE_QUERY = `
   }
 `
 
-const ISSUE_COMMENTS_QUERY = `
-  query GithubIssueComments($owner: String!, $repo: String!, $number: Int!, $after: String!) {
-    repository(owner: $owner, name: $repo) {
-      issue(number: $number) { comments(first: 100, after: $after) { ${COMMENTS} } }
-    }
-  }
-`
-
 type Connection<T> = {
   pageInfo: { hasNextPage: boolean; endCursor: string | null }
   nodes: T[]
 }
 
-type ActorNode = { login: string; __typename: string } | null
-
-type CommentNode = { author: ActorNode; body: string; createdAt: string }
+type CommentNode = { author: GraphqlActor; body: string; createdAt: string }
 
 type IssueNode = {
   id: string
@@ -94,23 +87,16 @@ type IssueNode = {
   createdAt: string
   updatedAt: string
   closedAt: string | null
-  author: ActorNode
+  author: GraphqlActor
   labels: { nodes: Array<{ name: string }> } | null
   assignees: { nodes: Array<{ login: string }> }
-  comments: Connection<CommentNode>
+  comments: { nodes: CommentNode[] }
   closedByPullRequestsReferences: {
     nodes: Array<{ url: string } | null>
   } | null
 }
 
 type GraphqlError = { type?: string; path?: unknown[] }
-
-function splitRepository(repository: string): { owner: string; repo: string } {
-  const [owner, repo] = repository.split("/")
-  if (!owner || !repo)
-    throw new Error(`Invalid repository name "${repository}"`)
-  return { owner, repo }
-}
 
 /**
  * GitHub returns partial data with errors in two known cases: a closing pull
@@ -147,60 +133,31 @@ function nextCursor(connection: Connection<unknown>): string | null {
   return connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null
 }
 
-function actor(node: ActorNode): GithubPrActor {
-  // A deleted account has no author; the pull request mirror writes "unknown" too.
-  if (!node) return { login: "unknown", type: "human" }
-  return {
-    login: node.login,
-    type: node.__typename === "Bot" ? "bot" : "human",
-  }
-}
-
 function comment(node: CommentNode): GithubIssueComment {
   return {
-    author: actor(node.author),
+    author: actorFromGraphql(node.author),
     body: node.body,
     createdAt: node.createdAt,
   }
 }
 
-/** The issue with every comment: one more request per 100 comments after the first 100. */
-async function withAllComments(input: {
-  graphql: GithubGraphql
-  repository: string
-  node: IssueNode
-}): Promise<GithubIssueSnapshot> {
-  const { node } = input
-  const comments = node.comments.nodes.map(comment)
-  let after = nextCursor(node.comments)
-  while (after) {
-    const data = await query<{
-      repository: { issue: { comments: Connection<CommentNode> } }
-    }>(input.graphql, ISSUE_COMMENTS_QUERY, {
-      ...splitRepository(input.repository),
-      number: node.number,
-      after,
-    })
-    const page = data.repository.issue.comments
-    comments.push(...page.nodes.map(comment))
-    after = nextCursor(page)
-  }
+function snapshot(repository: string, node: IssueNode): GithubIssueSnapshot {
   return {
     id: node.id,
     number: node.number,
-    repository: input.repository,
+    repository,
     url: node.url,
     title: node.title,
     body: node.body,
     state: node.state === "OPEN" ? "open" : "closed",
     stateReason: node.stateReason?.toLowerCase() ?? null,
-    author: actor(node.author),
+    author: actorFromGraphql(node.author),
     labels: node.labels?.nodes.map((label) => label.name) ?? [],
     assignees: node.assignees.nodes.map((assignee) => assignee.login),
     createdAt: node.createdAt,
     updatedAt: node.updatedAt,
     closedAt: node.closedAt,
-    comments,
+    comments: node.comments.nodes.map(comment),
     closedBy:
       node.closedByPullRequestsReferences?.nodes.flatMap((pull) =>
         pull ? [pull.url] : [],
@@ -210,8 +167,8 @@ async function withAllComments(input: {
 
 /**
  * One page of issues of one repository, open and closed, most recently
- * updated first. One request returns the page with the first 100 comments
- * of each issue.
+ * updated first. One request returns the page with the 100 most recent
+ * comments of each issue.
  */
 export async function fetchGithubIssuePage(input: {
   graphql: GithubGraphql
@@ -227,16 +184,10 @@ export async function fetchGithubIssuePage(input: {
     after: input.after,
   })
   const page = data.repository.issues
-  const issues: GithubIssueSnapshot[] = []
-  for (const node of page.nodes)
-    issues.push(
-      await withAllComments({
-        graphql: input.graphql,
-        repository: input.repository,
-        node,
-      }),
-    )
-  return { issues, nextAfter: nextCursor(page) }
+  return {
+    issues: page.nodes.map((node) => snapshot(input.repository, node)),
+    nextAfter: nextCursor(page),
+  }
 }
 
 /** One issue in one request, or null when GitHub has no such issue. */
@@ -250,10 +201,7 @@ export async function fetchGithubIssue(input: {
     ISSUE_QUERY,
     { ...splitRepository(input.repository), number: input.number },
   )
-  if (!data.repository.issue) return null
-  return withAllComments({
-    graphql: input.graphql,
-    repository: input.repository,
-    node: data.repository.issue,
-  })
+  return (
+    data.repository.issue && snapshot(input.repository, data.repository.issue)
+  )
 }
