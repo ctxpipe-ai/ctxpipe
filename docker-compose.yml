@@ -412,8 +412,9 @@ services:
       <<: *otel-env
       OTEL_SERVICE_NAME: ui
       CONFLUENCE_FORGE_INSTALL_URL: ${CONFLUENCE_FORGE_INSTALL_URL:-}
+    # Loopback only: users reach this service through the backend.
     ports:
-      - "${CTXPIPE_UI_HOST_PORT:-3002}:3002"
+      - "127.0.0.1:${CTXPIPE_UI_HOST_PORT:-3002}:3002"
 
   codesearch:
     profiles: [deploy]
@@ -432,8 +433,9 @@ services:
       OTEL_SERVICE_NAME: codesearch
       CODESEARCH_INDEXER_CONCURRENCY: "1"
       CODESEARCH_INDEX_PIPELINE_CONCURRENCY: "1"
+    # Loopback only: users reach this service through the backend.
     ports:
-      - "${CTXPIPE_CODESEARCH_HOST_PORT:-3001}:3001"
+      - "127.0.0.1:${CTXPIPE_CODESEARCH_HOST_PORT:-3001}:3001"
     volumes:
       - zoekt_index_deploy:/data/zoekt-index
       - repo_cache:/data/repo-cache

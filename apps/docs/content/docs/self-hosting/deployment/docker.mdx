@@ -33,12 +33,13 @@ pnpm start
 ```
 
 `pnpm start` runs `docker compose --profile deploy up -d`. It builds the
-images on the first run.
+images only when they do not exist.
 
 For a local evaluation, `AUTH_BASE_URL` and `CTXPIPE_PUBLIC_APP_URL` can be
 `http://localhost:3000`. For team use, put a TLS proxy in front of the backend
 and use the public HTTPS origin. The UI image contains `CTXPIPE_PUBLIC_APP_URL`
-at build time, so build again (`pnpm start`) after you change it.
+at build time. After you change it, build the images again with
+`docker compose --profile deploy up -d --build`.
 
 ## What the deploy profile starts
 
@@ -56,13 +57,9 @@ at build time, so build again (`pnpm start`) after you change it.
 | `agent-vault` | Adds credentials to sandbox requests. It is the only address that sandboxes can reach. |
 | `agent-vault-secrets` | One-shot: generates the Agent Vault passwords |
 
-<Callout type="warn" title="Compose publishes the UI and codesearch ports">
-  The deploy profile publishes `backend` on port `3000`, `ui` on `3002`, and
-  `codesearch` on `3001`, on all host interfaces. Expose only the backend to
-  your users. Block `3001` and `3002` with a firewall, or bind them to
-  `127.0.0.1` in a `docker-compose.override.yml`. Postgres and FalkorDB have no
-  host port.
-</Callout>
+The backend is the only service on a public host port (`3000`). Compose binds
+`codesearch` (`3001`) and `ui` (`3002`) to `127.0.0.1` only. Postgres and
+FalkorDB have no host port.
 
 ## Settings that need an override file
 
@@ -97,11 +94,18 @@ so the GitHub App needs no variable.
 ## Persistent state
 
 <Callout type="warn" title="Keep the database data on named volumes">
-  The deploy profile does not mount a named volume for `postgres` or
-  `falkordb`. Their data is in anonymous Docker volumes. `docker compose down
-  -v` deletes them, and a container that Compose creates again after `docker
-  compose down` does not use them. Before people depend on the deployment, mount
-  named volumes in `docker-compose.override.yml`:
+  The deploy profile mounts no named volume for `postgres` or `falkordb`:
+
+  - Postgres keeps its data in an anonymous Docker volume. `docker compose down
+    -v` deletes it. After `docker compose down`, the new container does not use
+    the old volume.
+  - The FalkorDB image declares no volume, so FalkorDB keeps its data in the
+    writable layer of the container. Each time Compose creates the container
+    again, for example after `down`, an image update, or a configuration
+    change, the graph data is lost.
+
+  Before people depend on the deployment, mount named volumes in
+  `docker-compose.override.yml`:
 
   ```yaml
   services:
@@ -122,8 +126,8 @@ so the GitHub App needs no variable.
 
 | State | Where it is | Back it up |
 |---|---|---|
-| Postgres data | The `postgres` container volume | Yes |
-| Graph data | The `falkordb` container volume | Yes, or rebuild it from the Workspace repositories |
+| Postgres data | An anonymous volume of the `postgres` container, or your named volume | Yes |
+| Graph data | The `falkordb` container, or your named volume | Yes, or rebuild it from the Workspace repositories |
 | Repository clone cache | `repo_cache` | No, codesearch clones again |
 | Zoekt indexes | `zoekt_index_deploy` | No, codesearch indexes again |
 | Agent Vault passwords and data | `agent_vault_master`, `agent_vault_owner`, `agent_vault_data` | Keep them. New passwords do not match an existing Agent Vault. |

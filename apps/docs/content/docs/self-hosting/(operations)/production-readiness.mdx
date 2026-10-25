@@ -35,9 +35,8 @@ reason to expose other services.
 | `falkordb` or graph database | Private |
 | `dind` (Docker Compose) or the AWS sandbox host | Private. Do not publish the Docker API or other unauthenticated services on a host that runs chat sandboxes. |
 
-The Compose deploy profile publishes `ui` (`3002`) and `codesearch` (`3001`) on
-all host interfaces. Block those ports, or bind them to `127.0.0.1` in a
-`docker-compose.override.yml`.
+The Compose deploy profile binds `ui` (`3002`) and `codesearch` (`3001`) to
+`127.0.0.1` only. Do not change them to all interfaces.
 
 The backend refuses a webhook body above its limit with `413`: 25 MiB for
 GitHub, 5 MiB for Linear, and 1 MiB for Slack, Notion, PagerDuty, and
