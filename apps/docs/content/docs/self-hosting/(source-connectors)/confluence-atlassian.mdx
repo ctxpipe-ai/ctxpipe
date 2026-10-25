@@ -58,6 +58,17 @@ does not grant the new scope. Assets are stored in the Workspace repository with
 25 MiB per-file and 100 MiB per-page limits. The worker strips credentials from
 media redirects and never persists Atlassian download URLs.
 
+### Allowed Forge apps
+
+ctxpipe accepts a Forge call only from the Forge app of that Confluence
+connection. The allowed app is one of these:
+
+- The app ID that the connection saved. Provisioning saves this ID before
+  `forge install`.
+- When the connection has no saved app ID: the app ID in the install URL of the
+  connection, the app ID in **`CONFLUENCE_FORGE_INSTALL_URL`**, or the hosted
+  ctxpipe app. The first install event saves the ID of the app.
+
 ## 3. Finish the connector
 
 After Atlassian is linked and Forge is installed:

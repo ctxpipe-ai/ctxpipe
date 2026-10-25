@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { parse as parseYaml } from "yaml"
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
@@ -301,8 +302,35 @@ export async function ensureCtxpipeForgeDeveloperSpaceId(opts: {
   }
 }
 
+/**
+ * Saves the app id that `forge register` wrote to `manifest.yml` on the
+ * connection. The install event of the app then finds a trusted app.
+ * Throws when the manifest has no app id.
+ */
+export async function saveRegisteredForgeAppId(input: {
+  orgId: string
+  connectionId: string
+  workdir: string
+}): Promise<string> {
+  const manifest = parseYaml(
+    readFileSync(join(input.workdir, "manifest.yml"), "utf8"),
+  ) as { app?: { id?: unknown } } | null
+  const id = manifest?.app?.id
+  const appId = forgeAppIdToAri(typeof id === "string" ? id : null)
+  if (!appId) {
+    throw new Error(
+      `forge register wrote no app ID to manifest.yml (found ${JSON.stringify(id ?? null)}). Run the Forge setup again. If it fails again, delete the Confluence connection and add it again.`,
+    )
+  }
+  await patchForgeConnectionTypedConfig(input.orgId, input.connectionId, {
+    appId,
+  })
+  return appId
+}
+
 function runProvisionCli(
   workdir: string,
+  phase: "deploy" | "install",
   env: NodeJS.ProcessEnv,
   forgeDeveloperSpaceIdForRegister?: string,
 ): { exit: number; out: string } {
@@ -311,7 +339,7 @@ function runProvisionCli(
   }
   try {
     const idArg = forgeDeveloperSpaceIdForRegister?.trim()
-    const argv = idArg?.length ? [cliPath, idArg] : [cliPath]
+    const argv = idArg?.length ? [cliPath, phase, idArg] : [cliPath, phase]
     execFileSync(process.execPath, argv, {
       cwd: workdir,
       env: {
@@ -562,7 +590,7 @@ export const forgeProvision = defineWorkflow(
       return d
     })
 
-    const result = await step.run({ name: "forge-cli" }, () => {
+    const result = await step.run({ name: "forge-cli" }, async () => {
       const appSlug =
         // oxlint-disable-next-line no-constant-binary-expression -- the fallback is kept as is
         `ctxp-${input.connectionId.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 40)}` ||
@@ -580,18 +608,34 @@ export const forgeProvision = defineWorkflow(
         dryRun,
       })
       const cliStartedAt = Date.now()
-      const r = runProvisionCli(
+      const cliEnv = {
+        FORGE_API_TOKEN: token,
+        CONFLUENCE_SITE: site,
+        FORGE_APP_NAME: appSlug,
+        EXISTING_APP_ID: row.appId ?? "",
+        EXISTING_INSTALLATION_ID: row.installationId ?? "",
+        FORGE_PROVISION_DRY_RUN: process.env.FORGE_PROVISION_DRY_RUN ?? "0",
+        FORGE_EMAIL: operatorEmail,
+      }
+      let r = runProvisionCli(
         workdir,
-        {
-          FORGE_API_TOKEN: token,
-          CONFLUENCE_SITE: site,
-          FORGE_APP_NAME: appSlug,
-          EXISTING_APP_ID: row.appId ?? "",
-          FORGE_PROVISION_DRY_RUN: process.env.FORGE_PROVISION_DRY_RUN ?? "0",
-          FORGE_EMAIL: operatorEmail,
-        },
+        "deploy",
+        cliEnv,
         developerSpaceIdForRegister,
       )
+      // Save the app id before the install: the install event must find it.
+      if (r.exit === 0 && !dryRun) {
+        try {
+          await saveRegisteredForgeAppId({
+            orgId: input.orgId,
+            connectionId: input.connectionId,
+            workdir,
+          })
+          r = runProvisionCli(workdir, "install", cliEnv)
+        } catch (e: unknown) {
+          r = { exit: 1, out: e instanceof Error ? e.message : String(e) }
+        }
+      }
       try {
         rmSync(workdir, { recursive: true, force: true })
       } catch {
