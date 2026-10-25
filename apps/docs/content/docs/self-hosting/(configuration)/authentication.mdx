@@ -85,8 +85,7 @@ on the consent screen, and the user can change the set later on the
 one organization with the `org` argument. The server allows the call only when
 the organization is in the grant set and the user is still a member of it.
 
-The `?orgSlug=` URL parameter no longer selects the organization. The server
-accepts it and ignores it, so old client configurations keep working.
+For the old `?orgSlug=` URL parameter, see [MCP](/docs/self-hosting/mcp).
 
 OAuth is the normal MCP flow for people. The consent screen grants
 `ctxpipe:read` and `offline_access`. It also offers **Also allow changes**

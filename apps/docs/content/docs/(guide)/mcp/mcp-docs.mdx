@@ -32,9 +32,9 @@ the MCP only, run `npx ctxpipe mcp add`.
 
 | Client | Repository configuration | User configuration |
 | --- | --- | --- |
-| **Claude Code** | `.mcp.json` | Runs `claude mcp add` when the Claude CLI is installed |
+| **Claude Code** | `.mcp.json` | Runs `claude mcp add` when the Claude CLI is installed. Without the Claude CLI, the CLI writes the repository `.mcp.json`, or prints the command for an API key. |
 | **Cursor** | `.cursor/mcp.json` | `~/.cursor/mcp.json` |
-| **Codex** | No repository file. Prints a `codex mcp add` command, which writes your user configuration. | Runs `codex mcp add` when the Codex CLI is installed |
+| **Codex** | No repository file. Prints a `codex mcp add` command, which writes your user configuration. | Runs `codex mcp add` when the Codex CLI is installed. Without the Codex CLI, the CLI prints the command. For an API key, it prints the `config.toml` lines. |
 | **OpenCode** | `opencode.json` | `~/.config/opencode/opencode.json` |
 | **VS Code / Copilot** | `.vscode/mcp.json` | Prints a VS Code install link |
 
@@ -52,7 +52,7 @@ npx ctxpipe mcp add --client opencode --scope user --non-interactive
 npx ctxpipe doctor --json
 ```
 
-Run `npx ctxpipe init --help` for all flags, including `--base-url`,
+Run `npx ctxpipe init --help` for all flags. Examples are `--base-url`,
 `--dry-run`, `--json`, `--no-mcp`, and `--auth api-key`. For an agent that
 cannot sign in through a browser, see [API keys](/docs/mcp/api-keys).
 

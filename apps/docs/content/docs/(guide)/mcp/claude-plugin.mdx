@@ -16,10 +16,9 @@ at:
 https://app.ctxpipe.ai/mcp
 ```
 
-That URL does not use `?orgSlug=`. During OAuth, the consent screen lists your
-organizations with check boxes. The grant holds the set that you select. Each tool
-call names one organization, and ctxpipe allows it only when the organization is in
-the set. To change the set, open [Connected apps](/docs/mcp/connected-apps)
+During OAuth, the consent screen lists your organizations with check boxes. The
+grant holds the set that you select. Each tool call names one organization, and
+ctxpipe allows it only when the organization is in the set. To change the set, open [Connected apps](/docs/mcp/connected-apps)
 and select or clear organizations. You do not need to reconnect.
 
 <Callout type="info" title="Custom MCP is not being removed">
@@ -50,9 +49,6 @@ Then run `/mcp`, connect **ctxpipe**, sign in, and select the organizations
 that Claude can read. To check the setup, ask Claude to call `list_workspaces`,
 then `search_knowledge` for one of your standards. A finished sign-in alone
 does not prove tool access.
-
-Version 0.2.0 of the plugin removed the `ctx_advisor` tool and the
-`ctx-advisor` skill. Update the plugin if Claude still tries to call them.
 
 ## Cowork and claude.ai
 
@@ -118,8 +114,7 @@ Copy `plugins/ctxpipe` and change `.mcp.json` to your public origin:
 }
 ```
 
-The self-hosted deployment must include the OAuth organization set. The server
-ignores an `orgSlug` URL parameter, so the plugin uses the generic URL.
+The self-hosted deployment must include the OAuth organization set.
 
 ## Related
 

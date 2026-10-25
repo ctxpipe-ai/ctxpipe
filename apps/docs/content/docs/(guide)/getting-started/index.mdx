@@ -7,14 +7,17 @@ Your coding agents can reach every repository, ticket, doc, and Slack thread.
 They cannot tell which parts are true. ctxpipe gives them one current source of
 context that you can read, review, and correct.
 
-1. **Connect.** Link your code repositories, and select what to bring in from
-   Linear, Notion, Confluence, PagerDuty, and Slack. ctxpipe writes it as
-   Markdown into one git repository for each Workspace.
-2. **Keep current.** Background jobs read a linked repository again after each
-   push. Each job makes one small commit that you can review or revert.
+1. **Connect.** [Link your code repositories](/docs/workspaces/linked-repositories),
+   and [select what to bring in](/docs/connections) from Linear, Notion,
+   Confluence, PagerDuty, and Slack. ctxpipe writes it as Markdown into one git
+   repository for each [Workspace](/docs/workspaces).
+2. **Keep current.** Background jobs mirror changes from your tools, and read a
+   linked repository again after each push. Each job makes one small commit
+   that you can review or revert. Then ctxpipe
+   [indexes the new commit](/docs/workspaces/indexing) for search and the graph.
 3. **Serve.** Claude Code, Cursor, Codex, OpenCode, and VS Code read the same
-   Workspace through one MCP endpoint. ctxpipe returns sources, not answers.
-   Your agent reasons with its own model.
+   Workspace [through one MCP endpoint](/docs/mcp/mcp-docs). ctxpipe returns
+   sources, not answers. Your agent reasons with its own model.
 
 <ImageSlot
   title="ctxpipe Workspaces"
@@ -53,7 +56,6 @@ when:
 ## Learn more
 
 <Cards>
-  <Card title="How ctxpipe works" href="/docs/getting-started/how-it-works" description="Follow knowledge from a source to an agent." />
   <Card title="Common workflows" href="/docs/getting-started/common-workflows" description="Where a shared Workspace helps engineers and agents." />
   <Card title="Workspaces" href="/docs/workspaces" description="The unit of knowledge in ctxpipe." />
   <Card title="Connect your agent" href="/docs/mcp/mcp-docs" description="Install the ctxpipe MCP in your coding agent." />

@@ -12,7 +12,7 @@ webhook first. See [Self-host Notion](/docs/self-hosting/notion).
 
 ## What is mirrored
 
-A page syncs with all its child pages, including pages that you add later. A
+A page syncs with all its child pages, and with the child pages that you add later. A
 database syncs with all its rows. The mirror includes:
 
 - pages as Markdown, with headings, lists, tasks, quotes, and code. Links to
@@ -23,7 +23,7 @@ database syncs with all its rows. The mirror includes:
 
 Page comments are not mirrored.
 
-<Callout title="Sharing controls what ctxpipe can see">
+<Callout title="Notion sharing sets what ctxpipe can read">
   ctxpipe can list only the pages and databases that are shared with the
   ctxpipe integration. Share them in the authorization popup, or later in
   Notion. Each person who can read the Workspace repository can read the
@@ -68,8 +68,8 @@ databases:
 The paths use stable Notion ids, so a renamed page does not make a second copy.
 Assets are in an `assets/` folder next to their page. Each asset can be up to
 25 MiB, and each page or row up to 100 MiB in total. A file that is too large or
-not safe stays a link to Notion. ctxpipe never writes the expiring download
-URLs of Notion to git.
+not safe stays a link to Notion. ctxpipe never writes the download URLs
+of Notion to git, because they expire.
 
 A change in Notion syncs again the whole page tree or database that it is in.
 
@@ -77,14 +77,14 @@ A change in Notion syncs again the whole page tree or database that it is in.
 
 1. The Notion workspace shows on **Connectors**.
 2. After the merge, the Workspace repository has files under `notion/`.
-3. When you change a mirrored page in Notion, the matching file changes. This
+3. When you change a mirrored page in Notion, the file of that page changes. This
    step tests the Notion webhook.
 
 ## Troubleshooting
 
 - **No pages or databases show.** Share them with the ctxpipe integration in
-  Notion, then search again. An empty list is usually a sharing problem.
-- **Notion does not accept the ctxpipe access any more.** Reconnect Notion on
-  **Connectors**. A page that you stop sharing also leaves the list.
+  Notion, then search again. ctxpipe lists only the pages and databases that
+  you share with the integration. A page that you stop sharing leaves the
+  list.
 
 For other problems, see [Troubleshooting](/docs/connections#troubleshooting).

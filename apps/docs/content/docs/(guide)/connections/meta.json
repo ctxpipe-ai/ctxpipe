@@ -1,4 +1,4 @@
 {
   "title": "Connections",
-  "pages": ["index", "source-connectors", "ingestion"]
+  "pages": ["index", "source-connectors"]
 }

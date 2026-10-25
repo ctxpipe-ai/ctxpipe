@@ -20,7 +20,6 @@ import { source } from "@/lib/source"
 import { ConfluenceDataFlowDiagram } from "../components/confluence-data-flow-diagram"
 import { ConfluenceDataModelDiagram } from "../components/confluence-data-model-diagram"
 import { Card, Cards } from "../components/docs-card"
-import { ConnectorKindsDiagram } from "../components/docs-diagrams"
 import { ImageSlot } from "../components/docs-image-slot"
 import { Step, Steps } from "../components/docs-steps"
 
@@ -77,7 +76,6 @@ export default async function Page({ params }: Props) {
               Callout,
               ConfluenceDataFlowDiagram,
               ConfluenceDataModelDiagram,
-              ConnectorKindsDiagram,
               Step,
               Steps,
               ImageSlot,

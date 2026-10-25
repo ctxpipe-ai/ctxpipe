@@ -18,8 +18,8 @@ ctxpipe syncs the incidents of each selected service from the last 90 days. Each
 incident is one Markdown file with:
 
 - the title, status, urgency, service, assignees, and times;
-- the body of the alert that triggered it, including its details, such as a
-  host name;
+- the body of the alert that started it, with its details, such as a host
+  name;
 - a short list of the other alerts on the incident;
 - the incident notes;
 - image attachments, copied next to the file.
@@ -79,8 +79,7 @@ the other events.
 - **Changes do not arrive.** Make sure that the incident is on a selected
   service. Then ask the operator to check that the connection still has its
   webhook subscription, and that `POST /api/v1/webhook/pagerduty` is reachable.
-- **PagerDuty does not accept the ctxpipe access any more.** Choose
-  **Reconnect PagerDuty** on the connector card. ctxpipe keeps or replaces the
+- **You reconnect PagerDuty.** ctxpipe keeps or replaces the webhook
   subscription. It never adds a second one.
 - **You remove the connector.** ctxpipe also deletes the webhook subscription
   in PagerDuty.

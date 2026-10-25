@@ -38,8 +38,8 @@ A client that supports resources lets you @-mention a file in your prompt.
   Workspaces of the organization that are ready, up to 8. If the organization
   has more than 8, name the Workspaces.
 - When a session starts, the server sends instructions that list your
-  organizations and their Workspaces. The agent can usually call a tool at
-  once.
+  organizations and their Workspaces. In most cases, the
+  agent can call a tool at once.
 - An organization outside the connection gives `org_not_found`. See
   [Connected apps](/docs/mcp/connected-apps#when-a-tool-says-org_not_found).
 
@@ -60,7 +60,7 @@ the default branch of each repository, or the pinned branch or tag.
 Your agent works on a local branch with newer files than ctxpipe has. The agent
 must read that repository from disk, not from ctxpipe. `search_code` and
 `find_symbol` therefore need `excludeRepositories`: put the URL or the handle
-of your working repository in it, or send `[]` to exclude nothing. `read_file`
+of your current repository in it, or send `[]` to exclude nothing. `read_file`
 and `list_files` take the same list, as an option. A ref into an excluded
 repository gives `excluded_repository`.
 

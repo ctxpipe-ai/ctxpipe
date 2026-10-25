@@ -43,15 +43,9 @@ the sidebar to find a Workspace or a page.
 
 ## How a Workspace stays current
 
-1. Files change in git. Someone pushes to the Workspace repository, a connector
-   mirrors new content, or ctxpipe commits knowledge that it extracted from a
-   linked repository.
-2. ctxpipe reads the new commit and rebuilds the search index and the graph. It
-   never changes files in this step. The previous index serves until the new
-   one is ready.
-
-The **Status** group in **Settings** lists each ingestion that runs under
-**Working now**, with its stage and progress. See [How indexing works](/docs/connections/ingestion).
+Files change in git: someone pushes, a connector mirrors new content, or
+ctxpipe commits knowledge that it extracted from a linked repository. ctxpipe
+then indexes the new commit. See [How indexing works](/docs/workspaces/indexing).
 
 ## Read-only Workspaces
 

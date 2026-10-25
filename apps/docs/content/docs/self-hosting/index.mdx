@@ -4,7 +4,7 @@ description: Run the open-source core of ctxpipe on your own infrastructure, and
 ---
 
 Self-hosted ctxpipe has the same product as hosted ctxpipe, inside
-infrastructure that you control. ctxpipe the company is not in the data path:
+infrastructure that you control. The ctxpipe team is not in the data path:
 your deployment holds the credentials and the source data, and model requests
 go from your deployment to the provider that you choose.
 
@@ -15,6 +15,15 @@ go from your deployment to the provider that you choose.
 | [Docker Compose](/docs/self-hosting/deployment/docker) | You evaluate ctxpipe, or run a small internal deployment on one host. | One Compose project and its volumes |
 | [AWS CDK](/docs/self-hosting/deployment/aws) | You run ctxpipe in your own AWS account. | The `CtxPipe` construct, a domain, and model access |
 | [Terraform](/docs/self-hosting/deployment/terraform) | You want a starting point for Railway and Neon. It is the layout of hosted ctxpipe, so you must fork it. | Railway, Neon, Vercel Sandbox, and your CI |
+
+Each path provides the same services in a different way:
+
+| | Docker Compose | AWS CDK | Terraform |
+| --- | --- | --- | --- |
+| Postgres | `pgvector/pgvector:pg17` container | Aurora PostgreSQL 16 | Neon PostgreSQL 17 |
+| Graph database | FalkorDB container | Amazon Neptune | FalkorDB on Railway |
+| Sandboxes | Docker-in-Docker (`dind`) | A Graviton EC2 Docker host | Vercel Sandbox |
+| Public origin | Your TLS proxy in front of the backend | Route 53 and a load balancer | Railway domains |
 
 Start with the [quickstart](/docs/self-hosting/quickstart). It covers each path.
 
@@ -30,18 +39,23 @@ Start with the [quickstart](/docs/self-hosting/quickstart). It covers each path.
 - **PostgreSQL with pgvector**: the application data and the job state.
 - **A graph database**: FalkorDB by default.
 - **A sandbox host**: runs Workspace chat and ingestion in isolated containers.
+  Without one, chat answers `503`. For another platform, see
+  [Chat sandboxes](/docs/self-hosting/configuration#chat-sandboxes).
 
 OpenTelemetry export is off by default. See
 [Observability](/docs/self-hosting/configuration#observability).
 
 ## What you own
 
-- One stable public HTTPS origin for the browser, the API, auth, MCP, and the
-  provider callbacks.
-- The backups and recovery of Postgres, the graph database, and codesearch.
-- The secrets for auth, encryption, models, and connectors.
-- The provider apps (GitHub, Slack, Linear, and so on) for the connectors that
-  you turn on.
+- One stable public HTTPS origin, `AUTH_BASE_URL`, for the browser, the API,
+  auth, MCP, and the provider callbacks.
+- Durable storage, backups, and recovery for Postgres, the graph database, and
+  codesearch. See [Graph databases](/docs/self-hosting/graph-databases).
+- The secrets for auth and encryption, and the model provider credentials for
+  chat, ingestion, and embeddings. See [Models](/docs/self-hosting/models).
+- A provider app for each connector that you turn on: a GitHub App for
+  repositories, and OAuth apps for Atlassian, Slack, Linear, Notion, and
+  PagerDuty. See the source connector pages in this section.
 - Monitoring, migrations, upgrades, and rollback.
 
 After the deployment is healthy, people use it like hosted ctxpipe. Point them

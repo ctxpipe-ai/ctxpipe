@@ -1,6 +1,6 @@
 ---
-title: Organizations and access
-description: How membership, source scope, and agent access fit together in ctxpipe.
+title: Organizations and members
+description: Invite people to your organization, choose their roles, and see how access to content is controlled.
 ---
 
 An **organization** is the access boundary for Workspaces, connections,
@@ -11,9 +11,29 @@ switch between them with the organization switcher.
 - Workspace and connector pages always work inside the organization in the URL.
 - Each member of an organization can open each of its
   [Workspaces](/docs/workspaces).
-- The MCP has one URL for all organizations. Each tool call names its
-  organization in the `org` argument. See
-  [Use ctxpipe from your agent](/docs/mcp/use-from-your-agent).
+
+## Invite by email
+
+Open **Organization settings → Members** and send an invitation. The invited
+person gets an email with a link.
+
+- If they have an account, the link adds them to the organization with the
+  role of the invitation.
+- If they do not, they sign up first with the same email. ctxpipe then applies
+  the invitation.
+
+## Roles
+
+Each member has one role in each organization:
+
+| Role | What the role can do |
+| --- | --- |
+| **owner** | All that an admin can do. Also delete the organization. |
+| **admin** | Manage members and invitations. Add and remove connections, and start a sync. Start Workspace upgrades. Create organization API keys. |
+| **member** | Open and use the Workspaces of the organization, and chat in them. See the status of connections and upgrades. |
+
+Admin actions need a signed-in browser session. An API key or an MCP token
+cannot do them, even when its owner is an admin.
 
 ## Access follows membership and source scope
 
@@ -30,7 +50,5 @@ give access to more content in your tools:
 Use roles to control administration in ctxpipe. Keep the permissions of your
 tools, and the audience of each Workspace repository, as narrow as you need.
 
-<Cards>
-  <Card title="Team members" href="/docs/managing-organization/team-members" description="Invitations, roles, and membership." />
-  <Card title="Connected apps" href="/docs/mcp/connected-apps" description="The organizations that each MCP client can read." />
-</Cards>
+An MCP client reads only the organizations that you selected for it, and only
+while you are a member. See [Connected apps](/docs/mcp/connected-apps).

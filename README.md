@@ -70,7 +70,7 @@ Write it down once. Keep it current. Serve it to every agent.
    with its own model and cites the sources.
 
 For the full flow, see
-[How ctxpipe works](https://docs.ctxpipe.ai/docs/getting-started/how-it-works).
+[Getting started](https://docs.ctxpipe.ai/docs/getting-started).
 
 ## Where ctxpipe fits
 
@@ -164,7 +164,6 @@ memory only, run `npx ctxpipe memory init`. See
 
 - [Product docs](https://docs.ctxpipe.ai)
 - [Getting started](https://docs.ctxpipe.ai/docs/getting-started)
-- [How ctxpipe works](https://docs.ctxpipe.ai/docs/getting-started/how-it-works)
 - [Workspaces](https://docs.ctxpipe.ai/docs/workspaces)
 - [Connections](https://docs.ctxpipe.ai/docs/connections)
 - [MCP setup](https://docs.ctxpipe.ai/docs/mcp/mcp-docs)

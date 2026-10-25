@@ -45,9 +45,23 @@ npx ctxpipe mcp add --client cursor --scope both --auth api-key --non-interactiv
 
 The CLI never creates a key and never reads `CTXPIPE_API_KEY`.
 
-### Claude Code
+Start from the client configuration in
+[Configure a client by hand](/docs/mcp/mcp-docs#configure-a-client-by-hand),
+and add the header entry for your client:
 
-`.mcp.json`:
+| Client | File | Header entry |
+| --- | --- | --- |
+| Claude Code | `.mcp.json` | `"headers": { "x-api-key": "${CTXPIPE_API_KEY}" }` |
+| Cursor | `.cursor/mcp.json` or `~/.cursor/mcp.json` | `"headers": { "x-api-key": "${env:CTXPIPE_API_KEY}" }` |
+| Codex | `.codex/config.toml` or `~/.codex/config.toml` | `env_http_headers = { "x-api-key" = "CTXPIPE_API_KEY" }` |
+| OpenCode | `opencode.json` or `~/.config/opencode/opencode.json` | `"headers": { "x-api-key": "{env:CTXPIPE_API_KEY}" }`, and `"oauth": false` |
+| VS Code / Copilot | `.vscode/mcp.json` | `"headers": { "x-api-key": "${env:CTXPIPE_API_KEY}" }` |
+
+Each client uses its own syntax for the variable. Codex wants the name of the
+variable, not `$VAR` and not the secret. In OpenCode, `"oauth": false` stops
+the client from opening the browser after a `401`.
+
+For example, a Claude Code `.mcp.json` with an API key:
 
 ```json
 {
@@ -57,75 +71,6 @@ The CLI never creates a key and never reads `CTXPIPE_API_KEY`.
       "url": "https://app.ctxpipe.ai/mcp",
       "headers": {
         "x-api-key": "${CTXPIPE_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-### Cursor
-
-`.cursor/mcp.json` or `~/.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "ctxpipe": {
-      "type": "http",
-      "url": "https://app.ctxpipe.ai/mcp",
-      "headers": {
-        "x-api-key": "${env:CTXPIPE_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-### Codex
-
-`.codex/config.toml` or `~/.codex/config.toml`. Codex wants the name of the
-variable, not `$VAR` and not the secret:
-
-```toml
-[mcp_servers.ctxpipe]
-url = "https://app.ctxpipe.ai/mcp"
-env_http_headers = { "x-api-key" = "CTXPIPE_API_KEY" }
-```
-
-### OpenCode
-
-`opencode.json` or `~/.config/opencode/opencode.json`:
-
-```json
-{
-  "mcp": {
-    "ctxpipe": {
-      "type": "remote",
-      "url": "https://app.ctxpipe.ai/mcp",
-      "enabled": true,
-      "headers": {
-        "x-api-key": "{env:CTXPIPE_API_KEY}"
-      },
-      "oauth": false
-    }
-  }
-}
-```
-
-`"oauth": false` stops OpenCode from opening the browser after a `401`.
-
-### VS Code / Copilot
-
-`.vscode/mcp.json`:
-
-```json
-{
-  "servers": {
-    "ctxpipe": {
-      "type": "http",
-      "url": "https://app.ctxpipe.ai/mcp",
-      "headers": {
-        "x-api-key": "${env:CTXPIPE_API_KEY}"
       }
     }
   }

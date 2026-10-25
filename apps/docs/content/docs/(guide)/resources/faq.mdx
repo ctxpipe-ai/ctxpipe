@@ -17,8 +17,8 @@ to each coding agent through one MCP endpoint. See
 
 More servers give an agent more to read, not a way to tell what is true.
 ctxpipe gives each agent the same reviewed context: files in git with sources,
-history, and links to the code. The MCP tools return sources, not answers, so
-your agent cites what it used.
+history, and links to the code. Your agent cites the files that it used. See
+[Use ctxpipe from your agent](/docs/mcp/use-from-your-agent).
 
 ### Does ctxpipe train on my code?
 
@@ -83,7 +83,7 @@ No. All seven tools are read-only.
 ### How do invitations work?
 
 An owner or admin sends an email invitation from **Organization settings →
-Members**. See [Team members](/docs/managing-organization/team-members).
+Members**. See [Invite by email](/docs/managing-organization#invite-by-email).
 
 ### Can one person belong to many organizations?
 
@@ -110,5 +110,5 @@ Memgraph, and Amazon Neptune also work. See
 
 ### Which model providers work?
 
-Each OpenAI-compatible provider, including OpenRouter, Azure OpenAI, and
-Ollama, and Amazon Bedrock. See [Models](/docs/self-hosting/models).
+Each OpenAI-compatible provider, for example OpenRouter, Azure OpenAI, or
+Ollama. Amazon Bedrock also works. See [Models](/docs/self-hosting/models).
