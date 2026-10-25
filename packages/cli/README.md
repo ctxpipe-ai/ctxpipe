@@ -36,7 +36,7 @@ npx ctxpipe doctor --json
 
 ### Diagnose Streamable HTTP MCP
 
-Run the lightweight doctor against the exact organisation-scoped endpoint:
+Run the doctor against the `/mcp` endpoint:
 
 ```bash
 # Local host development

@@ -68,12 +68,12 @@ For scripts and CI, use explicit flags:
 
 ```bash
 npx ctxpipe init --org acme --agents cursor,claude --scope repo --non-interactive
-npx ctxpipe mcp add --org acme --client opencode --scope user --non-interactive
-npx ctxpipe mcp add --org acme --client cursor --scope both --auth api-key --non-interactive
+npx ctxpipe mcp add --client opencode --scope user --non-interactive
+npx ctxpipe mcp add --client cursor --scope both --auth api-key --non-interactive
 npx ctxpipe doctor --json
 ```
 
-Use `npx ctxpipe init --help` and `npx ctxpipe mcp add --help` for the full flag list, including `--base-url`, `--org`, `--scope`, `--agents`, `--client`, `--auth`, `--non-interactive`, `--json`, and `--dry-run`.
+Use `npx ctxpipe init --help` and `npx ctxpipe mcp add --help` for the full flag list, including `--base-url`, `--scope`, `--agents`, `--client`, `--auth`, `--non-interactive`, `--json`, and `--dry-run`. The `init` command also takes `--org`. The `mcp add` command accepts `--org` for old scripts, but ignores it.
 
 Setup sign-in is separate from MCP authorization. The CLI signs you in so it can list organizations and write correct config. It stores setup credentials in the OS keychain when available, with a file fallback under `~/.config/ctxpipe/` when keyring access is not possible.
 
@@ -149,7 +149,7 @@ The CLI writes the generic `/mcp` URL with no query. All keys work on that URL:
 ```
 
 ```bash
-npx ctxpipe mcp add --org acme --client cursor --scope both --auth api-key --non-interactive
+npx ctxpipe mcp add --client cursor --scope both --auth api-key --non-interactive
 ```
 
 Setting `CTXPIPE_API_KEY` in the environment is **not enough** on its own. ctxpipe MCP is a remote Streamable HTTP server, so the client must send the key on HTTP requests (`x-api-key`, or `Authorization: Bearer` when that is all the host supports). Cursor and Claude do not invent that mapping from a well-known env name. The interpolation in MCP config (or `claude mcp add --header`) is what tells the client to send the header.
