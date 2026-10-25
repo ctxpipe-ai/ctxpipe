@@ -6,16 +6,8 @@ export function normalizeBaseUrl(value: string): string {
   return value.replace(/\/+$/, "")
 }
 
-export function mcpUrl({
-  baseUrl,
-  org,
-}: {
-  baseUrl: string
-  org: string
-}): string {
-  const url = new URL("/mcp", normalizeBaseUrl(baseUrl))
-  url.searchParams.set("orgSlug", org)
-  return url.toString()
+export function mcpUrl({ baseUrl }: { baseUrl: string }): string {
+  return new URL("/mcp", normalizeBaseUrl(baseUrl)).toString()
 }
 
 export function scopesFor(
