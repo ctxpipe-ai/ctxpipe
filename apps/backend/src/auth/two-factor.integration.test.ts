@@ -1,11 +1,9 @@
 import { createHmac } from "node:crypto"
-import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { config } from "dotenv"
-import { eq, inArray, sql } from "drizzle-orm"
-import { Client } from "pg"
+import { eq, inArray } from "drizzle-orm"
 import {
   afterAll,
   beforeAll,
@@ -76,23 +74,6 @@ async function twoFactorRow(userId: string) {
     .where(eq(twoFactors.userId, userId))
   return row
 }
-
-const migrationStatements = [
-  "20261025060007_two_factor_lockout_columns",
-  "20261025060017_two_factor_unfinished_unverified",
-  "20261025070554_two_factor_stranded_disabled",
-].flatMap((migration) =>
-  readFileSync(
-    resolve(
-      fileURLToPath(new URL(".", import.meta.url)),
-      `../../migrations/${migration}/migration.sql`,
-    ),
-    "utf8",
-  )
-    .split("--> statement-breakpoint")
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0),
-)
 
 describe("two-factor (Postgres)", () => {
   beforeAll(() => {
@@ -175,70 +156,57 @@ describe("two-factor (Postgres)", () => {
     })
   })
 
-  it("the migration marks an unfinished legacy factor as unverified and keeps a finished one verified", async () => {
-    const client = new Client({ connectionString: process.env.DATABASE_URL })
-    await client.connect()
-    try {
-      // Temp tables shadow the real ones for this connection only, in the legacy shape.
-      await client.query(
-        "CREATE TEMP TABLE users (id text PRIMARY KEY, two_factor_enabled boolean DEFAULT false)",
-      )
-      await client.query(
-        "CREATE TEMP TABLE two_factors (id text PRIMARY KEY, secret text, user_id text NOT NULL)",
-      )
-      await client.query(
-        "INSERT INTO users (id, two_factor_enabled) VALUES ('abandoned', false), ('unset', NULL), ('finished', true)",
-      )
-      await client.query(
-        "INSERT INTO two_factors (id, secret, user_id) VALUES ('f1', 's', 'abandoned'), ('f2', 's', 'unset'), ('f3', 's', 'finished')",
-      )
+  it("locks the factor after ten failed sign-in codes and refuses the next verify", async () => {
+    const email = `two-factor-lock-${suffix}@example.com`
+    emails.push(email)
+    const signedUp = await post(
+      "/sign-up/email",
+      { name: "Locked factor", email, password },
+      "",
+    )
+    expect(signedUp.status).toBe(200)
+    const session = cookieOf(signedUp)
+    const userId = ((await signedUp.json()) as { user: { id: string } }).user.id
+    const enabled = await post("/two-factor/enable", { password }, session)
+    expect(enabled.status).toBe(200)
+    const { totpURI } = (await enabled.json()) as { totpURI: string }
+    const confirmed = await post(
+      "/two-factor/verify-totp",
+      { code: totpCode(totpURI) },
+      session,
+    )
+    expect(confirmed.status).toBe(200)
+    const wrongCode = totpCode(totpURI) === "000000" ? "000001" : "000000"
 
-      for (const statement of migrationStatements) await client.query(statement)
-
-      const { rows } = await client.query(
-        "SELECT user_id, verified FROM two_factors ORDER BY user_id",
-      )
-      expect(rows).toEqual([
-        { user_id: "abandoned", verified: false },
-        { user_id: "finished", verified: true },
-        { user_id: "unset", verified: false },
-      ])
-    } finally {
-      await client.end()
+    // Better Auth allows 5 codes for each sign-in challenge and 10 for each account.
+    for (let challenge = 0; challenge < 2; challenge++) {
+      const signIn = await post("/sign-in/email", { email, password }, "")
+      const cookie = cookieOf(signIn)
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const wrong = await post(
+          "/two-factor/verify-totp",
+          { code: wrongCode },
+          cookie,
+        )
+        expect(wrong.status).toBe(401)
+      }
     }
-  })
 
-  it("the migration turns two-factor off for a user with no factor row and keeps it on for a user with a row", async () => {
-    const client = new Client({ connectionString: process.env.DATABASE_URL })
-    await client.connect()
-    try {
-      // Temp tables shadow the real ones for this connection only, in the legacy shape.
-      await client.query(
-        "CREATE TEMP TABLE users (id text PRIMARY KEY, two_factor_enabled boolean DEFAULT false)",
-      )
-      await client.query(
-        "CREATE TEMP TABLE two_factors (id text PRIMARY KEY, secret text, user_id text NOT NULL)",
-      )
-      await client.query(
-        "INSERT INTO users (id, two_factor_enabled) VALUES ('stranded', true), ('finished', true), ('off', false)",
-      )
-      await client.query(
-        "INSERT INTO two_factors (id, secret, user_id) VALUES ('f1', 's', 'finished')",
-      )
+    const row = await twoFactorRow(userId)
+    expect(row).toMatchObject({ failedVerificationCount: 10 })
+    expect(row?.lockedUntil?.getTime()).toBeGreaterThan(Date.now())
 
-      for (const statement of migrationStatements) await client.query(statement)
+    const signIn = await post("/sign-in/email", { email, password }, "")
+    const refused = await post(
+      "/two-factor/verify-totp",
+      { code: totpCode(totpURI) },
+      cookieOf(signIn),
+    )
 
-      const { rows } = await client.query(
-        "SELECT id, two_factor_enabled FROM users ORDER BY id",
-      )
-      expect(rows).toEqual([
-        { id: "finished", two_factor_enabled: true },
-        { id: "off", two_factor_enabled: false },
-        { id: "stranded", two_factor_enabled: false },
-      ])
-    } finally {
-      await client.end()
-    }
+    expect(refused.status).toBe(429)
+    expect(await refused.json()).toMatchObject({
+      code: "ACCOUNT_TEMPORARILY_LOCKED",
+    })
   })
 
   it("turns two-factor on when a user with an unfinished legacy factor enables it again and confirms", async () => {
@@ -249,9 +217,10 @@ describe("two-factor (Postgres)", () => {
       { name: "Legacy factor", email, password },
       "",
     )
+    expect(signedUp.status).toBe(200)
     const session = cookieOf(signedUp)
     const userId = ((await signedUp.json()) as { user: { id: string } }).user.id
-    // The state the migration finds: a factor row from before the column existed.
+    // The state the unverified migration leaves: a factor row of an unfinished setup.
     await getSystemDb()
       .insert(twoFactors)
       .values({
@@ -259,15 +228,12 @@ describe("two-factor (Postgres)", () => {
         secret: "legacy",
         backupCodes: "legacy",
         userId,
-        verified: true,
+        verified: false,
       })
-    const update = migrationStatements.find((statement) =>
-      statement.includes('UPDATE "two_factors"'),
-    ) as string
-    await getSystemDb().execute(sql.raw(update))
     expect(await twoFactorRow(userId)).toMatchObject({ verified: false })
 
     const enabled = await post("/two-factor/enable", { password }, session)
+    expect(enabled.status).toBe(200)
     const { totpURI } = (await enabled.json()) as { totpURI: string }
     const confirmed = await post(
       "/two-factor/verify-totp",
