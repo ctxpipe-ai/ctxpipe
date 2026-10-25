@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ctxpipe.ai/schemas/checks/result.v1.schema.json",
+  "title": "ctxpipe check result",
+  "description": "One NDJSON line of `pnpm checks:run` output, for each requested check id.",
+  "type": "object",
+  "required": ["id", "status", "durationMs", "cases"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string" },
+    "status": {
+      "description": "error: the check did not run (unknown id, setup failure, load error).",
+      "enum": ["passed", "failed", "skipped", "error"]
+    },
+    "durationMs": { "type": "integer", "minimum": 0 },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "durationMs"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "status": { "enum": ["passed", "failed", "skipped"] },
+          "durationMs": { "type": "integer", "minimum": 0 },
+          "message": { "type": "string" }
+        }
+      }
+    },
+    "log": {
+      "description": "Repo-relative path of the runner log for the lane.",
+      "type": "string"
+    },
+    "message": { "type": "string" }
+  }
+}

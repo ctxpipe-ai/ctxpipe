@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ctxpipe.ai/schemas/checks/manifest.v1.schema.json",
+  "title": "ctxpipe check manifest",
+  "description": "Output of `pnpm checks:list`. A reader rejects an unknown schemaVersion. A new optional property does not change the version.",
+  "type": "object",
+  "required": ["schemaVersion", "checks"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "checks": { "type": "array", "items": { "$ref": "#/$defs/check" } }
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "required": ["id", "family", "lane", "file", "prerequisites", "inputs"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "`<family>:<lane>:<file>`. Case ids append `#<case>` in a later version.",
+          "type": "string",
+          "pattern": "^[a-z]+:[a-z0-9-]+:[^#]+(#.+)?$"
+        },
+        "family": { "enum": ["vitest"] },
+        "lane": {
+          "description": "One runner invocation: package directory, config and runtime.",
+          "type": "string"
+        },
+        "file": {
+          "description": "Repo-relative path of the test file.",
+          "type": "string"
+        },
+        "prerequisites": {
+          "description": "Coarse names of tools and services the lane needs, for example postgres or docker.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "inputs": {
+          "description": "Repo-relative paths that are not imported by the test but change its result: configs, setup files, the lockfile. A change to one selects the whole lane.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "intent": {
+          "description": "What the check catches, and what is never a reason to run it.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}
