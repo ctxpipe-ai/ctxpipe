@@ -157,8 +157,8 @@ describe("fetchGithubIssuePage", () => {
       "First",
       "Late comment",
     ])
-    // A deleted account is GitHub's "ghost" user.
-    expect(page.issues[1]?.comments[1]?.author.login).toBe("ghost")
+    // A deleted account has no author.
+    expect(page.issues[1]?.comments[1]?.author.login).toBe("unknown")
   })
 
   it("keeps the issues when GitHub hides a closing pull request of another repository", async () => {

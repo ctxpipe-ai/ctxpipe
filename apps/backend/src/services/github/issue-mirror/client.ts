@@ -148,8 +148,8 @@ function nextCursor(connection: Connection<unknown>): string | null {
 }
 
 function actor(node: ActorNode): GithubPrActor {
-  // A deleted account shows as GitHub's "ghost" user.
-  if (!node) return { login: "ghost", type: "human" }
+  // A deleted account has no author; the pull request mirror writes "unknown" too.
+  if (!node) return { login: "unknown", type: "human" }
   return {
     login: node.login,
     type: node.__typename === "Bot" ? "bot" : "human",

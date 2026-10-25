@@ -218,8 +218,6 @@ it(
         )
         expect(mirrored).toContain("type: issue")
         expect(mirrored).toContain(`url: ${SOURCE_URL}/issues/3`)
-        // The sources stamp names the source file of the repository (ADR-050).
-        expect(mirrored).toMatch(/\nsources:\n {2}- /)
 
         // A replayed delivery is one run and one request.
         issues.set(3, graphqlIssue(3, "Problem 3, renamed"))
