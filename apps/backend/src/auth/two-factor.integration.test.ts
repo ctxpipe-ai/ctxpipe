@@ -80,6 +80,7 @@ async function twoFactorRow(userId: string) {
 const migrationStatements = [
   "20261025060007_two_factor_lockout_columns",
   "20261025060017_two_factor_unfinished_unverified",
+  "20261025070554_two_factor_stranded_disabled",
 ].flatMap((migration) =>
   readFileSync(
     resolve(
@@ -89,7 +90,8 @@ const migrationStatements = [
     "utf8",
   )
     .split("--> statement-breakpoint")
-    .map((statement) => statement.trim()),
+    .map((statement) => statement.trim())
+    .filter((statement) => statement.length > 0),
 )
 
 describe("two-factor (Postgres)", () => {
@@ -206,6 +208,39 @@ describe("two-factor (Postgres)", () => {
     }
   })
 
+  it("the migration turns two-factor off for a user with no factor row and keeps it on for a user with a row", async () => {
+    const client = new Client({ connectionString: process.env.DATABASE_URL })
+    await client.connect()
+    try {
+      // Temp tables shadow the real ones for this connection only, in the legacy shape.
+      await client.query(
+        "CREATE TEMP TABLE users (id text PRIMARY KEY, two_factor_enabled boolean DEFAULT false)",
+      )
+      await client.query(
+        "CREATE TEMP TABLE two_factors (id text PRIMARY KEY, secret text, user_id text NOT NULL)",
+      )
+      await client.query(
+        "INSERT INTO users (id, two_factor_enabled) VALUES ('stranded', true), ('finished', true), ('off', false)",
+      )
+      await client.query(
+        "INSERT INTO two_factors (id, secret, user_id) VALUES ('f1', 's', 'finished')",
+      )
+
+      for (const statement of migrationStatements) await client.query(statement)
+
+      const { rows } = await client.query(
+        "SELECT id, two_factor_enabled FROM users ORDER BY id",
+      )
+      expect(rows).toEqual([
+        { id: "finished", two_factor_enabled: true },
+        { id: "off", two_factor_enabled: false },
+        { id: "stranded", two_factor_enabled: false },
+      ])
+    } finally {
+      await client.end()
+    }
+  })
+
   it("turns two-factor on when a user with an unfinished legacy factor enables it again and confirms", async () => {
     const email = `two-factor-legacy-${suffix}@example.com`
     emails.push(email)
@@ -227,7 +262,7 @@ describe("two-factor (Postgres)", () => {
         verified: true,
       })
     const update = migrationStatements.find((statement) =>
-      statement.includes("UPDATE"),
+      statement.includes('UPDATE "two_factors"'),
     ) as string
     await getSystemDb().execute(sql.raw(update))
     expect(await twoFactorRow(userId)).toMatchObject({ verified: false })
