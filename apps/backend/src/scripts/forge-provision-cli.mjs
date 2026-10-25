@@ -16,6 +16,8 @@ const site = process.env.CONFLUENCE_SITE
 const email = process.env.FORGE_EMAIL?.trim()
 const name = process.env.FORGE_APP_NAME ?? "ctxpipe-forge"
 const existing = process.env.EXISTING_APP_ID?.trim()
+// The connection has an install only when the install event saved its id.
+const installed = process.env.EXISTING_INSTALLATION_ID?.trim()
 // "deploy" registers (when new) and deploys. "install" installs on the site.
 // The worker saves the registered app id between the two phases.
 const phase = process.argv[2]
@@ -76,7 +78,8 @@ try {
     ]
     // Provisioning is an explicit operator action; existing installs must accept
     // manifest scope additions or attachment capture remains silently unusable.
-    if (existing) installArgs.push("--upgrade", "--confirm-scopes")
+    // An app ID alone does not show an install: a failed install keeps the ID.
+    if (installed) installArgs.push("--upgrade", "--confirm-scopes")
     forge(installArgs)
     process.stdout.write(`OK ${cwd()}\n`)
     process.exit(0)

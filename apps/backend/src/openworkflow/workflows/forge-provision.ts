@@ -305,18 +305,28 @@ export async function ensureCtxpipeForgeDeveloperSpaceId(opts: {
 /**
  * Saves the app id that `forge register` wrote to `manifest.yml` on the
  * connection. The install event of the app then finds a trusted app.
+ * Throws when the manifest has no valid Forge app ARI.
  */
 export async function saveRegisteredForgeAppId(input: {
   orgId: string
   connectionId: string
   workdir: string
-}): Promise<string | null> {
+}): Promise<string> {
   const manifest = parseYaml(
     readFileSync(join(input.workdir, "manifest.yml"), "utf8"),
   ) as { app?: { id?: unknown } } | null
   const id = manifest?.app?.id
   const appId = forgeAppIdToAri(typeof id === "string" ? id : null)
-  if (!appId) return null
+  if (
+    !appId ||
+    !/^ari:cloud:ecosystem::app\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      appId,
+    )
+  ) {
+    throw new Error(
+      `forge register wrote no valid app ID to manifest.yml (found ${JSON.stringify(id ?? null)}). Run the Forge setup again. If it fails again, delete the Confluence connection and add it again.`,
+    )
+  }
   await patchForgeConnectionTypedConfig(input.orgId, input.connectionId, {
     appId,
   })
@@ -608,6 +618,7 @@ export const forgeProvision = defineWorkflow(
         CONFLUENCE_SITE: site,
         FORGE_APP_NAME: appSlug,
         EXISTING_APP_ID: row.appId ?? "",
+        EXISTING_INSTALLATION_ID: row.installationId ?? "",
         FORGE_PROVISION_DRY_RUN: process.env.FORGE_PROVISION_DRY_RUN ?? "0",
         FORGE_EMAIL: operatorEmail,
       }
@@ -619,14 +630,16 @@ export const forgeProvision = defineWorkflow(
       )
       // Save the app id before the install: the install event must find it.
       if (r.exit === 0 && !dryRun) {
-        const appId = await saveRegisteredForgeAppId({
-          orgId: input.orgId,
-          connectionId: input.connectionId,
-          workdir,
-        })
-        r = appId
-          ? runProvisionCli(workdir, "install", cliEnv)
-          : { exit: 1, out: "forge register wrote no app id to manifest.yml" }
+        try {
+          await saveRegisteredForgeAppId({
+            orgId: input.orgId,
+            connectionId: input.connectionId,
+            workdir,
+          })
+          r = runProvisionCli(workdir, "install", cliEnv)
+        } catch (e: unknown) {
+          r = { exit: 1, out: e instanceof Error ? e.message : String(e) }
+        }
       }
       try {
         rmSync(workdir, { recursive: true, force: true })
