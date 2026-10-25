@@ -17,7 +17,7 @@ import type {
  * function tool. "json_schema" sends `response_format`. Some servers (oMLX)
  * ignore a forced `tool_choice` but enforce a JSON schema with a grammar.
  */
-export type StructuredOutputMode = "tool" | "json_schema"
+type StructuredOutputMode = "tool" | "json_schema"
 
 function structuredOutputFields(
   mode: StructuredOutputMode,
