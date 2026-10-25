@@ -1,6 +1,13 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
@@ -31,6 +38,8 @@ const validate = (value, rule, document, path = "$") => {
   if (rule.pattern) assert.match(value, new RegExp(rule.pattern), path)
   if (rule.type === "array") {
     assert.ok(Array.isArray(value), path)
+    if (rule.minItems !== undefined) assert.ok(value.length >= rule.minItems, path)
+    if (rule.maxItems !== undefined) assert.ok(value.length <= rule.maxItems, path)
     for (const [index, item] of value.entries())
       validate(item, rule.items, document, `${path}[${index}]`)
   }
@@ -160,6 +169,37 @@ test("the runner traces the lines that each case executed", () => {
       trace,
     )
     assert.equal(merge([file, file]).status, 1)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("a broken trace never changes the result of a run", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
+  try {
+    // A part file that a killed worker cut off is an error of the trace only.
+    const parts = join(directory, "parts")
+    mkdirSync(parts)
+    writeFileSync(join(parts, "a.json"), '{"file": "apps/ui/src/a.ts", "cas')
+    const { laneChecks } = await import("../checks/trace.mjs")
+    assert.throws(() => laneChecks(parts, "ui"))
+    // A trace directory that cannot exist leaves the run and its result lines
+    // as they are.
+    const id = "vitest:ui:apps/ui/src/components/onboarding/org-name.test.ts"
+    const blocked = join(directory, "blocked")
+    writeFileSync(blocked, "a file, not a directory")
+    const plain = node([script("run.mjs")], `${id}\n`)
+    const traced = node([script("run.mjs"), "--trace", blocked], `${id}\n`)
+    assert.equal(plain.status, 0, plain.stderr)
+    assert.equal(traced.status, plain.status, traced.stderr)
+    const status = (result) =>
+      result.stdout
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line))
+        .map(({ id, status }) => [id, status])
+    assert.deepEqual(status(traced), status(plain))
+    assert.match(traced.stderr, /No trace/)
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

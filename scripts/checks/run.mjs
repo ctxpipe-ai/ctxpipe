@@ -59,6 +59,7 @@ try {
   const results = resolve(root, ".ci-results", "checks")
   mkdirSync(results, { recursive: true })
   const traced = []
+  let traceFailed = false
   // One lane at a time: backend files share one database and run in series.
   for (const [lane, checks] of groups) {
     const { directory } = lanes[lane]
@@ -128,7 +129,14 @@ try {
         message = `Vitest wrote no report (${run.error?.message ?? run.signal ?? `exit ${run.status}`})`
       }
     }
-    if (parts) traced.push(...laneChecks(parts, lane))
+    // A trace is data only: an error here never changes a result.
+    if (parts)
+      try {
+        traced.push(...laneChecks(parts, lane))
+      } catch (error) {
+        traceFailed = true
+        process.stderr.write(`No trace for ${lane}: ${error.message}\n`)
+      }
     for (const { id, file } of checks) {
       const suite = suites.get(file)
       const cases = (suite?.assertionResults ?? []).map((assertion) => ({
@@ -166,10 +174,14 @@ try {
       })
     }
   }
-  if (trace) {
-    mkdirSync(trace, { recursive: true })
-    writeTrace(join(trace, "trace.json.gz"), traced)
-  }
+  // A partial trace would hide the cases of the failed lane, so write none.
+  if (trace && !traceFailed)
+    try {
+      mkdirSync(trace, { recursive: true })
+      writeTrace(join(trace, "trace.json.gz"), traced)
+    } catch (error) {
+      process.stderr.write(`No trace written: ${error.message}\n`)
+    }
   process.exitCode = failed ? 1 : 0
 } catch (error) {
   process.stderr.write(`${error.message}\n`)

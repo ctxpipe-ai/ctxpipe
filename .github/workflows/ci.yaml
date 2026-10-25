@@ -2,6 +2,10 @@ name: CI
 
 on:
   workflow_dispatch:
+  # A nightly run of the tests on main records the trace of main with
+  # `--trace`. Only the test jobs run on it.
+  schedule:
+    - cron: "23 2 * * *"
   pull_request:
     branches:
       - main
@@ -108,10 +112,10 @@ jobs:
     # One shard runs its files in series in its own database, so a worker in
     # one shard cannot claim a run that a file in another shard opened.
     name: ${{ matrix.lane }} tests (shard ${{ matrix.shard }}/${{ matrix.count }})
-    # A push to main also runs the tests, to record the trace of main.
+    # The nightly run (schedule) also runs the tests, to record the trace of main.
     if: |
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'schedule' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -231,9 +235,11 @@ jobs:
           GRAPH_DB_URI: redis://127.0.0.1:6379
           AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
           DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
-          # The trace (scripts/checks/README.md) is data only; PR runs skip it.
-          TRACE: ${{ (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main') && '--trace' || '' }}
-        run: node scripts/ci/test-suite.mjs ${{ matrix.lane }} --shard=${{ matrix.shard }}/${{ matrix.count }} $TRACE
+          EVENT: ${{ github.event_name }}
+        # The trace (scripts/checks/README.md) is data only; PR runs skip it.
+        run: |
+          node scripts/ci/test-suite.mjs ${{ matrix.lane }} --shard=${{ matrix.shard }}/${{ matrix.count }} \
+            $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       - name: FalkorDB diagnostics
         if: failure()
         continue-on-error: true
@@ -257,16 +263,15 @@ jobs:
   package-tests:
     timeout-minutes: 30
     name: UI, CLI and CDK tests
-    # A push to main also runs the tests, to record the trace of main.
+    # The nightly run (schedule) also runs the tests, to record the trace of main.
     if: |
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'schedule' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
-      # The trace (scripts/checks/README.md) is data only; PR runs skip it.
-      TRACE: ${{ (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main') && '--trace' || '' }}
+      EVENT: ${{ github.event_name }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -281,11 +286,16 @@ jobs:
         with:
           bun-version: 1.4.2
       - name: UI tests
-        run: node scripts/ci/test-suite.mjs ui $TRACE
+        run: |
+          if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then
+            node scripts/ci/test-suite.mjs ui --trace
+          else
+            pnpm --filter @ctxpipe/ui test
+          fi
       - name: CLI tests
-        run: node scripts/ci/test-suite.mjs cli $TRACE
+        run: node scripts/ci/test-suite.mjs cli $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       - name: CDK tests
-        run: node scripts/ci/test-suite.mjs aws-cdk $TRACE
+        run: node scripts/ci/test-suite.mjs aws-cdk $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       - name: Preserve package test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -303,7 +313,7 @@ jobs:
     needs: [test-shards, package-tests]
     if: |
       always() && (github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'schedule' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')))
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -334,7 +344,7 @@ jobs:
       # data only, so a failure here does not fail the job.
       - name: Merge the traces
         id: trace
-        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         continue-on-error: true
         run: |
           find .ci-results -name trace.json.gz -print0 | sort -z |
@@ -422,7 +432,7 @@ jobs:
   layer-cache:
     timeout-minutes: 45
     name: Layer cache (${{ matrix.name }})
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     continue-on-error: true
     permissions:
       contents: read

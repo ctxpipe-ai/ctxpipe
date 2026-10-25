@@ -33,11 +33,18 @@ How it works:
 - The runner adds [`trace-reporter.mjs`](trace-reporter.mjs) as a Vitest reporter. Vitest has no command-line option for setup files, so the reporter puts [`trace-worker.mjs`](trace-worker.mjs) first in the setup files of each project. The runner gives the part directory to its Vitest workers in the private variable `CTXPIPE_TRACE_PARTS`. Do not set this variable yourself.
 - In each Vitest worker, `trace-worker.mjs` opens a `node:inspector` session and starts V8 precise coverage with block counts. It takes the coverage before and after each test case. Each take resets the counts.
 - The code that runs outside a case (module evaluation, `beforeAll` and `afterAll`) goes to the pseudo-case `<collect>` of the file. Thus, a change to top-level code maps to `<collect>`.
-- The worker maps the V8 offsets to source lines with the inline source maps of the transformed modules. A line ran when the innermost V8 range at a mapped position has a count above zero: the function ranges minus their nested blocks with a zero count. A line with no code does not end a range.
+- The worker maps the V8 offsets to source lines. It uses the inline source maps of the transformed modules.
+- A line ran when the innermost V8 range at a mapped position has a count above zero. That means the function ranges minus their nested blocks with a zero count.
+- A line with no code does not end a range.
 - The trace records only repo files outside `node_modules`.
 - Tracing does not change a result. If the inspector fails in a file, that file writes no trace record. A check that is not in a trace was not traced; this is not proof that it executes no code.
 
-In CI, `scripts/ci/test-suite.mjs <lane> --trace` writes `trace.json.gz` next to `results.json`. CI traces on a `workflow_dispatch` run and on a push to `main`. A push to `main` runs the test jobs for this purpose only. The Tests job merges the traces with `node scripts/checks/trace.mjs merge <out> <trace>...` and uploads the artifact `trace-<commit>`. A pull request run does not trace, because it tests a merge commit that a reader cannot diff from.
+In CI, `scripts/ci/test-suite.mjs <lane> --trace` writes `trace.json.gz` next to `results.json`.
+
+- CI passes `--trace` on a `workflow_dispatch` run and on the nightly `schedule` run (02:23 UTC, on `main`).
+- The nightly run starts only the test jobs and the Tests job. No other job runs on it, so it cannot deploy or publish.
+- The Tests job merges the traces with `node scripts/checks/trace.mjs merge <out> <trace>...`. It uploads the artifact `trace-<commit>`.
+- A pull request run and a push to `main` do not trace. A pull request tests a merge commit that a reader cannot diff from.
 
 Gaps (no trace):
 
@@ -47,7 +54,14 @@ Gaps (no trace):
 - Child processes and the browser. A test that reaches code through HTTP, a worker process, a CLI, a sandbox or Storybook does not record that code. For example, the CLI lane runs the built `bin/ctxpipe.js` in a child process.
 - Concurrent cases in one file (`test.concurrent`) mix their coverage.
 
-Overhead in CI, measured on one commit (traced `workflow_dispatch` run against the untraced pull request run): the backend shard test steps took 2391 s against 2172 s (+10%), the contract shards 1452 s against 1426 s (+2%), and all test jobs together 4723 s against 4470 s (+6%). The longest job took 919 s against 874 s (+5%). A take costs about 10 to 40 ms in a file that imports a large module graph, so the cost grows with the number of cases in such a file. The trace of the full run is 1.8 MB compressed (17 MB of JSON) for 734 checks and 7079 cases.
+Overhead in CI was measured on one commit. It compares a traced `workflow_dispatch` run with the untraced pull request run.
+
+- The backend shard test steps took 2391 s against 2172 s (+10%).
+- The contract shards took 1452 s against 1426 s (+2%).
+- All test jobs together took 4723 s against 4470 s (+6%).
+- The longest job took 919 s against 874 s (+5%).
+- A take costs about 10 to 40 ms in a file that imports a large module graph. Thus the cost grows with the number of cases in such a file.
+- The trace of the full run is 1.8 MB compressed (17 MB of JSON) for 734 checks and 7079 cases.
 
 ## Why the runner is separate from CI
 

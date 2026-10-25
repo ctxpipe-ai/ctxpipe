@@ -15,7 +15,6 @@ import { afterAll, afterEach, beforeEach } from "vitest"
 
 // A string, not `new URL()`: under jsdom, `URL` is the jsdom class.
 const root = resolve(fileURLToPath(import.meta.url), "../../..")
-const rootUrl = pathToFileURL(root).href
 const collect = "<collect>"
 
 // Tracing must not change a result. If a step fails, the file writes no part,
@@ -36,6 +35,7 @@ try {
 }
 
 function open() {
+  const rootUrl = pathToFileURL(root).href
   const session = new Session()
   session.connect()
   const scripts = new Map()
@@ -87,9 +87,7 @@ function table(scriptId) {
     const prefix = scriptSource.startsWith("'use strict';async (")
       ? scriptSource.indexOf("=>{{") + 4
       : 0
-    const offsets = []
-    const sources = []
-    const lines = []
+    const positions = []
     const scriptPath = fileURLToPath(meta.url)
     const map = meta.sourceMapURL?.startsWith("data:application/json")
       ? JSON.parse(
@@ -109,9 +107,11 @@ function table(scriptId) {
       for (const [line, segments] of decode(map.mappings).entries())
         for (const [column, source, sourceLine] of segments) {
           if (source === undefined || !names[source]) continue
-          offsets.push(starts[line] + column + (line === 0 ? prefix : 0))
-          sources.push(names[source])
-          lines.push(sourceLine + 1)
+          positions.push({
+            offset: starts[line] + column + (line === 0 ? prefix : 0),
+            source: names[source],
+            line: sourceLine + 1,
+          })
         }
     } else {
       // No source map: the script is the source. Use the first character of
@@ -123,16 +123,14 @@ function table(scriptId) {
         const text = scriptSource.slice(from, end)
         const indent = text.search(/\S/)
         if (!name || indent === -1) continue
-        offsets.push(from + indent)
-        sources.push(name)
-        lines.push(line + 1)
+        positions.push({ offset: from + indent, source: name, line: line + 1 })
       }
     }
-    for (const [index, source] of sources.entries()) {
+    for (const { source, line } of positions) {
       if (!state.code.has(source)) state.code.set(source, new Set())
-      state.code.get(source).add(lines[index])
+      state.code.get(source).add(line)
     }
-    result = { offsets, sources, lines }
+    result = positions
   }
   state.tables.set(scriptId, result)
   return result
@@ -160,7 +158,7 @@ function take(lines) {
     )
     const stack = []
     let next = 0
-    for (const [index, offset] of positions.offsets.entries()) {
+    for (const { offset, source, line } of positions) {
       while (next < ranges.length && ranges[next].startOffset <= offset) {
         const range = ranges[next++]
         while (stack.length && stack.at(-1).endOffset <= range.startOffset)
@@ -169,9 +167,8 @@ function take(lines) {
       }
       while (stack.length && stack.at(-1).endOffset <= offset) stack.pop()
       if (!stack.length || stack.at(-1).count === 0) continue
-      const source = positions.sources[index]
       if (!lines.has(source)) lines.set(source, new Set())
-      lines.get(source).add(positions.lines[index])
+      lines.get(source).add(line)
     }
   }
 }
