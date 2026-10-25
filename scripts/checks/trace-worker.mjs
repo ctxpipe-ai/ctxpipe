@@ -43,10 +43,12 @@ try {
 }
 
 function open() {
-  // The trace code itself is not traced.
+  // The trace code itself is not traced. Not `new URL()`: under jsdom it
+  // resolves against the page (`http://localhost:3000/@fs/...`).
   const own = [
     import.meta.url,
-    new URL("trace-edges.mjs", import.meta.url).href,
+    pathToFileURL(resolve(fileURLToPath(import.meta.url), "../trace-edges.mjs"))
+      .href,
   ]
   const session = new Session()
   session.connect()

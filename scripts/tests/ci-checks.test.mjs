@@ -177,6 +177,27 @@ test("the runner traces the lines that each case executed", () => {
   }
 })
 
+test("the trace code itself is not traced, also under jsdom", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
+  try {
+    const id = "vitest:ui:apps/ui/src/components/ui/Button.test.tsx"
+    const result = node([script("run.mjs"), "--trace", directory], `${id}\n`)
+    assert.equal(result.status, 0, result.stderr)
+    const file = join(directory, "trace.json.gz")
+    const trace = JSON.parse(gunzipSync(readFileSync(file)).toString("utf8"))
+    const paths = trace.checks[0].cases.flatMap(({ lines }) =>
+      Object.keys(lines),
+    )
+    assert.ok(paths.includes("apps/ui/src/components/ui/Button.tsx"))
+    assert.deepEqual(
+      paths.filter((path) => path.startsWith("scripts/checks/")),
+      [],
+    )
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test("a broken trace never changes the result of a run", async () => {
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
   try {
