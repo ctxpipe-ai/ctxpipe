@@ -44,7 +44,7 @@ describe("init --memory (end-to-end)", () => {
     const cursor = JSON.parse(
       readFileSync(join(cwd, ".cursor", "mcp.json"), "utf8"),
     ) as { mcpServers: Record<string, { command?: string; url?: string }> }
-    expect(cursor.mcpServers.ctxpipe?.url).toMatch(/orgSlug=acme/)
+    expect(cursor.mcpServers.ctxpipe?.url).toBe("https://app.ctxpipe.ai/mcp")
     expect(cursor.mcpServers["ctxpipe-memory"]).toBeUndefined()
     expect(existsSync(join(cwd, ".cursor", "hooks.json"))).toBe(true)
     expect(existsSync(join(cwd, ".ai", "memory", "index.md"))).toBe(true)

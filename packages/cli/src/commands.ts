@@ -63,7 +63,6 @@ type InitRunOpts = {
 
 type McpAddRunOpts = {
   baseUrl: string
-  org?: string
   scope?: string
   clients: string[]
   dryRun: boolean
@@ -144,7 +143,6 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     ? buildMcpOperations({
         clients: agents,
         baseUrl: answers.baseUrl,
-        org,
         scope,
         auth: mcpAuth,
         context,
@@ -239,7 +237,6 @@ export async function runAuthLogout(opts: {
 export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
   const interactive = isInteractive(opts)
   const values = {
-    org: opts.org ?? null,
     baseUrl: opts.baseUrl,
     clients: [...opts.clients],
     scope: opts.scope ?? null,
@@ -250,8 +247,6 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
   if (interactive) {
     Object.assign(values, await promptMcpWizard(values))
   } else {
-    if (!values.org)
-      throw new Error("Missing --org for non-interactive mcp add")
     if (!values.scope)
       throw new Error("Missing --scope for non-interactive mcp add")
     if (values.clients.length === 0) {
@@ -259,10 +254,8 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
     }
   }
 
-  const org = values.org
   const scope = values.scope
   const clients = values.clients
-  if (!org) throw new Error("Missing --org")
   if (!scope) throw new Error("Missing --scope")
   validateScope(scope)
   validateClients(clients)
@@ -271,7 +264,6 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
   const operations = buildMcpOperations({
     clients,
     baseUrl: values.baseUrl,
-    org,
     scope,
     auth: mcpAuth,
     context: createOperationContext({ commandExists }),
@@ -286,7 +278,6 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
     dryRun: values.dryRun,
     introShown: interactive,
     setupSummary: [
-      `Organization ${org}`,
       `Scope ${scopeLabel(scope)}`,
       `Agents ${agentsLabel(clients, true)}`,
       `MCP auth ${describeMcpAuth(mcpAuth)}`,

@@ -75,10 +75,10 @@ Human setup:
 
 Examples (non-interactive):
   npx ctxpipe init --org acme --agents codex,claude --scope repo --non-interactive
-  npx ctxpipe mcp add --org acme --client cursor --scope repo --non-interactive
-  npx ctxpipe mcp add --org acme --client cursor --scope both --auth api-key --non-interactive
+  npx ctxpipe mcp add --client cursor --scope repo --non-interactive
+  npx ctxpipe mcp add --client cursor --scope both --auth api-key --non-interactive
   npx ctxpipe doctor --json
-  npx ctxpipe doctor mcp --url "https://app.example.com/mcp?orgSlug=acme"
+  npx ctxpipe doctor mcp --url "https://app.example.com/mcp"
 `,
     )
 
@@ -132,7 +132,7 @@ Examples (non-interactive):
         )
         .option(
           "--no-mcp",
-          "Skip MCP client configuration (still writes .ctxpipe/config.json with org and MCP URL)",
+          "Skip MCP client configuration (still writes .ctxpipe/config.json)",
         )
         .option(
           "--memory",
@@ -202,10 +202,7 @@ MCP auth:
     .description(
       "Diagnose a ctxpipe Streamable HTTP endpoint, OAuth discovery, or API-key initialize.",
     )
-    .requiredOption(
-      "--url <url>",
-      "ctxpipe MCP URL, including /mcp (optional ?orgSlug=<slug>)",
-    )
+    .requiredOption("--url <url>", "ctxpipe MCP URL, including /mcp")
     .option("--timeout <ms>", "Per-request timeout in milliseconds", "10000")
     .option("--json", "Print diagnostics as JSON", false)
     .addHelpText(
@@ -247,9 +244,11 @@ endpoint is ready for OAuth, not that authenticated tools work.
         .description(
           "Configure ctxpipe MCP for one or more clients without re-running full init.",
         )
-        .option(
-          "--org <slug>",
-          "ctxpipe organization slug (required when not interactive)",
+        .addOption(
+          new Option(
+            "--org <slug>",
+            "Deprecated and ignored. Kept so old scripts still work.",
+          ).hideHelp(),
         )
         .option(
           "--base-url <url>",
@@ -295,7 +294,6 @@ MCP auth:
     ),
   ).action(async (rawOpts: Record<string, unknown>) => {
     const opts = rawOpts as {
-      org: string
       baseUrl: string
       scope?: string
       client: string[]
@@ -307,7 +305,6 @@ MCP auth:
     const clients = [...(opts.client ?? []), ...(opts.clients ?? [])]
     await runMcpAdd({
       baseUrl: opts.baseUrl,
-      org: opts.org,
       scope: opts.scope,
       clients,
       dryRun: opts.dryRun,
