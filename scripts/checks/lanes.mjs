@@ -27,6 +27,25 @@ const backendInputs = [
   "apps/backend/migrations/**",
   "scripts/ci/contracts.json",
 ]
+// The files that pin the tools and images of the native backend tests:
+// the prerequisite check (it compares the OpenCode version with the declared
+// one) and the chat sandbox image.
+const nativeInputs = [
+  "scripts/ci/prerequisites.mjs",
+  "scripts/ci/graph-ready.mjs",
+  "apps/backend/src/domain/workspaces/workspace-chat-opencode-contract.ts",
+  "scripts/chat-sandbox/**",
+]
+// Environment variables whose values change backend results. A result cache
+// adds a hash of each value to its key. Connection strings and secrets that
+// only point at a test service are not here.
+const backendEnv = [
+  "NODE_ENV",
+  "AUTH_BASE_URL",
+  "MODEL_PROVIDER",
+  "MODEL_PROVIDER_URL",
+  "GITHUB_TOKEN",
+]
 const codesearchInputs = [
   ...shared,
   "tsconfig.json",
@@ -35,22 +54,27 @@ const codesearchInputs = [
   "apps/codesearch/vitest.config.ts",
   "apps/codesearch/src/test/setup-evlog.ts",
   "apps/codesearch/scripts/run-vitest-contracts.mjs",
+  // The test image pins zoekt and the SCIP indexers.
+  "apps/codesearch/Dockerfile",
 ]
 export const lanes = {
   backend: {
     directory: "apps/backend",
     runtime: "node",
-    inputs: backendInputs,
+    inputs: [...backendInputs, ...nativeInputs],
+    env: backendEnv,
   },
   contracts: {
     directory: "apps/backend",
     runtime: "node",
-    inputs: backendInputs,
+    inputs: [...backendInputs, ...nativeInputs],
+    env: backendEnv,
   },
   vercel: {
     directory: "apps/backend",
     runtime: "node",
     inputs: backendInputs,
+    env: [...backendEnv, "VERCEL_TOKEN"],
   },
   ui: {
     directory: "apps/ui",
@@ -134,6 +158,7 @@ export async function listChecks() {
         file,
         inputs: lanes[lane].inputs,
         runtime: lanes[lane].runtime,
+        ...(lanes[lane].env && { env: lanes[lane].env }),
       }
     }),
   )

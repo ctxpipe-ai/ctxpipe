@@ -93,6 +93,11 @@ test("the manifest matches its schema and has one check for each inventory file"
   }
   assert.ok(manifest.checks.some((check) => check.lane === "codesearch"))
   assert.ok(manifest.checks.some((check) => check.lane === "codesearch-bun"))
+  // A cache key hashes the values of the declared variables.
+  const env = (lane) => manifest.checks.find((check) => check.lane === lane).env
+  assert.ok(env("backend").includes("MODEL_PROVIDER"))
+  assert.ok(env("vercel").includes("VERCEL_TOKEN"))
+  assert.equal(env("ui"), undefined)
 })
 
 test("the runner runs exactly the given ids and writes one schema result for each", () => {

@@ -53,6 +53,14 @@
         "runtime": {
           "description": "The runtime that runs the lane. A result cache adds its version to the key.",
           "enum": ["node", "bun"]
+        },
+        "env": {
+          "description": "The names of the environment variables whose values change the result of the lane. A result cache adds a hash of each value (or of its absence) to the key. Optional; without it, no variable.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z_][A-Z0-9_]*$"
+          }
         }
       }
     }
