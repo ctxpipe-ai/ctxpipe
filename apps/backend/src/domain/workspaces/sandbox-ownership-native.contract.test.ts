@@ -137,7 +137,7 @@ it.each(["workspace", "conversation"] as const)(
         workspaceId: firstWorkspaceId,
         conversationId: firstConversationId,
         provider: "docker",
-        image: "node:22",
+        image: "node:24",
       })
       const second = postgresSandboxInstanceStore({
         orgId,
@@ -145,7 +145,7 @@ it.each(["workspace", "conversation"] as const)(
           scope === "workspace" ? secondWorkspaceId : firstWorkspaceId,
         conversationId: secondConversationId,
         provider: "docker",
-        image: "node:22",
+        image: "node:24",
       })
       const owned: SandboxInstanceRecord = {
         key,

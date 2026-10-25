@@ -8,12 +8,6 @@ export type InstallationEvent = {
   id: string
   context: string // ari:cloud:confluence::site/cloudId
   installerAccountId: string
-  app: {
-    id: string
-    version: string
-    name?: string
-    ownerAccountId?: string
-  }
   eventType: "avi:forge:installed:app" | "avi:forge:upgraded:app"
   environment: {
     id: string

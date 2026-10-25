@@ -1,5 +1,5 @@
 # Build from monorepo root: docker build -f apps/docs/Dockerfile .
-FROM node:22-alpine AS deps
+FROM node:24.22.1-alpine AS deps
 WORKDIR /app
 ENV CI=true
 RUN npm install -g pnpm@10.12.1
@@ -8,7 +8,7 @@ COPY patches patches
 COPY apps/docs/package.json apps/docs/package.json
 RUN pnpm install --frozen-lockfile --filter @ctxpipe/docs...
 
-FROM node:22-alpine AS builder
+FROM node:24.22.1-alpine AS builder
 WORKDIR /app
 ENV CI=true
 COPY --from=deps /app/node_modules ./node_modules
@@ -17,7 +17,7 @@ COPY apps/docs ./apps/docs
 RUN cd apps/docs && npm run build
 
 # Production stage
-FROM oven/bun:1.4.2-alpine
+FROM oven/bun:1.4.4-alpine
 WORKDIR /app
 ENV CI=true
 ENV NODE_ENV=production

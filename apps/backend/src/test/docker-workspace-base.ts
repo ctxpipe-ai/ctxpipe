@@ -39,7 +39,7 @@ const docker = new Docker({ timeout: 60_000 })
 
 export const CHAT_IMAGE =
   process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() ||
-  "ctxpipe-chat-sandbox:opencode-1.18.34-r3"
+  "ctxpipe-chat-sandbox:opencode-1.18.34-r4"
 /** The proxy session's prefix; a session must never land in a base. */
 export const PROXY_SESSION_PREFIX = "av_sess_"
 

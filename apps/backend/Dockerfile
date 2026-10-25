@@ -1,8 +1,8 @@
 # Build from monorepo root: docker build -f apps/backend/Dockerfile .
-FROM node:22-alpine AS opencode
+FROM node:24.22.1-alpine AS opencode
 RUN npm install -g opencode-ai@1.18.34
 
-FROM oven/bun:1.4.2-alpine AS deps
+FROM oven/bun:1.4.4-alpine AS deps
 WORKDIR /app
 ENV CI=true
 # pnpm is a Node CLI. Running it through Bun can stall during lifecycle scripts.
@@ -14,7 +14,7 @@ COPY apps/backend/package.json apps/backend/package.json
 RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 
 # Production stage — Bun runs TypeScript natively, no tsc compilation needed
-FROM oven/bun:1.4.2-alpine
+FROM oven/bun:1.4.4-alpine
 WORKDIR /app
 ENV CI=true
 ENV NODE_ENV=production

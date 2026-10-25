@@ -1,31 +1,19 @@
 ---
 title: Confluence connector
-description: How to connect Atlassian Confluence to ctxpipe through the fully managed app connector.
+description: Mirror selected Confluence spaces and pages into a Workspace, through Atlassian OAuth and the ctxpipe Forge app.
 ---
 
-<Callout title="Fully managed app flow">
-  This page covers the fully managed ctxpipe app, where Atlassian OAuth and the
-  Forge app install link are managed for you. Self-hosted deployments use the
-  same product flow after setup, but must provide their own Atlassian OAuth and
-  Forge configuration. See [Self-host Confluence & Atlassian](/docs/self-hosting/confluence-atlassian).
-</Callout>
+The **Confluence connector** mirrors the Confluence spaces and pages that you
+select into a [Workspace](/docs/workspaces) repository. ctxpipe does not read
+the whole site. You choose what agents can use.
 
-The **Confluence connector** turns Confluence pages into repo-backed context for
-ctxpipe. Instead of reading every page in a site, you choose the spaces and pages
-that should be available to agents.
+ctxpipe connects to the Confluence site through Atlassian OAuth and the ctxpipe
+Forge app. When pages or spaces change, the Forge app tells ctxpipe, and
+ctxpipe updates the mirror.
 
-ctxpipe connects to the selected Confluence site through Atlassian OAuth and the
-ctxpipe Forge app. The connection holds authorization only. A source file in each
-[Workspace](/docs/workspaces) holds the scope (the spaces and pages). ctxpipe
-syncs the selected pages into the Workspace repository and indexes them like
-any other knowledge file. When pages or spaces change in Confluence, the Forge
-app notifies ctxpipe so the mirror is updated and indexed again.
-
-Page attachments and explicit embedded external media are copied under
-`confluence/<spaceKey>/_assets/<pageId>/` and linked relatively from generated
-Markdown. Each asset is capped at 25 MiB and each page has a 100 MiB asset
-budget. Unsafe, unavailable, or oversized media leaves a page link or textual
-stub; Atlassian media and download URLs are never persisted.
+On a self-hosted deployment, the operator provides the Atlassian OAuth app and
+the Forge setup first. See
+[Self-host Confluence & Atlassian](/docs/self-hosting/confluence-atlassian).
 
 <ConfluenceDataFlowDiagram />
 
@@ -33,44 +21,85 @@ stub; Atlassian media and download URLs are never persisted.
 
 <ConfluenceDataModelDiagram />
 
-The fully managed setup flow guides you through each connection point in order.
+## Before you start
 
-## Prerequisites
+You need:
 
-Before starting, make sure you have:
-
-- Access to a ctxpipe organization in the fully managed app.
-- Permission to connect Atlassian OAuth for the Confluence site.
-- Permission to install or request installation of the ctxpipe Forge app in
-  Atlassian.
-- A Workspace whose repository the ctxpipe GitHub App can write to. The
-  repository must use format 2 or higher. If it does not, the Workspace shows
-  **Upgrade this Workspace first**. See
-  [Status](/docs/workspaces/settings#status).
-- Permission to merge the pull request that adds the source.
+- permission to authorize Atlassian OAuth for the Confluence site;
+- permission to install the ctxpipe Forge app on the site, or an Atlassian
+  admin who can install it.
 
 <Callout title="Not sure whether you have the right access?">
-  **Confluence:** open `admin.atlassian.com`, choose the Confluence site, then
-  check whether you can reach **Connected apps** and install or manage apps for
-  that site. Atlassian documents this as organization admin or site admin access.
-  If you cannot see those controls, ask an Atlassian admin in your org to
-  complete the Forge app install.
-
-  **GitHub:** open the GitHub organization and try the GitHub App install flow
-  for the repositories you want ctxpipe to read. You are ready if GitHub lets you
-  install the app and choose repositories. If GitHub shows **Request** or
-  **Install and request**, ask an organization owner to approve the installation.
-
-  References: [Atlassian Connected apps](https://support.atlassian.com/organization-administration/docs/managing-an-installed-app/) and
-  [GitHub App install requirements](https://docs.github.com/apps/using-github-apps/installing-a-github-app-from-a-third-party#requirements-to-install-a-github-app).
+  Open `admin.atlassian.com`, choose the Confluence site, and check whether you
+  can open **Connected apps** and install apps. Atlassian requires organization
+  admin or site admin access for this. If you cannot, ask an Atlassian admin to
+  install the Forge app. See
+  [Atlassian Connected apps](https://support.atlassian.com/organization-administration/docs/managing-an-installed-app/).
 </Callout>
 
-## Where the scope lives
+## Connect Confluence
 
-The scope is in a source file in each Workspace, at
-`sources/confluence/<name>.md`. The front matter holds the spaces. For each
-space, `pages` is `all` or a list of page ids. The body is an optional
-description of what the source is for.
+<Steps>
+  <Step>
+    ### Start from Connectors
+
+    Open **Connectors**, choose **Add connection**, then **Atlassian
+    Confluence**. The setup wizard tracks each task until the connector is
+    ready.
+
+    <ImageSlot
+      title="Start Confluence setup"
+      src="/add-connection-confluence.png"
+      alt="Add Confluence connection from the ctxpipe Connectors page"
+    />
+  </Step>
+
+  <Step>
+    ### Link your Atlassian account
+
+    Link your Atlassian account with OAuth. This tells ctxpipe which Atlassian
+    cloud site you connect. If the account is already linked to another ctxpipe
+    organization, the wizard asks you to confirm or cancel.
+
+    <ImageSlot
+      title="Link Atlassian account"
+      src="/link-atlassian-account.png"
+      alt="Link Atlassian account step in the ctxpipe Confluence setup wizard"
+    />
+  </Step>
+
+  <Step>
+    ### Install the Forge app
+
+    Install the ctxpipe Forge app on the same Atlassian site. The Forge app lets
+    ctxpipe read the content that you select, and tells ctxpipe about changes.
+
+    <ImageSlot
+      title="Install the Forge app"
+      src="/install-forge-app.png"
+      alt="Install the ctxpipe Forge app in Atlassian Confluence"
+    />
+  </Step>
+
+  <Step>
+    ### Add to Workspaces
+
+    Select the Workspaces, then select the spaces and pages in the tree. For
+    each space, select all pages or only some. Keep the scope intentional:
+
+    - start with the spaces that your engineering team uses;
+    - leave out old or sensitive areas that agents must not rely on;
+    - prefer the authoritative docs to duplicates and abandoned pages.
+
+    Choose **Add to Workspaces**, then merge the pull request that adds
+    `sources/confluence/<name>.md`. See
+    [Add a tool to a Workspace](/docs/connections#add-a-tool-to-a-workspace).
+  </Step>
+</Steps>
+
+## Source file
+
+For each space, `pages` is `all` or a list of page ids:
 
 ```markdown
 ---
@@ -84,146 +113,13 @@ spaces:
 ---
 ```
 
-The scope goes live after the merge. See
-[Workspace settings](/docs/workspaces/settings#sources) for draft scope and live scope.
+## Files in the repository
 
-Each Workspace has its own
-scope. Mirrored pages are in `confluence/<spaceKey>/` in the Workspace
-repository. The source owns these folders, so do not edit the files by hand.
+Mirrored pages are under `confluence/<spaceKey>/`, in the page tree of the
+space. A page is `<slug>--<pageId>.md`, or `<slug>--<pageId>/index.md` when it
+has child pages. Attachments and embedded media are under
+`confluence/<spaceKey>/_assets/<pageId>/`. Each asset can be up to 25 MiB, and
+each page up to 100 MiB in total. A file that is too large or not safe stays a
+link to Confluence. ctxpipe never writes Atlassian download URLs to git.
 
-## Setup flow
-
-<Steps>
-  <Step>
-    ### Start from Connectors
-
-    Open the ctxpipe fully managed app, choose the relevant organization, go to
-    **Connectors**, select **Add connection**, then choose **Atlassian
-    Confluence**.
-
-    ctxpipe opens the Confluence setup wizard and tracks each task until the
-    connector is ready.
-
-    <ImageSlot
-      title="Start Confluence setup"
-      src="/add-connection-confluence.png"
-      alt="Add Confluence connection from the ctxpipe Connectors page"
-    />
-
-  </Step>
-
-  <Step>
-    ### Link Atlassian account
-
-    Link your Atlassian account with OAuth. This lets ctxpipe identify which
-    Atlassian cloud site you are connecting and start the connector setup
-    against that account.
-
-    If the Atlassian account is already linked to another ctxpipe organization, the
-    app may ask you to confirm or cancel the pending account claim.
-
-    <ImageSlot
-      title="Link Atlassian account"
-      src="/link-atlassian-account.png"
-      alt="Link Atlassian account step in the ctxpipe Confluence setup wizard"
-    />
-
-    <ImageSlot
-      title="Authorize Atlassian OAuth"
-      src="/atlassian-oauth.png"
-      alt="Atlassian OAuth authorization screen for ctxpipe"
-    />
-  </Step>
-
-  <Step>
-    ### Install the Forge app
-
-    After OAuth, install the ctxpipe Forge app in the Atlassian site. The Forge app
-    is the Atlassian-side integration that lets ctxpipe read the Confluence content
-    you explicitly select.
-
-    You may need an Atlassian admin to complete this step. If you do not have
-    admin permissions, ask an admin to install the app for the same Atlassian
-    site before continuing.
-
-    <ImageSlot
-      title="Install the Forge app"
-      src="/install-forge-app.png"
-      alt="Install the ctxpipe Forge app in Atlassian Confluence"
-    />
-  </Step>
-
-  <Step>
-    ### Add to Workspaces
-
-    The last step of the wizard is **Add to Workspaces**. Select the Workspaces
-    that sync from Confluence. Then select the spaces and pages in the tree.
-    Search with **Search spaces and pages...**. For each space, select all pages
-    or only some pages. When you select more than one Workspace, choose **Same
-    scope for each Workspace** or **A different scope for each Workspace**.
-    Keep the scope intentional:
-
-    - Start with the spaces your engineering team actively uses.
-    - Exclude stale or sensitive areas that agents should not rely on.
-    - Prefer authoritative docs over duplicates or abandoned pages.
-
-    Choose **Add to Workspaces**. You can add the connection to a Workspace
-    later. Expand the connector on **Connectors**. When no Workspace uses the
-    connection, choose **Add to a Workspace**. Otherwise, choose **Manage**.
-  </Step>
-
-  <Step>
-    ### Merge the pull requests
-
-    ctxpipe opens one pull request for each Workspace. Each pull request adds
-    `sources/confluence/<name>.md`. The dialog shows **Merge the pull request**
-    (or **Merge the pull requests**) with a link to each one. Review the
-    selected spaces and pages, then merge.
-
-    After each merge, the dialog shows **Pull request merged**. The source does
-    not sync before the merge. Then ctxpipe makes the first Confluence mirror.
-    The Workspace indexes the new files after that.
-  </Step>
-</Steps>
-
-<Callout title="Fully managed vs self-hosted">
-  The fully managed app supplies the Atlassian OAuth app and Forge install URL.
-  In a self-hosted deployment, you provide the Atlassian credentials, Forge
-  setup, and GitHub app configuration.
-
-  For self-hosted setup, go [here](/docs/self-hosting/confluence-atlassian).
-</Callout>
-
-## Change what syncs
-
-Edit, rename, or remove a source in the **Settings** of the Workspace. See
-[Workspace settings](/docs/workspaces/settings#sources).
-
-## Keeping content current
-
-Choose **Sync now** in the menu of the connector card to start a full sync of
-the Confluence sources of the connection. Only an owner or admin sees it. Use it
-when change events did not arrive.
-
-## Troubleshooting
-
-### Add to a Workspace shows an error
-
-The dialog shows a message about the format, the write access, or your role.
-See [Add source shows an error](/docs/workspaces/settings#add-source-shows-an-error).
-
-### The source shows a status other than OK
-
-Read the status and the reason of the row in **Settings**. See
-[Source status](/docs/workspaces/settings#source-status).
-
-### Removing the connector
-
-Choose **Remove connector** in the menu of the connector card. See
-[Connection menu](/docs/connections#connection-menu) for what stays in Git.
-
-## Related pages
-
-- [Workspaces](/docs/workspaces)
-- [Indexing](/docs/connections/ingestion)
-- [Self-host Confluence & Atlassian](/docs/self-hosting/confluence-atlassian)
+For problems, see [Troubleshooting](/docs/connections#troubleshooting).

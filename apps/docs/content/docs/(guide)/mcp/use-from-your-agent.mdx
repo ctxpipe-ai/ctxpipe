@@ -4,40 +4,44 @@ description: The seven read-only ctxpipe MCP tools, how an agent calls them, and
 ---
 
 The ctxpipe MCP gives a coding agent seven read-only tools. The agent does the
-reasoning and drives the search. ctxpipe returns facts with stable refs. It runs no
-model for each call.
-
-To connect a client, see [Remote MCP](/docs/mcp/mcp-docs).
+reasoning and drives the search. ctxpipe returns facts with stable refs, and
+runs no model for a tool call. To connect a client, see
+[Connect your agent](/docs/mcp/mcp-docs).
 
 ## The tools
 
-| Tool | What it does |
-| --- | --- |
-| `list_workspaces` | Lists the organizations and Workspaces that the connection can read. Give one Workspace to get its repositories, sources, and readiness. |
-| `search_knowledge` | Searches the knowledge of one organization. Use natural language or keywords. You can filter by `kinds`, `pathPrefix`, `sources`, `updatedAfter`, and `validAt`. |
-| `search_code` | Searches the linked repositories in one call. The `mode` is `literal`, `regex`, or `structural`. Use `pathGlob` (a gitignore-style glob, such as `*.ts`) and `caseSensitive` to narrow it. |
-| `find_symbol` | Finds a definition, references, callers, or callees. |
-| `read_file` | Reads a knowledge file or a repository file by ref. You can ask for a line range. |
-| `list_files` | Lists the folders and files of a Workspace repository or a linked repository. Use `depth` for more levels and `glob` to list only matching files. |
-| `get_related` | Finds knowledge near one or more seeds in the graph that is also relevant to a query. The result is ranked and explained. Use `excludePredicates` and `excludeKinds` to remove edges and result kinds. |
+| Tool | What it does | Main arguments |
+| --- | --- | --- |
+| `list_workspaces` | Lists the organizations and Workspaces that the connection can read. With one Workspace, it also gives its repositories, sources, and readiness. | `org`, `workspace` |
+| `search_knowledge` | Searches the knowledge with natural language or keywords. | `query`, `workspaces`, `kinds`, `pathPrefix`, `sources`, `updatedAfter`, `validAt` |
+| `search_code` | Searches the linked repositories in one call. | `query`, `mode` (`literal`, `regex`, or `structural`), `repositories`, `language`, `pathGlob`, `caseSensitive` |
+| `find_symbol` | Finds the definition, references, callers, or callees of a symbol. | `symbol`, `relation`, `filePath`, `language` |
+| `read_file` | Reads a knowledge file or a repository file by its ref. | `ref`, `startLine`, `endLine` |
+| `list_files` | Lists the folders and files of a Workspace repository or a linked repository. | `repository`, `path`, `depth`, `glob` |
+| `get_related` | Finds the knowledge near one or more seeds in the graph that is relevant to a question. The results are ranked and explained. | `seeds`, `query`, `intent`, `excludePredicates`, `excludeKinds` |
 
-Every tool has the read-only hint. The tools never change your data.
+Each tool has the read-only hint. The tools never change your data. The
+`structural` mode of `search_code` needs `language`. For `get_related`,
+`intent` is one of `why`, `ownership`, `change`, `dependencies`, `structure`,
+`provenance`, or `general`.
+
+The server also gives each file as a resource, `ctxpipe://{org}/{workspace}/{ref}`.
+A client that supports resources lets you @-mention a file in your prompt.
 
 ## Organizations and Workspaces
 
-- Each call names one organization with the `org` argument. The slug is the one
-  in your ctxpipe URL. Only `list_workspaces` can omit it. Then the tool lists each
-  organization of the connection.
-- Tools that read a Workspace take the `workspace` slug. `search_knowledge` takes
-  a `workspaces` list. It searches every Workspace of the organization when you
-  give none.
-- When the server starts a session, it sends instructions to the agent. The
-  instructions list your organizations and their Workspace slugs. The agent
-  can usually call a tool at once.
-- An organization that is not in the connection, an organization that you are not
-  a member of, and an unknown organization give the same `org_not_found`
-  error. For an OAuth connection, the error points to
-  [Connected apps](/docs/mcp/connected-apps).
+- Each call names one organization in the `org` argument. Use the slug from
+  your ctxpipe URL. Only `list_workspaces` can leave it out, and then it lists
+  each organization of the connection.
+- The tools that read one Workspace take its `workspace` slug.
+  `search_knowledge` takes a `workspaces` list. Without a list, it searches all
+  Workspaces of the organization that are ready, up to 8. If the organization
+  has more than 8, name the Workspaces.
+- When a session starts, the server sends instructions that list your
+  organizations and their Workspaces. In most cases, the
+  agent can call a tool at once.
+- An organization outside the connection gives `org_not_found`. See
+  [Connected apps](/docs/mcp/connected-apps#when-a-tool-says-org_not_found).
 
 ## Refs
 
@@ -45,41 +49,30 @@ A ref is a short, stable name for a result. Use a ref from one tool in another.
 
 - A knowledge file ref is its path in the Workspace repository, for example
   `knowledge/services/payments-api.md`.
-- A repository file ref is `<handle>:<path>`, for example
-  `example/payments-api:src/limits.ts`. The handle is `owner/name`.
+- A repository file ref is `<owner>/<name>:<path>`, for example
+  `example/payments-api:src/limits.ts`.
 
-Each result also shows the branch and commit that ctxpipe served. ctxpipe serves the
-default branch of each repository.
+Each result shows the branch and the commit that ctxpipe served. ctxpipe serves
+the default branch of each repository, or the pinned branch or tag.
 
-## The repository you work in
+## Exclude the repository that you work in
 
-ctxpipe serves the default branch. Your agent works on a local branch with newer
-files. The agent must read the working repository from disk, not from ctxpipe. `search_code` and `find_symbol` need an `excludeRepositories` list. Put
-your working repository in it. Send `[]` to exclude nothing. `read_file` refuses
-an excluded repository.
+Your agent works on a local branch with newer files than ctxpipe has. The agent
+must read that repository from disk, not from ctxpipe. `search_code` and
+`find_symbol` therefore need `excludeRepositories`: put the URL or the handle
+of your current repository in it, or send `[]` to exclude nothing. `read_file`
+and `list_files` take the same list, as an option. A ref into an excluded
+repository gives `excluded_repository`.
 
 ## Good habits for an agent
 
-- Search the knowledge before a design choice. Ask for standards, decisions, and
-  owners.
-- Send independent calls in parallel.
+- Search the knowledge before a design choice. Ask for standards, decisions,
+  and owners.
+- Send calls that do not depend on each other in parallel.
 - Use `search_code`, then `read_file` on the refs that it returns.
-- Use `get_related` with a ref that you already found, and a `query`, to see why
-  a decision was made or who owns a service.
-- Cite the refs in your answer, and say what still needs a check in code.
-
-## Limits and errors
-
-- Each response has a size budget. When a result does not fit, the tool returns
-  a page and a `cursor`. Send the cursor to get the next page. A cursor stops
-  working after the Workspace changes, and the tool returns `stale_cursor`.
-  Search again then.
-- An error has `isError: true` and `{ code, message, retryable }`.
-- Without the scope for a tool, the call gets `403 insufficient_scope`. The
-  scopes are `ctxpipe:read` and `ctxpipe:write`. Today every tool needs
-  `ctxpipe:read`. Existing grants and API keys count as read.
-
-## Example
+- Use `get_related` with a ref that you found, and a `query` or an `intent`, to
+  see why a decision was made or who owns a service.
+- Cite the refs in your answer, and say what still needs a check in the code.
 
 ```text
 Use ctxpipe before you plan this change. Call list_workspaces, then
@@ -87,8 +80,19 @@ search_knowledge for the standards on authentication, and search_code for
 the session handling code. Exclude the repository that we work in.
 ```
 
+## Limits and errors
+
+- Each response has a size limit. When a result does not fit, the tool returns
+  one page and a `cursor`. Send the cursor to get the next page. A cursor stops
+  working when the Workspace changes, and the tool returns `stale_cursor`. Then
+  search again.
+- An error has `isError: true` and `{ code, message, retryable }`.
+- Each tool needs the `ctxpipe:read` scope. API keys and the normal OAuth grant
+  have it. A call without it gets `403 insufficient_scope`. The MCP tools never
+  need `ctxpipe:write`.
+
 ## Related
 
-- [Remote MCP](/docs/mcp/mcp-docs) - install and authorize a client
-- [Connected apps](/docs/mcp/connected-apps) - change organizations or revoke a client
-- [Workspaces](/docs/workspaces) - where the knowledge lives
+- [Connect your agent](/docs/mcp/mcp-docs): install and authorize a client
+- [Connected apps](/docs/mcp/connected-apps): change organizations or revoke a client
+- [Workspaces](/docs/workspaces): where the knowledge is

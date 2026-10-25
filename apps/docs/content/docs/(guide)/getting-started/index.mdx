@@ -1,40 +1,62 @@
 ---
 title: Getting started with ctxpipe
-description: Keep your team's knowledge in git and give people and AI agents one place to ask about it.
+description: ctxpipe keeps your engineering knowledge current in git and serves it to every coding agent over MCP.
 ---
 
-ctxpipe keeps your team's knowledge in a git repository and keeps it current. You
-create a **Workspace** for a body of knowledge: its workspace repository holds
-Markdown knowledge and content mirrored from your tools, and its linked
-repositories hold the code it searches. People ask questions in Workspace
-chat; AI coding agents ask through MCP.
+Your coding agents can reach every repository, ticket, doc, and Slack thread.
+They cannot tell which parts are true. ctxpipe gives them one current source of
+context that you can read, review, and correct.
+
+1. **Connect.** [Link your code repositories](/docs/workspaces/linked-repositories),
+   and [select what to bring in](/docs/connections) from Linear, Notion,
+   Confluence, PagerDuty, and Slack. ctxpipe writes it as Markdown into one git
+   repository for each [Workspace](/docs/workspaces).
+2. **Keep current.** Background jobs mirror changes from your tools, and read a
+   linked repository again after each push. Each job makes one small commit
+   that you can review or revert. Then ctxpipe
+   [indexes the new commit](/docs/workspaces/indexing) for search and the graph.
+3. **Serve.** Claude Code, Cursor, Codex, OpenCode, and VS Code read the same
+   Workspace [through one MCP endpoint](/docs/mcp/mcp-docs). ctxpipe returns
+   sources, not answers. Your agent reasons with its own model.
+
+<ImageSlot
+  title="ctxpipe Workspaces"
+  src="/ctxpipe-workspaces-launch.gif"
+  alt="ctxpipe Workspaces: chat, files, and graph"
+/>
+
+## Who ctxpipe is for
+
+ctxpipe is for engineering teams that ship with AI coding agents across many
+repositories, and for the platform engineers who set up those agents. It helps
+when:
+
+- agents repeat mistakes that a decision record or a runbook already explains;
+- the context for one change is in several repositories and tools;
+- you must see what an agent read, and correct it in one place.
+
+## Key terms
+
+| Term | Meaning |
+| --- | --- |
+| **Organization** | Your team in ctxpipe. It holds members, connections, and Workspaces. |
+| **Workspace** | One body of knowledge, for example one product or one team. |
+| **Workspace repository** | The git repository of Markdown that holds the knowledge of a Workspace. You own it. |
+| **Linked repository** | A code repository that a Workspace indexes for search. |
+| **Connection** | The authorization for one tool, such as Linear or Notion. |
+| **Source** | A file in the Workspace repository that says what to read through a connection. |
 
 ## Choose your setup
 
 <Cards>
-  <Card title="Hosted ctxpipe" href="/docs/getting-started/quickstart" description="Create an account, connect GitHub, and create your first Workspace." />
-  <Card title="Self-host ctxpipe" href="/docs/self-hosting" description="Deploy and operate ctxpipe on your own infrastructure." />
+  <Card title="Hosted ctxpipe" href="/docs/getting-started/quickstart" description="Sign up, connect GitHub, create a Workspace, and connect your agent." />
+  <Card title="Self-host ctxpipe" href="/docs/self-hosting" description="Run the open-source core on your own infrastructure." />
 </Cards>
 
-## What ctxpipe gives you
-
-- **Knowledge in git**: Markdown files you can review, edit, and keep, even
-  without ctxpipe.
-- **Sources** that mirror selected Linear, Notion, Confluence, PagerDuty,
-  and GitHub pull request content, and capture Slack threads on request, as
-  files in the Workspace.
-- **Code search and extraction** across the repositories you link.
-- **A knowledge graph** built from links and claims in the files.
-- **Workspace chat**: an agent that answers questions and proposes changes as
-  pull requests.
-- **One MCP endpoint** for Cursor, Claude Code, Codex, OpenCode, and other
-  agent clients.
-
-## Learn how it works
+## Learn more
 
 <Cards>
-  <Card title="How ctxpipe works" href="/docs/getting-started/how-it-works" description="Follow knowledge from a source to an answer." />
+  <Card title="Common workflows" href="/docs/getting-started/common-workflows" description="Where a shared Workspace helps engineers and agents." />
   <Card title="Workspaces" href="/docs/workspaces" description="The unit of knowledge in ctxpipe." />
-  <Card title="Connect sources" href="/docs/connections" description="Bring in docs, issues, incidents, and conversations." />
-  <Card title="Install MCP" href="/docs/mcp/mcp-docs" description="Connect your coding agents." />
+  <Card title="Connect your agent" href="/docs/mcp/mcp-docs" description="Install the ctxpipe MCP in your coding agent." />
 </Cards>

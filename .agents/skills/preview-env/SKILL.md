@@ -10,7 +10,7 @@ description: >-
 
 # preview-env
 
-Browser + HTTP run of the **critical flows** against a **disposable** target: local host dev or a Railway PR preview. The product UI is driven through the backend origin; hosted MCP is `{BASE_URL}/mcp?orgSlug={org}`. This is not Storybook `workspace-golden` and not Playwright CI. The agent drives the browser from this catalogue on every run; there are no recorded scripts to replay.
+Browser + HTTP run of the **critical flows** against a **disposable** target: local host dev or a Railway PR preview. The product UI is driven through the backend origin; hosted MCP is `{BASE_URL}/mcp`. This is not Storybook `workspace-golden` and not Playwright CI. The agent drives the browser from this catalogue on every run; there are no recorded scripts to replay.
 
 Every run **starts from registration**: it creates its own accounts, organization, and Workspaces. There are no pre-seeded users. Never point a run at production.
 

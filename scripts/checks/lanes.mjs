@@ -7,7 +7,15 @@ export const root = fileURLToPath(new URL("../../", import.meta.url))
 // Each lane is one Vitest run: one package directory, one config, one runtime.
 // The CI scripts own which test files belong to a lane; this module only reads
 // their inventories. Paths are repo-relative.
-const shared = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]
+// The runner and the launch script set up and start every Vitest run, so a
+// change to them can change any result.
+const shared = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "scripts/checks/run.mjs",
+  "scripts/ci/vitest-launch.mjs",
+]
 const backendInputs = [
   ...shared,
   "tsconfig.json",
@@ -19,6 +27,28 @@ const backendInputs = [
   "apps/backend/migrations/**",
   "scripts/ci/contracts.json",
 ]
+// The files that pin the tools and images of the native backend tests:
+// the prerequisite check (it compares the OpenCode version with the declared
+// one) and the chat sandbox image.
+const nativeInputs = [
+  "scripts/ci/prerequisites.mjs",
+  "scripts/ci/graph-ready.mjs",
+  "apps/backend/src/domain/workspaces/workspace-chat-opencode-contract.ts",
+  "scripts/chat-sandbox/**",
+]
+// Environment variables that change backend results. A result cache adds a
+// hash of the value of each `value` variable to its key, and only set or unset
+// for each `presence` variable. A `value` is the same on every machine. A
+// secret, or an address that only points at a service, is `presence`: tests
+// set their own address, and an address differs for each checkout. Connection
+// strings and secrets that only point at a test service are not here.
+const backendEnv = [
+  { name: "NODE_ENV", mode: "value" },
+  { name: "MODEL_PROVIDER", mode: "value" },
+  { name: "AUTH_BASE_URL", mode: "presence" },
+  { name: "MODEL_PROVIDER_URL", mode: "presence" },
+  { name: "GITHUB_TOKEN", mode: "presence" },
+]
 const codesearchInputs = [
   ...shared,
   "tsconfig.json",
@@ -27,6 +57,8 @@ const codesearchInputs = [
   "apps/codesearch/vitest.config.ts",
   "apps/codesearch/src/test/setup-evlog.ts",
   "apps/codesearch/scripts/run-vitest-contracts.mjs",
+  // The test image pins zoekt and the SCIP indexers.
+  "apps/codesearch/Dockerfile",
 ]
 // `traceInputs` names the inputs for which a reader with a trace may select
 // from the trace instead of the whole lane (manifest.v1.schema.json).
@@ -37,20 +69,23 @@ export const lanes = {
   backend: {
     directory: "apps/backend",
     runtime: "node",
-    inputs: backendInputs,
+    inputs: [...backendInputs, ...nativeInputs],
     traceInputs: backendTraceInputs,
+    env: backendEnv,
   },
   contracts: {
     directory: "apps/backend",
     runtime: "node",
-    inputs: backendInputs,
+    inputs: [...backendInputs, ...nativeInputs],
     traceInputs: backendTraceInputs,
+    env: backendEnv,
   },
   vercel: {
     directory: "apps/backend",
     runtime: "node",
     inputs: backendInputs,
     traceInputs: backendTraceInputs,
+    env: [...backendEnv, { name: "VERCEL_TOKEN", mode: "presence" }],
   },
   ui: {
     directory: "apps/ui",
@@ -138,6 +173,8 @@ export async function listChecks() {
         root: lanes[lane].directory,
         file,
         inputs: lanes[lane].inputs,
+        runtime: lanes[lane].runtime,
+        ...(lanes[lane].env && { env: lanes[lane].env }),
         ...(lanes[lane].traceInputs
           ? { traceInputs: lanes[lane].traceInputs }
           : {}),

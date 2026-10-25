@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process"
-import { existsSync, writeFileSync } from "node:fs"
+import { existsSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { cwd } from "node:process"
 import { fileURLToPath } from "node:url"
@@ -16,7 +16,16 @@ const site = process.env.CONFLUENCE_SITE
 const email = process.env.FORGE_EMAIL?.trim()
 const name = process.env.FORGE_APP_NAME ?? "ctxpipe-forge"
 const existing = process.env.EXISTING_APP_ID?.trim()
-const developerSpaceIdFromArgv = process.argv[2]?.trim()
+// The connection has an install only when the install event saved its id.
+const installed = process.env.EXISTING_INSTALLATION_ID?.trim()
+// "deploy" registers (when new) and deploys. "install" installs on the site.
+// The worker saves the registered app id between the two phases.
+const phase = process.argv[2]
+const developerSpaceIdFromArgv = process.argv[3]?.trim()
+if (phase !== "deploy" && phase !== "install") {
+  process.stderr.write('Pass the phase "deploy" or "install"\n')
+  process.exit(1)
+}
 if (!token || !site || !email) {
   process.stderr.write(
     "Missing FORGE_API_TOKEN, CONFLUENCE_SITE, or FORGE_EMAIL (Atlassian account email for the token)\n",
@@ -55,6 +64,26 @@ try {
   // Containers / OpenWorkflow workers are non‑TTY; Forge otherwise prompts for usage analytics consent
   // and throws "Prompts can not be meaningfully rendered in non-TTY environments".
   forge(["settings", "set", "usage-analytics", "false"])
+  if (phase === "install") {
+    const installArgs = [
+      "install",
+      "-e",
+      "production",
+      "-s",
+      site,
+      "-p",
+      "Confluence",
+      "--non-interactive",
+      "--verbose",
+    ]
+    // Provisioning is an explicit operator action; existing installs must accept
+    // manifest scope additions or attachment capture remains silently unusable.
+    // An app ID alone does not show an install: a failed install keeps the ID.
+    if (installed) installArgs.push("--upgrade", "--confirm-scopes")
+    forge(installArgs)
+    process.stdout.write(`OK ${cwd()}\n`)
+    process.exit(0)
+  }
   if (!existing) {
     const registerArgs = ["register", name]
     if (developerSpaceIdFromArgv) {
@@ -72,22 +101,6 @@ try {
     "MAJOR_VERSION_RULE",
     "--verbose",
   ])
-  const installArgs = [
-    "install",
-    "-e",
-    "production",
-    "-s",
-    site,
-    "-p",
-    "Confluence",
-    "--non-interactive",
-    "--verbose",
-  ]
-  // Provisioning is an explicit operator action; existing installs must accept
-  // manifest scope additions or attachment capture remains silently unusable.
-  if (existing) installArgs.push("--upgrade", "--confirm-scopes")
-  forge(installArgs)
-  if (existing) writeFileSync(".forge-appid", existing, "utf8")
   process.stdout.write(`OK ${cwd()}\n`)
 } catch (e) {
   process.stderr.write(e instanceof Error ? e.message : String(e))

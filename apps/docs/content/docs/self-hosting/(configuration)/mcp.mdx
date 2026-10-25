@@ -17,7 +17,7 @@ it.
 
 `AUTH_BASE_URL` must be the public origin clients use, including TLS. Client
 JSON shapes and OAuth install paths are unchanged from hosted ctxpipe; see
-[Remote MCP](/docs/mcp/mcp-docs) and
+[Connect your agent](/docs/mcp/mcp-docs) and
 [Authentication](/docs/self-hosting/authentication).
 
 This page is for operators: confirm the endpoint is reachable, then debug OAuth
@@ -27,8 +27,9 @@ and tools on a **test organization**.
   `npx ctxpipe doctor mcp` checks HTTP routing, TLS or reachability, the
   unauthenticated Bearer challenge, and OAuth discovery. A `ready-for-oauth`
   result does **not** prove that browser OAuth, authenticated `tools/list`, or
-  an MCP tool call work. The command does not accept bearer tokens and does not
-  test STDIO servers.
+  an MCP tool call work. The command does not accept OAuth bearer tokens and
+  does not test STDIO servers. When `CTXPIPE_API_KEY` is set, it sends the key
+  as `x-api-key` and checks an authenticated initialize.
 </Callout>
 
 ## Connect a client
@@ -74,7 +75,8 @@ is allowed with a warning; remote endpoints must use HTTPS.
 | Protected resource | RFC 9728 metadata matches the `/mcp` audience and names an authorization server |
 | Authorization server | RFC 8414 metadata exposes authorization, token, and registration endpoints |
 
-Overall status is `ready-for-oauth`, `warning`, or `failed`.
+Overall status is `ready-for-oauth`, `ready-for-api-key` (with
+`CTXPIPE_API_KEY` set), `warning`, or `failed`.
 
 If TLS fails from a Node CLI against a local CA (Portless or a private CA), set
 `NODE_EXTRA_CA_CERTS` to the CA file. Do not disable TLS verification.
@@ -124,7 +126,8 @@ Keep OAuth credentials and debug traces out of Git. Write them under `.mcpjam/`
 credentials file can include an access token, refresh token, client id, and
 client secret even when stdout is redacted.
 
-The ctxpipe doctor never accepts or prints bearer tokens. Do not put `access_token`
+The ctxpipe doctor never accepts or prints OAuth bearer tokens, and never
+prints an API key. Do not put `access_token`
 on the MCP URL.
 
 MCPJam does not prove token refresh races, dropped-session recovery, or
@@ -155,5 +158,5 @@ concurrent clients. Do not gate CI on interactive OAuth or LLM evals.
   <Card title="Quickstart" href="/docs/self-hosting/quickstart" description="First client config against your origin." />
   <Card title="Authentication" href="/docs/self-hosting/authentication" description="OAuth provider, audiences, and trusted origins." />
   <Card title="Operations" href="/docs/self-hosting/operations" description="Health checks and recovery." />
-  <Card title="Remote MCP" href="/docs/mcp/mcp-docs" description="Client JSON shapes and hosted install paths." />
+  <Card title="Connect your agent" href="/docs/mcp/mcp-docs" description="Client JSON shapes and hosted install paths." />
 </Cards>

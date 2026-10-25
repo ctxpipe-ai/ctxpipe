@@ -298,14 +298,12 @@ function optionalApiKeyHeaders(apiKeyHeaderValue?: string) {
 export function buildMcpOperations({
   clients,
   baseUrl,
-  org,
   scope,
   auth = "oauth",
   context = createOperationContext(),
 }: {
   clients: Client[]
   baseUrl: string
-  org: string
   scope: Scope
   auth?: McpAuthMode
   context?: OperationContext
@@ -315,7 +313,6 @@ export function buildMcpOperations({
       buildClientOperations({
         client,
         baseUrl,
-        org,
         scope: singleScope,
         auth,
         context,
@@ -327,19 +324,17 @@ export function buildMcpOperations({
 export function buildClientOperations({
   client,
   baseUrl,
-  org,
   scope,
   auth = "oauth",
   context = createOperationContext(),
 }: {
   client: Client
   baseUrl: string
-  org: string
   scope: "repo" | "user"
   auth?: McpAuthMode
   context?: OperationContext
 }): Operation[] {
-  const url = mcpUrl({ baseUrl, org })
+  const url = mcpUrl({ baseUrl })
   const headerValue = mcpHeaderValue(client, auth)
   switch (client) {
     case "cursor":

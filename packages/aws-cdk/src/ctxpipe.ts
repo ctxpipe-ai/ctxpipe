@@ -390,7 +390,7 @@ export class CtxPipe extends Construct {
       this,
       "HostedZoneNameNormalizeFunction",
       {
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         handler: "index.handler",
         timeout: cdk.Duration.seconds(15),
         code: lambda.Code.fromInline(`

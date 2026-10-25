@@ -1,174 +1,91 @@
 ---
 title: Slack connector
-description: Capture specific Slack threads into a Workspace by mentioning the ctxpipe bot.
+description: Capture specific Slack threads into a Workspace when someone mentions the ctxpipe bot.
 ---
 
-<Callout title="Fully managed app flow">
-  This page covers the fully managed ctxpipe app, where one Slack app is owned by
-  the deployment. Self-hosted operators must create and configure their own Slack
-  app first. See [Self-host Slack](/docs/self-hosting/slack).
-</Callout>
+The **Slack connector** keeps the Slack threads that matter, such as decisions,
+incidents, and design debates, in a [Workspace](/docs/workspaces). It does not
+mirror channels or read Slack in the background. A person mentions the bot in
+a thread, and ctxpipe saves that thread as Markdown.
 
-The **Slack connector** promotes **durable engineering context** — decisions,
-incidents, and design debates — from Slack into a [Workspace](/docs/workspaces).
-It does **not** mirror whole channels, index the workspace, or sync banter in
-the background. Captures are **auditable** (git history records who captured,
-when, and which Slack thread), not a reviewed pull-request gate. The channel
-list of a Workspace is the reviewed part: a pull request adds it.
+The pull request that adds the channels to a Workspace is the reviewed part.
+Each capture after that is a commit, so git history records who captured which
+thread, and when.
 
-Connect Slack to ctxpipe, add it to a Workspace with the channels to capture, then
-**@mention** the bot in Slack. Mentioning the bot starts a small in-thread agent. Ask it to **capture
-this**, or mention it with no extra text, to snapshot the thread as Markdown
-under `slack/channels/<channelId>/` in each Workspace that has the channel. Later mentions on the same thread **update the same
-file**. Other intents get a short capability reply; v1 does not answer product
-questions in Slack.
+A Slack workspace can connect to one ctxpipe organization. On a self-hosted
+deployment, the operator creates the Slack app first. See
+[Self-host Slack](/docs/self-hosting/slack).
 
-A Slack workspace can be connected to **one** ctxpipe organization.
+## Slack connector or Slack MCP
 
-## Two ways to work with Slack
-
-| Approach | Job |
+| Tool | Use it to |
 | --- | --- |
-| **ctxpipe Slack connector** (this page) | Durable, auditable context: capture chosen threads into git for indexing |
-| **[Slack MCP server](https://docs.slack.dev/ai/slack-mcp-server)** | Query-time access: search and read the live workspace from your developer agent |
+| **ctxpipe Slack connector** (this page) | Keep chosen threads in git, where ctxpipe indexes them. |
+| **[Slack MCP server](https://docs.slack.dev/ai/slack-mcp-server)** | Search and read live Slack from your coding agent. |
 
-If you want general access to your Slack workspace from tools such as Cursor or
-Claude, add Slack’s MCP server to your developer environment. See Slack’s
-[Guide to Model Context Protocol in Slack](https://slack.com/help/articles/48855576908307-Guide-to-Model-Context-Protocol-in-Slack).
-ctxpipe does not replace Slack MCP, and Slack MCP does not create the same
-git-native, ingested context that the connector does.
+The two do different jobs. You can use both.
 
-## Prerequisites
+## Connect Slack
 
-- An active GitHub connection in ctxpipe.
-- A [Workspace](/docs/workspaces) whose repository the ctxpipe GitHub App can write
-  to. The repository must use format 2 or higher. If it does not, the Workspace
-  shows **Upgrade this Workspace first**. See
-  [Status](/docs/workspaces/settings#status).
-- Permission to merge the pull request that adds the source.
-- Permission to install the ctxpipe Slack app in the workspace.
-- Ability to `/invite` the bot into any channel where you will capture threads.
+Follow [Add a tool to a Workspace](/docs/connections#add-a-tool-to-a-workspace).
+For Slack:
 
-## Setup flow
+1. On **Connectors**, choose **Add connection**, then **Slack**. Authorize the
+   Slack workspace.
+2. In **Choose Workspaces**, select the Workspaces, then the channels for each
+   one. When captures can include private channels, use a separate Workspace
+   with a private repository.
+3. Merge the pull request that adds `sources/slack/<name>.md`. Captures start
+   after the merge.
 
-<Steps>
-  <Step>
-    ### Start from Connectors
+## Capture a thread
 
-    Open **Connectors**, choose **Add connection**, then **Slack**.
-  </Step>
+1. Invite the bot to the channel with `/invite`. The connector card shows the
+   **@handle** of the bot.
+2. In the thread, mention the bot:
 
-  <Step>
-    ### Authorize the workspace
+   ```text
+   @your-bot-handle capture this
+   ```
 
-    Complete the Slack OAuth popup (**Authorize Slack workspace**, then
-    **Connect Slack**). ctxpipe stores an encrypted bot token for that workspace
-    connection. One Slack workspace maps to one ctxpipe org. The connection holds
-    authorization only. If GitHub is not connected, the wizard shows **Connect
-    GitHub** next.
-  </Step>
+   A mention with no other text also captures. A mention outside a thread does
+   not capture.
 
-  <Step>
-    ### Choose Workspaces
+ctxpipe replies in the thread with **ctxpipe agent working…**, then changes the
+reply to **Engineering context captured into**, with a link to the file in each
+Workspace that has the channel. ctxpipe does not answer other questions in
+Slack. It replies with what it can do.
 
-    The next step is **Choose Workspaces**. Select the Workspaces that get
-    captured threads. Then select the channels for each Workspace. When you
-    select more than one Workspace, choose **Same scope for each Workspace** or
-    **A different scope for each Workspace**. Prefer a separate Workspace with a
-    private repository when captures can include private-channel content.
-
-    Choose **Add to Workspaces**. ctxpipe opens one pull request for each
-    Workspace. Each pull request adds `sources/slack/<name>.md` with the channel
-    ids. The dialog shows **Merge the pull request** (or **Merge the pull
-    requests**). After each merge, it shows **Pull request merged**.
-
-    A capture starts only after the merge. Until then, a mention in a new
-    channel replies that no Workspace has the channel.
-  </Step>
-
-  <Step>
-    ### Capture threads in Slack
-
-    In each channel where you want capture, `/invite` the bot (use its Slack
-    **@handle** from the connector card), then mention it **inside an existing
-    thread** — a channel-top-level mention is refused:
-
-    ```text
-    @your-bot-handle capture this
-    ```
-
-    A bare mention with no extra text also captures. ctxpipe replies in the thread
-    with **ctxpipe agent working…**, then updates that message (or posts a new
-    reply if the update cannot land) to **Engineering context captured into**
-    and a link to each Workspace that got the thread. The link opens the
-    captured thread file in that Workspace, where you can edit it. If you asked
-    for something else, ctxpipe gives a short capability reply. Later replies are not mirrored unless you mention the bot
-    again on that thread (that recapture overwrites the same snapshot).
-  </Step>
-</Steps>
+Later replies in the thread are not captured by themselves. Mention the bot
+again to capture the thread again. The new capture replaces the file.
 
 ## What is captured
 
-ctxpipe saves a thread to each Workspace whose Slack source, with the status
-**OK**, has the channel of the thread. It writes one commit for each Workspace.
+ctxpipe saves the thread in each Workspace whose **OK** Slack source has the
+channel, with one commit for each Workspace:
 
-- Thread-first Markdown at
-  `slack/channels/<channelId>/threads/<yyyy>/<mm>/<threadTs>/thread.md`
-- Frontmatter identity: `captured_at`, Slack permalink, channel and thread ids,
-  and `captured_by` handle + name (never a Slack user id)
-- Readable names for message authors and inline user mentions
-- Files and explicit embedded media copied into the thread's `assets/` directory
-  with relative Markdown links. Private, signed, and expiring download URLs are
-  never written to git.
-- Assets over 25 MiB, a thread over its 100 MiB asset budget, or unsafe/failed
-  downloads leave a source permalink or textual stub instead
-- The in-thread status reply is excluded from the snapshot
-- Threads longer than 500 messages are truncated (oldest kept); Slack status
-  calls that out. Hosted deployments share one Slack app quota.
+- the file is
+  `slack/channels/<channelId>/threads/<yyyy>/<mm>/<threadTs>/thread.md`;
+- the front matter holds the capture time, the Slack link, the channel and
+  thread ids, and the handle and name of the person who captured it;
+- the authors and the people mentioned show by name;
+- files and embedded media are copied into the `assets/` folder of the thread.
+  Each asset can be up to 25 MiB, and each thread up to 100 MiB in total;
+- a thread longer than 500 messages keeps its oldest 500, and the reply in Slack
+  says so.
 
-## What is out of scope (v1)
-
-- Continuous channel mirroring or history backfill
-- Direct messages and multi-party DMs
-- Automatic refresh when someone replies after a capture
-- Slack Q&A / retrieval in-thread (future tool on the same agent)
-- Deleting git history when you uninstall Slack. Uninstall marks the connection
-  revoked; captured files stay in the repository.
-- Deleting captured threads when you remove a channel from a source. Captured
-  threads stay, because ctxpipe cannot fetch a thread again.
+Not included: channel mirrors, history backfill, direct messages, and automatic
+updates after a capture. When you uninstall Slack, or remove a channel from a
+source, the captured threads stay in the repository.
 
 ## Troubleshooting
 
-### Capture does nothing
+- **A mention does nothing.** Check that the connector shows **Connected**,
+  that an **OK** source has the channel, and that the bot is in the channel.
+  Use Slack autocomplete to mention the bot. If no Workspace has the channel,
+  the bot replies "Nothing captured: no Workspace has this channel."
+- **A private channel does not work.** Invite the bot to the channel first.
+- **The source is OK, but the bot is not in the channel.** The reason on the
+  row tells you to invite the bot.
 
-Confirm the connector status is **Connected**, a source with the status **OK**
-lists the channel, the bot is invited to the channel, and you used Slack
-autocomplete to **@mention** the bot. If no Workspace has the channel, the bot
-replies "Nothing captured: no Workspace has this channel." Add the channel to a
-Slack source in the Workspace **Settings**, merge the pull request, then mention
-the bot again.
-Bare mention or “capture this” snapshots the thread. Self-hosted operators
-should confirm Event Subscriptions include **`app_mention`** and that
-`MODEL_PROVIDER*` is set so the mention agent can interpret extra text — see
-[Self-host Slack](/docs/self-hosting/slack). If the Slack app's bot scopes were
-changed after installation, re-authorize the workspace; existing bot tokens do
-not gain new permissions automatically.
-
-### The source shows a status other than OK
-
-Read the status and the reason of the row in **Settings**. See
-[Source status](/docs/workspaces/settings#source-status). A source stays **OK** when the bot is not in a channel yet. The reason
-tells you to invite the bot.
-
-### Private channel
-
-Private channels work only after the bot is a member. Direct messages are not
-supported in v1.
-
-## Related pages
-
-- [Workspaces](/docs/workspaces)
-- [Workspace settings](/docs/workspaces/settings#sources)
-- [Self-host Slack](/docs/self-hosting/slack)
-- [Indexing](/docs/connections/ingestion)
-- [Slack MCP server (external)](https://docs.slack.dev/ai/slack-mcp-server)
+For other problems, see [Troubleshooting](/docs/connections#troubleshooting).

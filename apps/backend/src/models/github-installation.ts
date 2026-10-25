@@ -779,6 +779,7 @@ type RepositoryInstallationScope = {
     metadata: "read"
     contents?: "read" | "write"
     pull_requests?: "read" | "write"
+    issues?: "read"
   }
 }
 

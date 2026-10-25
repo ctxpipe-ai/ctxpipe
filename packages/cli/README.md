@@ -10,7 +10,7 @@ npx ctxpipe init
 
 This opens an interactive wizard with repo/global setup scope selection, detected agent defaults, multi-select client setup, and a final change summary before anything is written.
 
-If no organization is supplied, the wizard signs you in with a browser/device-code flow, loads your ctxpipe organizations, and lets you choose one. MCP clients still perform their own OAuth later when they first use ctxpipe. Pass `--auth api-key` to write a client-specific interpolation of `CTXPIPE_API_KEY` (not the secret) into repo or user MCP config. Set `CTXPIPE_API_KEY` in the **MCP client** process; `init` and `mcp add` do not consume that variable. `npx ctxpipe doctor mcp` does send `x-api-key` when `CTXPIPE_API_KEY` is set in that process. GUI apps often do not inherit the shell that ran `npx ctxpipe` — see [Set CTXPIPE_API_KEY](https://docs.ctxpipe.ai/docs/mcp/mcp-docs#set-ctxpipe_api_key).
+If no organization is supplied, the wizard signs you in with a browser/device-code flow, loads your ctxpipe organizations, and lets you choose one. MCP clients still perform their own OAuth later when they first use ctxpipe. Pass `--auth api-key` to write a client-specific interpolation of `CTXPIPE_API_KEY` (not the secret) into repo or user MCP config. Set `CTXPIPE_API_KEY` in the **MCP client** process; `init` and `mcp add` do not consume that variable. `npx ctxpipe doctor mcp` does send `x-api-key` when `CTXPIPE_API_KEY` is set in that process. GUI apps often do not inherit the shell that ran `npx ctxpipe` — see [Set CTXPIPE_API_KEY](https://docs.ctxpipe.ai/docs/mcp/api-keys#set-ctxpipe_api_key).
 
 **Setup credentials:** the CLI stores setup-auth tokens in the **OS keychain** when available (`@napi-rs/keyring`). If the keychain cannot be used (headless Linux, unsupported environment), it falls back to a file under `~/.config/ctxpipe/` and prints a one-time notice to stderr.
 
@@ -28,25 +28,25 @@ Use **`npx ctxpipe <command> --help`** for full flags (for example `npx ctxpipe 
 
 ```bash
 npx ctxpipe init --org acme --agents codex,claude --scope repo --non-interactive
-npx ctxpipe mcp add --org acme --client cursor --scope user --non-interactive
-npx ctxpipe mcp add --org acme --client cursor --scope both --auth api-key --non-interactive
+npx ctxpipe mcp add --client cursor --scope user --non-interactive
+npx ctxpipe mcp add --client cursor --scope both --auth api-key --non-interactive
 npx ctxpipe memory init --agents cursor --non-interactive
 npx ctxpipe doctor --json
 ```
 
 ### Diagnose Streamable HTTP MCP
 
-Run the lightweight doctor against the exact organisation-scoped endpoint:
+Run the doctor against the `/mcp` endpoint:
 
 ```bash
 # Local host development
 NODE_EXTRA_CA_CERTS="$HOME/.portless/ca.pem" \
   npx ctxpipe doctor mcp \
-  --url "https://app.ctxpipe.localhost/mcp?orgSlug=acme"
+  --url "https://app.ctxpipe.localhost/mcp"
 
 # Hosted or self-hosted deployment
 npx ctxpipe doctor mcp \
-  --url "https://app.example.com/mcp?orgSlug=acme" \
+  --url "https://app.example.com/mcp" \
   --json
 
 # API-key initialize (reads CTXPIPE_API_KEY from this process)
@@ -68,12 +68,12 @@ investigation:
 
 ```bash
 npx @mcpjam/cli@3.24.0 oauth login \
-  --url "https://app.example.com/mcp?orgSlug=acme" \
+  --url "https://app.example.com/mcp" \
   --registration dcr \
   --credentials-out .mcpjam/credentials.json
 
 npx @mcpjam/cli@3.24.0 tools list \
-  --url "https://app.example.com/mcp?orgSlug=acme" \
+  --url "https://app.example.com/mcp" \
   --credentials-file .mcpjam/credentials.json
 ```
 

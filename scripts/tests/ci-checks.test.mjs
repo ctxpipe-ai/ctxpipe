@@ -96,6 +96,15 @@ test("the manifest matches its schema and has one check for each inventory file"
   }
   assert.ok(manifest.checks.some((check) => check.lane === "codesearch"))
   assert.ok(manifest.checks.some((check) => check.lane === "codesearch-bun"))
+  // A cache key hashes a `value` variable, and holds only set or unset for a
+  // `presence` variable.
+  const env = (lane) => manifest.checks.find((check) => check.lane === lane).env
+  const mode = (lane, name) => env(lane).find((item) => item.name === name)?.mode
+  assert.equal(mode("backend", "MODEL_PROVIDER"), "value")
+  assert.equal(mode("backend", "GITHUB_TOKEN"), "presence")
+  assert.equal(mode("backend", "AUTH_BASE_URL"), "presence")
+  assert.equal(mode("vercel", "VERCEL_TOKEN"), "presence")
+  assert.equal(env("ui"), undefined)
 })
 
 test("the runner runs exactly the given ids and writes one schema result for each", () => {

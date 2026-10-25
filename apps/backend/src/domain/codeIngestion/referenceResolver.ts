@@ -8,16 +8,13 @@ import { isConnectorMirrorPath } from "./connectorMirrorPaths.js"
  * Pure functions only.
  */
 
-type GithubPullRequestRef = {
-  owner: string
-  repo: string
-  repository: string
-  number: number
-}
-
-export function parseGithubPullRequestUrl(
-  rawUrl: string,
-): GithubPullRequestRef | null {
+/**
+ * `ghn:<owner>/<repo>#<number>` for a GitHub issue or pull request URL.
+ * GitHub numbers issues and pull requests from one sequence, so both URL
+ * forms of one number give the same key. Owner and repository are
+ * case-insensitive.
+ */
+export function githubIssueOrPullDedupKey(rawUrl: string): string | null {
   let url: URL
   try {
     url = new URL(rawUrl.trim())
@@ -25,17 +22,16 @@ export function parseGithubPullRequestUrl(
     return null
   }
   if (url.hostname.toLowerCase() !== "github.com") return null
-  const parts = url.pathname.split("/").filter(Boolean)
-  const [owner, repo, kind, number] = parts
-  if (!owner || !repo || kind !== "pull" || !number || !/^\d+$/.test(number)) {
+  const [owner, repo, kind, number] = url.pathname.split("/").filter(Boolean)
+  if (
+    !owner ||
+    !repo ||
+    (kind !== "issues" && kind !== "pull") ||
+    !number ||
+    !/^\d+$/.test(number)
+  )
     return null
-  }
-  return {
-    owner,
-    repo,
-    repository: `${owner}/${repo}`,
-    number: Number(number),
-  }
+  return `ghn:${owner.toLowerCase()}/${repo.toLowerCase()}#${Number(number)}`
 }
 
 /** `prq:${sourceRepositoryId}:${number}`; falls back to the GitHub name when unresolved. */
