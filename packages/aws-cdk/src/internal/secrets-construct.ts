@@ -66,7 +66,7 @@ export class SecretsConstruct extends Construct {
       this,
       "DatabaseUrlWriterFunction",
       {
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         handler: "index.handler",
         timeout: cdk.Duration.seconds(30),
         code: lambda.Code.fromInline(`
@@ -224,7 +224,7 @@ export class SecretsConstruct extends Construct {
       this,
       "SesSmtpPasswordFunction",
       {
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         handler: "index.handler",
         timeout: cdk.Duration.seconds(15),
         code: lambda.Code.fromInline(`

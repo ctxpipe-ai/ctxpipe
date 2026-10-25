@@ -14,7 +14,7 @@ initDb(process.env.DATABASE_URL)
 const controller = new AbortController()
 const definition = defineSandbox({
   id: "native-replica-proof",
-  provider: dockerSandbox({ image: "node:22" }),
+  provider: dockerSandbox({ image: "node:24" }),
   lifecycle: { reuse: "thread", snapshot: "none" },
 })
 const context = {

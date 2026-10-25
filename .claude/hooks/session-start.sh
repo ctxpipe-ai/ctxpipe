@@ -29,7 +29,7 @@ fi
 # No IPv6 in the sandbox kernel: FalkorDB's Bolt listener (binds [::]) aborts the
 # server. The backend talks Redis protocol on 6379 and never uses Bolt.
 if [ ! -e /proc/net/if_inet6 ] && [ ! -f docker-compose.override.yml ]; then
-  printf '%s\n' 'services:' '  falkordb:' '    environment:' '      FALKORDB_ARGS: ""' >docker-compose.override.yml
+  printf '%s\n' 'services:' '  falkordb:' '    environment:' '      FALKORDB_ARGS: "CMD_INFO no"' >docker-compose.override.yml
 fi
 
 docker compose --profile infra up -d --wait postgres falkordb otel-collector

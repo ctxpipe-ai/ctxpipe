@@ -77,7 +77,10 @@ services:
     image: falkordb/falkordb:latest
     restart: unless-stopped
     environment:
-      FALKORDB_ARGS: "BOLT_PORT 7687"
+      # CMD_INFO no: in 4.20.7 the module load can start a cron task before
+      # its lock is ready, and the server then stops answering (see
+      # .github/actions/falkordb).
+      FALKORDB_ARGS: "BOLT_PORT 7687 CMD_INFO no"
     # Never published, like postgres.
 
   # Host dev only: Postgres and FalkorDB on host ports, forwarded so the data

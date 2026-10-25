@@ -194,7 +194,7 @@ export async function destroyDetachedProviderSandbox(input: {
     const docker = await import("@tanstack/ai-sandbox-docker").catch(() => null)
     await assertDockerDaemonReachable()
     await destroyWithProviderFactory({
-      factory: docker?.dockerSandbox?.({ image: "node:22" }),
+      factory: docker?.dockerSandbox?.({ image: "node:24" }),
       provider: "docker",
       providerSandboxId: input.providerSandboxId,
       snapshotId: input.snapshotId,

@@ -86,7 +86,7 @@ it(
       if (!line) throw new Error(`Missing native result: ${client.output()}`)
       return JSON.parse(line) as { id: string; contents?: string }
     }
-    const provider = dockerSandbox({ image: "node:22" })
+    const provider = dockerSandbox({ image: "node:24" })
     try {
       await getSystemDb().insert(organizations).values({
         id: orgId,

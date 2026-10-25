@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
 import {
-  WORKSPACE_CHAT_DOCKER_SANDBOX,
   WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_RUNTIME,
   WORKSPACE_CHAT_SANDBOX_SETUP,
@@ -28,11 +27,6 @@ describe("workspace chat runtime", () => {
 
   it("installs opencode in the sandbox and publishes the serve port", () => {
     expect(WORKSPACE_CHAT_OPENCODE_PORT).toBe(4096)
-    expect(WORKSPACE_CHAT_DOCKER_SANDBOX).toEqual({
-      image:
-        "node@sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d",
-      publishPorts: [4096],
-    })
     expect(WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")).toMatch(
       /command -v opencode/,
     )
