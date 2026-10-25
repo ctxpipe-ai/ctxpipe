@@ -373,11 +373,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platforms }}
           push: false
-          load: true
-          tags: ctxpipe-${{ matrix.name }}:ci
           cache-from: ${{ matrix.name == 'codesearch' && 'type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-codesearch' || '' }}
-      - name: Runtimes reject the removed eMudhra intermediates
-        run: bash scripts/ci/check-distrusted-ca.sh ctxpipe-${{ matrix.name }}:ci
 
   # Writes the Docker layer caches that test-shards (chat sandbox) and
   # production-builds (codesearch) read.

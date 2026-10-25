@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { createRequire } from "node:module"
+
 import { graphReady } from "./graph-ready.mjs"
 
 try {
@@ -28,9 +29,9 @@ try {
     parts.some(Number.isNaN) ||
     parts[0] !== 1 ||
     parts[1] < 4 ||
-    (parts[1] === 4 && parts[2] < 2)
+    (parts[1] === 4 && parts[2] < 4)
   ) {
-    throw new Error(`Bun must satisfy package.json ^1.4.2; found ${bun}`)
+    throw new Error(`Bun must satisfy package.json ^1.4.4; found ${bun}`)
   }
   const expected = readFileSync(
     new URL(
