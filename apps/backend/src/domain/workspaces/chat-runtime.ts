@@ -26,7 +26,7 @@ export const WORKSPACE_CHAT_DOCKER_SANDBOX: {
   publishPorts: number[]
 } = {
   image:
-    "node@sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d",
+    "node@sha256:63538dfe497cc29dfafdda25ada09b46db68a3f4cc205abf1f5d6bf0913f3384",
   publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
 }
 
@@ -34,7 +34,7 @@ export const WORKSPACE_CHAT_DOCKER_SANDBOX: {
 export function workspaceChatDockerImage(): string {
   return (
     process.env.SANDBOX_CHAT_IMAGE?.trim() ||
-    "ctxpipe-chat-sandbox:opencode-1.18.34-r3"
+    "ctxpipe-chat-sandbox:opencode-1.18.34-r4"
   )
 }
 

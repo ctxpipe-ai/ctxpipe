@@ -30,7 +30,7 @@ describe("workspace chat runtime", () => {
     expect(WORKSPACE_CHAT_OPENCODE_PORT).toBe(4096)
     expect(WORKSPACE_CHAT_DOCKER_SANDBOX).toEqual({
       image:
-        "node@sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d",
+        "node@sha256:63538dfe497cc29dfafdda25ada09b46db68a3f4cc205abf1f5d6bf0913f3384",
       publishPorts: [4096],
     })
     expect(WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")).toMatch(

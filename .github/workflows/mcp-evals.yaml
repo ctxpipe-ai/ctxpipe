@@ -104,7 +104,7 @@ jobs:
           cache: pnpm
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - run: pnpm install --frozen-lockfile
       - name: Install the SCIP TypeScript indexer
         run: npm install --global @sourcegraph/scip-typescript@0.4.0

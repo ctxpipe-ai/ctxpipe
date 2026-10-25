@@ -85,7 +85,7 @@ RUN --mount=type=bind,source=apps/codesearch/release-assets.txt,target=/release-
   && chmod +x /out/*
 
 # ── Stage 7: Install application dependencies ────────────────────────────────
-FROM oven/bun:1.4.2-slim AS bun-runtime
+FROM oven/bun:1.4.4-slim AS bun-runtime
 
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
