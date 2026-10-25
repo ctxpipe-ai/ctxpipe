@@ -23,7 +23,7 @@ export class MigrateOnDeployConstruct extends Construct {
     super(scope, id)
 
     const onEventHandler = new lambda.Function(this, "MigrateOnEvent", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       handler: "index.onEvent",
       timeout: cdk.Duration.seconds(PROVIDER_FUNCTION_TIMEOUT_SECONDS),
       code: lambda.Code.fromInline(
@@ -82,7 +82,7 @@ exports.onEvent = async (event) => {
     })
 
     const isCompleteHandler = new lambda.Function(this, "MigrateIsComplete", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       handler: "index.isComplete",
       timeout: cdk.Duration.seconds(PROVIDER_FUNCTION_TIMEOUT_SECONDS),
       code: lambda.Code.fromInline(

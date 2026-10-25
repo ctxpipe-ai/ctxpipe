@@ -47,7 +47,7 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
@@ -98,7 +98,7 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Full projects with shrinking diagnostic allowances
@@ -159,12 +159,12 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - name: Required chat engine binary
         run: npm install --global opencode-ai@1.18.34
       # Test files start these images in parallel. A Docker Hub token request
@@ -173,7 +173,7 @@ jobs:
       - name: Required test container images
         if: matrix.lane == 'contracts'
         run: |
-          for image in infisical/agent-vault:latest alpine:3.22 node:22 curlimages/curl:8.17.0; do
+          for image in infisical/agent-vault:latest alpine:3.22 node:24 curlimages/curl:8.17.0; do
             n=0
             until docker pull --quiet "$image"; do
               n=$((n + 1))
@@ -227,7 +227,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: scripts/chat-sandbox
-          tags: ctxpipe-chat-sandbox:opencode-1.18.34-r3
+          tags: ctxpipe-chat-sandbox:opencode-1.18.34-r4
           load: true
           cache-from: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox
       - name: Required ${{ matrix.lane }} tests
@@ -279,12 +279,12 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - name: UI tests
         run: |
           if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then
@@ -330,7 +330,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
       - uses: actions/download-artifact@v4
         with:
           pattern: test-results-*
@@ -481,11 +481,11 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @ctxpipe/backend build
       - run: pnpm --filter @ctxpipe/codesearch build
@@ -508,7 +508,7 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @ctxpipe/ui build-storybook
@@ -535,7 +535,7 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Install Chromium for Storybook Playwright
@@ -579,7 +579,7 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Install Chromium for Storybook Playwright
@@ -618,7 +618,7 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
       # The download script must fail fast when its source stalls.
       - name: Download script timeout proof
         run: node --test apps/codesearch/scripts/fetch-releases.test.mjs
@@ -672,7 +672,7 @@ jobs:
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Migrate backend schema
@@ -753,7 +753,7 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Apply migrations to an empty database
@@ -806,12 +806,12 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - name: Checkout of the previous release with its dependencies
         env:
           # The release that operators run now, not main. Main holds the new
