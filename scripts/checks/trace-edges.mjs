@@ -196,10 +196,17 @@ async function hookMcp(lane) {
 // Model calls: the names of Langfuse generations (withLangfuseGeneration in
 // the backend). A generation is a span that becomes a LangfuseGeneration, so
 // a tracer wrapper remembers each span name, and the generation records it.
-// The wrapper forwards every call to the provider that Langfuse used before.
+// The wrapper forwards each call to the provider that Langfuse would use
+// without it: the global OpenTelemetry provider at the time of the call (a
+// test can replace it), or a provider that was set before the hook.
 async function hookLangfuse(lane) {
   const langfuse = await esm(lane, "@langfuse/tracing", "dist/index.mjs")
-  const previous = langfuse.getLangfuseTracerProvider()
+  const { trace } = createRequire(
+    join(packageDir(lane, "@langfuse/tracing"), "package.json"),
+  )("@opentelemetry/api")
+  const before = langfuse.getLangfuseTracerProvider()
+  const set = before !== trace.getTracerProvider() ? before : undefined
+  const current = () => set ?? trace.getTracerProvider()
   const names = new WeakMap()
   const forward = (target, overrides) =>
     new Proxy(target, {
@@ -209,19 +216,27 @@ async function hookLangfuse(lane) {
         return typeof value === "function" ? value.bind(object) : value
       },
     })
+  const provider = {
+    getTracer(...args) {
+      const tracer = current().getTracer(...args)
+      return forward(tracer, {
+        startActiveSpan(name, ...rest) {
+          const fn = rest.pop()
+          return tracer.startActiveSpan(name, ...rest, (span) => {
+            names.set(span, name)
+            return fn(span)
+          })
+        },
+      })
+    },
+  }
   langfuse.setLangfuseTracerProvider(
-    forward(previous, {
-      getTracer(...args) {
-        const tracer = previous.getTracer(...args)
-        return forward(tracer, {
-          startActiveSpan(name, ...rest) {
-            const fn = rest.pop()
-            return tracer.startActiveSpan(name, ...rest, (span) => {
-              names.set(span, name)
-              return fn(span)
-            })
-          },
-        })
+    new Proxy(provider, {
+      get(object, property) {
+        if (property === "getTracer") return object.getTracer
+        const target = current()
+        const value = Reflect.get(target, property)
+        return typeof value === "function" ? value.bind(target) : value
       },
     }),
   )
