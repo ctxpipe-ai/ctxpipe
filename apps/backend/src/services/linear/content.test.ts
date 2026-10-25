@@ -18,7 +18,6 @@ import {
 import { resetLinearGraphqlForTests } from "./graphql.js"
 
 const calls: LinearGraphqlCall[] = []
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 let issuePages = 0
 let commentPages = 0

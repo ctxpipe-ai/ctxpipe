@@ -8,7 +8,6 @@ import {
 } from "./checkout-read.js"
 
 const requested: Array<{ paths: string[]; root?: string }> = []
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
   http.get("http://codesearch.test/:repositoryId/tree", () =>
     HttpResponse.json({

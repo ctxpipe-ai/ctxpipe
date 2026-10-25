@@ -13,9 +13,6 @@
     "typecheck": "tsc --noEmit --pretty false",
     "test": "node ../../scripts/ci/test-suite.mjs ui",
     "test:watch": "vitest",
-    "format": "biome format",
-    "lint": "biome lint",
-    "check": "biome check",
     "storybook": "storybook dev -p 6006 --ci --host 127.0.0.1",
     "build-storybook": "storybook build",
     "test:golden": "node ../../scripts/ci/storybook-golden.mjs",
@@ -75,7 +72,6 @@
     "use-sync-external-store": "^1.6.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.4",
     "@opentelemetry/sdk-trace-base": "^2.11.0",
     "@storybook/addon-a11y": "^10.2.10",
     "@storybook/addon-docs": "^10.2.10",

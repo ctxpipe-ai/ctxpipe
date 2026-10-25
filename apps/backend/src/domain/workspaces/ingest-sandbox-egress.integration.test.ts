@@ -42,7 +42,6 @@ const alpha = generateObjectId("con")
 const beta = generateObjectId("con")
 const log: GithubTokenLog = { minted: [], revoked: [], mintedPermissions: [] }
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer(
   ...githubTokenHandlers(
     log,

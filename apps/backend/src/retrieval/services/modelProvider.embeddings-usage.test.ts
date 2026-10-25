@@ -31,7 +31,6 @@ const provider = new NodeTracerProvider({
   ],
 })
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 
 function generationUsageDetails(): unknown {

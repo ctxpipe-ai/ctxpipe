@@ -68,6 +68,7 @@ describe("POST /{repoId}/structural-search", () => {
       "checkouts",
       "default",
     )
+    // oxlint-disable-next-line no-import-assign -- the test replaces a property of the module namespace
     Object.defineProperty(paths, "REPO_CACHE_DIR", {
       value: tmpDir,
       writable: true,

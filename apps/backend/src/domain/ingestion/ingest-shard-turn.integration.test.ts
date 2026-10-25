@@ -48,7 +48,6 @@ const sandbox = {
   status: "running",
 }
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
   http.get(`https://vercel.com/api/v2/sandboxes/${name}`, () =>
     HttpResponse.json({ sandbox, session, routes: [] }),

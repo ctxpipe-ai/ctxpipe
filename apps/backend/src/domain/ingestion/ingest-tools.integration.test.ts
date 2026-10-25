@@ -65,7 +65,6 @@ async function record(request: Request): Promise<unknown> {
   return body
 }
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
   http.post(`${CODESEARCH}/:repositoryId/files-query`, async ({ request }) => {
     const body = (await record(request)) as { paths: string[] }

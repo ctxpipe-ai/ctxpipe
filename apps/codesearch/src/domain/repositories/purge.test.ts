@@ -43,14 +43,17 @@ beforeEach(async () => {
   await mkdir(repoCacheDir, { recursive: true })
   await mkdir(zoektIndexDir, { recursive: true })
   await mkdir(zoektHotDir, { recursive: true })
+  // oxlint-disable-next-line no-import-assign -- the test replaces a property of the module namespace
   Object.defineProperty(paths, "REPO_CACHE_DIR", {
     value: repoCacheDir,
     writable: true,
   })
+  // oxlint-disable-next-line no-import-assign -- the test replaces a property of the module namespace
   Object.defineProperty(paths, "ZOEKT_INDEX_DIR", {
     value: zoektIndexDir,
     writable: true,
   })
+  // oxlint-disable-next-line no-import-assign -- the test replaces a property of the module namespace
   Object.defineProperty(paths, "ZOEKT_HOT_DIR", {
     value: zoektHotDir,
     writable: true,

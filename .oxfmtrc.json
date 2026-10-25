@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "semi": false,
+  "printWidth": 80,
+  "tabWidth": 2,
+  "useTabs": false,
+  "sortImports": {},
+  "ignorePatterns": [
+    ".nitro",
+    "storybook-static",
+    ".next",
+    ".output",
+    ".data",
+    "schema.graphql",
+    "**/routeTree.gen.ts",
+    "apps/backend/src/services/linear/documents.generated.ts",
+    "**/*.md",
+    "**/*.yaml",
+    "**/*.yml",
+    "**/*.mdx"
+  ]
+}

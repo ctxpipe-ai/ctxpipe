@@ -86,7 +86,6 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
     ["a value shortened in the middle", "API_KEY=ghp_ab...wxyz"],
     [
       "a URL with template user and password",
-      // biome-ignore lint/suspicious/noTemplateCurlyInString: the case is a literal URL template
       "postgres://${DB_USER}:${DB_PASSWORD}@db/app",
     ],
     [

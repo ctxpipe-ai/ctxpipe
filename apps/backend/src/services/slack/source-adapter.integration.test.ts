@@ -34,7 +34,6 @@ import {
 } from "./source-adapter.js"
 
 const execFileAsync = promisify(execFile)
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 const env = () => parseEnv(process.env)
 

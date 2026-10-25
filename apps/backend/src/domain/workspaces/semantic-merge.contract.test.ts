@@ -4,7 +4,6 @@ import { useMswServer } from "../../../test/msw.js"
 import { classifyUnkeyedKnowledgeCollision } from "./dest-workspace-first.js"
 import { resolveSemanticConflicts } from "./semantic-merge.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: Vitest owns this MSW lifecycle.
 const server = useMswServer()
 afterEach(() => vi.unstubAllEnvs())
 

@@ -12,7 +12,6 @@ import { abortAfter } from "../../lib/abortAfter.js"
 import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
 import { getModel } from "./modelProvider.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: Vitest owns this MSW lifecycle.
 const server = useMswServer()
 afterEach(() => vi.unstubAllEnvs())
 

@@ -534,6 +534,7 @@ export const forgeProvision = defineWorkflow(
       const d = mkdtempSync(join(tmpdir(), "ctxpipe-forge-"))
       const appAri = forgeAppIdToAri(row.appId)
       const name =
+        // oxlint-disable-next-line no-constant-binary-expression -- the fallback is kept as is
         `ctxp-${input.connectionId.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 40)}` ||
         "ctxpipe-forge"
       writeFileSync(
@@ -561,6 +562,7 @@ export const forgeProvision = defineWorkflow(
 
     const result = await step.run({ name: "forge-cli" }, () => {
       const appSlug =
+        // oxlint-disable-next-line no-constant-binary-expression -- the fallback is kept as is
         `ctxp-${input.connectionId.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 40)}` ||
         "ctxpipe-forge"
       log.info({

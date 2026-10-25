@@ -83,7 +83,6 @@ const reasoningResponseClassName =
  */
 function StatusLine(props: { label: string }) {
   return (
-    // biome-ignore lint/a11y/useSemanticElements: div + role="status" is a live status, not a form output
     <div
       className="flex w-full min-w-0 items-start gap-2"
       role="status"

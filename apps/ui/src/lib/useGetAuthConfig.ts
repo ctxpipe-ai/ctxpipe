@@ -10,7 +10,6 @@ export function useGetAuthConfig() {
       // TODO: the Better Auth config route is outside the Hono client, so the body is unknown.
       return (await readApiJson(res, {
         message: "Failed to load auth config",
-        // biome-ignore lint/complexity/noBannedTypes: the body shape is not known here
       })) as {}
     },
     staleTime: Number.POSITIVE_INFINITY,

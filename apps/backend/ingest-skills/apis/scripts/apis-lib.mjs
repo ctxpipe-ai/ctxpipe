@@ -71,7 +71,7 @@ export function plainText(text, max) {
   if (clean.length === 0 || clean.length > max) return null
   if (!/^[\p{L}\p{N}]/u.test(clean) || /^\d+[.)]\s/.test(clean)) return null
   if (
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: the check refuses control and direction characters
+    // oxlint-disable-next-line no-control-regex -- the check refuses control and direction characters
     /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff`<>[\]|\\]/.test(
       clean,
     ) ||

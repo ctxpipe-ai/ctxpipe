@@ -593,7 +593,6 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
       agent: { metrics_collection_interval: 60, omit_hostname: true },
       metrics: {
         namespace: "CWAgent",
-        // biome-ignore lint/suspicious/noTemplateCurlyInString: the CloudWatch agent's own placeholder.
         append_dimensions: {
           AutoScalingGroupName: "${aws:AutoScalingGroupName}",
         },

@@ -6,7 +6,6 @@ import { useMswServer } from "../../../test/msw.js"
 import { bedrockModelProvider } from "../../retrieval/services/providers/bedrockModelProvider.js"
 import { handleBedrockChatCompletion } from "./bedrockOpenAiProxy.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: Vitest owns this MSW lifecycle.
 const server = useMswServer()
 afterEach(() => vi.unstubAllEnvs())
 

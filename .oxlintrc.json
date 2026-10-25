@@ -1,0 +1,91 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "oxc",
+    "react",
+    "jsx-a11y",
+    "import"
+  ],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "typescript/no-explicit-any": "warn",
+    "eslint/no-unsafe-optional-chaining": "off",
+    "react/refs": "off",
+    "react/set-state-in-effect": "off",
+    "react/purity": "off",
+    "react/immutability": "off",
+    "react/incompatible-library": "off",
+    "react/globals": "off",
+    "jsx-a11y/prefer-tag-over-role": "off",
+    "jsx-a11y/no-autofocus": "off",
+    "jsx-a11y/control-has-associated-label": "off",
+    "jsx-a11y/no-noninteractive-element-interactions": "off",
+    "jsx-a11y/no-noninteractive-tabindex": "off",
+    "jsx-a11y/heading-has-content": "off",
+    "jsx-a11y/anchor-has-content": "off"
+  },
+  "env": {
+    "builtin": true,
+    "browser": true,
+    "node": true
+  },
+  "ignorePatterns": [
+    ".nitro",
+    "storybook-static",
+    ".next",
+    ".output",
+    ".data",
+    "schema.graphql",
+    "**/routeTree.gen.ts",
+    "apps/backend/src/services/linear/documents.generated.ts"
+  ],
+  "overrides": [
+    {
+      "files": [
+        "apps/ui/**"
+      ],
+      "rules": {
+        "react-hooks/rules-of-hooks": "error",
+        "react-hooks/exhaustive-deps": "error"
+      }
+    },
+    {
+      "files": [
+        "apps/backend/src/**"
+      ],
+      "excludeFiles": [
+        "apps/backend/src/openworkflow/defineObservedWorkflow.ts",
+        "**/*.test.ts"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "openworkflow",
+                "importNames": [
+                  "defineWorkflow"
+                ],
+                "message": "Import defineWorkflow from openworkflow/defineObservedWorkflow.js. It sets the workflow logger."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "apps/ui/src/components/ui/**"
+      ],
+      "rules": {
+        "jsx-a11y/prefer-tag-over-role": "off",
+        "jsx-a11y/click-events-have-key-events": "off",
+        "react/no-array-index-key": "off"
+      }
+    }
+  ]
+}

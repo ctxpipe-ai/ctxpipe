@@ -80,7 +80,7 @@ export function safeLiteral(text) {
     typeof text === "string" &&
     text.length >= 3 &&
     text.length <= 200 &&
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: the check refuses control characters
+    // oxlint-disable-next-line no-control-regex -- the check refuses control characters
     !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(text)
   )
 }

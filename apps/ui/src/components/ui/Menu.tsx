@@ -86,6 +86,7 @@ export const menuSectionHeaderClassName =
 
 interface MenuSectionProps<T> extends AriaMenuSectionProps<T> {
   title?: string
+  // oxlint-disable-next-line typescript/no-explicit-any -- the type is kept as is
   items?: any
   headerClassName?: string
 }

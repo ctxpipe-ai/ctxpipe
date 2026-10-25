@@ -129,7 +129,6 @@ export function WorkspaceSurfaceSkeleton(props: { paneOpen: boolean }) {
           <div className={workspaceChromeTabStripClassName}>
             {[true, false, false].map((selected, index) => (
               <div
-                // biome-ignore lint/suspicious/noArrayIndexKey: fixed bones
                 key={index}
                 className={workspaceChromeIconTabClassName(selected)}
               >
