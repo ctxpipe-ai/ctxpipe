@@ -278,12 +278,12 @@ test("the edge hooks record names, never statement text or data", () => {
   )
   assert.equal(result.status, 0, result.stderr)
   const { recorded, edges } = JSON.parse(result.stdout)
-  for (const kind of ["files", "tables", "routes", "steps", "tools", "models"])
+  for (const kind of ["reads", "tables", "routes", "steps", "tools", "models"])
     assert.ok(recorded.includes(kind), kind)
   assert.deepEqual(edges.routes, ["GET /v1/things/:id"])
   assert.deepEqual(edges.read, ["users"])
   assert.deepEqual(edges.tools, ["probe_tool"])
-  assert.ok(edges.files.includes("package.json"))
+  assert.ok(edges.reads.includes("package.json"))
   assert.ok(
     !result.stdout.includes("a@b.c") && !result.stdout.includes("secret"),
   )

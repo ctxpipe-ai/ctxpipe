@@ -412,7 +412,14 @@ afterAll((suite) => {
             ...(edges.read.size ? { read: sorted(edges.read) } : {}),
             ...(edges.write.size ? { write: sorted(edges.write) } : {}),
           }
-          const lists = ["routes", "steps", "tools", "models", "files"]
+          const lists = [
+            "routes",
+            "steps",
+            "tools",
+            "models",
+            "reads",
+            "listings",
+          ]
           return {
             name,
             durationMs: Math.max(0, Math.round(durationMs)),

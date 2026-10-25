@@ -19,7 +19,8 @@ export const emptyEdges = () => ({
   steps: new Set(),
   tools: new Set(),
   models: new Set(),
-  files: new Set(),
+  reads: new Set(),
+  listings: new Set(),
 })
 let edges = emptyEdges()
 
@@ -36,7 +37,7 @@ export async function installEdges(root, skip) {
   const recorded = []
   const lane = createRequire(join(process.cwd(), "package.json"))
   const hooks = {
-    files: () => hookFiles(root, skip),
+    reads: () => hookFiles(root, skip),
     tables: () => hookPg(lane),
     routes: () => hookHono(lane),
     steps: () => hookOpenWorkflow(lane),
@@ -250,8 +251,8 @@ async function hookLangfuse(lane) {
   }
 }
 
-// Repo files that a case reads through `fs`: file reads and directory
-// listings (a listing records the directory with a trailing `/`). Code that
+// Repo files that a case reads through `fs` (`reads`), and the repo
+// directories that it lists (`listings`). Code that
 // Node loads with `require` is read through `fs.readFileSync` too, so the
 // list can hold code files; their lines are in the trace already.
 function hookFiles(root, skip) {
@@ -271,7 +272,7 @@ function hookFiles(root, skip) {
       repo.startsWith(".ci-results/")
     )
       return
-    edges.files.add(directory ? `${repo}/` : repo)
+    ;(directory ? edges.listings : edges.reads).add(repo)
   }
   const wrap = (target, method, directory) => {
     const original = target[method]

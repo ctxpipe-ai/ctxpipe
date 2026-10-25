@@ -33,7 +33,7 @@
           "type": "string"
         },
         "recorded": {
-          "description": "The kinds of data that the trace recorded for this check, in addition to the lines of the test process. `children`: the lines of Node child processes. `tables`, `routes`, `steps`, `tools`, `models`, `files`: the case properties of the same name. When a kind is not in the list, the check's cases do not show it: a case without that property is then not proof that it used nothing of that kind. Without `recorded`, only the lines of the test process were recorded.",
+          "description": "The kinds of data that the trace recorded for this check, in addition to the lines of the test process. `children`: the lines of Node child processes. `tables`, `routes`, `steps`, `tools`, `models`: the case properties of the same name. `reads`: the case properties `reads` and `listings`. When a kind is not in the list, the check's cases do not show it: a case without that property is then not proof that it used nothing of that kind. Without `recorded`, only the lines of the test process were recorded.",
           "type": "array",
           "items": {
             "enum": [
@@ -43,7 +43,7 @@
               "steps",
               "tools",
               "models",
-              "files"
+              "reads"
             ]
           },
           "uniqueItems": true
@@ -139,13 +139,21 @@
           "uniqueItems": true,
           "description": "The names of the Langfuse generations (model calls) that the case made. Prompt text, input and output are never recorded."
         },
-        "files": {
+        "reads": {
           "type": "array",
           "items": {
             "type": "string"
           },
           "uniqueItems": true,
-          "description": "Repo-relative paths that the case read through `fs` in the test process: files, and directory listings with a trailing `/`. Paths below `node_modules` and `.git` are not recorded. Code that Node loads with `require` can be in the list."
+          "description": "Repo-relative paths of the files that the case read through `fs` in the test process. Paths below `node_modules` and `.git` are not recorded. Code that Node loads with `require` can be in the list."
+        },
+        "listings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "Repo-relative paths of the directories that the case listed through `fs` in the test process (`readdir`, `opendir`). A new file in such a directory can change the result of the case."
         }
       }
     }
