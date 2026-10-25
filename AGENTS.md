@@ -60,6 +60,7 @@ The orchestrator app (Paseo) or the harness's own sub-agent tool starts each age
 | --- | --- | --- |
 | First build of a ticket that is design-heavy or security-sensitive | Opus; effort from the estimated complexity (low, medium, high) | — |
 | Plumbing build or mechanical review fix | Codex GPT-6-Luna (simple) or GPT-6-Astra (larger); effort from the estimated complexity | Sonnet, same effort |
+| Small fix that has acceptance tests in the brief, on a host where `list_profiles` shows `local-qwen` | Local Qwen through the `local-qwen` profile; read its notes. Review its diff before you accept it | Codex GPT-6-Luna, low |
 | Review fix that needs a security design | Opus, medium | — |
 | First review round, Standards axis | Codex GPT-6.1-Sol | Opus, high |
 | First review round, Spec axis | Opus, high | — |
