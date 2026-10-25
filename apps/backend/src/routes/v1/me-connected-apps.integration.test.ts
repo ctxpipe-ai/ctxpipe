@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { and, eq, inArray } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import type { AppEnv } from "../../app/env.js"
 import { getAuth } from "../../auth/config.js"
@@ -499,25 +501,28 @@ describe("/api/v1/me/connected-apps (Postgres)", () => {
       ],
     ]
 
-    it.each(
-      credentials,
-    )("%s gets 403 on GET, PUT and DELETE", async (_name, make) => {
-      const headers = await make()
-      const { consentId, referenceId } = await newConsent(userU(), [orgA])
-      const list = await request(seedU, "", { headers })
-      const edit = await request(seedU, `/${consentId}/organizations`, {
-        method: "PUT",
-        body: { organizationIds: [orgB] },
-        headers: { ...headers, "content-type": "application/json" },
-      })
-      const revoke = await request(seedU, `/${consentId}`, {
-        method: "DELETE",
-        headers,
-      })
-      expect([list.status, edit.status, revoke.status]).toEqual([403, 403, 403])
-      expect(await grantOrgIds(referenceId)).toEqual([orgA])
-      expect(await rowCount(userU(), referenceId)).toBe(3)
-    })
+    it.each(credentials)(
+      "%s gets 403 on GET, PUT and DELETE",
+      async (_name, make) => {
+        const headers = await make()
+        const { consentId, referenceId } = await newConsent(userU(), [orgA])
+        const list = await request(seedU, "", { headers })
+        const edit = await request(seedU, `/${consentId}/organizations`, {
+          method: "PUT",
+          body: { organizationIds: [orgB] },
+          headers: { ...headers, "content-type": "application/json" },
+        })
+        const revoke = await request(seedU, `/${consentId}`, {
+          method: "DELETE",
+          headers,
+        })
+        expect([list.status, edit.status, revoke.status]).toEqual([
+          403, 403, 403,
+        ])
+        expect(await grantOrgIds(referenceId)).toEqual([orgA])
+        expect(await rowCount(userU(), referenceId)).toBe(3)
+      },
+    )
   })
 
   it("refuses a request with no credential", async () => {

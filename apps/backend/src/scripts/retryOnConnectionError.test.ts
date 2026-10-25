@@ -6,7 +6,9 @@ import { createServer, type Server } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createServer as createTlsServer } from "node:tls"
+
 import { afterEach, describe, expect, it } from "vitest"
+
 import {
   connectionTimeoutError,
   expectRefusal,
@@ -255,22 +257,28 @@ describe("expectRefusal", () => {
     ["a hang up", "hangup"],
     ["an EPIPE", "epipe"],
     ["a DNS error", "dns"],
-  ] as const)("does not pass on %s, and retries then fails", async (_, kind) => {
-    const { open, count } = await failingProbe(kind)
-    const expected = {
-      reset: "ECONNRESET",
-      hangup: "ECONNRESET",
-      epipe: "EPIPE",
-      dns: "EAI_AGAIN",
-    }[kind]
-    await expect(
-      retryOnConnectionError(() => expectRefusal(open, refusalOptions(1_000)), {
-        attempts: 3,
-        delayMs: 1,
-      }),
-    ).rejects.toMatchObject({ code: expected })
-    expect(count()).toBe(3)
-  })
+  ] as const)(
+    "does not pass on %s, and retries then fails",
+    async (_, kind) => {
+      const { open, count } = await failingProbe(kind)
+      const expected = {
+        reset: "ECONNRESET",
+        hangup: "ECONNRESET",
+        epipe: "EPIPE",
+        dns: "EAI_AGAIN",
+      }[kind]
+      await expect(
+        retryOnConnectionError(
+          () => expectRefusal(open, refusalOptions(1_000)),
+          {
+            attempts: 3,
+            delayMs: 1,
+          },
+        ),
+      ).rejects.toMatchObject({ code: expected })
+      expect(count()).toBe(3)
+    },
+  )
 
   it("does not retry an error that is not a connection error", async () => {
     const { open, count } = await failingProbe("dns-notfound")

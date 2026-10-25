@@ -8,7 +8,9 @@ import {
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
+
 import {
   readContainedDirectory,
   readContainedFile,

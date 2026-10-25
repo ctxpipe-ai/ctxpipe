@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { HttpResponse, http } from "msw"
 import { describe, expect, it } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
@@ -45,19 +46,20 @@ function app(statuses: number[]) {
 }
 
 describe("model proxy completion", () => {
-  it.each([
-    200, 429, 502,
-  ])("records the upstream status %s once", async (status) => {
-    server.use(
-      http.post(`${origin}/v1/chat/completions`, () =>
-        HttpResponse.json({}, { status }),
-      ),
-    )
-    const statuses: number[] = []
-    const response = await app(statuses).request("/", { method: "POST" })
-    await response.text()
-    expect(statuses).toEqual([status])
-  })
+  it.each([200, 429, 502])(
+    "records the upstream status %s once",
+    async (status) => {
+      server.use(
+        http.post(`${origin}/v1/chat/completions`, () =>
+          HttpResponse.json({}, { status }),
+        ),
+      )
+      const statuses: number[] = []
+      const response = await app(statuses).request("/", { method: "POST" })
+      await response.text()
+      expect(statuses).toEqual([status])
+    },
+  )
   it("records an unreachable provider", async () => {
     server.use(
       http.post(`${origin}/v1/chat/completions`, () => HttpResponse.error()),

@@ -6,6 +6,7 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core"
+
 import { orgIsolationPolicy } from "./org-rls.js"
 
 export const claims = pgTable.withRLS(

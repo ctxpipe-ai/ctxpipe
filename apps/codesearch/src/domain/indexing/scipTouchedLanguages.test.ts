@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { selectTouchedScipIndexers } from "./scipTouchedLanguages.js"
 
 const detected = ["go", "typescript", "python", "java"] as const

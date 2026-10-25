@@ -7,6 +7,7 @@ import {
   type ReadResourceResult,
 } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
+
 import { getLogger } from "../../observability/logger.js"
 import { runMcpResourceRead } from "../correlation.js"
 import {

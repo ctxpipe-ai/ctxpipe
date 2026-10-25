@@ -1,11 +1,14 @@
 import { isDeepStrictEqual } from "node:util"
+
 import YAML, { isNode, type Node, type YAMLSeq } from "yaml"
+
 import type { UpgradeNotice } from "../upgrades/registry.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import {
   githubLegacyScopeSchema,
   githubScopeRepositories,
 } from "./providers/github.js"
+import { parseSourceFile, renderSourceFile } from "./source-file-text.js"
 import {
   checkSourcePath,
   githubSourcePath,
@@ -14,7 +17,6 @@ import {
   type SourceFile,
   toSegment,
 } from "./source-file.js"
-import { parseSourceFile, renderSourceFile } from "./source-file-text.js"
 import {
   parseLegacySourceEntry,
   SOURCES_FILE_PATH,

@@ -8,7 +8,9 @@ import {
 import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
+
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import { decodeScipIndex, encodeScipIndex } from "../graph/scipProto.js"
 import type { ScipIndexerId } from "./detectLanguages.js"
 import {

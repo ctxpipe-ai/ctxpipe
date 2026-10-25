@@ -1,7 +1,9 @@
 import { crc32 } from "node:zlib"
+
 import { chat } from "@tanstack/ai"
 import { HttpResponse, http } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import { bedrockModelProvider } from "../../retrieval/services/providers/bedrockModelProvider.js"
 import { handleBedrockChatCompletion } from "./bedrockOpenAiProxy.js"
@@ -66,136 +68,138 @@ function eventStreamFrame(
 }
 
 describe("handleBedrockChatCompletion", () => {
-  it.each([
-    "end_turn",
-    "max_tokens",
-  ])("answers a non-streaming request with stop reason %s", async (stopReason) => {
-    stubAwsCredentials()
-    let sent: Record<string, unknown> = {}
-    server.use(
-      http.post(converseUrl("fast-model"), async ({ request }) => {
-        expect(request.headers.get("authorization")).toContain(
-          "AWS4-HMAC-SHA256",
-        )
-        sent = (await request.json()) as Record<string, unknown>
-        return HttpResponse.json({
-          output: {
-            message: {
-              role: "assistant",
-              content: [{ text: "Hello " }, { text: "there" }],
+  it.each(["end_turn", "max_tokens"])(
+    "answers a non-streaming request with stop reason %s",
+    async (stopReason) => {
+      stubAwsCredentials()
+      let sent: Record<string, unknown> = {}
+      server.use(
+        http.post(converseUrl("fast-model"), async ({ request }) => {
+          expect(request.headers.get("authorization")).toContain(
+            "AWS4-HMAC-SHA256",
+          )
+          sent = (await request.json()) as Record<string, unknown>
+          return HttpResponse.json({
+            output: {
+              message: {
+                role: "assistant",
+                content: [{ text: "Hello " }, { text: "there" }],
+              },
             },
+            stopReason,
+            usage: { inputTokens: 4, outputTokens: 2, totalTokens: 6 },
+            metrics: { latencyMs: 1 },
+          })
+        }),
+      )
+      const response = await handleBedrockChatCompletion(env, {
+        model: "fast-model",
+        temperature: 0.3,
+        messages: [
+          { role: "system", content: "Be brief." },
+          { role: "user", content: "hi" },
+          { role: "user", content: "again" },
+          { role: "assistant", content: "hello" },
+          { role: "user", content: "last" },
+        ],
+      })
+      expect(response.status).toBe(200)
+      const body = (await response.json()) as {
+        object: string
+        model: string
+        choices: Array<{ message: { role: string; content: string } }>
+      }
+      expect(body).toMatchObject({
+        object: "chat.completion",
+        model: "fast-model",
+        choices: [
+          {
+            message: { role: "assistant", content: "Hello there" },
+            finish_reason: stopReason === "max_tokens" ? "length" : "stop",
           },
-          stopReason,
-          usage: { inputTokens: 4, outputTokens: 2, totalTokens: 6 },
-          metrics: { latencyMs: 1 },
-        })
-      }),
-    )
-    const response = await handleBedrockChatCompletion(env, {
-      model: "fast-model",
-      temperature: 0.3,
-      messages: [
-        { role: "system", content: "Be brief." },
-        { role: "user", content: "hi" },
-        { role: "user", content: "again" },
-        { role: "assistant", content: "hello" },
-        { role: "user", content: "last" },
-      ],
-    })
-    expect(response.status).toBe(200)
-    const body = (await response.json()) as {
-      object: string
-      model: string
-      choices: Array<{ message: { role: string; content: string } }>
-    }
-    expect(body).toMatchObject({
-      object: "chat.completion",
-      model: "fast-model",
-      choices: [
-        {
-          message: { role: "assistant", content: "Hello there" },
-          finish_reason: stopReason === "max_tokens" ? "length" : "stop",
-        },
-      ],
-    })
-    expect(sent).toMatchObject({
-      system: [{ text: "Be brief." }],
-      messages: [
-        { role: "user", content: [{ text: "hi" }, { text: "again" }] },
-        { role: "assistant", content: [{ text: "hello" }] },
-        { role: "user", content: [{ text: "last" }] },
-      ],
-      inferenceConfig: { temperature: 0.3, maxTokens: 50, topP: 0.9 },
-      additionalModelRequestFields: { reasoning_effort: "low" },
-    })
-  })
+        ],
+      })
+      expect(sent).toMatchObject({
+        system: [{ text: "Be brief." }],
+        messages: [
+          { role: "user", content: [{ text: "hi" }, { text: "again" }] },
+          { role: "assistant", content: [{ text: "hello" }] },
+          { role: "user", content: [{ text: "last" }] },
+        ],
+        inferenceConfig: { temperature: 0.3, maxTokens: 50, topP: 0.9 },
+        additionalModelRequestFields: { reasoning_effort: "low" },
+      })
+    },
+  )
 
-  it.each([
-    "end_turn",
-    "max_tokens",
-  ])("streams text and the final stop reason %s", async (stopReason) => {
-    stubAwsCredentials()
-    server.use(
-      http.post(
-        streamUrl("fast-model"),
-        () =>
-          new HttpResponse(
-            new Blob([
-              eventStreamFrame("messageStart", { role: "assistant" }),
-              eventStreamFrame("contentBlockDelta", {
-                contentBlockIndex: 0,
-                delta: { text: "Hel" },
-              }),
-              eventStreamFrame("contentBlockDelta", {
-                contentBlockIndex: 0,
-                delta: { text: "lo" },
-              }),
-              eventStreamFrame("contentBlockStop", { contentBlockIndex: 0 }),
-              eventStreamFrame("messageStop", { stopReason }),
-            ]),
-            {
-              headers: { "content-type": "application/vnd.amazon.eventstream" },
-            },
-          ),
-      ),
-    )
-    const response = await handleBedrockChatCompletion(env, {
-      model: "fast-model",
-      stream: true,
-      messages: [{ role: "user", content: "hi" }],
-    })
-    expect(response.headers.get("content-type")).toBe("text/event-stream")
-    const events = (await response.text())
-      .split("\n\n")
-      .filter(Boolean)
-      .map((line) => line.replace(/^data: /, ""))
-    expect(events.at(-1)).toBe("[DONE]")
-    expect(JSON.parse(events.at(-2) ?? "null")).toMatchObject({
-      object: "chat.completion.chunk",
-      choices: [
-        {
-          index: 0,
-          delta: {},
-          finish_reason: stopReason === "max_tokens" ? "length" : "stop",
-        },
-      ],
-    })
-    const deltas = events.slice(0, -2).map(
-      (json) =>
-        JSON.parse(json) as {
-          object: string
-          choices: Array<{ delta: { content: string } }>
-        },
-    )
-    expect(deltas.map((chunk) => chunk.object)).toEqual([
-      "chat.completion.chunk",
-      "chat.completion.chunk",
-    ])
-    expect(deltas.map((chunk) => chunk.choices[0]?.delta.content)).toEqual([
-      "Hel",
-      "lo",
-    ])
-  })
+  it.each(["end_turn", "max_tokens"])(
+    "streams text and the final stop reason %s",
+    async (stopReason) => {
+      stubAwsCredentials()
+      server.use(
+        http.post(
+          streamUrl("fast-model"),
+          () =>
+            new HttpResponse(
+              new Blob([
+                eventStreamFrame("messageStart", { role: "assistant" }),
+                eventStreamFrame("contentBlockDelta", {
+                  contentBlockIndex: 0,
+                  delta: { text: "Hel" },
+                }),
+                eventStreamFrame("contentBlockDelta", {
+                  contentBlockIndex: 0,
+                  delta: { text: "lo" },
+                }),
+                eventStreamFrame("contentBlockStop", { contentBlockIndex: 0 }),
+                eventStreamFrame("messageStop", { stopReason }),
+              ]),
+              {
+                headers: {
+                  "content-type": "application/vnd.amazon.eventstream",
+                },
+              },
+            ),
+        ),
+      )
+      const response = await handleBedrockChatCompletion(env, {
+        model: "fast-model",
+        stream: true,
+        messages: [{ role: "user", content: "hi" }],
+      })
+      expect(response.headers.get("content-type")).toBe("text/event-stream")
+      const events = (await response.text())
+        .split("\n\n")
+        .filter(Boolean)
+        .map((line) => line.replace(/^data: /, ""))
+      expect(events.at(-1)).toBe("[DONE]")
+      expect(JSON.parse(events.at(-2) ?? "null")).toMatchObject({
+        object: "chat.completion.chunk",
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: stopReason === "max_tokens" ? "length" : "stop",
+          },
+        ],
+      })
+      const deltas = events.slice(0, -2).map(
+        (json) =>
+          JSON.parse(json) as {
+            object: string
+            choices: Array<{ delta: { content: string } }>
+          },
+      )
+      expect(deltas.map((chunk) => chunk.object)).toEqual([
+        "chat.completion.chunk",
+        "chat.completion.chunk",
+      ])
+      expect(deltas.map((chunk) => chunk.choices[0]?.delta.content)).toEqual([
+        "Hel",
+        "lo",
+      ])
+    },
+  )
 
   it("rejects a request without a model", async () => {
     const response = await handleBedrockChatCompletion(env, {
@@ -271,26 +275,26 @@ it("merges consecutive roles through the host provider", async () => {
   })
 })
 
-it.each([
-  false,
-  true,
-])("rejects an aborted request (stream=%s)", async (stream) => {
-  stubAwsCredentials()
-  server.use(
-    http.post(
-      stream ? streamUrl("fast-model") : converseUrl("fast-model"),
-      () => HttpResponse.json({}),
-    ),
-  )
-  await expect(
-    handleBedrockChatCompletion(
-      env,
-      {
-        model: "fast-model",
-        stream,
-        messages: [{ role: "user", content: "hi" }],
-      },
-      AbortSignal.abort(),
-    ),
-  ).rejects.toMatchObject({ name: "AbortError" })
-})
+it.each([false, true])(
+  "rejects an aborted request (stream=%s)",
+  async (stream) => {
+    stubAwsCredentials()
+    server.use(
+      http.post(
+        stream ? streamUrl("fast-model") : converseUrl("fast-model"),
+        () => HttpResponse.json({}),
+      ),
+    )
+    await expect(
+      handleBedrockChatCompletion(
+        env,
+        {
+          model: "fast-model",
+          stream,
+          messages: [{ role: "user", content: "hi" }],
+        },
+        AbortSignal.abort(),
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" })
+  },
+)

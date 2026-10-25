@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { legacyBindingHandedOver } from "./legacy-handover.js"
 
 describe("legacyBindingHandedOver", () => {

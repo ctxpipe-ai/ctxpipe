@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
@@ -11,6 +12,7 @@ import {
   pendingWorkspaceUpgradesHandler,
   upgradeItemFixture,
 } from "@/mocks/workspace-upgrades-handlers"
+
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { ConnectorsPageContent } from "./$orgSlug.connectors"

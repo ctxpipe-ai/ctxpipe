@@ -2,6 +2,7 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import { activityOptions } from "./queries"
 import { installRelativeFetch } from "./relative-fetch-test"
 import { docsWorkspaceActivity } from "./workspace-fixtures"

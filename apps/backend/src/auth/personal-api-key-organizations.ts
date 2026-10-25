@@ -1,5 +1,6 @@
 import { APIError, createAuthMiddleware } from "better-auth/api"
 import { and, asc, eq, inArray } from "drizzle-orm"
+
 import { getSystemDb } from "../db/client.js"
 import { apikeys, members, organizations } from "../db/schema/auth.js"
 import { oauthGrantOrganizations } from "../db/schema/oauth_grant_organizations.js"

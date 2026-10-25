@@ -1,4 +1,5 @@
 import { SignJWT } from "jose"
+
 import type { Env } from "../config/env.js"
 
 type UpstreamPrincipal = "user" | "service"

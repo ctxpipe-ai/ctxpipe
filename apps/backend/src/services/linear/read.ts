@@ -1,5 +1,6 @@
 import type { TypedDocumentNode } from "@graphql-typed-document-node/core"
 import type { LinearClient } from "@linear/sdk"
+
 import type { LinearIssueForMirror, LinearIssueRelation } from "./converter.js"
 import type {
   LinearActorFragment,

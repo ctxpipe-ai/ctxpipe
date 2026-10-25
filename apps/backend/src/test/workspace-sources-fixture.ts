@@ -4,8 +4,10 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
+
 import { config } from "dotenv"
 import { eq } from "drizzle-orm"
+
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { type ConnectionType, connections } from "../db/schema/connections.js"

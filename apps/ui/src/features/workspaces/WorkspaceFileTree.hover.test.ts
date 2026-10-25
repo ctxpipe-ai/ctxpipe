@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+
 import { workspaceFilePathFromHoverNodes } from "./WorkspaceFileTree"
 
 function item(path: string) {

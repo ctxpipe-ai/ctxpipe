@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto"
 import { copyFile, mkdir, rename, rm, stat, writeFile } from "node:fs/promises"
 import { basename, dirname, join, relative, resolve } from "node:path"
+
 import { type Span, SpanStatusCode, trace } from "@opentelemetry/api"
+
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 import { mergeScipShardFiles } from "../graph/scipProto.js"
 import { getIndexerProcessConcurrency } from "./capacityEnv.js"

@@ -1,5 +1,6 @@
 import { renderToString } from "react-dom/server"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import { EditorSetupStep } from "./SetupGuide"
 
 describe("the editor step on the server", () => {

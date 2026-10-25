@@ -11,7 +11,9 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+
 import { afterEach, expect, it, vi } from "vitest"
+
 import { gitOutput } from "./clone-tree.js"
 import { nativeGit, withGitDirectory } from "./pack.js"
 import { isTemporarySpawnError, withGitProcessSlot } from "./process-slot.js"

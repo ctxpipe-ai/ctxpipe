@@ -4,6 +4,7 @@ import {
   type Message,
 } from "@aws-sdk/client-bedrock-runtime"
 import { NodeHttpHandler } from "@smithy/node-http-handler"
+
 import type { ModelParams } from "../modelParams.js"
 import { resolveBedrockRegion } from "./bedrockRegion.js"
 import type { ProviderCallEnv } from "./providerTypes.js"

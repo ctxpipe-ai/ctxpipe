@@ -1,6 +1,6 @@
+import { confirmAndApply, isInteractive } from "../commands.js"
 import type { Client } from "../constants.js"
 import { CLIENT_LABELS } from "../constants.js"
-import { confirmAndApply, isInteractive } from "../commands.js"
 import {
   buildMemoryArtifactOperations,
   buildMemoryConfigOperation,

@@ -24,6 +24,7 @@ import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { posix } from "node:path"
+
 import { nameKey, relativeTo, scriptStep } from "../../bin/knowledge-lib.mjs"
 import {
   baseBlob,

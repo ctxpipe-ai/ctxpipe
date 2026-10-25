@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
+
 import { githubInstallationIsLinked } from "@/features/connectors/queries/github-connector"
+
 import {
   getGithubConnectStartBranch,
   resolveGithubSetupOrganization,

@@ -1,6 +1,8 @@
 import { open, readFile, realpath } from "node:fs/promises"
 import { relative, resolve, sep } from "node:path"
+
 import { parse, Reader } from "protobufjs"
+
 import { hasGitSegment } from "../repositories/paths.js"
 
 type ScipWireIndex = {

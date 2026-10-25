@@ -1,21 +1,26 @@
-import * as cdk from "aws-cdk-lib";
-import * as ec2 from "aws-cdk-lib/aws-ec2";
-import * as iam from "aws-cdk-lib/aws-iam";
-import * as lambda from "aws-cdk-lib/aws-lambda";
-import * as cr from "aws-cdk-lib/custom-resources";
-import { Construct } from "constructs";
+import * as cdk from "aws-cdk-lib"
+import * as ec2 from "aws-cdk-lib/aws-ec2"
+import * as iam from "aws-cdk-lib/aws-iam"
+import * as lambda from "aws-cdk-lib/aws-lambda"
+import * as cr from "aws-cdk-lib/custom-resources"
+import { Construct } from "constructs"
+
 import type {
   MigrateOnDeployConstructProps,
   MigrateOnDeployResources,
-} from "./contracts";
+} from "./contracts"
 
-const PROVIDER_FUNCTION_TIMEOUT_SECONDS = 900;
+const PROVIDER_FUNCTION_TIMEOUT_SECONDS = 900
 
 export class MigrateOnDeployConstruct extends Construct {
-  public readonly resources: MigrateOnDeployResources;
+  public readonly resources: MigrateOnDeployResources
 
-  public constructor(scope: Construct, id: string, props: MigrateOnDeployConstructProps) {
-    super(scope, id);
+  public constructor(
+    scope: Construct,
+    id: string,
+    props: MigrateOnDeployConstructProps,
+  ) {
+    super(scope, id)
 
     const onEventHandler = new lambda.Function(this, "MigrateOnEvent", {
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -74,7 +79,7 @@ exports.onEvent = async (event) => {
 };
         `,
       ),
-    });
+    })
 
     const isCompleteHandler = new lambda.Function(this, "MigrateIsComplete", {
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -139,38 +144,38 @@ exports.isComplete = async (event) => {
 };
         `,
       ),
-    });
+    })
 
     const passRoleArns = [
       props.tasks.migrateTask.taskRole.roleArn,
       props.tasks.migrateTask.executionRole?.roleArn,
-    ].filter((arn): arn is string => arn !== undefined);
+    ].filter((arn): arn is string => arn !== undefined)
 
     onEventHandler.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["ecs:RunTask"],
         resources: [props.tasks.migrateTask.taskDefinitionArn],
       }),
-    );
+    )
     onEventHandler.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["iam:PassRole"],
         resources: passRoleArns,
       }),
-    );
+    )
     isCompleteHandler.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["ecs:DescribeTasks"],
         resources: ["*"],
       }),
-    );
+    )
 
     const provider = new cr.Provider(this, "MigrateProvider", {
       onEventHandler,
       isCompleteHandler,
       queryInterval: cdk.Duration.seconds(10),
       totalTimeout: cdk.Duration.seconds(PROVIDER_FUNCTION_TIMEOUT_SECONDS),
-    });
+    })
 
     const migrateResource = new cdk.CustomResource(this, "RunMigrations", {
       serviceToken: provider.serviceToken,
@@ -178,19 +183,19 @@ exports.isComplete = async (event) => {
       properties: {
         ClusterArn: props.networking.cluster.clusterArn,
         TaskDefinitionArn: props.tasks.migrateTask.taskDefinitionArn,
-        SubnetIds: props.networking.vpc
-          .selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS })
-          .subnetIds,
+        SubnetIds: props.networking.vpc.selectSubnets({
+          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+        }).subnetIds,
         SecurityGroupIds: [props.networking.appSecurityGroup.securityGroupId],
       },
-    });
+    })
 
-    migrateResource.node.addDependency(props.dataPlane.dbCluster);
-    migrateResource.node.addDependency(props.secrets.databaseUrlWriter);
-    props.secrets.runtimeDatabaseUrlWriter.node.addDependency(migrateResource);
+    migrateResource.node.addDependency(props.dataPlane.dbCluster)
+    migrateResource.node.addDependency(props.secrets.databaseUrlWriter)
+    props.secrets.runtimeDatabaseUrlWriter.node.addDependency(migrateResource)
 
     this.resources = {
       migrateResource,
-    };
+    }
   }
 }

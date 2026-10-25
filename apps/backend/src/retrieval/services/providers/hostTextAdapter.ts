@@ -7,6 +7,7 @@ import {
 } from "@tanstack/ai"
 import type { StructuredOutputOptions } from "@tanstack/ai/adapters"
 import { BaseTextAdapter } from "@tanstack/ai/adapters"
+
 import { withLangfuseGeneration } from "../../../observability/langfuse.js"
 import type { ProviderCallOpts } from "./providerTypes.js"
 

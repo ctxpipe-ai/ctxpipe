@@ -38,4 +38,3 @@ export function splitFrontmatter(
     body: content.slice(match[0].length),
   }
 }
-

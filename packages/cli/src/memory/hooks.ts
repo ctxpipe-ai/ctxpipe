@@ -1,4 +1,5 @@
 import { join, resolve } from "node:path"
+
 import type { Client, Scope } from "../constants.js"
 import { isObject } from "../mcp/json.js"
 import type {
@@ -567,7 +568,12 @@ export function buildMemoryHookOperations({
         )
         ops.push(
           buildOpenCodePluginOperation({
-            path: resolve(context.cwd, ".opencode", "plugins", "ctxpipe-memory.js"),
+            path: resolve(
+              context.cwd,
+              ".opencode",
+              "plugins",
+              "ctxpipe-memory.js",
+            ),
             context,
           }),
         )
@@ -639,7 +645,12 @@ export function buildMemoryHookOperations({
         )
         ops.push(
           buildVscodeHooksOperation({
-            path: resolve(context.cwd, ".github", "hooks", "ctxpipe-memory.json"),
+            path: resolve(
+              context.cwd,
+              ".github",
+              "hooks",
+              "ctxpipe-memory.json",
+            ),
             context,
           }),
         )
@@ -668,7 +679,12 @@ export function buildMemoryHookOperations({
         )
         ops.push(
           buildVscodeHooksOperation({
-            path: join(context.homeDir, ".copilot", "hooks", "ctxpipe-memory.json"),
+            path: join(
+              context.homeDir,
+              ".copilot",
+              "hooks",
+              "ctxpipe-memory.json",
+            ),
             context,
           }),
         )

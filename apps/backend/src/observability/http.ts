@@ -2,6 +2,7 @@ import { httpInstrumentationMiddleware } from "@hono/otel"
 import { context, SpanStatusCode, trace } from "@opentelemetry/api"
 import type { Context, MiddlewareHandler } from "hono"
 import { matchedRoutes } from "hono/route"
+
 import {
   contextWithAttributionBag,
   copyAttributionToSpan,

@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import tailwindcss from "@tailwindcss/vite"
 import { devtools } from "@tanstack/devtools-vite"
 import { nitroV2Plugin } from "@tanstack/nitro-v2-vite-plugin"

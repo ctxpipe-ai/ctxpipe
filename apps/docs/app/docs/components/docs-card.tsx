@@ -3,6 +3,7 @@
 import Link from "fumadocs-core/link"
 import { cn } from "fumadocs-ui/utils/cn"
 import type { HTMLAttributes, ReactNode } from "react"
+
 import { DocsIcon, docsIconForHref } from "./docs-icon"
 
 type CardsProps = HTMLAttributes<HTMLDivElement>

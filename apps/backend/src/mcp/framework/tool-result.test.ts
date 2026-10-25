@@ -1,5 +1,6 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { describe, expect, it } from "vitest"
+
 import { HARD_CAP_CHARS } from "./budget.js"
 import { McpToolError } from "./tool-errors.js"
 import { TOOL_ERROR_META_KEY, toolFailure, toolSuccess } from "./tool-result.js"

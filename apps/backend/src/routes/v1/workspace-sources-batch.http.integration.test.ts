@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { HttpResponse, http } from "msw"
 import { beforeAll, expect, it } from "vitest"
+
 import type { AppEnv } from "../../app/env.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { contextStorage } from "../../test/hono-test-logger.js"
@@ -59,9 +60,8 @@ it(
           ),
         )
         // The routes import the OpenWorkflow client, which reads DATABASE_URL on import.
-        const { workspaceSourcesRoutes } = await import(
-          "./workspace-sources-routes.js"
-        )
+        const { workspaceSourcesRoutes } =
+          await import("./workspace-sources-routes.js")
         const { getWorkspaceById } = await import("../../models/workspaces.js")
         const workspace = await withOrgIdContext(f.org, () =>
           getWorkspaceById(f.workspaceId),

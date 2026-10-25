@@ -1,7 +1,8 @@
 import { isDeepStrictEqual } from "node:util"
+
 import { defineChatMiddleware, type ModelMessage } from "@tanstack/ai"
-import type { LockStore } from "@tanstack/ai/locks"
 import type { MessageStore, RunStore } from "@tanstack/ai-persistence"
+import type { LockStore } from "@tanstack/ai/locks"
 
 class ConversationChangedError extends Error {
   constructor() {

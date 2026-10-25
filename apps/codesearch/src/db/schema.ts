@@ -40,8 +40,12 @@ export const repositories = pgTable("repositories", {
   indexingStep: integer("indexing_step"),
   indexingStepTotal: integer("indexing_step_total"),
   indexingStepKey: text("indexing_step_key"),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .defaultNow(),
 })
 
 export const repositoryCheckouts = pgTable("repository_checkouts", {
@@ -52,6 +56,10 @@ export const repositoryCheckouts = pgTable("repository_checkouts", {
   commitSha: text("commit_sha"),
   checkoutKey: text("checkout_key").notNull(),
   zoektRepoId: serial("zoekt_repo_id").notNull().unique(),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .defaultNow(),
 })

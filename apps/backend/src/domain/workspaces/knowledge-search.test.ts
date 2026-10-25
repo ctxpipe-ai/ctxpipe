@@ -1,5 +1,6 @@
 import { http } from "msw"
 import { describe, expect, it, vi } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import { searchKnowledge, vectorScanSettings } from "./knowledge-search.js"
 

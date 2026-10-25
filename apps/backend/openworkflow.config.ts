@@ -1,6 +1,8 @@
 import { getHeapStatistics } from "node:v8"
+
 import "./src/observability/register.js"
 import { defineConfig } from "@openworkflow/cli"
+
 import { initDb } from "./src/db/client.js"
 import { createLogger, flushEvlog, log } from "./src/observability/logger.js"
 import { shutdownOtel } from "./src/observability/otel.js"

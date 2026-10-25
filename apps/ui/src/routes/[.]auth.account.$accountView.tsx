@@ -1,5 +1,6 @@
 import { AccountView } from "@daveyplate/better-auth-ui"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
+
 import { AppShell } from "@/components/AppShell"
 import { AccountSettingsNav } from "@/features/auth/AccountSettingsNav"
 import { betterAuthShellClassNames } from "@/features/auth/betterAuthShellClassNames"

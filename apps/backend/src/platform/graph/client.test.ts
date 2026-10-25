@@ -1,7 +1,9 @@
 import { EventEmitter } from "node:events"
+
 import { SpanStatusCode } from "@opentelemetry/api"
 import { initLogger } from "evlog"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
 import { recordSpans } from "../../../test/spans.js"
 
 const mocks = vi.hoisted(() => ({

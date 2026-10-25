@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import {
   WORKSPACE_CHAT_ORIENTATION_MAX_CHARS,
   workspaceChatOrientationPrompt,

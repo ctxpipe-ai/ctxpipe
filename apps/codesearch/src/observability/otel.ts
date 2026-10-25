@@ -18,6 +18,7 @@ import {
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+
 import { ATTRIBUTION_KEYS } from "./contract.js"
 
 let tracerProvider: NodeTracerProvider | undefined

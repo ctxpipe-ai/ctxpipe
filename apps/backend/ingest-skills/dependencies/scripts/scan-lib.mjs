@@ -14,6 +14,7 @@ import { createHash } from "node:crypto"
 import { lstatSync, realpathSync } from "node:fs"
 import { dirname, join, posix, sep } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { nameKey } from "../../bin/knowledge-lib.mjs"
 import {
   safePath,

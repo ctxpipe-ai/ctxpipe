@@ -1,6 +1,8 @@
 import type { ReactNode } from "react"
+
 import { SkeletonText } from "@/components/ui/Skeleton"
 import { cn } from "@/lib/utils"
+
 import { sideNavLabelClassName, sideNavRowClassName } from "./sideNavStyles"
 
 /** One SideNav row (icon gutter and label) while its data loads. */

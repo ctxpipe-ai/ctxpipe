@@ -1,7 +1,8 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import { useRouter, useSearch } from "@tanstack/react-router"
-import { SideNavRowSkeleton } from "@/components/SideNav/SideNavRowSkeleton"
+
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
+import { SideNavRowSkeleton } from "@/components/SideNav/SideNavRowSkeleton"
 import {
   sideNavLabelClassName,
   sideNavRowClassName,
@@ -10,6 +11,7 @@ import { Button } from "@/components/ui/Button"
 import { useSkeletonHold } from "@/components/ui/Skeleton"
 import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
+
 import { isLiveRun } from "./conversationStatus"
 import { paneSearchForOtherConversation, workspaceSearch } from "./pane"
 import {

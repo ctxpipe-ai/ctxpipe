@@ -14,8 +14,8 @@ import {
   type SourceProvider,
   sourcesFileSchema,
 } from "./sources-file.js"
-import { parseSourcesYaml } from "./sources-yaml.js"
 import type { SourcesYamlChange } from "./sources-yaml-edit.js"
+import { parseSourcesYaml } from "./sources-yaml.js"
 
 /** What one existing connection syncs today, read from its config (ADR-050 migration). */
 export type LegacySourceBinding =

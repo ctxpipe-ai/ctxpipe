@@ -8,14 +8,16 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useRouter, useSearch } from "@tanstack/react-router"
 import { useState } from "react"
 import { Link } from "react-aria-components"
-import { SideNavTooltip } from "@/components/SideNav/SideNavTooltip"
+
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import {
   sideNavIconGutterClassName,
   sideNavLabelClassName,
   sideNavRowClassName,
 } from "@/components/SideNav/sideNavStyles"
+import { SideNavTooltip } from "@/components/SideNav/SideNavTooltip"
 import { focusVisibleClassName } from "@/lib/focus-styles"
+
 import { prefetchWorkspaceRouteData } from "./ensure-route-data"
 import { useWorkspaceIngesting } from "./ingestion"
 import { workspaceTitleAction } from "./nav"

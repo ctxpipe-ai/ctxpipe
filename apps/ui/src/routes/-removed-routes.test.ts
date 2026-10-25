@@ -1,5 +1,6 @@
 import { isRedirect } from "@tanstack/react-router"
 import { describe, expect, it } from "vitest"
+
 import { getRouter } from "@/router"
 
 describe("removed org routes", () => {

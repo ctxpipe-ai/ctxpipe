@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { claims } from "../../db/schema/claims.js"
@@ -238,15 +239,12 @@ it(
         f.server.use(http.get(PULLS, () => HttpResponse.json(openPulls)))
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { workspaceUpgradeScan } = await import(
-          "../../openworkflow/workflows/workspace-upgrade-scan.js"
-        )
-        const { workspaceUpgrade } = await import(
-          "../../openworkflow/workflows/workspace-upgrade.js"
-        )
-        const { workspaceTipCheck } = await import(
-          "../../openworkflow/workflows/workspace-tip-check.js"
-        )
+        const { workspaceUpgradeScan } =
+          await import("../../openworkflow/workflows/workspace-upgrade-scan.js")
+        const { workspaceUpgrade } =
+          await import("../../openworkflow/workflows/workspace-upgrade.js")
+        const { workspaceTipCheck } =
+          await import("../../openworkflow/workflows/workspace-tip-check.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
@@ -518,9 +516,8 @@ it(
           )
           const revision = await f.resolveRevision(true)
           expect(revision.sha).toBe(head)
-          const { workspaceHydrate } = await import(
-            "../../openworkflow/workflows/workspace-hydrate.js"
-          )
+          const { workspaceHydrate } =
+            await import("../../openworkflow/workflows/workspace-hydrate.js")
           await f.worker.start()
           const hydrate = await f.runner.runWorkflow(workspaceHydrate.spec, {
             orgId: f.org.id,
@@ -599,9 +596,8 @@ it(
         f.server.use(http.get(PULLS, () => HttpResponse.json([])))
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { workspaceUpgradeScan } = await import(
-          "../../openworkflow/workflows/workspace-upgrade-scan.js"
-        )
+        const { workspaceUpgradeScan } =
+          await import("../../openworkflow/workflows/workspace-upgrade-scan.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,

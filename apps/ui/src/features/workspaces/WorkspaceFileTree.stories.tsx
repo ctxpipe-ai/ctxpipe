@@ -1,11 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import { Button } from "@/components/ui/Button"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceFileTree } from "./WorkspaceFileTree"
 import { docsWorkspaceGitTree } from "./workspace-fixtures"
+import { WorkspaceFileTree } from "./WorkspaceFileTree"
 
 const nestedPaths = [
   "AGENTS.md",
@@ -234,8 +236,8 @@ export const PierreKeyboardFocus: Story = {
         selected.contains(focused) ||
         Boolean(
           selected.shadowRoot &&
-            focused &&
-            selected.shadowRoot.contains(focused),
+          focused &&
+          selected.shadowRoot.contains(focused),
         ) ||
         pierreFocused === selected,
     ).toBe(true)

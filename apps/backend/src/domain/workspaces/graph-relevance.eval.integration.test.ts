@@ -21,9 +21,11 @@
  * locally `pnpm dev:infra`).
  */
 import { appendFileSync } from "node:fs"
+
 import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { z } from "zod"
+
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import {
   type EvalIntent,
@@ -319,21 +321,21 @@ function evalSuite(vocabulary: EvalVocabulary) {
     }
   })
 
-  it.each([
-    "intent",
-    "no intent",
-  ] as const)("keeps recall@5 of the tool defaults (%s) at or above the floor for each intent", (mode) => {
-    const defaults = rows.get(
-      mode === "intent"
-        ? "tool defaults (only intent)"
-        : "tool defaults (no intent)",
-    ) as Recall
-    for (const intent of INTENTS) {
-      expect(defaults[intent], intent).toBeGreaterThanOrEqual(
-        floors[vocabulary][mode][intent],
-      )
-    }
-  })
+  it.each(["intent", "no intent"] as const)(
+    "keeps recall@5 of the tool defaults (%s) at or above the floor for each intent",
+    (mode) => {
+      const defaults = rows.get(
+        mode === "intent"
+          ? "tool defaults (only intent)"
+          : "tool defaults (no intent)",
+      ) as Recall
+      for (const intent of INTENTS) {
+        expect(defaults[intent], intent).toBeGreaterThanOrEqual(
+          floors[vocabulary][mode][intent],
+        )
+      }
+    },
+  )
 
   it("explores a bounded graph for each question", async () => {
     for (const question of fixture.questions) {

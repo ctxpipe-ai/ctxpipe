@@ -1,6 +1,7 @@
 import { context, trace } from "@opentelemetry/api"
 import { describe, expect, it } from "vitest"
 import { z } from "zod"
+
 import { recordSpans } from "../../test/spans.js"
 import {
   applyAttribution,

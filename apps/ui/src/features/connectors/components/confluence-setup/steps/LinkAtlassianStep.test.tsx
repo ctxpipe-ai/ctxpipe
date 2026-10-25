@@ -6,6 +6,7 @@ import { setupServer } from "msw/node"
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+
 import { LinkAtlassianStep } from "./LinkAtlassianStep"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })

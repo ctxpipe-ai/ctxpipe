@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { planSourceMigration } from "../../domain/workspace-sources/migration-plan.js"
 import { linearLegacyBindings } from "./source-migration.js"
 

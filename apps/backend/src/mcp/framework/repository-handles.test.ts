@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { RepositoryHandles } from "./repository-handles.js"
 import { McpToolError } from "./tool-errors.js"
 
@@ -139,15 +140,14 @@ describe("RepositoryHandles.exclusion", () => {
     ])
   })
 
-  it.each([
-    "example/not-linked",
-    "not a repository",
-    "",
-  ])("refuses the entry %j that names no repository with invalid_argument", (input) => {
-    expect(() => handles.exclusion([input])).toThrowError(
-      expect.objectContaining({ code: "invalid_argument" }),
-    )
-  })
+  it.each(["example/not-linked", "not a repository", ""])(
+    "refuses the entry %j that names no repository with invalid_argument",
+    (input) => {
+      expect(() => handles.exclusion([input])).toThrowError(
+        expect.objectContaining({ code: "invalid_argument" }),
+      )
+    },
+  )
 
   it("excludes every host for a short handle that collides", () => {
     const exclusion = handles.exclusion(["example/ledger"])

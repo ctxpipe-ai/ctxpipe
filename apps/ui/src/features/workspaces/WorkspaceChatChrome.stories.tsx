@@ -1,14 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import { InlineAlert } from "@/components/ui/InlineAlert"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import {
   docsWorkspace,
   pendingWriteWorkspace,
   readOnlyWorkspace,
 } from "./workspace-fixtures"
+import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 
 const meta = {
   title: "Components/Workspaces/ChatChrome",

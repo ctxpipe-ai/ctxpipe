@@ -6,6 +6,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ReactNode } from "react"
 import { toast } from "sonner"
+
 import { Button } from "@/components/ui/Button"
 import {
   Disclosure,
@@ -23,6 +24,7 @@ import { useWorkspaceIngesting } from "@/features/workspaces/ingestion"
 import { StatusTag } from "@/features/workspaces/StatusTag"
 import { WorkspaceIngestingNow } from "@/features/workspaces/WorkspaceIngestingNow"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
+
 import { AutomaticUpgradesToggle } from "./AutomaticUpgradesToggle"
 import { useExpiredCheckingKeys } from "./checking-format-clock"
 import {
@@ -32,7 +34,6 @@ import {
   workspaceUpgradeKeys,
   workspaceUpgradesOptions,
 } from "./queries"
-import { UpgradeRunProgress } from "./UpgradeRunProgress"
 import {
   CHECKING_FORMAT_COPY,
   formatHealthLine,
@@ -58,6 +59,7 @@ import {
   upgradeFailurePrompt,
 } from "./upgrade-failure"
 import { upgradeCheckResult, upgradeProgress } from "./upgrade-progress"
+import { UpgradeRunProgress } from "./UpgradeRunProgress"
 import { useStartWorkspaceUpgrade } from "./use-start-upgrade"
 
 type UpgradeGroup = "needs_you" | "working" | "done"

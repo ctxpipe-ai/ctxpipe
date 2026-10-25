@@ -1,4 +1,5 @@
 import type { z } from "zod/v3"
+
 import type { ExtractionMethod, SourceType } from "../schema/claims.js"
 
 type SourceTypeValue = z.infer<typeof SourceType>

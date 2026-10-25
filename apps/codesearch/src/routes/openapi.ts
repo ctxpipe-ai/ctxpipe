@@ -1,5 +1,6 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { Scalar } from "@scalar/hono-api-reference"
+
 import type { AppEnv } from "../app/env.js"
 
 export function registerOpenapiRoutes(

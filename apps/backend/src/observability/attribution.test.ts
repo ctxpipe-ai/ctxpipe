@@ -1,6 +1,7 @@
 import { context, propagation, ROOT_CONTEXT } from "@opentelemetry/api"
 import { W3CBaggagePropagator } from "@opentelemetry/core"
 import { beforeAll, describe, expect, it } from "vitest"
+
 import { recordSpans } from "../../test/spans.js"
 import {
   applyAttribution,

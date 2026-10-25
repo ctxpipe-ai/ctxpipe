@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { HydrateUnit } from "./hydrate.js"
+
 import {
   claimsUpgradeFiles,
   claimsUpgradeRemainder,
@@ -10,6 +10,7 @@ import {
   validFromPersistFiles,
   validFromPersistRemainder,
 } from "./hydrate-write-jobs.js"
+import type { HydrateUnit } from "./hydrate.js"
 
 const unit = (overrides: Partial<HydrateUnit>): HydrateUnit => ({
   path: "knowledge/a.md",

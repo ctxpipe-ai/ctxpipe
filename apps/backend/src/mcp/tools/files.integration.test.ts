@@ -16,6 +16,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { useMswServer } from "../../../test/msw.js"
 import type { AppEnv } from "../../app/env.js"
@@ -600,16 +601,16 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
       })
     })
 
-    it.each([
-      ".git/config",
-      "src/.git/hooks/pre-commit",
-    ])("refuses the .git path %j in a repository ref", async (path) => {
-      const result = await call("read_file", {
-        ref: `${handle("payments-api")}:${path}`,
-      })
-      expect(errorCode(result)).toBe("invalid_ref")
-      expect(captured).toEqual([])
-    })
+    it.each([".git/config", "src/.git/hooks/pre-commit"])(
+      "refuses the .git path %j in a repository ref",
+      async (path) => {
+        const result = await call("read_file", {
+          ref: `${handle("payments-api")}:${path}`,
+        })
+        expect(errorCode(result)).toBe("invalid_ref")
+        expect(captured).toEqual([])
+      },
+    )
 
     it("counts the front matter in the lines of a unit, as search_knowledge does", async () => {
       const [chunk] = knowledgeChunkRows(
@@ -1140,20 +1141,19 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
       expect(captured).toEqual([])
     })
 
-    it.each([
-      "../",
-      "knowledge/../..",
-      "/etc",
-    ])("refuses the folder %j before any read", async (path) => {
-      for (const repository of [undefined, handle("payments-api")]) {
-        const result = await call("list_files", {
-          path,
-          ...(repository ? { repository } : {}),
-        })
-        expect(errorCode(result)).toBe("invalid_ref")
-      }
-      expect(captured).toEqual([])
-    })
+    it.each(["../", "knowledge/../..", "/etc"])(
+      "refuses the folder %j before any read",
+      async (path) => {
+        for (const repository of [undefined, handle("payments-api")]) {
+          const result = await call("list_files", {
+            path,
+            ...(repository ? { repository } : {}),
+          })
+          expect(errorCode(result)).toBe("invalid_ref")
+        }
+        expect(captured).toEqual([])
+      },
+    )
 
     it("gives unknown_ref for a folder that does not exist", async () => {
       expect(

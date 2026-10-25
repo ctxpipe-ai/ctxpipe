@@ -2,7 +2,9 @@ import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
+
 import { describe, expect, it } from "vitest"
+
 import { OPENCODE_PLUGIN } from "../../src/memory/hooks.js"
 
 type ShellCall = { command: string; input: string }
@@ -25,7 +27,9 @@ function fakeShell(stdout: string): {
   const $ = (strings: TemplateStringsArray, ...values: unknown[]) => {
     const command = strings.reduce(
       (acc, s, i) =>
-        acc + s + (i < values.length && typeof values[i] === "string" ? values[i] : ""),
+        acc +
+        s +
+        (i < values.length && typeof values[i] === "string" ? values[i] : ""),
       "",
     )
     const stdin = values.find((v) => v instanceof Response) as Response
@@ -49,7 +53,9 @@ async function loadPlugin(stdout: string) {
     CtxpipeMemory: (ctx: unknown) => Promise<Hooks>
   }
   const prompts: unknown[] = []
-  const client = { session: { prompt: async (req: unknown) => prompts.push(req) } }
+  const client = {
+    session: { prompt: async (req: unknown) => prompts.push(req) },
+  }
   const shell = fakeShell(stdout)
   const hooks = await mod.CtxpipeMemory({
     client,
@@ -78,7 +84,8 @@ describe("OpenCode memory capture plugin", () => {
   })
 
   it("posts the Stop follow-up into the session when the turn ends", async () => {
-    const followup = "Uncommitted memory (1 file on `main`): .ai/memory/lessons-learned.md."
+    const followup =
+      "Uncommitted memory (1 file on `main`): .ai/memory/lessons-learned.md."
     const { hooks, prompts, calls } = await loadPlugin(
       JSON.stringify({ followup_message: followup }),
     )

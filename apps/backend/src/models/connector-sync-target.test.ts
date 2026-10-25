@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { chooseSuggestedConnectorSyncTarget } from "./connector-sync-target.js"
 
 describe("chooseSuggestedConnectorSyncTarget", () => {

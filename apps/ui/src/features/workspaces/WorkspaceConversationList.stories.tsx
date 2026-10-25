@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import {
   expectBoxUnchanged,
   responseGate,
@@ -11,10 +12,11 @@ import {
   conversationsListHandler,
   conversationsListLoadingHandler,
 } from "@/mocks/workspace-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceConversationList } from "./WorkspaceConversationList"
 import { docsConversations, docsWorkspace } from "./workspace-fixtures"
+import { WorkspaceConversationList } from "./WorkspaceConversationList"
 
 const meta = {
   title: "Components/Workspaces/ConversationList",

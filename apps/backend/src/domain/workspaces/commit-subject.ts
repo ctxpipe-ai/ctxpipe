@@ -1,4 +1,5 @@
 import { chat } from "@tanstack/ai"
+
 import { fallbackCommitSubject } from "./write-jobs.js"
 
 /** Small model, chosen in code — not an operator env. */

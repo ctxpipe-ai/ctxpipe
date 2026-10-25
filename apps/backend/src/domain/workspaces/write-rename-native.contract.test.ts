@@ -1,6 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
@@ -111,9 +113,7 @@ Prose old.md stays.
             input: { previousSha: f.sha, revision: { sha: moved } },
           })
           const { workspaceRenameRewrite, workspaceRenameRewriteInputSchema } =
-            await import(
-              "../../openworkflow/workflows/workspace-rename-rewrite.js"
-            )
+            await import("../../openworkflow/workflows/workspace-rename-rewrite.js")
           runner.implementWorkflow(
             workspaceRenameRewrite.spec,
             workspaceRenameRewrite.fn,
@@ -246,9 +246,8 @@ it(
           }),
         )
         if (!resolved) throw new Error("Revision unavailable")
-        const { workspaceRenameRewrite } = await import(
-          "../../openworkflow/workflows/workspace-rename-rewrite.js"
-        )
+        const { workspaceRenameRewrite } =
+          await import("../../openworkflow/workflows/workspace-rename-rewrite.js")
         f.runner.implementWorkflow(
           workspaceRenameRewrite.spec,
           workspaceRenameRewrite.fn,
@@ -336,9 +335,8 @@ it(
             refresh: true,
           }),
         )
-        const { workspaceRenameRewrite } = await import(
-          "../../openworkflow/workflows/workspace-rename-rewrite.js"
-        )
+        const { workspaceRenameRewrite } =
+          await import("../../openworkflow/workflows/workspace-rename-rewrite.js")
         f.runner.implementWorkflow(
           workspaceRenameRewrite.spec,
           workspaceRenameRewrite.fn,

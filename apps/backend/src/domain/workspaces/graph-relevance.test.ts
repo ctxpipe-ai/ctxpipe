@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import type { GraphExpansion } from "./graph-expand.js"
 import {
   INTENT_PRESETS,
@@ -528,46 +529,45 @@ describe("rankRelated: a signal at weight 0 has no effect", () => {
     }
   })
 
-  it.each([
-    "truth",
-    "recency",
-    "hubPenalty",
-  ] as const)("turns off %s alone", (name) => {
-    const base: RelevanceOptions = {
-      intent: "change",
-      signalWeights: { truth: 1, recency: 1 },
-      hubPenalty: 0.5,
-      predicateWeights: { LINKS_TO: 3 },
-    }
-    const zero: RelevanceOptions =
-      name === "hubPenalty"
-        ? { ...base, hubPenalty: 0 }
-        : {
-            ...base,
-            signalWeights: { ...base.signalWeights, [name]: 0 },
-          }
-    // Make the graph neutral in this one signal only.
-    const flat = {
-      nodes: nodes.map((item) =>
-        name === "hubPenalty" ? { ...item, degree: null } : item,
-      ),
-      signals: signals.map((item) => {
-        if (name === "truth") return { ...item, confidence: 0.5 }
-        // A predicate that is not a change has no recency factor.
-        if (name === "recency") return { ...item, predicate: "LINKS_TO" }
-        return item
-      }),
-    }
-    const ppr = (results: ReturnType<typeof rankRelated>) =>
-      results.map((result) => [result.id, result.ppr])
-    expect(ppr(rank({ nodes, signals, seeds: ["s"], options: zero }))).toEqual(
-      ppr(rank({ ...flat, seeds: ["s"], options: zero })),
-    )
-    // The signal has an effect at a weight above 0.
-    expect(
-      ppr(rank({ nodes, signals, seeds: ["s"], options: base })),
-    ).not.toEqual(ppr(rank({ ...flat, seeds: ["s"], options: base })))
-  })
+  it.each(["truth", "recency", "hubPenalty"] as const)(
+    "turns off %s alone",
+    (name) => {
+      const base: RelevanceOptions = {
+        intent: "change",
+        signalWeights: { truth: 1, recency: 1 },
+        hubPenalty: 0.5,
+        predicateWeights: { LINKS_TO: 3 },
+      }
+      const zero: RelevanceOptions =
+        name === "hubPenalty"
+          ? { ...base, hubPenalty: 0 }
+          : {
+              ...base,
+              signalWeights: { ...base.signalWeights, [name]: 0 },
+            }
+      // Make the graph neutral in this one signal only.
+      const flat = {
+        nodes: nodes.map((item) =>
+          name === "hubPenalty" ? { ...item, degree: null } : item,
+        ),
+        signals: signals.map((item) => {
+          if (name === "truth") return { ...item, confidence: 0.5 }
+          // A predicate that is not a change has no recency factor.
+          if (name === "recency") return { ...item, predicate: "LINKS_TO" }
+          return item
+        }),
+      }
+      const ppr = (results: ReturnType<typeof rankRelated>) =>
+        results.map((result) => [result.id, result.ppr])
+      expect(
+        ppr(rank({ nodes, signals, seeds: ["s"], options: zero })),
+      ).toEqual(ppr(rank({ ...flat, seeds: ["s"], options: zero })))
+      // The signal has an effect at a weight above 0.
+      expect(
+        ppr(rank({ nodes, signals, seeds: ["s"], options: base })),
+      ).not.toEqual(ppr(rank({ ...flat, seeds: ["s"], options: base })))
+    },
+  )
 
   it("turns off the query with queryWeight 0", () => {
     const plain = rank({ nodes, signals, seeds: ["s"] })
@@ -974,16 +974,15 @@ describe("rankRelated path cost", () => {
     seeds: ["s"],
   }
 
-  it.each([
-    "general",
-    "why",
-    "change",
-  ] as const)("prefers the 2-hop path of weight 0.36 over the 1-hop of 0.3 for %s", (intent) => {
-    const t = byId(
-      rank({ ...input, options: { intent, direction: "out" } }),
-    ).get("t")
-    expect(t?.path.map((step) => step.to)).toEqual(["x", "t"])
-  })
+  it.each(["general", "why", "change"] as const)(
+    "prefers the 2-hop path of weight 0.36 over the 1-hop of 0.3 for %s",
+    (intent) => {
+      const t = byId(
+        rank({ ...input, options: { intent, direction: "out" } }),
+      ).get("t")
+      expect(t?.path.map((step) => step.to)).toEqual(["x", "t"])
+    },
+  )
 })
 
 describe("rankRelated determinism", () => {

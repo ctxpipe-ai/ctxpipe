@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { dirname } from "node:path"
+
 import type { JsonObject } from "./mcp/json.js"
 import { parseJsonObject } from "./mcp/json.js"
 import type { Operation } from "./mcp/mcp-operations.js"
@@ -82,7 +83,9 @@ export function applyOperation(op: Operation): ApplyOperationResult {
       stdio: "pipe",
     })
     if (result.status !== 0) {
-      throw new Error(`${op.command.join(" ")} failed: ${result.stderr || result.stdout}`)
+      throw new Error(
+        `${op.command.join(" ")} failed: ${result.stderr || result.stdout}`,
+      )
     }
     return { status: "ran", detail: op.command.join(" ") }
   }

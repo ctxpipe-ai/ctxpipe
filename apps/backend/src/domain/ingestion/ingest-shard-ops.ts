@@ -1,10 +1,5 @@
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
-import {
-  assertIngestOpenCodeVersion,
-  type IngestOpenCodeConfig,
-  ingestAgentCommand,
-  ingestOpenCodeEnv,
-} from "./ingest-opencode.js"
+
 import {
   ingestModelRunCommand,
   type OpenCodeError,
@@ -12,6 +7,12 @@ import {
   parseOpenCodeErrors,
   parseOpenCodeUsage,
 } from "./ingest-opencode-usage.js"
+import {
+  assertIngestOpenCodeVersion,
+  type IngestOpenCodeConfig,
+  ingestAgentCommand,
+  ingestOpenCodeEnv,
+} from "./ingest-opencode.js"
 import {
   prepareIngestSandbox,
   sealIngestCheckout,

@@ -20,13 +20,13 @@ import {
 } from "../../workspace-sources/migration-plan.js"
 import { sourceRepositoryUrls } from "../../workspace-sources/providers/git.js"
 import {
-  gitSourcePath,
-  SOURCE_FILES_FOLDER,
-} from "../../workspace-sources/source-file.js"
-import {
   parseSourceFile,
   renderSourceFile,
 } from "../../workspace-sources/source-file-text.js"
+import {
+  gitSourcePath,
+  SOURCE_FILES_FOLDER,
+} from "../../workspace-sources/source-file.js"
 import {
   SOURCES_FILE_PATH,
   type SourceProvider,

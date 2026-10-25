@@ -5,6 +5,7 @@ import {
   IconRefresh,
   IconTrash,
 } from "@tabler/icons-react"
+
 import { Button } from "@/components/ui/Button"
 import {
   Menu,
@@ -13,6 +14,7 @@ import {
   MenuTrigger,
 } from "@/components/ui/Menu"
 import { githubWebUrl } from "@/features/repositories/github-web-url"
+
 import { repositoryCardPresentation } from "../repositoryCardPresentation"
 import type { Repository } from "../types"
 import { RepositoryStatus } from "./RepositoryStatus"

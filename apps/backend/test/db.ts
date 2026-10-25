@@ -1,8 +1,10 @@
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { config } from "dotenv"
 import { eq, inArray } from "drizzle-orm"
 import { describe } from "vitest"
+
 import { getAuth, resetBetterAuthForTests } from "../src/auth/config.js"
 import { closeDb, getSystemDb, initDb } from "../src/db/client.js"
 import { apikeys, organizations, users } from "../src/db/schema/auth.js"

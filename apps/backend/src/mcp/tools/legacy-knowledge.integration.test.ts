@@ -1,6 +1,7 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
+
 import { getAuth } from "../../auth/config.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"

@@ -1,5 +1,6 @@
 import { Hono } from "hono"
 import { describe, expect, it } from "vitest"
+
 import { wwwRedirect } from "./www-redirect.js"
 
 const app = new Hono()

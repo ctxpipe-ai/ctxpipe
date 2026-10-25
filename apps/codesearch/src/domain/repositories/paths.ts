@@ -11,6 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { dirname, join, relative, resolve, sep } from "node:path"
+
 import { REPO_CACHE_DIR } from "../../config/paths.js"
 
 /** Matches backend `DEFAULT_CHECKOUT_KEY` for the primary branch checkout. */

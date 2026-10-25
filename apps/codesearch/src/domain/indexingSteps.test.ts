@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
+
+import type { Db } from "../db/client.js"
 import {
   buildIndexingChecklist,
   getBadgeWord,
@@ -7,7 +9,6 @@ import {
   setRepositoryIndexingStep,
   trySetRepositoryIndexingStep,
 } from "./indexingSteps.js"
-import type { Db } from "../db/client.js"
 
 describe("buildIndexingChecklist", () => {
   it("returns base steps in order when no SCIP languages given", () => {
@@ -113,10 +114,10 @@ describe("resolveHighestCompletedScipStep", () => {
   })
 
   it("ignores completed languages outside the current SCIP checklist", () => {
-    const result = resolveHighestCompletedScipStep(
-      new Set(["rust"]),
-      ["typescript", "go"],
-    )
+    const result = resolveHighestCompletedScipStep(new Set(["rust"]), [
+      "typescript",
+      "go",
+    ])
 
     expect(result).toBeNull()
   })
@@ -207,8 +208,13 @@ describe("trySetRepositoryIndexingStep", () => {
     })
     const db = {
       update,
-      transaction: vi.fn(async (fn: (tx: { update: typeof update; execute: ReturnType<typeof vi.fn> }) => Promise<unknown>) =>
-        fn({ update, execute: vi.fn() }),
+      transaction: vi.fn(
+        async (
+          fn: (tx: {
+            update: typeof update
+            execute: ReturnType<typeof vi.fn>
+          }) => Promise<unknown>,
+        ) => fn({ update, execute: vi.fn() }),
       ),
     } as unknown as Db
     await expect(

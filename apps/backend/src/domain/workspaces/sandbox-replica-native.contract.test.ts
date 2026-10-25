@@ -1,8 +1,10 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process"
 import { fileURLToPath } from "node:url"
+
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
+
 import {
   closeDb,
   getSystemDb,

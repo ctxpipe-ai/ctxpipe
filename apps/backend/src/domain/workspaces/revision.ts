@@ -1,4 +1,5 @@
 import { z } from "zod"
+
 import { workspaceRootPathSchema } from "./root-path.js"
 
 export const gitObjectIdSchema = z
@@ -113,12 +114,12 @@ export function sameLinkedReadBinding(
 ): boolean {
   return Boolean(
     a &&
-      sameWorkspaceRevision(a.owner, b.owner) &&
-      a.linkId === b.linkId &&
-      a.repositoryId === b.repositoryId &&
-      a.remote.url === b.remote.url &&
-      a.remote.connectionId === b.remote.connectionId &&
-      a.ref === b.ref &&
-      a.sha === b.sha,
+    sameWorkspaceRevision(a.owner, b.owner) &&
+    a.linkId === b.linkId &&
+    a.repositoryId === b.repositoryId &&
+    a.remote.url === b.remote.url &&
+    a.remote.connectionId === b.remote.connectionId &&
+    a.ref === b.ref &&
+    a.sha === b.sha,
   )
 }

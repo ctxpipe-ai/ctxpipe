@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { buildSourceLink } from "./buildSourceLink.js"
 
 describe("buildSourceLink", () => {

@@ -1,4 +1,5 @@
 import { KnowledgeGraphExplorer } from "@/features/knowledge-graph/KnowledgeGraphExplorer"
+
 import type { WorkspaceGraphPayload } from "./types"
 
 export function WorkspaceGraphPane(props: {

@@ -18,6 +18,7 @@ import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { posix } from "node:path"
 import { pathToFileURL } from "node:url"
+
 import { safePath } from "../../discover-roots/scripts/roots-lib.mjs"
 
 const MAX_DOCUMENTS = 150

@@ -1,5 +1,6 @@
 import { initLogger } from "evlog"
 import { afterEach, describe, expect, it } from "vitest"
+
 import { createLogger } from "../../observability/logger.js"
 import {
   emitOpencodeChatAttempt,

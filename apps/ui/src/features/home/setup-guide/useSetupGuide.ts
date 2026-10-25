@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { useEffect } from "react"
+
 import { githubSetupLinkOptions } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
 import { workspaceSourcesOptions } from "@/features/workspace-sources/queries"
@@ -18,6 +19,7 @@ import { authClient, useListOrganizations, useSession } from "@/lib/auth-client"
 import { useOrgMemberRole } from "@/lib/org-member-role"
 import { isAdminRole, sessionUser } from "@/lib/session-user"
 import { useOrgGuide } from "@/lib/useOrgGuide"
+
 import {
   type GuideRole,
   type GuideRow,

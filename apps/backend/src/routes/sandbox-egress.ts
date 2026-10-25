@@ -1,5 +1,6 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import type { Context, MiddlewareHandler } from "hono"
+
 import type { AppEnv } from "../app/env.js"
 import {
   INGEST_EGRESS_PATH,

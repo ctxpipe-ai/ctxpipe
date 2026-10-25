@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import {
   classifyUpgradeFailure,
   isTemporaryFailure,
@@ -81,25 +82,27 @@ describe("classifyUpgradeFailure", () => {
   it.each([
     "stdout maxBuffer length exceeded",
     "The Git repository is too large for ctxpipe to read in one step: the Git pack of its commit is 300 MiB, and the limit is 190 MiB.",
-  ])("names a Git output that is too large as a known cause: %s", (failureReason) => {
-    expect(
-      classifyUpgradeFailure({ status: "failed", failureReason }),
-    ).toMatchObject({ code: "repository_too_large", step: null })
-  })
+  ])(
+    "names a Git output that is too large as a known cause: %s",
+    (failureReason) => {
+      expect(
+        classifyUpgradeFailure({ status: "failed", failureReason }),
+      ).toMatchObject({ code: "repository_too_large", step: null })
+    },
+  )
 
-  it.each([
-    "spawn git EAGAIN",
-    "spawn git ENOMEM",
-    "spawn git EMFILE",
-  ])("names a refused Git process start as a temporary known cause: %s", (failureReason) => {
-    const failure = { status: "failed", failureReason }
-    expect(classifyUpgradeFailure(failure)).toMatchObject({
-      code: "server_busy",
-      step: null,
-      summary: failureReason,
-    })
-    expect(isTemporaryFailure(failure)).toBe(true)
-  })
+  it.each(["spawn git EAGAIN", "spawn git ENOMEM", "spawn git EMFILE"])(
+    "names a refused Git process start as a temporary known cause: %s",
+    (failureReason) => {
+      const failure = { status: "failed", failureReason }
+      expect(classifyUpgradeFailure(failure)).toMatchObject({
+        code: "server_busy",
+        step: null,
+        summary: failureReason,
+      })
+      expect(isTemporaryFailure(failure)).toBe(true)
+    },
+  )
 
   it("names a Git command that took too long as a timeout", () => {
     expect(

@@ -2,7 +2,9 @@ import { execFile } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
+
 import { expect, it } from "vitest"
+
 import { withAgentVault } from "../../test/agent-vault-fixture.js"
 import { openRunVault, writeProxyCaCommand } from "./agent-vault.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"

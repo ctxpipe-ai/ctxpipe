@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import type { Env } from "../config/env.js"
 import {
   decodeSlackBotToken,

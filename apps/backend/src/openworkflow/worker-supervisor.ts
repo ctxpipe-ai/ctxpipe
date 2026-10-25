@@ -18,7 +18,9 @@ import { mkdirSync } from "node:fs"
 import { totalmem } from "node:os"
 import { resolve } from "node:path"
 import process from "node:process"
+
 import postgres from "postgres"
+
 import { openworkflowWorkerStartArgs } from "./codesearchCapacity.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
 import { HEAP_SNAPSHOT_DIR, workerNodeOptions } from "./worker-heap.js"

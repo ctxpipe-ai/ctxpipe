@@ -234,8 +234,7 @@ query DiscoverScopes(
     }
   }
   projects(first: 50, after: $projectsAfter, includeArchived: true)
-    @include(if: $includeProjects)
-  {
+    @include(if: $includeProjects) {
     nodes {
       id
       name
@@ -252,8 +251,7 @@ query DiscoverScopes(
     }
   }
   documents(first: 50, after: $documentsAfter, includeArchived: true)
-    @include(if: $includeDocuments)
-  {
+    @include(if: $includeDocuments) {
     nodes {
       id
       title
@@ -267,8 +265,7 @@ query DiscoverScopes(
     }
   }
   initiatives(first: 100, after: $initiativesAfter, includeArchived: true)
-    @include(if: $includeInitiatives)
-  {
+    @include(if: $includeInitiatives) {
     nodes {
       id
       name

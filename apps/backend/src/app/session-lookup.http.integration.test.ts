@@ -1,5 +1,6 @@
 import { initLogger } from "evlog"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
 import { recordSpans } from "../../test/spans.js"
 import { withTestLogger } from "../test/with-test-logger.js"
@@ -11,7 +12,7 @@ vi.hoisted(() => vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key"))
 
 describe("one Better Auth session lookup per request (Postgres)", () => {
   let seed: SeededOrg | undefined
-  let app: Awaited<ReturnType<typeof import("./app.js")["createApp"]>>
+  let app: Awaited<ReturnType<(typeof import("./app.js"))["createApp"]>>
 
   function requireSeed(): SeededOrg {
     if (!seed) throw new Error("seedOrg did not run")

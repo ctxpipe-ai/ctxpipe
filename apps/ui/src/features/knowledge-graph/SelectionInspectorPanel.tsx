@@ -1,7 +1,9 @@
 import { IconFocusCentered, IconSearch, IconX } from "@tabler/icons-react"
 import { type ReactNode, useMemo, useState } from "react"
+
 import { Button } from "@/components/ui/Button"
 import { cn } from "@/lib/utils"
+
 import { PanelLabel } from "./FloatingPanel"
 import { KIND_FALLBACK_COLOR } from "./theme"
 import type { KnowledgeGraphNode } from "./types"

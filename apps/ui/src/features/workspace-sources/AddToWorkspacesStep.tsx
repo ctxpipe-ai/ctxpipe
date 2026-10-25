@@ -1,8 +1,10 @@
 import type { SourceProvider } from "backend/domain/workspace-sources/sources-file"
+
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Link } from "@/components/ui/Link"
+
 import { ChooseWorkspacesStep } from "./ChooseWorkspacesStep"
 import {
   type OpenedPullRequest,

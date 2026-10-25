@@ -1,7 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
+
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+
 import { workspaceHydrateView } from "./projection"
 import { retryPrepareWorkspace, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"

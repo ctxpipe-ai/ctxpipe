@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useEffect } from "react"
+
 import { SLACK_SETUP_RESULT_KEY } from "@/features/connectors/components/SlackSetupDialog"
 
 export const Route = createFileRoute("/.slack/setup")({

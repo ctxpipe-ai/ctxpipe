@@ -1,5 +1,6 @@
 import { trace } from "@opentelemetry/api"
 import { z } from "zod"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
@@ -196,9 +197,8 @@ export const workspaceTipCheck = defineWorkflow(
       if (writeAccessChanges.length) {
         // Import at the admission boundary: the scan module queues this
         // workflow.
-        const { enqueueWorkspaceUpgradeScan } = await import(
-          "./workspace-upgrade-scan.js"
-        )
+        const { enqueueWorkspaceUpgradeScan } =
+          await import("./workspace-upgrade-scan.js")
         // The hour and the changes make the key: the same change in the
         // same hour queues no second scan, so the tip check of that scan
         // cannot loop.

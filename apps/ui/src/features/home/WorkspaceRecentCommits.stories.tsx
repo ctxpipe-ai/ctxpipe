@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import {
   expectSkeletonMatchesLoaded,
   SkeletonMatchFrame,
@@ -8,6 +9,7 @@ import {
 import type { WorkspaceActivityCommit } from "@/features/workspaces/types"
 import { docsWorkspaceActivityRecent } from "@/features/workspaces/workspace-fixtures"
 import { formatDate } from "@/lib/format"
+
 import {
   formatCommitTime,
   WorkspaceRecentCommits,

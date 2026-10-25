@@ -1,14 +1,15 @@
 import { isDeepStrictEqual } from "node:util"
+
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { gitSourceScopeUrl, sourceRepositoryUrls } from "./providers/git.js"
 import { githubSourceScopeRepositories } from "./providers/github.js"
+import { parseSourceFile } from "./source-file-text.js"
 import {
   checkSourcePath,
   SOURCE_FILE_MAX_BYTES,
   SOURCE_FILE_SCOPES,
   SOURCE_FILES_FOLDER,
 } from "./source-file.js"
-import { parseSourceFile } from "./source-file-text.js"
 import {
   parseSourceEntry,
   type SourceEntry,

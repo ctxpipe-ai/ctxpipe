@@ -1,4 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm"
+
 import type { Env } from "../config/env.js"
 import { type Db, getOrgDb, withOrgDbContext } from "../db/client.js"
 import {
@@ -353,8 +354,8 @@ export async function upsertPagerdutyConnectionFromOAuth(input: {
       existingShape?.accountId === input.accountId
     const hasCompleteWebhook = Boolean(
       existingWebhookBelongsToAccount &&
-        existingShape?.webhookSubscriptionId &&
-        existingShape.webhookSecretEnc,
+      existingShape?.webhookSubscriptionId &&
+      existingShape.webhookSecretEnc,
     )
     const config = pagerdutyShapeToConfig(
       {

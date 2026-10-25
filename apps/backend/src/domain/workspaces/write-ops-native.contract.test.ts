@@ -1,4 +1,5 @@
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
@@ -154,16 +155,13 @@ it(
           runMigrations: false,
         })
         const runner = new OpenWorkflow({ backend })
-        const { workspaceHydrate } = await import(
-          "../../openworkflow/workflows/workspace-hydrate.js"
-        )
+        const { workspaceHydrate } =
+          await import("../../openworkflow/workflows/workspace-hydrate.js")
         runner.implementWorkflow(workspaceHydrate.spec, workspaceHydrate.fn)
-        const { workspaceRoutes } = await import(
-          "../../routes/v1/workspaces.js"
-        )
-        const { workspaceHttpApp } = await import(
-          "../../test/workspace-http-fixture.js"
-        )
+        const { workspaceRoutes } =
+          await import("../../routes/v1/workspaces.js")
+        const { workspaceHttpApp } =
+          await import("../../test/workspace-http-fixture.js")
         const { getWorkspaceById } = await import("../../models/workspaces.js")
         const { parse } = await import("yaml")
         runner.implementWorkflow(
@@ -273,9 +271,8 @@ it(
   async () => {
     await withNativeHydrationFixture({ github: false }, async (f) => {
       const { workspaceRoutes } = await import("../../routes/v1/workspaces.js")
-      const { workspaceHttpApp } = await import(
-        "../../test/workspace-http-fixture.js"
-      )
+      const { workspaceHttpApp } =
+        await import("../../test/workspace-http-fixture.js")
       const { getWorkspaceById } = await import("../../models/workspaces.js")
       const app = workspaceHttpApp(f.org, workspaceRoutes)
       const current = await withOrgIdContext(f.org, () =>
@@ -317,12 +314,10 @@ it(
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {
-        const { workspaceRoutes } = await import(
-          "../../routes/v1/workspaces.js"
-        )
-        const { workspaceHttpApp } = await import(
-          "../../test/workspace-http-fixture.js"
-        )
+        const { workspaceRoutes } =
+          await import("../../routes/v1/workspaces.js")
+        const { workspaceHttpApp } =
+          await import("../../test/workspace-http-fixture.js")
         const { getWorkspaceById } = await import("../../models/workspaces.js")
         const app = workspaceHttpApp(f.org, workspaceRoutes)
         f.onWriteProbe(async () => {
@@ -339,9 +334,8 @@ it(
         expect(
           await withOrgIdContext(f.org, () => getWorkspaceById(f.workspaceId)),
         ).toMatchObject({ slug: "renamed" })
-        const { listPausedWriteJobs } = await import(
-          "../../models/workspace-write-jobs.js"
-        )
+        const { listPausedWriteJobs } =
+          await import("../../models/workspace-write-jobs.js")
         expect(
           await withOrgIdContext(f.org, () =>
             listPausedWriteJobs(f.workspaceId),
@@ -364,12 +358,10 @@ it(
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {
-        const { workspaceRoutes } = await import(
-          "../../routes/v1/workspaces.js"
-        )
-        const { workspaceHttpApp } = await import(
-          "../../test/workspace-http-fixture.js"
-        )
+        const { workspaceRoutes } =
+          await import("../../routes/v1/workspaces.js")
+        const { workspaceHttpApp } =
+          await import("../../test/workspace-http-fixture.js")
         const { getWorkspaceById } = await import("../../models/workspaces.js")
         const app = workspaceHttpApp(f.org, workspaceRoutes)
         const before = await withOrgIdContext(f.org, () =>

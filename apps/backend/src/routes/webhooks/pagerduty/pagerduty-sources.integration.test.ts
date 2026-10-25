@@ -1,9 +1,11 @@
 import { createHmac } from "node:crypto"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { sql } from "drizzle-orm"
 import { createLogger } from "evlog"
 import { contextStorage } from "hono/context-storage"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
 import { getSystemDb } from "../../../db/client.js"
@@ -111,9 +113,8 @@ describe("PagerDuty webhook routes to Workspace sources (Postgres)", () => {
       sql`delete from connection_directory where org_id = ${seed.orgId}`,
     )
     await seed.cleanup()
-    const { closeOpenWorkflowClient } = await import(
-      "../../../openworkflow/client.js"
-    )
+    const { closeOpenWorkflowClient } =
+      await import("../../../openworkflow/client.js")
     await closeOpenWorkflowClient()
   })
 

@@ -3,8 +3,10 @@
 import { IconCheck, IconCopy } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
+
 import { Button } from "@/components/ui/Button"
 import { TextField } from "@/components/ui/TextField"
+
 import { displayOAuthCallbackUrl } from "../lib/display-oauth-callback-url"
 import {
   atlassianConnectorKeys,

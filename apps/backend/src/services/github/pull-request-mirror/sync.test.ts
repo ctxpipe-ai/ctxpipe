@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { reviewDecisionFromReviews } from "./sync.js"
 
 const review = (login: string, state: string, submittedAt: string) => ({

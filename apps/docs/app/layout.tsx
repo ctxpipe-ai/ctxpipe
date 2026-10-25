@@ -1,7 +1,8 @@
-import type { Metadata } from "next"
-import type { ReactNode } from "react"
 import { RootProvider } from "fumadocs-ui/provider"
+import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
+import type { ReactNode } from "react"
+
 import "./global.css"
 
 const geist = Geist({

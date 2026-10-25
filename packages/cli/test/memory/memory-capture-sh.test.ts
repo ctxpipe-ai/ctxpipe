@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { describe, expect, it } from "vitest"
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../../..")
@@ -74,14 +75,18 @@ function seedWrapperRepo(opts: { turbo?: "ok" | "fail" | "missing" } = {}): {
 describe("in-repo memory-capture.sh", () => {
   it("runs bun from source without invoking turbo", () => {
     const { cwd, wrapper, bunLog, turboLog, nodeLog } = seedWrapperRepo()
-    const stdout = execFileSync("bash", [wrapper, "memory", "capture", "observe"], {
-      cwd,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        PATH: `${join(cwd, "fake-bin")}:${pathWithoutBun()}`,
+    const stdout = execFileSync(
+      "bash",
+      [wrapper, "memory", "capture", "observe"],
+      {
+        cwd,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${join(cwd, "fake-bin")}:${pathWithoutBun()}`,
+        },
       },
-    })
+    )
     expect(JSON.parse(stdout)).toEqual({ via: "bun" })
     expect(readFileSync(bunLog, "utf8")).toContain("packages/cli/src/cli.ts")
     expect(() => readFileSync(turboLog, "utf8")).toThrow()
@@ -90,46 +95,56 @@ describe("in-repo memory-capture.sh", () => {
 
   it("refreshes dist with turbo then runs node when bun is missing", () => {
     const { cwd, wrapper, bunLog, turboLog, nodeLog } = seedWrapperRepo()
-    const stdout = execFileSync("bash", [wrapper, "memory", "capture", "finalize"], {
-      cwd,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        PATH: pathWithoutBun(),
+    const stdout = execFileSync(
+      "bash",
+      [wrapper, "memory", "capture", "finalize"],
+      {
+        cwd,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: pathWithoutBun(),
+        },
       },
-    })
+    )
     expect(JSON.parse(stdout)).toEqual({ via: "node" })
     expect(() => readFileSync(bunLog, "utf8")).toThrow()
-    expect(readFileSync(turboLog, "utf8")).toMatch(
-      /run build --filter=ctxpipe/,
-    )
+    expect(readFileSync(turboLog, "utf8")).toMatch(/run build --filter=ctxpipe/)
     expect(readFileSync(nodeLog, "utf8")).toContain("memory capture finalize")
   })
 
   it("fail-opens instead of running stale dist when turbo fails", () => {
     const { cwd, wrapper, nodeLog } = seedWrapperRepo({ turbo: "fail" })
-    const stdout = execFileSync("bash", [wrapper, "memory", "capture", "finalize"], {
-      cwd,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        PATH: pathWithoutBun(),
+    const stdout = execFileSync(
+      "bash",
+      [wrapper, "memory", "capture", "finalize"],
+      {
+        cwd,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: pathWithoutBun(),
+        },
       },
-    })
+    )
     expect(JSON.parse(stdout)).toEqual({})
     expect(() => readFileSync(nodeLog, "utf8")).toThrow()
   })
 
   it("fail-opens instead of running stale dist when turbo is missing", () => {
     const { cwd, wrapper, nodeLog } = seedWrapperRepo({ turbo: "missing" })
-    const stdout = execFileSync("bash", [wrapper, "memory", "capture", "finalize"], {
-      cwd,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        PATH: pathWithoutBun(),
+    const stdout = execFileSync(
+      "bash",
+      [wrapper, "memory", "capture", "finalize"],
+      {
+        cwd,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: pathWithoutBun(),
+        },
       },
-    })
+    )
     expect(JSON.parse(stdout)).toEqual({})
     expect(() => readFileSync(nodeLog, "utf8")).toThrow()
   })

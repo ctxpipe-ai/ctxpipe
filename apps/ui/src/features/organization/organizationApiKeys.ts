@@ -1,4 +1,5 @@
 import HyperDX from "@hyperdx/browser"
+
 import { userClient } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
 import { authClient } from "@/lib/auth-client"

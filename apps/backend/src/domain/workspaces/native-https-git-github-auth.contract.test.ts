@@ -2,8 +2,10 @@ import { execFileSync } from "node:child_process"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import Docker from "dockerode"
 import { expect, it } from "vitest"
+
 import { withNativeHttpsGitFixture } from "../../test/native-https-git-fixture.js"
 
 it(

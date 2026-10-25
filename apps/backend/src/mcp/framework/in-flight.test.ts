@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { MAX_IN_FLIGHT_PER_PRINCIPAL, withInFlightLimit } from "./in-flight.js"
 
 function gate() {

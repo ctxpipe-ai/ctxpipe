@@ -1,8 +1,9 @@
 import { z } from "zod"
+
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
-import { hydrateKnowledgeTree } from "../../domain/workspaces/hydrate.js"
 import { claimsUpgradeFiles } from "../../domain/workspaces/hydrate-write-jobs.js"
+import { hydrateKnowledgeTree } from "../../domain/workspaces/hydrate.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,

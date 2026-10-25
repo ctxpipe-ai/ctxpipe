@@ -11,7 +11,9 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { orgGateOptions } from "@/lib/org-gate"
+
 import { completeOnboarding } from "./complete-onboarding"
 
 const backend = "http://backend.test"

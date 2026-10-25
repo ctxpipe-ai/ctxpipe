@@ -12,6 +12,7 @@ import {
   uniqueIndex,
   vector,
 } from "drizzle-orm/pg-core"
+
 import type { WorkspaceUpgradePayload } from "../../domain/upgrades/registry.js"
 import type { UnbornBootstrapBinding } from "../../domain/workspaces/bootstrap-input.js"
 import type { ConnectorMirrorSource } from "../../domain/workspaces/connector-mirror.js"

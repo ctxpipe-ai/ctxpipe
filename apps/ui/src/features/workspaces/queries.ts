@@ -4,6 +4,7 @@ import {
   queryOptions,
 } from "@tanstack/react-query"
 import type { WorkspaceSourceChangeResult } from "backend/routes/v1/workspace-sources-contract"
+
 import type {
   ConversationDetail,
   ConversationListItem,
@@ -16,6 +17,7 @@ import {
   readApiJson,
   retryQuery,
 } from "@/lib/api-result"
+
 import {
   readConversationGitTreeSnapshot,
   writeConversationGitTreeSnapshot,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import {
   createTreeFileResolver,
   workspaceFilePath,
@@ -65,15 +66,12 @@ describe("workspaceFilePathFromHref", () => {
     expect(workspaceFilePathFromHref(href)).toBe("knowledge/x.md")
   })
 
-  it.each([
-    "#section",
-    "mailto:a@b.co",
-    "/etc/hosts",
-    "docs/",
-    "../x.md",
-  ])("returns null for %j", (href) => {
-    expect(workspaceFilePathFromHref(href)).toBeNull()
-  })
+  it.each(["#section", "mailto:a@b.co", "/etc/hosts", "docs/", "../x.md"])(
+    "returns null for %j",
+    (href) => {
+      expect(workspaceFilePathFromHref(href)).toBeNull()
+    },
+  )
 })
 
 describe("createTreeFileResolver", () => {

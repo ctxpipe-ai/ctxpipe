@@ -1,14 +1,15 @@
 import { z } from "zod"
+
 import { parseEnv } from "../../config/env.js"
-import {
-  BOOTSTRAP_SKILL_PATH,
-  bootstrapWorkspaceFiles,
-} from "../../domain/workspaces/bootstrap.js"
 import { unbornBootstrapBindingSchema } from "../../domain/workspaces/bootstrap-input.js"
 import {
   getUnbornBootstrapWorkspace,
   revisionHasCtxpipeContent,
 } from "../../domain/workspaces/bootstrap-unborn.js"
+import {
+  BOOTSTRAP_SKILL_PATH,
+  bootstrapWorkspaceFiles,
+} from "../../domain/workspaces/bootstrap.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {

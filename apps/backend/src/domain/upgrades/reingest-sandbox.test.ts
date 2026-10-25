@@ -1,6 +1,8 @@
 import { createServer } from "node:net"
+
 import Docker from "dockerode"
 import { describe, expect, it } from "vitest"
+
 import { dockerHostError } from "../workspaces/ingest-sandbox-egress.js"
 import { ingestSandboxUnavailable } from "./reingest.js"
 

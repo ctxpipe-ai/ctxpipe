@@ -1,37 +1,44 @@
-import { Duration } from "aws-cdk-lib";
-import * as ecs from "aws-cdk-lib/aws-ecs";
-import * as iam from "aws-cdk-lib/aws-iam";
-import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
-import { Construct } from "constructs";
-import { buildModelContainerConfig } from "../model-provider";
+import { Duration } from "aws-cdk-lib"
+import * as ecs from "aws-cdk-lib/aws-ecs"
+import * as iam from "aws-cdk-lib/aws-iam"
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
+import { Construct } from "constructs"
+
+import { buildModelContainerConfig } from "../model-provider"
 import type {
   TaskDefinitionsConstructProps,
   TaskDefinitionsResources,
-} from "./contracts";
-import { addSandboxHostClient } from "./sandbox-host-construct";
+} from "./contracts"
+import { addSandboxHostClient } from "./sandbox-host-construct"
 
 function otelExportEnvironment(
   endpoint: string,
   resourceAttributes: string | undefined,
   serviceName: string,
 ): Record<string, string> {
-  if (!endpoint) return {};
+  if (!endpoint) return {}
   return {
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: `${endpoint}/v1/traces`,
     OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: `${endpoint}/v1/logs`,
     OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: `${endpoint}/v1/metrics`,
-    ...(resourceAttributes ? { OTEL_RESOURCE_ATTRIBUTES: resourceAttributes } : {}),
+    ...(resourceAttributes
+      ? { OTEL_RESOURCE_ATTRIBUTES: resourceAttributes }
+      : {}),
     OTEL_SERVICE_NAME: serviceName,
-  };
+  }
 }
 
 export class TaskDefinitionsConstruct extends Construct {
-  public readonly resources: TaskDefinitionsResources;
+  public readonly resources: TaskDefinitionsResources
 
-  public constructor(scope: Construct, id: string, props: TaskDefinitionsConstructProps) {
-    super(scope, id);
+  public constructor(
+    scope: Construct,
+    id: string,
+    props: TaskDefinitionsConstructProps,
+  ) {
+    super(scope, id)
 
-    const appUrl = `https://${props.customDomain.domainName}`;
+    const appUrl = `https://${props.customDomain.domainName}`
     const modelContainerConfig = buildModelContainerConfig({
       ...props.resolvedModel,
       ...(props.secrets.modelProviderSecret
@@ -42,13 +49,14 @@ export class TaskDefinitionsConstruct extends Construct {
             },
           }
         : {}),
-    });
+    })
 
-    const otelEndpoint = props.otel?.endpoint.trim().replace(/\/+$/, "") ?? "";
+    const otelEndpoint = props.otel?.endpoint.trim().replace(/\/+$/, "") ?? ""
     if (props.otel && !otelEndpoint) {
-      throw new Error("otel.endpoint must be a non-blank OTLP/HTTP base URL");
+      throw new Error("otel.endpoint must be a non-blank OTLP/HTTP base URL")
     }
-    const otelResourceAttributes = props.otel?.resourceAttributes?.trim() || undefined;
+    const otelResourceAttributes =
+      props.otel?.resourceAttributes?.trim() || undefined
     const otelHeadersSecret =
       otelEndpoint && props.otel?.headers
         ? new secretsmanager.Secret(this, "OtelHeadersSecret", {
@@ -56,7 +64,7 @@ export class TaskDefinitionsConstruct extends Construct {
               OTEL_EXPORTER_OTLP_HEADERS: props.otel.headers,
             },
           })
-        : undefined;
+        : undefined
     const otelHeaderSecrets: Record<string, ecs.Secret> = otelHeadersSecret
       ? {
           OTEL_EXPORTER_OTLP_HEADERS: ecs.Secret.fromSecretsManager(
@@ -64,28 +72,39 @@ export class TaskDefinitionsConstruct extends Construct {
             "OTEL_EXPORTER_OTLP_HEADERS",
           ),
         }
-      : {};
+      : {}
 
     const backendTask = new ecs.FargateTaskDefinition(this, "BackendTask", {
       memoryLimitMiB: props.sizeProfile.tasks.backend.memoryLimitMiB,
       cpu: props.sizeProfile.tasks.backend.cpu,
-    });
+    })
     const workerTask = new ecs.FargateTaskDefinition(this, "WorkerTask", {
       memoryLimitMiB: props.sizeProfile.tasks.worker.memoryLimitMiB,
       cpu: props.sizeProfile.tasks.worker.cpu,
-    });
+    })
     const uiTask = new ecs.FargateTaskDefinition(this, "UiTask", {
       memoryLimitMiB: props.sizeProfile.tasks.ui.memoryLimitMiB,
       cpu: props.sizeProfile.tasks.ui.cpu,
-    });
-    const codesearchTask = new ecs.FargateTaskDefinition(this, "CodesearchTask", {
-      memoryLimitMiB: props.sizeProfile.tasks.codesearch.memoryLimitMiB,
-      cpu: props.sizeProfile.tasks.codesearch.cpu,
-    });
+    })
+    const codesearchTask = new ecs.FargateTaskDefinition(
+      this,
+      "CodesearchTask",
+      {
+        memoryLimitMiB: props.sizeProfile.tasks.codesearch.memoryLimitMiB,
+        cpu: props.sizeProfile.tasks.codesearch.cpu,
+      },
+    )
 
-    if (props.resolvedModel.kind === "bedrock" && props.resolvedModel.taskRolePolicy) {
-      backendTask.taskRole.addToPrincipalPolicy(props.resolvedModel.taskRolePolicy);
-      workerTask.taskRole.addToPrincipalPolicy(props.resolvedModel.taskRolePolicy);
+    if (
+      props.resolvedModel.kind === "bedrock" &&
+      props.resolvedModel.taskRolePolicy
+    ) {
+      backendTask.taskRole.addToPrincipalPolicy(
+        props.resolvedModel.taskRolePolicy,
+      )
+      workerTask.taskRole.addToPrincipalPolicy(
+        props.resolvedModel.taskRolePolicy,
+      )
     }
 
     codesearchTask.addVolume({
@@ -98,11 +117,14 @@ export class TaskDefinitionsConstruct extends Construct {
           iam: "ENABLED",
         },
       },
-    });
-    props.dataPlane.codesearchFileSystem.grantReadWrite(codesearchTask.taskRole);
+    })
+    props.dataPlane.codesearchFileSystem.grantReadWrite(codesearchTask.taskRole)
     codesearchTask.taskRole.addToPrincipalPolicy(
       new iam.PolicyStatement({
-        actions: ["elasticfilesystem:ClientMount", "elasticfilesystem:ClientWrite"],
+        actions: [
+          "elasticfilesystem:ClientMount",
+          "elasticfilesystem:ClientWrite",
+        ],
         resources: [props.dataPlane.codesearchFileSystem.fileSystemArn],
         conditions: {
           StringEquals: {
@@ -111,13 +133,13 @@ export class TaskDefinitionsConstruct extends Construct {
           },
         },
       }),
-    );
+    )
 
     // Pulled by the sandbox host's daemon on first chat; same release tag.
-    const chatSandboxImage = `ghcr.io/ctxpipe-ai/chat-sandbox:${props.defaultImageTag}`;
+    const chatSandboxImage = `ghcr.io/ctxpipe-ai/chat-sandbox:${props.defaultImageTag}`
     const backendImage = ecs.ContainerImage.fromRegistry(
       `ghcr.io/ctxpipe-ai/backend:${props.defaultImageTag}`,
-    );
+    )
     const backendContainer = backendTask.addContainer("backend", {
       image: backendImage,
       environment: {
@@ -132,10 +154,17 @@ export class TaskDefinitionsConstruct extends Construct {
         CODESEARCH_URL: "http://codesearch.ctxpipe.local:3001",
         SANDBOX_CHAT_IMAGE: chatSandboxImage,
         ...modelContainerConfig.environment,
-        ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "backend"),
+        ...otelExportEnvironment(
+          otelEndpoint,
+          otelResourceAttributes,
+          "backend",
+        ),
       },
       secrets: {
-        AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
+        AUTH_SECRET: ecs.Secret.fromSecretsManager(
+          props.secrets.authSecret,
+          "AUTH_SECRET",
+        ),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
           props.secrets.runtimeDatabaseUrlSecret,
           "DATABASE_URL",
@@ -154,11 +183,11 @@ export class TaskDefinitionsConstruct extends Construct {
       },
       portMappings: [{ containerPort: 3000 }],
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-backend" }),
-    });
+    })
 
     const workerImage = ecs.ContainerImage.fromRegistry(
       `ghcr.io/ctxpipe-ai/worker:${props.defaultImageTag}`,
-    );
+    )
     const workerContainer = workerTask.addContainer("worker", {
       image: workerImage,
       environment: {
@@ -178,10 +207,17 @@ export class TaskDefinitionsConstruct extends Construct {
         ),
         SANDBOX_CHAT_IMAGE: chatSandboxImage,
         ...modelContainerConfig.environment,
-        ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "openworkflow"),
+        ...otelExportEnvironment(
+          otelEndpoint,
+          otelResourceAttributes,
+          "openworkflow",
+        ),
       },
       secrets: {
-        AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
+        AUTH_SECRET: ecs.Secret.fromSecretsManager(
+          props.secrets.authSecret,
+          "AUTH_SECRET",
+        ),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
           props.secrets.runtimeDatabaseUrlSecret,
           "DATABASE_URL",
@@ -203,10 +239,20 @@ export class TaskDefinitionsConstruct extends Construct {
       // its step attempts stopped in this time, and its supervisor kills the
       // worker after 25 seconds.
       stopTimeout: Duration.seconds(30),
-    });
+    })
     if (props.sandboxHost) {
-      addSandboxHostClient(backendTask, backendContainer, backendImage, props.sandboxHost);
-      addSandboxHostClient(workerTask, workerContainer, workerImage, props.sandboxHost);
+      addSandboxHostClient(
+        backendTask,
+        backendContainer,
+        backendImage,
+        props.sandboxHost,
+      )
+      addSandboxHostClient(
+        workerTask,
+        workerContainer,
+        workerImage,
+        props.sandboxHost,
+      )
     }
 
     uiTask.addContainer("ui", {
@@ -223,7 +269,7 @@ export class TaskDefinitionsConstruct extends Construct {
       ...(otelHeadersSecret ? { secrets: otelHeaderSecrets } : {}),
       portMappings: [{ containerPort: 3002 }],
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-ui" }),
-    });
+    })
 
     // Must match EFS access point posixUser in data-plane-construct (uid/gid 1000).
     // Git refuses repo-cache checkouts when process UID differs from directory owner.
@@ -243,10 +289,17 @@ export class TaskDefinitionsConstruct extends Construct {
         CODESEARCH_INDEX_PIPELINE_CONCURRENCY: String(
           props.sizeProfile.concurrency.codesearchIndexPipelineConcurrency,
         ),
-        ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "codesearch"),
+        ...otelExportEnvironment(
+          otelEndpoint,
+          otelResourceAttributes,
+          "codesearch",
+        ),
       },
       secrets: {
-        AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
+        AUTH_SECRET: ecs.Secret.fromSecretsManager(
+          props.secrets.authSecret,
+          "AUTH_SECRET",
+        ),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
           props.secrets.runtimeDatabaseUrlSecret,
           "DATABASE_URL",
@@ -255,24 +308,27 @@ export class TaskDefinitionsConstruct extends Construct {
       },
       portMappings: [{ containerPort: 3001 }],
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-codesearch" }),
-    });
+    })
     codesearchContainer.addMountPoints({
       sourceVolume: "codesearch-data",
       containerPath: "/data",
       readOnly: false,
-    });
+    })
 
     const migrateTask = new ecs.FargateTaskDefinition(this, "MigrateTask", {
       memoryLimitMiB: props.sizeProfile.tasks.migrate.memoryLimitMiB,
       cpu: props.sizeProfile.tasks.migrate.cpu,
-    });
+    })
     migrateTask.addContainer("migrate", {
       image: ecs.ContainerImage.fromRegistry(
         `ghcr.io/ctxpipe-ai/backend:${props.defaultImageTag}`,
       ),
       command: ["bun", "run", "apps/backend/src/db/migrate.ts"],
       secrets: {
-        AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
+        AUTH_SECRET: ecs.Secret.fromSecretsManager(
+          props.secrets.authSecret,
+          "AUTH_SECRET",
+        ),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
           props.secrets.databaseUrlSecret,
           "DATABASE_URL",
@@ -283,7 +339,7 @@ export class TaskDefinitionsConstruct extends Construct {
         ),
       },
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-migrate" }),
-    });
+    })
 
     this.grantTaskSecrets(backendTask, [
       props.secrets.authSecret,
@@ -292,7 +348,7 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
       otelHeadersSecret,
-    ]);
+    ])
     this.grantTaskSecrets(workerTask, [
       props.secrets.authSecret,
       props.secrets.runtimeDatabaseUrlSecret,
@@ -300,18 +356,18 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
       otelHeadersSecret,
-    ]);
+    ])
     this.grantTaskSecrets(codesearchTask, [
       props.secrets.authSecret,
       props.secrets.runtimeDatabaseUrlSecret,
       otelHeadersSecret,
-    ]);
-    this.grantTaskSecrets(uiTask, [otelHeadersSecret]);
+    ])
+    this.grantTaskSecrets(uiTask, [otelHeadersSecret])
     this.grantTaskSecrets(migrateTask, [
       props.secrets.authSecret,
       props.secrets.databaseUrlSecret,
       props.secrets.appDatabaseCredentialsSecret,
-    ]);
+    ])
 
     this.resources = {
       backendTask,
@@ -319,7 +375,7 @@ export class TaskDefinitionsConstruct extends Construct {
       uiTask,
       codesearchTask,
       migrateTask,
-    };
+    }
   }
 
   private grantTaskSecrets(
@@ -328,13 +384,13 @@ export class TaskDefinitionsConstruct extends Construct {
   ): void {
     const principals = [task.taskRole, task.executionRole].filter(
       (role): role is iam.IRole => role !== undefined,
-    );
+    )
     for (const secret of secrets) {
       if (!secret) {
-        continue;
+        continue
       }
       for (const principal of principals) {
-        secret.grantRead(principal);
+        secret.grantRead(principal)
       }
     }
   }

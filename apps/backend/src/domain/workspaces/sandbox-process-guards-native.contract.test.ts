@@ -1,6 +1,7 @@
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { expect, it } from "vitest"
+
 import { workspaceChatDockerImage } from "./chat-runtime.js"
 import { stopEarlierTurnProcesses } from "./sandbox-process-guards.js"
 

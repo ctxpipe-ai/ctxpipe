@@ -9,13 +9,7 @@ const REASONING_EFFORT_VALUES = [
   "xhigh",
 ] as const
 
-const VERBOSITY_VALUES = [
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-] as const
+const VERBOSITY_VALUES = ["low", "medium", "high", "xhigh", "max"] as const
 
 const reasoningParamsSchema = z
   .object({

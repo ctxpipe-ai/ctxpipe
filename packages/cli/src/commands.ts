@@ -1,5 +1,7 @@
 import { stdin as input, stdout as output } from "node:process"
+
 import { intro, log, note, outro, tasks } from "@clack/prompts"
+
 import {
   fetchSession,
   loginWithDeviceFlow,

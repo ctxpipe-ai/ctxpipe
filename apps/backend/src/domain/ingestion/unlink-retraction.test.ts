@@ -2,8 +2,10 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { afterEach, describe, expect, it } from "vitest"
 import { parse, stringify } from "yaml"
+
 import { captureGitPack } from "../../services/git/pack.js"
 import { planUnlinkRetraction } from "./unlink-retraction.js"
 

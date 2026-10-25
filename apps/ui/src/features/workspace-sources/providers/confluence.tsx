@@ -3,9 +3,11 @@ import {
   confluenceSourceScopeSchema,
 } from "backend/domain/workspace-sources/providers/confluence"
 import { useState } from "react"
+
 import { ConfluenceMark } from "@/features/connectors/components/ConfluenceMark"
 import { SpacePageTree } from "@/features/connectors/SpacePageTree"
 import type { SpaceScopeItem } from "@/features/connectors/types"
+
 import type {
   SourceProviderUi,
   SourceScopeEditorProps,

@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
+
 import type { Hono } from "hono"
+
 import type { AppEnv } from "../app/env.js"
 import {
   getMcpBrandLogoAbsolutePath,

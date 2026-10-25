@@ -142,9 +142,8 @@ describe("API-key client", () => {
       key: readonly string[],
       run: () => Promise<unknown>,
     ) {
-      const { createHyperDxQueryClient } = await import(
-        "@/lib/hyperdxQueryErrors"
-      )
+      const { createHyperDxQueryClient } =
+        await import("@/lib/hyperdxQueryErrors")
       const client = createHyperDxQueryClient()
       const mutation = client.getMutationCache().build(client, {
         mutationKey: key,
@@ -230,9 +229,8 @@ describe("API-key client", () => {
     })
 
     it("records api_key_create with the key id, the owner and the org set size, and never the secret", async () => {
-      const { createOrganizationApiKey, createPersonalApiKey } = await import(
-        "./organizationApiKeys"
-      )
+      const { createOrganizationApiKey, createPersonalApiKey } =
+        await import("./organizationApiKeys")
       fetchMock
         .mockResolvedValueOnce(
           jsonResponse({ id: "key_personal", key: "SECRET_PERSONAL" }),
@@ -283,9 +281,8 @@ describe("API-key client", () => {
     })
 
     it("records api_key_revoke with the key id and the owner", async () => {
-      const { deleteOrganizationApiKey, deletePersonalApiKey } = await import(
-        "./organizationApiKeys"
-      )
+      const { deleteOrganizationApiKey, deletePersonalApiKey } =
+        await import("./organizationApiKeys")
       fetchMock.mockImplementation(async () => jsonResponse({ success: true }))
 
       await deletePersonalApiKey("key_personal")

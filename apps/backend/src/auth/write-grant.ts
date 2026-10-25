@@ -1,5 +1,6 @@
 import { type RouteConfig, z } from "@hono/zod-openapi"
 import type { MiddlewareHandler } from "hono"
+
 import type { AppEnv } from "../app/env.js"
 import { MCP_SCOPES, MCP_WRITE_SCOPE, quoteHeaderValue } from "./mcp-scopes.js"
 

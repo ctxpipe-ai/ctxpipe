@@ -7,6 +7,7 @@ import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
 import * as ses from "aws-cdk-lib/aws-ses"
 import * as cr from "aws-cdk-lib/custom-resources"
 import { Construct } from "constructs"
+
 import type { SecretsConstructProps, SecretsResources } from "./contracts"
 
 export class SecretsConstruct extends Construct {

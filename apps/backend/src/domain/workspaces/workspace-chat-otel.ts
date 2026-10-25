@@ -7,6 +7,7 @@ import {
   trace,
 } from "@opentelemetry/api"
 import { otelMiddleware } from "@tanstack/ai/middlewares/otel"
+
 import {
   contextWithAttributionBag,
   readAttribution,

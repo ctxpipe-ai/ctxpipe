@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm"
+
 import { getSystemDb } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 

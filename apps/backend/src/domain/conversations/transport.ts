@@ -2,6 +2,7 @@ import {
   chatParamsFromRequestBody,
   modelMessagesToUIMessages,
 } from "@tanstack/ai"
+
 import { loadConversationTurns } from "../../models/conversation-messages.js"
 import { log } from "../../observability/logger.js"
 import { stoppingSandboxWhenDone } from "../workspaces/conversation-sandbox-lifecycle.js"
@@ -72,8 +73,8 @@ export function workspaceChatStreamReady(input: {
 }): boolean {
   return Boolean(
     input.workspaceId?.trim() &&
-      input.orgId?.trim() &&
-      input.desiredUrl?.trim(),
+    input.orgId?.trim() &&
+    input.desiredUrl?.trim(),
   )
 }
 

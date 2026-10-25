@@ -53,6 +53,7 @@ vi.mock("../routes/webhooks.js", () => ({
 }))
 
 import { createAuthMiddleware } from "evlog/better-auth"
+
 import { betterAuthIdentifyExclude, createApp } from "./app.js"
 
 const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"

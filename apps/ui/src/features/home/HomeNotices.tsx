@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useRef, useState } from "react"
 import { Button as RACButton } from "react-aria-components"
 import { toast } from "sonner"
+
 import { Button } from "@/components/ui/Button"
 import { ToastStack } from "@/components/ui/ToastStack"
 import { workspaceUpgradesHref } from "@/features/workspace-upgrades/format-gate"
@@ -39,6 +40,7 @@ import {
 } from "@/lib/user-preferences"
 import { useViewTransitionValue } from "@/lib/useViewTransitionValue"
 import { cn } from "@/lib/utils"
+
 import { useHomeNotices } from "./use-home-notices"
 
 /**

@@ -9,9 +9,11 @@ import {
 import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { isDeepStrictEqual } from "node:util"
+
 import { fromMarkdown } from "mdast-util-from-markdown"
 import { parseDocument, stringify, type YAMLSeq } from "yaml"
 import { z } from "zod"
+
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { isHostOnlyPath } from "../workspaces/host-only.js"
 import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
@@ -1688,7 +1690,7 @@ function codeSpans(
     later.set(length, k)
   }
   const spans: Array<{ start: number; end: number; text: string }> = []
-  for (let k = 0; k < runs.length; ) {
+  for (let k = 0; k < runs.length;) {
     const open = runs[k]
     const close = runs[next[k] ?? -1]
     if (!open || !close) {

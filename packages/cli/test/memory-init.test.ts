@@ -1,8 +1,15 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { describe, expect, it } from "vitest"
 
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
@@ -31,9 +38,9 @@ describe("memory init (end-to-end)", () => {
     expect(existsSync(join(cwd, ".ai", "memory", "lessons-learned.md"))).toBe(
       true,
     )
-    expect(existsSync(join(cwd, ".ai", "memory", "decisions", "index.md"))).toBe(
-      true,
-    )
+    expect(
+      existsSync(join(cwd, ".ai", "memory", "decisions", "index.md")),
+    ).toBe(true)
     expect(existsSync(join(cwd, ".ai", "memory", "events", ".gitkeep"))).toBe(
       true,
     )
@@ -88,11 +95,7 @@ describe("memory init (end-to-end)", () => {
   it("installs Claude project hooks under .claude/settings.json for repo scope", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-claude-"))
     const home = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-home-"))
-    runMemoryInit(
-      cwd,
-      ["--agents", "claude", "--non-interactive"],
-      home,
-    )
+    runMemoryInit(cwd, ["--agents", "claude", "--non-interactive"], home)
     expect(existsSync(join(home, ".claude", "settings.json"))).toBe(false)
     const settings = JSON.parse(
       readFileSync(join(cwd, ".claude", "settings.json"), "utf8"),
@@ -240,17 +243,15 @@ describe("memory init (end-to-end)", () => {
       "ctxpipe-memory-capture",
     )
 
-    expect(
-      existsSync(join(cwd, ".opencode", "memory-capture.md")),
-    ).toBe(true)
+    expect(existsSync(join(cwd, ".opencode", "memory-capture.md"))).toBe(true)
     const opencode = JSON.parse(
       readFileSync(join(cwd, "opencode.json"), "utf8"),
     ) as { instructions?: string[] }
     expect(opencode.instructions).toContain(".opencode/memory-capture.md")
 
-    expect(
-      existsSync(join(cwd, ".github", "copilot-instructions.md")),
-    ).toBe(true)
+    expect(existsSync(join(cwd, ".github", "copilot-instructions.md"))).toBe(
+      true,
+    )
     const vscodeModular = join(
       cwd,
       ".github",
@@ -261,7 +262,10 @@ describe("memory init (end-to-end)", () => {
     expect(readFileSync(vscodeModular, "utf8")).toMatch(/applyTo:\s*"\*\*"/)
 
     const vscodeHooks = JSON.parse(
-      readFileSync(join(cwd, ".github", "hooks", "ctxpipe-memory.json"), "utf8"),
+      readFileSync(
+        join(cwd, ".github", "hooks", "ctxpipe-memory.json"),
+        "utf8",
+      ),
     ) as { hooks: Record<string, Array<{ type: string; command: string }>> }
     expect(vscodeHooks.hooks.UserPromptSubmit?.[0]?.command).toMatch(
       /memory capture observe --host vscode --event UserPromptSubmit/,
@@ -271,7 +275,10 @@ describe("memory init (end-to-end)", () => {
     )
 
     expect(
-      readFileSync(join(cwd, ".opencode", "plugins", "ctxpipe-memory.js"), "utf8"),
+      readFileSync(
+        join(cwd, ".opencode", "plugins", "ctxpipe-memory.js"),
+        "utf8",
+      ),
     ).toContain("session.idle")
   })
 
@@ -283,9 +290,9 @@ describe("memory init (end-to-end)", () => {
       ["--agents", "vscode,opencode", "--scope", "user", "--non-interactive"],
       home,
     )
-    expect(
-      existsSync(join(home, ".copilot", "copilot-instructions.md")),
-    ).toBe(true)
+    expect(existsSync(join(home, ".copilot", "copilot-instructions.md"))).toBe(
+      true,
+    )
     expect(
       readFileSync(join(home, ".copilot", "copilot-instructions.md"), "utf8"),
     ).toMatch(/--host vscode/)
@@ -383,7 +390,9 @@ describe("memory init (end-to-end)", () => {
   it("upgrades a legacy fixture: strips ctxpipe-memory, migrates patterns, removes retired skills", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-upgrade-"))
     const home = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-upgrade-home-"))
-    mkdirSync(join(cwd, ".cursor", "skills", "memory-sync"), { recursive: true })
+    mkdirSync(join(cwd, ".cursor", "skills", "memory-sync"), {
+      recursive: true,
+    })
     mkdirSync(join(cwd, ".cursor", "rules"), { recursive: true })
     mkdirSync(join(cwd, ".ai", "memory", "decisions"), { recursive: true })
     mkdirSync(join(cwd, ".vscode"), { recursive: true })
@@ -561,7 +570,10 @@ enabled = true
     expect(userCodexToml).not.toContain("ctxpipe-memory")
     expect(userCodexToml).toContain("[other]")
     // Repo-scope init installs Codex hooks under the workspace, not only $HOME.
-    const repoCodexToml = readFileSync(join(cwd, ".codex", "config.toml"), "utf8")
+    const repoCodexToml = readFileSync(
+      join(cwd, ".codex", "config.toml"),
+      "utf8",
+    )
     expect(repoCodexToml).toContain("ctxpipe memory capture")
   })
 

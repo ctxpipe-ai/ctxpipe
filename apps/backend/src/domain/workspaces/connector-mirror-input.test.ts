@@ -1,4 +1,5 @@
 import { expect, it } from "vitest"
+
 import { connectorMirrorContentSchema } from "./connector-mirror-input.js"
 
 const source = {

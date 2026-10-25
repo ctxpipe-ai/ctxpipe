@@ -10,6 +10,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { Route } from "@/routes/[.]otel.v1.$signal"
 
 type Captured = {

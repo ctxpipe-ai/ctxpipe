@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { buildForgeAppManifestYml, forgeAppIdToAri } from "./forge-app-manifest"
 
 const exampleOrigin = "https://app.example.com"

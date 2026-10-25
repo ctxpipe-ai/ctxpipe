@@ -7,6 +7,7 @@ import {
 } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
+
 import { Checkbox } from "@/components/ui/Checkbox"
 import {
   Skeleton,
@@ -14,6 +15,7 @@ import {
   SkeletonText,
   useSkeletonHold,
 } from "@/components/ui/Skeleton"
+
 import {
   fetchAtlassianSpacePages,
   fetchAtlassianSpaces,

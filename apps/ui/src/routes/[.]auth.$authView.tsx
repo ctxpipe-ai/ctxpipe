@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import type { FormEvent } from "react"
 import { useEffect, useMemo, useRef, useState } from "react"
+
 import { Button } from "@/components/ui/Button"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { Spinner } from "@/components/ui/spinner"
@@ -11,8 +12,6 @@ import {
   betterAuthAuthViewClassNames,
   betterAuthEmailPlaceholder,
 } from "@/features/auth/betterAuthShellClassNames"
-import { InviteAcceptErrorNotice } from "@/features/auth/InviteAcceptErrorNotice"
-import { InviteWrongAccountNotice } from "@/features/auth/InviteWrongAccountNotice"
 import {
   decideInviteAccept,
   inviteSignInHref,
@@ -22,6 +21,8 @@ import {
   type InviteAcceptError,
   inviteAcceptError,
 } from "@/features/auth/invite-accept-error"
+import { InviteAcceptErrorNotice } from "@/features/auth/InviteAcceptErrorNotice"
+import { InviteWrongAccountNotice } from "@/features/auth/InviteWrongAccountNotice"
 import { apiFetch, readApiJson, retryQuery } from "@/lib/api-result"
 import { authClient, useSession } from "@/lib/auth-client"
 import { getAuthContinuationProps } from "@/lib/auth-continuation"

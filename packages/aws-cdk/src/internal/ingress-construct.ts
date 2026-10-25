@@ -1,14 +1,19 @@
-import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
-import * as route53 from "aws-cdk-lib/aws-route53";
-import * as route53Targets from "aws-cdk-lib/aws-route53-targets";
-import { Construct } from "constructs";
-import type { IngressConstructProps, IngressResources } from "./contracts";
+import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2"
+import * as route53 from "aws-cdk-lib/aws-route53"
+import * as route53Targets from "aws-cdk-lib/aws-route53-targets"
+import { Construct } from "constructs"
+
+import type { IngressConstructProps, IngressResources } from "./contracts"
 
 export class IngressConstruct extends Construct {
-  public readonly resources: IngressResources;
+  public readonly resources: IngressResources
 
-  public constructor(scope: Construct, id: string, props: IngressConstructProps) {
-    super(scope, id);
+  public constructor(
+    scope: Construct,
+    id: string,
+    props: IngressConstructProps,
+  ) {
+    super(scope, id)
 
     const httpsListener = props.networking.alb.addListener("HttpsListener", {
       port: 443,
@@ -16,7 +21,7 @@ export class IngressConstruct extends Construct {
       sslPolicy: elbv2.SslPolicy.RECOMMENDED_TLS,
       open: true,
       certificates: [props.customDomain.certificate],
-    });
+    })
     httpsListener.addTargets("BackendHttpsTarget", {
       targets: [
         props.backendService.loadBalancerTarget({
@@ -30,7 +35,7 @@ export class IngressConstruct extends Construct {
         path: "/.status",
         healthyHttpCodes: "200-399",
       },
-    });
+    })
 
     props.networking.httpListener.addAction("HttpRedirect", {
       action: elbv2.ListenerAction.redirect({
@@ -38,30 +43,30 @@ export class IngressConstruct extends Construct {
         port: "443",
         permanent: true,
       }),
-    });
+    })
 
     // Trailing dot makes the record name an FQDN so CDK does not append
     // `zone.zoneName` to it. This lets callers import the hosted zone with
     // only its ID (e.g. `HostedZone.fromHostedZoneId(...)`), where
     // `zoneName` is an unresolved token.
-    const fqdnRecordName = `${props.customDomain.domainName}.`;
+    const fqdnRecordName = `${props.customDomain.domainName}.`
     new route53.ARecord(this, "AlbAliasA", {
       zone: props.customDomain.hostedZone,
       recordName: fqdnRecordName,
       target: route53.RecordTarget.fromAlias(
         new route53Targets.LoadBalancerTarget(props.networking.alb),
       ),
-    });
+    })
     new route53.AaaaRecord(this, "AlbAliasAaaa", {
       zone: props.customDomain.hostedZone,
       recordName: fqdnRecordName,
       target: route53.RecordTarget.fromAlias(
         new route53Targets.LoadBalancerTarget(props.networking.alb),
       ),
-    });
+    })
 
     this.resources = {
       appUrl: `https://${props.customDomain.domainName}`,
-    };
+    }
   }
 }

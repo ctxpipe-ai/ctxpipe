@@ -4,9 +4,11 @@ import { scaleBand } from "@tanstack/charts/scales/band"
 import { scaleOrdinal } from "@tanstack/charts/scales/ordinal"
 import { tooltip } from "@tanstack/charts/tooltip"
 import { useMemo } from "react"
+
 import { Skeleton } from "@/components/ui/Skeleton"
 import type { WorkspaceActivityDay } from "@/features/workspaces/types"
 import { cn } from "@/lib/utils"
+
 import {
   CALENDAR_WEEKDAYS,
   COMMIT_LEVEL_COLORS,

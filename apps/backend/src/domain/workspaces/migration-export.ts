@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto"
+
 import { isAlias, isMap, isSeq, stringify as stringifyYaml } from "yaml"
+
 import { SourceChangeError } from "../workspace-sources/edit.js"
 import { linkGithubRepositories } from "../workspace-sources/github-links.js"
 import { githubSourceRepositories } from "../workspace-sources/github-sources.js"

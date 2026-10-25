@@ -2,6 +2,7 @@ import { metrics, ProxyTracerProvider, trace } from "@opentelemetry/api"
 import { MeterProvider } from "@opentelemetry/sdk-metrics"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import {
   codesearchDeploymentEnvironment,
   codesearchResource,

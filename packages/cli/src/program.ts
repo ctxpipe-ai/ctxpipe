@@ -1,4 +1,5 @@
 import { Command, Option } from "commander"
+
 import {
   runAuthLogin,
   runAuthLogout,

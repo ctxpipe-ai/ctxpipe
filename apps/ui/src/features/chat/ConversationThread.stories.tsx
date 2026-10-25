@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import type { ChatMessage } from "@/features/chat/types"
 import { ConversationSyncEntry } from "@/features/workspaces/ConversationSyncEntry"
 import { ConversationTurnChangesCard } from "@/features/workspaces/ConversationTurnChangesCard"
@@ -16,6 +17,7 @@ import {
   thoughtsBetweenToolsMessages,
 } from "@/features/workspaces/workspace-fixtures"
 import { createTreeFileResolver } from "@/lib/workspace-file-path"
+
 import { ConversationThread } from "./ConversationThread"
 
 const meta = {

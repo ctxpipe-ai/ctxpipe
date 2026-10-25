@@ -90,8 +90,4 @@ export async function refetchSessionOnboardingComplete(): Promise<boolean> {
   return Boolean(data?.user?.onboardingCompletedAt)
 }
 
-export const {
-  useSession,
-  getSession,
-  useListOrganizations,
-} = authClient
+export const { useSession, getSession, useListOrganizations } = authClient

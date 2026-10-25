@@ -1,5 +1,6 @@
 import { queryOptions, useQuery } from "@tanstack/react-query"
 import type { InferResponseType } from "hono/client"
+
 import type { UpgradeProgress } from "@/features/workspace-upgrades/upgrade-progress"
 import { type client, getApiClient } from "@/lib/api"
 import { pollWhileOk, readApiJson } from "@/lib/api-result"

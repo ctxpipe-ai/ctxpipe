@@ -5,6 +5,7 @@ import { type AddressInfo, createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+
 import type { AgentVaultAccess } from "../domain/workspaces/agent-vault.js"
 
 const exec = promisify(execFile)

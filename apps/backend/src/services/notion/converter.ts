@@ -1,5 +1,7 @@
 import { extname, posix } from "node:path"
+
 import slugify from "@sindresorhus/slugify"
+
 import {
   isConnectorAssetCredentialUrl,
   sanitizeConnectorAssetName,

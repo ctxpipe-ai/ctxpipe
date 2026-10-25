@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+
 import { registerMcpReadTools } from "./framework/tool-registry.js"
 import { registerWorkspaceFileResource } from "./resources/workspace-file.js"
 import { findSymbolTool } from "./tools/find-symbol.js"

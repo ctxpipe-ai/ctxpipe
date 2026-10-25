@@ -1,5 +1,6 @@
 import type { Attributes } from "@opentelemetry/api"
 import type { Workflow } from "openworkflow"
+
 import { parseEnv } from "../../config/env.js"
 import {
   collectRepositoryCheckouts,
@@ -407,16 +408,14 @@ export function defineRepositoryIngestionV2Workflow(
           source,
           destinations,
         })
-        const first = destinations.map(
-          (d): IngestionShardWorkspace => ({
-            workspaceId: d.workspaceId,
-            tip: null,
-            ops: 0,
-            rejects: 0,
-            partial: 0,
-            partialRoots: [],
-          }),
-        )
+        const first = destinations.map((d): IngestionShardWorkspace => ({
+          workspaceId: d.workspaceId,
+          tip: null,
+          ops: 0,
+          rejects: 0,
+          partial: 0,
+          partialRoots: [],
+        }))
         for (const skill of plannedIngestSkills(bundle.skills, "first"))
           for (const [i, destination] of destinations.entries()) {
             const state = first[i]

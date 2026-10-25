@@ -3,6 +3,7 @@ import { createAuthMiddleware } from "better-auth/api"
 import { deleteSessionCookie } from "better-auth/cookies"
 import { symmetricDecrypt } from "better-auth/crypto"
 import type { Jwk } from "better-auth/plugins"
+
 import { log } from "../observability/logger.js"
 
 /** Keys that this process already logged as not usable, to log each once. */

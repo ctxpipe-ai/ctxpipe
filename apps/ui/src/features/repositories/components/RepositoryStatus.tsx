@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+
 import {
   Tooltip,
   TooltipContent,
@@ -6,6 +7,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
 import { formatDate } from "@/lib/format"
+
 import { formatShortCommitHash, type RepositoryStatusDisplay } from "../types"
 
 export type RepositoryStatusState = RepositoryStatusDisplay | "pending-indexing"

@@ -9,7 +9,9 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { dirname, join } from "node:path"
+
 import { and, eq } from "drizzle-orm"
+
 import type { CheckedPlainGitRemote } from "../../../../../shared/plain-git.js"
 import { ZOEKT_INDEX_DIR } from "../../config/paths.js"
 import {

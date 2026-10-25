@@ -1,5 +1,6 @@
 import { chat } from "@tanstack/ai"
 import type { PermissionHandler } from "@tanstack/ai-opencode"
+
 import { WRITE_STATUS_REASONS } from "./write-status.js"
 
 export const CHAT_PERMISSION_MODE = "acceptEdits" as const
@@ -355,9 +356,8 @@ export async function judgeChatToolWithFastModel(
   if (argsExcerpt.length > CHAT_JUDGE_EXCERPT_LIMIT) return "deny"
   let deadline: ReturnType<typeof setTimeout> | undefined
   try {
-    const { getModel } = await import(
-      "../../retrieval/services/modelProvider.js"
-    )
+    const { getModel } =
+      await import("../../retrieval/services/modelProvider.js")
     const model = getModel("fast", { name: "workspace.chat-tool-judge" })
     // The handler stops waiting after 10 s. This abort also stops the call.
     const cancellation = new AbortController()

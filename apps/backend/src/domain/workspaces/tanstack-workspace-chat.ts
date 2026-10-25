@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { createServer } from "node:net"
+
 import {
   type ChatMiddleware,
   chat,
@@ -26,6 +27,7 @@ import {
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq } from "drizzle-orm"
+
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
@@ -480,9 +482,8 @@ async function saveConversationTitle(
  */
 async function scheduleIdleStop(orgId: string, usedAt: Date): Promise<void> {
   try {
-    const { scheduleIdleSandboxStop } = await import(
-      "../../openworkflow/workflows/conversation-sandbox-sweep.js"
-    )
+    const { scheduleIdleSandboxStop } =
+      await import("../../openworkflow/workflows/conversation-sandbox-sweep.js")
     await scheduleIdleSandboxStop(orgId, usedAt)
   } catch (error) {
     // The worker-start backstop restarts a lost sweep.
@@ -503,9 +504,8 @@ async function requestBaseBuild(
   workspaceId: string,
 ): Promise<void> {
   try {
-    const { requestWorkspaceSandboxBase } = await import(
-      "../../openworkflow/workflows/workspace-sandbox-base.js"
-    )
+    const { requestWorkspaceSandboxBase } =
+      await import("../../openworkflow/workflows/workspace-sandbox-base.js")
     await requestWorkspaceSandboxBase(orgId, workspaceId)
   } catch (error) {
     // The next new conversation asks again.

@@ -5,6 +5,7 @@ import {
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { modelMessagesToUIMessages, type StreamChunk } from "@tanstack/ai"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
+
 import { workspaceChatPersistence } from "../../domain/workspaces/workspace-chat-persistence.js"
 import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"

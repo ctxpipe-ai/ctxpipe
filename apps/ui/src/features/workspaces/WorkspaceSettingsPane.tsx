@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router"
 import { type ReactNode, useEffect, useRef, useState } from "react"
 import { Heading, Link } from "react-aria-components"
 import { toast } from "sonner"
+
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -18,6 +19,7 @@ import { WORKSPACE_UPGRADES_HASH } from "@/features/workspace-upgrades/queries"
 import { WorkspaceUpgrades } from "@/features/workspace-upgrades/WorkspaceUpgrades"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+
 import { writeCheckInFlight } from "./projection"
 import {
   checkWorkspaceWriteAccess,
@@ -27,19 +29,19 @@ import {
   workspaceKeys,
 } from "./queries"
 import { normalizeRootFolder, rootFolderError } from "./rootFolder"
-import { StatusTag } from "./StatusTag"
 import {
   skippedFileCopy,
   skippedFileFixable,
   skippedFilesFixPrompt,
 } from "./skipped-files"
+import { StatusTag } from "./StatusTag"
 import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
+import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
 import {
   type WorkspaceRepositoryChoice,
   WorkspaceRepositoryPicker,
 } from "./WorkspaceRepositoryPicker"
 import { WorkspaceRootFolderField } from "./WorkspaceRootFolderField"
-import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
 import { useWriteCheckStall } from "./writeCheckStall"
 import { writeStatusLabel } from "./writeStatusLabel"
 

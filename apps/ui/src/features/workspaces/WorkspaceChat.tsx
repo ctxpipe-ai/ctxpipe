@@ -5,6 +5,7 @@ import {
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { type ReactNode, useEffect, useState } from "react"
+
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
 import { SkeletonSuspense, SkeletonText } from "@/components/ui/Skeleton"
@@ -13,6 +14,7 @@ import { chatDraftKey } from "@/features/chat/chat-draft"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import { cn } from "@/lib/utils"
+
 import { type ParsedPane, paneSearchForOtherConversation } from "./pane"
 import {
   workspaceChatPrepareOptions,
@@ -25,9 +27,9 @@ import {
 } from "./start-workspace-conversation-ui"
 import type { Workspace } from "./types"
 import type { ConversationPublish } from "./useWorkspaceConversationPublish"
+import { workspaceSuggestions } from "./workspace-suggestions"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { WorkspaceChatSession } from "./WorkspaceChatSession"
-import { workspaceSuggestions } from "./workspace-suggestions"
 
 export function WorkspaceChat(props: {
   orgSlug: string

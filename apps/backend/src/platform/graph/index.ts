@@ -1,3 +1,1 @@
-export {
-  closeGraphDb as shutdownGraphClients,
-} from "./client.js"
+export { closeGraphDb as shutdownGraphClients } from "./client.js"

@@ -1,10 +1,12 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { expect, it } from "vitest"
+
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
@@ -64,12 +66,10 @@ async function withSearchProjection(
     REPO_CACHE_DIR: join(directory, "repos"),
   })
   const { createApp } = await import("../../../../codesearch/src/app/app.js")
-  const { unpinRepo } = await import(
-    "../../../../codesearch/src/domain/zoekt/pinManager.js"
-  )
-  const { zoektRepositoryName } = await import(
-    "../../../../codesearch/src/domain/zoekt/shardPrefix.js"
-  )
+  const { unpinRepo } =
+    await import("../../../../codesearch/src/domain/zoekt/pinManager.js")
+  const { zoektRepositoryName } =
+    await import("../../../../codesearch/src/domain/zoekt/shardPrefix.js")
   const app = createApp({
     DATABASE_URL: databaseUrl,
     AUTH_SECRET: parseEnv(process.env).AUTH_SECRET,

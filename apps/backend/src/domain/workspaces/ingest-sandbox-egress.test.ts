@@ -1,6 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto"
+
 import type { NetworkPolicy } from "@vercel/sandbox"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import { INGEST_SHARD_LIMIT_MS } from "./chat-lifecycle.js"
 import { openIngestEgressScope } from "./ingest-egress-proxy.js"
 import {

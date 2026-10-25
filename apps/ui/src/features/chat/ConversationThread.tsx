@@ -8,6 +8,7 @@ import {
 } from "react"
 import { Button as AriaButton } from "react-aria-components"
 import { useStickToBottomContext } from "use-stick-to-bottom"
+
 import {
   Conversation,
   ConversationContent,
@@ -32,6 +33,7 @@ import {
 import type { ChatMessage, ChatStatus } from "@/features/chat/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+
 import { chatColumnClassName, chatUserBubbleClassName } from "./chat-column"
 
 const HIDDEN_DATA_PARTS = new Set(["data-rename-conversation", "data-kg-focus"])

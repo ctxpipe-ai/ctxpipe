@@ -1,8 +1,10 @@
 import nodeHttp from "node:http"
+
 import Docker from "dockerode"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { expect, it } from "vitest"
+
 import { listenWithDockerOutsideMsw } from "./docker-outside-msw.js"
 
 it("sends Docker API requests to the daemon and other requests to msw", async () => {

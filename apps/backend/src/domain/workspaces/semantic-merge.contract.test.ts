@@ -1,5 +1,6 @@
 import { HttpResponse, http } from "msw"
 import { afterEach, expect, it, vi } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import { classifyUnkeyedKnowledgeCollision } from "./dest-workspace-first.js"
 import { resolveSemanticConflicts } from "./semantic-merge.js"
@@ -114,20 +115,23 @@ it("rejects a resolution that adds a path outside the conflicts", async () => {
 it.each([
   ["merge", "merge"],
   ["new_name", "new_name"],
-] as const)("classifies a collision as %s through the fast tier", async (decision, expected) => {
-  configureModel()
-  const requests: Record<string, unknown>[] = []
-  replyWithToolCall({ decision }, requests)
-  await expect(
-    classifyUnkeyedKnowledgeCollision({
-      existingPath: "knowledge/a.md",
-      incomingPath: "knowledge/a.md",
-      existingExcerpt: "one",
-      incomingExcerpt: "two",
-    }),
-  ).resolves.toBe(expected)
-  expect(requests[0]).toMatchObject({ model: "fast-model", stream: false })
-})
+] as const)(
+  "classifies a collision as %s through the fast tier",
+  async (decision, expected) => {
+    configureModel()
+    const requests: Record<string, unknown>[] = []
+    replyWithToolCall({ decision }, requests)
+    await expect(
+      classifyUnkeyedKnowledgeCollision({
+        existingPath: "knowledge/a.md",
+        incomingPath: "knowledge/a.md",
+        existingExcerpt: "one",
+        incomingExcerpt: "two",
+      }),
+    ).resolves.toBe(expected)
+    expect(requests[0]).toMatchObject({ model: "fast-model", stream: false })
+  },
+)
 
 it("falls back to a new name when the model returns a value outside the enum", async () => {
   configureModel()

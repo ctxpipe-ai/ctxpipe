@@ -1,5 +1,6 @@
 import { trace } from "@opentelemetry/api"
 import { sql } from "drizzle-orm"
+
 import { getSystemDb } from "../../db/client.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "./ingestion-run.js"

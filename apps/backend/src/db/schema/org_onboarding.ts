@@ -1,4 +1,5 @@
 import { pgTable, text, timestamp } from "drizzle-orm/pg-core"
+
 import { organizations, users } from "./auth.js"
 import { orgIsolationPolicy } from "./org-rls.js"
 

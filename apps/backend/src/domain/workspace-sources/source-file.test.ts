@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest"
+
+import { parseSourceFile, renderSourceFile } from "./source-file-text.js"
 import {
   checkSourcePath,
   githubSourcePath,
   sourcePathFor,
 } from "./source-file.js"
-import { parseSourceFile, renderSourceFile } from "./source-file-text.js"
 
 /** The provider examples of ADR-050, revision 2026-10-16. */
 const examples: Array<{ path: string; text: string; scope: unknown }> = [
@@ -305,20 +306,18 @@ describe("new source paths", () => {
 })
 
 describe("renderSourceFile", () => {
-  it.each(
-    examples,
-  )("gives the same source and body after a round trip of $path", ({
-    path,
-    text,
-  }) => {
-    const parsed = parseSourceFile(path, text)
-    if (!parsed.ok) throw new Error(parsed.detail)
-    const again = parseSourceFile(
-      path,
-      renderSourceFile(parsed.source, parsed.body),
-    )
-    expect(again).toEqual(parsed)
-  })
+  it.each(examples)(
+    "gives the same source and body after a round trip of $path",
+    ({ path, text }) => {
+      const parsed = parseSourceFile(path, text)
+      if (!parsed.ok) throw new Error(parsed.detail)
+      const again = parseSourceFile(
+        path,
+        renderSourceFile(parsed.source, parsed.body),
+      )
+      expect(again).toEqual(parsed)
+    },
+  )
 
   it("keeps the body byte for byte", () => {
     const body = "\r\n  Two spaces, a CRLF, and ---\n---\nno final newline"

@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm"
 import { z } from "zod"
+
 import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
@@ -37,8 +38,8 @@ import {
   pagerdutyManagedPathsForIncidentId,
   pagerdutyServiceIncidentsRoot,
 } from "./converter.js"
-import { resolveFreshAccessToken } from "./sync.js"
 import { capturePagerdutyIncidentAssets } from "./sync-assets.js"
+import { resolveFreshAccessToken } from "./sync.js"
 
 /** The webhook event that the PagerDuty route fans out to sources. */
 export const pagerdutySourceEventSchema = z.object({

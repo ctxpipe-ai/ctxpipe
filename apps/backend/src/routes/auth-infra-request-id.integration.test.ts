@@ -1,6 +1,7 @@
 import { like } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import { useMswServer } from "../../test/msw.js"
 import { closeDb, getSystemDb } from "../db/client.js"
 import { users } from "../db/schema/auth.js"
@@ -31,7 +32,7 @@ function cookiePairs(response: Response): string[] {
 }
 
 describe("auth requests and the Better Auth infra request id", () => {
-  let app: Awaited<ReturnType<typeof import("../app/app.js")["createApp"]>>
+  let app: Awaited<ReturnType<(typeof import("../app/app.js"))["createApp"]>>
 
   beforeAll(async () => {
     const { config } = await import("dotenv")
@@ -92,22 +93,22 @@ describe("auth requests and the Better Auth infra request id", () => {
     expect(kvIdentifyCalls.slice(before)).toEqual([])
   })
 
-  it.each([
-    "GET",
-    "POST",
-  ])("does not set the infra cookie on a %s to the Atlassian callback", async (method) => {
-    const res = await app.request(
-      "/.auth/api/v1/auth/callback/atlassian?code=bad",
-      {
-        method,
-        headers: {
-          origin: process.env.AUTH_BASE_URL ?? "http://localhost:3000",
-          "x-request-id": `rid-callback-${method}`,
+  it.each(["GET", "POST"])(
+    "does not set the infra cookie on a %s to the Atlassian callback",
+    async (method) => {
+      const res = await app.request(
+        "/.auth/api/v1/auth/callback/atlassian?code=bad",
+        {
+          method,
+          headers: {
+            origin: process.env.AUTH_BASE_URL ?? "http://localhost:3000",
+            "x-request-id": `rid-callback-${method}`,
+          },
         },
-      },
-    )
-    expect(
-      cookiePairs(res).some((pair) => pair.startsWith("__infra-rid=")),
-    ).toBe(false)
-  })
+      )
+      expect(
+        cookiePairs(res).some((pair) => pair.startsWith("__infra-rid=")),
+      ).toBe(false)
+    },
+  )
 })

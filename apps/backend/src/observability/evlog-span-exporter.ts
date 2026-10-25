@@ -1,4 +1,5 @@
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace-base"
+
 import { log } from "./logger.js"
 
 /**

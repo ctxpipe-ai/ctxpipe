@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+
 import type { Db } from "../../db/client.js"
 
 const retractClaimsFromGraphMock = vi.hoisted(() => vi.fn())

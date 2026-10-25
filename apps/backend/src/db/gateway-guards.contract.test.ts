@@ -1,4 +1,5 @@
 import { expect, it } from "vitest"
+
 import { enqueueWorkspaceIndex } from "../openworkflow/enqueue-workspace-index.js"
 import { closeDb, initDb, withOrgDbContext } from "./client.js"
 

@@ -1,4 +1,5 @@
 import { isMap, isScalar, isSeq } from "yaml"
+
 import { checkSourcePath } from "../workspace-sources/source-file.js"
 import { updateKnowledgeMetadata } from "../workspaces/knowledge-metadata.js"
 import { parseSimpleFrontMatter } from "../workspaces/layout.js"

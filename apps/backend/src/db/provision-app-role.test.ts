@@ -1,5 +1,6 @@
 import type { Pool } from "pg"
 import { describe, expect, it } from "vitest"
+
 import { APP_ROLE_NAME, provisionAppRole } from "./provision-app-role.js"
 
 type RoleAttrs = {

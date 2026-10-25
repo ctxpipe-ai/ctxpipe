@@ -11,6 +11,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { posix } from "node:path"
+
 import { MAX_ROOTS, safePath } from "../discover-roots/scripts/roots-lib.mjs"
 import {
   baseBlob,

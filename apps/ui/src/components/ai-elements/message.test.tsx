@@ -1,6 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
+
 import { createTreeFileResolver } from "@/lib/workspace-file-path"
+
 import { MessageResponse } from "./message"
 
 function renderWithTree(markdown: string, treePaths: string[]) {

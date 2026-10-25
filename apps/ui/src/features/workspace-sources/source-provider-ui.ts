@@ -3,6 +3,7 @@ import {
   type SourceProvider,
 } from "backend/domain/workspace-sources/sources-file"
 import type { ComponentType } from "react"
+
 import { confluenceSourceUi } from "./providers/confluence"
 import { gitSourceUi } from "./providers/git"
 import { githubSourceUi } from "./providers/github"

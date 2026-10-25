@@ -1,6 +1,7 @@
 import { defineWorkflowSpec, OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, expect, it } from "vitest"
+
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import {
   cancelOpenWorkflowRuns,

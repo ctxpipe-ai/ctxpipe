@@ -1,7 +1,9 @@
 import { rename, unlink, writeFile } from "node:fs/promises"
+
 import { sql } from "drizzle-orm"
 import { FalkorDB } from "falkordb"
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb } from "../../db/client.js"
 import {
@@ -1019,12 +1021,9 @@ it(
           await withGraphClient({ orgId: f.org.id, orgSlug: f.org.slug }, () =>
             getGraphClient().executeQuery("RETURN 1 AS ready"),
           )
-          await (await db.connection).sendCommand([
-            "CLIENT",
-            "KILL",
-            "USER",
-            `denied_${f.id}`,
-          ])
+          await (
+            await db.connection
+          ).sendCommand(["CLIENT", "KILL", "USER", `denied_${f.id}`])
           await expect
             .poll(
               async () => {

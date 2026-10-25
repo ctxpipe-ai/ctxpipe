@@ -1,5 +1,7 @@
 import { useRouter } from "@tanstack/react-router"
+
 import { useUserPreferences } from "@/lib/user-preferences"
+
 import { SideNavOrganizationSwitcher } from "./SideNavOrganizationSwitcher"
 import { SideNavTooltip } from "./SideNavTooltip"
 

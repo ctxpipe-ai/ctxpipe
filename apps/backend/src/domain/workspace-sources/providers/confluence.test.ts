@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { parseSourceEntry, summarizeSourceScope } from "../sources-file.js"
 import { confluenceSourceScope } from "./confluence.js"
 

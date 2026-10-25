@@ -1,4 +1,5 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router"
+
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { useListOrganizations, useSession } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"

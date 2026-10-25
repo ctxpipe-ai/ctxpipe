@@ -1,6 +1,8 @@
 import { isDeepStrictEqual } from "node:util"
+
 import { updateKnowledgeMetadata } from "../workspaces/knowledge-metadata.js"
 import { checkPlainGitUrl, sourceRepositoryUrls } from "./providers/git.js"
+import { parseSourceFile, renderSourceFile } from "./source-file-text.js"
 import {
   checkSourcePath,
   githubSourcePath,
@@ -8,7 +10,6 @@ import {
   type SourceFile,
   sourcePathFor,
 } from "./source-file.js"
-import { parseSourceFile, renderSourceFile } from "./source-file-text.js"
 import type { SourceProvider } from "./sources-file.js"
 
 /**

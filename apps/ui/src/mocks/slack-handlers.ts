@@ -1,4 +1,5 @@
 import { delay, HttpResponse, http } from "msw"
+
 import type { SlackChannel } from "@/features/connectors/queries/slack-connector"
 
 /** The channels of the story Slack team. Names and ids are made up. */

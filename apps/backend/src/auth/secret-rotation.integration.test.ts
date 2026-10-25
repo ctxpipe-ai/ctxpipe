@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto"
+
 import { inArray } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
@@ -11,6 +12,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { jwkss, users } from "../db/schema/auth.js"
 import { getAuth, resetBetterAuthForTests } from "./config.js"
