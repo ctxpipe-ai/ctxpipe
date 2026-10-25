@@ -72,6 +72,8 @@ test("the manifest matches its schema and has one check for each inventory file"
   for (const check of manifest.checks) {
     assert.equal(check.id, `vitest:${check.lane}:${check.file}`)
     assert.ok(existsSync(join(root, check.file)), check.file)
+    assert.ok(existsSync(join(root, check.root, "package.json")), check.root)
+    assert.ok(check.file.startsWith(`${check.root}/`), check.file)
     for (const input of check.inputs)
       assert.ok(
         existsSync(join(root, input.replace(/\/\*\*$/, ""))),

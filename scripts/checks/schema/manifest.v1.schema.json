@@ -20,7 +20,7 @@
   "$defs": {
     "check": {
       "type": "object",
-      "required": ["id", "family", "lane", "file", "inputs"],
+      "required": ["id", "family", "lane", "root", "file", "inputs"],
       "additionalProperties": false,
       "properties": {
         "id": {
@@ -33,6 +33,10 @@
         },
         "lane": {
           "description": "One runner invocation: package directory, config and runtime.",
+          "type": "string"
+        },
+        "root": {
+          "description": "Repo-relative root directory of the lane's package. A changed file below it, that no check imports and that is not code, selects the whole lane.",
           "type": "string"
         },
         "file": {

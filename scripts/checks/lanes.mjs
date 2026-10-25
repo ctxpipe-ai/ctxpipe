@@ -122,6 +122,7 @@ export async function listChecks() {
         id: `vitest:${lane}:${file}`,
         family: "vitest",
         lane,
+        root: lanes[lane].directory,
         file,
         inputs: lanes[lane].inputs,
       }

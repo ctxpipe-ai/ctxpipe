@@ -16,6 +16,7 @@ A check id is `<family>:<lane>:<file>`, for example `vitest:ui:apps/ui/src/compo
 A lane is one Vitest run: one package directory, one config and one runtime. [`lanes.mjs`](lanes.mjs) declares each lane and its inputs.
 
 - The CI scripts own which test files belong to a lane. `lanes.mjs` reads the inventories from `scripts/ci/test-suite.mjs --list` and `apps/codesearch/scripts/run-vitest-contracts.mjs --list`.
+- `root` (the `directory` of the lane) is the package directory of the lane. The manifest states it on each check, so a reader does not infer it. A changed file below it, that is not code and that no check imports, selects the full lane.
 - `inputs` are the files that change a result, but that a test does not import: configs, setup files and the lockfile. A path that ends in `/**` stands for a whole directory. A change to an input selects the full lane.
 - A test that spawns built code (for example the CLI tests that run `bin/ctxpipe.js`) does not import that code. Add the source of the built code as a lane input, or a change to it selects no check.
 - A migration file is an input of the backend lanes, because the tests apply it to a real database.
