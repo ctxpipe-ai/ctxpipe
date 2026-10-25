@@ -1,38 +1,46 @@
 ---
 title: Open source
-description: License, repository, and how ctxpipe relates to the hosted product.
+description: The license, the repository, and how the open-source core relates to hosted ctxpipe.
 ---
+
+ctxpipe is open source under the **MIT License**. The core includes each job
+that writes to your Workspace, so you can read exactly what changes your
+knowledge. You can use, copy, change, and distribute the software. The
+`LICENSE` file in the repository is the binding text. This page is not legal
+advice.
 
 ## Repository
 
-Source code lives at **[github.com/ctxpipe-ai/ctxpipe](https://github.com/ctxpipe-ai/ctxpipe)**,
-a pnpm + Turborepo monorepo with:
+The source is at
+[github.com/ctxpipe-ai/ctxpipe](https://github.com/ctxpipe-ai/ctxpipe), a pnpm
+and Turborepo monorepo:
 
-- **`apps/backend`** - Hono (Bun), REST + MCP, Better Auth, Drizzle, OpenWorkflow workflows
-- **`apps/ui`** - TanStack Start (React + Vite)
-- **`apps/codesearch`** - Zoekt orchestration and repo/file API
-- **`apps/docs`** - this documentation site (Next.js + Fumadocs)
-- **`apps/otel-collector`** - contributor laptop collector (Compose `infra` only), not part of self-host deploy or AWS CDK
+| Path | What it is |
+| --- | --- |
+| `apps/backend` | The API, the MCP server, auth, the database schema, and the background jobs (Hono on Bun) |
+| `apps/ui` | The web app (TanStack Start and React) |
+| `apps/codesearch` | Code search, code navigation, and repository checkout (Zoekt and SCIP) |
+| `apps/forge-ctxpipe-agent` | The Atlassian Forge app for Confluence |
+| `apps/docs` | This documentation site |
+| `packages/cli` | The `ctxpipe` CLI for MCP and local memory setup |
+| `packages/aws-cdk` | The AWS CDK construct for self-hosting |
+| `plugins/ctxpipe` | The Claude plugin |
+| `examples/` | Runnable examples, such as an AWS CDK deployment |
 
-## License
+## Hosted and self-hosted
 
-ctxpipe is distributed under the **MIT License**. You can use, copy, modify, and
-distribute the software. The `LICENSE` file in the repository is the binding
-text. This page is not legal advice.
+Hosted ctxpipe runs the same open-source core. Self-host it for full control of
+your data and infrastructure, or use hosted ctxpipe so that we operate it for
+you. See [Self-hosting](/docs/self-hosting).
 
-## Hosted vs OSS
+## Contribute
 
-The **hosted** product at [ctxpipe.ai](https://ctxpipe.ai) runs the same architectural
-ideas as the open-source tree: you can **self-host** for full control of data and
-infra, or use hosted for operational convenience.
+Issues and pull requests are welcome on GitHub. Read `CONTRIBUTING.md` for
+local development. Before a large change, read the architecture decisions in
+`.ai/memory/decisions/`, so that your proposal agrees with them.
 
-## Contributing
+## Report a security problem
 
-Issues and pull requests are welcome on GitHub. For large changes, skim the ADRs in
-`.ai/memory/decisions/` so proposals align with recorded architecture decisions.
-
-## Security
-
-Report sensitive issues through the contact channels published on
-[ctxpipe.ai](https://ctxpipe.ai) or GitHub security advisories if enabled for the
-organization - do not post secrets in public issues.
+Do not report a security problem in a public issue, and do not post secrets.
+Use a private GitHub security advisory on the repository, or the contact
+channels on [ctxpipe.ai](https://ctxpipe.ai).

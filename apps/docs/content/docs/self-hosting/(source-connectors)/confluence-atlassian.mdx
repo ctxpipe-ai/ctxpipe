@@ -5,7 +5,7 @@ description: Configure Atlassian OAuth, Forge provisioning, and Confluence sync 
 
 ## Overview
 
-Self-hosted Confluence uses the same connector surface as the fully managed app, but
+Self-hosted Confluence uses the same connector surface as hosted ctxpipe, but
 your deployment owns the Atlassian and Forge configuration. In practice, there
 are two modes:
 
@@ -20,7 +20,7 @@ Both modes keep connector settings and encrypted credentials on your deployment.
 
 - A public `AUTH_BASE_URL` or `CTXPIPE_PUBLIC_APP_URL` reachable by Atlassian.
 - A Confluence Cloud site, for example `your-site.atlassian.net`.
-- A GitHub connector and a repository that will receive Confluence sync output.
+- A GitHub connection, and a Workspace that the GitHub App can write to.
 - For per-connection OAuth: an Atlassian 3LO app.
 - For provisioning: an Atlassian account email and Forge scoped API token.
 
@@ -28,9 +28,14 @@ Both modes keep connector settings and encrypted credentials on your deployment.
 
 If your deployment sets global **`ATLASSIAN_CLIENT_ID`** and
 **`ATLASSIAN_CLIENT_SECRET`**, ctxpipe uses that Atlassian app for account linking.
-Otherwise, register a 3LO app for the Forge connection in the
+Otherwise, the wizard shows **Register Atlassian OAuth app**. Register a 3LO
+app for the Forge connection in the
 [Atlassian developer console](https://developer.atlassian.com/cloud/oauth-2-3lo-apps)
-and save its client ID and secret in the Confluence setup wizard.
+and save its client ID and secret in that step. On Docker Compose, the
+`ATLASSIAN_*` values need an override file (see
+[Docker](/docs/self-hosting/deployment/docker#settings-that-need-an-override-file)).
+On AWS CDK, use `connectorSecrets.atlassianClientId` and
+`connectorSecrets.atlassianClientSecret`.
 
 Use this callback URL:
 
@@ -88,7 +93,10 @@ material.
 
 | Code | What to check |
 |------|----------------|
+| `forge_missing_operator_email` | Give the email of the Atlassian account that owns the Forge token |
 | `forge_auth_failed` | Forge scoped API token (App: Forge) at id.atlassian.com |
+| `forge_developer_space_noninteractive` | The Atlassian account has no Forge developer space, and the job cannot create one. Create it in the Atlassian developer console, then retry. |
+| `forge_developer_space_ensure_failed` | ctxpipe could not find or create the Forge developer space. Retry; contact support with job id |
 | `forge_lint_failed` | Bundled app; contact support with job id |
 | `forge_deploy_forbidden` | Atlassian user cannot deploy this app |
 | `confluence_install_forbidden` | Install requires Confluence admin |

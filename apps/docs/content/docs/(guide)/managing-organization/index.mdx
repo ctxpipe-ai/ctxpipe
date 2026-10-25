@@ -3,41 +3,34 @@ title: Organizations and access
 description: How membership, source scope, and agent access fit together in ctxpipe.
 ---
 
-An **organization** is the access boundary for repositories, connections,
-conversations, graph context, and MCP. People can belong to more than one
-organization and switch between them in the product.
-
-## Organization context
+An **organization** is the access boundary for Workspaces, connections,
+conversations, and MCP. A person can belong to more than one organization, and
+switch between them with the organization switcher.
 
 - Each organization has a name and a unique URL slug.
-- The organization switcher changes the active product context.
-- Workspace, Chat, graph, and connector pages always operate inside the
-  organization shown in the URL.
-- MCP uses one URL for every organization. Each tool call names its
-  organization in the `org` argument. The server checks that the connection
-  includes that organization and that you are a member of it.
+- Workspace and connector pages always work inside the organization in the URL.
+- Each member of an organization can open each of its
+  [Workspaces](/docs/workspaces).
+- The MCP has one URL for all organizations. Each tool call names its
+  organization in the `org` argument. See
+  [Use ctxpipe from your agent](/docs/mcp/use-from-your-agent).
 
-## Workspaces
+## Access follows membership and source scope
 
-An organization contains [Workspaces](/docs/workspaces). Each Workspace has one
-workspace repository of knowledge and the code repositories it links. Members
-of the organization can open every Workspace in it.
+Membership gives a person access to the organization in ctxpipe. It does not
+give access to more content in your tools:
 
-## Access follows both membership and source scope
+- the GitHub App installation controls which code ctxpipe can read;
+- the scope of each source controls which Linear, Notion, Confluence, or
+  PagerDuty content ctxpipe mirrors;
+- the permissions of the Workspace repository control who can read the
+  mirrored content in git;
+- Slack captures need the bot in the channel.
 
-Organization membership gives a user access to the ctxpipe organization. It does
-not widen the upstream source scope:
-
-- GitHub App repository selection controls which code ctxpipe can read.
-- Connector scope controls which Linear, Notion, or Confluence content is
-  mirrored.
-- Repository permissions control who can read connector-generated Git content.
-- Slack captures require the bot to be present in the channel.
-
-Use roles to control administration inside ctxpipe, and keep provider permissions
-and context-repository audiences deliberately narrow.
+Use roles to control administration in ctxpipe. Keep the permissions of your
+tools, and the audience of each Workspace repository, as narrow as you need.
 
 <Cards>
-  <Card title="Team members" href="/docs/managing-organization/team-members" description="Invites, roles, and membership." />
-  <Card title="Remote MCP" href="/docs/mcp/mcp-docs" description="OAuth sign-in flow for MCP client access." />
+  <Card title="Team members" href="/docs/managing-organization/team-members" description="Invitations, roles, and membership." />
+  <Card title="Connected apps" href="/docs/mcp/connected-apps" description="The organizations that each MCP client can read." />
 </Cards>

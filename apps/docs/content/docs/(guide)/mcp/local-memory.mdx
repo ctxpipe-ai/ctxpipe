@@ -66,8 +66,11 @@ home directory.
 | Cursor | Hooks in `.cursor/hooks.json` | `.cursor/rules/ai-memory.mdc` and skills in `.cursor/skills/` |
 | Claude Code | Hooks in `.claude/settings.json` | `.claude/rules/ai-memory.md` and skills in `.claude/skills/` |
 | Codex | Hooks in `.codex/config.toml` | A block in `AGENTS.md` |
-| VS Code (Copilot) | Hooks in `.github/hooks/ctxpipe-memory.json` | `.github/copilot-instructions.md` |
-| OpenCode | Plugin in `.opencode/plugins/ctxpipe-memory.js` | `.opencode/memory-capture.md` and `AGENTS.md` |
+| VS Code (Copilot) | Hooks in `.github/hooks/ctxpipe-memory.json` | `.github/copilot-instructions.md` and `.github/instructions/ctxpipe-memory.instructions.md` |
+| OpenCode | Plugin in `.opencode/plugins/ctxpipe-memory.js` | `.opencode/memory-capture.md`, `AGENTS.md`, and an `instructions` entry in `opencode.json` |
+
+`memory init` always writes the Cursor rule and skills in the repository, for
+each choice of agents.
 
 - **Codex** runs project hooks only after you trust the project and approve the
   hooks in `/hooks`.
@@ -90,7 +93,8 @@ npx ctxpipe init --org acme --agents cursor,claude --scope repo --memory --non-i
 ```
 
 `--agents` takes any of `cursor`, `claude`, `codex`, `opencode`, and `vscode`.
-`--scope` is `repo` (the default), `user`, or `both`.
+`--scope` is `repo`, `user`, or `both`. Without prompts, the default is `repo`.
+The interactive wizard asks.
 
 ## What's in the folder
 
@@ -132,7 +136,10 @@ The installed `memory-search` skill describes the full procedure.
 ## Checking and upgrading
 
 - `npx ctxpipe memory status` and `npx ctxpipe memory doctor` show whether memory
-  is set up and list any memory files that are not committed yet.
+  is set up, and list the memory files that are not committed yet.
+- The hooks call `npx ctxpipe memory capture`. Agents use
+  `memory capture promote <id>` and `memory capture dismiss <id>` to keep or
+  discard a candidate. You do not run these commands yourself.
 - Re-run `npx ctxpipe memory init` after upgrading the CLI. It refreshes the
   rules, skills, and hooks, and keeps your own memory files. It also removes
   retired pieces from older versions: the `ctxpipe-memory` MCP entry, old memory

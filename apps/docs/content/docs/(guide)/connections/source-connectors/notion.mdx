@@ -1,67 +1,49 @@
 ---
 title: Notion connector
-description: Connect a Notion workspace, add it to a Workspace, and keep selected pages and databases available to ctxpipe.
+description: Mirror selected Notion pages and databases into a Workspace.
 ---
 
-The **Notion connector** mirrors selected pages and databases into the
-repository of a [Workspace](/docs/workspaces). ctxpipe indexes the files like any
-other knowledge file. A source file in the Workspace holds the scope. A pull
-request adds it, so a person reviews the scope before content syncs.
+The **Notion connector** mirrors selected pages and databases into a
+[Workspace](/docs/workspaces) repository. ctxpipe reads Notion content. It does
+not create or change it.
 
-ctxpipe reads Notion pages and databases. It does not create or update Notion
-content.
-
-<Callout title="Fully managed app flow">
-  The hosted ctxpipe service supplies the Notion OAuth application and webhook
-  configuration. Self-hosted operators register a private OAuth app in the
-  connector setup wizard (client ID, secret, then **Add webhook**). Setting
-  `NOTION_*` environment variables is an optional operator shortcut, not a
-  required restart. See [Self-host Notion](/docs/self-hosting/notion).
-</Callout>
+On a self-hosted deployment, the operator registers a Notion OAuth app and its
+webhook first. See [Self-host Notion](/docs/self-hosting/notion).
 
 ## What is mirrored
 
-You select pages and databases that the ctxpipe Notion integration can already
-see. A page syncs with all its child pages. A database syncs with all its rows.
-The related content can include:
+A page syncs with all its child pages, including pages that you add later. A
+database syncs with all its rows. The mirror includes:
 
-- Selected pages as Markdown, including descendant pages added later.
-- Selected databases as an index page, a `table.csv` snapshot, and one Markdown
-  file per row (properties plus page body).
-- Headings, lists, tasks, quotes, code, and in-scope page links rewritten to
-  relative Git paths when the target is also mirrored.
-- Notion-hosted and explicitly embedded external images, files, video, audio,
-  and PDFs copied into an `assets/` directory beside the owning page or row.
+- pages as Markdown, with headings, lists, tasks, quotes, and code. Links to
+  other mirrored pages become relative links;
+- each database as an index page, a `table.csv` snapshot, and one Markdown file
+  for each row;
+- images, files, video, audio, and PDFs, copied into git.
 
-Markdown uses relative links to copied assets. Expiring Notion download URLs are
-never written to Git. Assets over 25 MiB, pages or rows over their 100 MiB asset
-budget, and unsafe or failed external downloads keep a Notion page link or
-caption stub. Page comments are not mirrored.
+Page comments are not mirrored.
 
-<Callout title="Page sharing is the access gate">
-  Notion only lists pages and databases already shared with the ctxpipe integration.
-  Share those resources in the OAuth picker, or later in Notion, then search
-  again in the source editor. Review the scope in the pull request before you
-  merge it. Everyone who can read the Workspace repository can read the
+<Callout title="Sharing controls what ctxpipe can see">
+  ctxpipe can list only the pages and databases that are shared with the
+  ctxpipe integration. Share them in the authorization popup, or later in
+  Notion. Each person who can read the Workspace repository can read the
   mirrored files.
 </Callout>
 
-## Prerequisites
+## Connect Notion
 
-- Permission to authorize an application in the Notion workspace and share the
-  pages or databases that ctxpipe should mirror.
-- A [Workspace](/docs/workspaces) whose repository the ctxpipe GitHub App can write
-  to. The repository must use format 2 or higher. If it does not, the Workspace
-  shows **Upgrade this Workspace first**. See
-  [Status](/docs/workspaces/settings#status).
-- Permission to merge the pull request that adds the source.
+Follow [Add a tool to a Workspace](/docs/connections#add-a-tool-to-a-workspace).
+For Notion:
 
-## Where the scope lives
+1. On **Connectors**, choose **Add connection**, then **Notion**. Authorize
+   your Notion workspace, and share the pages and databases that ctxpipe can
+   read.
+2. In **Add to Workspaces**, select the Workspaces, then search for the pages
+   and databases. Keep the selection narrow when the Notion workspace has
+   private notes.
+3. Merge the pull request that adds `sources/notion/<name>.md`.
 
-The connection holds authorization only. The scope is in a source file in each
-Workspace, at `sources/notion/<name>.md`. The front matter holds the selected
-pages and databases. The body is an optional description of what the source is
-for.
+## Source file
 
 ```markdown
 ---
@@ -76,162 +58,33 @@ databases:
 ---
 ```
 
-The scope goes live after the merge. See
-[Workspace settings](/docs/workspaces/settings#sources) for draft scope and live scope.
-
-Each Workspace has its own
-scope.
-
-## Setup flow
-
-<Steps>
-  <Step>
-    ### Connect Notion
-
-    Open **Connectors**, choose **Add connection**, then select **Notion**. On a
-    self-hosted deployment without shared credentials, complete **Register
-    Notion OAuth app** and **Add webhook** first. Then authorize the workspace in
-    the Notion popup. Share the pages or databases that ctxpipe can read.
-  </Step>
-
-  <Step>
-    ### Add to Workspaces
-
-    The next step is **Add to Workspaces**. Select the Workspaces that sync from
-    Notion. Then search for the pages and databases, and select at least one.
-    When you select more than one Workspace, choose **Same scope for each
-    Workspace** or **A different scope for each Workspace**. Keep the selection
-    narrow when the Notion workspace holds both private and shared notes.
-
-    Choose **Add to Workspaces**. You can add the connection to a Workspace
-    later. Expand the connector on **Connectors**. When no Workspace uses the
-    connection, choose **Add to a Workspace**. Otherwise, choose **Manage**.
-  </Step>
-
-  <Step>
-    ### Merge the pull requests
-
-    ctxpipe opens one pull request for each Workspace. Each pull request adds
-    `sources/notion/<name>.md`. The dialog shows **Merge the pull request** (or
-    **Merge the pull requests**) with a link to each one. Review the selected
-    pages and databases, then merge.
-
-    After each merge, the dialog shows **Pull request merged**. The source does
-    not sync before the merge.
-  </Step>
-
-  <Step>
-    ### Wait for the first sync
-
-    After GitHub reports the merge, ctxpipe reads the source file and makes the
-    first Notion mirror. The Workspace indexes the new files after that. See
-    [Indexing](/docs/connections/ingestion) for the lifecycle.
-  </Step>
-</Steps>
-
-## Change what syncs
-
-Edit, rename, or remove a source in the **Settings** of the Workspace. See
-[Workspace settings](/docs/workspaces/settings#sources).
-
 ## Files in the repository
 
-Mirrored files live under `notion/` in each Workspace repository:
-
-- Pages: `notion/pages/<slug>--<id>/index.md`, with assets under the adjacent
-  `assets/` directory and child pages nested under their ancestors.
+- Pages: `notion/pages/<slug>--<id>/index.md`, with child pages inside the
+  folder of their parent.
 - Databases: `notion/databases/<slug>--<id>/index.md`, `table.csv`, and
   `rows/<slug>--<id>/index.md`.
 
-The `<slug>` of a root comes from the title that the source file stores. Paths
-include stable Notion IDs, so renaming a page or database in Notion does not
-create a second copy.
+The paths use stable Notion ids, so a renamed page does not make a second copy.
+Assets are in an `assets/` folder next to their page. Each asset can be up to
+25 MiB, and each page or row up to 100 MiB in total. A file that is too large or
+not safe stays a link to Notion. ctxpipe never writes the expiring download
+URLs of Notion to git.
 
-The source owns these folders. Do not edit the files by hand: the next sync
-overwrites them. When you remove a source, ctxpipe deletes its files in a sync
-commit. Git history keeps them.
+A change in Notion syncs again the whole page tree or database that it is in.
 
-## Keeping content current
+## Check the setup
 
-Notion sends signed webhook events to ctxpipe when supported entities change. For
-a source with the status **OK**, ctxpipe checks the event against the scope of the
-source, updates the affected files, and starts indexing again. Incremental
-updates re-mirror the affected top-level resource (a page subtree or a
-database), not a single block.
-
-Events that arrive before the source is live, including during the first sync,
-are skipped and not queued. ctxpipe does not backfill missed webhook events.
-Repair the webhook delivery, then choose **Sync now** in the menu of the
-connector card. An owner or admin can do this.
-
-## Verify the complete flow
-
-1. Complete Notion OAuth and confirm that the expected Notion workspace appears
-   on **Connectors**.
-2. Share at least one page or database with the ctxpipe integration.
-3. Choose **Add to Workspaces**, select a Workspace, and select the page or
-   database.
-4. Merge the pull request that adds `sources/notion/<name>.md`.
-5. Confirm that the Workspace repository has files under `notion/`.
-6. Edit a mirrored page in Notion and confirm that the matching Git file
-   changes.
-7. Confirm that the Workspace index is ready in its **Settings**.
-
-Steps 4 and 5 test the GitHub push webhook and the first mirror. Step 6 tests
-the Notion webhook delivery.
+1. The Notion workspace shows on **Connectors**.
+2. After the merge, the Workspace repository has files under `notion/`.
+3. When you change a mirrored page in Notion, the matching file changes. This
+   step tests the Notion webhook.
 
 ## Troubleshooting
 
-### Authorization fails
+- **No pages or databases show.** Share them with the ctxpipe integration in
+  Notion, then search again. An empty list is usually a sharing problem.
+- **Notion does not accept the ctxpipe access any more.** Reconnect Notion on
+  **Connectors**. A page that you stop sharing also leaves the list.
 
-Allow popups and retry. On fully managed ctxpipe, report persistent OAuth errors to
-support. On a self-hosted deployment, finish **Register Notion OAuth app** and
-**Add webhook** in the wizard (or the optional env shortcut). Confirm that the
-callback URI matches exactly.
-
-### No pages or databases appear
-
-The integration can list only resources that you share with it. Share the page
-or database with the ctxpipe Notion app in Notion, then search again in the source
-editor. An empty result usually means a sharing problem, not a missing
-workspace.
-
-### Add to a Workspace shows an error
-
-The dialog shows a message about the format, the write access, or your role.
-See [Add source shows an error](/docs/workspaces/settings#add-source-shows-an-error).
-
-### No pull request appears
-
-Confirm that the GitHub App has write access to the Workspace repository. If
-the dialog reports an error, close it and try again.
-
-### The source shows a status other than OK
-
-Read the status and the reason of the row in **Settings**. See
-[Source status](/docs/workspaces/settings#source-status).
-
-### Content sync failed
-
-Choose **Sync now** in the menu of the connector card. If it fails again, ask the
-operator to check worker logs, Notion token refresh, GitHub write access, and
-outbound access to `api.notion.com`.
-
-### Changes in Notion do not arrive
-
-The first sync can succeed when webhooks are misconfigured. Ask the operator to
-verify the Notion integration webhook URL and signing secret. See
-[Self-host Notion](/docs/self-hosting/notion) for the exact settings.
-
-### Notion authorization was revoked
-
-The source shows the reason "Notion does not accept the ctxpipe access any more.
-Reconnect Notion on the Connectors page." Authorize Notion again from the
-connector card. Incremental updates stop while the authorization is revoked.
-Pages that you unshare from the integration disappear from the search list in
-the source editor.
-
-### Removing the connector
-
-Choose **Remove connector** in the menu of the connector card. See
-[Connection menu](/docs/connections#connection-menu) for what stays in Git.
+For other problems, see [Troubleshooting](/docs/connections#troubleshooting).

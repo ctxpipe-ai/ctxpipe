@@ -41,7 +41,7 @@ LLM and embeddings both use OpenRouter by default. No extra configuration needed
 | Variable                           | Required  | Default                           | Description                                                                        |
 | ---------------------------------- | --------- | --------------------------------- | ---------------------------------------------------------------------------------- |
 | `MODEL_PROVIDER`                   | No        | `openai-like`                     | `openai-like` \| `openrouter` \| `azure` \| `bedrock` - see table above.            |
-| `MODEL_PROVIDER_API_KEY`           | Usually\* | -                                 | API key for OpenAI-compatible providers. Not used for native Bedrock (`MODEL_PROVIDER=bedrock`) on AWS CDK. |
+| `MODEL_PROVIDER_API_KEY`           | Yes\*     | -                                 | API key for OpenAI-compatible providers. Not used for native Bedrock (`MODEL_PROVIDER=bedrock`). |
 | `MODEL_PROVIDER_URL`               | No\*\*    | OpenRouter base when not `azure` | Base URL for OpenAI-compatible LLM/embeddings HTTP. **Required** for `azure`. Not required for native Bedrock. |
 | `MODEL_BEDROCK_AWS_REGION`         | No        | `AWS_REGION` / stack region     | AWS region for Bedrock Runtime when `MODEL_PROVIDER=bedrock`. |
 | `MODEL_FAST_NAME`                  | No        | `openai/gpt-6-luna?reasoning.effort=high`    | LLM model for the fast tier (OpenRouter slash ids).                                |
@@ -49,7 +49,7 @@ LLM and embeddings both use OpenRouter by default. No extra configuration needed
 | `MODEL_HIGH_NAME`                  | No        | `xiaomi/mimo-v2.6-pro`                       | LLM model for the high tier.                                                       |
 | `MODEL_EMBEDDING_NAME`             | No        | `openai/text-embedding-3-large`            | Embedding model ID.                                                                |
 
-\*Required for LLM when not using Bedrock IAM-only.
+\*Required for each provider except `bedrock`. The backend refuses model calls without it. For a provider that needs no key, such as Ollama, set any value that is not empty.
 
 \*\*Default `MODEL_PROVIDER_URL` is `https://openrouter.ai/api/v1` for `openai-like` and `openrouter` so bundled default model IDs stay valid.
 
@@ -78,7 +78,7 @@ openai.gpt-6-luna?reasoning.effort=xhigh
 
 Use **`reasoning.effort=none`** (not `reasoning=false`) to disable reasoning in env specs. Call sites can also pass `getModel(..., { reasoning: false })`, which merges `reasoning.effort=none` over the tier spec. Model ids are sent upstream without query strings.
 
-When **`MODEL_PROVIDER=openrouter`** (or fully managed deployments that set it), the **medium** tier sends OpenRouter’s `models` array so that if the primary model errors (rate limits, downtime, moderation), routing tries the next distinct model IDs in order (**`MODEL_FAST_NAME`**, then **`MODEL_HIGH_NAME`**). Duplicate base model ids in that chain are removed automatically. This does **not** apply to `openai-like`.
+When **`MODEL_PROVIDER=openrouter`** (or hosted ctxpipe, which sets it), the **medium** tier sends OpenRouter’s `models` array so that if the primary model errors (rate limits, downtime, moderation), routing tries the next distinct model IDs in order (**`MODEL_FAST_NAME`**, then **`MODEL_HIGH_NAME`**). Duplicate base model ids in that chain are removed automatically. This does **not** apply to `openai-like`.
 
 ### Embedding model
 
@@ -124,9 +124,16 @@ MODEL_EMBEDDING_NAME=cohere.embed-v4:0  # or global.cohere.embed-v4:0; Cohere on
 
 ```bash
 MODEL_PROVIDER_URL=http://localhost:11434/v1
+MODEL_PROVIDER_API_KEY=ollama        # Ollama needs no key, but the value must not be empty
+MODEL_FAST_NAME=<your-chat-model>
+MODEL_MEDIUM_NAME=<your-chat-model>
+MODEL_HIGH_NAME=<your-chat-model>
 MODEL_EMBEDDING_NAME=qwen3-embedding
 # For Docker: use http://host.docker.internal:11434/v1
 ```
+
+Set each model name. The defaults are OpenRouter model ids, which Ollama does
+not know.
 
 ## Resources
 

@@ -13,7 +13,7 @@ keep a running instance healthy and to diagnose component-level failures.
 | Backend status | `GET /.status` | JSON response with `status: "ok"` and `timestamp` |
 | Postgres in Compose | Docker health check uses `pg_isready` | Service is healthy before migrations and app services start |
 | UI through backend | Open `AUTH_BASE_URL` | App loads from the backend origin |
-| MCP route | `npx ctxpipe doctor mcp --url "$AUTH_BASE_URL/mcp"` then an OAuth-capable MCP client | Doctor reports `ready-for-oauth`; client OAuth then succeeds |
+| MCP route | `npx ctxpipe doctor mcp --url "$AUTH_BASE_URL/mcp"` then an OAuth-capable MCP client | Doctor reports `ready-for-oauth` (or `ready-for-api-key` when `CTXPIPE_API_KEY` is set); client OAuth then succeeds |
 | Codesearch | Add or reindex a repository | Repository reaches indexed state; backend can call `CODESEARCH_URL` |
 | Graph database | Open graph page or use graph-backed chat/MCP | Graph responses succeed; backend does not return graph connectivity errors |
 
@@ -46,7 +46,7 @@ fills a missing `org_id` on rows that the previous release wrote (the
 expand-only rules and the rollback runbook.
 
 Migrations are idempotent. Drizzle tracks applied migrations in the
-`drizzle_migrations` table and skips migrations that already ran. A second run
+`drizzle.__drizzle_migrations` table and skips migrations that already ran. A second run
 changes nothing.
 
 Migrate reads the `ctxpipe_app` password from `DATABASE_APP_PASSWORD`:
@@ -95,7 +95,7 @@ changes.
 | Data | Backup guidance |
 |---|---|
 | Postgres | Required. Use managed database backups or `pg_dump`/physical backups. Test restore regularly. |
-| Graph database | Back up or snapshot according to provider guidance. |
+| Graph database | Back up or snapshot according to provider guidance. On Compose, mount a named volume first (see [Docker](/docs/self-hosting/deployment/docker#persistent-state)). |
 | `repo_cache` | Optional but recommended for large/private repositories. Rebuildable by recloning. |
 | `zoekt_index_deploy` | Optional but recommended for large deployments. Rebuildable by reindexing. |
 | Secrets | Export from your secret manager or platform. Keep historical values needed for rollback. |
@@ -190,8 +190,9 @@ clones the repository again while a new base builds.
   `docker compose --profile deploy up -d chat-sandbox-image`.
 - Check backend logs for Docker TLS errors. After the `sandbox_ca` volume is
   removed, restart `backend` and `worker` so they read the new certificates.
-- `dind` needs a privileged container. On a host that refuses one, see the
-  last-resort option in [Docker: Chat sandboxes](/docs/self-hosting/deployment/docker#chat-sandboxes).
+- `dind` needs a privileged container. On a host that refuses one, chat is not
+  available. Use the AWS CDK path, or run the sandboxes on another Docker host
+  (see [Chat sandboxes](/docs/self-hosting/configuration#chat-sandboxes)).
 
 ### Workspace chat fails to start on AWS
 

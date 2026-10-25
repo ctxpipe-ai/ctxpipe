@@ -1,64 +1,51 @@
 ---
 title: Linear connector
-description: Connect a Linear workspace, add it to a Workspace, and keep selected teams and projects available to ctxpipe.
+description: Mirror selected Linear teams and projects into a Workspace.
 ---
 
-The **Linear connector** mirrors selected Linear teams and projects into the
-repository of a [Workspace](/docs/workspaces). ctxpipe indexes the files like any
-other knowledge file. A source file in the Workspace holds the scope. A pull
-request adds it, so a person reviews the scope before content syncs.
+The **Linear connector** mirrors selected Linear teams and projects into a
+[Workspace](/docs/workspaces) repository. ctxpipe requests read-only access. It
+does not create or change Linear issues.
 
-ctxpipe requests read-only Linear access. It does not create or update Linear
-issues.
-
-<Callout title="Fully managed app flow">
-  The hosted ctxpipe service supplies the Linear OAuth application and webhook
-  configuration. Self-hosted operators register their own application in the
-  connector wizard (or optionally with `LINEAR_*`). See
-  [Self-host Linear](/docs/self-hosting/linear).
-</Callout>
+On a self-hosted deployment, the operator registers a Linear OAuth app first.
+See [Self-host Linear](/docs/self-hosting/linear).
 
 ## What is mirrored
 
-You select teams and projects. A team syncs its issues, projects, cycles, and
-labels. A project syncs its issues from all teams. The related content can
-include:
+A team syncs its issues, projects, cycles, and labels. A project syncs its
+issues from all teams. The mirror can include:
 
-- Issues and native Linear comments. Each issue file records its parent issue,
-  its project milestone, and its relations to other issues (blocks, duplicate,
-  related). The knowledge graph links a sub-issue to its parent and an issue
-  to the issues it blocks, duplicates, or relates to.
-- Project and initiative updates.
-- Cycles, labels, and referenced users.
-- Customer requests, unless you clear **Include customer requests** in the
-  source.
-- Linear attachments and explicit embedded external media copied into Git with
-  relative links.
+- issues and their comments, with the parent issue, the project milestone, and
+  the relations to other issues (blocks, duplicate, related);
+- project and initiative updates;
+- cycles, labels, and the users that the content mentions;
+- customer requests, unless you clear **Include customer requests**;
+- attachments and embedded media, copied into git.
 
-GitHub pull requests, commits, reviews, diffs, CI output, and patches are not
-copied through Linear. When Linear references GitHub work, ctxpipe stores only
-reference metadata and the original URL. This avoids duplicating source content
-that the GitHub connector already indexes.
+ctxpipe does not copy GitHub pull requests, commits, or diffs through Linear.
+It keeps only the link. The GitHub connector already indexes that content.
 
-<Callout title="Customer request privacy">
-  Customer requests can contain external names, feedback, or support context.
-  Review the scope in the pull request before you merge it. Everyone who can
-  read the Workspace repository can read the mirrored files.
+<Callout title="Customer requests">
+  Customer requests can contain the names and feedback of your customers. Each
+  person who can read the Workspace repository can read them. Review the scope
+  before you merge the pull request.
 </Callout>
 
-## Prerequisites
+## Connect Linear
 
-- Permission to authorize an application in the Linear workspace.
-- A Workspace whose repository the ctxpipe GitHub App can write to. The repository
-  must use format 2 or higher. If it does not, the Workspace shows **Upgrade
-  this Workspace first**. See [Status](/docs/workspaces/settings#status).
-- Permission to merge the pull request that adds the source.
+Follow [Add a tool to a Workspace](/docs/connections#add-a-tool-to-a-workspace).
+For Linear:
 
-## Where the scope lives
+1. On **Connectors**, choose **Add connection**, then **Linear**. Authorize the
+   ctxpipe app in the Linear popup.
+2. In **Choose Workspaces**, select the Workspaces, then the teams and
+   projects. Clear **Include customer requests** to leave them out.
+3. Merge the pull request that adds `sources/linear/<name>.md`.
 
-The connection holds authorization only. The scope is in a source file in each
-Workspace, at `sources/linear/<name>.md`. The front matter holds the scope. The
-body is an optional description of what the source is for.
+To change the Workspaces or the scope later, choose **Manage** on the connector
+card.
+
+## Source file
 
 ```markdown
 ---
@@ -71,154 +58,24 @@ customerRequests: exclude
 Engineering and operations work. Customer requests stay in the support Workspace.
 ```
 
-The scope goes live after the merge. See
-[Workspace settings](/docs/workspaces/settings#sources) for draft scope and live scope.
-
-A Workspace can have many
-Linear source files, and each Workspace has its own scope.
-
-## Setup flow
-
-<Steps>
-  <Step>
-    ### Connect Linear
-
-    Open **Connectors**, choose **Add connection**, then select **Linear**.
-    Authorize the read-only ctxpipe application in the Linear popup. A
-    self-hosted deployment without shared credentials starts with **Register
-    Linear OAuth app**.
-  </Step>
-
-  <Step>
-    ### Choose Workspaces
-
-    The next step is **Choose Workspaces**. Select the Workspaces that sync from
-    Linear. Then select the teams and projects. When you select more than one
-    Workspace, choose **Same scope for each Workspace** or **A different scope
-    for each Workspace**. Clear **Include customer requests** to leave them out.
-
-    Choose **Add to Workspaces**. The connection stays when you close the
-    dialog. You can add it to a Workspace later. Expand the connector on
-    **Connectors**. When no Workspace uses the connection, choose **Add to a
-    Workspace**. Otherwise, choose **Manage**.
-  </Step>
-
-  <Step>
-    ### Merge the pull requests
-
-    ctxpipe opens one pull request for each Workspace. Each pull request adds
-    `sources/linear/<name>.md`. The dialog shows **Merge the pull request** (or
-    **Merge the pull requests**) with a link to each one. Review the scope and
-    the repository audience, then merge.
-
-    After each merge, the dialog shows **Pull request merged**. The source does
-    not sync before the merge.
-  </Step>
-
-  <Step>
-    ### Wait for the first sync
-
-    After GitHub reports the merge, ctxpipe reads the source file and makes the
-    first Linear mirror. The Workspace indexes the new files after that. See
-    [Indexing](/docs/connections/ingestion) for the lifecycle.
-  </Step>
-</Steps>
-
-## Change what syncs
-
-Edit, rename, or remove a source in the **Settings** of the Workspace. See
-[Workspace settings](/docs/workspaces/settings#sources).
-
-To change the connection for a source, use **Manage** on the connector card.
-**Manage** opens the same **Choose Workspaces** step. It starts from the
-current Workspaces and scopes.
-
 ## Files in the repository
 
-Mirrored files live under `linear/` in each Workspace repository. Each team has
-a folder `linear/teams/<TEAM-KEY>/`. Each project has a folder
-`linear/projects/<id>/`. Below them, the files use stable paths such as
-`issues/`, `documents/`, `cycles/`, `labels/`, `users/`, and
-`customer-requests/`. Paths include stable Linear IDs, so renaming an issue or
-project does not create a second copy.
+Mirrored files are under `linear/`. Each team has a folder
+`linear/teams/<TEAM-KEY>/`, and each project has a folder
+`linear/projects/<id>/`. Below them are folders such as `issues/`, `documents/`,
+`cycles/`, `labels/`, `users/`, and `customer-requests/`. The paths use stable
+Linear ids, so a renamed issue or project does not make a second copy.
 
-Linear file uploads and explicit embedded media live in a sibling
-`<entity>/assets/` directory beside the entity's Markdown file. Ordinary
-link-only attachments remain links and are never crawled. Each asset is capped
-at 25 MiB and each entity has a 100 MiB asset budget. Unsafe, unavailable, or
-oversized downloads leave a Linear link or textual stub. GitHub pull requests
-and commits remain references rather than copied attachments.
+Attachments are in an `assets/` folder next to the Markdown file. Each asset
+can be up to 25 MiB, and each Linear item up to 100 MiB in total. A file
+that is too large, not safe, or not available stays a link to Linear.
 
-The source owns these folders. Do not edit the files by hand: the next sync
-overwrites them. When you remove a source, ctxpipe deletes its files in a sync
-commit. Git history keeps them.
+## Check the setup
 
-## Keeping content current
+1. The Linear workspace shows on **Connectors**.
+2. After the merge, the Workspace repository has files under `linear/`.
+3. When you change a mirrored issue in Linear, the matching file changes. This
+   step tests the Linear webhook.
 
-Linear sends signed webhook events to ctxpipe when supported entities change. For
-a source with the status **OK**, ctxpipe checks the event against the scope of the
-source, updates the affected files, and starts indexing again. Events that
-arrive before the source is live, including during the first sync, are skipped
-and not queued. ctxpipe does not backfill missed webhook events. Repair the
-webhook delivery, then choose **Sync now** in the menu of the connector card.
-An owner or admin can do this.
-
-## Verify the complete flow
-
-1. Complete Linear OAuth and confirm that the expected Linear workspace appears
-   on **Connectors**.
-2. In **Choose Workspaces**, select a Workspace, and select at least one team
-   or project.
-3. Merge the pull request that adds `sources/linear/<name>.md`.
-4. Confirm that the Workspace repository has files under `linear/`.
-5. Edit a mirrored issue in Linear and confirm that the matching Git file
-   changes.
-6. Confirm that the Workspace index is ready in its **Settings**.
-
-Steps 3 and 4 test the GitHub push webhook and the first mirror. Step 5 tests
-the Linear webhook delivery.
-
-## Troubleshooting
-
-### Authorization fails
-
-Allow popups and retry. On fully managed ctxpipe, report persistent OAuth errors to
-support. On a self-hosted deployment, ask the operator to verify that Linear
-OAuth credentials are configured and that the callback URI matches exactly.
-
-### Add to a Workspace shows an error
-
-The dialog shows a message about the format, the write access, or your role.
-See [Add source shows an error](/docs/workspaces/settings#add-source-shows-an-error).
-
-### No pull request appears
-
-Confirm that the GitHub App has write access to the Workspace repository. If
-the dialog reports an error, close it and try again.
-
-### The source shows a status other than OK
-
-Read the status and the reason of the row in **Settings**. See
-[Source status](/docs/workspaces/settings#source-status).
-
-### Content sync failed
-
-Choose **Sync now** in the menu of the connector card. If it fails again, ask the
-operator to check worker logs, Linear token refresh, GitHub write access, and
-outbound access to `api.linear.app`.
-
-### Changes in Linear do not arrive
-
-The first sync can succeed when webhooks are misconfigured. Ask the operator to
-verify the Linear application webhook URL and signing secret. See
-[Self-host Linear](/docs/self-hosting/linear) for the exact settings.
-
-### Linear authorization was revoked
-
-Authorize Linear again from the connector card. Incremental updates stop while
-the authorization is revoked.
-
-### Removing the connector
-
-Choose **Remove connector** in the menu of the connector card. See
-[Connection menu](/docs/connections#connection-menu) for what stays in Git.
+If changes do not arrive, see
+[Troubleshooting](/docs/connections#troubleshooting).

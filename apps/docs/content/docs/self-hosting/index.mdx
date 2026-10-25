@@ -1,69 +1,56 @@
 ---
 title: Self-host ctxpipe
-description: Choose a deployment path and understand the services and responsibilities you own.
+description: Run the open-source core of ctxpipe on your own infrastructure, and know the services and the work that you own.
 ---
 
-Self-hosted ctxpipe runs the same product capabilities as fully managed ctxpipe inside
-infrastructure you control. You operate the public application origin, runtime
-services, data stores, provider credentials, and production controls.
-
-<Callout title="Fully managed vs self-hosted">
-  Fully managed ctxpipe operates the platform and provider integrations. With
-  self-hosting, ctxpipe SaaS is not in the data path: your deployment handles
-  credentials, callbacks, and source data. Model requests go directly from your
-  deployment to the provider you configure.
-</Callout>
+Self-hosted ctxpipe has the same product as hosted ctxpipe, inside
+infrastructure that you control. ctxpipe the company is not in the data path:
+your deployment holds the credentials and the source data, and model requests
+go from your deployment to the provider that you choose.
 
 ## Choose a deployment path
 
-<Cards>
-  <Card title="Docker Compose" href="/docs/self-hosting/deployment/docker" description="Run the reference stack for evaluation or a small internal deployment." />
-  <Card title="AWS CDK" href="/docs/self-hosting/deployment/aws" description="Deploy the CtxPipe construct inside your AWS account." />
-  <Card title="Terraform" href="/docs/self-hosting/deployment/terraform" description="Provision the repository's Railway and Neon deployment as code." />
-</Cards>
+| Path | Use it when | You operate |
+| --- | --- | --- |
+| [Docker Compose](/docs/self-hosting/deployment/docker) | You evaluate ctxpipe, or run a small internal deployment on one host. | One Compose project and its volumes |
+| [AWS CDK](/docs/self-hosting/deployment/aws) | You run ctxpipe in your own AWS account. | The `CtxPipe` construct, a domain, and model access |
+| [Terraform](/docs/self-hosting/deployment/terraform) | You want a starting point for Railway and Neon. It is the layout of hosted ctxpipe, so you must fork it. | Railway, Neon, Vercel Sandbox, and your CI |
 
-The deployment target changes, but every path needs one public backend origin,
-persistent data stores, worker capacity, codesearch storage, and model provider
-credentials.
+Start with the [quickstart](/docs/self-hosting/quickstart). It covers each path.
 
 ## What you run
 
-- **Backend and UI** — the backend provides auth, REST, MCP, webhooks, and the
-  public origin, then proxies the product UI.
-- **Worker** — runs durable ingestion, connector, capture, and provisioning
-  workflows.
-- **Codesearch** — clones repositories and maintains Zoekt and SCIP indexes on
-  persistent storage.
-- **Postgres and a graph database** — store application state, workflow data,
-  extracted claims, and relationships.
-- **Optional OpenTelemetry export** — off by default. Set `OTEL_EXPORTER_OTLP_*`
-  to your own OTLP endpoint when you want traces, logs, or metrics to leave
-  the process.
+- **Backend**: auth, the REST API, the MCP endpoint, webhooks, and the public
+  origin. It also serves the UI.
+- **UI**: the web app, behind the backend.
+- **Worker**: the background jobs for ingestion, connectors, and Workspace
+  writes.
+- **Codesearch**: repository clones and code search indexes, on persistent
+  storage.
+- **PostgreSQL with pgvector**: the application data and the job state.
+- **A graph database**: FalkorDB by default.
+- **A sandbox host**: runs Workspace chat and ingestion in isolated containers.
 
-See [Architecture](/docs/self-hosting/architecture) for the complete request
-flow, ports, public routes, and stateful data.
+OpenTelemetry export is off by default. See
+[Observability](/docs/self-hosting/configuration#observability).
 
 ## What you own
 
-- A stable public HTTPS origin for the browser, API, auth, MCP, and provider
-  callbacks.
-- Postgres, graph database, and codesearch persistence, including backups and
-  recovery procedures.
-- Auth, encryption, model provider, and connector secrets.
-- Deployment-owned provider applications for the connectors you enable.
-- Monitoring, migration execution, upgrades, and rollback procedures.
+- One stable public HTTPS origin for the browser, the API, auth, MCP, and the
+  provider callbacks.
+- The backups and recovery of Postgres, the graph database, and codesearch.
+- The secrets for auth, encryption, models, and connectors.
+- The provider apps (GitHub, Slack, Linear, and so on) for the connectors that
+  you turn on.
+- Monitoring, migrations, upgrades, and rollback.
 
-Product workflows remain the same after the deployment is healthy. Use the
-primary guides to [connect sources](/docs/connections) and
-[install MCP](/docs/mcp/mcp-docs).
-
-## Start here
+After the deployment is healthy, people use it like hosted ctxpipe. Point them
+to [Connections](/docs/connections) and
+[Connect your agent](/docs/mcp/mcp-docs).
 
 <Cards>
-  <Card title="Quickstart" href="/docs/self-hosting/quickstart" description="Deploy ctxpipe, connect GitHub, and verify the MCP tools." />
-  <Card title="Configuration" href="/docs/self-hosting/configuration" description="Set required URLs, secrets, providers, and service configuration." />
-  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Check TLS, callbacks, persistence, security, and recovery." />
-  <Card title="Operations" href="/docs/self-hosting/operations" description="Run migrations, monitor services, back up state, and recover failures." />
-  <Card title="Upgrades" href="/docs/self-hosting/upgrades" description="Plan, migrate, validate, and roll back a release." />
-  <Card title="GitHub connector" href="/docs/self-hosting/github" description="Create the deployment-owned App used for repository access." />
+  <Card title="Quickstart" href="/docs/self-hosting/quickstart" description="Deploy ctxpipe, connect GitHub, and test the MCP tools." />
+  <Card title="Architecture" href="/docs/self-hosting/architecture" description="Services, ports, request flow, and state." />
+  <Card title="Configuration" href="/docs/self-hosting/configuration" description="URLs, secrets, providers, and service settings." />
+  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="TLS, callbacks, persistence, and security checks." />
 </Cards>

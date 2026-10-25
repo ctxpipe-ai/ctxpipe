@@ -1,159 +1,120 @@
 ---
 title: Hosted quickstart
-description: Create an account, connect GitHub, create a Workspace, and configure an MCP client.
+description: Sign up, connect GitHub, create a Workspace, and connect your coding agent.
 ---
 
-Use this guide to set up hosted ctxpipe with one Workspace and make it available
-to an AI coding agent.
+This guide sets up hosted ctxpipe with one Workspace, and connects it to your
+coding agent.
+
+<Callout type="info" title="Hosted ctxpipe is in early access">
+  We help you set up your first Workspace.
+  [Request early access](https://ctxpipe.ai/early-access) or
+  [book a demo](https://cal.com/ctxpipe/30min). To run ctxpipe on your own
+  infrastructure, start with the
+  [self-hosting quickstart](/docs/self-hosting/quickstart).
+</Callout>
 
 ## Before you start
 
 You need:
 
-- permission to install or request the ctxpipe GitHub App on your GitHub account
-  or organization;
-- a GitHub repository for the Workspace's knowledge. An empty repository is
-  fine, and you can create one during setup;
-- optionally, code repositories to link;
-- Cursor, Claude Code, Codex, OpenCode, or VS Code/Copilot with MCP support.
+- permission to install the ctxpipe GitHub App on your GitHub account or
+  organization, or a GitHub owner who can approve it;
+- a GitHub repository for the knowledge of the Workspace. An empty repository
+  is good. You can create one during setup;
+- the code repositories to link;
+- an MCP client: Claude Code, Cursor, Codex, OpenCode, or VS Code with
+  Copilot.
 
-<Callout type="info" title="Self-hosting?">
-  This page covers the hosted product. Start with the
-  [self-hosting quickstart](/docs/self-hosting/quickstart) if your team runs
-  its own deployment.
-</Callout>
+## 1. Sign up and create your organization
 
-## 1. Sign up and connect GitHub
+Sign up at [app.ctxpipe.ai](https://app.ctxpipe.ai), then create an
+organization. With a work email, ctxpipe suggests a name from your email
+domain. If a teammate invited you, you join their organization.
 
-<Steps>
-  <Step>
-    ### Create your organization
+**Home** then shows the **Get started** guide. It lists the next steps and marks
+each step done when ctxpipe sees the result.
 
-    Sign up at [app.ctxpipe.ai](https://app.ctxpipe.ai). Onboarding opens
-    with a welcome that shows how ctxpipe works. Select **Next**, then create an
-    organization. If you sign up with a work email, ctxpipe suggests an
-    organization name from the email domain. You can change it.
+## 2. Connect GitHub
 
-    If a teammate invited you, you join their organization. Onboarding then
-    shows only the welcome. Select **Get started** to open Home.
-  </Step>
+In the guide, choose **Connect GitHub**. Install the ctxpipe GitHub App on the
+account or organization that owns your repositories. Give it access to the
+repository for the knowledge, and to the code repositories that you want to
+link. You can add repositories later in GitHub.
 
-  <Step>
-    ### Install the GitHub App
+A GitHub account can belong to one ctxpipe user only. See
+[GitHub connector](/docs/connections/source-connectors/github).
 
-    After you create the organization, Home opens. The **Get started** guide
-    on Home shows the next steps: connect GitHub, create a Workspace, link
-    code repositories, ask a first question, connect a tool, and invite your
-    team.
+## 3. Create a Workspace
 
-    Select **Connect GitHub**. A window opens. If your ctxpipe user has no
-    linked GitHub account, the window asks you to sign in to GitHub first.
-    ctxpipe needs a GitHub account that can see the installation. Then install
-    or authorize the ctxpipe GitHub App for the account or organization that
-    owns your repositories. Give it access to the repository you want
-    to use for knowledge, and to any code repositories you want to link.
+Choose **Create Workspace**, then choose the Workspace repository:
 
-    A GitHub account can belong to one ctxpipe user only. If your GitHub
-    account belongs to another ctxpipe user, sign in as that user and unlink
-    GitHub (**User account → OAuth Providers → Unlink OAuth**), or use a
-    different GitHub account.
-  </Step>
-</Steps>
+- **Select GitHub**: use an existing repository.
+- **Create on GitHub**: create a new repository on GitHub, then select it.
+- **Paste URL**: use any other git URL. ctxpipe cannot write to it, so the
+  Workspace is read-only.
 
-ctxpipe marks a step of the guide done when it sees the result. A member who
-joins an organization sees only the steps that apply to members. You can
-collapse or dismiss the guide. Until you create a Workspace, Home also shows
-the activity of your organization, empty.
+ctxpipe adds `AGENTS.md` and a knowledge skill if they are missing, and starts
+to read the repository. See [Create a Workspace](/docs/workspaces/create-workspace).
 
-The guide shows for 14 days after you finish onboarding, for 14 days after
-an organization is created, and in any organization that has no Workspace.
-For those 14 days, ctxpipe opens Home when you open the app.
+## 4. Link code repositories
 
-## 2. Create a Workspace
+The next step shows the **Sources** of the new Workspace. Choose **Add
+repositories**, select the code repositories, and choose **Open a pull
+request**. Merge the pull request on GitHub. Each repository then goes from
+**Pending** to **Indexing** to **Indexed**.
 
-From the **Get started** guide on Home, select **Create Workspace**. Then
-pick the workspace repository:
+To link more repositories later, open the **Settings** tab of the Workspace.
+See [Linked repositories](/docs/workspaces/linked-repositories).
 
-- **Select GitHub** to use an existing repository;
-- **Create on GitHub** to create a new one, then select it;
-- **Paste URL** for any other git URL (read-only).
+## 5. Ask a question
 
-ctxpipe adds `AGENTS.md` and a knowledge skill if they are missing and starts
-to build the Workspace. Then add code repositories and tools. This step is
-optional. Select **Done** to go back to Home. The guide shows the build in
-two steps: ctxpipe reads the Workspace repository, then loads the files. You
-can ask questions while it loads the files. See
-[Create a Workspace](/docs/workspaces/create-workspace).
-
-## 3. Link code repositories
-
-Link code repositories in step 2 of Add Workspace. To link more later, open
-**Settings** in the Workspace, then **Add repositories** under **Sources**. Each repository moves from **Pending** to **Indexing** to
-**Indexed**. See [Linked repositories](/docs/workspaces/linked-repositories).
-
-## 4. Ask in Workspace chat
-
-Type a question in the Workspace and ask for the files behind the answer:
+Type a question in the Workspace, and ask for the files behind the answer:
 
 ```text
-What are the main services here, and which files support that answer?
+What should a new engineer read first, and which files support that answer?
 ```
 
-```text
-Before changing authentication, which decisions and standards should an engineer read?
-```
+You can ask while ctxpipe indexes. The answers improve when indexing is done.
+See [Workspace chat](/docs/workspaces/chat).
 
-A useful answer names relevant files and separates facts from
-recommendations. See [Workspace chat](/docs/workspaces/chat).
+## 6. Connect your coding agent
 
-## 5. Install ctxpipe MCP
-
-Onboarding does not set up MCP. Under **More**, the **Get started** guide
-links to [Remote MCP](/docs/mcp/mcp-docs). To set up your own machine, run
-this from a repository:
+The **Get started** guide has a **Use ctxpipe from your agents** block with the
+setup command. Copy it, and run it in a repository:
 
 ```bash
 npx ctxpipe init
 ```
 
-The installer signs you in, asks which organization and clients to configure,
-and writes configuration for the repository, your user profile, or both. Your
-MCP client asks you to authorize ctxpipe the first time it connects.
+The CLI signs you in, asks which organization and agent clients to configure,
+and writes the MCP configuration. The first time your agent connects, it asks
+you to authorize ctxpipe in the browser. See
+[Connect your agent](/docs/mcp/mcp-docs).
 
-Then give the agent a concrete task:
+Then give the agent a real task:
 
 ```text
-Use ctxpipe before planning this change. Search the knowledge for the
-relevant standards and decisions, search the code for the source areas, and
-say what still needs checking in code.
+Use ctxpipe before you plan this change. Search the knowledge for the
+standards and decisions that apply, search the code for the related areas,
+and say what still needs a check in the code.
 ```
 
-See [Remote MCP](/docs/mcp/mcp-docs) for team setup, non-interactive flags,
-and manual configuration.
+## 7. Connect your tools and invite your team
 
-## 6. Connect more sources
-
-From **Connectors**, add the tools whose content should live in the Workspace:
-
-- **Linear, Notion, Confluence, and PagerDuty** need a connection and a source.
-  After you connect the tool, open its Workspaces step (**Add to Workspaces**,
-  or **Choose Workspaces** for Linear). ctxpipe opens a pull
-  request that adds the source file. After you merge it, ctxpipe mirrors the
-  selected content into the Workspace.
-- **Slack** captures an existing thread when someone mentions the ctxpipe bot in
-  it.
-
-See [Connections](/docs/connections).
+- Open **Connectors** to add Linear, Notion, Confluence, PagerDuty, or Slack.
+  See [Connections](/docs/connections).
+- Open **Organization settings → Members** to invite your team. See
+  [Team members](/docs/managing-organization/team-members).
 
 ## Setup is complete when
 
-- the Workspace's index is ready and its linked repositories are indexed;
-- Workspace chat answers a question and cites useful files;
-- your MCP client can call `list_workspaces` and `search_knowledge`.
+- the linked repositories show **Indexed** in the **Settings** of the Workspace;
+- Workspace chat answers a question and names useful files;
+- your agent can call `list_workspaces` and `search_knowledge`.
 
 <Cards>
-  <Card title="How ctxpipe works" href="/docs/getting-started/how-it-works" description="The full source-to-answer flow." />
-  <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="Write knowledge ctxpipe can use." />
-  <Card title="Connections" href="/docs/connections" description="Bring in docs, issues, and conversations." />
-  <Card title="Data and privacy" href="/docs/resources/data-processing" description="Hosted processing, providers, and control boundaries." />
+  <Card title="How ctxpipe works" href="/docs/getting-started/how-it-works" description="The full flow, from a source to an agent." />
+  <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="Write knowledge that ctxpipe can use." />
+  <Card title="Data and privacy" href="/docs/resources/data-processing" description="Hosted processing, providers, and retention." />
 </Cards>

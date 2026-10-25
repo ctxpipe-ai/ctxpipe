@@ -1,50 +1,61 @@
 ---
 title: Common workflows
-description: Where a shared, git-backed Workspace helps engineers and their agents.
+description: Where a shared, git-backed Workspace helps engineers and their coding agents.
 ---
 
-ctxpipe helps when a person or an agent needs context beyond the files already
-open in front of them.
+Each workflow starts from the same Workspace. People use
+[Workspace chat](/docs/workspaces/chat). Coding agents use the
+[MCP tools](/docs/mcp/use-from-your-agent).
 
-## Work across repositories
+## Plan a change across repositories
 
-Link the repositories a team owns to its Workspace. Workspace chat and
-the ctxpipe MCP search tools can then find relevant code across all of them, and the
-knowledge graph shows how services, APIs, and libraries relate before anyone
-plans a change.
+Link the repositories that a team owns to its Workspace. Before an agent plans
+a change, it searches the knowledge for the decisions and standards that apply,
+then searches the code in each linked repository. The
+[knowledge graph](/docs/workspaces/graph) shows which services, APIs, and
+libraries the change touches.
 
-## Apply team instructions
+```text
+Use ctxpipe before you plan this change. Find the decisions and standards that
+apply, and the code in other repositories that calls this API.
+```
+
+## Give every agent the same instructions
 
 Keep `AGENTS.md`, skills, ADRs, and contribution guides in linked repositories
-or in the workspace repository. ctxpipe retrieves them alongside the code they
-govern, so agents follow the same guidance as your engineers.
+or in the Workspace repository. ctxpipe returns them with the code that they
+govern. Claude Code, Cursor, Codex, and your review bots then follow the same
+guidance as your engineers. One MCP endpoint serves each client, so you do not
+build retrieval for each agent.
 
-## Bring product context into git
+## Bring product and incident context into git
 
-Linear, Notion, Confluence, and PagerDuty mirror the scope you approve into the
-Workspace, and Slack captures specific threads on request. The result is
-reviewable Markdown with a git history, not a hidden index.
+Linear, Notion, Confluence, and PagerDuty mirror the scope that you approve
+into the Workspace. Slack captures a thread when someone mentions the bot. The
+result is Markdown with a git history, not a hidden index. An agent can cite
+the issue or the incident behind a decision. See
+[Connections](/docs/connections).
 
-## Write knowledge down as you go
+## Write it down once
 
-Ask Workspace chat to turn what it found into a knowledge file, review the
-diff, and open a pull request. The next person, and the next agent, starts
-from that file.
+When chat or an agent finds something worth keeping, ask Workspace chat to
+write it as a knowledge file. Review the diff and open a pull request. The next
+person and the next agent start from that file.
+[Local memory](/docs/mcp/local-memory) does the same for the lessons that
+agents learn in one repository.
 
-## Share context across agent clients
+## Run headless agents and review bots
 
-Use one MCP endpoint for every compatible client instead of building retrieval
-for each agent. People and agents read the same Workspace.
+CI jobs, review bots, and other agents that cannot sign in through a browser
+use an organization API key. See [API keys](/docs/mcp/api-keys).
 
 ## Run ctxpipe on your own infrastructure
 
-Self-hosted deployments run the backend, worker, UI, codesearch, Postgres,
-graph database, and chat sandboxes on infrastructure you control. See
-[Self hosting](/docs/self-hosting).
+The open-source core runs on Docker Compose, Terraform, or AWS CDK. Your source
+data and model calls stay in your infrastructure. See
+[Self-hosting](/docs/self-hosting).
 
 <Cards>
   <Card title="Hosted quickstart" href="/docs/getting-started/quickstart" description="Create your first Workspace." />
-  <Card title="How ctxpipe works" href="/docs/getting-started/how-it-works" description="Follow knowledge from a source to an answer." />
-  <Card title="Connections" href="/docs/connections" description="Mirrors and Slack capture." />
-  <Card title="Install MCP" href="/docs/mcp/mcp-docs" description="Choose a client and install scope." />
+  <Card title="Connect your agent" href="/docs/mcp/mcp-docs" description="Install the ctxpipe MCP." />
 </Cards>

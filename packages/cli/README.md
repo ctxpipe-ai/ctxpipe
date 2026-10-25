@@ -28,8 +28,8 @@ Use **`npx ctxpipe <command> --help`** for full flags (for example `npx ctxpipe 
 
 ```bash
 npx ctxpipe init --org acme --agents codex,claude --scope repo --non-interactive
-npx ctxpipe mcp add --org acme --client cursor --scope user --non-interactive
-npx ctxpipe mcp add --org acme --client cursor --scope both --auth api-key --non-interactive
+npx ctxpipe mcp add --client cursor --scope user --non-interactive
+npx ctxpipe mcp add --client cursor --scope both --auth api-key --non-interactive
 npx ctxpipe memory init --agents cursor --non-interactive
 npx ctxpipe doctor --json
 ```

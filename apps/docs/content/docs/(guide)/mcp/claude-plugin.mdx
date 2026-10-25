@@ -9,7 +9,8 @@ The ctxpipe Claude plugin is the supported way to give Claude a **named, attacha
 copy of the hosted MCP. Use it when a pasted custom MCP URL is not enough —
 especially Claude Tag channels in Slack.
 
-The plugin lives in this repository at `plugins/ctxpipe`. It points Claude at:
+The plugin is in the ctxpipe repository at `plugins/ctxpipe`. It points Claude
+at:
 
 ```text
 https://app.ctxpipe.ai/mcp
@@ -45,16 +46,13 @@ In a Claude Code session:
 /plugin install ctxpipe@ctxpipe
 ```
 
-Then run `/mcp`, connect **ctxpipe**, complete sign-in, and choose the
-organization Claude may use. Verify setup by asking Claude to call `list_workspaces`
-and then `search_knowledge` for one organization standard; a completed redirect alone is not proof of tool access.
+Then run `/mcp`, connect **ctxpipe**, sign in, and select the organizations
+that Claude can read. To check the setup, ask Claude to call `list_workspaces`,
+then `search_knowledge` for one of your standards. A finished sign-in alone
+does not prove tool access.
 
-The repository validates both package layers:
-
-```bash
-claude plugin validate ./plugins/ctxpipe --strict
-claude plugin validate . --strict
-```
+Version 0.2.0 of the plugin removed the `ctx_advisor` tool and the
+`ctx-advisor` skill. Update the plugin if Claude still tries to call them.
 
 ## Cowork and claude.ai
 
@@ -105,31 +103,6 @@ Claude requests `offline_access`, so signing out of the browser does not
 disconnect the channel agent. Disconnect or revoke the MCP Connector when its
 access should end.
 
-## Publish to the community
-
-The repository marketplace supports direct installation, but public discovery
-requires Anthropic review. An eligible owner submits the public GitHub plugin
-path through one of:
-
-- [Claude.ai plugin submission](https://claude.ai/admin-settings/directory/submissions/plugins/new)
-- [Console plugin submission](https://platform.claude.com/plugins/submit)
-
-Submission is an account action and is not performed by CI. After publication,
-Anthropic mirrors versioned GitHub updates and screens them automatically.
-Listing the remote MCP in the separate Connectors Directory is still
-recommended so Claude presents ctxpipe as a named connector instead of **Custom**
-on connector-first surfaces.
-
-Submit the main-branch plugin directory after merge:
-
-```text
-https://github.com/ctxpipe-ai/ctxpipe/tree/main/plugins/ctxpipe
-```
-
-A dedicated repository is not required. Anthropic supports `git-subdir`
-sources for monorepos and sparsely fetches that directory. Do not submit a
-feature-branch URL.
-
 ## Self-host
 
 Copy `plugins/ctxpipe` and change `.mcp.json` to your public origin:
@@ -150,7 +123,7 @@ ignores an `orgSlug` URL parameter, so the plugin uses the generic URL.
 
 ## Related
 
-- [Remote MCP](/docs/mcp/mcp-docs) — CLI and manual client JSON
+- [Connect your agent](/docs/mcp/mcp-docs) — CLI and manual client configuration
 - [Use ctxpipe from your agent](/docs/mcp/use-from-your-agent) — the tools
 - [Connected apps](/docs/mcp/connected-apps) — change organizations or revoke
 - [Self-hosted MCP](/docs/self-hosting/mcp) — operator checks

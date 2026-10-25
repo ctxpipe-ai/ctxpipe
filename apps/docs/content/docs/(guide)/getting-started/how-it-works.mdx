@@ -1,71 +1,71 @@
 ---
 title: How ctxpipe works
-description: How knowledge moves from your sources into a Workspace and out to people and agents.
+description: How knowledge moves from your sources into a Workspace, and out to people and agents.
 ---
 
-ctxpipe sits between your team's sources and the people and agents who need to
-understand them. It keeps that knowledge as files in git, keeps the files
-current, and builds an index so questions get grounded answers quickly.
+ctxpipe keeps your team's knowledge as files in git, keeps the files current,
+and builds an index so that people and agents get answers with sources.
 
 ## Flow
 
 <Steps>
   <Step>
-    ### Knowledge lives in a workspace repository
+    ### Knowledge lives in a Workspace repository
 
     Each [Workspace](/docs/workspaces) has one git repository of Markdown
-    knowledge. You and your agents write to it like any other repository. Its
-    files and their links and claims are the source of truth.
+    knowledge. You and your agents change it like any other repository. Its
+    files, and the links and claims in them, are the source of truth.
   </Step>
 
   <Step>
     ### ctxpipe keeps it current
 
-    ctxpipe commits to the workspace repository on your behalf:
+    Background jobs commit to the Workspace repository for you:
 
     - [connectors](/docs/connections) mirror the Linear, Notion, Confluence,
-      PagerDuty, and GitHub content you selected, and capture Slack threads
-      when someone mentions the bot;
-    - [linked repositories](/docs/workspaces/linked-repositories) are indexed,
-      and the services, APIs, and libraries found in them are written back as
-      knowledge files.
+      PagerDuty, and GitHub pull request content that you selected, and capture
+      Slack threads when someone mentions the bot;
+    - [linked repositories](/docs/workspaces/linked-repositories) are indexed
+      again after each push, and ctxpipe writes the services, APIs, and
+      libraries that it finds back as knowledge files.
 
-    Each change is a small commit to the default branch with a clear message.
+    Each job makes one small commit to the default branch, with a clear
+    message. You can review or revert each one.
   </Step>
 
   <Step>
-    ### ctxpipe indexes every new commit
+    ### ctxpipe indexes each new commit
 
     When the default branch changes, ctxpipe reads the files and rebuilds the
-    Workspace's search index and knowledge graph. Reading never changes your
-    files, and the previous index keeps serving until the new one is ready.
+    search index and the knowledge graph of the Workspace. This step never
+    changes your files. The previous index serves until the new one is ready.
   </Step>
 
   <Step>
     ### People and agents ask
 
-    [Workspace chat](/docs/workspaces/chat) answers from the Workspace's
-    knowledge, graph, and linked code, and can propose changes as a pull
-    request. Coding agents reach the same context through
-    [MCP](/docs/mcp/mcp-docs).
+    [Workspace chat](/docs/workspaces/chat) answers from the knowledge, the
+    graph, and the linked code, and proposes changes as a pull request. Coding
+    agents read the same context through the [ctxpipe MCP](/docs/mcp/mcp-docs).
+    The MCP tools return sources, not answers. Your agent reasons with its own
+    model.
   </Step>
 </Steps>
 
-## Verify consequential answers
+## Check important answers
 
-Answers combine retrieved files, graph claims, and code search. For
-consequential work, ask for the files behind an answer and check the current
-code before changing behavior.
+Answers come from retrieved files, graph claims, and code search. Before an
+important change, ask for the files behind an answer and read the current code.
 
 <Callout title="Self-hosting">
-  Self-hosted deployments use the same model with your own backend, UI,
-  worker, codesearch, Postgres, graph database, and chat sandboxes. See the
-  [self-hosting section](/docs/self-hosting).
+  A self-hosted deployment works the same way, with your own backend, worker,
+  codesearch, Postgres, graph database, and chat sandboxes. See
+  [Self-hosting](/docs/self-hosting).
 </Callout>
 
 <Cards>
   <Card title="Hosted quickstart" href="/docs/getting-started/quickstart" description="Create your first Workspace." />
   <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="How files become the knowledge graph." />
-  <Card title="Connections" href="/docs/connections" description="Compare mirrors and Slack capture." />
-  <Card title="Remote MCP" href="/docs/mcp/mcp-docs" description="Connect ctxpipe to your coding agents." />
+  <Card title="Connections" href="/docs/connections" description="Mirrors and Slack capture." />
+  <Card title="Connect your agent" href="/docs/mcp/mcp-docs" description="Install the ctxpipe MCP." />
 </Cards>

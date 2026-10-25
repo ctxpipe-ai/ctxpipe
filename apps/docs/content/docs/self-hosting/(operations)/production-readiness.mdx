@@ -35,6 +35,10 @@ reason to expose other services.
 | `falkordb` or graph database | Private |
 | `dind` (Docker Compose) or the AWS sandbox host | Private. Do not publish the Docker API or other unauthenticated services on a host that runs chat sandboxes. |
 
+The Compose deploy profile publishes `ui` (`3002`) and `codesearch` (`3001`) on
+all host interfaces. Block those ports, or bind them to `127.0.0.1` in a
+`docker-compose.override.yml`.
+
 The backend refuses a webhook body above its limit with `413`: 25 MiB for
 GitHub, 5 MiB for Linear, and 1 MiB for Slack, Notion, PagerDuty, and
 Atlassian. If your proxy has a lower body limit, set it to at least 25 MiB
@@ -65,7 +69,9 @@ Register callback and webhook URLs against your public origin.
 
 ## Persistence
 
-Do not treat the reference Compose volumes as disposable in production.
+Do not treat the reference Compose volumes as disposable in production. On
+Compose, mount named volumes for Postgres and FalkorDB before the first start.
+See [Docker: Persistent state](/docs/self-hosting/deployment/docker#persistent-state).
 
 | State | Production expectation |
 |---|---|

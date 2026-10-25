@@ -1,102 +1,114 @@
 ---
 title: FAQ
-description: Frequently asked questions about ctxpipe, MCP, and self-hosting.
+description: Common questions about ctxpipe, connections, MCP, accounts, and self-hosting.
 ---
 
 ## Product
 
-### What is ctxpipe in one sentence?
+### What is ctxpipe?
 
-An organization-scoped context platform for engineering agents: it ingests the
-sources you select, builds searchable and graph context, and exposes it through
-**MCP** read tools.
+Context management for teams that ship with AI coding agents. ctxpipe keeps
+your code, decisions, tickets, docs, and incidents as Markdown in a git
+repository that you own, keeps it current with background jobs, and serves it
+to each coding agent through one MCP endpoint. See
+[Getting started](/docs/getting-started).
+
+### How is ctxpipe different from giving an agent more MCP servers?
+
+More servers give an agent more to read, not a way to tell what is true.
+ctxpipe gives each agent the same reviewed context: files in git with sources,
+history, and links to the code. The MCP tools return sources, not answers, so
+your agent cites what it used.
+
+### Does ctxpipe train on my code?
+
+No. On hosted ctxpipe, each model call goes only to zero data retention
+endpoints. See [Data and privacy](/docs/resources/data-processing).
+
+## Connections
+
+### Which sources can I connect?
+
+GitHub, Linear, Notion, Confluence, PagerDuty, and Slack, plus public
+repositories on any git host. Linear, Notion, Confluence, and PagerDuty mirror
+the scope that you approve. Slack captures one thread when someone mentions the
+bot. See [Connections](/docs/connections).
 
 ### Is ctxpipe only for GitHub?
 
-No. ctxpipe also reads Confluence, Linear, Notion, Slack, and PagerDuty. For code,
-the best-supported path is the **GitHub App**. GitLab and other git hosts have no
-first-party setup flow.
+ctxpipe writes Workspace repositories through the GitHub App, and reads private
+code through it. Other git hosts work as read-only sources: ctxpipe reads a
+public repository on any host with no credential. A private repository on
+another host does not work yet. See
+[Plain git repositories](/docs/workspaces/linked-repositories#plain-git-repositories).
 
-ctxpipe can read a repository on another git host as a plain git source. Plain git
-sources are read-only. ctxpipe reads them with git over HTTPS or, on self-host, HTTP, and with no credential,
-so a private repository on another host does not work. The URL rules depend on
-where ctxpipe runs:
+### What is the difference between a connection and a source?
 
-- **Hosted ctxpipe, and a deployment where `SANDBOX_PROVIDER` is not `docker`:**
-  the URL uses `https://` and the default port. The host is a public domain
-  name. ctxpipe refuses an IP address, a private name such as `localhost`, and a
-  host that resolves to a private address.
-- **Self-hosted ctxpipe with `SANDBOX_PROVIDER=docker`:** the Compose file and the
-  AWS CDK stack set this value. On another setup, the operator sets it
-  explicitly. The URL can also use `http://`, a custom port, an IP address, or a
-  private host name. Agent Vault reaches a private address only when that
-  address is in `AGENT_VAULT_NETWORK_ALLOWLIST`.
-- **Both:** SSH (`git@…` or `ssh://`), `git://`, and `file://` URLs are not
-  supported. ctxpipe always refuses cloud metadata addresses (169.254.0.0/16 and
-  the IPv6 metadata addresses). The URL has no user name, password, query, or
-  fragment. ctxpipe does not follow a redirect.
+A connection is the authorization for one tool. A source is a file in a
+Workspace that names the connection and the scope. One connection can feed many
+Workspaces.
 
-See [Plain git repositories](/docs/workspaces/linked-repositories#plain-git-repositories).
+### Does ctxpipe scan my laptop?
 
-### Where does the marketing site fit?
+No. ctxpipe reads only the repositories and tools that you connect. It installs
+nothing on developer machines. [Local memory](/docs/mcp/local-memory) is
+Markdown in your repository, and it leaves your machine only when you push it.
 
-[ctxpipe.ai](https://ctxpipe.ai) is the product story and updates; **this docs
-site** is the technical companion. Some content overlaps by design.
+### Does ctxpipe write to my code repositories?
+
+No. ctxpipe only reads linked code repositories. It commits only to Workspace
+repositories, and it opens pull requests for source changes, upgrades, and
+Workspace chat.
 
 ## MCP
 
-### How does an MCP tool call choose the organization?
+### How does a tool call choose the organization?
 
-The `/mcp` URL is the same for every organization. Each tool call names one
-organization with the `org` argument (the slug from your ctxpipe URL). Only
-`list_workspaces` can omit it. Then it returns the Workspaces of each
-organization in the connection.
+The `/mcp` URL is the same for each organization. Each tool call names one
+organization in the `org` argument. ctxpipe allows the call only when the
+organization is in the set that you selected for the client, and you are still
+a member. The tools have no organization id that an agent can change. See
+[Use ctxpipe from your agent](/docs/mcp/use-from-your-agent).
 
-ctxpipe is multi-tenant, so the server checks every call. It allows the call only
-when the organization is in the set that you chose when you authorized the
-client, and you are still a member. Tools have no `orgId` argument for an agent
-to spoof. An organization API key reads one organization, and `org` must name it.
+### Which transport does the MCP use?
 
-The server accepts the old `?orgSlug=` URL parameter and ignores it. You can
-leave it in an old client configuration or remove it.
+Streamable HTTP. A client that supports only the old SSE transport can fail.
 
-### Streamable HTTP vs SSE?
+### Can an agent change data through the MCP?
 
-ctxpipe uses **Streamable HTTP** (MCP 2025-03-26). Legacy SSE-only clients may not
-work without updates.
+No. All seven tools are read-only.
 
-### What do the MCP tools do?
+## Account and organization
 
-They give your coding agent seven read-only tools: `list_workspaces`,
-`search_knowledge`, `search_code`, `find_symbol`, `read_file`, `list_files`, and
-`get_related`. The agent does the reasoning. ctxpipe returns facts with refs and
-runs no model for each call. See [Use ctxpipe from your agent](/docs/mcp/use-from-your-agent).
+### How do invitations work?
 
-## Self-hosting
+An owner or admin sends an email invitation from **Organization settings →
+Members**. See [Team members](/docs/managing-organization/team-members).
 
-### What is the supported small-deployment path?
+### Can one person belong to many organizations?
 
-Use `pnpm start` (the Compose **`deploy`** profile) for an evaluation or small
-internal deployment. It is not the contributor development stack. See
-[Self-hosting](/docs/self-hosting) for Docker, Terraform, and AWS options.
-
-### Which Postgres version?
-
-The reference stack uses **Postgres 17** (pgvector image in `docker-compose.yml`).
-
-### Where do I configure the graph database?
-
-Configure `GRAPH_DB_URI` and `GRAPH_DB_PROVIDER` in your deployment
-environment.
-
-## Account & org
-
-### How do invites work?
-
-Email invitations from **Settings → Members**; accepting binds the user with the
-invited role. Details: [Team members](/docs/managing-organization/team-members).
+Yes. Switch with the organization switcher. The URL always names the
+organization. An MCP client can read each organization that you select for it.
 
 ### Can I verify my company domain?
 
-Not in the current product. Organization access is based on explicit
-invitations and roles.
+Not yet. Access to an organization comes from invitations and roles. If you need
+domain verification, [get in touch](/docs/getting-started/get-in-touch).
+
+## Self-hosting
+
+### What is the fastest way to evaluate a self-hosted deployment?
+
+Docker Compose: `pnpm start` runs the `deploy` profile. See
+[Docker](/docs/self-hosting/deployment/docker).
+
+### Which databases does ctxpipe need?
+
+PostgreSQL with pgvector, and a graph database. FalkorDB is the default. Neo4j,
+Memgraph, and Amazon Neptune also work. See
+[Graph databases](/docs/self-hosting/graph-databases).
+
+### Which model providers work?
+
+Each OpenAI-compatible provider, including OpenRouter, Azure OpenAI, and
+Ollama, and Amazon Bedrock. See [Models](/docs/self-hosting/models).

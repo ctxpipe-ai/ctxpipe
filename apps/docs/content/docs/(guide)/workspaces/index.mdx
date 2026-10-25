@@ -1,87 +1,70 @@
 ---
 title: Workspaces
-description: A Workspace is a git repository of team knowledge plus the code repositories it searches.
+description: A Workspace is a git repository of team knowledge, plus the code repositories that it searches.
 ---
 
-A **Workspace** is where ctxpipe keeps one body of team knowledge. Each Workspace
-has:
+A **Workspace** holds one body of team knowledge, for example one product area
+or one team. Each Workspace has:
 
-- one **workspace repository**: a git repository of Markdown knowledge files,
+- one **Workspace repository**: a git repository of Markdown knowledge files,
   connector content, and `AGENTS.md`;
-- zero or more **linked repositories**: code repositories that ctxpipe indexes
-  so chat and agents can search them.
+- zero or more **linked repositories**: code repositories that ctxpipe indexes,
+  so that chat and agents can search them.
 
-An organization can have many Workspaces, for example one per product area or
-team.
+An organization can have many Workspaces. Each member of the organization can
+open each Workspace.
 
 ## Git is the source of truth
 
-Everything ctxpipe knows about a Workspace lives as files in its workspace
-repository. ctxpipe reads those files to build its search indexes and knowledge
-graph, and it writes new knowledge back as ordinary commits.
+All that ctxpipe knows about a Workspace is in files in its Workspace
+repository. ctxpipe reads those files to build its search index and knowledge
+graph, and writes new knowledge back as ordinary commits. Thus:
 
-That means:
-
-- you can read, review, and edit the knowledge with the tools you already use;
-- every change ctxpipe makes is a commit in the repository's history;
+- you read, review, and edit the knowledge with the tools that you already use;
+- each change that ctxpipe makes is a commit in the history of the repository;
 - if you stop using ctxpipe, the repository and its knowledge stay with you.
 
-## What you can do in a Workspace
+## Use a Workspace
 
-Open a Workspace from the sidebar. The main column is the conversation; the
-right-hand pane has four tabs:
+Open a Workspace from the sidebar. The main column is the conversation. The
+pane on the right has these tabs:
 
 | Tab | What it shows |
 | --- | --- |
-| **Files** | The workspace repository as seen by the current conversation. Browse, edit, and create files. |
-| **Diff** | The changes the current conversation has made. |
-| **Graph** | The knowledge graph built from this Workspace's files and linked code. |
-| **Settings** | Name, context repository, sources, write access, hydrate status, and upgrades. See [Workspace settings](/docs/workspaces/settings). |
+| **Files** | The Workspace repository, as the current conversation sees it. Browse, edit, create, rename, and delete files. |
+| **Diff** | The changes of the current conversation. It shows only when a conversation is open. |
+| **Graph** | The knowledge graph of the Workspace. While ctxpipe builds it, the tab shows **Graph, building**. |
+| **Settings** | The name, repositories, sources, ingestion progress, and upgrades. See [Workspace settings](/docs/workspaces/settings). |
 
-The sidebar lists your Workspaces with their most recent conversations. Home
-shows recent activity and commits across them.
+The sidebar lists your Workspaces with their five most recent conversations. A
+pulse next to a Workspace shows that ctxpipe is ingesting content for it. Home
+shows the recent activity and commits of all Workspaces. Choose **Search** in
+the sidebar to find a Workspace or a page.
 
 ## How a Workspace stays current
 
-<Steps>
-  <Step>
-    ### Files change in git
+1. Files change in git. Someone pushes to the Workspace repository, a connector
+   mirrors new content, or ctxpipe commits knowledge that it extracted from a
+   linked repository.
+2. ctxpipe reads the new commit and rebuilds the search index and the graph. It
+   never changes files in this step. The previous index serves until the new
+   one is ready.
 
-    Someone pushes to the workspace repository, a connector mirrors new content
-    into it, or ctxpipe commits extracted knowledge.
-  </Step>
-
-  <Step>
-    ### ctxpipe refreshes its index
-
-    ctxpipe reads the new commit and rebuilds the Workspace's search index and
-    knowledge graph. It never edits files while doing this. The previous
-    version keeps serving until the new one is ready.
-  </Step>
-
-  <Step>
-    ### Linked code is indexed
-
-    Linked repositories are indexed for code search. ctxpipe also extracts
-    services, APIs, libraries, and their relationships from that code, and
-    commits the results to the workspace repository as knowledge files.
-  </Step>
-</Steps>
+The **Status** group in **Settings** lists each ingestion that runs under
+**Working now**, with its stage and progress. See [How indexing works](/docs/connections/ingestion).
 
 ## Read-only Workspaces
 
-ctxpipe writes to the workspace repository only through the ctxpipe GitHub App. If
-it cannot push, for example because the repository is not on GitHub or the
-App lost access, the Workspace becomes **read-only**. Search, chat, and the
-graph keep working on the latest commit, and Settings explains why writes are
-paused. Writes resume when access returns. A repository with a newer or an
-invalid format is read-only too. See
+ctxpipe writes to the Workspace repository only through the ctxpipe GitHub App.
+If it cannot push, the Workspace is **read-only**. For example, the repository
+is not on GitHub, or the App lost access. Search, chat, and the graph continue
+to work on the latest commit, and writes start again when access returns.
+**Settings** shows the reason. See
 [Write access](/docs/workspaces/settings#write-access).
 
 <Cards>
-  <Card title="Create a Workspace" href="/docs/workspaces/create-workspace" description="Choose or create the workspace repository." />
+  <Card title="Create a Workspace" href="/docs/workspaces/create-workspace" description="Choose or create the Workspace repository." />
   <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="How files, links, and claims become the knowledge graph." />
-  <Card title="Workspace settings" href="/docs/workspaces/settings" description="Sources, write access, and upgrades." />
   <Card title="Linked repositories" href="/docs/workspaces/linked-repositories" description="Add code repositories for search and extraction." />
   <Card title="Workspace chat" href="/docs/workspaces/chat" description="Ask questions and change files in a conversation." />
 </Cards>

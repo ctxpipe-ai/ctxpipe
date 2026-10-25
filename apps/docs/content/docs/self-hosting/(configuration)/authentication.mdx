@@ -88,26 +88,21 @@ the organization is in the grant set and the user is still a member of it.
 The `?orgSlug=` URL parameter no longer selects the organization. The server
 accepts it and ignores it, so old client configurations keep working.
 
-OAuth is the normal MCP flow for people. The scopes are `ctxpipe:read` and
-`ctxpipe:write`. Legacy grants and API keys count as read.
+OAuth is the normal MCP flow for people. The consent screen grants
+`ctxpipe:read` and `offline_access`. It also offers **Also allow changes**
+(`ctxpipe:write`) when a client asks for it. The MCP tools need only
+`ctxpipe:read`. API keys never hold `ctxpipe:write`.
 
-Dashboard API keys are stored in this deployment's Better Auth database; there
-is no extra operator secret to configure. Send `x-api-key` when the client
-supports custom headers. Bearer-only MCP hosts may instead send
-`Authorization: Bearer <api-key>` to `/mcp`; OAuth credentials are resolved
-before that API-key fallback, and REST does not accept Bearer API keys.
-Personal keys live under **User account → API Keys** and still authenticate
-REST as that user through `x-api-key`. A personal key reads the organizations
-that its user is a member of. Organization keys live under
-**Organization settings → API Keys** and authenticate MCP only (one
-organization per key; the `org` argument of each tool call must name that
-organization). `--auth api-key` writes an interpolation of `CTXPIPE_API_KEY`, never
-the secret. Set that variable in the MCP client environment. `npx ctxpipe
-doctor mcp` sends `x-api-key` when `CTXPIPE_API_KEY` is set in that process.
+| Token | Lifetime |
+|---|---|
+| Browser session | 30 days |
+| OAuth access token | 4 hours, renewed with the refresh token (`offline_access`) |
+| OAuth access token with `ctxpipe:write` | 1 hour |
 
-See [Remote MCP](/docs/mcp/mcp-docs#api-key-auth) for user vs organization keys
-and the API-key CLI path, and [MCP diagnostics](/docs/self-hosting/mcp) when
-discovery or authorization fails.
+API keys are stored in the database of this deployment, so there is no
+operator secret to configure. For personal and organization keys, the headers,
+and the client setup, see [API keys](/docs/mcp/api-keys). When discovery or
+authorization fails, see [MCP diagnostics](/docs/self-hosting/mcp).
 
 ## Production checks
 

@@ -1,0 +1,169 @@
+---
+title: API keys
+description: Connect CI jobs, review bots, and other headless agents to the ctxpipe MCP with an API key.
+---
+
+OAuth is the default for a person at a laptop. Use an API key only when a
+client cannot finish the browser sign-in: a CI job, a headless agent, a review
+bot, or a host that accepts only a fixed header.
+
+## Choose a key
+
+| | Organization key | Personal key |
+| --- | --- | --- |
+| Where to create it | **Organization settings → API Keys** | **User account → API Keys** |
+| Who can create it | An organization owner or admin | Each user, for themselves |
+| Acts as | The organization, not the person who created it | You, as a member |
+| Reads | Its one organization. The `org` argument must name it. | Each organization that you are a member of. ctxpipe checks your membership on each call. |
+| Works on | `/mcp` only | `/mcp`, and the REST API as you |
+
+Use an organization key for shared automation. It continues to work when the
+person who created it leaves the organization.
+
+A new key expires after 30 days by default, and allows 1,000 requests per hour.
+You can create a key that never expires, but treat it as a long-lived secret.
+ctxpipe shows the secret one time only. Give each key a name.
+
+To rotate a key, create a new key, change `CTXPIPE_API_KEY` to it, then revoke
+the old key.
+
+## Send the key
+
+Send the key in the `x-api-key` header to `/mcp`. If a host can send only a
+Bearer token, send `Authorization: Bearer <key>`. A Bearer API key works only
+on `/mcp`, not on the REST API.
+
+Keep the secret out of files. Put a reference to the `CTXPIPE_API_KEY`
+environment variable in the client configuration. The reference is safe to
+commit.
+
+The CLI writes that reference for you:
+
+```bash
+npx ctxpipe mcp add --client cursor --scope both --auth api-key --non-interactive
+```
+
+The CLI never creates a key and never reads `CTXPIPE_API_KEY`.
+
+### Claude Code
+
+`.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "http",
+      "url": "https://app.ctxpipe.ai/mcp",
+      "headers": {
+        "x-api-key": "${CTXPIPE_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+### Cursor
+
+`.cursor/mcp.json` or `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "ctxpipe": {
+      "type": "http",
+      "url": "https://app.ctxpipe.ai/mcp",
+      "headers": {
+        "x-api-key": "${env:CTXPIPE_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+### Codex
+
+`.codex/config.toml` or `~/.codex/config.toml`. Codex wants the name of the
+variable, not `$VAR` and not the secret:
+
+```toml
+[mcp_servers.ctxpipe]
+url = "https://app.ctxpipe.ai/mcp"
+env_http_headers = { "x-api-key" = "CTXPIPE_API_KEY" }
+```
+
+### OpenCode
+
+`opencode.json` or `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "mcp": {
+    "ctxpipe": {
+      "type": "remote",
+      "url": "https://app.ctxpipe.ai/mcp",
+      "enabled": true,
+      "headers": {
+        "x-api-key": "{env:CTXPIPE_API_KEY}"
+      },
+      "oauth": false
+    }
+  }
+}
+```
+
+`"oauth": false` stops OpenCode from opening the browser after a `401`.
+
+### VS Code / Copilot
+
+`.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "ctxpipe": {
+      "type": "http",
+      "url": "https://app.ctxpipe.ai/mcp",
+      "headers": {
+        "x-api-key": "${env:CTXPIPE_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+## Set `CTXPIPE_API_KEY`
+
+The process of the MCP client must have the variable. An `export` in the
+terminal where you ran the CLI is not enough for an app that you start from
+the Dock or the Start menu.
+
+- **CLI agents** (Claude Code, Codex, OpenCode, Cursor CLI): export the
+  variable in the terminal, then start the agent from that terminal. To set it
+  for each session, put it in `~/.zshenv` or `~/.bash_profile`. The Cursor CLI
+  can start a shell that does not read `.zshrc`.
+- **Desktop apps** (Cursor, VS Code): set the variable for your user session,
+  then quit and open the app again. On macOS, run
+  `launchctl setenv CTXPIPE_API_KEY '<key>'`. On Linux, use `environment.d`.
+  On Windows, use the user environment variables. You can also start the app
+  from a terminal that has the variable, for example `cursor .`.
+- **CI**: store the key as a secret of your CI system, and expose it to the job
+  as `CTXPIPE_API_KEY`.
+
+To test the key, run:
+
+```bash
+CTXPIPE_API_KEY=<key> npx ctxpipe doctor mcp --url "https://app.ctxpipe.ai/mcp"
+```
+
+The status `ready-for-api-key` means that the key works.
+
+## Troubleshooting
+
+- **An organization key gets `401` on the REST API.** This is correct.
+  Organization keys work only on `/mcp`. Use a personal key or a browser
+  session for the REST API.
+- **A tool gets `org_not_found`.** An organization key reads only its own
+  organization. Make the `org` argument match it.
+- **The client sends no key.** A variable in the environment is not enough by
+  itself. The client configuration must map it to the `x-api-key` header.

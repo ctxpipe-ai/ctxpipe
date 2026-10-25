@@ -1,55 +1,42 @@
 ---
-title: Adding team members to your org
-description: Invitations, roles, and how membership gates access in ctxpipe.
+title: Team members
+description: Invite people to your organization, and choose what each role can do.
 ---
+
+## Invite by email
+
+Open **Organization settings → Members** and send an invitation. The invited
+person gets an email with a link.
+
+- If they have an account, the link adds them to the organization with the
+  role of the invitation.
+- If they do not, they sign up first with the same email. ctxpipe then applies
+  the invitation.
+
+Each member can open each Workspace of the organization.
 
 ## Roles
 
-Each member has exactly one role per organization:
+Each member has one role in each organization:
 
 | Role | What the role can do |
 | --- | --- |
-| **owner** | Everything that an admin can do. Also delete the organization and transfer ownership. |
+| **owner** | All that an admin can do. Also delete the organization. |
 | **admin** | Manage members and invitations. Add and remove connections, and start a sync. Start Workspace upgrades. Create organization API keys. |
-| **member** | Open and use the Workspaces of the organization, and chat in them. A member cannot manage members, connections, upgrades, or organization API keys. |
+| **member** | Open and use the Workspaces of the organization, and chat in them. See the status of connections and upgrades. |
 
-A connection is the authorization for GitHub, Confluence, Slack, Linear, Notion,
-or PagerDuty. Only an **owner** or an **admin** can add and remove connections,
-and start a sync. Only an **owner** or an **admin** can start a Workspace upgrade or
-check for upgrades. A **member** can see that an upgrade is pending.
+Admin actions need a signed-in browser session. An API key or an MCP token
+cannot do them, even when its owner is an admin.
 
-These actions need a signed-in browser session. An API key or an MCP OAuth
-token cannot start them, even when the person who owns the key is an admin.
+## Members and MCP
 
-## Inviting by email
+An MCP client reads an organization only when both of these are true:
 
-In **Organization settings → Members**, send an invitation. The invitee
-receives an email with an accept link.
+- the organization is in the set that you selected when you authorized the
+  client. You can change the set in [Connected apps](/docs/mcp/connected-apps);
+- you are still a member of the organization.
 
-- If the invitee **already has an account**, accepting attaches them to the org
-  with the invited role.
-- If they **do not**, they can **sign up** first; the invitation is applied when
-  the email matches.
+When you leave an organization, your clients lose access to it at once.
 
-## Switching organizations
-
-Users in multiple organizations switch with the organization switcher. The URL
-updates so it is always clear which organization owns the current Workspace,
-conversation, connector, or graph context.
-
-## MCP and membership
-
-Each MCP tool call names one organization in its `org` argument. The server
-allows the call only when both of these are true:
-
-- The organization is in the set that the connection holds. You choose the set
-  when you authorize a client. You can change it later in
-  [Connected apps](/docs/mcp/connected-apps).
-- You are still a member of the organization.
-
-When you leave an organization, your connections lose access to it at once.
-There is no `orgId` argument in the tools for an agent to override.
-
-An organization API key is different. It reads the one organization that it was
-created for, and the `org` argument must name that organization. Create it in
-**Organization settings → API Keys**. See [Remote MCP](/docs/mcp/mcp-docs#api-key-auth).
+An organization API key reads only the organization that it was created for. See
+[API keys](/docs/mcp/api-keys).

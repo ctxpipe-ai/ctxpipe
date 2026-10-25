@@ -1,117 +1,144 @@
 ---
 title: Connections
-description: How connections and sources bring content from your tools into a Workspace as reviewable Git files.
+description: How connections and sources bring content from your tools into a Workspace as Markdown files that you can review.
 ---
 
-A **connection** gives ctxpipe access to one of your tools. A **source** tells one
-[Workspace](/docs/workspaces) what to read through a connection. ctxpipe writes
-the content into the repository of the Workspace as Markdown files. You can see,
-review, and keep the files that ctxpipe and your agents use.
+A **connection** gives ctxpipe access to one of your tools. A **source** tells
+one [Workspace](/docs/workspaces) what to read through a connection. ctxpipe
+writes the content into the Workspace repository as Markdown files, so you can
+read, review, and keep each file that ctxpipe and your agents use.
 
-## Connections and sources
-
-- A **connection** holds authorization only: the OAuth grant or the GitHub App
-  installation, its tokens, and its webhooks. It holds no scope and no
-  destination. You add each connection one time for the organization, on the
-  **Connectors** page. An organization owner or admin adds and removes
-  connections.
-- A **source** is one Markdown file in a Workspace. It names the connection, the
-  scope (for example Linear teams or Notion pages), and an optional
-  description. Each source file is at `sources/<provider>/…md` in the
-  Workspace repository. Example: `sources/linear/engineering.md`.
+- A **connection** holds only the authorization: the OAuth grant or the GitHub
+  App installation, and its webhooks. An organization owner or admin adds it
+  one time for the organization, on **Connectors**.
+- A **source** is one Markdown file in a Workspace, at
+  `sources/<provider>/<name>.md`. It names the connection, the scope (for
+  example Linear teams or Notion pages), and an optional description.
 
 One connection can feed many Workspaces. Each Workspace has its own source file
-and its own scope. Overlapping scopes give each Workspace its own copy of the
-files.
+and its own scope.
 
-## Add a connection and use it in a Workspace
+## Available connectors
+
+| Connector | Type | What enters the Workspace | Scope |
+| --- | --- | --- | --- |
+| [GitHub](/docs/connections/source-connectors/github) | Git source | Linked repositories, indexed for code search and extraction, and their issues and closed pull requests | One repository, and an optional `ref` |
+| [Linear](/docs/connections/source-connectors/linear) | Scoped mirror | Issues, projects, cycles, and related content | Teams and projects |
+| [Notion](/docs/connections/source-connectors/notion) | Scoped mirror | Pages and databases | Pages and databases |
+| [Confluence](/docs/connections/source-connectors/confluence) | Scoped mirror | Spaces and pages | Spaces, with all pages or a page list |
+| [PagerDuty](/docs/connections/source-connectors/pagerduty) | Scoped mirror | Incidents of the selected services | Services |
+| [Slack](/docs/connections/source-connectors/slack) | Capture on request | One thread at a time, when someone mentions the bot | Channels |
+| [Plain git](/docs/workspaces/linked-repositories#plain-git-repositories) | Git source | A public repository on any git host, with no connection | A URL |
+
+ctxpipe indexes the docs in linked repositories with the code: README files,
+`docs/**`, ADRs, `AGENTS.md`, and skills.
+
+<ConnectorKindsDiagram />
+
+The important difference is the scope. A scoped mirror keeps an approved
+subset current. Slack has no history backfill and no channel mirror: a person
+captures one thread when it is worth keeping.
+
+## Connect GitHub first
+
+The ctxpipe GitHub App lets ctxpipe read and write Workspace repositories,
+index linked code repositories, and open the pull requests for source changes,
+upgrades, and Workspace chat. The other connectors write into a Workspace
+repository on GitHub, so they need it too. See the
+[GitHub connector](/docs/connections/source-connectors/github).
+
+## Add a tool to a Workspace
+
+Before you start, make sure that:
+
+- you are an organization owner or admin;
+- the ctxpipe GitHub App can write to the Workspace repository, and the
+  repository uses format 2 or higher (see
+  [Upgrades](/docs/workspaces/settings#upgrades));
+- you can merge pull requests in the Workspace repository.
 
 <Steps>
   <Step>
     ### Connect the tool
 
-    Open **Connectors**. Choose **Add connection**, then choose the tool. Follow
-    the steps in the guide of the connector. This step authorizes ctxpipe. It does
-    not choose a Workspace.
+    Open **Connectors**, choose **Add connection**, then choose the tool.
+    Authorize ctxpipe in the popup of the tool. The connector page has the
+    details for each tool.
   </Step>
 
   <Step>
-    ### Add the connection to a Workspace
+    ### Add it to Workspaces
 
-    In the setup dialog, the step for Workspaces is **Add to Workspaces**. In
-    the Linear and Slack dialogs, it is **Choose Workspaces**. Select one or
-    more Workspaces, then choose the scope. When you select more than one
+    The next step is **Add to Workspaces** (**Choose Workspaces** for Linear and
+    Slack). Select the Workspaces, then select the scope. For more than one
     Workspace, choose **Same scope for each Workspace** or **A different scope
-    for each Workspace**. Choose **Add to Workspaces**.
+    for each Workspace**. Then choose **Add to Workspaces**.
 
-    You can also do this later. Expand the connector on **Connectors**. The
-    **Used in** list shows the Workspaces that use the connection. When the list
-    is empty, choose **Add to a Workspace**. In a Workspace, use the **Add**
-    button of a provider in **Settings**, under **Sources**.
+    You can do this later. Expand the connector on **Connectors** and choose
+    **Add to a Workspace** (or **Manage**), or use **Add** under **Sources** in
+    the **Settings** of a Workspace.
   </Step>
 
   <Step>
     ### Merge the pull requests
 
-    ctxpipe opens one pull request for each Workspace. The pull request adds the
-    source file. The dialog shows **Merge the pull request** (or **Merge the
-    pull requests**) with a link to each one. After you merge a pull request,
-    the dialog shows **Pull request merged**.
-
-    Until the merge, the source does not sync. **Used in** shows "Pull request
-    open. The sync starts after the merge." with an **Open pull request** link.
+    ctxpipe opens one pull request for each Workspace. Each pull request adds the
+    source file. Review the scope and who can read the repository, then merge.
+    The source does not sync before the merge.
   </Step>
 
   <Step>
     ### Wait for the first sync
 
-    After the merge, ctxpipe reads the source file and starts the first sync. The
-    Workspace then indexes the new files like any other knowledge file.
+    After the merge, ctxpipe makes the first mirror. The Workspace then indexes
+    the new files like any other knowledge file.
   </Step>
 </Steps>
 
-To change what a Workspace reads, edit or rename its source file, or remove it.
-See [Workspace settings](/docs/workspaces/settings#sources).
+To change what a Workspace reads, edit, rename, or remove its source. See
+[Workspace settings](/docs/workspaces/settings#sources).
 
-## Connection menu
+## How content stays current
 
-Each connector on **Connectors** has a menu with these items:
+- **Webhooks.** Linear, Notion, Confluence, and PagerDuty tell ctxpipe when
+  content changes. ctxpipe updates the files of the sources whose scope
+  includes the change. Events that arrive before a source is live are skipped.
+- **Daily full sync.** Once a day, ctxpipe syncs each connection that has a
+  source with the status **OK**. This sync finds content that the provider
+  deleted, and content that a webhook missed.
+- **Sync now.** The menu of the connector on **Connectors** has **Sync now** for
+  Confluence, Linear, Notion, and PagerDuty. It starts the same full sync at
+  once. Only an owner or admin sees it.
 
-- **Sync now** starts a full sync of the connection's Workspace sources. It
-  shows for Confluence, Linear, Notion, and PagerDuty. Only an owner or admin
-  sees it, and only when the connection has a source with the status **OK**. A
-  second request in the same minute starts no other sync.
-- **Remove connector** removes the authorization. The sources of the connection
-  stop syncing. The source files and the files that ctxpipe already committed stay
-  in Git.
+Do not edit mirrored files by hand. The next sync overwrites them. When you
+remove a source, the next sync deletes its files in one commit. Git history
+keeps them.
 
-## Available connectors
+**Remove connector**, in the same menu, removes the authorization. The sources
+of the connection stop syncing. The source files and the files that ctxpipe
+committed stay in git.
 
-| Connector | Model | What enters ctxpipe | Scope in the source file |
-| --- | --- | --- | --- |
-| **GitHub** | Git source | Selected repositories, indexed for code search and extraction | One repository, and an optional `ref` |
-| **Linear** | Scoped mirror | Issues, projects, cycles, and related content of the selected teams and projects | Teams and projects |
-| **Notion** | Scoped mirror | Selected pages and databases | Pages and databases |
-| **Confluence** | Scoped mirror | Selected spaces and pages | Spaces, with all pages or a page list |
-| **PagerDuty** | Scoped mirror | Incidents of the selected services | Services |
-| **Slack** | Intent capture | One existing thread at a time | Channels |
-| **Plain git** | Git source | A repository on a git host that ctxpipe can read under the URL rule, with no connection | A URL (see [Linked repositories](/docs/workspaces/linked-repositories#plain-git-repositories)) |
+## Git is the review boundary
 
-Repository-native docs, such as README files, `docs/**`, ADRs, `AGENTS.md`,
-and skills in linked repositories, are indexed with the code.
+A source file changes only through a pull request that a person merges. The
+pull request is the review of the scope. No agent can add or change a source
+without that review.
 
-<ConnectorKindsDiagram />
+- **Scoped mirrors** write Markdown under the folder of the provider, for
+  example `linear/` or `notion/`, in each Workspace repository.
+- **Slack** captures commit directly to the default branch of each Workspace
+  that has the channel. The mention in the thread is the approval, and git
+  history records it.
 
-The important difference is **scope**. A scoped mirror keeps an approved subset
-current. Slack has no history backfill and no channel mirror: a user promotes a
-specific thread into Git history only when it is worth keeping.
+Each person who can read the Workspace repository can read its mirrored
+content. Use separate Workspaces when different sources need different
+audiences.
 
 ## Scope limits
 
-Each source has a maximum number of items in one list. The limit keeps one
-sync in the API rate limits of the provider. When you need more items, add a
-second source with the same connection. ctxpipe shows an error when a selection
-is above its limit.
+Each source has a maximum number of items, so that one sync stays inside the
+API rate limits of the provider. For more items, add a second source with the
+same connection.
 
 | Source | Maximum in one source |
 | --- | --- |
@@ -121,79 +148,29 @@ is above its limit.
 | **Notion** | 100 root pages and 100 databases |
 | **PagerDuty** | 100 services |
 
-A GitHub source has no limit, because one source file holds one repository.
-The upgrade of an older Workspace splits a longer list into several sources.
-This includes an older GitHub entry with more than 100 repositories.
+A GitHub source holds one repository, so it has no limit.
 
-## Git is the review boundary
+## Troubleshooting
 
-A source file changes only through a pull request that a person merges. The
-pull request is the review of the scope. No agent can add or change a source
-file without that review.
+| Problem | What to do |
+| --- | --- |
+| Authorization fails | Allow popups and try again. On a self-hosted deployment, ask the operator to check the OAuth app of the provider and its callback URL. |
+| **Add to Workspaces** shows an error | The message names the cause: **Upgrade this Workspace first** (see [Upgrades](/docs/workspaces/settings#upgrades)), **This Workspace is read-only** (see [Write access](/docs/workspaces/settings#write-access)), or **Ask an admin to choose what this source syncs** (your role). |
+| No pull request appears | Make sure that the GitHub App can write to the Workspace repository. Close the dialog and try again. |
+| The source status is not **OK** | Read the status and the reason in **Settings**. See [Source status](/docs/workspaces/settings#source-status). |
+| Changes in the tool do not arrive | Choose **Sync now**. If changes still do not arrive, ask the operator to check the webhook of the provider. |
+| A sync fails | Choose **Sync now**. If it fails again, ask the operator to check the worker logs, the GitHub write access, and outbound access to the API of the provider. |
+| The authorization was revoked | Reconnect the tool from its connector card. Updates stop until you do. |
 
-- **Scoped mirrors** (Linear, Notion, Confluence, PagerDuty): after the merge,
-  ctxpipe writes the generated Markdown under the managed folder of the provider,
-  for example `linear/` or `notion/`, in each Workspace repository. ctxpipe
-  indexes it like any other knowledge file. Do not edit these files by hand:
-  the next sync overwrites them.
-- **Slack**: a mention in a thread is the approval signal. ctxpipe commits the
-  thread directly to the default branch of each Workspace that has the channel
-  as a source. Git history records the capture.
+## More connectors
 
-Anyone who can read the repository of a Workspace can read its mirrored content.
-Use separate Workspaces when different sources need different audiences.
-
-## GitHub is the foundation
-
-Connect GitHub first. The ctxpipe GitHub App lets ctxpipe:
-
-- read and write Workspace repositories;
-- index linked code repositories for search and extraction;
-- open the pull requests for source changes and Workspace chat changes.
-
-See the [GitHub connector](/docs/connections/source-connectors/github).
-
-## What belongs in Git
-
-Keep standards, decisions, and agent instructions close to the code when
-possible. Good examples include:
-
-- `README.md`, `CONTRIBUTING.md`, and files under `docs/**`.
-- Architecture decisions such as `ADR-*.md`.
-- Agent instructions such as `AGENTS.md`.
-- Skills and other maintained team guidance.
-
-This gives agents the same source of truth that your team uses, in place of
-duplicated notes or old chat history.
+We plan more connectors for engineering systems, for example Jira and Sentry.
+On a self-hosted deployment, the operator must configure the OAuth app and the
+webhooks of a provider before its connector works. See the source connector
+pages under [Self-hosting](/docs/self-hosting).
 
 ## Agent access is separate
 
-MCP clients are not connections. Cursor, CI agents, and other MCP clients
-connect to ctxpipe through the MCP endpoint, then ask about a Workspace. For setup,
-see [ctxpipe MCP](/docs/mcp/mcp-docs).
-
-## Roadmap and self-hosting
-
-We expect more connectors over time, especially for engineering systems that
-hold operational context. Examples include issue trackers such as Jira, and
-error tracking such as Sentry.
-
-Availability can differ between the hosted product and self-hosted
-deployments. A self-hosted operator must configure the OAuth applications and
-webhooks of a provider before its connector is available. See
-[Self-host Confluence & Atlassian](/docs/self-hosting/confluence-atlassian),
-[Self-host Slack](/docs/self-hosting/slack),
-[Self-host Linear](/docs/self-hosting/linear),
-[Self-host Notion](/docs/self-hosting/notion), and
-[Self-host PagerDuty](/docs/self-hosting/pagerduty).
-
-<Cards>
-  <Card title="GitHub" href="/docs/connections/source-connectors/github" description="Connect the foundation and link repositories." />
-  <Card title="Linear" href="/docs/connections/source-connectors/linear" description="Mirror selected teams and projects." />
-  <Card title="Notion" href="/docs/connections/source-connectors/notion" description="Mirror selected pages and databases." />
-  <Card title="Confluence" href="/docs/connections/source-connectors/confluence" description="Mirror selected spaces and pages." />
-  <Card title="Slack" href="/docs/connections/source-connectors/slack" description="Capture threads on demand." />
-  <Card title="PagerDuty" href="/docs/connections/source-connectors/pagerduty" description="Mirror incidents of selected services." />
-  <Card title="Workspace settings" href="/docs/workspaces/settings" description="Edit, rename, and remove sources." />
-  <Card title="Indexing" href="/docs/connections/ingestion" description="What happens after content reaches the Workspace." />
-</Cards>
+MCP clients are not connections. Claude Code, Cursor, CI agents, and other MCP
+clients connect to ctxpipe through the MCP endpoint. See
+[Connect your agent](/docs/mcp/mcp-docs).

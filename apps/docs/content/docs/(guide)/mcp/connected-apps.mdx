@@ -1,34 +1,33 @@
 ---
 title: Connected apps
-description: See the apps that you connected to ctxpipe with OAuth, change the organizations each app can read, and revoke an app.
+description: See the apps that you connected to ctxpipe with OAuth, change the organizations that each app can read, and revoke an app.
 ---
 
-When an MCP client signs in to ctxpipe with OAuth, you allow it on a consent page.
-**Connected apps** lists each app that you allowed. Use it to change what the app
-can reach, without a reconnect.
+When an MCP client signs in to ctxpipe with OAuth, you approve it on a consent
+page. **Connected apps** lists each app that you approved. Use it to change
+what an app can read, with no reconnect.
 
 ## Open the page
 
-Open your account settings and choose **Connected apps**. On a hosted
-deployment, the page is at `https://app.ctxpipe.ai/.auth/account/connected-apps`.
+Open your account settings and choose **Connected apps**. On hosted ctxpipe,
+the page is at `https://app.ctxpipe.ai/.auth/account/connected-apps`. A
+self-hosted deployment uses the same path on its own origin.
 
-## What the page shows
-
-For each app, the page shows the client name, the scopes that you granted, and
-the organizations that the app can read.
+For each app, the page shows the client name, what it can do, and the
+organizations that it can read. **Read** is the normal access for an MCP client.
+**Changes** shows only when you also ticked **Also allow changes** on the
+consent page.
 
 ## Choose the organizations
 
 On the consent page, ctxpipe lists your organizations with check boxes. The
-organization of your current session is selected. You must select at least one.
+organization of your current session is selected. Select at least one.
 
-An app can read only the organizations in its set. A new membership never joins
-an existing connection by itself. Tick it on **Connected apps** to add it.
-
-To change the set:
+An app can read only the organizations in its set. When you join a new
+organization, it does not join your existing apps by itself. To change the set:
 
 1. Choose **Edit organizations** for the app.
-2. Tick or clear organizations.
+2. Select or clear organizations.
 3. Save.
 
 The change applies on the next tool call. The app does not need to reconnect.
@@ -36,24 +35,26 @@ The change applies on the next tool call. The app does not need to reconnect.
 ## Revoke an app
 
 Choose **Revoke** for the app. The app loses access at once, and it must ask you
-to authorize again.
+to authorize it again.
+
+An older connection that holds one organization shows **Reconnect to choose
+more organizations**. You can only revoke it.
 
 ## When a tool says `org_not_found`
 
-The tool call named an organization that is not in the connection. You may also
-have left that organization. Add the organization on **Connected apps**, then
-call the tool again.
+The tool call named an organization that the connection cannot read. One of
+these is true:
 
-An older connection that holds one organization appears in the list as well. You
-can only revoke it.
+- the organization is not in the set of the app. Add it with **Edit
+  organizations**, then call the tool again;
+- you are no longer a member of the organization;
+- the slug is wrong. Call `list_workspaces` with no `org` to see the
+  organizations of the connection.
+
+An organization API key reads only its own organization. Any other `org` gives
+the same error.
 
 ## API keys
 
-API keys are not apps. An organization key reads one organization. A personal key
-reads every organization that you are a member of. See
-[API-key auth](/docs/mcp/mcp-docs#api-key-auth).
-
-## Related
-
-- [Use ctxpipe from your agent](/docs/mcp/use-from-your-agent)
-- [Remote MCP](/docs/mcp/mcp-docs)
+API keys are not apps, so they are not on this page. See
+[API keys](/docs/mcp/api-keys).
