@@ -97,7 +97,7 @@ describe("two-factor (Postgres)", () => {
     await closeDb()
   })
 
-  it("enables two-factor, confirms it with a TOTP code, and counts and clears failed sign-in codes", async () => {
+  it("enables two-factor, confirms it, counts and clears failed codes, then locks after ten and refuses the next code", async () => {
     const email = `two-factor-${suffix}@example.com`
     emails.push(email)
     const signedUp = await post(
@@ -128,13 +128,14 @@ describe("two-factor (Postgres)", () => {
     expect(confirmed.status).toBe(200)
     expect(await twoFactorRow(userId)).toMatchObject({ verified: true })
 
+    const wrongCode = totpCode(totpURI) === "000000" ? "000001" : "000000"
     const signIn = await post("/sign-in/email", { email, password }, "")
     expect(await signIn.json()).toMatchObject({ twoFactorRedirect: true })
     const challenge = cookieOf(signIn)
 
     const wrong = await post(
       "/two-factor/verify-totp",
-      { code: totpCode(totpURI) === "000000" ? "000001" : "000000" },
+      { code: wrongCode },
       challenge,
     )
 
@@ -154,41 +155,18 @@ describe("two-factor (Postgres)", () => {
       failedVerificationCount: 0,
       lockedUntil: null,
     })
-  })
-
-  it("locks the factor after ten failed sign-in codes and refuses the next verify", async () => {
-    const email = `two-factor-lock-${suffix}@example.com`
-    emails.push(email)
-    const signedUp = await post(
-      "/sign-up/email",
-      { name: "Locked factor", email, password },
-      "",
-    )
-    expect(signedUp.status).toBe(200)
-    const session = cookieOf(signedUp)
-    const userId = ((await signedUp.json()) as { user: { id: string } }).user.id
-    const enabled = await post("/two-factor/enable", { password }, session)
-    expect(enabled.status).toBe(200)
-    const { totpURI } = (await enabled.json()) as { totpURI: string }
-    const confirmed = await post(
-      "/two-factor/verify-totp",
-      { code: totpCode(totpURI) },
-      session,
-    )
-    expect(confirmed.status).toBe(200)
-    const wrongCode = totpCode(totpURI) === "000000" ? "000001" : "000000"
 
     // Better Auth allows 5 codes for each sign-in challenge and 10 for each account.
-    for (let challenge = 0; challenge < 2; challenge++) {
-      const signIn = await post("/sign-in/email", { email, password }, "")
-      const cookie = cookieOf(signIn)
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const wrong = await post(
+    for (let round = 0; round < 2; round++) {
+      const attempt = await post("/sign-in/email", { email, password }, "")
+      const cookie = cookieOf(attempt)
+      for (let count = 0; count < 5; count++) {
+        const failed = await post(
           "/two-factor/verify-totp",
           { code: wrongCode },
           cookie,
         )
-        expect(wrong.status).toBe(401)
+        expect(failed.status).toBe(401)
       }
     }
 
@@ -196,11 +174,11 @@ describe("two-factor (Postgres)", () => {
     expect(row).toMatchObject({ failedVerificationCount: 10 })
     expect(row?.lockedUntil?.getTime()).toBeGreaterThan(Date.now())
 
-    const signIn = await post("/sign-in/email", { email, password }, "")
+    const locked = await post("/sign-in/email", { email, password }, "")
     const refused = await post(
       "/two-factor/verify-totp",
       { code: totpCode(totpURI) },
-      cookieOf(signIn),
+      cookieOf(locked),
     )
 
     expect(refused.status).toBe(429)
