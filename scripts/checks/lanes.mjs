@@ -36,15 +36,18 @@ const nativeInputs = [
   "apps/backend/src/domain/workspaces/workspace-chat-opencode-contract.ts",
   "scripts/chat-sandbox/**",
 ]
-// Environment variables whose values change backend results. A result cache
-// adds a hash of each value to its key. Connection strings and secrets that
-// only point at a test service are not here.
+// Environment variables that change backend results. A result cache adds a
+// hash of the value of each `value` variable to its key, and only set or unset
+// for each `presence` variable. A `value` is the same on every machine. A
+// secret, or an address that only points at a service, is `presence`: tests
+// set their own address, and an address differs for each checkout. Connection
+// strings and secrets that only point at a test service are not here.
 const backendEnv = [
-  "NODE_ENV",
-  "AUTH_BASE_URL",
-  "MODEL_PROVIDER",
-  "MODEL_PROVIDER_URL",
-  "GITHUB_TOKEN",
+  { name: "NODE_ENV", mode: "value" },
+  { name: "MODEL_PROVIDER", mode: "value" },
+  { name: "AUTH_BASE_URL", mode: "presence" },
+  { name: "MODEL_PROVIDER_URL", mode: "presence" },
+  { name: "GITHUB_TOKEN", mode: "presence" },
 ]
 const codesearchInputs = [
   ...shared,
@@ -74,7 +77,7 @@ export const lanes = {
     directory: "apps/backend",
     runtime: "node",
     inputs: backendInputs,
-    env: [...backendEnv, "VERCEL_TOKEN"],
+    env: [...backendEnv, { name: "VERCEL_TOKEN", mode: "presence" }],
   },
   ui: {
     directory: "apps/ui",

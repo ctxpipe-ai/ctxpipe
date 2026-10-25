@@ -55,11 +55,22 @@
           "enum": ["node", "bun"]
         },
         "env": {
-          "description": "The names of the environment variables whose values change the result of the lane. A result cache adds a hash of each value (or of its absence) to the key. Optional; without it, no variable.",
+          "description": "The environment variables that change the result of the lane. Optional; without it, no variable.",
           "type": "array",
           "items": {
-            "type": "string",
-            "pattern": "^[A-Z_][A-Z0-9_]*$"
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "mode"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Z_][A-Z0-9_]*$"
+              },
+              "mode": {
+                "description": "`value`: a result cache adds a hash of the value to the key; the value is the same on every machine. `presence`: it adds only whether the variable is set; use it for a secret, or an address that only points at a service.",
+                "enum": ["value", "presence"]
+              }
+            }
           }
         }
       }
