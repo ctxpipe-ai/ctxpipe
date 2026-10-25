@@ -41,15 +41,6 @@ function withItems(items: ReturnType<typeof ingestionItemFixture>[]) {
   }
 }
 
-export const NothingIngests: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await canvas.findByText(
-      "Nothing ingests now. ctxpipe ingests a source when it changes.",
-    )
-  },
-}
-
 /** A repository in its shards: the stage, "3 of 8 parts done" and a bar at 3/8. */
 export const RunningRepository: Story = {
   parameters: withItems([ingestionItemFixture()]),

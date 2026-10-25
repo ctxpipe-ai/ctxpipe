@@ -345,6 +345,11 @@ export function upgradeHeadline(input: {
   count: { needs_you: number; working: number }
   formatVersion: number | null
   codeFormat: number
+  /**
+   * The ingestion work of the Workspace, as the sidebar says it (from
+   * `ingestingLabel`), or null when nothing ingests. It counts as Working.
+   */
+  ingesting?: string | null
 }): { label: string; className: string; pulse?: boolean; line: string } {
   const { formatVersion, codeFormat } = input
   const unreadable =
@@ -362,6 +367,13 @@ export function upgradeHeadline(input: {
       className: STATUS_TONE.good,
       pulse: true,
       line: `No action needed. ctxpipe works on ${items(input.count.working)} now.`,
+    }
+  if (input.ingesting)
+    return {
+      label: "Working",
+      className: STATUS_TONE.good,
+      pulse: true,
+      line: `No action needed. ${input.ingesting} now.`,
     }
   if (formatVersion !== null && formatVersion < codeFormat)
     return {

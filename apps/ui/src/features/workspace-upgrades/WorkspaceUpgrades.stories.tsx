@@ -6,6 +6,11 @@ import {
   expectSkeletonMatchesLoaded,
   SkeletonMatchFrame,
 } from "@/components/ui/skeletonMatchStory"
+import type { IngestionItem } from "@/features/workspaces/ingestion"
+import {
+  ingestionItemFixture,
+  workspaceIngestionHandlers,
+} from "@/mocks/workspace-ingestion-handlers"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 import {
   upgradeItemFixture,
@@ -1549,5 +1554,69 @@ export const SkeletonMatchesLoaded: Story = {
     )
     expect(canvas.getByText("Loading upgrades")).toBeInTheDocument()
     await expectSkeletonMatchesLoaded(canvasElement)
+  },
+}
+
+/** The Status group with ingestion work of the Workspace (CTX-980). */
+function withIngestion(
+  upgrades: ReturnType<typeof workspaceUpgradesHandler>,
+  items: IngestionItem[],
+) {
+  const parameters = withUpgrades(upgrades)
+  return {
+    msw: {
+      handlers: {
+        ...parameters.msw.handlers,
+        ingestion: workspaceIngestionHandlers({ docs: items }),
+      },
+    },
+  }
+}
+
+/** Ingestion runs and no upgrade is open: Working, and the run shows in Working now. */
+export const IngestionWorking: Story = {
+  parameters: withIngestion(
+    workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+    [ingestionItemFixture()],
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expectHeadline(
+      canvas,
+      "Working",
+      "No action needed. Ingesting 1 source now.",
+    )
+    const ingesting = within(
+      await canvas.findByRole("list", { name: "Ingesting now" }),
+    )
+    expect(ingesting.getByText("acme/web")).toBeVisible()
+    expect(canvas.getByText("Working now")).toBeVisible()
+    expect(canvas.queryByText(UP_TO_DATE_LINE)).toBeNull()
+  },
+}
+
+/** An upgrade needs the user while ingestion runs: Needs you wins. */
+export const IngestionWhileUpgradeNeedsYou: Story = {
+  parameters: withIngestion(
+    workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
+    [ingestionItemFixture()],
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expectHeadline(
+      canvas,
+      "Needs you",
+      "Action needed. 1 item needs you.",
+    )
+    expect(
+      within(canvas.getByRole("list", { name: "Needs you" })).getByText(
+        "Ready to start",
+      ),
+    ).toBeVisible()
+    expect(
+      within(
+        await canvas.findByRole("list", { name: "Ingesting now" }),
+      ).getByText("acme/web"),
+    ).toBeVisible()
   },
 }

@@ -19,7 +19,9 @@ import {
   SkeletonText,
   useSkeletonHold,
 } from "@/components/ui/Skeleton"
+import { useWorkspaceIngesting } from "@/features/workspaces/ingestion"
 import { StatusTag } from "@/features/workspaces/StatusTag"
+import { WorkspaceIngestingNow } from "@/features/workspaces/WorkspaceIngestingNow"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
 import { AutomaticUpgradesToggle } from "./AutomaticUpgradesToggle"
 import { useExpiredCheckingKeys } from "./checking-format-clock"
@@ -444,19 +446,26 @@ function UpgradesSkeleton() {
   )
 }
 
-/** One list of the Status group: Needs you or Working now. */
+/**
+ * One list of the Status group: Needs you or Working now. `children` shows
+ * under the items: the ingestion work, in Working now.
+ */
 function UpgradeItemList(props: {
   label: string
   items: WorkspaceUpgradeItem[]
   row: (item: WorkspaceUpgradeItem) => ReactNode
+  children?: ReactNode
 }) {
-  if (props.items.length === 0) return null
+  if (props.items.length === 0 && !props.children) return null
   return (
-    <div>
+    <div className="flex flex-col gap-2">
       <p className="text-xs font-medium text-muted-foreground">{props.label}</p>
-      <ul className="mt-2 flex flex-col gap-3" aria-label={props.label}>
-        {props.items.map(props.row)}
-      </ul>
+      {props.items.length ? (
+        <ul className="flex flex-col gap-3" aria-label={props.label}>
+          {props.items.map(props.row)}
+        </ul>
+      ) : null}
+      {props.children}
     </div>
   )
 }
@@ -487,9 +496,16 @@ export function WorkspaceUpgrades(props: {
     formatVersion,
   )
   const { lists, groupOf, count } = upgradeGroups(items, formatVersion, expired)
+  // The same read and rule as the sidebar pulse: the two always agree.
+  const ingesting = useWorkspaceIngesting(orgSlug, workspaceSlug)
   const headline =
     data &&
-    upgradeHeadline({ count, formatVersion, codeFormat: data.codeFormat })
+    upgradeHeadline({
+      count,
+      formatVersion,
+      codeFormat: data.codeFormat,
+      ingesting,
+    })
   const row = (item: WorkspaceUpgradeItem) => (
     <UpgradeItemRow
       key={item.key}
@@ -542,11 +558,14 @@ export function WorkspaceUpgrades(props: {
             items={lists.needs_you}
             row={row}
           />
-          <UpgradeItemList
-            label="Working now"
-            items={lists.working}
-            row={row}
-          />
+          <UpgradeItemList label="Working now" items={lists.working} row={row}>
+            {ingesting ? (
+              <WorkspaceIngestingNow
+                orgSlug={orgSlug}
+                workspaceSlug={workspaceSlug}
+              />
+            ) : null}
+          </UpgradeItemList>
           <div className="flex min-h-7 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
             <span>{formatHealthLine(data.formatVersion, data.codeFormat)}</span>
             <AutomaticUpgradesToggle

@@ -4,7 +4,7 @@ import {
   IconFolder,
   IconMessageCirclePlus,
 } from "@tabler/icons-react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import { useRouter, useSearch } from "@tanstack/react-router"
 import { useState } from "react"
 import { Link } from "react-aria-components"
@@ -17,7 +17,7 @@ import {
 } from "@/components/SideNav/sideNavStyles"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { prefetchWorkspaceRouteData } from "./ensure-route-data"
-import { ingestingLabel, orgIngestionOptions } from "./ingestion"
+import { useWorkspaceIngesting } from "./ingestion"
 import { workspaceTitleAction } from "./nav"
 import { paneSearchForOtherConversation, workspaceSearch } from "./pane"
 import {
@@ -59,13 +59,7 @@ export function WorkspaceNavRow(props: {
   } = props
   const [hovered, setHovered] = useState(false)
   // One read for every row of the org; each row selects its Workspace.
-  const { data: ingesting = null } = useQuery({
-    ...orgIngestionOptions(orgSlug),
-    select: (workspaces) =>
-      ingestingLabel(
-        workspaces.find((entry) => entry.workspaceSlug === workspace.slug),
-      ),
-  })
+  const ingesting = useWorkspaceIngesting(orgSlug, workspace.slug)
   const titleAction = workspaceTitleAction({
     workspaceCount,
     isCurrent: current,

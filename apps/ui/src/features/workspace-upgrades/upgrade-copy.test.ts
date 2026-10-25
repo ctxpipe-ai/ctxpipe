@@ -367,6 +367,26 @@ describe("the Status group says if the user must act (CTX-980)", () => {
     )
   })
 
+  it("counts ingestion work as Working, and Needs you still wins", () => {
+    const headline = (needs_you: number, ingesting: string | null) =>
+      upgradeHeadline({
+        count: { needs_you, working: 0 },
+        formatVersion: 3,
+        codeFormat: 3,
+        ingesting,
+      })
+    expect(headline(0, "Ingesting 2 sources")).toMatchObject({
+      label: "Working",
+      pulse: true,
+      line: "No action needed. Ingesting 2 sources now.",
+    })
+    expect(headline(0, "Indexing the newest commit").line).toBe(
+      "No action needed. Indexing the newest commit now.",
+    )
+    expect(headline(1, "Ingesting 1 source").label).toBe("Needs you")
+    expect(headline(0, null).label).toBe("Up to date")
+  })
+
   it("counts the format health in the headline", () => {
     const headline = (formatVersion: number | null) =>
       upgradeHeadline({

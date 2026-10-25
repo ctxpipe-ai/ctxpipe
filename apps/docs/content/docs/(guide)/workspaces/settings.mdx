@@ -25,6 +25,7 @@ headline tag and one sentence. They tell you if you must do something:
 | --- | --- | --- |
 | **Needs you** | "Action needed. N items need you." | An item waits for a person: a start, a merge, or a fix. A format file that ctxpipe cannot read also counts as one item. |
 | **Working** | "No action needed. ctxpipe works on N items now." | ctxpipe runs an item, or reads a merged pull request. |
+| **Working** | "No action needed. Ingesting N sources now." | ctxpipe ingests a source of the Workspace, and no item is open. A slow read of the newest commit shows "No action needed. Indexing the newest commit now." |
 | **Working** | "No action needed. ctxpipe checks the format of the repository now." | The repository is below the newest format, and ctxpipe has not recorded the upgrade yet. |
 | **Up to date** | "No action needed. Upgrades show here and on Home when one is ready." | No item is open. |
 
@@ -35,6 +36,13 @@ now**. Each item in **Working now** says "No action needed." A re-ingestion also
 shows its spend, for example "Spend so far: $1.20". A re-ingestion that waits
 for an open format upgrade is in the list of that upgrade. The headline counts
 the two items as one item.
+
+**Working now** also lists the ingestion work that runs now for the Workspace:
+each source repository or connection sync, its stage, its progress, and the
+time so far. A slow read of the newest commit shows as one line. You can leave
+the page. The work continues. While ingestion runs, the sidebar shows a teal dot
+next to the Workspace. The dot and the headline use the same data: the dot
+shows only when the headline is **Working** or **Needs you**.
 
 Every member can read the group. Only an organization owner or admin can start
 an item. A member sees **Ask an admin** in place of the button.
