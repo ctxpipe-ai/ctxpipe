@@ -58,6 +58,21 @@ does not grant the new scope. Assets are stored in the Workspace repository with
 25 MiB per-file and 100 MiB per-page limits. The worker strips credentials from
 media redirects and never persists Atlassian download URLs.
 
+### Allowed Forge apps
+
+ctxpipe accepts a Forge call only from the Forge app of that Confluence
+connection, with the issuer `forge/invocation-token`. The allowed app is one of
+these:
+
+- The app ID that the connection saved. Provisioning saves this ID. The first
+  install event also saves it.
+- When the connection has no saved app ID: the app ID in the install URL of the
+  connection, the app ID in **`CONFLUENCE_FORGE_INSTALL_URL`**, or the hosted
+  ctxpipe app (`ari:cloud:ecosystem::app/4ce198e3-2ce7-4a6e-865f-a3e31d15fe43`).
+
+A production deployment accepts only calls from the Forge `production`
+environment. Deploy your Forge app to the `production` environment.
+
 ## 3. Finish the connector
 
 After Atlassian is linked and Forge is installed:

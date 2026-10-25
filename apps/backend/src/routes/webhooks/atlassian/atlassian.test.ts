@@ -1,18 +1,79 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { createLogger } from "evlog"
 import { contextStorage } from "hono/context-storage"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { exportJWK, generateKeyPair, type JWK, SignJWT } from "jose"
+import { HttpResponse, http } from "msw"
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
+import { useMswServer } from "../../../../test/msw.js"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
 
-const jwtVerifyMock = vi.hoisted(() => vi.fn())
-const createRemoteJwkSetMock = vi.hoisted(() => vi.fn())
+const hostedForgeAppAri =
+  "ari:cloud:ecosystem::app/4ce198e3-2ce7-4a6e-865f-a3e31d15fe43"
+const foreignForgeAppAri =
+  "ari:cloud:ecosystem::app/00000000-1111-2222-3333-444444444444"
 
-vi.mock("jose", () => ({
-  jwtVerify: jwtVerifyMock,
-  createRemoteJWKSet: createRemoteJwkSetMock,
-}))
+// Atlassian signs each Forge call. The test signs with its own key and
+// serves that key from the Forge JWKS URL.
+let signingKey: CryptoKey
+let publicJwk: JWK
+useMswServer(
+  http.get(
+    "https://forge.cdn.prod.atlassian-dev.net/.well-known/jwks.json",
+    () => HttpResponse.json({ keys: [publicJwk] }),
+  ),
+)
+beforeAll(async () => {
+  const pair = await generateKeyPair("RS256")
+  signingKey = pair.privateKey
+  publicJwk = { ...(await exportJWK(pair.publicKey)), kid: "k1", alg: "RS256" }
+})
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
+/** Claims of the next Forge call. Each test starts from valid claims. */
+let fitClaims: Record<string, unknown>
+
+function validFitClaims(): Record<string, unknown> {
+  return {
+    iss: "forge/invocation-token",
+    aud: hostedForgeAppAri,
+    app: {
+      id: hostedForgeAppAri,
+      installationId: fitInstallationAri,
+      apiBaseUrl: "https://api.atlassian.com/ex/confluence/cloud_1",
+      environment: {
+        type: "PRODUCTION",
+        id: "ari:cloud:ecosystem::environment/e1",
+      },
+    },
+    context: { cloudId: "cloud_1" },
+  }
+}
+
+async function bearer(claims: Record<string, unknown> = fitClaims) {
+  const token = await new SignJWT(claims)
+    .setProtectedHeader({ alg: "RS256", kid: "k1" })
+    .setIssuedAt()
+    .setExpirationTime("5m")
+    .sign(signingKey)
+  return `Bearer ${token}`
+}
+
+function withApp(app: Record<string, unknown>): Record<string, unknown> {
+  const base = validFitClaims()
+  return { ...base, app: { ...(base.app as object), ...app } }
+}
 
 const getForgeInstallationByForgeInstallationIdMock = vi.hoisted(() => vi.fn())
 const getPendingForgeInstallationByInstallerAccountIdMock = vi.hoisted(() =>
@@ -152,16 +213,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    createRemoteJwkSetMock.mockReturnValue({})
-    jwtVerifyMock.mockResolvedValue({
-      payload: {
-        sub: "forge-event",
-        app: {
-          installationId: fitInstallationAri,
-          apiBaseUrl: "https://api.atlassian.com/ex/confluence/cloud_1",
-        },
-      },
-    })
+    fitClaims = validFitClaims()
     getForgeInstallationByForgeInstallationIdMock.mockImplementation(
       (installationId: string) => {
         const bare = installationId.replace(
@@ -238,7 +290,6 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
   })
 
   it("returns 401 when invocation token verification fails", async () => {
-    jwtVerifyMock.mockRejectedValueOnce(new Error("invalid"))
     const { app } = createApp()
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
@@ -256,7 +307,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
-        authorization: "Bearer fit_token",
+        authorization: await bearer(),
         "content-type": "application/json",
       },
       body: JSON.stringify({}),
@@ -264,35 +315,45 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     expect(res.status).toBe(400)
   })
 
-  it("upserts forge installation for known cloud id", async () => {
-    const { app } = createApp()
-    const res = await app.request("/api/v1/webhook/atlassian/forge", {
+  function lifecycleBody(overrides: Record<string, unknown> = {}) {
+    return JSON.stringify({
+      id: fitInstallationIdBare,
+      eventType: "avi:forge:installed:app",
+      context: "ari:cloud:confluence::site/cloud_1",
+      installerAccountId: "atl_installer_1",
+      app: { id: hostedForgeAppAri, version: "1.0.0" },
+      environment: { id: "env_1" },
+      ...overrides,
+    })
+  }
+
+  async function postLifecycle(
+    app: OpenAPIHono<AppEnv>,
+    body: string,
+    authorization?: string,
+  ) {
+    return app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
-        authorization: "Bearer fit_token",
+        authorization: authorization ?? (await bearer()),
         "x-forge-oauth-system": "system_token",
         "content-type": "application/json",
       },
-      body: JSON.stringify({
-        id: "installation_1",
-        eventType: "avi:forge:installed:app",
-        context: "ari:cloud:confluence::site/cloud_1",
-        installerAccountId: "atl_installer_1",
-        app: {
-          id: "forge_app_1",
-          version: "1.0.0",
-        },
-        environment: { id: "env_1" },
-      }),
+      body,
     })
+  }
+
+  it("upserts the installation from the signed Forge claims", async () => {
+    const { app } = createApp()
+    const res = await postLifecycle(app, lifecycleBody())
     expect(res.status).toBe(204)
     expect(upsertForgeInstallationFromEventMock).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org_1",
         connectionId: "fgi_1",
         cloudId: "cloud_1",
-        installationId: "installation_1",
-        appId: "forge_app_1",
+        installationId: fitInstallationIdBare,
+        appId: hostedForgeAppAri,
         status: "installed",
         appSystemToken: "system_token",
         atlassianApiBaseUrl: "https://api.atlassian.com/ex/confluence/cloud_1",
@@ -300,66 +361,24 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     )
   })
 
-  it("stores bare installation id when lifecycle payload id is a full ecosystem ARI", async () => {
-    const bare = "75969db9-dc7b-4798-9715-bd098ac0d9d1"
+  it("accepts a lifecycle payload id that is a full ecosystem ARI", async () => {
     const { app } = createApp()
-    const res = await app.request("/api/v1/webhook/atlassian/forge", {
-      method: "POST",
-      headers: {
-        authorization: "Bearer fit_token",
-        "x-forge-oauth-system": "system_token",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        id: bare,
-        eventType: "avi:forge:installed:app",
-        context: "ari:cloud:confluence::site/cloud_1",
-        installerAccountId: "atl_installer_1",
-        app: {
-          id: "forge_app_1",
-          version: "1.0.0",
-        },
-        environment: { id: "env_1" },
-      }),
-    })
+    const res = await postLifecycle(
+      app,
+      lifecycleBody({ id: fitInstallationAri }),
+    )
     expect(res.status).toBe(204)
     expect(upsertForgeInstallationFromEventMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        connectionId: "fgi_1",
-        installationId: bare,
-      }),
+      expect.objectContaining({ installationId: fitInstallationIdBare }),
     )
   })
 
   it("does not persist invalid FIT apiBaseUrl", async () => {
-    jwtVerifyMock.mockResolvedValueOnce({
-      payload: {
-        sub: "forge-event",
-        app: {
-          apiBaseUrl: "http://api.atlassian.com/ex/confluence/cloud_1",
-        },
-      },
+    fitClaims = withApp({
+      apiBaseUrl: "http://api.atlassian.com/ex/confluence/cloud_1",
     })
     const { app } = createApp()
-    const res = await app.request("/api/v1/webhook/atlassian/forge", {
-      method: "POST",
-      headers: {
-        authorization: "Bearer fit_token",
-        "x-forge-oauth-system": "system_token",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        id: "installation_1",
-        eventType: "avi:forge:installed:app",
-        context: "ari:cloud:confluence::site/cloud_1",
-        installerAccountId: "atl_installer_1",
-        app: {
-          id: "forge_app_1",
-          version: "1.0.0",
-        },
-        environment: { id: "env_1" },
-      }),
-    })
+    const res = await postLifecycle(app, lifecycleBody())
     expect(res.status).toBe(204)
     const arg = upsertForgeInstallationFromEventMock.mock
       .calls[0]?.[0] as Record<string, unknown>
@@ -367,42 +386,28 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
   })
 
   it("falls back to pending installation matched by installer account id", async () => {
-    jwtVerifyMock.mockResolvedValueOnce({
-      payload: {
-        sub: "forge-event",
-        app: {
-          installationId: fitInstallationAri,
-          apiBaseUrl: "https://api.atlassian.com/ex/confluence/cloud_pending",
-        },
-      },
-    })
+    fitClaims = {
+      ...withApp({
+        apiBaseUrl: "https://api.atlassian.com/ex/confluence/cloud_pending",
+      }),
+      context: { cloudId: "cloud_pending" },
+    }
     getForgeInstallationByForgeInstallationIdMock.mockResolvedValue(undefined)
     getPendingForgeInstallationByInstallerAccountIdMock.mockResolvedValueOnce({
       id: "fgi_pending_1",
       orgId: "org_pending",
       installedByUserId: "user_pending",
+      appId: null,
     })
 
     const { app } = createApp()
-    const res = await app.request("/api/v1/webhook/atlassian/forge", {
-      method: "POST",
-      headers: {
-        authorization: "Bearer fit_token",
-        "x-forge-oauth-system": "system_token",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        id: "installation_pending",
-        eventType: "avi:forge:installed:app",
+    const res = await postLifecycle(
+      app,
+      lifecycleBody({
         context: "ari:cloud:confluence::site/cloud_pending",
         installerAccountId: "atl_account_1",
-        app: {
-          id: "forge_app_1",
-          version: "1.0.0",
-        },
-        environment: { id: "env_1" },
       }),
-    })
+    )
 
     expect(res.status).toBe(204)
     expect(
@@ -413,20 +418,121 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
         orgId: "org_pending",
         connectionId: "fgi_pending_1",
         cloudId: "cloud_pending",
-        installationId: "installation_pending",
-        appId: "forge_app_1",
+        installationId: fitInstallationIdBare,
+        appId: hostedForgeAppAri,
         atlassianApiBaseUrl:
           "https://api.atlassian.com/ex/confluence/cloud_pending",
       }),
     )
   })
 
+  it("refuses another Forge app on a pending setup", async () => {
+    fitClaims = {
+      ...validFitClaims(),
+      aud: foreignForgeAppAri,
+      app: { ...(validFitClaims().app as object), id: foreignForgeAppAri },
+    }
+    getForgeInstallationByForgeInstallationIdMock.mockResolvedValue(undefined)
+    getPendingForgeInstallationByInstallerAccountIdMock.mockResolvedValueOnce({
+      id: "fgi_pending_1",
+      orgId: "org_pending",
+      installedByUserId: "user_pending",
+      appId: null,
+    })
+    const { app } = createApp()
+    const res = await postLifecycle(
+      app,
+      lifecycleBody({ app: { id: foreignForgeAppAri, version: "1.0.0" } }),
+    )
+    expect(res.status).toBe(401)
+    expect(upsertForgeInstallationFromEventMock).not.toHaveBeenCalled()
+  })
+
+  it("accepts the Forge app that a self-hosted setup provisioned", async () => {
+    fitClaims = {
+      ...validFitClaims(),
+      aud: foreignForgeAppAri,
+      app: { ...(validFitClaims().app as object), id: foreignForgeAppAri },
+    }
+    getForgeInstallationByForgeInstallationIdMock.mockResolvedValue(undefined)
+    getPendingForgeInstallationByInstallerAccountIdMock.mockResolvedValueOnce({
+      id: "fgi_pending_1",
+      orgId: "org_pending",
+      installedByUserId: "user_pending",
+      appId: "00000000-1111-2222-3333-444444444444",
+    })
+    const { app } = createApp()
+    const res = await postLifecycle(app, lifecycleBody())
+    expect(res.status).toBe(204)
+    expect(upsertForgeInstallationFromEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: foreignForgeAppAri }),
+    )
+  })
+
+  it("refuses the hosted Forge app on a setup that provisioned its own app", async () => {
+    getForgeInstallationByForgeInstallationIdMock.mockResolvedValue({
+      id: "fgi_1",
+      orgId: "org_1",
+      cloudId: "cloud_1",
+      appId: foreignForgeAppAri,
+    })
+    const { app } = createApp()
+    const res = await postLifecycle(app, lifecycleBody())
+    expect(res.status).toBe(401)
+    expect(upsertForgeInstallationFromEventMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses the wrong issuer", async () => {
+    const { app } = createApp()
+    const res = await postLifecycle(
+      app,
+      lifecycleBody(),
+      await bearer({ ...validFitClaims(), iss: "someone-else" }),
+    )
+    expect(res.status).toBe(401)
+    expect(upsertForgeInstallationFromEventMock).not.toHaveBeenCalled()
+  })
+
+  it("refuses a non-production Forge environment in production", async () => {
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "production")
+    fitClaims = withApp({
+      environment: { type: "DEVELOPMENT", id: "env_dev" },
+    })
+    const { app } = createApp()
+    const res = await postLifecycle(app, lifecycleBody())
+    expect(res.status).toBe(401)
+    expect(upsertForgeInstallationFromEventMock).not.toHaveBeenCalled()
+  })
+
+  it("accepts a non-production Forge environment in a preview", async () => {
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-1")
+    fitClaims = withApp({
+      environment: { type: "DEVELOPMENT", id: "env_dev" },
+    })
+    const { app } = createApp()
+    const res = await postLifecycle(app, lifecycleBody())
+    expect(res.status).toBe(204)
+  })
+
+  it.each([
+    ["installation id", { id: "75969db9-dc7b-4798-9715-bd098ac0d9d1" }],
+    ["site", { context: "ari:cloud:confluence::site/cloud_other" }],
+  ])(
+    "refuses a lifecycle payload whose %s differs from the signed claims",
+    async (_field, overrides) => {
+      const { app } = createApp()
+      const res = await postLifecycle(app, lifecycleBody(overrides))
+      expect(res.status).toBe(400)
+      expect(upsertForgeInstallationFromEventMock).not.toHaveBeenCalled()
+    },
+  )
+
   it("returns 204 and enqueues workflow for Confluence page created", async () => {
     const { app } = createApp()
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
-        authorization: "Bearer fit_token",
+        authorization: await bearer(),
         "content-type": "application/json",
       },
       body: JSON.stringify({
@@ -474,13 +580,31 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     )
   })
 
+  it("refuses a Confluence event from another Forge app", async () => {
+    fitClaims = { ...validFitClaims(), aud: foreignForgeAppAri }
+    const { app } = createApp()
+    const res = await app.request("/api/v1/webhook/atlassian/forge", {
+      method: "POST",
+      headers: {
+        authorization: await bearer(),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        eventType: "avi:confluence:created:page",
+        content: { id: "838205441", type: "page", space: { key: "SP" } },
+      }),
+    })
+    expect(res.status).toBe(401)
+    expect(runWorkflowMock).not.toHaveBeenCalled()
+  })
+
   it("still enqueues the legacy sync when the handover lookup throws", async () => {
     // This test opens no database, so the handover lookup fails.
     const { app } = createApp()
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
-        authorization: "Bearer fit_token",
+        authorization: await bearer(),
         "content-type": "application/json",
       },
       body: JSON.stringify({
@@ -512,7 +636,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
-        authorization: "Bearer fit_token",
+        authorization: await bearer(),
         "content-type": "application/json",
       },
       body: JSON.stringify({
@@ -548,7 +672,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
-        authorization: "Bearer fit_token",
+        authorization: await bearer(),
         "content-type": "application/json",
       },
       body: JSON.stringify({
@@ -572,7 +696,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
-        authorization: "Bearer fit_token",
+        authorization: await bearer(),
         "content-type": "application/json",
       },
       body: JSON.stringify({
@@ -625,7 +749,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
-        authorization: "Bearer fit_token",
+        authorization: await bearer(),
         "content-type": "application/json",
       },
       body: JSON.stringify({
@@ -658,7 +782,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",
       headers: {
-        authorization: "Bearer fit_token",
+        authorization: await bearer(),
         "content-type": "application/json",
       },
       body: JSON.stringify({
@@ -686,15 +810,12 @@ describe("POST /api/v1/webhook/atlassian/forge/token-refresh", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    createRemoteJwkSetMock.mockReturnValue({})
-    jwtVerifyMock.mockResolvedValue({
-      payload: {
-        sub: "forge-scheduled",
-        app: {
-          installationId: fitInstallationAri,
-          apiBaseUrl: "https://api.atlassian.com/ex/confluence/cloud_1",
-        },
-      },
+    fitClaims = validFitClaims()
+    getForgeInstallationByForgeInstallationIdMock.mockResolvedValue({
+      id: "fgi_1",
+      orgId: "org_1",
+      cloudId: "cloud_1",
+      appId: null,
     })
     updateForgeAppSystemTokenByInstallationIdMock.mockResolvedValue(true)
   })
@@ -721,7 +842,6 @@ describe("POST /api/v1/webhook/atlassian/forge/token-refresh", () => {
   })
 
   it("returns 401 when invocation token verification fails", async () => {
-    jwtVerifyMock.mockRejectedValueOnce(new Error("invalid"))
     const app = createApp()
     const res = await app.request(
       "/api/v1/webhook/atlassian/forge/token-refresh",
@@ -742,26 +862,21 @@ describe("POST /api/v1/webhook/atlassian/forge/token-refresh", () => {
       "/api/v1/webhook/atlassian/forge/token-refresh",
       {
         method: "POST",
-        headers: { authorization: "Bearer fit_token" },
+        headers: { authorization: await bearer() },
       },
     )
     expect(res.status).toBe(400)
   })
 
   it("returns 400 when installation id in FIT is missing or invalid", async () => {
-    jwtVerifyMock.mockResolvedValueOnce({
-      payload: {
-        sub: "forge-scheduled",
-        app: { apiBaseUrl: "https://api.atlassian.com/ex/confluence/cloud_1" },
-      },
-    })
+    fitClaims = withApp({ installationId: undefined })
     const app = createApp()
     const res = await app.request(
       "/api/v1/webhook/atlassian/forge/token-refresh",
       {
         method: "POST",
         headers: {
-          authorization: "Bearer fit_token",
+          authorization: await bearer(),
           "x-forge-oauth-system": "system_token",
         },
       },
@@ -770,14 +885,14 @@ describe("POST /api/v1/webhook/atlassian/forge/token-refresh", () => {
   })
 
   it("returns 202 when no installed row matches", async () => {
-    updateForgeAppSystemTokenByInstallationIdMock.mockResolvedValueOnce(false)
+    getForgeInstallationByForgeInstallationIdMock.mockResolvedValue(undefined)
     const app = createApp()
     const res = await app.request(
       "/api/v1/webhook/atlassian/forge/token-refresh",
       {
         method: "POST",
         headers: {
-          authorization: "Bearer fit_token",
+          authorization: await bearer(),
           "x-forge-oauth-system": "new_system_token",
         },
       },
@@ -792,7 +907,7 @@ describe("POST /api/v1/webhook/atlassian/forge/token-refresh", () => {
       {
         method: "POST",
         headers: {
-          authorization: "Bearer fit_token",
+          authorization: await bearer(),
           "x-forge-oauth-system": "new_system_token",
         },
       },
@@ -805,15 +920,26 @@ describe("POST /api/v1/webhook/atlassian/forge/token-refresh", () => {
     })
   })
 
-  it("omits atlassianApiBaseUrl when FIT apiBaseUrl is invalid", async () => {
-    jwtVerifyMock.mockResolvedValueOnce({
-      payload: {
-        sub: "forge-scheduled",
-        app: {
-          installationId: fitInstallationAri,
-          apiBaseUrl: "http://api.atlassian.com/ex/confluence/cloud_1",
+  it("refuses another Forge app", async () => {
+    fitClaims = { ...validFitClaims(), aud: foreignForgeAppAri }
+    const app = createApp()
+    const res = await app.request(
+      "/api/v1/webhook/atlassian/forge/token-refresh",
+      {
+        method: "POST",
+        headers: {
+          authorization: await bearer(),
+          "x-forge-oauth-system": "new_system_token",
         },
       },
+    )
+    expect(res.status).toBe(401)
+    expect(updateForgeAppSystemTokenByInstallationIdMock).not.toHaveBeenCalled()
+  })
+
+  it("omits atlassianApiBaseUrl when FIT apiBaseUrl is invalid", async () => {
+    fitClaims = withApp({
+      apiBaseUrl: "http://api.atlassian.com/ex/confluence/cloud_1",
     })
     const app = createApp()
     const res = await app.request(
@@ -821,7 +947,7 @@ describe("POST /api/v1/webhook/atlassian/forge/token-refresh", () => {
       {
         method: "POST",
         headers: {
-          authorization: "Bearer fit_token",
+          authorization: await bearer(),
           "x-forge-oauth-system": "tok",
         },
       },
