@@ -161,6 +161,11 @@ Docker-in-Docker daemon. It needs no settings.
   `172.30.99.x` address in `docker-compose.yml`.
 - `chat-sandbox-image` builds the sandbox image on each `pnpm start`. Until the
   image exists, chat answers `503`, and the rest of the app works.
+- On a cgroup v2 host, all sandboxes share one limit of 8192 processes. Without
+  cgroup v2, `dind` logs a warning and applies no limit.
+- Container logs rotate at 3 files of 10 MB.
+- If you remove `sandbox_ca`, `dind` makes new certificates. Then restart
+  `backend` and `worker`.
 
 To limit the memory of all sandboxes, limit `dind` in
 `docker-compose.override.yml`. The sandboxes together get at most 85% of it:

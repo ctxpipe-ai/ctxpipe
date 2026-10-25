@@ -52,6 +52,10 @@ migrate command, `bun run apps/backend/src/db/migrate.ts`.
   the app services, and `chat-sandbox-image` builds the new chat image in
   `dind`. Set `POSTGRES_PASSWORD` in your `.env` (Compose sends it to migrate
   as the `ctxpipe_app` password). Check `docker compose logs migrate`.
+  Earlier releases published Postgres on host port 5433
+  (`CTXPIPE_POSTGRES_HOST_PORT`). This release does not. If a backup job or a
+  tool on the host uses that port, change it to
+  `docker compose exec postgres pg_dump -U ctxpipe ctxpipe > backup.sql`.
 - **AWS CDK:** run `pnpm update @ctxpipe/aws-cdk`, then `cdk deploy`. See
   [the sandbox host](#aws-cdk-sandbox-host) for the cost of the new host.
 - **Image-based:** run migrate once with the owner `DATABASE_URL`. Pass the
