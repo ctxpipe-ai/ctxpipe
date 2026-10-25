@@ -10,7 +10,7 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { upsertConnectionDirectory } from "../../models/connection-directory.js"
-import { createLogger } from "../../observability/logger.js"
+import { createLogger, withLogger } from "../../observability/logger.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { githubSyncIssue } from "../../openworkflow/workflows/github-sync-issue.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
@@ -388,13 +388,16 @@ it(
 
         // A repository outside the installation skips with its own cause.
         expect(
-          await captureGithubIssuePage({
-            orgId: f.org.id,
-            env: parseEnv(process.env),
-            connectionId: f.connectionId,
-            repository: "fixture/outside-app",
-            after: null,
-          }),
+          // A workflow step runs with a logger; so does this direct call.
+          await withLogger(createLogger({ proof: "not-covered" }), () =>
+            captureGithubIssuePage({
+              orgId: f.org.id,
+              env: parseEnv(process.env),
+              connectionId: f.connectionId,
+              repository: "fixture/outside-app",
+              after: null,
+            }),
+          ),
         ).toEqual({ skipped: "repository_not_covered" })
       } finally {
         await stopAll(f, worker)
