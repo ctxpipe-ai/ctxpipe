@@ -9,18 +9,25 @@ import {
   writeFileSync,
 } from "node:fs"
 import { join, relative, resolve } from "node:path"
+
 import { setupSteps, vitestCommand } from "../ci/vitest-launch.mjs"
 import { lanes, listChecks, root } from "./lanes.mjs"
+import { freshParts, laneChecks, writeTrace } from "./trace.mjs"
 
 // Runs the given check ids and writes one result record per id
 // (schema/result.v1.schema.json) as NDJSON to stdout. Usage:
-//   run.mjs [ids-file]
-// Without ids-file, the ids come from stdin, one per line.
+//   run.mjs [--trace <dir>] [ids-file]
+// Without ids-file, the ids come from stdin, one per line. With --trace, it
+// also writes <dir>/trace.json.gz (schema/trace.v1.schema.json).
 // This is the subset path. It does not compare the executed files with the
 // full CI inventory or the failure baseline; test-suite.mjs still does that.
 try {
   const args = process.argv.slice(2)
-  if (args.length > 1) throw new Error("Usage: run.mjs [ids-file]")
+  const traceAt = args.indexOf("--trace")
+  const trace = traceAt === -1 ? undefined : resolve(args[traceAt + 1] ?? "")
+  if (traceAt !== -1) args.splice(traceAt, 2)
+  if (args.length > 1 || (traceAt !== -1 && !trace.length))
+    throw new Error("Usage: run.mjs [--trace <dir>] [ids-file]")
   const ids = [
     ...new Set(
       readFileSync(args[0] ?? 0, "utf8")
@@ -51,6 +58,8 @@ try {
   }
   const results = resolve(root, ".ci-results", "checks")
   mkdirSync(results, { recursive: true })
+  const traced = []
+  let traceFailed = false
   // One lane at a time: backend files share one database and run in series.
   for (const [lane, checks] of groups) {
     const { directory } = lanes[lane]
@@ -86,15 +95,26 @@ try {
         break
       }
     }
+    // Bun has no V8 inspector, so a Bun lane has no trace.
+    let parts =
+      trace && laneConfig.runtime === "node"
+        ? join(trace, `parts-${lane}`)
+        : undefined
+    if (parts) {
+      parts = freshParts(parts, lane)
+      if (!parts) traceFailed = true
+    }
     if (!message) {
       const launch = vitestCommand(
         laneConfig,
         root,
         checks.map(({ file }) => relative(directory, file)),
         report,
+        parts,
       )
       const run = logged(launch.command, launch.args, {
         cwd: launch.cwd,
+        env: launch.env,
         timeout: 2_700_000,
       })
       try {
@@ -112,6 +132,14 @@ try {
         message = `Vitest wrote no report (${run.error?.message ?? run.signal ?? `exit ${run.status}`})`
       }
     }
+    // A trace is data only: an error here never changes a result.
+    if (parts)
+      try {
+        traced.push(...laneChecks(parts, lane))
+      } catch (error) {
+        traceFailed = true
+        process.stderr.write(`No trace for ${lane}: ${error.message}\n`)
+      }
     for (const { id, file } of checks) {
       const suite = suites.get(file)
       const cases = (suite?.assertionResults ?? []).map((assertion) => ({
@@ -149,6 +177,14 @@ try {
       })
     }
   }
+  // A partial trace would hide the cases of the failed lane, so write none.
+  if (trace && !traceFailed)
+    try {
+      mkdirSync(trace, { recursive: true })
+      writeTrace(join(trace, "trace.json.gz"), traced)
+    } catch (error) {
+      process.stderr.write(`No trace written: ${error.message}\n`)
+    }
   process.exitCode = failed ? 1 : 0
 } catch (error) {
   process.stderr.write(`${error.message}\n`)

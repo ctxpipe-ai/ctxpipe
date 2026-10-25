@@ -28,9 +28,11 @@ export function setupSteps(lane, root) {
   return []
 }
 
-// The Vitest command line for a lane: the command, its arguments and the
-// directory to run it in. An empty `files` list runs the whole lane.
-export function vitestCommand(lane, root, files, report) {
+// The Vitest command line for a lane: the command, its arguments, the
+// directory to run it in and its environment. An empty `files` list runs the
+// whole lane. With `parts`, the workers record the lines that each test case
+// executes and write them to that directory (see scripts/checks/trace.mjs).
+export function vitestCommand(lane, root, files, report, parts) {
   const cwd = join(root, lane.directory)
   const require = createRequire(join(cwd, "package.json"))
   const vitest = join(
@@ -46,7 +48,11 @@ export function vitestCommand(lane, root, files, report) {
       "--reporter=default",
       "--reporter=json",
       `--outputFile=${report}`,
+      ...(parts
+        ? [`--reporter=${join(root, "scripts/checks/trace-reporter.mjs")}`]
+        : []),
     ],
     cwd,
+    env: parts ? { ...process.env, CTXPIPE_TRACE_PARTS: parts } : process.env,
   }
 }

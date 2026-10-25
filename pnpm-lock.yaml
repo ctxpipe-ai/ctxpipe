@@ -33,6 +33,9 @@ importers:
       '@changesets/cli':
         specifier: ^2.29.7
         version: 2.31.0(@types/node@25.9.9)
+      '@jridgewell/sourcemap-codec':
+        specifier: 1.5.5
+        version: 1.5.5
       concurrently:
         specifier: ^9.1.0
         version: 9.2.1

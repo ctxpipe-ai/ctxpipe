@@ -8,6 +8,8 @@ import {
 } from "node:fs"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
+import { freshParts, laneChecks, writeTrace } from "../checks/trace.mjs"
 import { setupSteps, vitestCommand } from "./vitest-launch.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -23,6 +25,10 @@ try {
   const [name, ...extra] = process.argv.slice(2)
   const listOnly = extra.includes("--list")
   const merge = extra.includes("--merge")
+  // --trace also writes trace.json.gz next to results.json: the lines that
+  // each test case executed (scripts/checks/README.md). It is data only and
+  // does not change the result.
+  const trace = extra.includes("--trace")
   const shardArgument = extra.find((arg) => arg.startsWith("--shard="))
   const shard = /^--shard=([1-9]\d*)\/([1-9]\d*)$/
     .exec(shardArgument ?? "")
@@ -32,14 +38,17 @@ try {
   const sharded = name === "backend" || name === "contracts"
   if (
     !packages[name] ||
-    extra.some((arg) => ![`--list`, `--merge`, shardArgument].includes(arg)) ||
+    extra.some(
+      (arg) => ![`--list`, `--merge`, `--trace`, shardArgument].includes(arg),
+    ) ||
     extra.length !== new Set(extra).size ||
     (shardArgument && (!shard || shard[0] > shard[1] || !sharded)) ||
-    (merge && (shardArgument || listOnly || !sharded))
+    (merge && (shardArgument || listOnly || trace || !sharded)) ||
+    (listOnly && trace)
   )
     throw new Error(
-      "Usage: test-suite.mjs backend|contracts|vercel|ui|cli|aws-cdk [--list]\n" +
-        "       test-suite.mjs backend|contracts [--shard=i/N] [--list] | --merge",
+      "Usage: test-suite.mjs backend|contracts|vercel|ui|cli|aws-cdk [--list | --trace]\n" +
+        "       test-suite.mjs backend|contracts [--shard=i/N] [--list | --trace] | --merge",
     )
   const cwd = join(root, packages[name])
   const run = (script, args = [], directory = root) => {
@@ -187,9 +196,11 @@ try {
       if (built.error || built.status !== 0)
         throw new Error(`Required ${name} setup failed`)
     }
-    const launch = vitestCommand(lane, root, selection, report)
+    const parts = trace ? freshParts(join(output, "trace-parts"), name) : undefined
+    const launch = vitestCommand(lane, root, selection, report, parts)
     const result = spawnSync(launch.command, launch.args, {
       cwd: launch.cwd,
+      env: launch.env,
       stdio: "inherit",
       // Native contracts include real lease expiry and resource cleanup deadlines.
       // Each file runs in exactly one lane. Ownership contracts add real lease
@@ -207,6 +218,12 @@ try {
         `Test runner did not finish: ${result.error?.message ?? result.signal}`,
       )
     writeFileSync(join(output, "exit-code"), String(result.status))
+    if (parts)
+      try {
+        writeTrace(join(output, "trace.json.gz"), laneChecks(parts, name))
+      } catch (error) {
+        process.stderr.write(`No trace written: ${error.message}\n`)
+      }
     // A shard checks only the allowances for its own files. The merge step
     // checks the full baseline against the union of the shards.
     let shardBaseline = join(root, baseline)
