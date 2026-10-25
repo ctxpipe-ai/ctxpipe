@@ -1,11 +1,11 @@
 ---
 title: Knowledge files
-description: How Markdown files, links, and claims in the workspace repository become search results and the knowledge graph.
+description: How Markdown files, links, and claims in the Workspace repository become search results and the knowledge graph.
 ---
 
-A Workspace's knowledge is plain Markdown in its workspace repository. ctxpipe
-does not keep a hidden copy that can drift: what is in the default branch is
-what chat, search, and agents use.
+The knowledge of a Workspace is plain Markdown in its Workspace repository.
+ctxpipe keeps no hidden copy that can drift. Chat, search, and agents use what
+is on the default branch.
 
 ## One file, one unit
 
@@ -75,32 +75,23 @@ in answers.
 
 ## Skipped files
 
-ctxpipe skips a file when it has one of the errors in the table below. ctxpipe
-then continues with the other files, so one bad file does not stop the
-Workspace. A skipped file stays in **Files** because it is in git. Chat, MCP,
-search, and the graph do not use it.
-
-Other errors do not cause a skip. For example, a set of files that is too
-large stops hydration, and **Settings** shows **Loading failed** with the
-error. See [Workspace settings](/docs/workspaces/settings#hydrate-and-skipped-files).
-
-**Settings** on the Workspace page shows the skipped files of the latest
-hydrated commit under **Hydrate skipped N files**. Each row gives the path and
-the reason. Select the path to open the file in **Files**.
+ctxpipe skips a file that has one of the errors below, and continues with the
+other files. One bad file does not stop the Workspace. A skipped file stays in
+**Files**, because it is in git, but chat, MCP, search, and the graph do not
+use it. **Settings** lists the skipped files of the latest commit under
+**Hydrate skipped N files**.
 
 | Reason | Cause | Fix |
 | --- | --- | --- |
 | Front matter is not valid | The front matter has no closing `---` line, or its YAML is not valid. | Correct the front matter. |
-| Repeats a linked repository or the Workspace's own repository | Only in results of an earlier version: a `repositories/*.md` file linked a repository that was already linked. ctxpipe no longer reads these files. | None. |
+| Repeats a linked repository or the Workspace's own repository | Shows only in results from an earlier version, for a `repositories/*.md` file. ctxpipe no longer reads these files. | None. |
 
-Push the fix to the default branch. When ctxpipe hydrates the new commit, it
-reads the fixed file again:
+Push the fix to the default branch. When ctxpipe reads the new commit, the file
+is a knowledge unit again, and it leaves the list.
 
-A fixed knowledge file is a knowledge unit again. Chat, MCP, search, and the
-graph use it.
-
-The file is then not in the list of skipped files. When the list is empty,
-**Settings** does not show the notice.
+Other errors stop the read of the whole commit. For example, a set of files
+that is too large shows **Loading failed** in **Settings**. See
+[Workspace settings](/docs/workspaces/settings#hydrate-and-skipped-files).
 
 ## Sources and linked repositories
 
@@ -113,8 +104,8 @@ pull request turns those files into source files.
 
 ## What ctxpipe writes
 
-ctxpipe changes the workspace repository only through small, focused commits to
-the default branch. Each commit does one job and has a descriptive message:
+ctxpipe changes the Workspace repository only with small commits to the
+default branch. Each commit does one job and has a clear message:
 
 - the setup commit (`AGENTS.md` and the knowledge skill);
 - knowledge extracted from linked repositories;
@@ -125,13 +116,12 @@ the default branch. Each commit does one job and has a descriptive message:
   `valid_from`.
 
 ctxpipe never force-pushes. If someone else pushed first, ctxpipe rebases its
-change onto theirs. If both changed the same lines, ctxpipe resolves the conflict
-before pushing.
+change onto theirs. If both changed the same lines, ctxpipe merges the two
+changes before it pushes.
 
 Changes made in [Workspace chat](/docs/workspaces/chat) are different: they go
 to a separate branch and reach the default branch only through a pull request
 you open.
 
-Source files under `sources/` change only through pull requests, so a person
-reviews the scope before ctxpipe mirrors content. No agent can change `sources/`
-or `.ctxpipe/` without a pull request.
+Files under `sources/` and `.ctxpipe/` change only through pull requests, so a
+person reviews the scope before ctxpipe mirrors content.

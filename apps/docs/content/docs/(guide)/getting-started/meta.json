@@ -1,10 +1,4 @@
 {
   "title": "Getting started",
-  "pages": [
-    "index",
-    "quickstart",
-    "how-it-works",
-    "common-workflows",
-    "get-in-touch"
-  ]
+  "pages": ["index", "quickstart", "common-workflows", "get-in-touch"]
 }

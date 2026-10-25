@@ -1,131 +1,112 @@
 ---
 title: GitHub connector
-description: Why GitHub is the foundational connector for ctxpipe and what it enables.
+description: Connect GitHub first. It holds your Workspace repositories and gives ctxpipe access to the code that you link.
 ---
 
-GitHub is the first connector most teams set up. The ctxpipe GitHub App hosts
-your [Workspaces'](/docs/workspaces) repositories and gives ctxpipe access to the
-code repositories you link for search and extraction.
+GitHub is the first connector to set up. The ctxpipe GitHub App gives ctxpipe
+access to your [Workspace](/docs/workspaces) repositories and to the code
+repositories that you link. The other connectors write their content into a
+Workspace repository on GitHub, so they need it too.
 
-Other connectors build on it. Confluence, Linear, Notion, and PagerDuty write
-selected content into a Workspace's GitHub repository. Each Workspace holds a
-source file for each source, at `sources/<provider>/…md`. The pull request that
-adds the source file is the draft scope. The default branch has the live scope
-after the merge.
-
-Connect GitHub from the **Get started** guide on Home, or from the **Connectors** page.
-
-<Callout title="Hosted and self-hosted Apps are different">
-  Hosted ctxpipe supplies the managed GitHub App. A self-hosted deployment must
-  create and own its own App, private key, webhook secret, and installation.
-  Operators should complete [Self-host GitHub](/docs/self-hosting/github) before
-  users follow this page.
+<Callout title="Self-hosted deployments">
+  Hosted ctxpipe supplies the GitHub App. A self-hosted deployment creates and
+  owns its own App. The operator completes
+  [Self-host GitHub](/docs/self-hosting/github) first.
 </Callout>
 
-## Setup flow
+## Connect GitHub
 
 <Steps>
   <Step>
-    ### Start the GitHub connection
+    ### Start the connection
 
-    In a new organization, select **Connect GitHub** in the **Get started**
-    guide on Home. You can also open **Connectors** and choose GitHub.
+    Choose **Connect GitHub** in the **Get started** guide on Home, or open
+    **Connectors** and choose GitHub. If your ctxpipe user has no linked GitHub
+    account, sign in to GitHub first.
   </Step>
 
   <Step>
-    ### Authorize GitHub access
+    ### Install the App
 
-    GitHub asks you to install or authorize the ctxpipe GitHub App for a GitHub
-    account or organization. You may need a GitHub organization owner to approve
-    the installation if you do not have permission to install apps yourself.
+    Install the ctxpipe GitHub App on the GitHub account or organization that
+    owns your repositories. If you cannot install apps there, GitHub sends a
+    request to an organization owner.
   </Step>
 
   <Step>
-    ### Choose access in GitHub
+    ### Choose the repositories
 
-    GitHub asks which repositories the App may read. That grant is access only.
-    You can start narrow and expand the App's repository access later.
+    Give the App access to the repository for the knowledge and to the code
+    repositories that you want to link. You can start with a few repositories,
+    and add more later in GitHub.
   </Step>
 
   <Step>
-    ### Choose a workspace
+    ### Create a Workspace and link code
 
-    After the App is installed, create a Workspace or open an existing one.
-    Link code repositories from that Workspace's **Settings**, under
-    **Sources**. Each link is a source file at
-    `sources/github/<owner>/<name>.md`. A pull request adds it. After you merge
-    it, ctxpipe indexes the repository, so it can power search, chat, MCP, and the
-    knowledge graph.
+    [Create a Workspace](/docs/workspaces/create-workspace), then
+    [link code repositories](/docs/workspaces/linked-repositories) in its
+    **Settings**.
   </Step>
 </Steps>
+
+A GitHub account can belong to one ctxpipe user only. If another ctxpipe user
+has your GitHub account, sign in as that user and unlink it (**User account →
+OAuth Providers → Unlink OAuth**), or use a different GitHub account.
 
 ## What GitHub enables
 
 - Workspace repositories that ctxpipe can read and write.
-- Code search and extraction across linked repositories.
-- Repo-native docs, ADRs, `AGENTS.md`, skills, and standards as agent context.
-- Pull requests for source changes, Workspace chat changes, and MCP setup.
-- Mirroring of the issues of each linked repository, open and closed.
-- Mirroring of **closed** pull requests, merged or not (conversation,
-  reviews, and changed paths, not diffs), into a Workspace. After indexing,
-  the knowledge graph records `PullRequest TARGETS` the source repository and
-  `PullRequest REFERENCES Issue` when the title, body, or branch names a
-  Linear issue. For a merged pull request, the graph also locates each changed
-  path as a `File` (shared with source-repository extract) and records
-  `ADDED` / `MODIFIED` / `REMOVED` / `RENAMED` edges from the pull request
-  dated at merge, and `File PART_OF` the owning service when that repository
-  is already classified. A merged pull request `RESOLVES` an issue in place of
-  `REFERENCES` when its branch names the issue, or when a closing keyword
-  (`fixes`, `closes`, `resolves`, `completes`, and their other forms) comes
-  directly before the issue identifier or its Linear URL. A pull request
-  closed without a merge changed nothing, so it has no `File` edges.
+- Code search and extraction across the linked repositories.
+- The docs, ADRs, `AGENTS.md`, and skills in linked repositories, as context
+  for agents.
+- Pull requests for source changes, upgrades, and Workspace chat.
+- A mirror of the issues and the closed pull requests of each linked
+  repository.
 
-### Closed pull requests follow linked repositories
+## Closed pull requests
 
-Linking a GitHub repository to a Workspace is the only setup. Its closed pull
-requests, merged or not, are written under `github/pulls/<owner>/<repo>/` in that Workspace's
-repository:
+When you link a GitHub repository, ctxpipe also mirrors its closed pull
+requests, merged or not, into `github/pulls/<owner>/<repo>/` in the Workspace
+repository. Each file holds the conversation, the reviews, and the changed
+paths, but not the diff. It records `merged` and `mergedAt`.
 
-- **When you link** the repository, from **Settings** or by adding its source
-  file with Git, ctxpipe backfills up to 200 of its most recently updated closed
-  pull requests.
+- **When you link** the repository, ctxpipe backfills up to 200 of its most
+  recently updated closed pull requests.
 - **After that**, each pull request that closes, and each later review or
-  comment on it, is mirrored as GitHub reports it. The file records `merged`
-  and `mergedAt`, so you can tell a merge from a close without a merge.
-- **Several Workspaces** can link the same repository. Each one gets its own
-  copy of the pull requests.
-- **When you unlink** the repository, new pull requests stop arriving. Files
-  already mirrored stay in the Workspace's git history and tree until you
-  delete them.
+  comment, arrives when GitHub reports it.
+- **Each Workspace** that links the repository gets its own copy.
+- **When you unlink**, new pull requests stop. The mirrored files stay until
+  you delete them.
 
-Draft and open pull requests are not mirrored. There is no toggle and no
-configuration file.
+Draft and open pull requests are not mirrored. There is no setting for this.
 
-### Issues follow linked repositories
+## Issues
 
-ctxpipe mirrors the issues of a linked repository, open and closed, in the
-same way. Each issue is one file at `github/issues/<owner>/<repo>/<number>.md`,
-with its description, labels, assignees, state, and its 100 most recent
-comments:
+ctxpipe also mirrors the issues of each linked repository, open and closed. Each
+issue is one file at `github/issues/<owner>/<repo>/<number>.md`, with its
+description, labels, assignees, state, and its 100 most recent comments.
 
 - **When you link** the repository, ctxpipe backfills up to 200 of its most
   recently updated issues.
-- **After that**, ctxpipe mirrors each change to an issue, and each comment on
-  it, as GitHub reports it. When someone deletes an issue or moves it to
-  another repository, ctxpipe removes its file.
-- After indexing, the graph has an `Issue` for each file. An issue links to the
-  pull requests that closed it, and a pull request links to each mirrored
-  issue whose URL it contains.
+- **After that**, each change to an issue, and each comment on it, arrives
+  when GitHub reports it. When someone deletes an issue or moves it to another
+  repository, ctxpipe removes its file.
 
 The GitHub App needs the **Issues: Read-only** permission. Until the owner of
 your GitHub installation accepts that permission, ctxpipe does not mirror
-issues, and pull requests and code continue to work. When the owner accepts
-it, ctxpipe backfills the issues of each linked repository of that account.
+issues. Pull requests and code continue to work. When the owner accepts it,
+ctxpipe backfills the issues of each linked repository of that account.
 
-## After you connect
+## In the graph
+
+A pull request links to its repository, to the GitHub issues whose URL it
+contains, and to the Linear issues that it names. A merged pull request also links to each file that it added,
+changed, removed, or renamed. It **resolves** an issue when its branch names the
+issue, or when a closing word such as `fixes` or `closes` comes before the
+issue identifier. A GitHub issue links to the pull requests that closed it.
 
 <Cards>
-  <Card title="Create a Workspace" href="/docs/workspaces/create-workspace" description="Choose or create the workspace repository." />
+  <Card title="Create a Workspace" href="/docs/workspaces/create-workspace" description="Choose or create the Workspace repository." />
   <Card title="Linked repositories" href="/docs/workspaces/linked-repositories" description="Add code repositories for search and extraction." />
-  <Card title="ctxpipe MCP" href="/docs/mcp/mcp-docs" description="Connect your agent clients to ctxpipe MCP." />
 </Cards>

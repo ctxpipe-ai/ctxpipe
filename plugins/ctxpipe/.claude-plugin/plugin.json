@@ -8,7 +8,7 @@
     "name": "ctxpipe",
     "url": "https://ctxpipe.ai"
   },
-  "homepage": "https://docs.ctxpipe.ai/docs/mcp/claude-plugin",
+  "homepage": "https://github.com/ctxpipe-ai/ctxpipe/tree/main/plugins/ctxpipe",
   "repository": "https://github.com/ctxpipe-ai/ctxpipe",
   "license": "MIT",
   "keywords": ["mcp", "ctxpipe", "context", "search", "engineering"]

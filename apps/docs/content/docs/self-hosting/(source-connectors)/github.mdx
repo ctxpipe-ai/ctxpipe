@@ -3,9 +3,10 @@ title: GitHub
 description: Create and connect the deployment-owned GitHub App used for repository access and Git-backed connector writes.
 ---
 
-GitHub is foundational to a self-hosted ctxpipe deployment. The GitHub App reads
-selected source repositories and writes configuration or generated context for
-connectors such as Linear, Notion, Confluence, and Slack.
+GitHub is the base of a self-hosted ctxpipe deployment. The GitHub App reads the
+linked code repositories, and writes to the Workspace repositories: the
+knowledge, the source files, and the content of Linear, Notion, Confluence,
+PagerDuty, and Slack.
 
 Your deployment must use a GitHub App that **you create and own**. Self-hosted
 repository traffic and credentials do not pass through the hosted ctxpipe GitHub
@@ -82,10 +83,11 @@ Subscribe to these events:
 - **Push**
 - **Repository**
 
-With the pull request events, ctxpipe mirrors the closed pull requests of every
-linked repository into the Workspaces that link it. With the **Issues** and
-**Issue comment** events, ctxpipe mirrors the issues of every linked repository
-in the same way. The App installation must be able to read those linked
+With the pull request events, ctxpipe mirrors the closed pull requests, merged
+or not, of every linked repository into `github/pulls/<owner>/<repo>/` of each
+Workspace that links it. With the **Issues** and **Issue comment** events,
+ctxpipe mirrors the issues of every linked repository into
+`github/issues/<owner>/<repo>/` in the same way. The App installation must be able to read those linked
 repositories. ctxpipe does not mirror required-check conclusions.
 
 A backfill of the issues of one linked repository reads up to 200 of the most
@@ -112,8 +114,8 @@ continue to work. When the owner accepts, GitHub sends an `installation` event,
 and ctxpipe backfills the issues of each linked repository of that account.
 After that, ctxpipe mirrors each issue change.
 
-Write access is required because ctxpipe commits to workspace repositories and
-opens pull requests for connector configuration and Workspace chat. Limit the App
+Write access is required because ctxpipe commits to Workspace repositories, and
+opens pull requests for source changes, upgrades, and Workspace chat. Limit the App
 installation to the repositories ctxpipe should read or write.
 
 ## 4. Generate and save credentials
@@ -152,7 +154,7 @@ Then verify the full path:
 3. A linked repository reaches **Indexed** in the Workspace's **Settings**.
 4. Changing repository selection returns through the ctxpipe setup URL.
 5. A test push reaches the connection-specific webhook.
-6. A source change can open a pull request on the workspace repository.
+6. A source change can open a pull request on the Workspace repository.
 
 ## Troubleshooting
 
@@ -198,7 +200,7 @@ Confirm that the App has **Issues: Read-only** and that it subscribes to the
 ### Connector writes fail
 
 Confirm **Contents** and **Pull requests** are both read/write and that the
-installation includes the workspace repository.
+installation includes the Workspace repository.
 
 <Cards>
   <Card title="Docker deployment" href="/docs/self-hosting/deployment/docker" description="Run the reference stack and provide deployment secrets." />

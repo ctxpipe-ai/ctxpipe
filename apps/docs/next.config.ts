@@ -68,6 +68,41 @@ const config = withMDX({
         permanent: false,
       },
       {
+        source: "/docs/managing-organization/team-members",
+        destination: "/docs/managing-organization",
+        permanent: false,
+      },
+      {
+        source: "/docs/self-hosting/deployment",
+        destination: "/docs/self-hosting",
+        permanent: false,
+      },
+      {
+        source: "/docs/getting-started/how-it-works",
+        destination: "/docs/getting-started",
+        permanent: false,
+      },
+      {
+        source: "/docs/connections/ingestion",
+        destination: "/docs/workspaces/indexing",
+        permanent: false,
+      },
+      {
+        source: "/docs/connections/faq",
+        destination: "/docs/resources/faq",
+        permanent: false,
+      },
+      {
+        source: "/docs/managing-organization/verified-domains",
+        destination: "/docs/resources/faq#can-i-verify-my-company-domain",
+        permanent: false,
+      },
+      {
+        source: "/docs/using-the-app/knowledge-graph",
+        destination: "/docs/workspaces/graph",
+        permanent: false,
+      },
+      {
         source: "/docs/getting-started/who-is-it-for",
         destination: "/docs/getting-started/common-workflows",
         permanent: false,

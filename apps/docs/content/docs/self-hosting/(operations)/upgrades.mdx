@@ -52,6 +52,11 @@ migrate command, `bun run apps/backend/src/db/migrate.ts`.
   the app services, and `chat-sandbox-image` builds the new chat image in
   `dind`. Set `POSTGRES_PASSWORD` in your `.env` (Compose sends it to migrate
   as the `ctxpipe_app` password). Check `docker compose logs migrate`.
+  Before the Workspaces release, the deploy profile published Postgres on host
+  port 5433 (`CTXPIPE_POSTGRES_HOST_PORT`). From the Workspaces release, it
+  publishes no Postgres port. If a backup job or a tool on the host uses port
+  5433, change it to
+  `docker compose exec postgres pg_dump -U ctxpipe ctxpipe > backup.sql`.
 - **AWS CDK:** run `pnpm update @ctxpipe/aws-cdk`, then `cdk deploy`. See
   [the sandbox host](#aws-cdk-sandbox-host) for the cost of the new host.
 - **Image-based:** run migrate once with the owner `DATABASE_URL`. Pass the
@@ -117,8 +122,9 @@ Each Workspace repository holds `.ctxpipe/workspace.yaml`. It has one key,
 ### Upgrade a Workspace
 
 An upgrade of a Workspace has two parts: a git upgrade and a re-ingestion.
-Each part needs one click. Nothing starts by itself, and there is no setting
-for automatic approval. This is true on hosted and on self-hosted
+Each part needs one click. Nothing starts by itself, unless an owner or admin
+turns on [automatic upgrades](/docs/workspaces/settings#automatic-upgrades). A
+merge always needs a person. This is true on hosted and on self-hosted
 deployments.
 
 #### Where to find the upgrades
@@ -128,7 +134,7 @@ deployments.
   repository, the format that ctxpipe reads, and the automatic-upgrades
   setting.
 - **Home alert:** the organization home page shows one alert for each
-  Workspace that has an item to finish. Click **Review upgrades** to open the
+  Workspace that has an item to finish. Click **Review upgrade** to open the
   Workspace settings. The alert shows nothing when no item is pending.
 
 #### Who can start an item
@@ -140,8 +146,7 @@ upgrades but gets **Ask an admin** in place of the button.
 
 Each item shows one status. For the statuses, the next action for each status,
 and the reasons for a blocked item, see
-[Upgrade items](/docs/workspaces/settings#upgrade-items) and
-[Blocked items](/docs/workspaces/settings#blocked-items).
+[Upgrades](/docs/workspaces/settings#upgrades) in Workspace settings.
 
 If someone closes the pull request without a merge, the item goes back to
 **Ready to start** with a note. Click **Start** to open a new pull request.
@@ -272,6 +277,12 @@ Chat is off without the host: it answers "sandbox unavailable" (503).
 
 Self-hosted AWS stacks upgrade by bumping `@ctxpipe/aws-cdk` and redeploying. The published package pins backend, worker, UI, codesearch, and migrate images to the same git SHA and applies that release’s Fargate size profiles.
 
+Before the first deploy of a new version, read the Aurora PostgreSQL minor
+version of your cluster. CloudFormation cannot move a cluster to a lower minor
+version, so a cluster above the pinned version needs that version set in your
+CDK app. See
+[Aurora PostgreSQL minor version](https://github.com/ctxpipe-ai/ctxpipe/blob/main/packages/aws-cdk/README.md#aurora-postgresql-minor-version).
+
 ```bash
 pnpm update @ctxpipe/aws-cdk
 cdk synth
@@ -284,7 +295,8 @@ This release’s migrate task also creates the `ctxpipe_app` runtime role. The s
 
 ## Docker Compose flow
 
-For source-based Compose deployments:
+For source-based Compose deployments, keep your `docker-compose.override.yml`
+(named volumes, extra environment variables, port bindings) in place, then run:
 
 ```bash
 git fetch origin

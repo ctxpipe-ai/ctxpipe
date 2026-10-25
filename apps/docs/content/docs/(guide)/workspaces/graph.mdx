@@ -3,10 +3,12 @@ title: Knowledge graph
 description: Explore the units and relationships ctxpipe built from a Workspace's files.
 ---
 
-The **Graph** tab shows the knowledge graph for the current Workspace. Every
-node is a knowledge file, and every edge comes from a link or a claim in those
-files (see [Knowledge files](/docs/workspaces/knowledge-files)). The graph
-appears after the Workspace's first successful index.
+The **Graph** tab shows the knowledge graph of the current Workspace. Each node
+is a knowledge file, and each edge comes from a link or a claim in those files.
+See [Knowledge files](/docs/workspaces/knowledge-files). The knowledge that
+ctxpipe extracts from linked code is in knowledge files too, so it is in the
+graph. The graph shows after the first index of the Workspace. While ctxpipe
+builds it, the tab shows **Graph, building**.
 
 Because the graph is built from files, you fix it by fixing files: correct a
 claim, add a link, or set `kind`, then push. The graph updates when the

@@ -7,50 +7,44 @@ Configuration is environment-driven. Set only the values your deployment needs,
 but treat the required auth, database, model, and public-origin values as
 production secrets.
 
-## Runtime requirements
+## What a deployment needs
 
-- A supported [deployment path](/docs/self-hosting/deployment): Docker Compose,
-  the repository Terraform stack (Railway + Neon), or AWS CDK
-- PostgreSQL **17**; the reference Compose image is pgvector on Postgres 17
-- A graph database; FalkorDB is included in the reference Compose stack
-- An SMTP provider for transactional email
-- An OpenRouter, Azure, Bedrock, or OpenAI-compatible model provider
-- A public HTTPS origin for production auth callbacks, webhooks, MCP, and Forge
-  remotes
+- A [deployment path](/docs/self-hosting#choose-a-deployment-path): Docker Compose, AWS CDK,
+  or the Terraform stack for Railway and Neon.
+- PostgreSQL with pgvector. Compose and Terraform use PostgreSQL 17. AWS CDK
+  uses Aurora PostgreSQL 16.
+- A graph database. FalkorDB is in the Compose stack.
+- A model provider: OpenRouter, Azure OpenAI, Amazon Bedrock, or another
+  OpenAI-compatible API.
+- A public HTTPS origin for auth callbacks, webhooks, MCP, and Forge.
+- Optional: an SMTP provider for email.
 
-## Docker Compose
-
-Clone the repository and copy the example environment file:
-
-```bash
-git clone https://github.com/ctxpipe-ai/ctxpipe.git
-cd ctxpipe
-cp docker-compose.env.example .env
-```
-
-Edit `.env` with your values. The full production-style stack is the Compose
-**`deploy`** profile:
-
-```bash
-pnpm start
-```
-
-The `deploy` profile starts Postgres, FalkorDB, migrator, backend, worker, UI,
-and codesearch. It also starts `dind` and `chat-sandbox-image` for Workspace
-chat sandboxes. It does not start an OpenTelemetry collector. The backend
-listens on the public app port and proxies the UI.
+On Docker Compose, set the values in `.env`. Compose passes only some of them
+to the services. See
+[Settings that need an override file](/docs/self-hosting/deployment/docker#settings-that-need-an-override-file).
 
 ## Required variables
 
+The backend does not start without these:
+
 | Variable | Description |
 |---|---|
-| `DATABASE_URL` | Runtime PostgreSQL URL for backend, worker, and codesearch. Must be the `ctxpipe_app` role (no `BYPASSRLS`). Example: `postgresql://ctxpipe_app:pass@host:5432/db`. Migrate uses the table-owner URL instead. **AWS CDK** operators do not set either URL — `cdk deploy` writes them. |
-| `AUTH_SECRET` | Random 32+ character string for session signing. Generate with `openssl rand -hex 32`. |
-| `AUTH_BASE_URL` | Public URL of your ctxpipe instance, for example `https://ctx.example.com` |
-| `CTXPIPE_PUBLIC_APP_URL` | Public backend URL baked into the UI image. Usually the same value as `AUTH_BASE_URL`. |
-| `MODEL_PROVIDER_API_KEY` | API key for your configured model provider |
+| `DATABASE_URL` | Runtime PostgreSQL URL for backend, worker, and codesearch. Use the `ctxpipe_app` role, which has no `BYPASSRLS`. Example: `postgresql://ctxpipe_app:pass@host:5432/db`. `migrate` uses the table-owner URL. Compose and AWS CDK set both URLs. |
+| `AUTH_SECRET` | A random string of 32 or more characters, for session signing. Generate it with `openssl rand -hex 32`. Keep it stable. A new value signs everybody out and, without `CONNECTION_SECRETS_ENCRYPTION_KEY`, makes the stored connector secrets unreadable. |
+
+Set these too for a deployment that people use:
+
+| Variable | Description |
+|---|---|
+| `AUTH_BASE_URL` | The public URL of your deployment, for example `https://ctx.example.com`. The default, `https://localhost:3000`, works only on your machine. |
+| `CTXPIPE_PUBLIC_APP_URL` | The public backend URL in the UI image, at build time. Usually the same as `AUTH_BASE_URL`. Compose and AWS CDK read it. |
+| `MODEL_PROVIDER_API_KEY` | The API key of your model provider. Required for each provider except `bedrock`. |
+| `CODESEARCH_URL` | The URL of codesearch. Repository search and indexing need it. The backend and the worker must both reach it. Compose and AWS CDK set it. |
 
 ## Email
+
+Email is optional. Without both values, ctxpipe turns off email verification
+and sends no password reset or invitation email. The backend logs a warning.
 
 | Variable | Description |
 |---|---|
@@ -91,7 +85,7 @@ examples and embedding requirements.
 
 | Variable | Description |
 |---|---|
-| `GRAPH_DB_PROVIDER` | Optional. Selects graph provider strategy. |
+| `GRAPH_DB_PROVIDER` | Optional. `falkordb` (default), `neo4j-enterprise`, `neo4j-community`, `memgraph`, or `neptune`. |
 | `GRAPH_DB_URI` | FalkorDB Redis URI or Bolt URI for another supported graph database. |
 | `GRAPH_DB_USER`, `GRAPH_DB_PASSWORD` | Optional credentials for providers that require them. |
 
@@ -106,7 +100,7 @@ worker.
 
 | Variable | Description |
 |---|---|
-| `SANDBOX_PROVIDER` | `docker` or `vercel`. Set it to `docker` on a self-hosted deployment; Docker Compose and AWS CDK set it. Chat can use Docker when you do not set it, but the plain git rules then use the strict hosted rule: they use the self-host rule only when the value is exactly `docker` (see below). If the Docker daemon does not answer, chat returns 503. The backend and worker images refuse `unsandboxed`: it is only for local development. |
+| `SANDBOX_PROVIDER` | `docker`, `vercel`, or `unsandboxed`. Set it to `docker` on a self-hosted deployment; Docker Compose and AWS CDK set it. Without a value, chat uses Docker, but the plain git rules then use the strict hosted rule: they use the self-host rule only when the value is exactly `docker` (see below). If the Docker daemon does not answer, chat returns 503. The backend and worker images refuse `unsandboxed`: it is only for local development. |
 | `DOCKER_HOST` | Docker API address, for example `tcp://dind:2376`. If you do not set it, the backend uses the local Docker socket. |
 | `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH` | Mutual TLS to the Docker API. Set `DOCKER_TLS_VERIFY=1`. `DOCKER_CERT_PATH` is a directory with `ca.pem`, `cert.pem`, and `key.pem`. |
 | `SANDBOX_CHAT_IMAGE` | Chat sandbox image on that daemon. The default is `ctxpipe-chat-sandbox:opencode-<version>`, which is in no registry. On other platforms, build `scripts/chat-sandbox` on that daemon, or use `ghcr.io/ctxpipe-ai/chat-sandbox:<backend commit SHA>` once that package is public. Compose builds `ctxpipe-chat-sandbox:local`. AWS CDK uses `ghcr.io/ctxpipe-ai/chat-sandbox` at the commit SHA tag that the package pins. |
@@ -160,7 +154,7 @@ events, credentials, installation, and end-to-end verification.
 
 ## Atlassian and Confluence
 
-Self-hosted Confluence uses the same product wizard as fully managed ctxpipe, but
+Self-hosted Confluence uses the same product wizard as hosted ctxpipe, but
 your deployment or organization must provide Atlassian and Forge settings first.
 
 | Variable | Description |
@@ -304,29 +298,15 @@ endpoint is unset returns `204`.
 |---|---|
 | `AUTH_ISSUER` | Override the OAuth issuer claim. Defaults to `AUTH_BASE_URL`. |
 | `AUTH_ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins for auth endpoints. |
-| `CODESEARCH_URL` | URL of the codesearch service when running separately. |
-| `OPENWORKFLOW_CONCURRENCY` | In-flight OpenWorkflow runs per worker process. Default `4` when unset. CDK/Railway/Compose inject size-based values. |
+| `OPENWORKFLOW_CONCURRENCY` | In-flight OpenWorkflow runs per worker process. Default `4` when unset. Compose sets `6`. AWS CDK and Terraform set a value for each size. |
+| `AUTH_TOKEN_AUDIENCE_CODESEARCH` | Optional. The audience of the tokens that the backend sends to codesearch. If you set it, set the same value on the backend, the worker, and codesearch. |
 | `CODESEARCH_INDEXER_CONCURRENCY` | Max concurrent Zoekt/SCIP child processes on codesearch, and SCIP HTTP batch size on the worker. Default `2`. |
 | `CODESEARCH_INDEX_PIPELINE_CONCURRENCY` | Max distinct repos with in-flight OpenWorkflow index-phase HTTP (clone included). Default `2`. Codesearch returns 429 when full. |
 
 ## Railway
 
-ctxpipe can be deployed on Railway with prebuilt images from GitHub Container
-Registry. Runtime services (`backend`, `worker`, `codesearch`) must use a
-`DATABASE_URL` for `ctxpipe_app`. The migrate job uses the Neon owner / pooler
-URL (`neondb_owner`) and then GRANTs the app role. Do not point app services at
-the owner URL — that role has `BYPASSRLS`, so `ENABLE` policies do not bind.
-
-A typical flow is:
-
-1. Build and push service images from CI:
-   - `ghcr.io/ctxpipe-ai/backend:<sha>`
-   - `ghcr.io/ctxpipe-ai/worker:<sha>`
-   - `ghcr.io/ctxpipe-ai/ui:<sha>`
-   - `ghcr.io/ctxpipe-ai/codesearch:<sha>`
-2. Configure Railway services to use image sources.
-3. Set environment variables and secrets in Railway.
-4. Roll production by changing service image tags to the intended commit SHA.
+To run ctxpipe on Railway with the prebuilt images, start from the
+[Terraform](/docs/self-hosting/deployment/terraform) stack.
 
 ## Related pages
 
