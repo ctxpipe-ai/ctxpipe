@@ -10,7 +10,7 @@ that we can agree on the design and the product direction.
 
 ## Local development
 
-**Requirements:** Node.js 22+, pnpm 10, Bun 1.4.4+, Docker with Compose v2.
+**Requirements:** Node.js 24+, pnpm 10, Bun 1.4.4+, Docker with Compose v2.
 
 ```bash
 pnpm install
