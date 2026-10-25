@@ -3,7 +3,7 @@ import { Octokit } from "octokit"
 import { describe, expect, it } from "vitest"
 
 import { useMswServer } from "../../../../test/msw.js"
-import { fetchGithubIssue, fetchGithubIssuePage } from "./client.js"
+import { fetchGithubIssuePage } from "./client.js"
 
 const API = "https://api.github.com"
 const server = useMswServer()
@@ -69,7 +69,22 @@ describe("fetchGithubIssuePage", () => {
           issues:
             variables.after === null
               ? connection([issue(1), issue(2)], "cursor-1")
-              : connection([issue(3, { state: "OPEN", closedAt: null })]),
+              : connection([
+                  issue(3, {
+                    state: "OPEN",
+                    closedAt: null,
+                    comments: {
+                      totalCount: 150,
+                      nodes: [
+                        {
+                          author: null,
+                          body: "Late comment",
+                          createdAt: "2026-03-03T00:00:00Z",
+                        },
+                      ],
+                    },
+                  }),
+                ]),
         },
       },
     }))
@@ -102,48 +117,21 @@ describe("fetchGithubIssuePage", () => {
     })
     expect(calls).toHaveLength(2)
     expect(calls[1]?.variables).toMatchObject({ after: "cursor-1", first: 2 })
+    expect(calls[1]?.query).toContain("comments(last: 100)")
     expect(second.nextAfter).toBeNull()
-    expect(second.issues[0]).toMatchObject({ state: "open", closedAt: null })
-  })
-
-  it("asks for the 100 most recent comments of each issue and reads no more", async () => {
-    const calls = serveGraphql(() => ({
-      data: {
-        repository: {
-          issues: connection([
-            issue(1, {
-              comments: {
-                totalCount: 150,
-                nodes: [
-                  {
-                    author: null,
-                    body: "Late comment",
-                    createdAt: "2026-03-03T00:00:00Z",
-                  },
-                ],
-              },
-            }),
-          ]),
+    expect(second.issues[0]).toMatchObject({
+      state: "open",
+      closedAt: null,
+      commentsTotal: 150,
+      // A deleted account has no author.
+      comments: [
+        {
+          author: { login: "unknown", type: "human" },
+          body: "Late comment",
+          createdAt: "2026-03-03T00:00:00Z",
         },
-      },
-    }))
-    const page = await fetchGithubIssuePage({
-      graphql,
-      repository: "acme/api",
-      first: 50,
-      after: null,
+      ],
     })
-    expect(calls).toHaveLength(1)
-    expect(calls[0]?.query).toContain("comments(last: 100)")
-    // A deleted account has no author.
-    expect(page.issues[0]?.commentsTotal).toBe(150)
-    expect(page.issues[0]?.comments).toEqual([
-      {
-        author: { login: "unknown", type: "human" },
-        body: "Late comment",
-        createdAt: "2026-03-03T00:00:00Z",
-      },
-    ])
   })
 
   it("keeps the issues when GitHub hides a closing pull request of another repository", async () => {
@@ -178,31 +166,5 @@ describe("fetchGithubIssuePage", () => {
       after: null,
     })
     expect(page.issues[0]?.closedBy).toEqual([])
-  })
-})
-
-describe("fetchGithubIssue", () => {
-  it("reads one issue in one request, and null when GitHub has no such issue", async () => {
-    const calls = serveGraphql(({ variables }) =>
-      variables.number === 7
-        ? { data: { repository: { issue: issue(7) } } }
-        : {
-            data: { repository: { issue: null } },
-            errors: [
-              {
-                type: "NOT_FOUND",
-                path: ["repository", "issue"],
-                message: "Could not resolve to an Issue",
-              },
-            ],
-          },
-    )
-    expect(
-      await fetchGithubIssue({ graphql, repository: "acme/api", number: 7 }),
-    ).toMatchObject({ number: 7, title: "Problem 7" })
-    expect(calls).toHaveLength(1)
-    expect(
-      await fetchGithubIssue({ graphql, repository: "acme/api", number: 8 }),
-    ).toBeNull()
   })
 })

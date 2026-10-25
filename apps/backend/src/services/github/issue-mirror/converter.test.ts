@@ -30,16 +30,17 @@ function issueWithComments(total: number, kept: number): GithubIssueSnapshot {
 }
 
 describe("renderGithubIssue comments", () => {
-  it("says how many older comments are not mirrored, before the first comment", () => {
-    const { content } = renderGithubIssue(issueWithComments(101, 100))
+  it.each([
+    [101, 100, 1],
+    [100, 100, 0],
+  ])("with %i comments and %i kept, adds %i note", (total, kept, notes) => {
+    const { content } = renderGithubIssue(issueWithComments(total, kept))
+    expect(content.match(/not mirrored/g) ?? []).toHaveLength(notes)
+    if (!notes) return
     const note =
       "_1 older comment is not mirrored. See the issue on GitHub: https://github.com/acme/api/issues/1_"
     expect(content).toContain(note)
+    // The note comes before the first comment.
     expect(content.indexOf(note)).toBeLessThan(content.indexOf("### "))
-  })
-
-  it("adds no line when every comment is mirrored", () => {
-    const { content } = renderGithubIssue(issueWithComments(100, 100))
-    expect(content).not.toContain("not mirrored")
   })
 })

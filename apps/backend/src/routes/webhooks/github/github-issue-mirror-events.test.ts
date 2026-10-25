@@ -8,7 +8,7 @@ const base = {
 }
 
 describe("githubIssueMirrorRequest", () => {
-  it("names the changed issue and a version for each action", () => {
+  it("names the changed issue and a version for each action and comment", () => {
     expect(
       githubIssueMirrorRequest("issues", {
         ...base,
@@ -29,9 +29,7 @@ describe("githubIssueMirrorRequest", () => {
         issue: { number: 7, updated_at: "2026-03-02T00:00:00Z" },
       })?.version,
     ).toBe("issues.deleted:2026-03-02T00:00:00Z")
-  })
-
-  it("versions a comment by the comment time", () => {
+    // A comment is versioned by the comment time.
     expect(
       githubIssueMirrorRequest("issue_comment", {
         ...base,

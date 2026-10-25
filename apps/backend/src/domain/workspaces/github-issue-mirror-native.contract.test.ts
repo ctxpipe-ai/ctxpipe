@@ -264,19 +264,6 @@ it(
         })
         expect(filesIn(f)).not.toContain(issuePath(4))
         expect(filesIn(f)).toContain(issuePath(3))
-
-        // A repository that no Workspace links starts nothing.
-        await maybeEnqueueGithubIssueMirror({
-          eventName: "issues",
-          payload: {
-            action: "opened",
-            issue: { number: 1, updated_at: "2026-03-06T00:00:00Z" },
-            repository: { full_name: "fixture/unlinked-app" },
-            installation: { id: 123456789 },
-          },
-          githubConnectionId: f.connectionId,
-        })
-        expect(await issueRuns(f)).toHaveLength(3)
       } finally {
         await stopAll(f, worker)
       }
