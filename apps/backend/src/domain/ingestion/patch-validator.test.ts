@@ -2041,7 +2041,7 @@ describe("findSuspectedSecret", () => {
     ],
     ["an empty value", "API_KEY="],
     ["an angle placeholder", "API_KEY=<your-api-key>"],
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: the case is a literal shell placeholder
+    // oxlint-disable-next-line no-template-curly-in-string -- the case is a literal shell placeholder
     ["a shell placeholder", "DATABASE_PASSWORD=${DATABASE_PASSWORD}"],
     ["a changeme value", "AUTH_SECRET=changeme"],
     [
@@ -2087,7 +2087,7 @@ describe("findSuspectedSecret", () => {
     ["a brace placeholder", '"x-api-key": "{env:CTXPIPE_API_KEY}"'],
     [
       "a CI template in a table",
-      // biome-ignore lint/suspicious/noTemplateCurlyInString: the case is a literal CI template
+      // oxlint-disable-next-line no-template-curly-in-string -- the case is a literal CI template
       "| `CLOUD_SECRET_ACCESS_KEY` | `${{cold.SECRET_ACCESS_KEY}}` |",
     ],
     ["a word in a table", "| `MODEL_PROVIDER_API_KEY` | Usually | - |"],
@@ -2110,7 +2110,7 @@ describe("findSuspectedSecret", () => {
     ],
     [
       "a template in a URL",
-      // biome-ignore lint/suspicious/noTemplateCurlyInString: the case is a literal Compose template
+      // oxlint-disable-next-line no-template-curly-in-string -- the case is a literal Compose template
       "postgresql://${DB_USER:-app}:${DB_PASSWORD:-app}@postgres:5432/app",
     ],
     [

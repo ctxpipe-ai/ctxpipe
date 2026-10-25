@@ -126,7 +126,7 @@ describe("dependency targets", () => {
     ],
     ['"amqp://svc:pw@queue.internal:5672"', "amqp://queue.internal:5672"],
     [
-      // biome-ignore lint/suspicious/noTemplateCurlyInString: the case is a JavaScript template in source text
+      // oxlint-disable-next-line no-template-curly-in-string -- the case is a JavaScript template in source text
       "`https://${user}:${pass}@api.example.com/users`",
       "https://api.example.com/users",
     ],

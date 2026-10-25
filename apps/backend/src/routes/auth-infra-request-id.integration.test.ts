@@ -14,7 +14,6 @@ import { withTestLogger } from "../test/with-test-logger.js"
 const kvIdentifyCalls: string[] = []
 const runId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
   http.get("https://kv.better-auth.com/identify/:id", ({ params }) => {
     kvIdentifyCalls.push(String(params.id))

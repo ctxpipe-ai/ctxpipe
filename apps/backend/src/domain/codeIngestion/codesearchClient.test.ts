@@ -30,7 +30,6 @@ vi.mock("../../db/client.js", () => ({
   assertNotInOrgDbContext: () => undefined,
 }))
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer(codesearchNotFound("http://codesearch.test"))
 
 describe("codesearch checkout reads", () => {

@@ -194,6 +194,7 @@ describe("pattern counting (concept 5.4)", () => {
           "src/gen.test.ts": `// @generated\n${VITEST}`,
           "src/todo.test.ts": `// TODO: move off vitest\n${VITEST}`,
           "src/ignore.test.ts": `// biome-ignore lint: x\n\n${VITEST}`,
+          "src/oxlint.test.ts": `// oxlint-disable-next-line no-x -- y\n\n${VITEST}`,
         },
       },
     ])

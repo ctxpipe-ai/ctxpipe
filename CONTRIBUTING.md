@@ -65,7 +65,8 @@ OpenAPI, MCP, contract tests, and package scripts, see
 | `pnpm start` | Run the full containerized stack with the Compose `deploy` profile. |
 | `pnpm db:migrate` | Run backend database migrations. |
 | `pnpm build` | Build the monorepo with Turborepo. |
-| `pnpm lint` / `pnpm format` | Run Biome. |
+| `pnpm lint` | Run Oxlint. |
+| `pnpm format:check` / `pnpm format` | Check or fix formatting with Oxfmt. |
 | `pnpm mcp:inspect` | Open the MCP inspector for the backend. |
 | `pnpm mcpjam:inspect --url <mcp-url> --oauth` | Open the pinned MCPJam Inspector against an MCP endpoint. |
 | `pnpm mcpjam:doctor --url <mcp-url>` | Probe an MCP endpoint and capture transport/OAuth diagnostics. |

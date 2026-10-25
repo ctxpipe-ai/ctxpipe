@@ -19,7 +19,6 @@ import {
 import { captureLinearIncrementalContent } from "./sync.js"
 
 const calls: LinearGraphqlCall[] = []
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 let issue = linearIssueData()
 let initiativeProjectIds: string[] = []

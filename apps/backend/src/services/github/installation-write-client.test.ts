@@ -18,7 +18,6 @@ vi.mock("../../models/github-installation.js", () => ({
   getInstallationOctokitForOrg: getInstallationOctokitForOrgMock,
 }))
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 
 type GitTreeEntryBody = {

@@ -16,7 +16,6 @@ const pr = `pr-${Date.now()}${Math.floor(Math.random() * 1000)}`
 const namespace = `preview-${pr}`
 
 const requests: { headers: Headers; body: { query: string } }[] = []
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
   http.post("https://backboard.railway.com/graphql/v2", async ({ request }) => {
     const body = (await request.json()) as { query: string }

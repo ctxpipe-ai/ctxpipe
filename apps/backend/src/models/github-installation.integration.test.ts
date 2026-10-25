@@ -53,7 +53,6 @@ const notDecoded = () =>
     { status: 401 },
   )
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
   http.get(
     "https://api.github.com/app/installations/:installationId",

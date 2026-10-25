@@ -177,6 +177,7 @@ export function WorkspacePane(props: {
     }
     node.addEventListener("keydown", onKeyDown)
     return () => node.removeEventListener("keydown", onKeyDown)
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- the deps list is kept as is
   }, [props.fileTabs, props.onCloseFileTab])
 
   return (

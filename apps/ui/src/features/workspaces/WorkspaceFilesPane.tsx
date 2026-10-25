@@ -674,6 +674,7 @@ function WorkspaceFilesPaneContent(props: {
         if (content === undefined) continue
         void enqueueWriteRef.current({ op: "save", path, content })
       }
+      // oxlint-disable-next-line react-hooks/exhaustive-deps -- the deps list is kept as is
       void Promise.all([...writeQueuesRef.current.values()])
     }
   }, [props.conversationId])

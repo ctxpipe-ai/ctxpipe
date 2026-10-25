@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { useMswServer } from "../../../../test/msw.js"
 import { bedrockModelProvider } from "./bedrockModelProvider.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: Vitest owns this MSW lifecycle.
 const server = useMswServer()
 afterEach(() => vi.unstubAllEnvs())
 

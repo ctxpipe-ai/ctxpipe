@@ -28,7 +28,6 @@ const repositoryId = `repo_follow_up_${suffix}`
 const codesearch = "http://codesearch.follow-up.test"
 const tip = "b".repeat(40)
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
   http.post(`${codesearch}/:repositoryId/resolve-ref`, () =>
     HttpResponse.json({ hash: tip, branch: "main" }),

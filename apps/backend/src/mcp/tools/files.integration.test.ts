@@ -40,7 +40,6 @@ import { TOOL_ERROR_META_KEY } from "../framework/tool-result.js"
 import { listFilesTool } from "./list-files.js"
 import { readFileTool } from "./read-file.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 const CODESEARCH = "http://codesearch.test"
 

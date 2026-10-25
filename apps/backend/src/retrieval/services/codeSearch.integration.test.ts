@@ -24,7 +24,6 @@ import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import { generateObjectId } from "../../lib/id.js"
 import { codeSearch } from "./codeSearch.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 const events: Record<string, unknown>[] = []
 

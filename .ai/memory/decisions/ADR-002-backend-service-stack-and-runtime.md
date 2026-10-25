@@ -2,6 +2,8 @@
 
 **Status:** Accepted | **Date:** 2026-02-12 | **Tags:** backend, hono, bun, drizzle, auth
 
+> Note: Biome is no longer the lint and format tool. See [ADR-056](ADR-056-oxlint-and-oxfmt-replace-biome.md).
+
 ## Context
 
 The `ctxpipe` monorepo is currently an empty pnpm + Turbo + TypeScript workspace, with `apps/` and `packages/` reserved for future applications and shared libraries. We want to introduce a new backend service named `backend` that:

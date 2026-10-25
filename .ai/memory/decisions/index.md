@@ -63,5 +63,6 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-053](ADR-053-minor-upgrades-expand-only-sql-workspace-format.md) | Minor upgrades: expand-only SQL and Workspace format versions in git | Accepted |
 | [ADR-054](ADR-054-secrets-sync-from-github-to-railway.md) | Secrets go from GitHub Environments straight to Railway, not through Terraform | Accepted |
 | [ADR-055](ADR-055-harness-agnostic-agent-setup.md) | Harness-agnostic agent setup: shared `.agents/`, one `AGENTS.md`, thin harness adapters, MCP parity in CI | Accepted |
+| [ADR-056](ADR-056-oxlint-and-oxfmt-replace-biome.md) | Oxlint and Oxfmt replace Biome: one Oxc parser ecosystem, lint checked in CI, format not yet, recorded rule gaps | Accepted |
 
-Numbers 035 and 036 are unused. The next new ADR is 056.
+Numbers 035 and 036 are unused. The next new ADR is 057.

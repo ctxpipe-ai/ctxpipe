@@ -1300,7 +1300,7 @@ function contentProblem(text: string): CheckFailure | null {
     return fail("The file has a bidirectional control character")
   if (/[\u200B-\u200D\u2060\uFEFF]/.test(text))
     return fail("The file has a zero-width character")
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: the check finds control characters
+  // oxlint-disable-next-line no-control-regex -- the check finds control characters
   if (/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(text))
     return fail("The file has a control character")
   const tokens = [...text.matchAll(HUMAN_MARKER)].map((m) =>

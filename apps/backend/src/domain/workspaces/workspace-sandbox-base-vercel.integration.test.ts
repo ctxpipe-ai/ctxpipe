@@ -90,7 +90,6 @@ const credentials = {
   teamId: "team_test",
   projectId: "prj_test",
 }
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 
 // Every start checks the CA bundle (CTX-727); here the bundle is whole.

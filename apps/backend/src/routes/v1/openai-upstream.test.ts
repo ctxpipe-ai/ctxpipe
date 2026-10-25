@@ -11,7 +11,6 @@ import {
 import { forwardToUpstream } from "./openai-upstream.js"
 
 const origin = "http://provider.test"
-// biome-ignore lint/correctness/useHookAtTopLevel: Vitest setup at file scope.
 const server = useMswServer()
 function app(statuses: number[]) {
   const app = new OpenAPIHono<AppEnv>()

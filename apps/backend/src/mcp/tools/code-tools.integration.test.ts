@@ -26,7 +26,6 @@ import { registerMcpReadTools } from "../framework/tool-registry.js"
 import { findSymbolTool } from "./find-symbol.js"
 import { searchCodeTool } from "./search-code.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 let seed: SeededOrg
 let client: Client

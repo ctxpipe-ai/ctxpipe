@@ -44,7 +44,6 @@ const ownAppPrivateKey = rsaPrivateKey()
 
 const spans = recordSpans()
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
   http.get(
     "https://api.github.com/app/installations/:installationId",
