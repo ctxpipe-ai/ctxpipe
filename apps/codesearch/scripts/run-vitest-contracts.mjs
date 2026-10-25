@@ -8,11 +8,14 @@ const cwd = fileURLToPath(new URL("../", import.meta.url))
 const root = fileURLToPath(new URL("../../../", import.meta.url))
 const require = createRequire(join(cwd, "package.json"))
 try {
-  for (const binary of ["node", "bun", "git"]) {
-    process.stdout.write(
-      `${binary}: ${execFileSync(binary, ["--version"], { encoding: "utf8" }).trim()}\n`,
-    )
-  }
+  // --list prints the test files of each runtime as JSON and runs nothing.
+  const listOnly = process.argv.slice(2).includes("--list")
+  if (!listOnly)
+    for (const binary of ["node", "bun", "git"]) {
+      process.stdout.write(
+        `${binary}: ${execFileSync(binary, ["--version"], { encoding: "utf8" }).trim()}\n`,
+      )
+    }
   const files = readdirSync(join(cwd, "src"), { recursive: true })
     .filter((file) => typeof file === "string" && file.endsWith(".test.ts"))
     .map((file) => `src/${file}`)
@@ -26,6 +29,11 @@ try {
   ]
   for (const file of bun)
     if (!files.includes(file)) throw new Error(`Missing Bun contract: ${file}`)
+  if (listOnly) {
+    const node = files.filter((file) => !bun.includes(file)).sort()
+    process.stdout.write(`${JSON.stringify({ node, bun: [...bun].sort() })}\n`)
+    process.exit()
+  }
   const vitest = join(
     dirname(require.resolve("vitest/package.json")),
     "vitest.mjs",

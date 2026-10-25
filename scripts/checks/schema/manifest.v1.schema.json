@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ctxpipe.ai/schemas/checks/manifest.v1.schema.json",
+  "title": "ctxpipe check manifest",
+  "description": "Output of `pnpm checks:list`. A reader rejects an unknown schemaVersion. A new optional property does not change the version.",
+  "type": "object",
+  "required": ["schemaVersion", "checks"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/check"
+      }
+    }
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "required": ["id", "family", "lane", "root", "file", "inputs"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "`<family>:<lane>:<file>`. Case ids append `#<case>` in a later version.",
+          "type": "string",
+          "pattern": "^[a-z]+:[a-z0-9-]+:[^#]+(#.+)?$"
+        },
+        "family": {
+          "enum": ["vitest"]
+        },
+        "lane": {
+          "description": "One runner invocation: package directory, config and runtime.",
+          "type": "string"
+        },
+        "root": {
+          "description": "Repo-relative root directory of the lane's package. A changed file below it, that no check imports and that is not code, selects the whole lane.",
+          "type": "string"
+        },
+        "file": {
+          "description": "Repo-relative path of the test file.",
+          "type": "string"
+        },
+        "inputs": {
+          "description": "Repo-relative paths that are not imported by the test but change its result: configs, setup files, the lockfile, and the source of built code that the test runs. A path that ends in `/**` stands for a whole directory. A change to one selects the whole lane.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

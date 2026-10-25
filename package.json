@@ -16,6 +16,8 @@
     "db:migrate": "pnpm --filter @ctxpipe/backend db:migrate",
     "build": "turbo build",
     "typecheck": "node scripts/ci/typecheck-all.mjs",
+    "checks:list": "node scripts/checks/list.mjs",
+    "checks:run": "node scripts/checks/run.mjs",
     "test:contracts": "node scripts/ci/test-suite.mjs contracts",
     "test:policy": "node scripts/ci/check-test-policy.mjs",
     "test:storybook-golden": "node scripts/ci/storybook-golden.mjs",
