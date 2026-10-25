@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { repositoryNameFromGitUrl } from "./ensure-org-repository.js"
+import { repositoryNameFromGitUrl } from "./slug.js"
 
 describe("repositoryNameFromGitUrl", () => {
   it("uses owner/repo for GitHub URLs", () => {

@@ -135,6 +135,7 @@ export const Populated: Story = {
       "General",
       "Repositories",
       "Sources",
+      "Ingesting now",
       "Upgrades",
       "Danger zone",
     ]
