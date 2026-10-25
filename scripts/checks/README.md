@@ -47,7 +47,7 @@ Gaps (no trace):
 - Child processes and the browser. A test that reaches code through HTTP, a worker process, a CLI, a sandbox or Storybook does not record that code. For example, the CLI lane runs the built `bin/ctxpipe.js` in a child process.
 - Concurrent cases in one file (`test.concurrent`) mix their coverage.
 
-Overhead, measured on a laptop: the UI lane (113 files) took 17 s with and without the trace. 60 backend unit files took 115 s without and 127 s with the trace (+10%). A take costs about 10 to 40 ms in a file that imports a large module graph, so the cost grows with the number of cases in such a file.
+Overhead in CI, measured on one commit (traced `workflow_dispatch` run against the untraced pull request run): the backend shard test steps took 2391 s against 2172 s (+10%), the contract shards 1452 s against 1426 s (+2%), and all test jobs together 4723 s against 4470 s (+6%). The longest job took 919 s against 874 s (+5%). A take costs about 10 to 40 ms in a file that imports a large module graph, so the cost grows with the number of cases in such a file. The trace of the full run is 1.8 MB compressed (17 MB of JSON) for 734 checks and 7079 cases.
 
 ## Why the runner is separate from CI
 
