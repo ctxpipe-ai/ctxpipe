@@ -275,7 +275,7 @@ function hookFiles(root, skip) {
     if (!options?.recursive || !Array.isArray(entries)) return
     const base = path instanceof URL ? fileURLToPath(path) : String(path)
     for (const entry of entries) {
-      let name =
+      const name =
         typeof entry === "object" && "name" in entry ? null : String(entry)
       let directory =
         name === null
