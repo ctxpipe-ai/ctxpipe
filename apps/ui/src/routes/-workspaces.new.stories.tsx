@@ -338,7 +338,7 @@ export const StepTwoFormatNotValid: Story = {
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("The format file in the repository is not valid.")
+    await canvas.findByText(/^The format file in the repository is not valid\./)
     await expect(
       canvas.queryByText("Upgrade this Workspace before you add sources"),
     ).toBeNull()

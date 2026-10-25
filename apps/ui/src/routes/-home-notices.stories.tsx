@@ -248,7 +248,7 @@ export const AlwaysUpdate: Story = {
       ).toBeVisible(),
     )
     expect(requests).toEqual([
-      "/acme/api/v1/workspaces/docs/upgrades/automatic",
+      "POST /acme/api/v1/workspaces/docs/upgrades/automatic automatic",
       "/acme/api/v1/workspaces/docs/files/jobs/wjob_automatic",
     ])
     expect(requests.some((path) => path.endsWith("/start"))).toBe(false)
@@ -311,7 +311,7 @@ export const AlwaysUpdateSaveFails: Story = {
     expect(canvas.getByText(/stdout maxBuffer length exceeded/)).toBeVisible()
     expect(
       canvas.getByRole("link", {
-        name: "Open Upgrades: Docs, Upgrade to format 3",
+        name: "Review upgrade: Docs, Upgrade to format 3",
       }),
     ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
     // Update once is still a way to go on.
@@ -360,7 +360,7 @@ export const FailedUpgrade: Story = {
     ).toBeNull()
     expect(
       within(region).getByRole("link", {
-        name: "Open Upgrades: Docs, Upgrade to format 3",
+        name: "Review upgrade: Docs, Upgrade to format 3",
       }),
     ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
     await userEvent.click(

@@ -432,7 +432,7 @@ export const NeedsFormatUpgrade: Story = {
     const canvas = within(canvasElement)
     await canvas.findByText("Upgrade a Workspace before you add a source")
     await expect(
-      canvas.getByRole("link", { name: "Open Upgrades: Docs" }),
+      canvas.getByRole("link", { name: "Review upgrade: Docs" }),
     ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
     await expect(
       canvas.getByRole("button", { name: "Add connection" }),

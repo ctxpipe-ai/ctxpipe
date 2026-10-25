@@ -422,12 +422,17 @@ async function listTreeEntries(
     })
 }
 
-async function gitShowBytes(dir: string, path: string): Promise<GitShaFile> {
+async function gitShowBytes(
+  dir: string,
+  path: string,
+  fetchBlobs?: (shas: readonly string[]) => Promise<void>,
+): Promise<GitShaFile> {
   if (!isSafeGitPath(path)) return { kind: "missing" }
-  const entry = (await listTreeEntries(dir)).find(
-    (candidate) => candidate.kind === "blob" && candidate.path === path,
-  )
+  const entry = (
+    await listTreeEntries(dir, fetchBlobs ? path : undefined)
+  ).find((candidate) => candidate.kind === "blob" && candidate.path === path)
   if (!entry) return { kind: "missing" }
+  await fetchBlobs?.([entry.sha])
   const { stdout } = await gitExec(
     ["-C", dir, "--no-lazy-fetch", "cat-file", "blob", entry.sha],
     {
@@ -699,12 +704,18 @@ export async function listPathsAtGitSha(input: {
   )
 }
 
-/** Read one file at a stored SHA. Token never logged. */
+/**
+ * Read one file at a stored SHA. Token never logged. With `treesOnly`, the
+ * fetch gets the trees and only the blob of this file.
+ */
 export async function readFileAtGitSha(input: {
   url: string
   sha: string
   path: string
   token?: string
+  treesOnly?: boolean
 }): Promise<GitShaFile> {
-  return withFetchedGitSha(input, (dir) => gitShowBytes(dir, input.path))
+  return withFetchedGitSha(input, (dir, fetchBlobs) =>
+    gitShowBytes(dir, input.path, input.treesOnly ? fetchBlobs : undefined),
+  )
 }

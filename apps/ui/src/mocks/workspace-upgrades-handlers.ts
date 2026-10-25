@@ -184,29 +184,48 @@ export function pendingWorkspaceUpgradesHandler(
 }
 
 /**
- * Always update: `POST /workspaces/:slug/upgrades/automatic` and the read of
- * its file job. The job completes at once, or answers `job` (for example
- * `running` for a slow save, or `failed` with its cause). Each call adds its
- * path to `requests`, so a play can check the calls.
+ * The automatic-upgrades setting: `GET` and `POST
+ * /workspaces/:slug/upgrades/automatic`, and the read of the file job of a
+ * save. The job completes at once, or answers `job` (for example `running`
+ * for a slow save, or `failed` with its cause). `setting` holds the mode and
+ * the reason that the GET answers: a completed save changes the mode. Each call adds its
+ * method and path to `requests` ("POST <path> <mode>" for a save), so a play
+ * can check the calls.
  */
 export function workspaceUpgradeAutomaticHandlers(
   options: {
     requests?: string[]
     job?: { status: string; failureReason: string | null }
+    setting?: {
+      mode: "manual" | "automatic" | null
+      reason?: "no_tip" | "invalid_format" | "unreadable" | null
+    }
   } = {},
 ) {
+  const isSetting = ({ request }: { request: Request }) =>
+    /\/workspaces\/[^/]+\/upgrades\/automatic$/.test(pathnameOf(request))
   return [
-    http.post(
-      ({ request }) =>
-        /\/workspaces\/[^/]+\/upgrades\/automatic$/.test(pathnameOf(request)),
-      ({ request }) => {
-        options.requests?.push(pathnameOf(request))
-        return HttpResponse.json(
-          { queued: true, jobId: "wjob_automatic" },
-          { status: 202 },
-        )
-      },
+    http.get(isSetting, () =>
+      HttpResponse.json({
+        mode: options.setting ? options.setting.mode : "manual",
+        reason: options.setting?.reason ?? null,
+      }),
     ),
+    http.post(isSetting, async ({ request }) => {
+      const { mode } = (await request.json()) as {
+        mode: "manual" | "automatic"
+      }
+      options.requests?.push(`POST ${pathnameOf(request)} ${mode}`)
+      if (
+        options.setting &&
+        (options.job?.status ?? "completed") === "completed"
+      )
+        options.setting.mode = mode
+      return HttpResponse.json(
+        { queued: true, jobId: "wjob_automatic" },
+        { status: 202 },
+      )
+    }),
     http.get(
       ({ request }) =>
         /\/workspaces\/[^/]+\/files\/jobs\/wjob_automatic$/.test(

@@ -34,7 +34,6 @@ import {
   skippedFilesFixPrompt,
 } from "./skipped-files"
 import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
-import { WorkspaceIngestingNow } from "./WorkspaceIngestingNow"
 import {
   type WorkspaceRepositoryChoice,
   WorkspaceRepositoryPicker,
@@ -483,6 +482,19 @@ export function WorkspaceSettingsPane(props: {
         ) : null}
 
         <div className="mt-8 flex flex-col gap-12">
+          <SettingsGroup
+            eyebrow="Status"
+            landing={hash === WORKSPACE_UPGRADES_HASH}
+          >
+            <WorkspaceUpgrades
+              orgSlug={orgSlug}
+              workspaceSlug={workspace.slug}
+              {...(props.onFixWithAgent
+                ? { onFixWithAgent: props.onFixWithAgent }
+                : {})}
+            />
+          </SettingsGroup>
+
           <SettingsGroup eyebrow="General">
             <form
               id="workspace-settings"
@@ -592,26 +604,6 @@ export function WorkspaceSettingsPane(props: {
               orgSlug={orgSlug}
               workspaceSlug={workspace.slug}
               linkedRepositories={workspace.linkedRepositories}
-            />
-          </SettingsGroup>
-
-          <SettingsGroup eyebrow="Ingesting now">
-            <WorkspaceIngestingNow
-              orgSlug={orgSlug}
-              workspaceSlug={workspace.slug}
-            />
-          </SettingsGroup>
-
-          <SettingsGroup
-            eyebrow="Upgrades"
-            landing={hash === WORKSPACE_UPGRADES_HASH}
-          >
-            <WorkspaceUpgrades
-              orgSlug={orgSlug}
-              workspaceSlug={workspace.slug}
-              {...(props.onFixWithAgent
-                ? { onFixWithAgent: props.onFixWithAgent }
-                : {})}
             />
           </SettingsGroup>
 
