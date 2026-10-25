@@ -60,7 +60,9 @@ function open() {
   post("Debugger.enable")
   post("Profiler.enable")
   post("Profiler.startPreciseCoverage", { callCount: true, detailed: true })
-  return { post, scripts, tables: new Map(), code: new Map() }
+  // A test can fake `performance` (vi.useFakeTimers), so keep the real clock.
+  const clock = performance.now.bind(performance)
+  return { post, clock, scripts, tables: new Map(), code: new Map(), parts: 0 }
 }
 
 // The source position of each source map segment of one script, sorted by
@@ -223,7 +225,7 @@ const fullName = (task) => {
 const phase = (name) => {
   if (failed) return
   // The time of a phase does not include the take.
-  const ms = performance.now() - mark
+  const ms = state.clock() - mark
   const lines = new Map()
   try {
     take(lines)
@@ -231,11 +233,11 @@ const phase = (name) => {
     stop(error)
   }
   add(name, lines, ms)
-  mark = performance.now()
+  mark = state.clock()
 }
 // Counts from before this file (an earlier file in the same worker, Vitest
 // itself) do not belong to it.
-let mark = performance.now()
+let mark = state?.clock() ?? 0
 phase(collect)
 cases.clear()
 beforeEach(() => phase(collect))
@@ -246,12 +248,12 @@ afterAll((suite) => {
   try {
     mkdirSync(parts, { recursive: true })
     writeFileSync(
-      join(parts, `${process.pid}-${performance.now().toFixed(3)}.json`),
+      join(parts, `${process.pid}-${++state.parts}.json`),
       JSON.stringify({
         file: suite.filepath,
         cases: [...cases].map(([name, { lines, durationMs }]) => ({
           name,
-          durationMs: Math.round(durationMs),
+          durationMs: Math.max(0, Math.round(durationMs)),
           lines: ranges(lines),
         })),
       }),
