@@ -7,7 +7,15 @@ export const root = fileURLToPath(new URL("../../", import.meta.url))
 // Each lane is one Vitest run: one package directory, one config, one runtime.
 // The CI scripts own which test files belong to a lane; this module only reads
 // their inventories. Paths are repo-relative.
-const shared = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]
+// The runner and the launch script set up and start every Vitest run, so a
+// change to them can change any result.
+const shared = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "scripts/checks/run.mjs",
+  "scripts/ci/vitest-launch.mjs",
+]
 const backendInputs = [
   ...shared,
   "tsconfig.json",
@@ -125,6 +133,7 @@ export async function listChecks() {
         root: lanes[lane].directory,
         file,
         inputs: lanes[lane].inputs,
+        runtime: lanes[lane].runtime,
       }
     }),
   )
