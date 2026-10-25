@@ -4,8 +4,10 @@ export type DocsIconName =
   | "arrow"
   | "book"
   | "chat"
+  | "check"
   | "cloud"
   | "code"
+  | "copy"
   | "database"
   | "git"
   | "graph"
@@ -29,7 +31,9 @@ const paths: Record<DocsIconName, ReactNode> = {
   cloud: (
     <path d="M7 18h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.2 8.7 4.7 4.7 0 0 0 7 18Z" />
   ),
+  check: <path d="m5 12 5 5 9-10" />,
   code: <path d="m9 7-5 5 5 5m6-10 5 5-5 5m-4 2 2-14" />,
+  copy: <path d="M8 8h11v12H8V8Zm-3 8V4h11" />,
   database: (
     <path d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3Zm0 0v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" />
   ),
