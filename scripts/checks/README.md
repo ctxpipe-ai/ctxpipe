@@ -57,8 +57,9 @@ Semantic edges ([`trace-edges.mjs`](trace-edges.mjs)): the worker installs hooks
 | `steps` | OpenWorkflow: the name of each step that a run resolves, up to the first `:` (a name can hold run data after it). |
 | `tools` | The MCP SDK: the name of each tool call. |
 | `models` | Langfuse: the name of each generation (a model call through `withLangfuseGeneration`). |
-| `reads`, `listings` | `fs`: each repo file that the case reads (`reads`), and each repo directory that it lists (`listings`). The kind in `recorded` is `reads`. |
+| `reads`, `dirs` | `fs`: each repo file that the case reads (`reads`), and each repo directory that it lists (`dirs`). The kind in `recorded` is `reads`. |
 
+- The trace property `fsRecorded` is true when every check recorded `reads` and `dirs`. Then a case without them read and listed no repo path in the test process.
 - A hook that cannot install (the lane does not use the package, or the package changed) records nothing. The check's `recorded` then does not hold that kind, and a reader treats the kind as unknown.
 - The hooks see only the test process. Postgres queries through `postgres.js` (the OpenWorkflow backend) and the operations of a separate process (a child, a container, a server) are not recorded.
 

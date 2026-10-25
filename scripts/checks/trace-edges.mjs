@@ -1,6 +1,6 @@
 import fs from "node:fs"
 import { createRequire, syncBuiltinESMExports } from "node:module"
-import { join, relative, resolve, sep } from "node:path"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 // The semantic edges of a test case: the operations that it used, in the
@@ -20,7 +20,7 @@ export const emptyEdges = () => ({
   tools: new Set(),
   models: new Set(),
   reads: new Set(),
-  listings: new Set(),
+  dirs: new Set(),
 })
 let edges = emptyEdges()
 
@@ -252,7 +252,7 @@ async function hookLangfuse(lane) {
 }
 
 // Repo files that a case reads through `fs` (`reads`), and the repo
-// directories that it lists (`listings`). Code that
+// directories that it lists (`dirs`). Code that
 // Node loads with `require` is read through `fs.readFileSync` too, so the
 // list can hold code files; their lines are in the trace already.
 function hookFiles(root, skip) {
@@ -266,15 +266,28 @@ function hookFiles(root, skip) {
     const full = resolve(name)
     if (!full.startsWith(prefix) || full.startsWith(skip)) return
     const repo = relative(root, full).replaceAll("\\", "/")
-    if (
-      repo.includes("node_modules/") ||
-      repo.startsWith(".git/") ||
-      repo.startsWith(".ci-results/")
-    )
-      return
-    ;(directory ? edges.listings : edges.reads).add(repo)
+    if (/(^|\/)(node_modules|\.git|\.ci-results)(\/|$)/.test(repo)) return
+    ;(directory ? edges.dirs : edges.reads).add(repo)
   }
-  const wrap = (target, method, directory) => {
+  // A recursive listing lists the directories below it too: record each
+  // directory that holds an entry of the result.
+  const below = (path, options, entries) => {
+    if (!options?.recursive || !Array.isArray(entries)) return
+    const base = path instanceof URL ? fileURLToPath(path) : String(path)
+    for (const entry of entries) {
+      let name =
+        typeof entry === "object" && "name" in entry ? null : String(entry)
+      let directory =
+        name === null
+          ? (entry.parentPath ?? entry.path)
+          : dirname(join(base, name))
+      while (directory && directory.length > base.length) {
+        note(directory, true)
+        directory = dirname(directory)
+      }
+    }
+  }
+  const wrap = (target, method, directory, result) => {
     const original = target[method]
     target[method] = function (path, ...rest) {
       try {
@@ -282,15 +295,28 @@ function hookFiles(root, skip) {
       } catch {
         // A path that does not resolve is not recorded.
       }
-      return original.call(this, path, ...rest)
+      const value = original.call(this, path, ...rest)
+      if (result)
+        try {
+          result(path, rest[0], value)
+        } catch {
+          // The listing itself is recorded already.
+        }
+      return value
     }
   }
+  const later = (path, options, promise) =>
+    promise.then(
+      (entries) => below(path, options, entries),
+      () => {},
+    )
   for (const method of ["readFileSync", "readFile", "createReadStream"])
     wrap(fs, method, false)
-  for (const method of ["readdirSync", "readdir", "opendirSync", "opendir"])
+  wrap(fs, "readdirSync", true, below)
+  for (const method of ["readdir", "opendirSync", "opendir"])
     wrap(fs, method, true)
   wrap(fs.promises, "readFile", false)
-  wrap(fs.promises, "readdir", true)
+  wrap(fs.promises, "readdir", true, later)
   wrap(fs.promises, "opendir", true)
   // `import { readFileSync } from "node:fs"` reads the patched function.
   syncBuiltinESMExports()

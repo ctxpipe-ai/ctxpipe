@@ -15,6 +15,10 @@
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
     },
+    "fsRecorded": {
+      "description": "True when every check in the trace has `reads` in `recorded`: then a case without `reads` or `dirs` read or listed no repo path through `fs` in the test process. False or missing: a reader must check `recorded` of each check.",
+      "type": "boolean"
+    },
     "checks": {
       "type": "array",
       "items": {
@@ -33,7 +37,7 @@
           "type": "string"
         },
         "recorded": {
-          "description": "The kinds of data that the trace recorded for this check, in addition to the lines of the test process. `children`: the lines of Node child processes. `tables`, `routes`, `steps`, `tools`, `models`: the case properties of the same name. `reads`: the case properties `reads` and `listings`. When a kind is not in the list, the check's cases do not show it: a case without that property is then not proof that it used nothing of that kind. Without `recorded`, only the lines of the test process were recorded.",
+          "description": "The kinds of data that the trace recorded for this check, in addition to the lines of the test process. `children`: the lines of Node child processes. `tables`, `routes`, `steps`, `tools`, `models`: the case properties of the same name. `reads`: the case properties `reads` and `dirs`. When a kind is not in the list, the check's cases do not show it: a case without that property is then not proof that it used nothing of that kind. Without `recorded`, only the lines of the test process were recorded.",
           "type": "array",
           "items": {
             "enum": [
@@ -147,13 +151,13 @@
           "uniqueItems": true,
           "description": "Repo-relative paths of the files that the case read through `fs` in the test process. Paths below `node_modules` and `.git` are not recorded. Code that Node loads with `require` can be in the list."
         },
-        "listings": {
+        "dirs": {
           "type": "array",
           "items": {
             "type": "string"
           },
           "uniqueItems": true,
-          "description": "Repo-relative paths of the directories that the case listed through `fs` in the test process (`readdir`, `opendir`). A new file in such a directory can change the result of the case."
+          "description": "Repo-relative paths of the directories inside the repo that the case listed through `fs` in the test process (`readdir`, `readdirSync`, `opendir`, `opendirSync`, and the glob libraries that use them). A new file in such a directory can change the result of the case."
         }
       }
     }

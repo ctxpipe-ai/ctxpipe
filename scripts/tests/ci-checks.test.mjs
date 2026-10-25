@@ -34,6 +34,7 @@ const validate = (value, rule, document, path = "$") => {
   if (rule.enum) assert.ok(rule.enum.includes(value), `${path}: ${value}`)
   if (rule.type === "string") assert.equal(typeof value, "string", path)
   if (rule.type === "integer") assert.ok(Number.isInteger(value), path)
+  if (rule.type === "boolean") assert.equal(typeof value, "boolean", path)
   if (rule.minimum !== undefined) assert.ok(value >= rule.minimum, path)
   if (rule.pattern) assert.match(value, new RegExp(rule.pattern), path)
   if (rule.type === "array") {
@@ -220,6 +221,7 @@ test("the trace records the lines that a case runs in a Node child process", () 
     validate(trace, document, document)
     const [check] = trace.checks
     assert.ok(check.recorded.includes("children"))
+    assert.equal(trace.fsRecorded, true)
     const help = check.cases.find(({ name }) => name.includes("init --help"))
     // The source map of the build maps the child's lines to the source.
     assert.ok(help.lines["packages/cli/src/cli.ts"]?.length)
