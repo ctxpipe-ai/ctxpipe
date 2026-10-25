@@ -73,7 +73,7 @@ npx ctxpipe mcp add --client cursor --scope both --auth api-key --non-interactiv
 npx ctxpipe doctor --json
 ```
 
-Use `npx ctxpipe init --help` and `npx ctxpipe mcp add --help` for the full flag list, including `--base-url`, `--scope`, `--agents`, `--client`, `--auth`, `--non-interactive`, `--json`, and `--dry-run`. The `init` command also takes `--org`. The `mcp add` command accepts `--org` for old scripts, but ignores it.
+Use `npx ctxpipe init --help` and `npx ctxpipe mcp add --help` for the full flag list, including `--base-url`, `--scope`, `--agents`, `--client`, `--auth`, `--non-interactive`, `--json`, and `--dry-run`. The `init` command also takes `--org`.
 
 Setup sign-in is separate from MCP authorization. The CLI signs you in so it can list organizations and write correct config. It stores setup credentials in the OS keychain when available, with a file fallback under `~/.config/ctxpipe/` when keyring access is not possible.
 
