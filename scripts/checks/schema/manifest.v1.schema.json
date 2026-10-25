@@ -44,10 +44,33 @@
           "type": "string"
         },
         "inputs": {
-          "description": "Repo-relative paths that are not imported by the test but change its result: configs, setup files, the lockfile, and the source of built code that the test runs. A path that ends in `/**` stands for a whole directory. A change to one selects the whole lane.",
+          "description": "Repo-relative paths that are not imported by the test but change its result: configs, setup files, the lockfile, the runner, and the source of built code that the test runs. A path that ends in `/**` stands for a whole directory. A change to one selects the whole lane.",
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "runtime": {
+          "description": "The runtime that runs the lane. A result cache adds its version to the key.",
+          "enum": ["node", "bun"]
+        },
+        "env": {
+          "description": "The environment variables that change the result of the lane. Optional; without it, no variable.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "mode"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Z_][A-Z0-9_]*$"
+              },
+              "mode": {
+                "description": "`value`: a result cache adds a hash of the value to the key; the value is the same on every machine. `presence`: it adds only whether the variable is set; use it for a secret, or an address that only points at a service.",
+                "enum": ["value", "presence"]
+              }
+            }
           }
         }
       }
