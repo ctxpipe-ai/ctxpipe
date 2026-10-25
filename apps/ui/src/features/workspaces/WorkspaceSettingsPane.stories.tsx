@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import {
   githubInstallationReposHandler,
   workspaceActivityHandler,
@@ -20,9 +21,9 @@ import {
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 import { OrgHomePageContent } from "@/routes/$orgSlug.index"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
 import {
   docsWorkspace,
   docsWorkspaceDetail,
@@ -34,6 +35,7 @@ import {
   rootFolderWorkspaceDetail,
   skippedFilesWorkspaceDetail,
 } from "./workspace-fixtures"
+import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
 
 const meta = {
   title: "Components/Workspaces/SettingsPane",
@@ -62,7 +64,9 @@ const meta = {
           workspaceSourcesHandler(workspaceSourceList()),
           orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
         ],
-        upgrades: [workspaceUpgradesHandler(upgradesFixture([]))],
+        upgrades: [
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+        ],
       },
     },
   },
@@ -130,10 +134,10 @@ export const Populated: Story = {
     const canvas = within(canvasElement)
     await canvas.findByText("acme/api")
     const eyebrows = [
+      "Status",
       "General",
       "Repositories",
       "Sources",
-      "Upgrades",
       "Danger zone",
     ]
     const labels = [...canvasElement.querySelectorAll(".ctx-label")].map(
@@ -166,6 +170,12 @@ export const Populated: Story = {
   },
 }
 
+/**
+ * Hydrate lists every skipped file. A file that is only a legacy overlay
+ * (knowledge from before Workspaces, built from the database) shows its
+ * cause and no fix button, because no edit of the Workspace repository
+ * changes it.
+ */
 export const SkippedFiles: Story = {
   args: {
     workspace: skippedFilesWorkspaceDetail,
@@ -173,7 +183,7 @@ export const SkippedFiles: Story = {
   },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("Hydrate skipped 2 files")
+    await canvas.findByText("Hydrate skipped 3 files")
     await canvas.findByText("Front matter is not valid")
     await canvas.findByText(
       "Repeats a linked repository or the Workspace's own repository",
@@ -181,7 +191,21 @@ export const SkippedFiles: Story = {
     expect(
       canvas.getByRole("link", { name: "knowledge/billing/tax.md" }),
     ).toBeVisible()
-    // Only the front matter file offers the agent.
+    // A legacy overlay file is not in Git: the row names the cause and has no fix.
+    await canvas.findByText(
+      "Knowledge from before Workspaces. ctxpipe shows it from its database, so it cannot be fixed here.",
+    )
+    // Its path is not in Git, so it is plain text: the Files pane would show "File not found".
+    expect(canvas.getByText("knowledge/apis/imported.md")).toBeVisible()
+    expect(
+      canvas.queryByRole("link", { name: "knowledge/apis/imported.md" }),
+    ).toBeNull()
+    expect(
+      canvas.queryByRole("button", {
+        name: "Fix knowledge/apis/imported.md using agent",
+      }),
+    ).toBeNull()
+    // Only the front matter file of Git offers the agent.
     expect(
       canvas.queryByRole("button", {
         name: "Fix repositories/app-copy.md using agent",
@@ -198,7 +222,7 @@ export const SkippedFiles: Story = {
   },
 }
 
-/** A link with the upgrades hash lands on the Upgrades group. */
+/** A link with the upgrades hash lands on the Status group. */
 export const LandsOnUpgrades: Story = {
   parameters: {
     storyRoute: {
@@ -210,7 +234,7 @@ export const LandsOnUpgrades: Story = {
   play: async ({ canvasElement }) => {
     await waitFor(() =>
       expect(
-        canvasElement.querySelector('[data-settings-group="Upgrades"]'),
+        canvasElement.querySelector('[data-settings-group="Status"]'),
       ).toHaveFocus(),
     )
   },

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { isHostOnlyPath } from "./host-only.js"
 import {
   CODE_FORMAT,
@@ -75,7 +76,7 @@ describe("withWorkspaceFormatFields", () => {
     const next = withWorkspaceFormatFields(workspaceFormatFile(2).content, {
       upgrades: "automatic",
     })
-    expect(next).toContain("# ctx| Workspace format.")
+    expect(next).toContain("# ctxpipe Workspace format.")
     expect(readWorkspaceFormat(next)).toEqual({
       kind: "format",
       format: 2,

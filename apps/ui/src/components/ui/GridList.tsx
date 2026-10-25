@@ -7,10 +7,11 @@ import {
   type GridListItemProps,
   type GridListProps,
 } from "react-aria-components"
+import { twMerge } from "tailwind-merge"
 import { tv } from "tailwind-variants"
+
 import { Checkbox } from "@/components/ui/Checkbox"
 import { composeTailwindRenderProps, focusRing } from "@/lib/react-aria-utils"
-import { twMerge } from "tailwind-merge"
 
 export function GridList<T extends object>({
   children,
@@ -73,4 +74,3 @@ export function GridListItem({
     </AriaGridListItem>
   )
 }
-

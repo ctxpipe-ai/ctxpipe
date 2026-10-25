@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { Link } from "react-aria-components"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { AppShell } from "@/components/AppShell"
 import { SideNav } from "@/components/SideNav"
 import {
@@ -13,6 +14,7 @@ import {
   githubInstallationReposHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 

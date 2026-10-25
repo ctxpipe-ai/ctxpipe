@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -n backend,worker \"NODE_TLS_REJECT_UNAUTHORIZED=0 portless app.ctxpipe bun run --hot src/server.ts\" \"pnpm run openworkflow:worker\"",
-    "build": "bun build ./src/server.ts ./src/openworkflow/worker-supervisor.ts --target=bun --packages=external --outdir=dist",
+    "build": "bun build ./src/server.ts --target=bun --packages=external --outdir=dist",
     "start": "bun run dist/server.js",
     "test": "node ../../scripts/ci/test-suite.mjs backend",
     "test:latency": "vitest run --config vitest.latency.config.ts",
@@ -13,8 +13,6 @@
     "test:connector-assets": "vitest run --config vitest.connector-assets.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "biome lint .",
-    "format": "biome format --write .",
     "db:generate": "drizzle-kit generate",
     "auth:generate": "pnpm dlx auth@latest generate --config ./src/auth/cli.ts --output ./src/db/schema/auth.ts --adapter drizzle --dialect postgresql -y",
     "auth:migrate": "pnpm dlx auth@latest migrate --config ./src/auth/cli.ts --yes",

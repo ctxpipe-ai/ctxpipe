@@ -1,4 +1,5 @@
 import { Command, Option } from "commander"
+
 import {
   runAuthLogin,
   runAuthLogout,
@@ -64,7 +65,7 @@ function addNonInteractiveOption(command: Command): Command {
 export async function runProgram(argv: string[]): Promise<void> {
   const program = new Command()
     .name("ctxpipe")
-    .description("Initialize repos and connect ctx| MCP to your agents.")
+    .description("Initialize repos and connect ctxpipe MCP to your agents.")
     .version(packageVersion, "-V, --version", "output the version number")
     .addHelpText(
       "after",
@@ -86,15 +87,15 @@ Examples (non-interactive):
       program
         .command("init")
         .description(
-          "Initialize the current repo (or user scope) for ctx|. Writes .ctxpipe/config.json and optional MCP client configs.",
+          "Initialize the current repo (or user scope) for ctxpipe. Writes .ctxpipe/config.json and optional MCP client configs.",
         )
         .option(
           "--org <slug>",
-          "ctx| organization slug (required when not interactive)",
+          "ctxpipe organization slug (required when not interactive)",
         )
         .option(
           "--base-url <url>",
-          `ctx| app origin for auth and MCP (default: ${DEFAULT_BASE_URL})`,
+          `ctxpipe app origin for auth and MCP (default: ${DEFAULT_BASE_URL})`,
           DEFAULT_BASE_URL,
         )
         .option(
@@ -199,18 +200,18 @@ MCP auth:
   doctor
     .command("mcp")
     .description(
-      "Diagnose a ctx| Streamable HTTP endpoint, OAuth discovery, or API-key initialize.",
+      "Diagnose a ctxpipe Streamable HTTP endpoint, OAuth discovery, or API-key initialize.",
     )
     .requiredOption(
       "--url <url>",
-      "ctx| MCP URL, including /mcp (optional ?orgSlug=<slug>)",
+      "ctxpipe MCP URL, including /mcp (optional ?orgSlug=<slug>)",
     )
     .option("--timeout <ms>", "Per-request timeout in milliseconds", "10000")
     .option("--json", "Print diagnostics as JSON", false)
     .addHelpText(
       "after",
       `
-This command diagnoses ctx| HTTP routing, TLS/reachability, the unauthenticated
+This command diagnoses ctxpipe HTTP routing, TLS/reachability, the unauthenticated
 Bearer challenge, and OAuth discovery. If CTXPIPE_API_KEY is set in this process,
 it sends x-api-key on initialize and expects HTTP 2xx instead of OAuth discovery.
 It does not run browser OAuth, list authenticated tools, call an MCP tool, or
@@ -235,22 +236,24 @@ endpoint is ready for OAuth, not that authenticated tools work.
       })
     })
 
-  const mcp = program.command("mcp").description("MCP-only commands for ctx|.")
+  const mcp = program
+    .command("mcp")
+    .description("MCP-only commands for ctxpipe.")
 
   addMcpAuthOptions(
     addNonInteractiveOption(
       mcp
         .command("add")
         .description(
-          "Configure ctx| MCP for one or more clients without re-running full init.",
+          "Configure ctxpipe MCP for one or more clients without re-running full init.",
         )
         .option(
           "--org <slug>",
-          "ctx| organization slug (required when not interactive)",
+          "ctxpipe organization slug (required when not interactive)",
         )
         .option(
           "--base-url <url>",
-          `ctx| app origin for MCP URL (default: ${DEFAULT_BASE_URL})`,
+          `ctxpipe app origin for MCP URL (default: ${DEFAULT_BASE_URL})`,
           DEFAULT_BASE_URL,
         )
         .option(
@@ -327,7 +330,7 @@ MCP auth:
     )
     .option(
       "--base-url <url>",
-      `ctx| app origin for auth (default: ${DEFAULT_BASE_URL})`,
+      `ctxpipe app origin for auth (default: ${DEFAULT_BASE_URL})`,
       DEFAULT_BASE_URL,
     )
     .action(async (rawOpts: Record<string, unknown>) => {
@@ -342,7 +345,7 @@ MCP auth:
     )
     .option(
       "--base-url <url>",
-      `ctx| app origin (default: ${DEFAULT_BASE_URL})`,
+      `ctxpipe app origin (default: ${DEFAULT_BASE_URL})`,
       DEFAULT_BASE_URL,
     )
     .option("--json", "Print status as JSON", false)
@@ -356,7 +359,7 @@ MCP auth:
     .description("Remove locally stored setup credentials for this base URL.")
     .option(
       "--base-url <url>",
-      `ctx| app origin (default: ${DEFAULT_BASE_URL})`,
+      `ctxpipe app origin (default: ${DEFAULT_BASE_URL})`,
       DEFAULT_BASE_URL,
     )
     .option("--json", "Print status as JSON", false)
@@ -379,11 +382,11 @@ MCP auth:
       )
       .option(
         "--org <slug>",
-        "ctx| organization slug (optional; stored in .ctxpipe/config.json)",
+        "ctxpipe organization slug (optional; stored in .ctxpipe/config.json)",
       )
       .option(
         "--base-url <url>",
-        `ctx| app origin for auth (default: ${DEFAULT_BASE_URL})`,
+        `ctxpipe app origin for auth (default: ${DEFAULT_BASE_URL})`,
         DEFAULT_BASE_URL,
       )
       .option(
@@ -511,7 +514,7 @@ MCP auth:
     .description("Report Markdown memory layout status for this repo.")
     .option(
       "--base-url <url>",
-      `ctx| app origin (default: ${DEFAULT_BASE_URL})`,
+      `ctxpipe app origin (default: ${DEFAULT_BASE_URL})`,
       DEFAULT_BASE_URL,
     )
     .option("--json", "Print status as JSON", false)
@@ -527,7 +530,7 @@ MCP auth:
     )
     .option(
       "--base-url <url>",
-      `ctx| app origin (default: ${DEFAULT_BASE_URL})`,
+      `ctxpipe app origin (default: ${DEFAULT_BASE_URL})`,
       DEFAULT_BASE_URL,
     )
     .option("--json", "Print diagnostics as JSON", false)

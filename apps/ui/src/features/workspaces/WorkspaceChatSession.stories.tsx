@@ -1,14 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { userEvent, waitFor, within } from "storybook/test"
+import { type ComponentProps, useState } from "react"
+import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import {
   conversationAguiTextEvents,
   installAguiWebSocket,
 } from "@/mocks/conversation-agui"
 import { workspaceShellHandlers } from "@/mocks/workspace-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceChatSession } from "./WorkspaceChatSession"
 import {
   codeAnswerMessages,
   docsConversationDetail,
@@ -25,6 +27,7 @@ import {
   streamingReasoningMessages,
   streamingToolMessages,
 } from "./workspace-fixtures"
+import { WorkspaceChatSession } from "./WorkspaceChatSession"
 
 const SEND_WAIT_MS = 5_000
 
@@ -296,5 +299,188 @@ export const SendError: Story = {
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
     await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
+  },
+}
+
+const stoppedQuestion = {
+  id: "msg_user_stopped",
+  role: "user" as const,
+  parts: [
+    { type: "text" as const, content: "Why did hydrate skip ledger.md?" },
+  ],
+  createdAt: new Date("2026-08-16T09:30:00.000Z"),
+}
+
+/** The socket of the story that retries a stopped turn. */
+let retrySocket: ReturnType<typeof installAguiWebSocket> | undefined
+
+/**
+ * The turn stopped before the first model round: the transcript holds only
+ * the question, and no run is active. The thread shows the question and that
+ * the turn stopped. Retry sends the question again.
+ */
+export const StoppedBeforeFirstAnswer: Story = {
+  args: threadArgs([stoppedQuestion], "Skipped file"),
+  beforeEach: () => {
+    retrySocket = installAguiWebSocket((threadId, runId) =>
+      conversationAguiTextEvents({
+        threadId,
+        runId,
+        messageId: "msg_retry_answer",
+        text: "Hydrate skipped ledger.md because it is larger than the limit.",
+      }),
+    )
+    return retrySocket.restore
+  },
+  parameters: {
+    storyRoute: threadRoute,
+    msw: {
+      handlers: {
+        page: [
+          http.get(/\/api\/v1\/conversations\/conv_1\/chat$/, () =>
+            HttpResponse.json({
+              messages: [stoppedQuestion],
+              activeRun: null,
+              interrupts: null,
+            }),
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByText("Why did hydrate skip ledger.md?")).toBeVisible(),
+    )
+    const stopped = await waitFor(
+      () => {
+        const alert = canvas
+          .getByText("The agent stopped before it answered")
+          .closest<HTMLElement>('[role="alert"]')
+        expect(alert).toBeVisible()
+        return alert as HTMLElement
+      },
+      { timeout: SEND_WAIT_MS },
+    )
+
+    await userEvent.click(
+      within(stopped).getByRole("button", { name: "Retry" }),
+    )
+
+    await canvas.findByText(/larger than the limit/, undefined, {
+      timeout: SEND_WAIT_MS,
+    })
+    await expect(
+      canvas.queryByText("The agent stopped before it answered"),
+    ).toBeNull()
+    const frame = retrySocket?.runFrames.at(-1) as {
+      messages?: Array<{ id?: string }>
+    }
+    await expect(frame?.messages?.map((message) => message.id)).toEqual([
+      "msg_user_stopped",
+    ])
+  },
+}
+
+/** The socket of the stories that leave or stop a running turn. */
+let turnSocket: ReturnType<typeof installAguiWebSocket> | undefined
+
+function abortFrames() {
+  return (turnSocket?.runFrames ?? []).filter(
+    (frame) => (frame as { type?: string }).type === "abort",
+  )
+}
+
+/** The chat with a control that leaves it, as a move to another page does. */
+function LeavableChatSession(
+  props: ComponentProps<typeof WorkspaceChatSession>,
+) {
+  const [open, setOpen] = useState(true)
+  return (
+    <div className="flex flex-1 flex-col">
+      <button type="button" onClick={() => setOpen(false)}>
+        Leave conversation
+      </button>
+      {open ? <WorkspaceChatSession {...props} /> : null}
+    </div>
+  )
+}
+
+const runningTurn: Story = {
+  args: threadArgs(docsConversationDetail.messages),
+  render: (args) => <LeavableChatSession {...args} />,
+  // The turn starts and does not end. An abort frame gets no answer.
+  beforeEach: () => {
+    turnSocket = installAguiWebSocket((threadId, runId) =>
+      threadId ? [{ type: "RUN_STARTED", threadId, runId }] : [],
+    )
+    return turnSocket.restore
+  },
+  parameters: {
+    storyRoute: threadRoute,
+    msw: {
+      handlers: {
+        page: [...workspaceShellHandlers()],
+      },
+    },
+  },
+}
+
+async function startTurn(canvasElement: HTMLElement) {
+  const canvas = within(canvasElement)
+  await userEvent.type(
+    canvas.getByPlaceholderText(/continue the conversation/i),
+    "Run the long check",
+  )
+  await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+  await waitFor(() => expect(turnSocket?.runFrames).toHaveLength(1), {
+    timeout: SEND_WAIT_MS,
+  })
+  return canvas.findByRole(
+    "button",
+    { name: "Stop" },
+    { timeout: SEND_WAIT_MS },
+  )
+}
+
+/**
+ * The user leaves the conversation during a turn. The chat closes its socket
+ * and sends no abort frame, so the turn continues on the server.
+ */
+export const LeaveDuringTurn: Story = {
+  ...runningTurn,
+  play: async ({ canvasElement }) => {
+    await startTurn(canvasElement)
+    const canvas = within(canvasElement)
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Leave conversation" }),
+    )
+
+    await waitFor(() =>
+      expect(
+        canvas.queryByPlaceholderText(/continue the conversation/i),
+      ).toBeNull(),
+    )
+    // The chat client stops its turn on a later timer.
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    await expect(abortFrames()).toEqual([])
+  },
+}
+
+/** Stop during a turn sends the abort frame of the turn. */
+export const StopDuringTurn: Story = {
+  ...runningTurn,
+  play: async ({ canvasElement }) => {
+    const stop = await startTurn(canvasElement)
+    const runId = (turnSocket?.runFrames[0] as { runId?: string }).runId
+
+    await userEvent.click(stop)
+
+    await waitFor(() =>
+      expect(abortFrames()).toContainEqual({ type: "abort", runId }),
+    )
   },
 }

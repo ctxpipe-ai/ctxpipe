@@ -1,6 +1,7 @@
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { sourceRepositoryName } from "../workspace-sources/providers/git.js"
 import { assignImportedRepository } from "./dest-workspace-first.js"
+import type { HydrateSkip } from "./hydrate.js"
 import { linkedRepositoryUrlSchema } from "./linked-repository-url.js"
 import {
   type ExportClaimRow,
@@ -14,7 +15,7 @@ import { CODE_FORMAT, INGESTION_V2_PUBLISH_FORMAT } from "./workspace-format.js"
 
 /** Why an edit of a main-era knowledge path is refused. */
 export const LEGACY_KNOWLEDGE_READ_ONLY =
-  "This file is knowledge from before Workspaces. ctx| shows it from its database, not from git, so you cannot edit, move, or delete it. The re-ingestion of its repository replaces it after the format upgrade."
+  "This file is knowledge from before Workspaces. ctxpipe shows it from its database, not from git, so you cannot edit, move, or delete it. The re-ingestion of its repository replaces it after the format upgrade."
 
 /**
  * Which main-era knowledge hydrate adds to the projection at this format.
@@ -31,6 +32,21 @@ export function legacyKnowledgeOverlayScope(
 ): "all" | "sources" | null {
   if (format < 0 || format > CODE_FORMAT) return null
   return format < INGESTION_V2_PUBLISH_FORMAT ? "all" : "sources"
+}
+
+/**
+ * Marks each skip of an overlay file. That file is not in Git, so an edit of
+ * the Workspace repository cannot fix it, and the UI says so.
+ */
+export function markLegacyOverlaySkips(
+  skipped: readonly HydrateSkip[],
+  legacyPaths: ReadonlySet<string>,
+): HydrateSkip[] {
+  return skipped.map((skip) =>
+    legacyPaths.has(skip.path)
+      ? { ...skip, source: "legacy-overlay" as const }
+      : skip,
+  )
 }
 
 export async function legacyKnowledgeOverlay(input: {

@@ -8,8 +8,10 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { afterAll, describe, expect, it } from "vitest"
 import { stringify } from "yaml"
+
 import { writeStepIndex } from "../../test/ingest-step-index.js"
 import { gitSource, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
@@ -235,24 +237,27 @@ describe("classify-kind rules", () => {
       "knowledge/libraries/shop-ui.md",
       "packages/ui/package.json",
     ],
-  ])("classifies %s as %s with script evidence", async (path, kind, file, evidence) => {
-    const s = await step(SHOP, {})
-    const out = s.run(path)
-    expect(out.kind).toBe(kind)
-    expect(out.decidedBy).toBe("script")
-    expect(out.ambiguous).toBeNull()
-    expect(out.signals.map((signal) => signal.evidence)).toContain(evidence)
-    expect(out.ops).toEqual([{ op: "create", path: file }])
-    expect(s.patch().ops).toEqual(out.ops)
+  ])(
+    "classifies %s as %s with script evidence",
+    async (path, kind, file, evidence) => {
+      const s = await step(SHOP, {})
+      const out = s.run(path)
+      expect(out.kind).toBe(kind)
+      expect(out.decidedBy).toBe("script")
+      expect(out.ambiguous).toBeNull()
+      expect(out.signals.map((signal) => signal.evidence)).toContain(evidence)
+      expect(out.ops).toEqual([{ op: "create", path: file }])
+      expect(s.patch().ops).toEqual(out.ops)
 
-    const result = await s.validate()
-    expect(result.rejections).toEqual([])
-    expect(result.status).toBe("complete")
-    const text = s.show(result.tree, file)
-    expect(text).toContain(`kind: ${kind}`)
-    expect(text).toContain("generated_by: ctxpipe-extract")
-    expect(text).toContain(`\`example-org/shop\` has it at \`${path}\``)
-  })
+      const result = await s.validate()
+      expect(result.rejections).toEqual([])
+      expect(result.status).toBe("complete")
+      const text = s.show(result.tree, file)
+      expect(text).toContain(`kind: ${kind}`)
+      expect(text).toContain("generated_by: ctxpipe-extract")
+      expect(text).toContain(`\`example-org/shop\` has it at \`${path}\``)
+    },
+  )
 
   it.each([
     [

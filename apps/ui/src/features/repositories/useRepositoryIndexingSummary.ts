@@ -1,4 +1,3 @@
-
 import {
   formatIndexingStepLabel,
   getRepositoryIndexingStatus,
@@ -61,4 +60,3 @@ export function getRepositoryIndexingSummary(
     singleActiveStepLabel,
   }
 }
-

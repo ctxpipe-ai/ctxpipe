@@ -2,6 +2,7 @@ import HyperDX from "@hyperdx/browser"
 import { useRouter, useRouterState } from "@tanstack/react-router"
 import type { FC, ReactNode } from "react"
 import { useEffect } from "react"
+
 import { useListOrganizations, useSession } from "@/lib/auth-client"
 import {
   type HyperDxSessionIdentity,

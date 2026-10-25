@@ -1,5 +1,6 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { encode } from "@toon-format/toon"
+
 import { HARD_CAP_CHARS, measureResult } from "./budget.js"
 import { McpToolError } from "./tool-errors.js"
 

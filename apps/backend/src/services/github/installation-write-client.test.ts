@@ -1,6 +1,7 @@
 import { HttpResponse, http } from "msw"
 import { Octokit } from "octokit"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import type { Env } from "../../config/env.js"
 
@@ -18,7 +19,6 @@ vi.mock("../../models/github-installation.js", () => ({
   getInstallationOctokitForOrg: getInstallationOctokitForOrgMock,
 }))
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 
 type GitTreeEntryBody = {
@@ -358,7 +358,7 @@ describe("listOpenPullRequestsByBranchPrefix", () => {
     })
   })
 
-  it("keeps only the pull requests that ctx| opened in this repository, on all pages", async () => {
+  it("keeps only the pull requests that ctxpipe opened in this repository, on all pages", async () => {
     const queries: string[] = []
     server.use(
       http.get(PULLS, ({ request }) => {
@@ -446,7 +446,7 @@ describe("listOpenRepositoryPullRequestsByBranchPrefix", () => {
     })
   })
 
-  it("marks as ours only a pull request in this repository by the ctx| App bot, and not one of another App", async () => {
+  it("marks as ours only a pull request in this repository by the ctxpipe App bot, and not one of another App", async () => {
     const branch = "ctxpipe/upgrade/format-3"
     const pull = (
       number: number,

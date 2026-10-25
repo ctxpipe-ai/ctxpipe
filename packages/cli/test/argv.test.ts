@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { describe, expect, it } from "vitest"
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..")

@@ -8,7 +8,9 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { afterEach, describe, expect, it } from "vitest"
+
 import {
   gitChangesOutsideWorkspaceRoot,
   isInsideWorkspaceRoot,
@@ -204,24 +206,27 @@ describe("gitChangesOutsideWorkspaceRoot", () => {
     ["../../src", "parent"],
     ["/etc/passwd", "absolute"],
     ["../../context-other/a.md", "sibling"],
-  ])("rejects a new symlink to %j (%s) below the root folder", async (target) => {
-    const { dir, base } = repository()
-    symlinkSync(target, join(dir, "docs/context/knowledge/link.md"))
-    const head = commit(dir)
-    await expect(
-      gitChangesOutsideWorkspaceRoot({
-        directory: dir,
-        base,
-        head,
-        rootPath: "docs/context",
-      }),
-    ).resolves.toEqual([
-      {
-        path: "docs/context/knowledge/link.md",
-        reason: "symlink_outside_root",
-      },
-    ])
-  })
+  ])(
+    "rejects a new symlink to %j (%s) below the root folder",
+    async (target) => {
+      const { dir, base } = repository()
+      symlinkSync(target, join(dir, "docs/context/knowledge/link.md"))
+      const head = commit(dir)
+      await expect(
+        gitChangesOutsideWorkspaceRoot({
+          directory: dir,
+          base,
+          head,
+          rootPath: "docs/context",
+        }),
+      ).resolves.toEqual([
+        {
+          path: "docs/context/knowledge/link.md",
+          reason: "symlink_outside_root",
+        },
+      ])
+    },
+  )
 
   it("rejects a symlink that leaves the repository when the root is the repository root", async () => {
     const { dir, base } = repository()

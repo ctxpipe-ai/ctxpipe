@@ -1,10 +1,5 @@
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
-import {
-  assertIngestOpenCodeVersion,
-  type IngestOpenCodeConfig,
-  ingestAgentCommand,
-  ingestOpenCodeEnv,
-} from "./ingest-opencode.js"
+
 import {
   ingestModelRunCommand,
   type OpenCodeError,
@@ -12,6 +7,12 @@ import {
   parseOpenCodeErrors,
   parseOpenCodeUsage,
 } from "./ingest-opencode-usage.js"
+import {
+  assertIngestOpenCodeVersion,
+  type IngestOpenCodeConfig,
+  ingestAgentCommand,
+  ingestOpenCodeEnv,
+} from "./ingest-opencode.js"
 import {
   prepareIngestSandbox,
   sealIngestCheckout,
@@ -23,6 +24,7 @@ import type {
   IngestRuntimeStep,
   IngestStepUsage,
 } from "./ingest-shard-runtime.js"
+import { logIngestEvent } from "./ingest-telemetry.js"
 import {
   INGEST_CONTEXT_ROOT,
   INGEST_ROOT,
@@ -329,8 +331,21 @@ export async function runIngestShardStep(
             }
           : undefined,
       )
-    if (part === command && step.run === "model")
+    if (part === command && step.run === "model") {
       usage = parseOpenCodeUsage(result.stdout)
+      // The worker kept only a part of stdout, so some usage can be lost.
+      // The step counts as unknown, so that the spend does not look complete.
+      if (result.stdoutTruncated) {
+        logIngestEvent("warn", "ingestion-v2.stdout-truncated", {
+          ingestStep: step.name,
+          workspaceId: step.workspaceId,
+        })
+        usage = {
+          ...(usage ?? { inputTokens: 0, outputTokens: 0 }),
+          unknownSteps: 1,
+        }
+      }
+    }
   }
   return usage ? { usage } : {}
 }

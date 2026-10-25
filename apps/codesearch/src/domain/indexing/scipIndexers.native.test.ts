@@ -10,7 +10,9 @@ import {
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import { expect, it } from "vitest"
+
 import { runScipIndexer } from "./scipIndexers.js"
 
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`

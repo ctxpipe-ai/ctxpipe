@@ -1,9 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, http } from "msw"
 import { type ComponentProps, useState } from "react"
-import { expect, userEvent, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
+import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
+import {
+  pendingWorkspaceUpgradesHandler,
+  upgradeItemFixture,
+} from "@/mocks/workspace-upgrades-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
@@ -11,14 +18,14 @@ import {
   readOnlyWorkspace,
 } from "../workspaces/workspace-fixtures"
 import {
-  CHOOSE_WORKSPACES_HINT,
-  ChooseWorkspacesStep,
-} from "./ChooseWorkspacesStep"
-import {
   type ChooseWorkspacesValue,
   chooseWorkspacesRequests,
   emptyChooseWorkspaces,
 } from "./choose-workspaces"
+import {
+  CHOOSE_WORKSPACES_HINT,
+  ChooseWorkspacesStep,
+} from "./ChooseWorkspacesStep"
 
 /** The step with its state, as a wizard holds it. */
 function StepWithState(
@@ -153,5 +160,184 @@ export const ChooseWorkspacesMulti: Story = {
     await expect(await own(readOnlyWorkspace.displayName)).toBeVisible()
     await expect(canvas.getByText("Not ready")).toBeVisible()
     await expect(canvas.getByText(CHOOSE_WORKSPACES_HINT)).toBeVisible()
+  },
+}
+
+const docsAndHandbook = workspaceListHandler([docsWorkspace, readOnlyWorkspace])
+
+/**
+ * A Workspace below the newest format refuses a source (CTX-935): its row is
+ * off, says so, and links to its upgrade. The other Workspace stays usable.
+ */
+export const OneWorkspaceNeedsUpgrade: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        pendingUpgrades: [
+          pendingWorkspaceUpgradesHandler({
+            [docsWorkspace.slug]: [upgradeItemFixture()],
+          }),
+        ],
+        page: [
+          docsAndHandbook,
+          linearAvailableScopesHandler(),
+          activeMemberRoleHandler("owner"),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("checkbox", { name: docsWorkspace.displayName })
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("checkbox", { name: docsWorkspace.displayName }),
+      ).toBeDisabled(),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("checkbox", { name: readOnlyWorkspace.displayName }),
+      ).toBeEnabled(),
+    )
+    await expect(
+      canvas.getByText(/Needs the format upgrade first/),
+    ).toBeVisible()
+    await expect(
+      canvas.getByRole("link", { name: "Review upgrade" }),
+    ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
+    // Some Workspace can still take the source: no page-level notice.
+    await expect(
+      canvas.queryByText("Upgrade a Workspace before you add a source"),
+    ).toBeNull()
+  },
+}
+
+/** Each Workspace needs the upgrade: the step says so, and no row can be chosen. */
+export const AllWorkspacesNeedUpgrade: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        pendingUpgrades: [
+          pendingWorkspaceUpgradesHandler({
+            [docsWorkspace.slug]: [upgradeItemFixture()],
+            [readOnlyWorkspace.slug]: [
+              upgradeItemFixture({ status: "failed" }),
+            ],
+          }),
+        ],
+        page: [
+          docsAndHandbook,
+          linearAvailableScopesHandler(),
+          activeMemberRoleHandler("member"),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Upgrade a Workspace before you add a source")
+    for (const workspace of [docsWorkspace, readOnlyWorkspace])
+      await expect(
+        canvas.getByRole("checkbox", { name: workspace.displayName }),
+      ).toBeDisabled()
+    await waitFor(() => expect(canvas.getByText("Ask an admin")).toBeVisible())
+    await expect(canvas.getByText("Not ready")).toBeVisible()
+  },
+}
+
+/**
+ * A Workspace below the newest format that has no upgrade item yet (the scan
+ * did not record one): the read still lists it with its format, so its row is
+ * off and links to its upgrade, and the other Workspace stays usable.
+ */
+export const BelowFormatWithNoUpgradeRowYet: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        pendingUpgrades: [
+          pendingWorkspaceUpgradesHandler({}, undefined, {
+            formats: { [docsWorkspace.slug]: 1 },
+          }),
+        ],
+        page: [
+          docsAndHandbook,
+          linearAvailableScopesHandler(),
+          activeMemberRoleHandler("owner"),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("checkbox", { name: docsWorkspace.displayName })
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("checkbox", { name: docsWorkspace.displayName }),
+      ).toBeDisabled(),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("checkbox", { name: readOnlyWorkspace.displayName }),
+      ).toBeEnabled(),
+    )
+    await expect(
+      canvas.getByRole("link", { name: "Review upgrade" }),
+    ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
+  },
+}
+
+/**
+ * The read of the pending upgrades loads for a long time: the step shows its
+ * skeleton and no row, because it cannot tell which Workspace the server
+ * refuses.
+ */
+export const NoRowsWhileFormatCheckLoads: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        pendingUpgrades: [
+          http.get(/\/workspace-upgrades\/pending$/, () => delay("infinite")),
+        ],
+        page: [
+          docsAndHandbook,
+          linearAvailableScopesHandler(),
+          activeMemberRoleHandler("owner"),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Loading Workspaces")
+    await expect(canvas.queryAllByRole("checkbox")).toHaveLength(0)
+  },
+}
+
+/** The read fails: the rows stay off, and the step says why, with Retry. */
+export const FormatCheckFailed: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        pendingUpgrades: [
+          pendingWorkspaceUpgradesHandler({}, undefined, { answer: "error" }),
+        ],
+        page: [
+          docsAndHandbook,
+          linearAvailableScopesHandler(),
+          activeMemberRoleHandler("owner"),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText(
+      /Could not check which Workspaces need the format upgrade/,
+    )
+    await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
+    for (const workspace of [docsWorkspace, readOnlyWorkspace])
+      await expect(
+        canvas.getByRole("checkbox", { name: workspace.displayName }),
+      ).toBeDisabled()
   },
 }

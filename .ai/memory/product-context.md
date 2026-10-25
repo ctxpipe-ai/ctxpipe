@@ -8,7 +8,7 @@ builds search indexes and graph claims, and exposes that context through
 git-backed Workspaces (Workspace chat, Files, Graph) and the product MCP
 ([workspaces PRD](PRDs/workspaces.md)).
 
-The monorepo uses pnpm workspaces, Turbo, and Biome. The repository is licensed
+The monorepo uses pnpm workspaces, Turbo, Oxlint, and Oxfmt. The repository is licensed
 under the MIT License.
 
 ## Applications and packages

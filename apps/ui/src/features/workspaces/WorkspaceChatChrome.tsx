@@ -5,6 +5,7 @@ import {
 } from "@tabler/icons-react"
 import { type ReactElement, type ReactNode, useRef } from "react"
 import { Link as AriaLink } from "react-aria-components"
+
 import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
 import { Button } from "@/components/ui/Button"
 import {
@@ -14,8 +15,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
 import { OnboardingHint } from "@/features/hints/OnboardingHint"
+import { WorkspaceFormatUpgradeBanner } from "@/features/workspace-upgrades/WorkspaceFormatUpgradeBanner"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+
 import { conversationCtaPlan } from "./conversationPublish"
 import type { Workspace } from "./types"
 import {
@@ -111,6 +114,8 @@ export function WorkspaceChatChrome(props: {
   workspace: Workspace
   /** Shows the one-time Create PR hint for a new user of this organization. */
   hintOrgSlug?: string
+  /** Shows the format upgrade banner above the content, when the Workspace needs it. */
+  orgSlug?: string
   title: ReactNode
   headerExtra?: ReactNode
   branch?: ConversationBranchChrome | null
@@ -192,7 +197,15 @@ export function WorkspaceChatChrome(props: {
           ) : null}
         </div>
 
-        <div className={workspaceChromeCardClassName}>{props.children}</div>
+        <div className={workspaceChromeCardClassName}>
+          {props.orgSlug ? (
+            <WorkspaceFormatUpgradeBanner
+              orgSlug={props.orgSlug}
+              workspaceSlug={props.workspace.slug}
+            />
+          ) : null}
+          {props.children}
+        </div>
       </div>
     </div>
   )

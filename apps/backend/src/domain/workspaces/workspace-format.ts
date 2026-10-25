@@ -1,5 +1,6 @@
 import YAML from "yaml"
 import { z } from "zod"
+
 import {
   WORKSPACE_WRITE_STATUSES,
   WRITE_STATUS_REASONS,
@@ -13,13 +14,13 @@ import {
  * hydrate writes for each projection. The file is in `.ctxpipe/`, so it is
  * host-only: only the bootstrap commit and an upgrade pull request write the
  * format, and only the Always update action writes the setting. Bootstrap writes it on an empty repository, and on a repository with no
- * ctx| content (see {@link hasCtxpipeContent}).
+ * ctxpipe content (see {@link hasCtxpipeContent}).
  */
 export const WORKSPACE_FORMAT_PATH = ".ctxpipe/workspace.yaml"
 
 /**
  * The newest Workspace format that this code reads and writes.
- * 0 = no file in a repository with ctx| content (from before Workspaces).
+ * 0 = no file in a repository with ctxpipe content (from before Workspaces).
  * 1 = the main data is exported, and `.ctxpipe/sources.yaml` holds the sources.
  * 2 = one file for each source under `sources/` (CTX-721).
  * 3 = the ownership front matter of ingestion v2 (CTX-640).
@@ -51,10 +52,10 @@ const workspaceFormatSchema = z
   .strict()
 
 /**
- * `automatic`: ctx| starts each upgrade item of the Workspace when the scan
+ * `automatic`: ctxpipe starts each upgrade item of the Workspace when the scan
  * finds it. `manual` (also no key): an owner or admin starts each item.
  */
-type WorkspaceUpgradeMode = "manual" | "automatic"
+export type WorkspaceUpgradeMode = "manual" | "automatic"
 
 type WorkspaceFormatRead =
   | { kind: "format"; format: number; upgrades: WorkspaceUpgradeMode }
@@ -127,8 +128,8 @@ export function workspaceFormatCacheValue(read: WorkspaceFormatRead): number {
 
 /**
  * The value that hydrate writes to `workspaces.format_version`, from the
- * format file text and the paths of the tree. When ctx| can write, a tree
- * with no format file and no ctx| content gets null (not known yet), not 0:
+ * format file text and the paths of the tree. When ctxpipe can write, a tree
+ * with no format file and no ctxpipe content gets null (not known yet), not 0:
  * the bootstrap commit adds the format file to that repository (see
  * {@link hasCtxpipeContent}), and its hydrate caches the format. A cached 0
  * before that commit would ask for an upgrade that the repository does not
@@ -149,11 +150,11 @@ export function workspaceFormatCache(input: {
 }
 
 /**
- * True when one of `paths` is ctx| content: a file below `.ctxpipe/`,
+ * True when one of `paths` is ctxpipe content: a file below `.ctxpipe/`,
  * `sources/` or `repositories/`. The paths are relative to the Workspace root
- * folder. A repository with no ctx| content is new (for example a new GitHub
+ * folder. A repository with no ctxpipe content is new (for example a new GitHub
  * repository with only a README), so bootstrap writes the format file in its
- * commit. A repository with ctx| content keeps its format, and the upgrade
+ * commit. A repository with ctxpipe content keeps its format, and the upgrade
  * pull request changes it (ADR-053).
  */
 export function hasCtxpipeContent(paths: Iterable<string>): boolean {
@@ -163,17 +164,17 @@ export function hasCtxpipeContent(paths: Iterable<string>): boolean {
   return false
 }
 
-/** The folders that hold ctx| content, relative to the Workspace root folder. */
+/** The folders that hold ctxpipe content, relative to the Workspace root folder. */
 export const CTXPIPE_CONTENT_FOLDERS = [".ctxpipe", "sources", "repositories"]
 
-/** The format file that bootstrap writes on a repository with no ctx| content. */
+/** The format file that bootstrap writes on a repository with no ctxpipe content. */
 export function workspaceFormatFile(format = CODE_FORMAT): {
   path: string
   content: string
 } {
   return {
     path: WORKSPACE_FORMAT_PATH,
-    content: `# ctx| Workspace format. ctx| changes this file only in an upgrade pull request.\nformat: ${format}\n`,
+    content: `# ctxpipe Workspace format. ctxpipe changes this file only in an upgrade pull request.\nformat: ${format}\n`,
   }
 }
 

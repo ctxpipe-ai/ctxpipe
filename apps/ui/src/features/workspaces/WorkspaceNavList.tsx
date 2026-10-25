@@ -5,11 +5,13 @@ import {
 } from "@tanstack/react-query"
 import { useLocation } from "@tanstack/react-router"
 import { useRef, useState } from "react"
-import { SideNavRowSkeleton } from "@/components/SideNav/SideNavRowSkeleton"
+
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
+import { SideNavRowSkeleton } from "@/components/SideNav/SideNavRowSkeleton"
 import { Button } from "@/components/ui/Button"
 import { Skeleton, SkeletonSuspense } from "@/components/ui/Skeleton"
 import { OnboardingHint } from "@/features/hints/OnboardingHint"
+
 import { isWorkspaceNavOpen } from "./nav"
 import { workspaceListOptions } from "./queries"
 import { WorkspaceCreateModal } from "./WorkspaceCreateModal"

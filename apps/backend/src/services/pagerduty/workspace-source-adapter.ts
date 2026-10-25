@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm"
 import { z } from "zod"
+
 import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
@@ -37,8 +38,8 @@ import {
   pagerdutyManagedPathsForIncidentId,
   pagerdutyServiceIncidentsRoot,
 } from "./converter.js"
-import { resolveFreshAccessToken } from "./sync.js"
 import { capturePagerdutyIncidentAssets } from "./sync-assets.js"
+import { resolveFreshAccessToken } from "./sync.js"
 
 /** The webhook event that the PagerDuty route fans out to sources. */
 export const pagerdutySourceEventSchema = z.object({
@@ -55,14 +56,14 @@ export const PAGERDUTY_SYNC_MAX_TRIES = 3
 
 /** The text that a source of a revoked PagerDuty connection shows. */
 const RECONNECT_DETAIL =
-  "PagerDuty does not accept the ctx| access any more. Reconnect PagerDuty on the Connectors page."
+  "PagerDuty does not accept the ctxpipe access any more. Reconnect PagerDuty on the Connectors page."
 
 const failureKey = (serviceId: string) => `service:${serviceId}`
 
 function missingDetail(serviceId: string, reason: "not_found" | "forbidden") {
   return reason === "not_found"
     ? `PagerDuty service ${serviceId} does not exist. Remove it from the source.`
-    : `ctx| cannot read PagerDuty service ${serviceId}. Give the PagerDuty connection access to it, or remove it from the source.`
+    : `ctxpipe cannot read PagerDuty service ${serviceId}. Give the PagerDuty connection access to it, or remove it from the source.`
 }
 
 type ConnectionState =

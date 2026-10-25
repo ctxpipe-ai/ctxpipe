@@ -4,6 +4,7 @@ import { delay, HttpResponse, http } from "msw"
 import { useEffect, useState } from "react"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { responseGate } from "@/components/ui/skeletonMatchStory"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import {
@@ -16,6 +17,11 @@ import {
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
 import {
+  ingestionItemFixture,
+  workspaceIngestionHandlers,
+} from "@/mocks/workspace-ingestion-handlers"
+import {
+  activeMemberRoleHandler,
   orgConnectionsHandler,
   workspaceSourceList,
   workspaceSourcesHandler,
@@ -25,9 +31,10 @@ import {
   upgradesFixture,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
+
 import { orgPageDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceSurface } from "./WorkspaceSurface"
+import type { IngestionItem } from "./ingestion"
 import {
   docsConversationDetail,
   docsWorkspace,
@@ -40,6 +47,7 @@ import {
   skippedFilesWorkspaceDetail,
   waitingForTipWorkspaceDetail,
 } from "./workspace-fixtures"
+import { WorkspaceSurface } from "./WorkspaceSurface"
 
 const orgSlug = "acme"
 const workspaceSlug = "docs"
@@ -301,6 +309,63 @@ export const Compose: Story = {
   },
 }
 
+/**
+ * A Workspace below the newest format (CTX-932): the banner stands at the top
+ * of the page where the user works, with the next step. It is not only in
+ * Settings.
+ */
+export const ComposeNeedsFormatUpgrade: Story = {
+  parameters: {
+    storyRoute: workspaceRoute(),
+    msw: {
+      handlers: {
+        page: [
+          workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
+          activeMemberRoleHandler("owner"),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("This Workspace needs the format upgrade")
+    await canvas.findByRole("button", { name: "Start the upgrade" })
+    await expect(
+      canvas.getByRole("link", { name: "Review upgrade" }),
+    ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
+    // The chat stays usable below the banner.
+    await expect(
+      canvas.getByPlaceholderText(/what should ctxpipe do in this workspace/i),
+    ).toBeVisible()
+  },
+}
+
+/** The banner also stands above an open conversation. */
+export const ConversationNeedsFormatUpgrade: Story = {
+  args: { conversationId: "conv_1" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1" }),
+    msw: {
+      handlers: {
+        page: [
+          workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
+          activeMemberRoleHandler("member"),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("This Workspace needs the format upgrade")
+    await waitFor(() => expect(canvas.getByText("Ask an admin")).toBeVisible())
+    await expect(
+      canvas.queryByRole("button", { name: "Start the upgrade" }),
+    ).toBeNull()
+  },
+}
+
 export const Conversation: Story = {
   args: { conversationId: "conv_1" },
   parameters: {
@@ -310,6 +375,82 @@ export const Conversation: Story = {
         page: workspaceShellHandlers(),
       },
     },
+  },
+}
+
+/** The status of a sandbox that is on an older commit than the Workspace. */
+function workspaceMovedStatus(ownChanges: boolean) {
+  return conversationGitStatusHandler({
+    source: "sandbox",
+    branch: "ctxpipe/chat/conv_1/1",
+    sha: "cdc935a0000000000000000000000000000000000",
+    desiredSha: "3635994000000000000000000000000000000000",
+    stale: true,
+    workspaceMovedUnderChanges: ownChanges,
+    dirty: ownChanges,
+    differsFromDefault: ownChanges,
+    unpushed: ownChanges,
+    published: false,
+    ahead: ownChanges ? 1 : 0,
+    behind: 0,
+    items: [],
+    worktreeVersion: "wt-0",
+  })
+}
+
+/**
+ * The Workspace moved, but the conversation has no changes of its own. Its
+ * next turn moves it to the new commit, so no notice shows.
+ */
+export const ConversationWorkspaceMovedNoChanges: Story = {
+  args: { conversationId: "conv_1" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1" }),
+    msw: {
+      handlers: {
+        page: [workspaceMovedStatus(false), ...workspaceShellHandlers()],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // The branch name shows when the status has loaded.
+    await waitFor(() => expect(canvas.getByText("chat/1")).toBeVisible(), {
+      timeout: 15_000,
+    })
+    expect(canvas.queryByRole("alert")).not.toBeInTheDocument()
+    expect(canvas.queryByText(/rebase|conflict/i)).not.toBeInTheDocument()
+  },
+}
+
+/**
+ * The Workspace moved under the conversation's own changes. The notice says
+ * to send a message first and does not name a conflict.
+ */
+export const ConversationWorkspaceMovedWithChanges: Story = {
+  args: { conversationId: "conv_1" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1" }),
+    msw: {
+      handlers: {
+        page: [workspaceMovedStatus(true), ...workspaceShellHandlers()],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const notice = await waitFor(
+      () => {
+        const alert = canvas.getByRole("alert")
+        expect(alert).toHaveTextContent("The Workspace has new commits")
+        return alert
+      },
+      { timeout: 15_000 },
+    )
+    expect(notice).toHaveTextContent(
+      "Send your next message to bring this conversation up to date. Then you can publish.",
+    )
+    expect(notice).not.toHaveTextContent(/conflict|rebase/i)
   },
 }
 
@@ -558,7 +699,7 @@ export const PublishPrErrorToast: Story = {
       () =>
         expect(
           page.getByText(
-            "Create PR failed. The ctx| GitHub App can't open pull requests. Give it the Pull requests: Read and write permission.",
+            "Create PR failed. The ctxpipe GitHub App can't open pull requests. Give it the Pull requests: Read and write permission.",
           ),
         ).toBeVisible(),
       { timeout: 10_000 },
@@ -1299,7 +1440,7 @@ export const SettingsPane: Story = {
 }
 
 /**
- * A link from Home lands on the Upgrades group. Only the pane's own scroll
+ * A link from Home lands on the Status group. Only the pane's own scroll
  * area moves: no outer box scrolls, so the pane keeps filling the panel.
  */
 export const SettingsPaneLandsOnUpgrades: Story = {
@@ -1317,7 +1458,7 @@ export const SettingsPaneLandsOnUpgrades: Story = {
   play: async ({ canvasElement }) => {
     const group = await waitFor(() => {
       const found = canvasElement.querySelector<HTMLElement>(
-        '[data-settings-group="Upgrades"]',
+        '[data-settings-group="Status"]',
       )
       expect(found).toHaveFocus()
       return found as HTMLElement
@@ -1343,7 +1484,7 @@ export const SettingsPaneLandsOnUpgrades: Story = {
   },
 }
 
-/** Fix using agent closes the pane and fills the composer of a new conversation. */
+/** Fix using agent fills the composer of a new conversation and keeps the settings pane open. */
 export const FixUsingAgentOpensChat: Story = {
   parameters: {
     storyRoute: workspaceRoute({ pane: "settings" }),
@@ -1374,7 +1515,7 @@ export const FixUsingAgentOpensChat: Story = {
         "Hydrate skipped knowledge/billing/tax.md: Front matter is not valid. Fix the front matter of this file so that it is valid, then open the change.",
       ),
     )
-    expect(canvas.queryByText("Workspace settings")).toBeNull()
+    await expect(canvas.getByText("Workspace settings")).toBeVisible()
   },
 }
 
@@ -1729,5 +1870,92 @@ export const DeleteFromConversationShowsNoError: Story = {
       path: `/${orgSlug}/ws/${workspaceSlug}/conv_1`,
       alsoAt: [`/${orgSlug}`],
     } satisfies StoryRouteParams,
+  },
+}
+
+let demoStart = 0
+
+/**
+ * The ingestion state of the demo at `seconds` after the story starts: a
+ * repository run in its shards, a Linear sync, a second run that waits for
+ * the first one and a slow hydrate, then idle. The demo starts with work,
+ * because the sidebar reads an idle org only once a minute.
+ */
+function ingestionDemoState(seconds: number): Record<string, IngestionItem[]> {
+  if (seconds >= 30) return {}
+  const startedAt = (ago: number) =>
+    new Date(demoStart + (4 - ago) * 1000).toISOString()
+  const shards = Math.max(0, Math.min(8, Math.floor((seconds - 7) / 2)))
+  return {
+    docs: [
+      ingestionItemFixture({
+        stage:
+          seconds < 7 ? "planning" : shards < 8 ? "ingesting" : "publishing",
+        progress:
+          seconds < 7 || shards === 8
+            ? null
+            : { done: shards, total: 8, unit: "shards" },
+        startedAt: startedAt(95),
+      }),
+      ingestionItemFixture({
+        id: "run_web_2",
+        stage: "waiting",
+        progress: null,
+        startedAt: startedAt(40),
+      }),
+      ...(seconds < 14
+        ? [
+            ingestionItemFixture({
+              id: "run_linear",
+              kind: "source_sync",
+              name: "Linear",
+              stage: null,
+              progress: null,
+              startedAt: startedAt(12),
+            }),
+          ]
+        : []),
+      ...(seconds >= 14 && seconds < 22
+        ? [
+            ingestionItemFixture({
+              id: "run_hydrate",
+              kind: "hydrate",
+              name: null,
+              stage: null,
+              progress: null,
+              startedAt: startedAt(34),
+            }),
+          ]
+        : []),
+    ],
+  }
+}
+
+/**
+ * The demo of CTX-959 for a video: the sidebar shows the ingesting dot,
+ * Workspace settings shows the progress move, and the list empties when the
+ * work ends (about 30 s). The state changes with time, on each read.
+ */
+export const IngestingDemo: Story = {
+  beforeEach: () => {
+    demoStart = Date.now()
+  },
+  parameters: {
+    storyRoute: workspaceRoute(),
+    msw: {
+      handlers: {
+        page: [
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+          workspaceSourcesHandler(workspaceSourceList()),
+          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+          activeMemberRoleHandler("owner"),
+          githubInstallationReposHandler(),
+          ...workspaceShellHandlers(),
+        ],
+        ingestion: workspaceIngestionHandlers(() =>
+          ingestionDemoState((Date.now() - demoStart) / 1000),
+        ),
+      },
+    },
   },
 }

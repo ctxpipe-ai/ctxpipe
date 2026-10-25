@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
+
 import type { AppEnv } from "../../app/env.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
 import { UPGRADE_STATUSES } from "../../domain/upgrades/registry.js"
@@ -36,6 +37,7 @@ import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-t
 import { workspaceActivityRoutes } from "./workspace-activity-routes.js"
 import { workspaceFilesRoutes } from "./workspace-files-routes.js"
 import { workspaceGraphRoutes } from "./workspace-graph-routes.js"
+import { workspaceIngestionRoutes } from "./workspace-ingestion-routes.js"
 import {
   LinkedRepositorySchema,
   workspaceLinkedRoutes,
@@ -55,7 +57,11 @@ const WorkspaceSkippedFileSchema = z
       .openapi({ description: "Path in the Workspace repository" }),
     reason: z.enum(HYDRATE_SKIP_REASONS).openapi({
       description:
-        "`malformed`: the front matter is not valid. `duplicate_repository`: only in results of an earlier version, when a `repositories/*.md` file linked a repository that was already linked.",
+        "`malformed`: the front matter is not valid. `duplicate_repository`: only in results of an earlier version, when a `repositories/*.md` file linked a repository that was already linked. `merge_conflict`: the file has unresolved Git conflict markers.",
+    }),
+    source: z.literal("legacy-overlay").optional().openapi({
+      description:
+        "`legacy-overlay`: the file is not in Git. ctxpipe builds it from its database for knowledge from before Workspaces, so an edit of the Workspace repository cannot fix it.",
     }),
   })
   .openapi("WorkspaceSkippedFile")
@@ -69,7 +75,7 @@ const WorkspaceSchema = z
     workspaceRepositoryUrl: z.string(),
     rootPath: z.string().openapi({
       description:
-        'Folder in the repository that holds the Workspace. ctx| reads and changes files only below it. `""` is the repository root.',
+        'Folder in the repository that holds the Workspace. ctxpipe reads and changes files only below it. `""` is the repository root.',
     }),
     githubConnectionId: z.string().nullable(),
     desiredGeneration: z.number().int(),
@@ -645,6 +651,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     return c.json(serializeWorkspace(current), 200)
   })
   .route("/", workspaceActivityRoutes)
+  .route("/", workspaceIngestionRoutes)
   .route("/", workspaceFilesRoutes)
   .route("/", workspaceGraphRoutes)
   .route("/", workspaceLinkedRoutes)

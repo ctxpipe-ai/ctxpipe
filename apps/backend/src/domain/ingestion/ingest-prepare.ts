@@ -1,10 +1,12 @@
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
+
 import {
   INGEST_AGENT_USER,
   type RootExec,
   runAsRoot,
   STOP_AGENT_PROCESSES,
 } from "./ingest-root.js"
+import { MAX_TAR_BYTES } from "./ingest-step-output.js"
 import {
   INGEST_CONTEXT_ROOT,
   INGEST_HOME,
@@ -328,6 +330,10 @@ export async function collectIngestStep(
       `rm -f ${INGEST_STEP_OUTPUT}`,
       `tar -C ${INGEST_OUT_ROOT} -cf ${INGEST_STEP_OUTPUT} .`,
       `chmod 644 ${INGEST_STEP_OUTPUT}`,
+      // The size check is in the sandbox: a read of a tar of gigabytes
+      // would fill the worker heap before the host could refuse it (CTX-971).
+      `size=$(wc -c < ${INGEST_STEP_OUTPUT})`,
+      `if [ "$size" -gt ${MAX_TAR_BYTES} ]; then echo "The step output is $size bytes; the limit is ${MAX_TAR_BYTES} bytes. The skill wrote too much into ${INGEST_OUT_ROOT}." >&2; exit 1; fi`,
     ].join("\n"),
   )
   return handle.fs.readBytes(INGEST_STEP_OUTPUT)

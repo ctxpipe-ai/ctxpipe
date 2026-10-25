@@ -8,6 +8,7 @@ import {
   type MockInstance,
   vi,
 } from "vitest"
+
 import { readApiJson } from "./api-result"
 import { recordHyperDxScreenError } from "./hyperdxBrowser"
 import {
@@ -189,20 +190,24 @@ describe("expected states", () => {
 
   it.each([
     ["turn_running", ["conversation-turn-changes", "acme", "conv_1"]],
+    ["chat_starting", ["conversation-git-tree", "acme", "conv_1"]],
     ["missing_sandbox", ["conversation-git-status", "acme", "conv_1"]],
     [
       "Conversation sandbox is not ready",
       ["conversation-git-status", "acme", "conv_1"],
     ],
-  ])("records the 409 %s of a query as an action, not an Error span", async (message, key) => {
-    await failQuery(key, message, 409)
-    expect(recordException).not.toHaveBeenCalled()
-    expect(addAction).toHaveBeenCalledWith("ui_expected_state", {
-      "ctxpipe.ui.source": "query",
-      "ctxpipe.ui.key": key[0],
-      "ctxpipe.ui.http_status": "409",
-    })
-  })
+  ])(
+    "records the 409 %s of a query as an action, not an Error span",
+    async (message, key) => {
+      await failQuery(key, message, 409)
+      expect(recordException).not.toHaveBeenCalled()
+      expect(addAction).toHaveBeenCalledWith("ui_expected_state", {
+        "ctxpipe.ui.source": "query",
+        "ctxpipe.ui.key": key[0],
+        "ctxpipe.ui.http_status": "409",
+      })
+    },
+  )
 
   it("still records a stale_worktree 409 and a slug conflict 409", async () => {
     await failQuery(["conversation-git-tree"], "stale_worktree", 409)

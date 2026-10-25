@@ -11,6 +11,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { eq, sql } from "drizzle-orm"
 import { FalkorDB } from "falkordb"
 import { HttpResponse, http, passthrough } from "msw"
@@ -18,6 +19,7 @@ import { setupServer } from "msw/node"
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { expect, vi } from "vitest"
+
 import { withOrgIdContext } from "../auth/withAuth.js"
 import { parseEnv } from "../config/env.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
@@ -429,7 +431,7 @@ async function createNativeHydrationFixture(
           : HttpResponse.json({ message: "Use native Git" }, { status: 404 })
       },
     ),
-    // The fixture GitHub App: it authors the pull requests that ctx| opens.
+    // The fixture GitHub App: it authors the pull requests that ctxpipe opens.
     http.get("https://api.github.com/app", () =>
       HttpResponse.json({ id: 12345, slug: "ctxpipe-fixture" }),
     ),

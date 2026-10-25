@@ -1,5 +1,6 @@
 import { HttpResponse, http } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
 import { SlackApiError } from "./client.js"
@@ -11,7 +12,6 @@ import {
 } from "./mention-agent.js"
 import { classifySlackCaptureError } from "./sync.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: Vitest owns this MSW lifecycle.
 const server = useMswServer()
 afterEach(() => vi.unstubAllEnvs())
 
@@ -44,7 +44,7 @@ describe("formatSlackMentionStatusText", () => {
         ),
       })
     expect(reply("missing_scope")).toBe(
-      "Capture failed: the ctx| Slack app needs more permissions to read this channel. Reinstall Slack.",
+      "Capture failed: the ctxpipe Slack app needs more permissions to read this channel. Reinstall Slack.",
     )
     expect(reply("is_archived")).toBe(
       "Capture failed: this channel is archived.",

@@ -1,7 +1,9 @@
 import { execFileSync } from "node:child_process"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
+
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
@@ -12,8 +14,8 @@ import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
-import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
+import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 
 it(
   "commits a bound connector's Markdown, binary asset and deletion once without changing its config",
@@ -32,9 +34,8 @@ it(
       },
       async (f) => {
         const mirror = await createNotionMirrorBinding(f)
-        const { getNotionBindingWithRepoByConnectionId } = await import(
-          "../../models/notion-connector.js"
-        )
+        const { getNotionBindingWithRepoByConnectionId } =
+          await import("../../models/notion-connector.js")
         expect(
           await getNotionBindingWithRepoByConnectionId(
             f.org.id,
@@ -127,9 +128,8 @@ it(
           const {
             workspaceConnectorMirror,
             workspaceConnectorMirrorInputSchema,
-          } = await import(
-            "../../openworkflow/workflows/workspace-connector-mirror.js"
-          )
+          } =
+            await import("../../openworkflow/workflows/workspace-connector-mirror.js")
           runner.implementWorkflow(
             workspaceConnectorMirror.spec,
             workspaceConnectorMirror.fn,
@@ -261,12 +261,10 @@ it(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {
         const mirror = await createNotionMirrorBinding(f)
-        const { resetNotionConnectorAfterMissingConfig } = await import(
-          "../../models/notion-connector.js"
-        )
-        const { workspaceConnectorMirror } = await import(
-          "../../openworkflow/workflows/workspace-connector-mirror.js"
-        )
+        const { resetNotionConnectorAfterMissingConfig } =
+          await import("../../models/notion-connector.js")
+        const { workspaceConnectorMirror } =
+          await import("../../openworkflow/workflows/workspace-connector-mirror.js")
         const spec = {
           ...workspaceConnectorMirror.spec,
           retryPolicy: { maximumAttempts: 1 },
@@ -417,12 +415,10 @@ it.each([false, true])(
       },
       async (f) => {
         const mirror = await createNotionMirrorBinding(f)
-        const { workspaceConnectorMirror } = await import(
-          "../../openworkflow/workflows/workspace-connector-mirror.js"
-        )
-        const { workspaceSemanticMerge } = await import(
-          "../../openworkflow/workflows/workspace-semantic-merge.js"
-        )
+        const { workspaceConnectorMirror } =
+          await import("../../openworkflow/workflows/workspace-connector-mirror.js")
+        const { workspaceSemanticMerge } =
+          await import("../../openworkflow/workflows/workspace-semantic-merge.js")
         const mirrorSpec = {
           ...workspaceConnectorMirror.spec,
           retryPolicy: { maximumAttempts: 1 },
@@ -448,9 +444,8 @@ it.each([false, true])(
             humanSha = f.git("rev-parse", "HEAD")
           }
           if (reset) {
-            const { resetNotionConnectorAfterMissingConfig } = await import(
-              "../../models/notion-connector.js"
-            )
+            const { resetNotionConnectorAfterMissingConfig } =
+              await import("../../models/notion-connector.js")
             await resetNotionConnectorAfterMissingConfig({
               orgId: f.org.id,
               connectionId: mirror.connectionId,
@@ -532,9 +527,8 @@ it(
       async (f) => {
         await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
         const mirror = await createNotionMirrorBinding(f)
-        const { captureConnectorMirrorTarget } = await import(
-          "./capture-connector-mirror.js"
-        )
+        const { captureConnectorMirrorTarget } =
+          await import("./capture-connector-mirror.js")
         const { parseEnv } = await import("../../config/env.js")
         const captured = await captureConnectorMirrorTarget({
           orgId: f.org.id,
@@ -542,12 +536,10 @@ it(
           repositoryGitUrl: f.workspaceUrl,
           mirror,
         })
-        const { workspaceConnectorMirror } = await import(
-          "../../openworkflow/workflows/workspace-connector-mirror.js"
-        )
-        const { workspaceSemanticMerge } = await import(
-          "../../openworkflow/workflows/workspace-semantic-merge.js"
-        )
+        const { workspaceConnectorMirror } =
+          await import("../../openworkflow/workflows/workspace-connector-mirror.js")
+        const { workspaceSemanticMerge } =
+          await import("../../openworkflow/workflows/workspace-semantic-merge.js")
         const spec = {
           ...workspaceConnectorMirror.spec,
           retryPolicy: { maximumAttempts: 1 },

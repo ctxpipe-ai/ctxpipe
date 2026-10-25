@@ -12,8 +12,10 @@
 import { readFileSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { config } from "dotenv"
 import { eq } from "drizzle-orm"
+
 import { withOrgIdContext } from "../auth/withAuth.js"
 import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"

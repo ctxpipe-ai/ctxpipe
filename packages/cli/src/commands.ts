@@ -1,5 +1,7 @@
 import { stdin as input, stdout as output } from "node:process"
+
 import { intro, log, note, outro, tasks } from "@clack/prompts"
+
 import {
   fetchSession,
   loginWithDeviceFlow,
@@ -189,7 +191,7 @@ export async function runAuthLogin(opts: { baseUrl: string }): Promise<void> {
     baseUrl,
     accessToken: auth.accessToken,
   }).catch(() => null)
-  log.success(`Signed in as ${userLabel(session) ?? "ctx|"}.`)
+  log.success(`Signed in as ${userLabel(session) ?? "ctxpipe"}.`)
 }
 
 export async function runAuthWhoami(opts: {
@@ -217,7 +219,7 @@ export async function runAuthWhoami(opts: {
     console.log(JSON.stringify(result, null, 2))
     return
   }
-  log.success(`Signed in as ${userLabel(session) ?? "ctx|"}.`)
+  log.success(`Signed in as ${userLabel(session) ?? "ctxpipe"}.`)
 }
 
 export async function runAuthLogout(opts: {
@@ -417,7 +419,7 @@ export async function confirmAndApply({
   }
   log.success(successMessage)
   log.info(
-    "Your agents may ask you to approve ctx| the first time they use MCP.",
+    "Your agents may ask you to approve ctxpipe the first time they use MCP.",
   )
   outro(outroMessage)
 }

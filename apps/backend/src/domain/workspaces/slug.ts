@@ -112,3 +112,20 @@ export function normalizeWorkspaceRepositoryUrl(raw: string): string {
     return trimmed.replace(/\.git$/i, "").replace(/\/+$/, "")
   }
 }
+
+export function repositoryNameFromGitUrl(gitUrl: string): string {
+  const normalized = normalizeWorkspaceRepositoryUrl(gitUrl)
+  try {
+    const url = new URL(normalized)
+    const parts = url.pathname.replace(/^\/+|\/+$/g, "").split("/")
+    if (parts.length === 0) return displayNameFromGitUrl(normalized)
+    if (url.hostname.toLowerCase() === "github.com" && parts.length >= 2) {
+      return `${parts[0]}/${parts[1]}`
+    }
+    const host = url.port ? `${url.hostname}:${url.port}` : url.hostname
+    return `${host}/${parts.join("/")}`
+  } catch {
+    // fall through to basename
+  }
+  return displayNameFromGitUrl(normalized)
+}

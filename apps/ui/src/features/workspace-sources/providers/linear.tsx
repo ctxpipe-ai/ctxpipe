@@ -1,15 +1,17 @@
 import { useQuery } from "@tanstack/react-query"
 import { linearScopeSchema } from "backend/domain/workspace-sources/providers/linear"
 import { useState } from "react"
+
 import { Button } from "@/components/ui/Button"
 import { Checkbox } from "@/components/ui/Checkbox"
 import { InlineLoader } from "@/components/ui/InlineLoader"
-import { LinearMark } from "@/features/connectors/components/LinearMark"
 import { LinearScopeChecklist } from "@/features/connectors/components/linear-setup/LinearScopeChecklist"
+import { LinearMark } from "@/features/connectors/components/LinearMark"
 import {
   fetchLinearAvailableScopes,
   linearConnectorKeys,
 } from "@/features/connectors/queries/linear-connector"
+
 import type {
   SourceProviderUi,
   SourceScopeEditorProps,

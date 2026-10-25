@@ -45,9 +45,15 @@ out="$(lookup "$tmp/absent" "$absent")" || fail "an absent environment is not an
 [[ "$(lookup "$tmp/retry" 'bad gateway|502' '{"errors":[{"message":"x"}]}|200' "$listed" 2>/dev/null)" == env_7 ]] \
   || fail "should retry an HTTP error and a GraphQL error"
 
-if lookup "$tmp/down" 'bad gateway|502' 'bad gateway|502' 'bad gateway|502' "$absent" >/dev/null 2>&1; then
-  fail "three failed queries must fail, not report the environment as absent"
+rate='Rate limit exceeded, please try again in 53.348 seconds.|429'
+[[ "$(lookup "$tmp/rate" "$rate" "$rate" "$rate" "$rate" "$listed" 2>/dev/null)" == env_7 ]] \
+  || fail "should keep retrying a rate limit until the fifth attempt"
+
+if lookup "$tmp/down" "$rate" "$rate" "$rate" "$rate" "$rate" "$absent" >/dev/null 2>"$tmp/down.err"; then
+  fail "five failed queries must fail, not report the environment as absent"
 fi
-[[ "$(wc -l <"$tmp/down/calls")" -eq 3 ]] || fail "should stop after 3 attempts"
+[[ "$(wc -l <"$tmp/down/calls")" -eq 5 ]] || fail "should stop after 5 attempts"
+grep -q "rate limit or outage" "$tmp/down.err" || fail "the failure should name the cause"
+grep -q "re-run the failed jobs" "$tmp/down.err" || fail "the failure should name the fix"
 
 echo "railway-environment-id tests passed"

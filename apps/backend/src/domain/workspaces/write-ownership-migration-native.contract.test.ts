@@ -1,7 +1,9 @@
 import { execFileSync } from "node:child_process"
+
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { parse } from "yaml"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
@@ -86,9 +88,8 @@ async function runMigration(
 ) {
   const { BackendPostgres } = await import("openworkflow/postgres")
   const { OpenWorkflow } = await import("openworkflow")
-  const { workspaceOwnershipMigration } = await import(
-    "../../openworkflow/workflows/workspace-ownership-migration.js"
-  )
+  const { workspaceOwnershipMigration } =
+    await import("../../openworkflow/workflows/workspace-ownership-migration.js")
   const backend = await BackendPostgres.connect(f.databaseUrl, {
     namespaceId: openWorkflowNamespaceId(),
     runMigrations: false,

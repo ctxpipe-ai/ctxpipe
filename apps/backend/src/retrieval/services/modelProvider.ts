@@ -1,4 +1,5 @@
 import { z } from "zod"
+
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { mapPool } from "../../lib/mapPool.js"
 import {
@@ -25,8 +26,6 @@ import type {
   ModelTier,
   ProviderCallOpts,
 } from "./providers/providerTypes.js"
-
-
 
 const EMBEDDING_DIMENSIONS = 2000
 

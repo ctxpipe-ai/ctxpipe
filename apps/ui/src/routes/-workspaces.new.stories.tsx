@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useLocation } from "@tanstack/react-router"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import {
   createdWorkspace,
   createdWritableWorkspaceDetail,
@@ -27,6 +28,7 @@ import {
   upgradesFixture,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
+
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import {
@@ -338,7 +340,7 @@ export const StepTwoFormatNotValid: Story = {
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("The format file in the repository is not valid.")
+    await canvas.findByText(/^The format file in the repository is not valid\./)
     await expect(
       canvas.queryByText("Upgrade this Workspace before you add sources"),
     ).toBeNull()
@@ -348,7 +350,7 @@ export const StepTwoFormatNotValid: Story = {
   },
 }
 
-/** The repository has a newer format than ctx| reads: the Workspace is read-only. */
+/** The repository has a newer format than ctxpipe reads: the Workspace is read-only. */
 export const StepTwoFormatAhead: Story = {
   parameters: stepTwoWith(
     workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 4 })),
@@ -356,7 +358,7 @@ export const StepTwoFormatAhead: Story = {
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText(/This Workspace needs a newer ctx\| version/)
+    await canvas.findByText(/This Workspace needs a newer ctxpipe version/)
     await expect(
       canvas.queryByText("Upgrade this Workspace before you add sources"),
     ).toBeNull()

@@ -30,7 +30,7 @@ permissions:
 jobs:
   lint:
     timeout-minutes: 15
-    name: Biome
+    name: Lint and format
     if: |
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
@@ -47,10 +47,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      - run: pnpm format:check
       - name: Reject unused files, exports and dependencies
         run: pnpm knip
       - run: node scripts/ci/check-workflow-credentials.mjs
       - run: node scripts/ci/check-secret-jobs.mjs
+      - run: node scripts/ci/check-agent-harness.mjs
       - name: Fetch Gate 0 classification pin
         run: git fetch origin 7dfa6b93a5baedc3eb2c86dd1056662e89cace00 --no-tags
       - name: Reject skipped proof and owned mocks
@@ -70,9 +72,11 @@ jobs:
           bash scripts/tests/preview-sandbox-vars.test.sh
           bash scripts/tests/preview-github-app-vars.test.sh
           bash scripts/tests/preview-own-secrets.test.sh
+          node --test scripts/tests/railway-sync-variables.test.mjs
           bash scripts/tests/preview-app-db-password.test.sh
           bash scripts/tests/preview-neon-branch.test.sh
           bash scripts/tests/railway-environment-id.test.sh
+          bash scripts/tests/railway-set-images.test.sh
           bash scripts/tests/preview-ui-private.test.sh
 
   typecheck:
@@ -163,7 +167,7 @@ jobs:
       - name: Required test container images
         if: matrix.lane == 'contracts'
         run: |
-          for image in infisical/agent-vault:latest alpine:3.22 node:22; do
+          for image in infisical/agent-vault:latest alpine:3.22 node:22 curlimages/curl:8.17.0; do
             n=0
             until docker pull --quiet "$image"; do
               n=$((n + 1))

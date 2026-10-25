@@ -1,5 +1,6 @@
 import { and, eq, sql } from "drizzle-orm"
 import { z } from "zod"
+
 import { type Db, withOrgDbContext } from "../db/client.js"
 import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
 import { connections } from "../db/schema/connections.js"
@@ -375,9 +376,9 @@ export async function assertConnectorContentSyncBinding(input: {
     const current = await readBinding(db, connection)
     return Boolean(
       current?.enabled &&
-        current.installed &&
-        (!input.contentSyncBinding ||
-          sameBinding(input.contentSyncBinding, current.binding)),
+      current.installed &&
+      (!input.contentSyncBinding ||
+        sameBinding(input.contentSyncBinding, current.binding)),
     )
   })
   if (!valid) throw new Error("Connector content activation was superseded")

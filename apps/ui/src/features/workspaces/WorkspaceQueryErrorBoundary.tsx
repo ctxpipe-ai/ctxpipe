@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from "react"
+
 import { WorkspaceRouteError } from "./WorkspaceRouteError"
 
 export class WorkspaceQueryErrorBoundary extends Component<

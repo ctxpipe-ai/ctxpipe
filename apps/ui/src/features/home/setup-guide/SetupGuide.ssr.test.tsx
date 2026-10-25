@@ -1,5 +1,6 @@
 import { renderToString } from "react-dom/server"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import { EditorSetupStep } from "./SetupGuide"
 
 describe("the editor step on the server", () => {
@@ -11,7 +12,7 @@ describe("the editor step on the server", () => {
     // On the hosted UI service, `AUTH_BASE_URL` is the private backend URL.
     vi.stubEnv("AUTH_BASE_URL", "http://backend.internal.example:8080")
     const html = renderToString(<EditorSetupStep />)
-    expect(html).toContain("Use ctx| from your agents")
+    expect(html).toContain("Use ctxpipe from your agents")
     expect(html).not.toContain("backend.internal.example")
     expect(html).not.toContain("localhost:3000")
     expect(html).not.toContain("--base-url")

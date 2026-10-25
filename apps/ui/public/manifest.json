@@ -1,6 +1,6 @@
 {
-  "short_name": "ctx |",
-  "name": "ctx | The Context Layer for AI Agents",
+  "short_name": "ctxpipe",
+  "name": "ctxpipe | The Context Layer for AI Agents",
   "icons": [
     {
       "src": "favicon.ico",

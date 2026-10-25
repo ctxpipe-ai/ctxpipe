@@ -1,4 +1,5 @@
 import { useState } from "react"
+
 import { Button } from "@/components/ui/Button"
 import { Checkbox } from "@/components/ui/Checkbox"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -58,8 +59,8 @@ export function OAuthConsent({
           <p className="ctx-label">OAuth connection</p>
           <h1 className="text-xl font-medium">Authorize client</h1>
           <p className="text-sm text-muted-foreground">
-            The client below asks for access to ctx| data. It can reach only the
-            organizations you select. You can change them later in Connected
+            The client below asks for access to ctxpipe data. It can reach only
+            the organizations you select. You can change them later in Connected
             apps.
           </p>
         </div>

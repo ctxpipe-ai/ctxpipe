@@ -1,10 +1,29 @@
 {
   "name": "ctxpipe",
   "version": "0.5.2",
-  "description": "Universal ctx| CLI for initializing repositories and agent integrations.",
-  "type": "module",
+  "description": "Universal ctxpipe CLI for initializing repositories and agent integrations.",
+  "homepage": "https://ctxpipe.ai",
+  "bugs": {
+    "url": "https://github.com/ctxpipe-ai/ctxpipe/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ctxpipe-ai/ctxpipe.git",
+    "directory": "packages/cli"
+  },
   "bin": {
     "ctxpipe": "./bin/ctxpipe.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -15,22 +34,6 @@
     "test:all": "pnpm run test",
     "test:memory-live": "CTXPIPE_MEMORY_LIVE_EVAL=1 vitest run test/memory/evals"
   },
-  "files": [
-    "bin",
-    "dist",
-    "LICENSE",
-    "README.md"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/ctxpipe-ai/ctxpipe.git",
-    "directory": "packages/cli"
-  },
-  "homepage": "https://ctxpipe.ai",
-  "bugs": {
-    "url": "https://github.com/ctxpipe-ai/ctxpipe/issues"
-  },
-  "license": "MIT",
   "dependencies": {
     "@clack/prompts": "^1.0.1",
     "@napi-rs/keyring": "^1.3.0",
@@ -41,8 +44,5 @@
     "@types/node": "25.3.0",
     "typescript": "5.9.3",
     "vitest": "4.0.18"
-  },
-  "publishConfig": {
-    "access": "public"
   }
 }

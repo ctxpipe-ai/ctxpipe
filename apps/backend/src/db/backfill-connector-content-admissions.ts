@@ -2,6 +2,7 @@ import { defineWorkflowSpec, OpenWorkflow } from "openworkflow"
 import type { BackendPostgres } from "openworkflow/postgres"
 import type { Pool } from "pg"
 import { z } from "zod"
+
 import {
   activateConnectorSync,
   connectorContentBindingSchema,

@@ -1,5 +1,6 @@
 import { Hono } from "hono"
 import { describe, expect, it } from "vitest"
+
 import type { AppEnv } from "../app/env.js"
 import { MCP_BRAND_LOGO_PATH } from "../mcp/mcp-server-info.js"
 import { registerMcpBrandAssetRoute } from "./mcp-brand-asset.js"

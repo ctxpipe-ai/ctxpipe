@@ -1,5 +1,6 @@
 import HyperDX from "@hyperdx/browser"
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query"
+
 import { retryQuery } from "./api-result"
 
 /** First query/mutation key segment when it is a string. */
@@ -36,6 +37,7 @@ function isExpectedState(
   if (httpStatus(error) !== "409") return false
   return (
     error.message === "turn_running" ||
+    error.message === "chat_starting" ||
     error.message === "missing_sandbox" ||
     error.message === "Conversation sandbox is not ready"
   )

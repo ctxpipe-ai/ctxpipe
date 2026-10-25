@@ -4,7 +4,9 @@ import { IconBrandSlack } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { toast } from "sonner"
+
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
+
 import { resolveConnectorHealth } from "../connectorHealth"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {

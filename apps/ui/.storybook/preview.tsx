@@ -2,12 +2,16 @@ import type { Preview } from "@storybook/react-vite"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { initialize, mswLoader } from "msw-storybook-addon"
 import { type ReactElement, Suspense, useMemo } from "react"
+
 import {
   authConfigHandler,
   organizationListWithOrgHandler,
   sessionSignedInHandler,
 } from "../src/mocks/handlers"
+import { workspaceIngestionHandlers } from "../src/mocks/workspace-ingestion-handlers"
+import { pendingWorkspaceUpgradesHandler } from "../src/mocks/workspace-upgrades-handlers"
 import { storyRouteLoader } from "./decorators/with-story-route"
+
 import "../src/styles.css"
 
 initialize({ onUnhandledRequest: "bypass" })
@@ -21,6 +25,12 @@ const storybookDefaultMswHandlers = {
     }),
     organizationListWithOrgHandler,
   ],
+  // No Workspace has a pending upgrade. The connect flows read it before
+  // they offer a Workspace (CTX-935); a story sets this key to change it.
+  pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
+  // No Workspace ingests now: the sidebar shows no pulse. A story sets this
+  // key to change it (CTX-959).
+  ingestion: workspaceIngestionHandlers({}),
 }
 
 function StorybookQueryBoundary({ children }: { children: React.ReactNode }) {

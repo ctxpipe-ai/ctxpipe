@@ -148,6 +148,7 @@ export async function readWorkspaceBlobs(input: {
         return tree ? listExistingBlobs(directory, tree, input.owners) : []
       },
       pack,
+      null,
     )
   })
 }

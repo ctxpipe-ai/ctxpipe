@@ -19,4 +19,3 @@ export type InstallationEvent = {
     id: string
   }
 }
-

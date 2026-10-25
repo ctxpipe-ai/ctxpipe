@@ -6,13 +6,21 @@ export function normalizeBaseUrl(value: string): string {
   return value.replace(/\/+$/, "")
 }
 
-export function mcpUrl({ baseUrl, org }: { baseUrl: string; org: string }): string {
+export function mcpUrl({
+  baseUrl,
+  org,
+}: {
+  baseUrl: string
+  org: string
+}): string {
   const url = new URL("/mcp", normalizeBaseUrl(baseUrl))
   url.searchParams.set("orgSlug", org)
   return url.toString()
 }
 
-export function scopesFor(scope: "repo" | "user" | "both"): Array<"repo" | "user"> {
+export function scopesFor(
+  scope: "repo" | "user" | "both",
+): Array<"repo" | "user"> {
   if (scope === "both") return ["repo", "user"]
   return [scope]
 }

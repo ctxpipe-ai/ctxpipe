@@ -1,17 +1,22 @@
-import * as cdk from "aws-cdk-lib";
-import * as ec2 from "aws-cdk-lib/aws-ec2";
-import * as efs from "aws-cdk-lib/aws-efs";
-import * as neptune from "aws-cdk-lib/aws-neptune";
-import * as rds from "aws-cdk-lib/aws-rds";
-import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
-import { Construct } from "constructs";
-import type { DataPlaneConstructProps, DataPlaneResources } from "./contracts";
+import * as cdk from "aws-cdk-lib"
+import * as ec2 from "aws-cdk-lib/aws-ec2"
+import * as efs from "aws-cdk-lib/aws-efs"
+import * as neptune from "aws-cdk-lib/aws-neptune"
+import * as rds from "aws-cdk-lib/aws-rds"
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
+import { Construct } from "constructs"
+
+import type { DataPlaneConstructProps, DataPlaneResources } from "./contracts"
 
 export class DataPlaneConstruct extends Construct {
-  public readonly resources: DataPlaneResources;
+  public readonly resources: DataPlaneResources
 
-  public constructor(scope: Construct, id: string, props: DataPlaneConstructProps) {
-    super(scope, id);
+  public constructor(
+    scope: Construct,
+    id: string,
+    props: DataPlaneConstructProps,
+  ) {
+    super(scope, id)
 
     const dbCredentialsSecret = new secretsmanager.Secret(
       this,
@@ -23,11 +28,16 @@ export class DataPlaneConstruct extends Construct {
           excludePunctuation: true,
         },
       },
-    );
+    )
 
     const dbCluster = new rds.DatabaseCluster(this, "Database", {
       engine: rds.DatabaseClusterEngine.auroraPostgres({
-        version: rds.AuroraPostgresEngineVersion.of("16.4", "16"),
+        // The version for new clusters, and the target when CloudFormation
+        // upgrades an existing cluster. It does not cap automatic minor upgrades.
+        // CloudFormation cannot move a cluster to a lower minor, so a cluster
+        // already on a newer 16.x minor needs its version set in the CDK app (see
+        // README). Never change the major.
+        version: rds.AuroraPostgresEngineVersion.VER_16_13,
       }),
       credentials: rds.Credentials.fromSecret(dbCredentialsSecret),
       defaultDatabaseName: props.defaults.databaseName,
@@ -47,27 +57,33 @@ export class DataPlaneConstruct extends Construct {
       securityGroups: [props.networking.dbSecurityGroup],
       storageEncrypted: true,
       removalPolicy: cdk.RemovalPolicy.SNAPSHOT,
-    });
+    })
 
-    const neptuneSubnetGroup = new neptune.CfnDBSubnetGroup(this, "NeptuneSubnetGroup", {
-      dbSubnetGroupDescription: "Private subnets for ctxpipe neptune",
-      subnetIds: props.networking.vpc.selectSubnets({
-        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
-      }).subnetIds,
-    });
+    const neptuneSubnetGroup = new neptune.CfnDBSubnetGroup(
+      this,
+      "NeptuneSubnetGroup",
+      {
+        dbSubnetGroupDescription: "Private subnets for ctxpipe neptune",
+        subnetIds: props.networking.vpc.selectSubnets({
+          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+        }).subnetIds,
+      },
+    )
 
     const neptuneCluster = new neptune.CfnDBCluster(this, "Neptune", {
       dbSubnetGroupName: neptuneSubnetGroup.ref,
-      vpcSecurityGroupIds: [props.networking.neptuneSecurityGroup.securityGroupId],
+      vpcSecurityGroupIds: [
+        props.networking.neptuneSecurityGroup.securityGroupId,
+      ],
       backupRetentionPeriod: props.defaults.backupRetentionDays,
       storageEncrypted: true,
       iamAuthEnabled: false,
-    });
-    neptuneCluster.applyRemovalPolicy(cdk.RemovalPolicy.SNAPSHOT);
+    })
+    neptuneCluster.applyRemovalPolicy(cdk.RemovalPolicy.SNAPSHOT)
     const neptuneInstance = new neptune.CfnDBInstance(this, "NeptuneInstance", {
       dbClusterIdentifier: neptuneCluster.ref,
       dbInstanceClass: props.sizeProfile.database.neptuneInstanceClass,
-    });
+    })
 
     const codesearchFileSystem = new efs.FileSystem(this, "CodesearchEfs", {
       vpc: props.networking.vpc,
@@ -77,22 +93,29 @@ export class DataPlaneConstruct extends Construct {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       lifecyclePolicy: efs.LifecyclePolicy.AFTER_14_DAYS,
       performanceMode: efs.PerformanceMode.GENERAL_PURPOSE,
-    });
+    })
 
-    const codesearchAccessPoint = codesearchFileSystem.addAccessPoint("CodesearchAccessPoint", {
-      path: "/codesearch",
-      createAcl: {
-        ownerUid: "1000",
-        ownerGid: "1000",
-        permissions: "755",
+    const codesearchAccessPoint = codesearchFileSystem.addAccessPoint(
+      "CodesearchAccessPoint",
+      {
+        path: "/codesearch",
+        createAcl: {
+          ownerUid: "1000",
+          ownerGid: "1000",
+          permissions: "755",
+        },
+        posixUser: {
+          uid: "1000",
+          gid: "1000",
+        },
       },
-      posixUser: {
-        uid: "1000",
-        gid: "1000",
-      },
-    });
+    )
 
-    const graphDbUri = cdk.Fn.join("", ["bolt+s://", neptuneCluster.attrEndpoint, ":8182"]);
+    const graphDbUri = cdk.Fn.join("", [
+      "bolt+s://",
+      neptuneCluster.attrEndpoint,
+      ":8182",
+    ])
 
     this.resources = {
       dbCluster,
@@ -102,6 +125,6 @@ export class DataPlaneConstruct extends Construct {
       codesearchFileSystem,
       codesearchAccessPoint,
       graphDbUri,
-    };
+    }
   }
 }

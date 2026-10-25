@@ -1,7 +1,9 @@
 import { z } from "zod"
+
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { nativeRenameRewriteFiles } from "../../domain/workspaces/native-rename-rewrite.js"
+import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -64,6 +66,12 @@ export const workspaceRenameRewrite = defineWorkflow(
       "workspace-write-rename-rewrite",
       async () => {
         const env = parseEnv(process.env)
+        // Read access to the bound repository, from the workflow input (CTX-955).
+        const read = workspaceGitRead({
+          orgId: input.orgId,
+          env,
+          remote: input.revision.remote,
+        })
         let revision = input.revision
         const repositoryName = githubRepoFullNameFromWorkspaceUrl(
           revision.remote.url,
@@ -115,7 +123,8 @@ export const workspaceRenameRewrite = defineWorkflow(
           }
           const files = await step.run(
             { name: "transform-rename-rewrite" },
-            () => nativeRenameRewriteFiles(acquired.pack, input.previousSha),
+            () =>
+              nativeRenameRewriteFiles(acquired.pack, input.previousSha, read),
           )
           if (!files.length) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
@@ -143,12 +152,14 @@ export const workspaceRenameRewrite = defineWorkflow(
               )
             )
               throw new Error("Rename repair may only edit knowledge Markdown")
-            return stageGitFiles(acquired.pack, files)
+            return stageGitFiles(acquired.pack, files, [], read)
           })
           await step.run({ name: "validate" }, () =>
             validateGitTree(
               staged,
               files.map((file) => file.path),
+              {},
+              read,
             ),
           )
           const subject = await step.run({ name: "commit-subject" }, () =>
@@ -159,10 +170,14 @@ export const workspaceRenameRewrite = defineWorkflow(
             }),
           )
           const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(staged, {
-              subject,
-              createdAt: run.createdAt,
-            })
+            const pack = await commitGitTree(
+              staged,
+              {
+                subject,
+                createdAt: run.createdAt,
+              },
+              read,
+            )
             await persistWriteJobPreparedCommit(input.jobId, pack.sha)
             return pack
           })

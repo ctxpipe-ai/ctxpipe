@@ -30,6 +30,10 @@ repository of Markdown that you can inspect. Background jobs keep it current,
 and every coding agent reads it over MCP. Self-host the open-source core, or use
 the hosted version ([early access](https://ctxpipe.ai/early-access)).
 
+<p align="center">
+  <img src="./apps/docs/public/ctxpipe-workspaces-launch.gif" alt="ctxpipe Workspaces launch demo" width="1000" />
+</p>
+
 ## The problem
 
 Every repository, ticket, doc, incident, and Slack thread is one MCP call away.

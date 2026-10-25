@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import { reconstructChat } from "@tanstack/ai-persistence"
+
 import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
@@ -24,12 +25,18 @@ import {
 } from "../../domain/workspaces/conversation-publish.js"
 import { cleanTitle } from "../../domain/workspaces/conversation-title.js"
 import { sameWorkspaceBinding } from "../../domain/workspaces/revision.js"
-import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
+import {
+  postgresSandboxLocks,
+  withSandboxLockIfFree,
+} from "../../domain/workspaces/sandbox-lock-store.js"
 import {
   conversationHasStoredTurns,
   warmTanstackWorkspaceChat,
 } from "../../domain/workspaces/tanstack-workspace-chat.js"
-import { workspaceChatPersistence } from "../../domain/workspaces/workspace-chat-persistence.js"
+import {
+  conversationBusyError,
+  workspaceChatPersistence,
+} from "../../domain/workspaces/workspace-chat-persistence.js"
 import {
   persistWorkspaceChatUserTurnListed,
   resolveWorkspaceChatSendRuntime,
@@ -51,6 +58,7 @@ import {
   discardUnstartedConversation,
   ensureConversation,
   getConversation,
+  getLastTurns,
   listConversationsPaginated,
   persistConversationPublication,
   updateConversation,
@@ -88,6 +96,24 @@ const ConversationSchema = z
     prState: z.enum(["open", "closed", "merged"]).nullable().optional(),
     branchTreeUrl: z.string().nullable().optional(),
     lastMessageAt: z.string().datetime().nullable(),
+    /**
+     * The newest turn of the conversation: its run status, and when it ended
+     * (when it started, while it runs), in epoch milliseconds. Only the chat
+     * list sets it.
+     */
+    lastTurn: z
+      .object({
+        status: z.enum([
+          "running",
+          "interrupted",
+          "completed",
+          "failed",
+          "aborted",
+        ]),
+        at: z.number().int(),
+      })
+      .nullable()
+      .optional(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
@@ -96,9 +122,11 @@ const ConversationSchema = z
 function publicConversation(
   row: ConversationRecord,
   workspaceRepositoryUrl = "",
+  lastTurn?: z.infer<typeof ConversationSchema>["lastTurn"],
 ) {
   return ConversationSchema.parse({
     ...row,
+    ...(lastTurn !== undefined && { lastTurn }),
     userId: row.userId ?? null,
     workspaceId: row.workspaceId ?? null,
     lastBranch: row.lastBranch ?? null,
@@ -107,7 +135,7 @@ function publicConversation(
       workspaceRepositoryUrl: row.lastChatPrRevision?.remote.url ?? "",
       lastChatPrNumber: row.lastChatPrNumber ?? null,
     }),
-    // Only a branch ctx| pushed is on GitHub (a fresh one after a merge is not).
+    // Only a branch ctxpipe pushed is on GitHub (a fresh one after a merge is not).
     branchTreeUrl: row.lastPushedSha
       ? conversationPublicTreeUrl({
           workspaceRepositoryUrl,
@@ -290,6 +318,11 @@ const deleteConversationRoute = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "turn_running: a turn runs in the conversation (stop it or wait, then delete), or chat_starting: the chat sandbox starts (try again in a few seconds)",
     },
   },
 })
@@ -533,7 +566,7 @@ const postConversationPushRoute = createRoute({
     },
     ...publishErrorResponses,
     409: publishConflictResponse(
-      "turn_running (a turn runs in the conversation), missing_sandbox, rebase_in_progress, session_moved (the branch on GitHub has commits ctx| did not push; ask the agent to fetch and rebase) or stale_binding (the Workspace was relinked)",
+      "turn_running (a turn runs in the conversation), missing_sandbox, rebase_in_progress, session_moved (the branch on GitHub has commits ctxpipe did not push; ask the agent to fetch and rebase) or stale_binding (the Workspace was relinked)",
     ),
   },
 })
@@ -568,7 +601,7 @@ const postConversationPullRequestRoute = createRoute({
       description: `${publishNotPublishable}; no_pr_access (the GitHub App cannot open pull requests: it needs the Pull requests: Read and write permission); pr_refused (GitHub refused the pull request; message has GitHub's reason)`,
     },
     409: publishConflictResponse(
-      "turn_running (a turn runs in the conversation), missing_sandbox, rebase_in_progress, session_moved (the branch on GitHub has commits ctx| did not push; ask the agent to fetch and rebase), pr_merged (the branch's PR was merged; send a message to continue on a fresh branch) or stale_binding (the Workspace was relinked)",
+      "turn_running (a turn runs in the conversation), missing_sandbox, rebase_in_progress, session_moved (the branch on GitHub has commits ctxpipe did not push; ask the agent to fetch and rebase), pr_merged (the branch's PR was merged; send a message to continue on a fresh branch) or stale_binding (the Workspace was relinked)",
     ),
   },
 })
@@ -872,7 +905,9 @@ async function pushConversationBranch(input: {
     orgId: workspace.orgId,
     workspaceId: workspace.id,
     env: parseEnv(process.env as Record<string, string | undefined>),
-    commit: { subject: cleanTitle(conversation.name) || "Changes from ctx|" },
+    commit: {
+      subject: cleanTitle(conversation.name) || "Changes from ctxpipe",
+    },
   })
   if (pushed.status === "unchanged") return publishError("no_changes")
   if (pushed.status !== "pushed") return publishError(pushed.reason)
@@ -1065,9 +1100,15 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       after: query.after,
     })
     const listedWorkspace = await getWorkspaceById(query.workspaceId.trim())
+    // The chat list shows a status dot from the newest turn of each chat.
+    const lastTurns = await getLastTurns(rows.map((row) => row.id))
 
     const items = rows.map((row) =>
-      publicConversation(row, listedWorkspace?.workspaceRepositoryUrl),
+      publicConversation(
+        row,
+        listedWorkspace?.workspaceRepositoryUrl,
+        lastTurns.get(row.id) ?? null,
+      ),
     )
     return c.json({ items, pageInfo }, 200)
   })
@@ -1170,27 +1211,52 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     const conversationId = c.req.param("conversationId")
     const existing = await getConversation(conversationId)
     if (!existing) return c.json({ error: "Not found" }, 404)
+    // A turn keeps running after its user leaves the chat. Deleting under it
+    // would destroy the sandbox the turn uses, so the user stops it first.
+    const turnRunning = () =>
+      workspaceChatPersistence().stores.runs.findActiveRun(conversationId)
+    if (await turnRunning()) return c.json({ error: "turn_running" }, 409)
     const log = getLogger()
     log.set({
       conversationId,
       workspaceId: existing.workspaceId ?? null,
       sandbox: "chat",
     })
-    log.info("destroy chat sandbox after conversation delete")
-    const deleted = existing.workspaceId
-      ? await withDestroyedConversationSandboxes(
-          {
-            conversationId,
-            orgId: existing.orgId,
-            workspaceId: existing.workspaceId,
-          },
-          () => deleteConversation(conversationId),
-        )
-      : await deleteConversation(conversationId)
-    if (!deleted) return c.json({ error: "Not found" }, 404)
-    if (!existing.workspaceId) {
-      await destroySandboxesForConversation(conversationId)
-    }
+    // A turn takes this lock before it inserts its running row. Holding it
+    // here makes a starting turn win or lose against the delete, never both.
+    // A prepare (sandbox resume) also holds it for some seconds: wait a short
+    // time for it to release the lock.
+    const outcome = await withSandboxLockIfFree(
+      existing.orgId,
+      `chat-thread:${conversationId}`,
+      async () => {
+        if (await turnRunning()) return "turn_running" as const
+        log.info("destroy chat sandbox after conversation delete")
+        const deleted = existing.workspaceId
+          ? await withDestroyedConversationSandboxes(
+              {
+                conversationId,
+                orgId: existing.orgId,
+                workspaceId: existing.workspaceId,
+              },
+              () => deleteConversation(conversationId),
+            )
+          : await deleteConversation(conversationId)
+        if (!deleted) return "not_found" as const
+        if (!existing.workspaceId) {
+          await destroySandboxesForConversation(conversationId)
+        }
+        return "deleted" as const
+      },
+      undefined,
+      5_000,
+    )
+    if (outcome.busy)
+      return c.json({ error: await conversationBusyError(conversationId) }, 409)
+    if (outcome.value === "turn_running")
+      return c.json({ error: "turn_running" }, 409)
+    if (outcome.value === "not_found")
+      return c.json({ error: "Not found" }, 404)
 
     return c.body(null, 204)
   })

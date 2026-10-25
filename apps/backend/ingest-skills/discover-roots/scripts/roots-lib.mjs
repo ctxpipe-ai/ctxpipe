@@ -64,7 +64,7 @@ export function safePath(text) {
     typeof text === "string" &&
     text.length > 0 &&
     text.length <= 300 &&
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: the check refuses control and direction characters
+    // oxlint-disable-next-line no-control-regex -- the check refuses control and direction characters
     !/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069`]/.test(
       text,
     ) &&

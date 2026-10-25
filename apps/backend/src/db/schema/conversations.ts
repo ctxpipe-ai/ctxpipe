@@ -7,6 +7,7 @@ import {
   timestamp,
   unique,
 } from "drizzle-orm/pg-core"
+
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import { orgIsolationPolicy } from "./org-rls.js"
 
@@ -22,7 +23,7 @@ export const conversations = pgTable.withRLS(
     source: text("source"),
     lastBranch: text("last_branch"),
     /**
-     * The session branch tip ctx| last pushed. A remote tip that differs was
+     * The session branch tip ctxpipe last pushed. A remote tip that differs was
      * pushed by someone else and is never overwritten.
      */
     lastPushedSha: text("last_pushed_sha"),

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { safeAuthRedirectPath } from "./safe-auth-redirect"
 
 const origin = "https://app.example"

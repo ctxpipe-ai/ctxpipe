@@ -14,6 +14,7 @@ import {
 } from "react-aria-components"
 import { twMerge } from "tailwind-merge"
 import { tv } from "tailwind-variants"
+
 import { Description, Label } from "@/components/ui/Field"
 import { focusRing } from "@/lib/react-aria-utils"
 
@@ -58,7 +59,8 @@ const tagStyles = tv({
 })
 
 interface TagGroupProps<T>
-  extends Omit<AriaTagGroupProps, "children">,
+  extends
+    Omit<AriaTagGroupProps, "children">,
     Pick<TagListProps<T>, "items" | "children" | "renderEmptyState"> {
   color?: Color
   label?: string

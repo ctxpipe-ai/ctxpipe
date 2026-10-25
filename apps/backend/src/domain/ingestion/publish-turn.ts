@@ -1,4 +1,6 @@
+import { trace } from "@opentelemetry/api"
 import { sql } from "drizzle-orm"
+
 import { getSystemDb } from "../../db/client.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "./ingestion-run.js"
@@ -49,4 +51,61 @@ export async function ingestPublishTurn(input: {
         wait: "An earlier ingestion run of this source publishes to the same Workspace. This run starts after it.",
       }
     : { turn: true }
+}
+
+/** A run waits at most this long for an earlier run (CTX-964). */
+export const PUBLISH_TURN_WAIT_MS = 60 * 60_000
+
+/**
+ * Wait for the publish turn of a run (CTX-895). The run checks each minute.
+ * A first step, `publish-turn-deadline`, stores `deadlineAt`, 60 minutes after
+ * the run start. It does no I/O, so it does not fail and retry. Each check
+ * reads that stored value, so a retry of a check (which moves the engine's
+ * `startedAt`) or a replay does not move the deadline (CTX-964). A run that
+ * an earlier release started keeps the `deadlineAt` in its stored first
+ * check. After the deadline the run goes on: the merge model
+ * then joins the two publishes. The worker can claim a sleeping run minutes
+ * late, so a count of polls is not a time limit.
+ */
+export async function waitForPublishTurn(options: {
+  /** The `step` of the workflow; openworkflow does not export its type. */
+  step: {
+    run<T>(config: { name: string }, fn: () => Promise<T>): Promise<T>
+    sleep(name: string, duration: "60 seconds"): Promise<void>
+  }
+  /** The engine start of the run; null when the engine has not set it. */
+  startedAt: Date | null
+  check: () => Promise<{ turn: true } | { wait: string }>
+  now?: () => number
+}): Promise<{ outcome: "turn" | "deadline"; checks: number }> {
+  const now = options.now ?? Date.now
+  const stored = await options.step.run(
+    { name: "publish-turn-deadline" },
+    async () => ({
+      deadlineAt:
+        (options.startedAt?.getTime() ?? now()) + PUBLISH_TURN_WAIT_MS,
+    }),
+  )
+  let deadlineAt = stored.deadlineAt
+  for (let check = 0; ; check++) {
+    const result = await options.step.run(
+      { name: `publish-turn:${check}` },
+      async (): Promise<
+        { turn: true } | { wait: string; expired: boolean; deadlineAt?: number }
+      > => {
+        trace.getActiveSpan()?.setAttributes({
+          "ctxpipe.wait.reason": "earlier-run-of-source",
+          "ctxpipe.wait.check": check,
+        })
+        const turn = await options.check()
+        if ("turn" in turn) return turn
+        return { ...turn, expired: now() >= deadlineAt }
+      },
+    )
+    if ("turn" in result) return { outcome: "turn", checks: check + 1 }
+    // A check stored by an earlier release carries its own deadline.
+    deadlineAt = result.deadlineAt ?? deadlineAt
+    if (result.expired) return { outcome: "deadline", checks: check + 1 }
+    await options.step.sleep(`wait-publish-turn:${check}`, "60 seconds")
+  }
 }

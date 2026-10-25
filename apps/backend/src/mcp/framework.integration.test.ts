@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -8,6 +9,7 @@ import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { z } from "zod"
+
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
 import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"
@@ -859,19 +861,25 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
     ["an org outside the connection", () => otherOrgs[0]?.slug ?? ""],
     ["an unknown org", () => `no-such-org-${suffix}`],
     ["a slug with bad characters", () => "bad%0Aslug"],
-  ])("accepts and ignores a ?orgSlug= for %s: tools/list and calls that name an allowed org work", async (_case, slug) => {
-    const client = await connect(seed.personalApiKey, `/mcp?orgSlug=${slug()}`)
-    const { tools } = await client.listTools()
-    expect(tools.map((tool) => tool.name)).toContain("probe_workspace")
-    const result = await call(client, "probe_workspace", {
-      org: otherOrgs[1]?.slug,
-      workspace: "operations",
-    })
-    expect(result.structuredContent).toMatchObject({
-      org: otherOrgs[1]?.slug,
-    })
-    await client.close()
-  })
+  ])(
+    "accepts and ignores a ?orgSlug= for %s: tools/list and calls that name an allowed org work",
+    async (_case, slug) => {
+      const client = await connect(
+        seed.personalApiKey,
+        `/mcp?orgSlug=${slug()}`,
+      )
+      const { tools } = await client.listTools()
+      expect(tools.map((tool) => tool.name)).toContain("probe_workspace")
+      const result = await call(client, "probe_workspace", {
+        org: otherOrgs[1]?.slug,
+        workspace: "operations",
+      })
+      expect(result.structuredContent).toMatchObject({
+        org: otherOrgs[1]?.slug,
+      })
+      await client.close()
+    },
+  )
 
   it("puts the org of the call on the tool span, not the ?orgSlug= default", async () => {
     const client = await connect(

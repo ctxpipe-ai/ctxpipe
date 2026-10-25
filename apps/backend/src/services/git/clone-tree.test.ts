@@ -4,7 +4,9 @@ import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+
 import { afterEach, describe, expect, it } from "vitest"
+
 import { parseEnv } from "../../config/env.js"
 import {
   resolveGithubBranchTip,
@@ -13,6 +15,7 @@ import {
 } from "../../routes/webhooks/github/github-workspace-tip.js"
 import {
   GitRemoteAccessError,
+  gitOutput,
   listMarkdownFilesAtGitSha,
   listPathsAtGitSha,
   readFileAtGitSha,
@@ -50,6 +53,243 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     expect(await listMarkdownFilesAtGitSha({ url: dir, sha })).toEqual([
       { path: "knowledge.md", content: "# SHA-256 knowledge\n" },
     ])
+  })
+
+  it("does not read a Git output that is larger than the ceiling", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-output-ceiling-"))
+    await execFileAsync("git", ["init", "-b", "main", dir])
+    const output = (maxBytes: number) =>
+      gitOutput(
+        ["-C", dir as string, "symbolic-ref", "HEAD"],
+        10_000,
+        undefined,
+        maxBytes,
+      )
+    expect((await output(1024)).toString()).toBe("refs/heads/main\n")
+    await expect(output(4)).rejects.toThrow(
+      "The Git repository is too large for ctxpipe to read in one step: the Git output is 1 MiB",
+    )
+  })
+
+  it(
+    "reads the commit dates of a repository whose Git outputs are larger than a buffer allows (CTX-933)",
+    { timeout: 120_000 },
+    async () => {
+      dir = await mkdtemp(join(tmpdir(), "ctxpipe-large-history-"))
+      const repo = dir
+      const git = (args: string[], input?: string, date?: number) =>
+        new Promise<string>((resolve, reject) => {
+          const child = execFile(
+            "git",
+            ["-C", repo, ...args],
+            {
+              env: {
+                ...process.env,
+                GIT_AUTHOR_NAME: "Contract",
+                GIT_AUTHOR_EMAIL: "contract@example.test",
+                GIT_COMMITTER_NAME: "Contract",
+                GIT_COMMITTER_EMAIL: "contract@example.test",
+                ...(date ? { GIT_COMMITTER_DATE: `${date} +0000` } : {}),
+              },
+            },
+            (error, stdout) => (error ? reject(error) : resolve(stdout.trim())),
+          )
+          child.stdin?.end(input)
+        })
+      await git(["init", "-b", "main"])
+      // 45,000 Markdown files with 200-character names: `ls-tree -rlz` writes
+      // more than 10 MiB. Each commit changes every file, so the Markdown log
+      // of 11 commits is more than 128 MiB.
+      const names = Array.from(
+        { length: 45_000 },
+        (_, index) => `${"n".repeat(191)}${String(index).padStart(6, "0")}.md`,
+      )
+      const trees: string[] = []
+      for (const content of ["# A\n", "# B\n"]) {
+        const blob = await git(["hash-object", "-w", "--stdin"], content)
+        trees.push(
+          await git(
+            ["mktree"],
+            names.map((name) => `100644 blob ${blob}\t${name}\n`).join(""),
+          ),
+        )
+      }
+      const start = 1_700_000_000
+      let sha = ""
+      for (let index = 0; index < 11; index++)
+        sha = await git(
+          [
+            "commit-tree",
+            trees[index % 2] as string,
+            ...(sha ? ["-p", sha] : []),
+            "-m",
+            `Change ${index}`,
+          ],
+          undefined,
+          start + index * 60,
+        )
+      const files = await listMarkdownFilesAtGitSha({
+        url: repo,
+        sha,
+        includeIntroducingCommits: true,
+      })
+      expect(files).toHaveLength(names.length)
+      expect(files[0]).toEqual({
+        path: names[0],
+        content: "# A\n",
+        introducingCommitTimestamp: new Date(start * 1000).toISOString(),
+        lastCommitTimestamp: new Date((start + 600) * 1000).toISOString(),
+      })
+    },
+  )
+
+  it("reads the introducing commits from a remote that filters blobs", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-history-filter-"))
+    const git = async (...args: string[]) =>
+      (await execFileAsync("git", ["-C", dir as string, ...args])).stdout.trim()
+    const commit = (message: string, date: string) =>
+      execFileAsync(
+        "git",
+        [
+          "-C",
+          dir as string,
+          "-c",
+          "user.name=Contract",
+          "-c",
+          "user.email=contract@example.test",
+          "commit",
+          "-m",
+          message,
+        ],
+        { env: { ...process.env, GIT_COMMITTER_DATE: date } },
+      )
+    await git("init", "-b", "main")
+    // The remote of the product (GitHub) allows a filter and a blob by SHA.
+    await git("config", "uploadpack.allowFilter", "true")
+    await git("config", "uploadpack.allowAnySHA1InWant", "true")
+    await writeFile(join(dir, "old.md"), "# Old\n")
+    await git("add", ".")
+    await commit("Add old", "2024-01-01T00:00:00Z")
+    await writeFile(join(dir, "old.md"), "# Old, changed\n")
+    await writeFile(join(dir, "new.md"), "# New\n")
+    await git("add", ".")
+    await commit("Change old, add new", "2024-02-01T00:00:00Z")
+    const sha = await git("rev-parse", "HEAD")
+    const files = await listMarkdownFilesAtGitSha({
+      url: dir,
+      sha,
+      includeIntroducingCommits: true,
+    })
+    expect(files).toEqual([
+      {
+        path: "new.md",
+        content: "# New\n",
+        introducingCommitTimestamp: "2024-02-01T00:00:00.000Z",
+        lastCommitTimestamp: "2024-02-01T00:00:00.000Z",
+      },
+      {
+        path: "old.md",
+        content: "# Old, changed\n",
+        introducingCommitTimestamp: "2024-01-01T00:00:00.000Z",
+        lastCommitTimestamp: "2024-02-01T00:00:00.000Z",
+      },
+    ])
+  })
+
+  it("reads the introducing commits from a remote that does not filter blobs", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-history-nofilter-"))
+    const git = async (...args: string[]) =>
+      (await execFileAsync("git", ["-C", dir as string, ...args])).stdout.trim()
+    const commit = (message: string, date: string) =>
+      execFileAsync(
+        "git",
+        [
+          "-C",
+          dir as string,
+          "-c",
+          "user.name=Contract",
+          "-c",
+          "user.email=contract@example.test",
+          "commit",
+          "-m",
+          message,
+        ],
+        { env: { ...process.env, GIT_COMMITTER_DATE: date } },
+      )
+    await git("init", "-b", "main")
+    // The remote does not set `uploadpack.allowFilter`: it ignores the filter
+    // and sends every blob, and the read must still work with no lazy fetch.
+    await writeFile(join(dir, "old.md"), "# Old\n")
+    await git("add", ".")
+    await commit("Add old", "2024-01-01T00:00:00Z")
+    await writeFile(join(dir, "old.md"), "# Old, changed\n")
+    await git("add", ".")
+    await commit("Change old", "2024-02-01T00:00:00Z")
+    const sha = await git("rev-parse", "HEAD")
+    expect(
+      await listMarkdownFilesAtGitSha({
+        url: dir,
+        sha,
+        includeIntroducingCommits: true,
+      }),
+    ).toEqual([
+      {
+        path: "old.md",
+        content: "# Old, changed\n",
+        introducingCommitTimestamp: "2024-01-01T00:00:00.000Z",
+        lastCommitTimestamp: "2024-02-01T00:00:00.000Z",
+      },
+    ])
+  })
+
+  it("never fetches a blob lazily, so only the fetches with a credential read the network", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-no-lazy-fetch-"))
+    const git = async (...args: string[]) =>
+      (await execFileAsync("git", ["-C", dir as string, ...args])).stdout.trim()
+    await git("init", "-b", "main")
+    await git("config", "uploadpack.allowFilter", "true")
+    await git("config", "uploadpack.allowAnySHA1InWant", "true")
+    await mkdir(join(dir, "sources"))
+    await mkdir(join(dir, "docs"))
+    await writeFile(join(dir, "sources/one.md"), "# One\n")
+    await writeFile(join(dir, "sources/two.md"), "# Two\n")
+    await writeFile(join(dir, "docs/other.md"), "# Other\n")
+    await git("add", ".")
+    await git(
+      "-c",
+      "user.name=Contract",
+      "-c",
+      "user.email=contract@example.test",
+      "commit",
+      "-m",
+      "Add",
+    )
+    const sha = await git("rev-parse", "HEAD")
+    const tracePath = join(dir, "trace.jsonl")
+    const previousTrace = process.env.GIT_TRACE2_EVENT
+    process.env.GIT_TRACE2_EVENT = tracePath
+    try {
+      expect(
+        await listMarkdownFilesAtGitSha({
+          url: dir,
+          sha,
+          prefix: "sources/",
+          includeIntroducingCommits: true,
+        }),
+      ).toMatchObject([
+        { path: "sources/one.md", content: "# One\n" },
+        { path: "sources/two.md", content: "# Two\n" },
+      ])
+    } finally {
+      if (previousTrace === undefined) delete process.env.GIT_TRACE2_EVENT
+      else process.env.GIT_TRACE2_EVENT = previousTrace
+    }
+    // The tip fetch, the history fetch and one fetch for the two blobs. A
+    // lazy fetch would add a request that has no credential.
+    const requests = (await readFile(tracePath, "utf8")).split(
+      '"argv":["git-upload-pack"',
+    )
+    expect(requests.length - 1).toBe(3)
   })
 
   it("names the Markdown paths that a commit deleted, relative to the root", async () => {
@@ -671,12 +911,12 @@ describe("clone-tree", { timeout: 30_000 }, () => {
       const anonymous = await resolveGitRemoteTip({ url }).catch((e) => e)
       expect(anonymous).toBeInstanceOf(GitRemoteAccessError)
       expect(anonymous.message).toBe(
-        "ctx| has no access to this repository. Connect GitHub to this Workspace, then retry.",
+        "ctxpipe has no access to this repository. Connect GitHub to this Workspace, then retry.",
       )
       const denied = await resolveGitRemoteTip({ url, token }).catch((e) => e)
       expect(denied).toBeInstanceOf(GitRemoteAccessError)
       expect(denied.message).toBe(
-        "ctx| has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
+        "ctxpipe has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
       )
       expect(authorizations).toContain(`Basic ${encoded}`)
       const surface = [

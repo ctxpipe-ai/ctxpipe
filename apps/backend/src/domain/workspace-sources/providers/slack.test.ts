@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { parseSourceEntry } from "../sources-file.js"
 import { slackSourceScope, summarizeSlackScope } from "./slack.js"
 

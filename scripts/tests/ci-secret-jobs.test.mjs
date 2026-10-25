@@ -36,7 +36,7 @@ function rejects(files, message) {
 
 const tokenStep = `      - name: Railway
         env:
-          RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
         run: |
           source "\${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
 `
@@ -79,7 +79,7 @@ for (const [name, steps] of [
 test("rejects a secret in the workflow env", () => {
   rejects(
     {
-      ".github/workflows/w.yaml": `on: pull_request\nenv:\n  RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_API_TOKEN }}\njobs:\n  build:\n    steps:\n${install}`,
+      ".github/workflows/w.yaml": `on: pull_request\nenv:\n  RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\njobs:\n  build:\n    steps:\n${install}`,
     },
     /w\.yaml:3: a secret in the workflow env/,
   )
@@ -194,7 +194,7 @@ const pinnedSticky = (key) =>
 test("rejects a sticky disk that a production job and a PR job share", () => {
   rejects(
     {
-      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    env:\n      TOKEN: \${{ secrets.RAILWAY_API_TOKEN }}\n    steps:\n${sticky("store")}${install}`,
+      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    env:\n      TOKEN: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n    steps:\n${sticky("store")}${install}`,
       ".github/workflows/w.yaml": `on: pull_request\njobs:\n  migrate:\n    steps:\n${sticky("store")}${install}`,
     },
     /cache key store is read by a job with a secret \(.*deploy\.yaml:9 \(job terraform\)\), and a job that runs untrusted code writes store \(.*w\.yaml:7 \(job migrate\)\)/,
@@ -304,7 +304,7 @@ test("accepts apt-get install from the runner image sources and terraform init -
 test("rejects a secret in the job env", () => {
   rejects(
     workflow(
-      `  deploy:\n    env:\n      PR_ENV: pr-1\n      RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_API_TOKEN }}\n    steps:\n      - run: echo\n`,
+      `  deploy:\n    env:\n      PR_ENV: pr-1\n      RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n    steps:\n      - run: echo\n`,
     ),
     /w\.yaml:6: job deploy holds a secret and puts a secret in the job env/,
   )
@@ -328,9 +328,9 @@ test("rejects an account token in a job that runs any untrusted code, even in a 
   ])
     rejects(
       {
-        ".github/workflows/ingestion-v2-proof.yaml": `on: push\njobs:\n  proof:\n    steps:\n      - env:\n          RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_API_TOKEN }}\n        run: ${command}\n`,
+        ".github/workflows/ingestion-v2-proof.yaml": `on: push\njobs:\n  proof:\n    steps:\n      - env:\n          RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: ${command}\n`,
       },
-      /gives RAILWAY_API_TOKEN to a job that runs untrusted code/,
+      /gives RAILWAY_WORKSPACE_TOKEN to a job that runs untrusted code/,
     )
 })
 
@@ -374,7 +374,7 @@ test("keeps the preview sandbox cleanup in Preview", () => {
 })
 
 test("rejects the Railway and Neon keys in the workbench environment", () => {
-  for (const secret of ["RAILWAY_API_TOKEN", "NEON_API_KEY"])
+  for (const secret of ["RAILWAY_WORKSPACE_TOKEN", "NEON_API_KEY"])
     rejects(
       {
         ".github/workflows/w.yaml": `on: pull_request\njobs:\n  check:\n    environment: workbench\n    steps:\n      - env:\n          ${secret}: \${{ secrets.${secret} }}\n        run: echo ok\n`,
@@ -415,7 +415,7 @@ test("rejects a restore-keys prefix that a branch-code job writes", () => {
 
 test("accepts a production sticky disk and a PR sticky disk with a longer key", () => {
   const result = check({
-    ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: github.event_name != 'workflow_dispatch'\n    steps:\n${pinnedSticky(`\${{ github.repository }}-pnpm-store`)}      - env:\n          T: \${{ secrets.RAILWAY_API_TOKEN }}\n        run: echo\n`,
+    ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: github.event_name != 'workflow_dispatch'\n    steps:\n${pinnedSticky(`\${{ github.repository }}-pnpm-store`)}      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
     ".github/workflows/w.yaml": `on: pull_request\njobs:\n  migrate:\n    steps:\n${sticky(`\${{ github.repository }}-pnpm-store-pr`)}${install}`,
   })
   assert.equal(result.stderr, "")
@@ -425,7 +425,7 @@ test("accepts a production sticky disk and a PR sticky disk with a longer key", 
 test("rejects a main-only job whose if: does not name main", () => {
   rejects(
     {
-      ".github/workflows/observability.yaml": `on: push\njobs:\n  apply:\n    if: github.event_name == 'push'\n    env:\n      T: \${{ secrets.RAILWAY_TOKEN }}\n    steps:\n${install}`,
+      ".github/workflows/observability.yaml": `on: push\njobs:\n  apply:\n    if: github.event_name == 'push'\n    env:\n      T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n    steps:\n${install}`,
     },
     /job apply is a main-only job/,
   )
@@ -464,7 +464,7 @@ ${tokenStep}  build:
 test("rejects an unpinned third-party action in a production job", () => {
   rejects(
     {
-      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: github.event_name != 'workflow_dispatch'\n    steps:\n      - uses: hashicorp/setup-terraform@v3\n      - env:\n          T: \${{ secrets.RAILWAY_API_TOKEN }}\n        run: echo\n`,
+      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: github.event_name != 'workflow_dispatch'\n    steps:\n      - uses: hashicorp/setup-terraform@v3\n      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
     },
     /deploy\.yaml:6: job terraform holds a secret and uses hashicorp\/setup-terraform@v3/,
   )
@@ -482,7 +482,7 @@ test("applies every rule to a deploy.yaml job that is not a named production job
 test("rejects a production job whose if: does not limit it to the push to main", () => {
   rejects(
     {
-      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    steps:\n${install}      - env:\n          T: \${{ secrets.RAILWAY_API_TOKEN }}\n        run: echo\n`,
+      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    steps:\n${install}      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
     },
     /job terraform is a production job, but its if: does not limit it to the push to main/,
   )

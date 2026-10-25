@@ -1,8 +1,10 @@
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { config } from "dotenv"
 import { inArray, sql } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   closeDb,
@@ -151,9 +153,8 @@ describe("workspace activity list filters and pages (Postgres)", () => {
       db.delete(workspaces).where(inArray(workspaces.id, [docs.id, wiki.id])),
     )
     // The routes import the OpenWorkflow client, which connects on import.
-    const { closeOpenWorkflowClient } = await import(
-      "../../openworkflow/client.js"
-    )
+    const { closeOpenWorkflowClient } =
+      await import("../../openworkflow/client.js")
     await closeOpenWorkflowClient()
     await closeDb()
   })

@@ -268,4 +268,3 @@ export function getGraphNodeKinds(): string[] {
 export function isValidGraphEdgeType(predicate: string): boolean {
   return GRAPH_EDGE_TYPES.has(predicate)
 }
-

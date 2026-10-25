@@ -3,7 +3,9 @@ import { lookup } from "node:dns/promises"
 import { request } from "node:https"
 import { BlockList, isIP } from "node:net"
 import { basename, extname } from "node:path"
+
 import slugify from "@sindresorhus/slugify"
+
 import type { CommitFile } from "../github/installation-write-client.js"
 
 export const CONNECTOR_ASSET_MAX_BYTES = 25 * 1024 * 1024
@@ -126,9 +128,7 @@ export function consumeConnectorAssetTransferBytes(
   return true
 }
 
-function consumeConnectorAssetCandidate(
-  budget: ConnectorAssetBudget,
-): boolean {
+function consumeConnectorAssetCandidate(budget: ConnectorAssetBudget): boolean {
   if (budget.remainingAssets <= 0 || budget.deadlineAt <= Date.now()) {
     return false
   }

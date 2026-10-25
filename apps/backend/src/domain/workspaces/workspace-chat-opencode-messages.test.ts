@@ -7,6 +7,7 @@ import {
 } from "@tanstack/ai"
 import { buildPrompt } from "@tanstack/ai-opencode"
 import { describe, expect, it } from "vitest"
+
 import {
   messagesForOpenCodeChat,
   openCodeTrailingUserMiddleware,

@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm"
+
 import { getSystemDb } from "../db/client.js"
 import { oauthClients } from "../db/schema/auth.js"
 import { MCP_READ_SCOPE, MCP_WRITE_SCOPE } from "./mcp-scopes.js"

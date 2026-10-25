@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import type { Env } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
@@ -92,6 +93,7 @@ export async function captureConnectorMirrorTarget(input: {
         }
       },
       pack,
+      null,
     )
   })
 }

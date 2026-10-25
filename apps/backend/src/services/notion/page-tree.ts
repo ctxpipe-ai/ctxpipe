@@ -14,7 +14,7 @@ type NotionTokenRefresh = Parameters<
 >[0]["onTokenRefresh"]
 
 /**
- * Called for a page or block below the root that Notion does not let ctx|
+ * Called for a page or block below the root that Notion does not let ctxpipe
  * read (403) or that is gone (404). With it, the walk skips that part and
  * goes on; without it, the walk fails.
  */
@@ -29,8 +29,8 @@ function skippable(
 ): error is NotionApiError {
   return Boolean(
     onUnreadable &&
-      error instanceof NotionApiError &&
-      (error.status === 403 || error.status === 404),
+    error instanceof NotionApiError &&
+    (error.status === 403 || error.status === 404),
   )
 }
 

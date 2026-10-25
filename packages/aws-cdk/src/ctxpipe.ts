@@ -1,4 +1,5 @@
 import { BlockList, isIP } from "node:net"
+
 import * as cdk from "aws-cdk-lib"
 import * as acm from "aws-cdk-lib/aws-certificatemanager"
 import type * as cloudwatch from "aws-cdk-lib/aws-cloudwatch"
@@ -8,6 +9,7 @@ import * as route53 from "aws-cdk-lib/aws-route53"
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
 import * as cr from "aws-cdk-lib/custom-resources"
 import { Construct } from "constructs"
+
 import type {
   CtxPipeResolvedDefaults,
   CtxPipeSizeProfile,
@@ -62,7 +64,10 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
     },
     backupRetentionDays: DEFAULT_BACKUP_RETENTION_DAYS,
     sandboxHost: {
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MEDIUM),
+      instanceType: ec2.InstanceType.of(
+        ec2.InstanceClass.T4G,
+        ec2.InstanceSize.MEDIUM,
+      ),
       dockerVolumeSizeGiB: 30,
     },
   },
@@ -97,7 +102,10 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
     },
     backupRetentionDays: DEFAULT_BACKUP_RETENTION_DAYS,
     sandboxHost: {
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.LARGE),
+      instanceType: ec2.InstanceType.of(
+        ec2.InstanceClass.T4G,
+        ec2.InstanceSize.LARGE,
+      ),
       dockerVolumeSizeGiB: 50,
     },
   },
@@ -132,7 +140,10 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
     },
     backupRetentionDays: 14,
     sandboxHost: {
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.XLARGE),
+      instanceType: ec2.InstanceType.of(
+        ec2.InstanceClass.T4G,
+        ec2.InstanceSize.XLARGE,
+      ),
       dockerVolumeSizeGiB: 100,
     },
   },
@@ -216,16 +227,12 @@ export class CtxPipe extends Construct {
       },
     )
 
-    new MigrateOnDeployConstruct(
-      this,
-      "MigrateOnDeploy",
-      {
-        networking: networking.resources,
-        dataPlane: dataPlane.resources,
-        tasks: taskDefinitions.resources,
-        secrets: secrets.resources,
-      },
-    )
+    new MigrateOnDeployConstruct(this, "MigrateOnDeploy", {
+      networking: networking.resources,
+      dataPlane: dataPlane.resources,
+      tasks: taskDefinitions.resources,
+      secrets: secrets.resources,
+    })
 
     const services = new ServicesConstruct(this, "Services", {
       networking: networking.resources,

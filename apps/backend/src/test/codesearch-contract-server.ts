@@ -1,6 +1,8 @@
 // Native subprocess fixture: the production codesearch app, its own pool, and HTTP listener.
 import { writeFile } from "node:fs/promises"
+
 import { initLogger } from "evlog"
+
 import { createApp } from "../../../codesearch/src/app/app.js"
 
 initLogger({ enabled: false })

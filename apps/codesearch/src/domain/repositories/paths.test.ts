@@ -8,7 +8,9 @@ import {
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
+
 import {
   readContainedDirectory,
   readContainedFile,
@@ -101,6 +103,17 @@ describe("paths inside the checkout", () => {
       (await readContainedFile(checkout, "in-dir/inner.txt")).toString(),
     ).toBe("inside\n")
     await expect(readContainedFile(checkout, "sub")).rejects.toThrow()
+  })
+
+  it("reads at most one byte past the limit into a fixed buffer", async () => {
+    await writeFile(join(checkout, "edge.bin"), Buffer.alloc(100, 1))
+    expect(
+      await readContainedFile(checkout, "edge.bin", "", 100),
+    ).toHaveProperty("length", 100)
+    expect(await readContainedFile(checkout, "edge.bin", "", 99)).toEqual({
+      size: 100,
+      tooLarge: true,
+    })
   })
 
   // The tree never lists .git, and .git/config can hold a clone token.

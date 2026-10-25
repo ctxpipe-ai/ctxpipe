@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+
 import { eq, sql } from "drizzle-orm"
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -15,8 +17,8 @@ import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-cont
 import { linearSyncEntity } from "../../openworkflow/workflows/linear-sync-entity.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
-import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
+import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 
 it.each(["entity", "full", "rebind"] as const)(
   "captures a Linear %s deletion without persisting its credential and runs one native mirror child",

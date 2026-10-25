@@ -2,13 +2,19 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import { workspaceChatDockerImage } from "../workspaces/chat-runtime.js"
 import { ingestOpenCodeConfig } from "./ingest-opencode.js"
 import { collectIngestStep } from "./ingest-prepare.js"
-import { dockerRootExec, runAsRoot } from "./ingest-root.js"
+import {
+  dockerRootExec,
+  ROOT_STDOUT_MAX_BYTES,
+  runAsRoot,
+} from "./ingest-root.js"
 import {
   discoverIngestRoots,
   ingestAgentEnv,
@@ -328,6 +334,23 @@ describe("ingest shard commands in a Docker sandbox", () => {
         expect(Buffer.from(written).toString("utf8")).toBe(
           JSON.stringify(rootMap),
         )
+
+        // A step that writes more than the tar cap into /ctxpipe/out: the
+        // sandbox refuses the tar, so the host never reads it (CTX-971).
+        await runAsRoot(
+          root,
+          "head -c 5242880 /dev/urandom > /ctxpipe/out/files/large.bin",
+        )
+        await expect(collectIngestStep(handle, root)).rejects.toThrow(
+          /The step output is \d+ bytes; the limit is 4194304 bytes/,
+        )
+
+        // A command that writes 32 MiB of short lines through the Docker
+        // stream: the worker keeps only the start of stdout (CTX-971).
+        const noisy = await root("yes | head -c 33554432")
+        expect(noisy.exitCode).toBe(0)
+        expect(noisy.stdoutTruncated).toBe(true)
+        expect(Buffer.byteLength(noisy.stdout)).toBe(ROOT_STDOUT_MAX_BYTES)
       } finally {
         await provider.destroy({ id: handle.id })
       }

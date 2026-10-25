@@ -2,6 +2,8 @@ export type ExplorerGitFile =
   | { kind: "missing" }
   | { kind: "omitted" }
   | { kind: "bytes"; bytes: Uint8Array }
+  /** Larger than the size limit of the read: not read. */
+  | { kind: "tooLarge"; size: number }
 
 export function explorerBlobPath(raw: string): string | null {
   const path = raw.trim()
@@ -39,7 +41,8 @@ export function explorerBlobFromGitFile(
   file: ExplorerGitFile,
 ): { body: string; binary: false } | { body: null; binary: true } | null {
   if (file.kind === "missing") return null
-  if (file.kind === "omitted") return { body: null, binary: true }
+  if (file.kind === "omitted" || file.kind === "tooLarge")
+    return { body: null, binary: true }
   return explorerBlobFromBytes(file.bytes)
 }
 

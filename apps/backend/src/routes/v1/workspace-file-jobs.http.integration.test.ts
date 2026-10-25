@@ -1,12 +1,20 @@
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { config } from "dotenv"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
-import { closeDb, initDb, withOrgDbContext } from "../../db/client.js"
+import {
+  closeDb,
+  getSystemDb,
+  initDb,
+  withOrgDbContext,
+} from "../../db/client.js"
 import { workspaces, workspaceWriteJobs } from "../../db/schema/workspaces.js"
 import { persistWriteJobStatus } from "../../models/workspace-write-jobs.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { workspaceFilesRoutes } from "./workspace-files-routes.js"
 
@@ -34,6 +42,26 @@ const completedJob = `wjob_completed_${suffix}`
 const siblingJob = `wjob_sibling_${suffix}`
 const otherJob = `wjob_other_${suffix}`
 const bootstrapJob = `wjob_bootstrap_${suffix}`
+const endedRunJob = `wjob_ended_run_${suffix}`
+const liveRunJob = `wjob_live_run_${suffix}`
+
+/** A run of the file edit workflow that owns `jobId`, as OpenWorkflow stores it. */
+async function insertRun(jobId: string, status: string, message?: string) {
+  const runId = `run_${jobId}`
+  await getSystemDb().execute(sql`
+    insert into openworkflow.workflow_runs
+      (namespace_id, id, workflow_name, status, config, input, error, attempts, created_at, updated_at)
+    values (
+      ${openWorkflowNamespaceId()}, ${runId}, 'workspace-write-ui-file-edit', ${status}, '{}'::jsonb,
+      ${JSON.stringify({ orgId: org.id, workspaceId: workspace.id, jobId })}::jsonb,
+      ${message ? JSON.stringify({ message }) : null}::jsonb, 1, now(), now())`)
+  await withOrgDbContext(org.id, (db) =>
+    db
+      .update(workspaceWriteJobs)
+      .set({ payload: { workflowRunId: runId } })
+      .where(eq(workspaceWriteJobs.id, jobId)),
+  )
+}
 
 async function seed(
   target: typeof org,
@@ -79,10 +107,18 @@ describe("Files job status route (Postgres)", () => {
       { id: failedJob },
       { id: completedJob },
       { id: bootstrapJob, kind: "bootstrap" },
+      { id: endedRunJob },
+      { id: liveRunJob },
     ])
     await seed(org, sibling, [{ id: siblingJob }])
     await seed(otherOrg, otherWorkspace, [{ id: otherJob }])
     // The same model calls that the write workflows make.
+    await insertRun(
+      endedRunJob,
+      "failed",
+      "stdout maxBuffer length exceeded\n    at node:child_process:1",
+    )
+    await insertRun(liveRunJob, "running")
     await withOrgIdContext(org, async () => {
       await persistWriteJobStatus(failedJob, "failed", "superseded")
       await persistWriteJobStatus(completedJob, "completed")
@@ -90,6 +126,9 @@ describe("Files job status route (Postgres)", () => {
   })
 
   afterAll(async () => {
+    await getSystemDb().execute(
+      sql`delete from openworkflow.workflow_runs where id in (${`run_${endedRunJob}`}, ${`run_${liveRunJob}`})`,
+    )
     await withOrgDbContext(org.id, (db) =>
       db.delete(workspaces).where(eq(workspaces.orgId, org.id)),
     )
@@ -103,6 +142,27 @@ describe("Files job status route (Postgres)", () => {
     expect(await readJob(org, failedJob)).toEqual({
       status: 200,
       body: { status: "failed", failureReason: "superseded" },
+    })
+  })
+
+  it("fails a queued job whose run ended with an error, and gives the cause", async () => {
+    const expected = {
+      status: 200,
+      body: {
+        status: "failed",
+        failureReason:
+          "The write stopped before it finished. stdout maxBuffer length exceeded",
+      },
+    }
+    expect(await readJob(org, endedRunJob)).toEqual(expected)
+    // The job stays failed on the next read, with the same reason.
+    expect(await readJob(org, endedRunJob)).toEqual(expected)
+  })
+
+  it("keeps a queued job whose run still runs", async () => {
+    expect(await readJob(org, liveRunJob)).toEqual({
+      status: 200,
+      body: { status: "queued", failureReason: null },
     })
   })
 

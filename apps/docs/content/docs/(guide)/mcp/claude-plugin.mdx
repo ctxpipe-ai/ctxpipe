@@ -1,11 +1,11 @@
 ---
 title: Claude plugin
-description: Install the ctx| Claude plugin for Claude Code, Cowork, and Claude Tag in Slack.
+description: Install the ctxpipe Claude plugin for Claude Code, Cowork, and Claude Tag in Slack.
 # Hidden from the public docs site until the plugin is available in production.
 draft: true
 ---
 
-The ctx| Claude plugin is the supported way to give Claude a **named, attachable**
+The ctxpipe Claude plugin is the supported way to give Claude a **named, attachable**
 copy of the hosted MCP. Use it when a pasted custom MCP URL is not enough —
 especially Claude Tag channels in Slack.
 
@@ -17,7 +17,7 @@ https://app.ctxpipe.ai/mcp
 
 That URL does not use `?orgSlug=`. During OAuth, the consent screen lists your
 organizations with check boxes. The grant holds the set that you select. Each tool
-call names one organization, and ctx| allows it only when the organization is in
+call names one organization, and ctxpipe allows it only when the organization is in
 the set. To change the set, open [Connected apps](/docs/mcp/connected-apps)
 and select or clear organizations. You do not need to reconnect.
 
@@ -31,7 +31,7 @@ and select or clear organizations. You do not need to reconnect.
 ## What you get
 
 - The remote **ctxpipe** MCP server (`type: "http"`).
-- A **ctxpipe-context** skill that tells Claude to search ctx| knowledge and
+- A **ctxpipe-context** skill that tells Claude to search ctxpipe knowledge and
   code before it plans or chooses tools.
 - OAuth organization selection with no token or tenant identifier embedded in
   the plugin.
@@ -77,7 +77,7 @@ In `@Claude` **channels**:
    `plugins/ctxpipe` in the org skills repo).
 2. The plugin is attached on the Access bundle that covers those channels.
 3. An **MCP Connector** credential allows `app.ctxpipe.ai` (or the self-host
-   host). The owner signs in once and selects the ctx| organizations for this
+   host). The owner signs in once and selects the ctxpipe organizations for this
    Access bundle.
 4. Start a **new** thread. Existing threads keep the tool set they started
    with.
@@ -92,8 +92,8 @@ connectors.
 
 <Callout type="warn" title="The agent uses the admin identity">
   Claude Tag's MCP Connector credential is "sign in once as admin; the agent
-  acts as that account." Channel members do not each complete ctx| OAuth. Treat
-  that as a shared organization identity. The selected ctx| organization is
+  acts as that account." Channel members do not each complete ctxpipe OAuth. Treat
+  that as a shared organization identity. The selected ctxpipe organization is
   bound to the grant, but the signing-in account must still be allowed to read
   that organization's indexed context.
 </Callout>
@@ -117,7 +117,7 @@ path through one of:
 Submission is an account action and is not performed by CI. After publication,
 Anthropic mirrors versioned GitHub updates and screens them automatically.
 Listing the remote MCP in the separate Connectors Directory is still
-recommended so Claude presents ctx| as a named connector instead of **Custom**
+recommended so Claude presents ctxpipe as a named connector instead of **Custom**
 on connector-first surfaces.
 
 Submit the main-branch plugin directory after merge:

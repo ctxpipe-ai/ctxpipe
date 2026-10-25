@@ -285,16 +285,23 @@
 }
 
 /*
- * A block that may not show (the Get started guide) holds no space while it
- * loads. When it appears, a view transition (useRevealOnce) moves the blocks
+ * A block that may not show (the Get started guide, the notices) holds no
+ * space while it loads or when it has nothing to say. When it comes or goes,
+ * a view transition (useRevealOnce, useViewTransitionValue) moves the blocks
  * below it with transforms, so nothing animates height (DESIGN.md "Motion").
  */
 ::view-transition-group(home-guide),
 ::view-transition-group(home-below),
+::view-transition-group(home-notices),
+::view-transition-group(home-composer),
 ::view-transition-old(home-guide),
 ::view-transition-new(home-guide),
 ::view-transition-old(home-below),
-::view-transition-new(home-below) {
+::view-transition-new(home-below),
+::view-transition-old(home-notices),
+::view-transition-new(home-notices),
+::view-transition-old(home-composer),
+::view-transition-new(home-composer) {
   animation-duration: 150ms;
   animation-timing-function: ease-out;
 }
@@ -402,7 +409,7 @@
   }
 }
 
-/* ctx| product surface primitives (shared page chrome) */
+/* ctxpipe product surface primitives (shared page chrome) */
 @layer components {
   .ctx-label {
     @apply font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground;
@@ -650,6 +657,13 @@
 
 .ctx-status-pulse {
   animation: ctx-status-pulse 1.2s ease-in-out infinite;
+}
+
+/* With reduced motion a status dot stays at full strength, with no pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .ctx-status-pulse {
+    animation: none;
+  }
 }
 
 @keyframes ctx-status-pulse {

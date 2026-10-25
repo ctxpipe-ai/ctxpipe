@@ -1,4 +1,5 @@
 import type { z } from "zod"
+
 import type { Env } from "../config/env.js"
 import type { connections } from "../db/schema/connections.js"
 import {
@@ -425,9 +426,9 @@ export function githubRowHasOwnApp(row: ConnectionRow, env: Env): boolean {
   return (
     Boolean(
       stored.githubAppId &&
-        stored.appSlug &&
-        stored.privateKeyEnc &&
-        stored.webhookSecretEnc,
+      stored.appSlug &&
+      stored.privateKeyEnc &&
+      stored.webhookSecretEnc,
     ) && stored.githubAppId?.trim() !== env.GITHUB_APP_ID?.trim()
   )
 }

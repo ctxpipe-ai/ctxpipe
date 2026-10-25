@@ -1,4 +1,5 @@
 import { and, eq, sql } from "drizzle-orm"
+
 import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
@@ -74,7 +75,7 @@ async function disableNotionLegacySync(input: {
  * The old mirror named a root page folder with the live page title, and a
  * database folder with the config title. Use the live title of each page
  * root, so the source keeps the folder that is in the repository. A page
- * that ctx| cannot read keeps the config title.
+ * that ctxpipe cannot read keeps the config title.
  */
 async function withLivePageTitles(input: {
   orgId: string

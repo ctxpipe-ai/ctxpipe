@@ -13,7 +13,7 @@
     "modelFast": "openai.gpt-5.6-terra?reasoning.effort=low",
     "modelMedium": "openai.gpt-5.6-terra?reasoning.effort=medium",
     "modelHigh": "openai.gpt-5.6-terra?reasoning.effort=high",
-    "modelEmbedding": "text-embedding-3-large",
+    "modelEmbedding": "cohere.embed-v4:0",
     "@aws-cdk/aws-iam:minimizePolicies": true,
     "@aws-cdk/core:newStyleStackSynthesis": true,
     "@aws-cdk/aws-ecs:disableExplicitDeploymentControllerForCircuitBreaker": true

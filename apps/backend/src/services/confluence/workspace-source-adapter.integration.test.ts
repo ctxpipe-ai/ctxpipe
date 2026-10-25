@@ -1,6 +1,7 @@
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { confluenceSpaces } from "../../db/schema/confluenceSpaces.js"
@@ -353,62 +354,65 @@ describe("Confluence source adapter (Postgres + msw)", () => {
   it.each([
     ["a typo space key", "ENGG", false],
     ["a deleted space", "ENG", true],
-  ])("reports %s after bounded tries, also when the site cannot answer", async (_name, key, deleteSpace) => {
-    const forge = await seed.addConnection("forge", installed)
-    const workspaceId = await seed.addWorkspace(`conf-space-${key}`)
-    await replaceWorkspaceSourceRows({
-      orgId: seed.orgId,
-      workspaceId,
-      revision: "f".repeat(40),
-      rows: [
-        {
-          ...confluenceRow("docs", forge, "all"),
-          scope: { spaces: [{ key, pages: "all" }] },
-        },
-      ],
-    })
-    if (deleteSpace) site.spaces = []
-    const writes: WorkspaceSliceWrite[] = []
-    for (let attempt = 1; attempt <= CONFLUENCE_SYNC_MAX_TRIES; attempt += 1)
-      await syncConnectionSources({
+  ])(
+    "reports %s after bounded tries, also when the site cannot answer",
+    async (_name, key, deleteSpace) => {
+      const forge = await seed.addConnection("forge", installed)
+      const workspaceId = await seed.addWorkspace(`conf-space-${key}`)
+      await replaceWorkspaceSourceRows({
         orgId: seed.orgId,
-        connectionId: forge,
-        env: parseEnv(process.env),
-        adapter: confluenceSourceAdapter,
-        write: async (write) => {
-          writes.push(write)
-        },
+        workspaceId,
+        revision: "f".repeat(40),
+        rows: [
+          {
+            ...confluenceRow("docs", forge, "all"),
+            scope: { spaces: [{ key, pages: "all" }] },
+          },
+        ],
       })
-    // Only the last try writes: it removes the old content of the space.
-    expect(writes).toHaveLength(1)
-    expect(writes[0]?.files).toEqual([])
-    const scope = { spaces: [{ key, pages: "all" as const }] }
-    expect(
-      await confluenceSourceAdapter.syncStatus?.({
-        orgId: seed.orgId,
-        connectionId: forge,
-        scope,
-      }),
-    ).toMatchObject({
-      status: "out_of_access",
-      detail: expect.stringContaining(key),
-    })
-    // An outage of the site does not hide the recorded problem.
-    server.use(
-      http.get(`${api}/api/v2/spaces`, () =>
-        HttpResponse.json({}, { status: 503 }),
-      ),
-    )
-    expect(
-      await confluenceSourceAdapter.checkAccess?.({
-        orgId: seed.orgId,
-        connectionId: forge,
-        scope,
-        env: parseEnv(process.env),
-      }),
-    ).toContain(key)
-    server.resetHandlers()
-  })
+      if (deleteSpace) site.spaces = []
+      const writes: WorkspaceSliceWrite[] = []
+      for (let attempt = 1; attempt <= CONFLUENCE_SYNC_MAX_TRIES; attempt += 1)
+        await syncConnectionSources({
+          orgId: seed.orgId,
+          connectionId: forge,
+          env: parseEnv(process.env),
+          adapter: confluenceSourceAdapter,
+          write: async (write) => {
+            writes.push(write)
+          },
+        })
+      // Only the last try writes: it removes the old content of the space.
+      expect(writes).toHaveLength(1)
+      expect(writes[0]?.files).toEqual([])
+      const scope = { spaces: [{ key, pages: "all" as const }] }
+      expect(
+        await confluenceSourceAdapter.syncStatus?.({
+          orgId: seed.orgId,
+          connectionId: forge,
+          scope,
+        }),
+      ).toMatchObject({
+        status: "out_of_access",
+        detail: expect.stringContaining(key),
+      })
+      // An outage of the site does not hide the recorded problem.
+      server.use(
+        http.get(`${api}/api/v2/spaces`, () =>
+          HttpResponse.json({}, { status: 503 }),
+        ),
+      )
+      expect(
+        await confluenceSourceAdapter.checkAccess?.({
+          orgId: seed.orgId,
+          connectionId: forge,
+          scope,
+          env: parseEnv(process.env),
+        }),
+      ).toContain(key)
+      server.resetHandlers()
+    },
+  )
 
   it("marks a space that the site does not have as out of access", async () => {
     const forge = await seed.addConnection("forge", installed)

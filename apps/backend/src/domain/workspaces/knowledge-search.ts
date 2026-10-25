@@ -1,4 +1,5 @@
 import { type SQL, sql } from "drizzle-orm"
+
 import { withOrgDbContext } from "../../db/client.js"
 import { log } from "../../observability/logger.js"
 import { generateEmbedding } from "../../retrieval/services/modelProvider.js"

@@ -17,6 +17,7 @@ import {
   Button as RACButton,
   RangeCalendar,
 } from "react-aria-components"
+
 import { Button } from "@/components/ui/Button"
 import { CalendarGridHeader, CalendarHeader } from "@/components/ui/Calendar"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -32,6 +33,7 @@ import type { Workspace } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
+
 import {
   type ActivitySearch,
   activitySearch,
@@ -681,8 +683,8 @@ function WorkspaceActivityError(props: {
     >
       {props.cause === "github" ? (
         <>
-          ctx| could not read the commit history of this Workspace from GitHub.
-          Reconnect GitHub in{" "}
+          ctxpipe could not read the commit history of this Workspace from
+          GitHub. Reconnect GitHub in{" "}
           <Link
             to="/$orgSlug/connectors"
             params={{ orgSlug: props.orgSlug }}
@@ -700,7 +702,7 @@ function WorkspaceActivityError(props: {
         </>
       ) : (
         <>
-          The activity request to ctx| failed. Check your network connection,
+          The activity request to ctxpipe failed. Check your network connection,
           then try again. The composer still works.
         </>
       )}

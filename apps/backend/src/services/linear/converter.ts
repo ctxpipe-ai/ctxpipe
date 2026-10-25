@@ -1,5 +1,6 @@
 import slugify from "@sindresorhus/slugify"
 import { stringify } from "yaml"
+
 import { isConnectorAssetCredentialUrl } from "../connectors/assets.js"
 import { connectorPathSegment } from "../connectors/path-segment.js"
 import { rewriteLinearMarkdownImages } from "./markdown-images.js"

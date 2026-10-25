@@ -1,12 +1,12 @@
 import { HttpResponse, http } from "msw"
 import { describe, expect, it } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import type { Env } from "../../config/env.js"
 import { encodeSlackBotTokenForDb } from "../../lib/connection-config.js"
 import type { SlackConnectionShape } from "../../models/connection-rows.js"
 import { listSlackChannels } from "./client.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 
 describe("listSlackChannels", () => {

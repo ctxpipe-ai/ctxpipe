@@ -1,5 +1,7 @@
 import { gunzipSync } from "node:zlib"
+
 import { and, eq, inArray, sql } from "drizzle-orm"
+
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
@@ -108,7 +110,7 @@ export type ReingestRepository = {
   /** `owner/name` for GitHub; `<host>/<path>` for plain git (`sourceRepositoryName`). */
   repository: string
   url: string
-  /** Null for a plain git repository, which ctx| reads with no credential. */
+  /** Null for a plain git repository, which ctxpipe reads with no credential. */
   githubConnectionId: string | null
 }
 
@@ -442,7 +444,7 @@ export async function reingestSlotTurn(input: {
   const row = result.rows[0]
   if (row?.org_head !== input.upgradeRunId)
     return {
-      wait: "A re-ingestion of another Workspace of this organization runs.",
+      wait: "Another re-ingestion of this organization runs.",
     }
   // A repository run of an upgrade run that ended (failed or canceled) can
   // still spend. Its slot stays taken until that run ends too.
@@ -493,13 +495,13 @@ export function reingestBlock(input: {
       blockedReason: UPGRADE_BLOCKED_REASONS.needsFormat,
       note:
         input.writeStatus === "read_only" || !input.githubConnectionId
-          ? `Re-ingestion needs format ${REINGEST_REQUIRES_FORMAT}. ctx| needs write access through the GitHub App to open the format upgrade pull request.`
+          ? `Re-ingestion needs format ${REINGEST_REQUIRES_FORMAT}. ctxpipe needs write access through the GitHub App to open the format upgrade pull request.`
           : `Re-ingestion needs format ${REINGEST_REQUIRES_FORMAT}. Merge the format upgrade first.`,
     }
   if (!ingestionV2EnabledFor({ formatVersion: input.format }))
     return {
       blockedReason: UPGRADE_BLOCKED_REASONS.ingestionV2Off,
-      note: "Ingestion v2 does not publish to this Workspace yet: ctx| has not read a valid format file of it.",
+      note: "Ingestion v2 does not publish to this Workspace yet: ctxpipe has not read a valid format file of it.",
     }
   if (sandbox)
     return {
@@ -511,7 +513,7 @@ export function reingestBlock(input: {
       blockedReason: UPGRADE_BLOCKED_REASONS.writeAccess,
       note:
         input.readOnlyReason ??
-        "Connect the Workspace repository with the GitHub App, so that ctx| can publish the re-ingestion.",
+        "Connect the Workspace repository with the GitHub App, so that ctxpipe can publish the re-ingestion.",
     }
   return null
 }

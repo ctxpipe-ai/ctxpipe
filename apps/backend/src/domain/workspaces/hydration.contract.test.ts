@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process"
 import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+
 import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -271,14 +273,12 @@ it(
 )
 
 it(
-  "records an index credential failure independently of published knowledge",
+  "records a missing published checkout as an index failure, independently of published knowledge",
   { timeout: 60_000 },
   async () =>
     withNativeHydrationFixture({ github: true }, async (f) => {
-      const { org, id, workspaceUrl, runner, workspaceId, tokenRequests, sha } =
-        f
+      const { org, id, workspaceUrl, runner, workspaceId, sha } = f
       await f.publish()
-      f.failTokens()
       await withOrgDbContext(org.id, (db) =>
         db.insert(repositories).values({
           id: `repo_${id}`,
@@ -293,12 +293,11 @@ it(
           getDesiredWorkspaceRevision(workspaceId),
         ))!,
       })
-      await expect(indexing.result({ timeoutMs: 30_000 })).rejects.toThrow(
-        "Credential provider unavailable",
-      )
-      expect(tokenRequests.at(-1)).toEqual({
-        repositories: ["hydration-contract"],
-        permissions: { contents: "read", metadata: "read" },
+      // Workspace code reads use the published checkout of the repository,
+      // and the repository has none yet. The index makes no copy of its own.
+      expect(await indexing.result({ timeoutMs: 30_000 })).toEqual({
+        published: false,
+        role: "workspace",
       })
       await withOrgIdContext(org, async () => {
         expect(await getWorkspaceProjection(workspaceId)).toMatchObject({

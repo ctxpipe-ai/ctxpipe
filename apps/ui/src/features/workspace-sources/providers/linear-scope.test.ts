@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
+
 import type { LinearScope } from "@/features/connectors/queries/linear-connector"
+
 import {
   linearChecklistItems,
   linearScopeFromSelection,

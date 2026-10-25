@@ -1,4 +1,5 @@
 import type { EvlogVariables } from "evlog/hono"
+
 import type { AuthSession, AuthUser } from "../auth/config.js"
 import type { RequestSession } from "../auth/withAuth.js"
 import type { Env } from "../config/env.js"

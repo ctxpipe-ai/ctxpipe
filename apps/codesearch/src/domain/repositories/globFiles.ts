@@ -1,6 +1,7 @@
 import type { Dirent } from "node:fs"
 import { realpath, stat } from "node:fs/promises"
 import { basename, join, relative, sep } from "node:path"
+
 import { readContainedDirectory, resolveContainedRealPath } from "./paths.js"
 
 export class GlobPathNotFoundError extends Error {

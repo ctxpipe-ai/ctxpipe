@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import { OnboardingHowItWorksSlide } from "@/components/onboarding/OnboardingHowItWorksSlide"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 
@@ -33,12 +35,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 const STEP_TITLES = [
-  "Link your code and tools. ctx| keeps them current as Markdown in your git.",
+  "Link your code and tools. ctxpipe keeps them current as Markdown in your git.",
   "Review every change, and edit the files like any git repository.",
   "Point every agent at the same facts over MCP.",
 ]
 
-const WELCOME_TITLE = "Welcome to ctx|"
+const WELCOME_TITLE = "Welcome to ctxpipe"
 
 /** The rows of the slide, top to bottom: the title, three steps, the action. */
 function slideRows(canvasElement: HTMLElement) {

@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto"
+
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
+
 import { withUserIdContext } from "../../auth/context.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
@@ -277,7 +279,7 @@ it.each(["unchanged", "edited", "rebased"])(
             (await raw.process.exec(`git cat-file -e ${f.sha}`)).exitCode,
           ).not.toBe(0)
           let revision = f.revision
-          // ctx| pushed the published session itself.
+          // ctxpipe pushed the published session itself.
           await withOrgDbContext(f.org.id, (db) =>
             db
               .update(conversations)

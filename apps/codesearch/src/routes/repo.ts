@@ -1,10 +1,20 @@
 import { realpath } from "node:fs/promises"
+
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
+
 import type { AppEnv } from "../app/env.js"
 import { checkoutKeyFromAuth, indexCheckoutFromAuth } from "../auth/jwt.js"
-import { withRepositoryPurgeOperation } from "../domain/indexing/indexConcurrency.js"
+import {
+  tryWithRepositoryPurgeOperation,
+  withRepositoryPurgeOperation,
+} from "../domain/indexing/indexConcurrency.js"
 import { cloneAndIndexRepository } from "../domain/indexing/service.js"
+import {
+  COLLECTABLE_CHECKOUT_KEY,
+  deleteCheckoutFromDisk,
+  sweepRepositoryDisk,
+} from "../domain/repositories/checkoutGc.js"
 import {
   GlobInvalidRequestError,
   GlobPathNotFoundError,
@@ -12,6 +22,7 @@ import {
   listCheckoutFilePaths,
 } from "../domain/repositories/globFiles.js"
 import {
+  DEFAULT_CHECKOUT_KEY,
   readContainedDirectory,
   readContainedFile,
   repoCheckoutPath,
@@ -23,6 +34,7 @@ import { resolveRepositoryRef } from "../domain/repositories/resolveRef.js"
 import {
   getAccessibleRepository,
   getIndexableRepository,
+  listCheckoutKeys,
 } from "../domain/repositories/service.js"
 import {
   createLogger,
@@ -160,6 +172,121 @@ const purgeRepositoryRoute = createRoute({
     400: { description: "Invalid request" },
     404: repositoryNotFoundResponse,
     403: { description: "Access denied" },
+  },
+})
+
+const deleteCheckoutsRequestSchema = z
+  .object({
+    /** `rev:<sha>`, `ws:<workspaceId>:<sha>`, or `ws:<workspaceId>` keys; never `default`. */
+    checkoutKeys: z
+      .array(z.string().regex(COLLECTABLE_CHECKOUT_KEY))
+      .min(1)
+      .max(10),
+    /**
+     * The database time before the backend found that no other running run
+     * uses these keys; the ingestion run that used them ended. Then only a
+     * row that a run used after this time keeps the files, not each row
+     * that changed in the last hour.
+     */
+    runEndedAt: z.iso.datetime({ offset: true }).optional(),
+  })
+  .openapi("DeleteCheckoutsRequest")
+
+const deleteCheckoutsResponseSchema = z
+  .object({
+    deleted: z.array(z.object({ checkoutKey: z.string() })),
+    skipped: z.array(
+      z.object({
+        checkoutKey: z.string(),
+        reason: z.enum(["published", "not_found", "recent"]),
+      }),
+    ),
+  })
+  .openapi("DeleteCheckoutsResponse")
+
+const deleteCheckoutsRoute = createRoute({
+  method: "post",
+  path: "/{repoId}/checkouts/delete",
+  request: {
+    params: z.object({ repoId: repoIdParam }),
+    body: {
+      content: {
+        "application/json": { schema: deleteCheckoutsRequestSchema },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: deleteCheckoutsResponseSchema },
+      },
+      description:
+        "Clones, SCIP files, and Zoekt shards of the listed checkouts removed. The caller deletes the checkout rows of `deleted`.",
+    },
+    403: {
+      content: {
+        "application/json": { schema: z.object({ error: z.string() }) },
+      },
+      description: "The token is not a collection token for this repository",
+    },
+    404: repositoryNotFoundResponse,
+    409: {
+      content: {
+        "application/json": { schema: z.object({ error: z.string() }) },
+      },
+      description:
+        "An index job of the repository runs now. Nothing was deleted; try again later.",
+    },
+    503: {
+      content: {
+        "application/json": { schema: z.object({ error: z.string() }) },
+      },
+      description: "Database not available",
+    },
+  },
+})
+
+const sweepCheckoutsResponseSchema = z
+  .object({
+    deletedEntries: z.number(),
+    deletedBytes: z.number(),
+    /** The published checkout has no directory: index it again. */
+    publishedMissing: z.boolean(),
+  })
+  .openapi("SweepCheckoutsResponse")
+
+const sweepCheckoutsRoute = createRoute({
+  method: "post",
+  path: "/{repoId}/checkouts/sweep",
+  request: { params: z.object({ repoId: repoIdParam }) },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: sweepCheckoutsResponseSchema },
+      },
+      description:
+        "Checkout directories, SCIP files, Zoekt shards, and temporary files with no checkout row and older than one hour removed",
+    },
+    403: {
+      content: {
+        "application/json": { schema: z.object({ error: z.string() }) },
+      },
+      description: "The token is not a collection token for this repository",
+    },
+    404: repositoryNotFoundResponse,
+    409: {
+      content: {
+        "application/json": { schema: z.object({ error: z.string() }) },
+      },
+      description:
+        "An index job of the repository runs now. Nothing was deleted; try again later.",
+    },
+    503: {
+      content: {
+        "application/json": { schema: z.object({ error: z.string() }) },
+      },
+      description: "Database not available",
+    },
   },
 })
 
@@ -355,6 +482,11 @@ const filesQueryRequestSchema = z
         "The root must be a relative folder path",
       )
       .optional(),
+    /**
+     * A size limit in bytes. A file larger than the limit is not read: its
+     * entry has only its size.
+     */
+    maxBytes: z.number().int().positive().optional(),
   })
   .openapi("FilesQueryRequest")
 
@@ -375,8 +507,17 @@ const filesQueryRoute = createRoute({
     200: {
       content: {
         "application/json": {
-          schema: z.record(z.string(), z.string()),
-          description: "Map of path to base64-encoded content",
+          schema: z.record(
+            z.string(),
+            z.union([
+              z.string(),
+              z
+                .object({ size: z.number().int(), tooLarge: z.literal(true) })
+                .openapi("TooLargeFile"),
+            ]),
+          ),
+          description:
+            "Map of path to base64-encoded content, or to the size only when the file is larger than `maxBytes`",
         },
       },
       description: "Files by path",
@@ -430,6 +571,110 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       }
       return c.json(repositoryNotFoundBody, 404)
     })
+  })
+
+  app.openapi(deleteCheckoutsRoute, async (c) => {
+    const db = c.get("db")
+    if (!db) return c.json({ error: "Database not configured" }, 503)
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
+    const { repoId } = c.req.valid("param")
+    if (auth.principal !== "service" || auth.sub !== `repo-gc:${repoId}`)
+      return c.json({ error: "Access denied" }, 403)
+    const { checkoutKeys, runEndedAt } = c.req.valid("json")
+    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
+    if (!repo) return c.json(repositoryNotFoundBody, 404)
+    const result = await tryWithRepositoryPurgeOperation(repoId, async () => {
+      const deleted: Array<{ checkoutKey: string }> = []
+      const skipped: Array<{
+        checkoutKey: string
+        reason: "published" | "not_found" | "recent"
+      }> = []
+      for (const checkoutKey of new Set(checkoutKeys)) {
+        if (checkoutKey === repo.publishedCheckoutKey) {
+          skipped.push({ checkoutKey, reason: "published" })
+          continue
+        }
+        const row = await getIndexableRepository(
+          db,
+          repoId,
+          auth.orgId,
+          checkoutKey,
+        )
+        if (!row) {
+          skipped.push({ checkoutKey, reason: "not_found" })
+          continue
+        }
+        // A run took the key again after the caller listed it. The index
+        // operation of that run waits for this lock, so the row is read
+        // under the lock.
+        if (
+          runEndedAt
+            ? (row.checkoutUsedAt?.getTime() ?? Number.POSITIVE_INFINITY) >
+              Date.parse(runEndedAt)
+            : row.checkoutUsedRecently
+        ) {
+          skipped.push({ checkoutKey, reason: "recent" })
+          continue
+        }
+        await deleteCheckoutFromDisk({
+          orgId: repo.orgId,
+          repoId: repo.id,
+          checkoutKey,
+          zoektRepoId: row.zoektRepoId,
+        })
+        deleted.push({ checkoutKey })
+      }
+      return { deleted, skipped }
+    })
+    if (!result.acquired)
+      return c.json(
+        { error: "An index job of this repository runs now; try again later" },
+        409,
+      )
+    getLogger().set({
+      step: "codesearch.checkout_gc",
+      repoId,
+      deletedKeys: result.value.deleted.length,
+      skippedKeys: result.value.skipped.length,
+    })
+    return c.json(result.value, 200)
+  })
+
+  app.openapi(sweepCheckoutsRoute, async (c) => {
+    const db = c.get("db")
+    if (!db) return c.json({ error: "Database not configured" }, 503)
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
+    const { repoId } = c.req.valid("param")
+    if (auth.principal !== "service" || auth.sub !== `repo-gc:${repoId}`)
+      return c.json({ error: "Access denied" }, 403)
+    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
+    if (!repo) return c.json(repositoryNotFoundBody, 404)
+    const result = await tryWithRepositoryPurgeOperation(repoId, async () =>
+      sweepRepositoryDisk({
+        orgId: repo.orgId,
+        repoId: repo.id,
+        // Read under the purge operation: a new run adds its row before it
+        // indexes, and its index operation waits for this one.
+        rowKeys: await listCheckoutKeys(db, repoId, auth.orgId),
+        publishedCheckoutKey: repo.publishedCheckoutKey ?? DEFAULT_CHECKOUT_KEY,
+        minAgeMs: 60 * 60 * 1000,
+      }),
+    )
+    if (!result.acquired)
+      return c.json(
+        { error: "An index job of this repository runs now; try again later" },
+        409,
+      )
+    getLogger().set({
+      step: "codesearch.checkout_sweep",
+      repoId,
+      deletedEntries: result.value.deletedEntries,
+      deletedBytes: result.value.deletedBytes,
+      publishedMissing: result.value.publishedMissing,
+    })
+    return c.json(result.value, 200)
   })
 
   app.openapi(indexRoute, async (c) => {
@@ -571,7 +816,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     let publishedCheckoutKey: string | undefined
-    if (!auth.workspaceId && !auth.repositoryRevisions) {
+    if (!auth.repositoryRevisions) {
       const db = c.get("db")
       if (!db) return c.json({ error: "Database not configured" }, 503)
       const repository = await getAccessibleRepository(db, repoId, auth.orgId)
@@ -698,7 +943,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const auth = c.get("auth")
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
-    const { paths, root } = c.req.valid("json")
+    const { paths, root, maxBytes } = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) return c.json(repositoryNotFoundBody, 404)
     const basePath = repoCheckoutPath(
@@ -706,12 +951,14 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       repo.id,
       checkoutKeyFromAuth(auth, repoId, repo.publishedCheckoutKey),
     )
-    const result: Record<string, string> = {}
+    const result: Record<string, string | { size: number; tooLarge: true }> = {}
     for (const p of paths) {
       try {
-        result[p] = (await readContainedFile(basePath, p, root)).toString(
-          "base64",
-        )
+        const data =
+          maxBytes === undefined
+            ? await readContainedFile(basePath, p, root)
+            : await readContainedFile(basePath, p, root ?? "", maxBytes)
+        result[p] = Buffer.isBuffer(data) ? data.toString("base64") : data
       } catch {
         // omit missing files
       }

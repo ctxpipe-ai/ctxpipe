@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto"
+
 import {
   type GitPack,
+  type GitRemoteRead,
   nativeGit,
   packRootTree,
   readGitFiles,
@@ -75,12 +77,20 @@ export function splitSourcesTree<
  * the hydrate read ({@link SOURCES_TREE_READ}): a blob under `sources/` that
  * is too large or not text gets no content, so that it gets an invalid row.
  */
-export async function readSourcesTree(pack: GitPack) {
+export async function readSourcesTree(
+  pack: GitPack,
+  read: GitRemoteRead | null,
+) {
   return splitSourcesTree(
-    await readGitFiles(pack, isSourcesTreePath, {
-      maxBytes: SOURCE_FILE_MAX_BYTES,
-      applies: (path) => path.startsWith(SOURCES_FOLDER_PREFIX),
-    }),
+    await readGitFiles(
+      pack,
+      isSourcesTreePath,
+      {
+        maxBytes: SOURCE_FILE_MAX_BYTES,
+        applies: (path) => path.startsWith(SOURCES_FOLDER_PREFIX),
+      },
+      read,
+    ),
   )
 }
 

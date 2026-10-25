@@ -1,15 +1,22 @@
 import { useQuery } from "@tanstack/react-query"
 import type { SourceProvider } from "backend/domain/workspace-sources/sources-file"
+
+import { Button } from "@/components/ui/Button"
 import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { Link as TextLink } from "@/components/ui/Link"
 import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
 import {
   Skeleton,
   SkeletonText,
   useSkeletonHold,
 } from "@/components/ui/Skeleton"
+import { workspaceUpgradesHref } from "@/features/workspace-upgrades/format-gate"
+import { FormatUpgradeWorkspacesNotice } from "@/features/workspace-upgrades/FormatUpgradeWorkspacesNotice"
+import { useWorkspaceFormatGate } from "@/features/workspace-upgrades/use-workspace-format-gate"
 import { workspaceListOptions } from "@/features/workspaces/queries"
+
 import {
   type ChooseWorkspacesValue,
   selectWorkspaces,
@@ -33,11 +40,25 @@ export function ChooseWorkspacesStep(props: {
 }) {
   const { orgSlug, provider, connectionId, value, onChange } = props
   const listQuery = useQuery(workspaceListOptions(orgSlug))
-  const loading = useSkeletonHold(listQuery.isPending)
+  // A Workspace below the newest format refuses a source (CTX-935): the row
+  // is off and links to its upgrade, so the save cannot fail. No row shows
+  // before the read of the formats answers, and none can be chosen after it
+  // fails.
+  const gate = useWorkspaceFormatGate(orgSlug)
+  const loading = useSkeletonHold(listQuery.isPending || gate.pending)
   const workspaces = listQuery.data?.items ?? []
+  const blocked = workspaces.filter((workspace) =>
+    gate.needsUpgrade(workspace.slug),
+  )
   const { ScopeEditor } = SOURCE_PROVIDER_UI[provider]
-  const selected = workspaces.filter((workspace) =>
-    value.workspaceSlugs.includes(workspace.slug),
+  // A blocked Workspace shows as not chosen and gets no scope: the save
+  // sends nothing for it. Its slug stays in the value, so that Manage does
+  // not turn it into a remove.
+  const blockedSlugs = blocked.map((workspace) => workspace.slug)
+  const selected = workspaces.filter(
+    (workspace) =>
+      value.workspaceSlugs.includes(workspace.slug) &&
+      !blockedSlugs.includes(workspace.slug),
   )
   const perWorkspace =
     value.scopeMode === "per_workspace" && selected.length > 1
@@ -67,19 +88,70 @@ export function ChooseWorkspacesStep(props: {
           There are no Workspaces yet. Create a Workspace first.
         </p>
       ) : (
-        <CheckboxGroup
-          label="Workspaces"
-          value={value.workspaceSlugs}
-          onChange={(workspaceSlugs) =>
-            onChange(selectWorkspaces(value, workspaceSlugs))
-          }
-        >
-          {workspaces.map((workspace) => (
-            <Checkbox key={workspace.id} value={workspace.slug}>
-              {workspace.displayName}
-            </Checkbox>
-          ))}
-        </CheckboxGroup>
+        <>
+          {gate.failed ? (
+            <InlineAlert
+              variant="error"
+              actions={
+                <Button variant="secondary" onPress={gate.retry}>
+                  Retry
+                </Button>
+              }
+            >
+              Could not check which Workspaces need the format upgrade. You
+              cannot choose a Workspace until this check works.
+            </InlineAlert>
+          ) : null}
+          {blocked.length === workspaces.length ? (
+            <FormatUpgradeWorkspacesNotice
+              orgSlug={orgSlug}
+              workspaces={blocked}
+            />
+          ) : null}
+          <CheckboxGroup
+            label="Workspaces"
+            isDisabled={!gate.ready}
+            value={value.workspaceSlugs.filter(
+              (slug) => !blockedSlugs.includes(slug),
+            )}
+            onChange={(workspaceSlugs) =>
+              onChange(
+                selectWorkspaces(value, [
+                  ...workspaceSlugs,
+                  ...value.workspaceSlugs.filter((slug) =>
+                    blockedSlugs.includes(slug),
+                  ),
+                ]),
+              )
+            }
+          >
+            {workspaces.map((workspace) =>
+              gate.needsUpgrade(workspace.slug) ? (
+                <div
+                  key={workspace.id}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1"
+                >
+                  <Checkbox value={workspace.slug} isDisabled>
+                    {workspace.displayName}
+                  </Checkbox>
+                  <span className="text-xs text-muted-foreground">
+                    Needs the format upgrade first.{" "}
+                    <TextLink
+                      href={workspaceUpgradesHref(orgSlug, workspace.slug)}
+                      variant="secondary"
+                    >
+                      Review upgrade
+                    </TextLink>
+                  </span>
+                </div>
+              ) : (
+                <Checkbox key={workspace.id} value={workspace.slug}>
+                  {workspace.displayName}
+                </Checkbox>
+              ),
+            )}
+          </CheckboxGroup>
+        </>
       )}
 
       {selected.length > 1 ? (

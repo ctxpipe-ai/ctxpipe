@@ -5,6 +5,7 @@ import {
 } from "@tanstack/react-query"
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
 import { useCallback, useEffect, useRef, useState } from "react"
+
 import { useSideNavLocation } from "@/components/ShellLayoutContext"
 import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Button } from "@/components/ui/Button"
@@ -13,6 +14,8 @@ import { SkeletonRegion, SkeletonSuspense } from "@/components/ui/Skeleton"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import { pollWhileOk } from "@/lib/api-result"
 import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
+
+import { conversationErrorReason } from "./conversationPublish"
 import {
   closeFileTab,
   type FileTabSession,
@@ -24,6 +27,7 @@ import {
 import {
   landingPane,
   type ParsedPane,
+  paneSearchForOtherConversation,
   serializePane,
   visiblePane,
 } from "./pane"
@@ -43,13 +47,13 @@ import type { WorkspaceDetail } from "./types"
 import { useWorkspaceConversationPublish } from "./useWorkspaceConversationPublish"
 import { WorkspaceChat } from "./WorkspaceChat"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
+import { workspaceChatColumnClassName } from "./workspaceChrome"
 import {
   WorkspaceHydrateFailedBody,
   WorkspaceHydrateProgress,
 } from "./WorkspaceHydrateProgress"
 import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
 import { WorkspaceQueryErrorBoundary } from "./WorkspaceQueryErrorBoundary"
-import { workspaceChatColumnClassName } from "./workspaceChrome"
 import { WorkspaceSurfaceSkeleton } from "./workspaceSkeletons"
 import { WriteCheckStallContext } from "./writeCheckStall"
 
@@ -97,15 +101,26 @@ export function WorkspaceSurface(props: {
   )
 }
 
+/**
+ * The cause and the next step for a pane or chat column error. A known
+ * backend code gets its text; an unknown code never shows as it is.
+ */
+function workspacePaneErrorText(error: unknown): string {
+  const raw = error instanceof Error ? error.message.trim() : ""
+  if (!raw) return "Try again in a moment."
+  const reason = conversationErrorReason(raw)
+  if (reason) return reason
+  if (/^[a-z]+(_[a-z]+)+$/.test(raw))
+    return "ctxpipe could not load this. Try again. If the error stays, reload the page."
+  return raw
+}
+
 function WorkspaceColumnError(props: {
   title: string
   error: unknown
   reset: () => void
 }) {
-  const message =
-    props.error instanceof Error && props.error.message.trim().length > 0
-      ? props.error.message
-      : "Try again in a moment."
+  const message = workspacePaneErrorText(props.error)
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
       <div className="w-full max-w-sm">
@@ -238,7 +253,7 @@ function WorkspaceSurfaceReady(props: {
     restart: useCallback(() => setCheckEpoch((n) => n + 1), []),
   }
   const writeChecking = writeCheckInFlight(workspace ?? {})
-  // biome-ignore lint/correctness/useExhaustiveDependencies: checkEpoch restarts the timer
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- checkEpoch restarts the timer
   useEffect(() => {
     setWriteCheckStalled(false)
     if (!writeChecking) return
@@ -478,7 +493,7 @@ function WorkspaceSurfaceColumns(props: {
     void navigate({
       to: "/$orgSlug/ws/$workspaceSlug",
       params: { orgSlug, workspaceSlug: workspace.slug },
-      search: {},
+      search: (prev) => paneSearchForOtherConversation(prev),
     })
   }
   const publish = useWorkspaceConversationPublish({

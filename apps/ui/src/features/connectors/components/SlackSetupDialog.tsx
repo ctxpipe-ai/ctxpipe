@@ -5,12 +5,14 @@ import { IconBrandSlack, IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
+
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
+
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   fetchSlackConnectorStatus,
@@ -175,7 +177,7 @@ export function SlackSetupDialog({
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
                 Save a Slack thread to your Workspaces when someone mentions the
-                ctx| bot in it. The bot reads nothing else.
+                ctxpipe bot in it. The bot reads nothing else.
               </p>
               <a
                 href={SLACK_DOCS_URL}
@@ -313,7 +315,8 @@ export function SlackSetupDialog({
                   <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                     {formatSlackBotMention(status?.botHandle)}
                   </code>
-                  . ctx| saves the thread to each Workspace with that channel.
+                  . ctxpipe saves the thread to each Workspace with that
+                  channel.
                 </li>
               </ol>
             </section>

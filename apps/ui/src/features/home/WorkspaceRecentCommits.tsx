@@ -6,6 +6,7 @@ import {
   Tooltip,
   TooltipTrigger,
 } from "react-aria-components"
+
 import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
 import type { WorkspaceActivityCommit } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
@@ -151,7 +152,7 @@ function CommitRow({
       <TooltipTrigger delay={200}>
         <Focusable>
           <time
-            // biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard users open the date tooltip with focus.
+            // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- keyboard users open the date tooltip with focus
             tabIndex={0}
             dateTime={commit.committedAt}
             className={cn(

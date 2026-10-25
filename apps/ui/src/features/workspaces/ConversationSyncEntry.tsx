@@ -1,7 +1,9 @@
 import { IconCloudUpload, IconExternalLink } from "@tabler/icons-react"
 import { Link as AriaLink } from "react-aria-components"
+
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+
 import type { ConversationSync } from "./types"
 
 function ExternalLink(props: { href: string; label: string; text: string }) {
@@ -30,7 +32,7 @@ function pushedText(sync: ConversationSync): string {
   const files = `${sync.files} ${sync.files === 1 ? "file" : "files"}`
   if (sync.trigger === "sync") return `Synced ${files} to`
   if (sync.trigger === "agent") return `The agent pushed ${files} to`
-  if (sync.trigger === "sweep") return `ctx| pushed ${files} to`
+  if (sync.trigger === "sweep") return `ctxpipe pushed ${files} to`
   return `Pushed ${files} to`
 }
 

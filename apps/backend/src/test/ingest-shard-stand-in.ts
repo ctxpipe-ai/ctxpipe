@@ -3,7 +3,9 @@ import { existsSync } from "node:fs"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { promisify } from "node:util"
+
 import { buildContextIndex } from "../domain/ingestion/context-index.js"
+import { IngestStepCommandError } from "../domain/ingestion/ingest-shard-ops.js"
 import type {
   IngestShardRuntime,
   IngestShardRuntimeFactory,
@@ -141,8 +143,18 @@ export function standInIngestShardRuntime(options: {
             }),
             signal: step.signal,
           })
+          // As the sandbox: a failed model call fails the skill command,
+          // with the error of the model call.
           if (!response.ok)
-            throw new Error(`Model stand-in: ${response.status}`)
+            throw new IngestStepCommandError(
+              "skill",
+              1,
+              `Model stand-in: ${response.status}`,
+              {
+                calls: 1,
+                errors: [{ name: "APIError", status: response.status }],
+              },
+            )
           const reply = (await response.json()) as {
             files: Array<{ path: string; content: string }>
             more?: boolean

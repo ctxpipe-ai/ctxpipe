@@ -9,4 +9,3 @@ export const parsedNotionRepoScopeSchema = z.object({
     }),
   ),
 })
-

@@ -3,7 +3,9 @@ import { createAuthClient } from "better-auth/react"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+
 import { apiFetch, readApiJson } from "@/lib/api-result"
+
 import { inviteAcceptError } from "./invite-accept-error"
 
 const base = "http://localhost:3000"

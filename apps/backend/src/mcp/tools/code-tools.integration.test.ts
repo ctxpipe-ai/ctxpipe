@@ -7,6 +7,7 @@ import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
+
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { useMswServer } from "../../../test/msw.js"
 import type { AppEnv } from "../../app/env.js"
@@ -26,7 +27,6 @@ import { registerMcpReadTools } from "../framework/tool-registry.js"
 import { findSymbolTool } from "./find-symbol.js"
 import { searchCodeTool } from "./search-code.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 let seed: SeededOrg
 let client: Client

@@ -1,5 +1,6 @@
 import { lstat, mkdir, readdir, readlink, rm, symlink } from "node:fs/promises"
 import { join } from "node:path"
+
 import { ZOEKT_HOT_DIR, ZOEKT_INDEX_DIR } from "../../config/paths.js"
 import { log } from "../../observability/logger.js"
 import { isZoektShardBasenameForName } from "./shardPrefix.js"

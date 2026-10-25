@@ -2,6 +2,7 @@ import { createLogger } from "evlog"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+
 import type { AppEnv } from "../../../app/env.js"
 
 const getConnectionMock = vi.hoisted(() => vi.fn())

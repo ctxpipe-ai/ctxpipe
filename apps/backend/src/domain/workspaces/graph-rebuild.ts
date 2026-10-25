@@ -40,9 +40,8 @@ async function rebuildLostWorkspaceGraph(
     try {
       // A lazy import: the OpenWorkflow client connects to the database when
       // it loads, and chat tools import this module.
-      const { enqueueWorkspaceGraphRebuild } = await import(
-        "../../openworkflow/enqueue-workspace-hydrate.js"
-      )
+      const { enqueueWorkspaceGraphRebuild } =
+        await import("../../openworkflow/enqueue-workspace-hydrate.js")
       await enqueueWorkspaceGraphRebuild({
         orgId,
         revision,

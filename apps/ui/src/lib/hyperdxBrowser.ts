@@ -1,5 +1,6 @@
 import HyperDX from "@hyperdx/browser"
 import { trace } from "@opentelemetry/api"
+
 import {
   type HyperDxSessionIdentity,
   hyperdxGlobalAttributes,

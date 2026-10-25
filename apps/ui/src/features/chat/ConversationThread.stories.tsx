@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import type { ChatMessage } from "@/features/chat/types"
 import { ConversationSyncEntry } from "@/features/workspaces/ConversationSyncEntry"
 import { ConversationTurnChangesCard } from "@/features/workspaces/ConversationTurnChangesCard"
@@ -15,6 +16,8 @@ import {
   streamingToolMessages,
   thoughtsBetweenToolsMessages,
 } from "@/features/workspaces/workspace-fixtures"
+import { createTreeFileResolver } from "@/lib/workspace-file-path"
+
 import { ConversationThread } from "./ConversationThread"
 
 const meta = {
@@ -447,6 +450,8 @@ const answerLinkMessages: ChatMessage[] = [
           "",
           "Streamdown renders the Markdown. Read the [Streamdown docs](https://streamdown.ai) for the options.",
           "",
+          "Line anchors: [`knowledge/x.md`](knowledge/x.md#L12), [`knowledge/y.md`](knowledge/y.md#L12-L20), [`knowledge/z.md`](knowledge/z.md:12) and [`knowledge/w.md`](file:///workspace/knowledge/w.md).",
+          "",
           "These stay as code: `useState`, `process.env`, `Node.js`, `application/json`, `/etc/hosts`, `../outside.ts` and `pnpm dev`.",
         ].join("\n"),
       },
@@ -458,20 +463,31 @@ const answerLinkMessages: ChatMessage[] = [
 export const AnswerLinksInWorkspace: Story = {
   args: {
     messages: answerLinkMessages,
-    onOpenFile: fn(),
+    fileLinks: {
+      resolve: createTreeFileResolver([
+        "apps/ui/src/styles.css",
+        "apps/ui/src/components/ai-elements/message.tsx",
+        "package.json",
+        "knowledge/x.md",
+        "knowledge/y.md",
+        "knowledge/z.md",
+        "knowledge/w.md",
+      ]),
+      open: fn(),
+    },
   },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
       canvas.getByRole("button", { name: "apps/ui/src/styles.css" }),
     )
-    await expect(args.onOpenFile).toHaveBeenLastCalledWith(
+    await expect(args.fileLinks?.open).toHaveBeenLastCalledWith(
       "apps/ui/src/styles.css",
     )
     await userEvent.click(
       canvas.getByRole("button", { name: "the message component" }),
     )
-    await expect(args.onOpenFile).toHaveBeenLastCalledWith(
+    await expect(args.fileLinks?.open).toHaveBeenLastCalledWith(
       "apps/ui/src/components/ai-elements/message.tsx",
     )
     await expect(
@@ -495,7 +511,17 @@ export const AnswerLinksInWorkspace: Story = {
       await expect(canvas.queryByRole("button", { name: text })).toBeNull()
       await expect(canvas.getByText(text)).toBeVisible()
     }
-    await expect(args.onOpenFile).toHaveBeenCalledTimes(2)
+    for (const path of [
+      "knowledge/x.md",
+      "knowledge/y.md",
+      "knowledge/z.md",
+      "knowledge/w.md",
+    ]) {
+      await userEvent.click(canvas.getByRole("button", { name: path }))
+      await expect(args.fileLinks?.open).toHaveBeenLastCalledWith(path)
+    }
+    await expect(canvas.queryByText(/blocked/)).toBeNull()
+    await expect(args.fileLinks?.open).toHaveBeenCalledTimes(6)
   },
 }
 
@@ -621,5 +647,43 @@ export const PushEntryUnderCard: Story = {
     await waitFor(() =>
       expect(branch.scrollWidth).toBeGreaterThan(branch.clientWidth),
     )
+  },
+}
+
+/** With the git tree, a bare file name opens the one tree file; a name not in the tree stays text. */
+export const AnswerLinksWithTree: Story = {
+  args: {
+    messages: [
+      {
+        id: "msg_links_tree",
+        role: "assistant",
+        parts: [
+          {
+            type: "text",
+            content: "Read `anthropic-2.md`, then `missing.md`.",
+          },
+        ],
+      },
+    ],
+    fileLinks: {
+      resolve: createTreeFileResolver([
+        "knowledge/apis/anthropic.md",
+        "knowledge/apis/anthropic-2.md",
+      ]),
+      open: fn(),
+    },
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      canvas.getByRole("button", { name: "anthropic-2.md" }),
+    )
+    await expect(args.fileLinks?.open).toHaveBeenLastCalledWith(
+      "knowledge/apis/anthropic-2.md",
+    )
+    await expect(
+      canvas.queryByRole("button", { name: "missing.md" }),
+    ).toBeNull()
+    await expect(canvas.getByText("missing.md")).toBeVisible()
   },
 }

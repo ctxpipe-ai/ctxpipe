@@ -2,6 +2,7 @@ import { writeFileSync } from "node:fs"
 import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import { SpanStatusCode } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
@@ -9,6 +10,7 @@ import {
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest"
+
 import { runScipIndexer } from "./scipIndexers.js"
 
 const exporter = new InMemorySpanExporter()

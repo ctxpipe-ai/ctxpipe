@@ -31,6 +31,7 @@ import {
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
 import { log } from "evlog"
+
 import type { Env } from "../config/env.js"
 import { baggageWithAttribution, copyAttributionToSpan } from "./attribution.js"
 import { BetterAuthSpanFilter } from "./betterAuthSpanFilter.js"

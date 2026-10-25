@@ -1,11 +1,7 @@
 import type { OrgAtlassianOauthGet } from "./queries/atlassian-connector"
 import type { AtlassianConnectorStatus } from "./types"
 
-type ConfluenceWizardStepId =
-  | "oauth_register"
-  | "link"
-  | "forge"
-  | "workspaces"
+type ConfluenceWizardStepId = "oauth_register" | "link" | "forge" | "workspaces"
 
 type ConfluenceWizardStepDef = {
   readonly id: ConfluenceWizardStepId
@@ -149,4 +145,3 @@ export function getConfluenceCardPrimaryCta(
       return { kind: "open_wizard", label: "Manage" }
   }
 }
-

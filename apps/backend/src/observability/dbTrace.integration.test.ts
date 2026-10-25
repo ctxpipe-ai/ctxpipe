@@ -1,5 +1,6 @@
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { SpanStatusCode, trace } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
@@ -10,6 +11,7 @@ import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { config } from "dotenv"
 import { Pool } from "pg"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+
 import { instrumentPgPool } from "./dbTrace.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))

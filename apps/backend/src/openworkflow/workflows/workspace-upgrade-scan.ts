@@ -1,8 +1,8 @@
 import { z } from "zod"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import { organizations } from "../../db/schema/auth.js"
 import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
 import { startAutomaticUpgrades } from "../../domain/upgrades/automatic.js"
 import {
@@ -24,6 +24,7 @@ import { log } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceTipCheck } from "../enqueue-workspace-tip-check.js"
+import { listOrgIdsWithWorkspaces } from "../orgs-with-workspaces.js"
 
 export const workspaceUpgradeScanInputSchema = z
   .object({
@@ -226,18 +227,9 @@ export async function scheduleUpgradeScansForAllOrgs(
     input.steps ?? GIT_UPGRADE_STEPS,
     input.bundleName ?? (await readIngestSkillBundle()).name,
   )
-  const orgs = await getSystemDb()
-    .select({ id: organizations.id })
-    .from(organizations)
-    .orderBy(organizations.id)
   let index = 0
-  for (const { id: orgId } of orgs) {
+  for (const orgId of await listOrgIdsWithWorkspaces()) {
     try {
-      // RLS shows the Workspaces of an org only in its own context.
-      const workspaces = await withOrgDbContext(orgId, () =>
-        listOrgWorkspaces(orgId),
-      )
-      if (!workspaces.length) continue
       await enqueueWorkspaceUpgradeScan({
         orgId,
         trigger: "worker-start",

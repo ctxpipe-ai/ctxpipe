@@ -1,4 +1,5 @@
 import { expect, it } from "vitest"
+
 import type { RunVaultRule } from "./agent-vault.js"
 import { workspaceChatRunCapabilities } from "./tanstack-workspace-chat.js"
 

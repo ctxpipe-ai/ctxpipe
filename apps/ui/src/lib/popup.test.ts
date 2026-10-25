@@ -11,6 +11,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import {
   beginGithubPopupFlow,
   GITHUB_SETUP_RESULT_KEY,

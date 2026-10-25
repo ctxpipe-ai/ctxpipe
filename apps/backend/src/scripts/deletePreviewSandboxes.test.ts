@@ -1,5 +1,6 @@
 import { HttpResponse, http } from "msw"
 import { describe, expect, it } from "vitest"
+
 import { useMswServer } from "../../test/msw.js"
 import {
   deletePreviewSandboxes,
@@ -95,6 +96,7 @@ function vercelProject(input: {
       return HttpResponse.json({
         snapshots: [...snapshots.values()]
           .filter((s) => s.sandbox === url.searchParams.get("name"))
+          // oxlint-disable-next-line no-unused-vars -- the rest pattern drops this key
           .map(({ sandbox: _, ...s }) => s),
         pagination: { count: 0, next: null },
       })
@@ -163,7 +165,6 @@ function vercelProject(input: {
   return { handlers, requests, sandboxes, snapshots }
 }
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 
 describe("deletePreviewSandboxes", () => {

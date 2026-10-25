@@ -1,234 +1,235 @@
-import type * as cdk from "aws-cdk-lib";
-import type * as acm from "aws-cdk-lib/aws-certificatemanager";
-import type * as autoscaling from "aws-cdk-lib/aws-autoscaling";
-import type * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
-import type * as ec2 from "aws-cdk-lib/aws-ec2";
-import type * as ecs from "aws-cdk-lib/aws-ecs";
-import type * as efs from "aws-cdk-lib/aws-efs";
-import type * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
-import type * as neptune from "aws-cdk-lib/aws-neptune";
-import type * as rds from "aws-cdk-lib/aws-rds";
-import type * as route53 from "aws-cdk-lib/aws-route53";
-import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
-import type { IDependable } from "constructs";
-import type { ResolvedModelProviderConfig } from "../model-provider";
+import type * as cdk from "aws-cdk-lib"
+import type * as autoscaling from "aws-cdk-lib/aws-autoscaling"
+import type * as acm from "aws-cdk-lib/aws-certificatemanager"
+import type * as cloudwatch from "aws-cdk-lib/aws-cloudwatch"
+import type * as ec2 from "aws-cdk-lib/aws-ec2"
+import type * as ecs from "aws-cdk-lib/aws-ecs"
+import type * as efs from "aws-cdk-lib/aws-efs"
+import type * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2"
+import type * as neptune from "aws-cdk-lib/aws-neptune"
+import type * as rds from "aws-cdk-lib/aws-rds"
+import type * as route53 from "aws-cdk-lib/aws-route53"
+import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
+import type { IDependable } from "constructs"
+
+import type { ResolvedModelProviderConfig } from "../model-provider"
 import type {
   CtxPipeConnectorSecretsProps,
   CtxPipeCustomDomainProps,
   CtxPipeOtelProps,
-} from "../types";
-import type { CtxPipeSize } from "../types";
+} from "../types"
+import type { CtxPipeSize } from "../types"
 
 export interface ResolvedCtxPipeCustomDomainProps extends CtxPipeCustomDomainProps {
-  readonly hostedZone: route53.IHostedZone;
-  readonly hostedZoneName: string;
-  readonly certificate: acm.ICertificate;
+  readonly hostedZone: route53.IHostedZone
+  readonly hostedZoneName: string
+  readonly certificate: acm.ICertificate
 }
 
 export interface CtxPipeResolvedDefaults {
-  readonly databaseName: string;
-  readonly backupRetentionDays: number;
-  readonly defaultImageTag: string;
-  readonly emailFromAddress: string;
+  readonly databaseName: string
+  readonly backupRetentionDays: number
+  readonly defaultImageTag: string
+  readonly emailFromAddress: string
 }
 
 export interface CtxPipeTaskSize {
-  readonly cpu: number;
-  readonly memoryLimitMiB: number;
+  readonly cpu: number
+  readonly memoryLimitMiB: number
 }
 
 export interface CtxPipeServiceScaleProfile {
-  readonly backendDesiredCount: number;
-  readonly workerDesiredCount: number;
-  readonly uiDesiredCount: number;
-  readonly codesearchDesiredCount: number;
+  readonly backendDesiredCount: number
+  readonly workerDesiredCount: number
+  readonly uiDesiredCount: number
+  readonly codesearchDesiredCount: number
 }
 
 export interface CtxPipeSizeProfile {
-  readonly size: CtxPipeSize;
+  readonly size: CtxPipeSize
   readonly network: {
-    readonly maxAzs: number;
-    readonly natGateways: number;
-  };
+    readonly maxAzs: number
+    readonly natGateways: number
+  }
   readonly database: {
-    readonly auroraInstanceClass: ec2.InstanceClass;
-    readonly auroraInstanceSize: ec2.InstanceSize;
-    readonly neptuneInstanceClass: string;
-  };
+    readonly auroraInstanceClass: ec2.InstanceClass
+    readonly auroraInstanceSize: ec2.InstanceSize
+    readonly neptuneInstanceClass: string
+  }
   readonly tasks: {
-    readonly backend: CtxPipeTaskSize;
-    readonly worker: CtxPipeTaskSize;
-    readonly ui: CtxPipeTaskSize;
-    readonly codesearch: CtxPipeTaskSize;
-    readonly migrate: CtxPipeTaskSize;
-  };
-  readonly services: CtxPipeServiceScaleProfile;
+    readonly backend: CtxPipeTaskSize
+    readonly worker: CtxPipeTaskSize
+    readonly ui: CtxPipeTaskSize
+    readonly codesearch: CtxPipeTaskSize
+    readonly migrate: CtxPipeTaskSize
+  }
+  readonly services: CtxPipeServiceScaleProfile
   readonly concurrency: {
-    readonly openWorkflowConcurrency: number;
-    readonly codesearchIndexerConcurrency: number;
-    readonly codesearchIndexPipelineConcurrency: number;
-  };
-  readonly backupRetentionDays: number;
-  readonly sandboxHost: CtxPipeSandboxHostProfile;
+    readonly openWorkflowConcurrency: number
+    readonly codesearchIndexerConcurrency: number
+    readonly codesearchIndexPipelineConcurrency: number
+  }
+  readonly backupRetentionDays: number
+  readonly sandboxHost: CtxPipeSandboxHostProfile
 }
 
 export interface CtxPipeSandboxHostProfile {
-  readonly instanceType: ec2.InstanceType;
-  readonly dockerVolumeSizeGiB: number;
+  readonly instanceType: ec2.InstanceType
+  readonly dockerVolumeSizeGiB: number
   /** Checked entries that Agent Vault may dial, after the backend subnets. */
-  readonly agentVaultNetworkAllowlist?: readonly string[];
+  readonly agentVaultNetworkAllowlist?: readonly string[]
 }
 
 export interface NetworkingResources {
-  readonly vpc: ec2.Vpc;
-  readonly appSecurityGroup: ec2.SecurityGroup;
-  readonly dbSecurityGroup: ec2.SecurityGroup;
-  readonly neptuneSecurityGroup: ec2.SecurityGroup;
-  readonly efsSecurityGroup: ec2.SecurityGroup;
-  readonly cluster: ecs.Cluster;
-  readonly alb: elbv2.ApplicationLoadBalancer;
-  readonly httpListener: elbv2.ApplicationListener;
+  readonly vpc: ec2.Vpc
+  readonly appSecurityGroup: ec2.SecurityGroup
+  readonly dbSecurityGroup: ec2.SecurityGroup
+  readonly neptuneSecurityGroup: ec2.SecurityGroup
+  readonly efsSecurityGroup: ec2.SecurityGroup
+  readonly cluster: ecs.Cluster
+  readonly alb: elbv2.ApplicationLoadBalancer
+  readonly httpListener: elbv2.ApplicationListener
 }
 
 export interface DataPlaneResources {
-  readonly dbCluster: rds.DatabaseCluster;
-  readonly dbCredentialsSecret: secretsmanager.Secret;
-  readonly neptuneCluster: neptune.CfnDBCluster;
-  readonly neptuneInstance: neptune.CfnDBInstance;
-  readonly codesearchFileSystem: efs.FileSystem;
-  readonly codesearchAccessPoint: efs.IAccessPoint;
-  readonly graphDbUri: string;
+  readonly dbCluster: rds.DatabaseCluster
+  readonly dbCredentialsSecret: secretsmanager.Secret
+  readonly neptuneCluster: neptune.CfnDBCluster
+  readonly neptuneInstance: neptune.CfnDBInstance
+  readonly codesearchFileSystem: efs.FileSystem
+  readonly codesearchAccessPoint: efs.IAccessPoint
+  readonly graphDbUri: string
 }
 
 export interface SecretsResources {
-  readonly authSecret: secretsmanager.Secret;
+  readonly authSecret: secretsmanager.Secret
   /**
    * Owner `DATABASE_URL` for the migrate task (Aurora master `ctxpipe`). Task
    * definitions from before the app role read it too, so it never holds the
    * app URL: a rollback to them must see every row.
    */
-  readonly databaseUrlSecret: secretsmanager.Secret;
+  readonly databaseUrlSecret: secretsmanager.Secret
   /** Runtime `DATABASE_URL` for backend/worker/codesearch (`ctxpipe_app`). */
-  readonly runtimeDatabaseUrlSecret: secretsmanager.Secret;
+  readonly runtimeDatabaseUrlSecret: secretsmanager.Secret
   /** Login password for `ctxpipe_app`; generated once, never rotated by deploy. */
-  readonly appDatabaseCredentialsSecret: secretsmanager.Secret;
+  readonly appDatabaseCredentialsSecret: secretsmanager.Secret
   /** Writes the owner URL before migrate. */
-  readonly databaseUrlWriter: cdk.CustomResource;
+  readonly databaseUrlWriter: cdk.CustomResource
   /** Writes the runtime `ctxpipe_app` URL; must run after migrate. */
-  readonly runtimeDatabaseUrlWriter: cdk.CustomResource;
-  readonly modelProviderSecret?: secretsmanager.Secret;
-  readonly smtpSecret: secretsmanager.Secret;
-  readonly connectorSecret?: secretsmanager.Secret;
-  readonly connectorEnv: Record<string, ecs.Secret>;
+  readonly runtimeDatabaseUrlWriter: cdk.CustomResource
+  readonly modelProviderSecret?: secretsmanager.Secret
+  readonly smtpSecret: secretsmanager.Secret
+  readonly connectorSecret?: secretsmanager.Secret
+  readonly connectorEnv: Record<string, ecs.Secret>
 }
 
 export interface TaskDefinitionsResources {
-  readonly backendTask: ecs.FargateTaskDefinition;
-  readonly workerTask: ecs.FargateTaskDefinition;
-  readonly uiTask: ecs.FargateTaskDefinition;
-  readonly codesearchTask: ecs.FargateTaskDefinition;
-  readonly migrateTask: ecs.FargateTaskDefinition;
+  readonly backendTask: ecs.FargateTaskDefinition
+  readonly workerTask: ecs.FargateTaskDefinition
+  readonly uiTask: ecs.FargateTaskDefinition
+  readonly codesearchTask: ecs.FargateTaskDefinition
+  readonly migrateTask: ecs.FargateTaskDefinition
 }
 
 export interface ServiceResources {
-  readonly backendService: ecs.FargateService;
-  readonly workerService: ecs.FargateService;
-  readonly uiService: ecs.FargateService;
-  readonly codesearchService: ecs.FargateService;
+  readonly backendService: ecs.FargateService
+  readonly workerService: ecs.FargateService
+  readonly uiService: ecs.FargateService
+  readonly codesearchService: ecs.FargateService
 }
 
 export interface SandboxHostResources {
-  readonly autoScalingGroup: autoscaling.AutoScalingGroup;
+  readonly autoScalingGroup: autoscaling.AutoScalingGroup
   /** Docker API client; the only group sandboxes may call back. */
-  readonly backendSecurityGroup: ec2.SecurityGroup;
+  readonly backendSecurityGroup: ec2.SecurityGroup
   /** Docker API client only. */
-  readonly workerSecurityGroup: ec2.SecurityGroup;
-  readonly clientTlsSecret: secretsmanager.Secret;
+  readonly workerSecurityGroup: ec2.SecurityGroup
+  readonly clientTlsSecret: secretsmanager.Secret
   /** `DOCKER_HOST` for the clients. */
-  readonly dockerHost: string;
+  readonly dockerHost: string
   /** Agent Vault on the host: the API for backend and worker. */
-  readonly agentVaultAddress: string;
+  readonly agentVaultAddress: string
   /** The generated owner password that backend and worker log in with. */
-  readonly agentVaultOwnerSecret: secretsmanager.Secret;
-  readonly alarms: cloudwatch.Alarm[];
+  readonly agentVaultOwnerSecret: secretsmanager.Secret
+  readonly alarms: cloudwatch.Alarm[]
 }
 
 export interface IngressResources {
-  readonly appUrl: string;
+  readonly appUrl: string
 }
 
 export interface MigrateOnDeployResources {
-  readonly migrateResource: cdk.CustomResource;
+  readonly migrateResource: cdk.CustomResource
 }
 
 export interface NetworkingConstructProps {
-  readonly maxAzs: number;
-  readonly natGateways: number;
+  readonly maxAzs: number
+  readonly natGateways: number
 }
 
 export interface DataPlaneConstructProps {
-  readonly networking: NetworkingResources;
-  readonly defaults: CtxPipeResolvedDefaults;
-  readonly sizeProfile: CtxPipeSizeProfile;
+  readonly networking: NetworkingResources
+  readonly defaults: CtxPipeResolvedDefaults
+  readonly sizeProfile: CtxPipeSizeProfile
 }
 
 export interface SecretsConstructProps {
-  readonly dataPlane: DataPlaneResources;
-  readonly databaseName: string;
+  readonly dataPlane: DataPlaneResources
+  readonly databaseName: string
   /** OpenAI-like model provider only; Bedrock uses IAM on the task role. */
-  readonly modelProviderApiKey?: cdk.SecretValue;
-  readonly hostedZone: route53.IHostedZone;
-  readonly connectorSecrets?: CtxPipeConnectorSecretsProps;
-  readonly emailFromAddress: string;
+  readonly modelProviderApiKey?: cdk.SecretValue
+  readonly hostedZone: route53.IHostedZone
+  readonly connectorSecrets?: CtxPipeConnectorSecretsProps
+  readonly emailFromAddress: string
 }
 
 export interface SandboxHostConstructProps extends CtxPipeSandboxHostProfile {
-  readonly networking: NetworkingResources;
+  readonly networking: NetworkingResources
 }
 
 export interface TaskDefinitionsConstructProps {
-  readonly orgSlug: string;
-  readonly networking: NetworkingResources;
-  readonly dataPlane: DataPlaneResources;
-  readonly secrets: SecretsResources;
-  readonly customDomain: ResolvedCtxPipeCustomDomainProps;
-  readonly resolvedModel: ResolvedModelProviderConfig;
-  readonly defaultImageTag: string;
-  readonly sizeProfile: CtxPipeSizeProfile;
-  readonly otel?: CtxPipeOtelProps;
+  readonly orgSlug: string
+  readonly networking: NetworkingResources
+  readonly dataPlane: DataPlaneResources
+  readonly secrets: SecretsResources
+  readonly customDomain: ResolvedCtxPipeCustomDomainProps
+  readonly resolvedModel: ResolvedModelProviderConfig
+  readonly defaultImageTag: string
+  readonly sizeProfile: CtxPipeSizeProfile
+  readonly otel?: CtxPipeOtelProps
   /** Absent when the host is turned off. */
-  readonly sandboxHost?: SandboxHostResources;
+  readonly sandboxHost?: SandboxHostResources
 }
 
 export interface ServicesConstructProps {
-  readonly networking: NetworkingResources;
-  readonly tasks: TaskDefinitionsResources;
-  readonly sizeProfile: CtxPipeSizeProfile;
-  readonly migrateDependency?: IDependable;
-  readonly codesearchEfsMountDependency?: IDependable;
+  readonly networking: NetworkingResources
+  readonly tasks: TaskDefinitionsResources
+  readonly sizeProfile: CtxPipeSizeProfile
+  readonly migrateDependency?: IDependable
+  readonly codesearchEfsMountDependency?: IDependable
   /** Absent when the host is turned off. */
-  readonly sandboxHost?: SandboxHostResources;
+  readonly sandboxHost?: SandboxHostResources
 }
 
 export interface IngressConstructProps {
-  readonly networking: NetworkingResources;
-  readonly backendService: ecs.FargateService;
-  readonly customDomain: ResolvedCtxPipeCustomDomainProps;
+  readonly networking: NetworkingResources
+  readonly backendService: ecs.FargateService
+  readonly customDomain: ResolvedCtxPipeCustomDomainProps
 }
 
 export interface MigrateOnDeployConstructProps {
-  readonly networking: NetworkingResources;
-  readonly dataPlane: DataPlaneResources;
-  readonly tasks: TaskDefinitionsResources;
-  readonly secrets: SecretsResources;
+  readonly networking: NetworkingResources
+  readonly dataPlane: DataPlaneResources
+  readonly tasks: TaskDefinitionsResources
+  readonly secrets: SecretsResources
 }
 
 export interface OutputsConstructProps {
-  readonly appUrl: string;
-  readonly albDnsName: string;
-  readonly databaseUrlSecretArn: string;
-  readonly modelProviderSecretArn?: string;
-  readonly smtpSecretArn: string;
-  readonly connectorSecretArn?: string;
-  readonly sandboxHostAutoScalingGroupName?: string;
+  readonly appUrl: string
+  readonly albDnsName: string
+  readonly databaseUrlSecretArn: string
+  readonly modelProviderSecretArn?: string
+  readonly smtpSecretArn: string
+  readonly connectorSecretArn?: string
+  readonly sandboxHostAutoScalingGroupName?: string
 }

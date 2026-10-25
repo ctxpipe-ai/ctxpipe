@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { open } from "node:fs/promises"
 import { join } from "node:path"
+
 import type { Env } from "../../config/env.js"
 import {
   type ConversationPushTrigger,
@@ -146,7 +147,7 @@ export type SessionPublishSkip =
 
 /** A publish that was attempted and did not reach GitHub. */
 export type SessionPublishFailure =
-  /** The session branch has commits ctx| did not push; fetch and rebase. */
+  /** The session branch has commits ctxpipe did not push; fetch and rebase. */
   | "session_moved"
   /** No write credential for the Workspace repository. */
   | "no_write_access"
@@ -175,7 +176,7 @@ export type PublishTarget = {
   repositoryName: string
   connectionId: string
   branch: string
-  /** The tip ctx| last pushed; only that tip may be replaced. */
+  /** The tip ctxpipe last pushed; only that tip may be replaced. */
   pushedSha: string | null
   /** A default-branch commit the sandbox builds on and GitHub has. */
   baseSha: string
@@ -326,7 +327,7 @@ printf 'branch %s\\n' "$B"
  * sandbox on the default branch first moves to the session branch.
  *
  * A clean sandbox with nothing unpushed does no network or database work.
- * The remote tip is replaced only when it is the tip ctx| pushed last (its
+ * The remote tip is replaced only when it is the tip ctxpipe pushed last (its
  * own history, rebased onto a moved default); anything else on the branch
  * that HEAD lacks answers `session_moved`. `dirty`: uncommitted files remain.
  */
@@ -495,7 +496,7 @@ async function brokerPush(input: {
           `git merge-base --is-ancestor ${shellSingleQuote(remote)} ${shellSingleQuote(sha)}`,
         )
       ).exitCode === 0
-    // Replacing the remote tip is only for the tip ctx| pushed itself, after
+    // Replacing the remote tip is only for the tip ctxpipe pushed itself, after
     // an option-D rebase. Anything else the agent must fetch and rebase onto.
     if (remote && !fastForward && remote !== target.pushedSha)
       return { status: "failed", reason: "session_moved" }
@@ -542,108 +543,113 @@ async function brokerPush(input: {
     })
     if (!writeToken) return { status: "failed", reason: "no_write_access" }
     const token = writeToken
-    await withGitDirectory(sha, async (directory) => {
-      // Fetch the known base directly into the broker; never transfer unchanged
-      // repository objects through the agent stdout channel.
-      await nativeGit(
-        directory,
-        ["fetch", "--depth", "1", "--", revision.remote.url, packBase],
-        undefined,
-        gitRemoteEnvironment({ url: revision.remote.url, token: readToken }),
-      )
-      const localPack = join(directory, ".git", "conversation.pack")
-      const output = await open(localPack, "wx")
-      try {
-        const chunkBytes = 256 * 1024
-        for (let offset = 0; offset < packBytes; offset += chunkBytes) {
-          const chunk = await run(
-            `dd if=${shellSingleQuote(agentPack)} bs=${chunkBytes} skip=${offset / chunkBytes} count=1 2>/dev/null | base64`,
-          )
-          const encoded = chunk.stdout.replace(/\s/g, "")
-          const bytes = Buffer.from(encoded, "base64")
-          if (
-            chunk.exitCode !== 0 ||
-            !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) ||
-            bytes.length !== Math.min(chunkBytes, packBytes - offset)
-          )
-            throw new Error(
-              "Conversation Git transfer was truncated or changed",
+    await withGitDirectory(
+      sha,
+      async (directory) => {
+        // Fetch the known base directly into the broker; never transfer unchanged
+        // repository objects through the agent stdout channel.
+        await nativeGit(
+          directory,
+          ["fetch", "--depth", "1", "--", revision.remote.url, packBase],
+          undefined,
+          gitRemoteEnvironment({ url: revision.remote.url, token: readToken }),
+        )
+        const localPack = join(directory, ".git", "conversation.pack")
+        const output = await open(localPack, "wx")
+        try {
+          const chunkBytes = 256 * 1024
+          for (let offset = 0; offset < packBytes; offset += chunkBytes) {
+            const chunk = await run(
+              `dd if=${shellSingleQuote(agentPack)} bs=${chunkBytes} skip=${offset / chunkBytes} count=1 2>/dev/null | base64`,
             )
-          await output.writeFile(bytes)
+            const encoded = chunk.stdout.replace(/\s/g, "")
+            const bytes = Buffer.from(encoded, "base64")
+            if (
+              chunk.exitCode !== 0 ||
+              !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) ||
+              bytes.length !== Math.min(chunkBytes, packBytes - offset)
+            )
+              throw new Error(
+                "Conversation Git transfer was truncated or changed",
+              )
+            await output.writeFile(bytes)
+          }
+        } finally {
+          await output.close()
         }
-      } finally {
-        await output.close()
-      }
-      await nativeGit(directory, ["index-pack", "--stdin", "--fix-thin"], {
-        file: localPack,
-      })
-      await nativeGit(directory, ["cat-file", "-e", `${sha}^{commit}`])
-      // The check reads the broker's own copy of the objects, not the
-      // sandbox, because the agent controls the sandbox. A change to a
-      // host-only path such as `.ctxpipe/` is allowed: the push reaches only
-      // the session branch, so the change reaches the default branch only
-      // through a pull request that a person merges. The format file is the
-      // exception: only an upgrade pull request changes it.
-      if (await addsOwnershipField(directory, packBase, sha))
-        throw new PublishRefused("host_only_field")
-      // The agent may change files only below the Workspace root folder.
-      const rootPath = workspaceRootPath(revision)
-      const changedPaths = await changedWorkspacePaths(
-        directory,
-        packBase,
-        sha,
-        rootPath,
-      )
-      const refusal = await formatRefusal(
-        directory,
-        packBase,
-        rootPath,
-        changedPaths,
-      )
-      if (refusal) throw new PublishRefused(refusal)
-      // Main-era knowledge that hydrate serves from Postgres is read-only.
-      if (await writesLegacyKnowledge(target.workspaceId, changedPaths))
-        throw new PublishRefused("legacy_knowledge")
-      if (
-        rootPath &&
-        (
-          await gitChangesOutsideWorkspaceRoot({
-            directory,
-            base: packBase,
-            head: sha,
-            rootPath,
-          })
-        ).length
-      )
-        throw new PublishRefused("outside_root")
-      // The write token only ever reaches this conversation's session branch,
-      // never a branch that is (or became) the default.
-      const latestDefault = await resolveGitRemoteTip({
-        url: revision.remote.url,
-        token,
-      })
-      if (
-        !isChatSessionBranch(branch) ||
-        !mayForcePushBranch(branch, revision.defaultBranch) ||
-        latestDefault?.branch !== revision.defaultBranch ||
-        latestDefault.branch === branch
-      )
-        throw new PublishRefused("default_branch")
-      await assertStillBound(target)
-      await nativeGit(
-        directory,
-        [
-          "push",
-          "--porcelain",
-          `--force-with-lease=refs/heads/${branch}:${remote ?? ""}`,
-          "--",
-          revision.remote.url,
-          `${sha}:refs/heads/${branch}`,
-        ],
-        undefined,
-        gitRemoteEnvironment({ url: revision.remote.url, token }),
-      )
-    })
+        await nativeGit(directory, ["index-pack", "--stdin", "--fix-thin"], {
+          file: localPack,
+        })
+        await nativeGit(directory, ["cat-file", "-e", `${sha}^{commit}`])
+        // The check reads the broker's own copy of the objects, not the
+        // sandbox, because the agent controls the sandbox. A change to a
+        // host-only path such as `.ctxpipe/` is allowed: the push reaches only
+        // the session branch, so the change reaches the default branch only
+        // through a pull request that a person merges. The format file is the
+        // exception: only an upgrade pull request changes it.
+        if (await addsOwnershipField(directory, packBase, sha))
+          throw new PublishRefused("host_only_field")
+        // The agent may change files only below the Workspace root folder.
+        const rootPath = workspaceRootPath(revision)
+        const changedPaths = await changedWorkspacePaths(
+          directory,
+          packBase,
+          sha,
+          rootPath,
+        )
+        const refusal = await formatRefusal(
+          directory,
+          packBase,
+          rootPath,
+          changedPaths,
+        )
+        if (refusal) throw new PublishRefused(refusal)
+        // Main-era knowledge that hydrate serves from Postgres is read-only.
+        if (await writesLegacyKnowledge(target.workspaceId, changedPaths))
+          throw new PublishRefused("legacy_knowledge")
+        if (
+          rootPath &&
+          (
+            await gitChangesOutsideWorkspaceRoot({
+              directory,
+              base: packBase,
+              head: sha,
+              rootPath,
+            })
+          ).length
+        )
+          throw new PublishRefused("outside_root")
+        // The write token only ever reaches this conversation's session branch,
+        // never a branch that is (or became) the default.
+        const latestDefault = await resolveGitRemoteTip({
+          url: revision.remote.url,
+          token,
+        })
+        if (
+          !isChatSessionBranch(branch) ||
+          !mayForcePushBranch(branch, revision.defaultBranch) ||
+          latestDefault?.branch !== revision.defaultBranch ||
+          latestDefault.branch === branch
+        )
+          throw new PublishRefused("default_branch")
+        await assertStillBound(target)
+        await nativeGit(
+          directory,
+          [
+            "push",
+            "--porcelain",
+            `--force-with-lease=refs/heads/${branch}:${remote ?? ""}`,
+            "--",
+            revision.remote.url,
+            `${sha}:refs/heads/${branch}`,
+          ],
+          undefined,
+          gitRemoteEnvironment({ url: revision.remote.url, token }),
+        )
+      },
+      undefined,
+      null,
+    )
     await run(
       `git update-ref ${shellSingleQuote(`refs/remotes/origin/${branch}`)} ${shellSingleQuote(sha)}`,
     )

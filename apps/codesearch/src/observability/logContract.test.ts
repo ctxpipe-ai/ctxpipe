@@ -1,5 +1,6 @@
 import { initLogger, log } from "evlog"
 import { describe, expect, it } from "vitest"
+
 import { applyCodesearchLogContract, codesearchLogRedact } from "./logger.js"
 
 describe("codesearch log contract", () => {

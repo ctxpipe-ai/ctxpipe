@@ -1,4 +1,5 @@
 import { expect, it } from "vitest"
+
 import { REINGEST_THROTTLE, reingestPollSeconds } from "./reingest.js"
 
 // CTX-898: no event wakes a re-ingestion that waits for its slot. With a

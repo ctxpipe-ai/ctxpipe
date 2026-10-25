@@ -1,5 +1,6 @@
 import { type Span, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import type { Pool, PoolClient } from "pg"
+
 import { dbErrorException } from "./scrubDbError.js"
 
 /**

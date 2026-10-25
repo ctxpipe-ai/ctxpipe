@@ -1,4 +1,5 @@
 import { z } from "zod"
+
 import { parseEnv } from "../../config/env.js"
 import { IngestRefRefusedError } from "../../domain/ingestion/ingest-refs.js"
 import {
@@ -12,6 +13,7 @@ import {
 import { sourceRepositoryUrls } from "../../domain/workspace-sources/providers/git.js"
 import { parseSourceFile } from "../../domain/workspace-sources/source-file-text.js"
 import { ingestPublishSourceSchema } from "../../domain/workspaces/extraction-source.js"
+import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import { workspaceRevisionSchema } from "../../domain/workspaces/revision.js"
 import {
   resolveIngestConflicts,
@@ -40,7 +42,11 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import { type GitPack, readGitFiles } from "../../services/git/pack.js"
+import {
+  type GitPack,
+  type GitRemoteRead,
+  readGitFiles,
+} from "../../services/git/pack.js"
 import {
   commitGitTree,
   stageGitFiles,
@@ -102,15 +108,20 @@ export function defineWorkspaceExtractIngestWorkflow() {
     },
     async ({ input: queuedInput, step, run }) => {
       const input = workspaceExtractIngestInputSchema.parse(queuedInput)
-      const pipelineStopped = async (pack: GitPack) =>
-        workspacePublishPipeline(await packWorkspaceFormat(pack)) !== "v2"
+      const pipelineStopped = async (pack: GitPack, read: GitRemoteRead) =>
+        workspacePublishPipeline(await packWorkspaceFormat(pack, read)) !== "v2"
       // An ingestion v2 publish needs its source file in the tree that it
       // pushes on, and the file must still name the source repository. Else
       // the repository was unlinked while the run was in flight.
-      const sourceUnlinked = async (pack: GitPack) => {
+      const sourceUnlinked = async (pack: GitPack, read: GitRemoteRead) => {
         if (!input.ingest) return false
         const { sourcePath, source } = input.ingest
-        const [file] = await readGitFiles(pack, (path) => path === sourcePath)
+        const [file] = await readGitFiles(
+          pack,
+          (path) => path === sourcePath,
+          undefined,
+          read,
+        )
         if (!file || file.omitted) return true
         const parsed = parseSourceFile(file.path, file.content)
         return (
@@ -125,6 +136,12 @@ export function defineWorkspaceExtractIngestWorkflow() {
         "workspace-write-extract-ingest",
         async () => {
           const env = parseEnv(process.env)
+          // Read access to the bound repository, from the workflow input (CTX-955).
+          const read = workspaceGitRead({
+            orgId: input.orgId,
+            env,
+            remote: input.revision.remote,
+          })
           let revision = input.revision
           const repositoryName = githubRepoFullNameFromWorkspaceUrl(
             revision.remote.url,
@@ -275,13 +292,15 @@ export function defineWorkspaceExtractIngestWorkflow() {
               }
             }
             const staged = await step.run({ name: "stage" }, () =>
-              stageGitFiles(acquired.pack, files, deletePaths),
+              stageGitFiles(acquired.pack, files, deletePaths, read),
             )
             await step.run({ name: "validate" }, () =>
-              validateGitTree(staged, [
-                ...files.map((file) => file.path),
-                ...deletePaths,
-              ]),
+              validateGitTree(
+                staged,
+                [...files.map((file) => file.path), ...deletePaths],
+                {},
+                read,
+              ),
             )
             const subject = await step.run(
               { name: "commit-subject" },
@@ -290,12 +309,16 @@ export function defineWorkspaceExtractIngestWorkflow() {
                 `Update extracted knowledge\n\nCtxpipe-Run: ${ingestSource.runId}`,
             )
             const committed = await step.run({ name: "commit" }, async () => {
-              const pack = await commitGitTree(staged, {
-                subject,
-                // A replay of a publish is a new workflow run: the run's
-                // author time keeps the SHA.
-                createdAt: new Date(ingestSource.authorTime),
-              })
+              const pack = await commitGitTree(
+                staged,
+                {
+                  subject,
+                  // A replay of a publish is a new workflow run: the run's
+                  // author time keeps the SHA.
+                  createdAt: new Date(ingestSource.authorTime),
+                },
+                read,
+              )
               await persistWriteJobPreparedCommit(input.jobId, pack.sha)
               return pack
             })
@@ -308,7 +331,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
                   // push waits for write access. The step that pushes reads
                   // it from the tree that it pushes on: the push lands only
                   // on that parent, so no other tree can get the commit.
-                  if (await pipelineStopped(committed)) {
+                  if (await pipelineStopped(committed, read)) {
                     // The job publishes nothing, so it keeps no commit.
                     await discardWriteJobPreparedCommit(
                       input.jobId,
@@ -317,7 +340,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
                     await persistWriteJobStatus(input.jobId, "completed")
                     return { stopped: true as const }
                   }
-                  if (await sourceUnlinked(committed)) {
+                  if (await sourceUnlinked(committed, read)) {
                     await discardWriteJobPreparedCommit(
                       input.jobId,
                       committed.sha,

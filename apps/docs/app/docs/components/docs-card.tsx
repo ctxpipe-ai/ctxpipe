@@ -3,13 +3,13 @@
 import Link from "fumadocs-core/link"
 import { cn } from "fumadocs-ui/utils/cn"
 import type { HTMLAttributes, ReactNode } from "react"
+
 import { DocsIcon, docsIconForHref } from "./docs-icon"
 
 type CardsProps = HTMLAttributes<HTMLDivElement>
 
 export function Cards({ className, children, ...props }: CardsProps) {
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: decorative hover highlight tracking only
     <div
       {...props}
       className={cn(

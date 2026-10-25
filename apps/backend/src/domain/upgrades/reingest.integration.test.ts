@@ -11,6 +11,7 @@ import {
   vi,
 } from "vitest"
 import { z } from "zod"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   closeDb,
@@ -134,7 +135,7 @@ describe("re-ingestion throttle", () => {
       expect(await turn(orgA, first)).toEqual({ turn: true })
       // The slot stays with the first run, also between its repositories.
       expect(await turn(orgA, second)).toEqual({
-        wait: "A re-ingestion of another Workspace of this organization runs.",
+        wait: "Another re-ingestion of this organization runs.",
       })
     }
     // Another org is not held by this org.

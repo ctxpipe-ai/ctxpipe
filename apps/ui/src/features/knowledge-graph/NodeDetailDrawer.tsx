@@ -7,8 +7,10 @@ import {
   IconX,
 } from "@tabler/icons-react"
 import { type ReactNode, useMemo, useState } from "react"
+
 import { Button } from "@/components/ui/Button"
 import { cn } from "@/lib/utils"
+
 import { type ActivityBuckets, ActivitySparkline } from "./ActivitySparkline"
 import { KIND_FALLBACK_COLOR } from "./theme"
 import type { KnowledgeGraphNode, NodeClaim, NodeFacts } from "./types"

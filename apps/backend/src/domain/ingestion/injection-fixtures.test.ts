@@ -8,7 +8,9 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import { resolveDiscoveredRoots } from "./discovered-roots.js"
 import {
   FIXTURE_OTHER_SOURCE_URL,
@@ -164,39 +166,40 @@ describe("injection fixtures", () => {
     expect(hostile.filter((key) => !covered.has(key))).toEqual([])
   })
 
-  it.each(
-    INJECTION_CASES.map((item) => [item.id, item] as const),
-  )("%s: the host refuses the payload or keeps it as a sourced quote", async (_id, item) => {
-    const result = await validate(stage(item))
-    const rejected = item.rejected ?? []
-    expect(
-      result.rejections
-        .map((r) => ({ path: r.path, rule: r.rule }))
-        .sort((a, b) => a.path.localeCompare(b.path)),
-    ).toEqual([...rejected].sort((a, b) => a.path.localeCompare(b.path)))
-    const refused = new Set(rejected.map((r) => r.path))
-    const expectedAccepted = [
-      ...Object.keys(item.staged ?? {}),
-      ...(item.deletes ?? []),
-    ].filter((path) => !refused.has(path) && !path.includes(".."))
-    expect(result.accepted.map((op) => op.path).sort()).toEqual(
-      expectedAccepted.sort(),
-    )
-    if (item.quoted) {
-      const text = git(
-        contextDir,
-        "cat-file",
-        "-p",
-        `${result.tree}:${item.quoted.path}`,
+  it.each(INJECTION_CASES.map((item) => [item.id, item] as const))(
+    "%s: the host refuses the payload or keeps it as a sourced quote",
+    async (_id, item) => {
+      const result = await validate(stage(item))
+      const rejected = item.rejected ?? []
+      expect(
+        result.rejections
+          .map((r) => ({ path: r.path, rule: r.rule }))
+          .sort((a, b) => a.path.localeCompare(b.path)),
+      ).toEqual([...rejected].sort((a, b) => a.path.localeCompare(b.path)))
+      const refused = new Set(rejected.map((r) => r.path))
+      const expectedAccepted = [
+        ...Object.keys(item.staged ?? {}),
+        ...(item.deletes ?? []),
+      ].filter((path) => !refused.has(path) && !path.includes(".."))
+      expect(result.accepted.map((op) => op.path).sort()).toEqual(
+        expectedAccepted.sort(),
       )
-      const quote = text
-        .split("\n")
-        .filter((line) => line.startsWith(">"))
-        .join("\n")
-      expect(quote).toContain(item.payload.text)
-      expect(text).toContain(`Source: ${item.quoted.source}`)
-    }
-  })
+      if (item.quoted) {
+        const text = git(
+          contextDir,
+          "cat-file",
+          "-p",
+          `${result.tree}:${item.quoted.path}`,
+        )
+        const quote = text
+          .split("\n")
+          .filter((line) => line.startsWith(">"))
+          .join("\n")
+        expect(quote).toContain(item.payload.text)
+        expect(text).toContain(`Source: ${item.quoted.source}`)
+      }
+    },
+  )
 })
 
 describe("injection fixtures: discover-roots", () => {

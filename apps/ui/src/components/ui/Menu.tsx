@@ -17,6 +17,7 @@ import {
   Separator,
 } from "react-aria-components"
 import { twMerge } from "tailwind-merge"
+
 import { dropdownItemStylesDark } from "@/components/ui/ListBox"
 import { Popover, type PopoverProps } from "@/components/ui/Popover"
 
@@ -86,6 +87,7 @@ export const menuSectionHeaderClassName =
 
 interface MenuSectionProps<T> extends AriaMenuSectionProps<T> {
   title?: string
+  // oxlint-disable-next-line typescript/no-explicit-any -- the type is kept as is
   items?: any
   headerClassName?: string
 }
@@ -132,4 +134,3 @@ export function MenuTrigger(props: MenuTriggerProps) {
     </AriaMenuTrigger>
   )
 }
-

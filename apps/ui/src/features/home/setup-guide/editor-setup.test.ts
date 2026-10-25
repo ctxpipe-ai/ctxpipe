@@ -1,5 +1,6 @@
 import HyperDX from "@hyperdx/browser"
 import { describe, expect, it, vi } from "vitest"
+
 import {
   editorSetupCommand,
   recordMcpConfigCopied,

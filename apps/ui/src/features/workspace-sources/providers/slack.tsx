@@ -2,6 +2,7 @@ import { IconBrandSlack, IconLock } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
 import { slackScopeSchema } from "backend/domain/workspace-sources/providers/slack"
 import { useState } from "react"
+
 import { Button } from "@/components/ui/Button"
 import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
@@ -12,6 +13,7 @@ import {
   type SlackChannel,
   slackConnectorKeys,
 } from "@/features/connectors/queries/slack-connector"
+
 import type {
   SourceProviderUi,
   SourceScopeEditorProps,
@@ -87,7 +89,7 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
       <div>
         <p className="text-sm font-medium text-foreground">{pickerLabel}</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Mention the ctx| bot in a thread of a selected channel to save that
+          Mention the ctxpipe bot in a thread of a selected channel to save that
           thread. Private channels show only when the bot is in them.
         </p>
       </div>
@@ -117,7 +119,7 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
         {rows.map((channel) => {
           const listed = listedIds.has(channel.id)
           const detail = !listed
-            ? "Slack does not list this channel now. It is archived, or the ctx| bot left it."
+            ? "Slack does not list this channel now. It is archived, or the ctxpipe bot left it."
             : channel.isMember
               ? null
               : "Invite the bot to this channel before you mention it there."

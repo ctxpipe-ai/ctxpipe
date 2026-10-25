@@ -1,18 +1,18 @@
 ---
 title: Notion connector
-description: Connect a Notion workspace, add it to a Workspace, and keep selected pages and databases available to ctx|.
+description: Connect a Notion workspace, add it to a Workspace, and keep selected pages and databases available to ctxpipe.
 ---
 
 The **Notion connector** mirrors selected pages and databases into the
-repository of a [Workspace](/docs/workspaces). ctx| indexes the files like any
+repository of a [Workspace](/docs/workspaces). ctxpipe indexes the files like any
 other knowledge file. A source file in the Workspace holds the scope. A pull
 request adds it, so a person reviews the scope before content syncs.
 
-ctx| reads Notion pages and databases. It does not create or update Notion
+ctxpipe reads Notion pages and databases. It does not create or update Notion
 content.
 
 <Callout title="Fully managed app flow">
-  The hosted ctx| service supplies the Notion OAuth application and webhook
+  The hosted ctxpipe service supplies the Notion OAuth application and webhook
   configuration. Self-hosted operators register a private OAuth app in the
   connector setup wizard (client ID, secret, then **Add webhook**). Setting
   `NOTION_*` environment variables is an optional operator shortcut, not a
@@ -21,7 +21,7 @@ content.
 
 ## What is mirrored
 
-You select pages and databases that the ctx| Notion integration can already
+You select pages and databases that the ctxpipe Notion integration can already
 see. A page syncs with all its child pages. A database syncs with all its rows.
 The related content can include:
 
@@ -39,7 +39,7 @@ budget, and unsafe or failed external downloads keep a Notion page link or
 caption stub. Page comments are not mirrored.
 
 <Callout title="Page sharing is the access gate">
-  Notion only lists pages and databases already shared with the ctx| integration.
+  Notion only lists pages and databases already shared with the ctxpipe integration.
   Share those resources in the OAuth picker, or later in Notion, then search
   again in the source editor. Review the scope in the pull request before you
   merge it. Everyone who can read the Workspace repository can read the
@@ -49,11 +49,11 @@ caption stub. Page comments are not mirrored.
 ## Prerequisites
 
 - Permission to authorize an application in the Notion workspace and share the
-  pages or databases that ctx| should mirror.
-- A [Workspace](/docs/workspaces) whose repository the ctx| GitHub App can write
+  pages or databases that ctxpipe should mirror.
+- A [Workspace](/docs/workspaces) whose repository the ctxpipe GitHub App can write
   to. The repository must use format 2 or higher. If it does not, the Workspace
   shows **Upgrade this Workspace first**. See
-  [Upgrades](/docs/workspaces/settings#upgrades).
+  [Status](/docs/workspaces/settings#status).
 - Permission to merge the pull request that adds the source.
 
 ## Where the scope lives
@@ -91,7 +91,7 @@ scope.
     Open **Connectors**, choose **Add connection**, then select **Notion**. On a
     self-hosted deployment without shared credentials, complete **Register
     Notion OAuth app** and **Add webhook** first. Then authorize the workspace in
-    the Notion popup. Share the pages or databases that ctx| can read.
+    the Notion popup. Share the pages or databases that ctxpipe can read.
   </Step>
 
   <Step>
@@ -111,7 +111,7 @@ scope.
   <Step>
     ### Merge the pull requests
 
-    ctx| opens one pull request for each Workspace. Each pull request adds
+    ctxpipe opens one pull request for each Workspace. Each pull request adds
     `sources/notion/<name>.md`. The dialog shows **Merge the pull request** (or
     **Merge the pull requests**) with a link to each one. Review the selected
     pages and databases, then merge.
@@ -123,7 +123,7 @@ scope.
   <Step>
     ### Wait for the first sync
 
-    After GitHub reports the merge, ctx| reads the source file and makes the
+    After GitHub reports the merge, ctxpipe reads the source file and makes the
     first Notion mirror. The Workspace indexes the new files after that. See
     [Indexing](/docs/connections/ingestion) for the lifecycle.
   </Step>
@@ -148,19 +148,19 @@ include stable Notion IDs, so renaming a page or database in Notion does not
 create a second copy.
 
 The source owns these folders. Do not edit the files by hand: the next sync
-overwrites them. When you remove a source, ctx| deletes its files in a sync
+overwrites them. When you remove a source, ctxpipe deletes its files in a sync
 commit. Git history keeps them.
 
 ## Keeping content current
 
-Notion sends signed webhook events to ctx| when supported entities change. For
-a source with the status **OK**, ctx| checks the event against the scope of the
+Notion sends signed webhook events to ctxpipe when supported entities change. For
+a source with the status **OK**, ctxpipe checks the event against the scope of the
 source, updates the affected files, and starts indexing again. Incremental
 updates re-mirror the affected top-level resource (a page subtree or a
 database), not a single block.
 
 Events that arrive before the source is live, including during the first sync,
-are skipped and not queued. ctx| does not backfill missed webhook events.
+are skipped and not queued. ctxpipe does not backfill missed webhook events.
 Repair the webhook delivery, then choose **Sync now** in the menu of the
 connector card. An owner or admin can do this.
 
@@ -168,7 +168,7 @@ connector card. An owner or admin can do this.
 
 1. Complete Notion OAuth and confirm that the expected Notion workspace appears
    on **Connectors**.
-2. Share at least one page or database with the ctx| integration.
+2. Share at least one page or database with the ctxpipe integration.
 3. Choose **Add to Workspaces**, select a Workspace, and select the page or
    database.
 4. Merge the pull request that adds `sources/notion/<name>.md`.
@@ -184,7 +184,7 @@ the Notion webhook delivery.
 
 ### Authorization fails
 
-Allow popups and retry. On fully managed ctx|, report persistent OAuth errors to
+Allow popups and retry. On fully managed ctxpipe, report persistent OAuth errors to
 support. On a self-hosted deployment, finish **Register Notion OAuth app** and
 **Add webhook** in the wizard (or the optional env shortcut). Confirm that the
 callback URI matches exactly.
@@ -192,7 +192,7 @@ callback URI matches exactly.
 ### No pages or databases appear
 
 The integration can list only resources that you share with it. Share the page
-or database with the ctx| Notion app in Notion, then search again in the source
+or database with the ctxpipe Notion app in Notion, then search again in the source
 editor. An empty result usually means a sharing problem, not a missing
 workspace.
 
@@ -225,7 +225,7 @@ verify the Notion integration webhook URL and signing secret. See
 
 ### Notion authorization was revoked
 
-The source shows the reason "Notion does not accept the ctx| access any more.
+The source shows the reason "Notion does not accept the ctxpipe access any more.
 Reconnect Notion on the Connectors page." Authorize Notion again from the
 connector card. Incremental updates stop while the authorization is revoked.
 Pages that you unshare from the integration disappear from the search list in

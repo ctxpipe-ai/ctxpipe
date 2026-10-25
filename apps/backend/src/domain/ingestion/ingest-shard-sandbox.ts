@@ -1,11 +1,10 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
-import {
-  repositoryRevisionCheckoutKey,
-  workspaceCheckoutKey,
-} from "../../../../../shared/workspace-checkout.js"
+
+import { repositoryRevisionCheckoutKey } from "../../../../../shared/workspace-checkout.js"
 import { type Env, parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { listWorkspaceUnitsAtRevision } from "../../models/workspaces.js"
@@ -16,7 +15,6 @@ import {
   VERCEL_INGEST_AGENT_PATH,
   workspaceChatDockerImage,
 } from "../workspaces/chat-runtime.js"
-import { ingestSandbox } from "../workspaces/ingest-sandbox.js"
 import {
   assertHostedIngestEgress,
   dockerIngestSandboxProvider,
@@ -27,6 +25,7 @@ import {
   revokeIngestGitTokens,
   vercelIngestSandboxProvider,
 } from "../workspaces/ingest-sandbox-egress.js"
+import { ingestSandbox } from "../workspaces/ingest-sandbox.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
 import { sandboxFetchUrl } from "../workspaces/sandbox-credential-rules.js"
 import { postgresSandboxLocks } from "../workspaces/sandbox-lock-store.js"
@@ -70,7 +69,10 @@ import {
 } from "./ingest-shard-runtime.js"
 import { withShardStep } from "./ingest-shard-step.js"
 import { logIngestEvent } from "./ingest-telemetry.js"
-import { INGEST_TOOL_BRIDGE_PATH } from "./ingest-tools.js"
+import {
+  INGEST_TOOL_BRIDGE_PATH,
+  workspaceCheckoutLabel,
+} from "./ingest-tools.js"
 import { ingestionOrg } from "./ingestion-v2-resolve.js"
 import { runGit } from "./run-git.js"
 
@@ -252,11 +254,9 @@ export async function ingestShardStepEgress(input: {
         ? [
             {
               repositoryId: d.repositoryId,
-              checkoutKey: workspaceCheckoutKey(
-                d.workspaceId,
-                d.pinnedRevision,
-              ),
-              sha: d.pinnedRevision,
+              // A Workspace read uses the published checkout of the
+              // repository, so the label names only the Workspace.
+              checkoutKey: workspaceCheckoutLabel(d.workspaceId),
             },
           ]
         : [],

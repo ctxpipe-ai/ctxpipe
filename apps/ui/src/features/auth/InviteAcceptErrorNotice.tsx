@@ -1,8 +1,9 @@
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
-import { InviteWrongAccountNotice } from "./InviteWrongAccountNotice"
+
 import { inviteSignInHref, inviteSignOutHref } from "./invite-accept-decision"
 import type { InviteAcceptError } from "./invite-accept-error"
+import { InviteWrongAccountNotice } from "./InviteWrongAccountNotice"
 
 /** A failed invitation accept: what happened and the next step. */
 export function InviteAcceptErrorNotice({
@@ -23,7 +24,7 @@ export function InviteAcceptErrorNotice({
       <div className="grid gap-4">
         <InlineAlert variant="warning" title="You already have an account">
           <p>
-            This email already has a ctx| account. Sign in to accept the
+            This email already has a ctxpipe account. Sign in to accept the
             invitation.
           </p>
         </InlineAlert>

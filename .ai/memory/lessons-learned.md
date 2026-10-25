@@ -19,6 +19,7 @@ These lessons moved to the instructions that agents always read. Do not add them
 | `rounded-md`, React Aria first, CSS-first responsive layout, selected chrome on the click, no shell remount | [apps/ui/AGENTS.md](../../apps/ui/AGENTS.md) |
 | Pierre for the Files pane | [ADR-040](decisions/ADR-040-pierre-files-pane-chrome.md) |
 | RLS with the `ctxpipe_app` role | [ADR-042](decisions/ADR-042-postgres-rls-app-role.md) |
+| Harness-agnostic agent setup: shared content in `.agents/` and `AGENTS.md`, thin per-harness adapters; an orchestrator app starts Claude and Codex agents; Cursor stays dormant | [ADR-055](decisions/ADR-055-harness-agnostic-agent-setup.md) and root [AGENTS.md](../../AGENTS.md) |
 
 ## Entries
 
@@ -37,8 +38,8 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md (two entries)
 
-### Biome
-- **Rule:** Biome lints and formats the whole monorepo from the root `biome.jsonc` (no nested `apps/ui/biome.json`), with `css.parser.tailwindDirectives` on for Tailwind at-rules. The workspace `.vscode/settings.json` sets `"css.lint.unknownAtRules": "ignore"` only to silence the VS Code warning; Biome lint stays on.
+### Oxlint and Oxfmt
+- **Rule:** Oxlint lints and Oxfmt formats the whole monorepo from the root `.oxlintrc.json` and `.oxfmtrc.json` (no nested configs). Run `pnpm lint`, `pnpm format:check`, and `pnpm format` from the root. Suppress a lint finding with `// oxlint-disable-next-line <rule> -- <reason>`. Oxfmt skips Markdown and YAML on purpose.
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md (three entries)
@@ -578,7 +579,7 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Source:** team lead, after a failed PR deploy deleted a live preview and re-created it with the production GitHub App
 
 ### New test files cannot spy on owned code
-- **Rule:** CI (`scripts/ci/check-test-policy.mjs`, in the Biome job) treats each new test file as proof. A proof must not call `vi.mock`, `vi.doMock` or `vi.spyOn` on code of this repository, and that includes a spy on a request logger. `vi.spyOn` is permitted only on `Date`, `Math`, `globalThis` and `console`. Under the backend Vitest setup, the context of an evlog `createLogger()` stays empty, so a log event is not a usable end point either. Assert a real result: a database row, a git commit, or an HTTP call that msw records. Before you push a new test, run `git fetch origin 7dfa6b93a5baedc3eb2c86dd1056662e89cace00 --no-tags && node scripts/ci/check-test-policy.mjs`.
+- **Rule:** CI (`scripts/ci/check-test-policy.mjs`, in the lint job) treats each new test file as proof. A proof must not call `vi.mock`, `vi.doMock` or `vi.spyOn` on code of this repository, and that includes a spy on a request logger. `vi.spyOn` is permitted only on `Date`, `Math`, `globalThis` and `console`. Under the backend Vitest setup, the context of an evlog `createLogger()` stays empty, so a log event is not a usable end point either. Assert a real result: a database row, a git commit, or an HTTP call that msw records. Before you push a new test, run `git fetch origin 7dfa6b93a5baedc3eb2c86dd1056662e89cace00 --no-tags && node scripts/ci/check-test-policy.mjs`.
 - **Category:** testing
 - **Date:** 2026-10-13
 - **Source:** PR 280 Slack webhook fix (#415): a log spy in a new integration test made the PR 280 CI fail

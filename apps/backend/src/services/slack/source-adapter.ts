@@ -1,4 +1,5 @@
 import { z } from "zod"
+
 import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import type { SourceAdapter } from "../../domain/workspace-sources/adapter.js"
@@ -29,7 +30,7 @@ const slackCaptureEventSchema = z.object({ channelId: z.string().min(1) })
 /**
  * Why the bot cannot read a channel, or null. `invite`: the bot is not in the
  * channel. That does not block the source, because Slack sends a mention only
- * from a channel that the bot is in, and an invite changes nothing in ctx|.
+ * from a channel that the bot is in, and an invite changes nothing in ctxpipe.
  * A transient failure throws.
  */
 async function channelProblem(input: {
@@ -48,16 +49,16 @@ async function channelProblem(input: {
     switch (error.slackError) {
       case "channel_not_found":
         return {
-          text: `Channel ${channel} is not found, or the ctx| bot cannot see it`,
+          text: `Channel ${channel} is not found, or the ctxpipe bot cannot see it`,
         }
       case "not_in_channel":
         return {
-          text: `Invite the ctx| bot to channel ${channel}`,
+          text: `Invite the ctxpipe bot to channel ${channel}`,
           invite: true,
         }
       case "missing_scope":
         return {
-          text: `The ctx| Slack app needs a scope to read channel ${channel}. Reinstall Slack.`,
+          text: `The ctxpipe Slack app needs a scope to read channel ${channel}. Reinstall Slack.`,
         }
       case "is_archived":
         return { text: `Channel ${channel} is archived` }
@@ -70,7 +71,7 @@ async function channelProblem(input: {
   if (info.isArchived) return { text: `Channel #${info.name} is archived` }
   if (!info.isMember)
     return {
-      text: `Invite the ctx| bot to channel #${info.name}`,
+      text: `Invite the ctxpipe bot to channel #${info.name}`,
       invite: true,
     }
   return null

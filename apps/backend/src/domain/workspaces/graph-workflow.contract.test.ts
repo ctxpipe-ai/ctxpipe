@@ -1,11 +1,14 @@
 import { rename, unlink, writeFile } from "node:fs/promises"
+
 import { sql } from "drizzle-orm"
 import { FalkorDB } from "falkordb"
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb } from "../../db/client.js"
 import {
   captureWorkspaceRevision,
+  getWorkspaceById,
   getWorkspaceProjection,
   getWorkspaceProjectionSnapshot,
   persistWorkspaceGraphResult,
@@ -651,8 +654,16 @@ it(
   async () => {
     await withGraphHydration({}, async (f, _graph, db) => {
       await withGraphWriteDenied(f, db, () => f.publish())
+      const failedAt = (
+        await withOrgIdContext(f.org, () => getWorkspaceById(f.workspaceId))
+      )?.hydratePhases?.graph?.failure?.at
+      if (!failedAt) throw new Error("Expected a stored graph failure")
+      // The first retry is in the check of the hour after the failure.
       const run = await f.runner.runWorkflow(workspaceTipCheck.spec, {
         orgId: f.org.id,
+        hour: new Date(Date.parse(failedAt) + 3_600_000)
+          .toISOString()
+          .slice(0, 13),
       })
       await run.result({ timeoutMs: 30_000 })
       const queued = await getSystemDb().execute<{
@@ -1010,12 +1021,9 @@ it(
           await withGraphClient({ orgId: f.org.id, orgSlug: f.org.slug }, () =>
             getGraphClient().executeQuery("RETURN 1 AS ready"),
           )
-          await (await db.connection).sendCommand([
-            "CLIENT",
-            "KILL",
-            "USER",
-            `denied_${f.id}`,
-          ])
+          await (
+            await db.connection
+          ).sendCommand(["CLIENT", "KILL", "USER", `denied_${f.id}`])
           await expect
             .poll(
               async () => {

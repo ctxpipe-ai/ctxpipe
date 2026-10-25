@@ -3,6 +3,7 @@ import {
   count,
   eq,
   inArray,
+  isNotNull,
   isNull,
   lte,
   ne,
@@ -10,6 +11,7 @@ import {
   or,
   sql,
 } from "drizzle-orm"
+
 import { repositoryRevisionCheckoutKey } from "../../../../shared/workspace-checkout.js"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { type Db, getOrgDb, withOrgDbContext } from "../db/client.js"
@@ -25,7 +27,6 @@ import {
   notifyCodesearchRepositoryDeleted,
   purgeRepositoryPostgres,
 } from "../domain/repositoryDeletion.js"
-import { workspaceCheckoutKey } from "../domain/workspaces/derived-stores.js"
 import {
   normalizeWorkspaceRepositoryUrl,
   repositoryKeyFromGitUrl,
@@ -52,24 +53,46 @@ function repositoryNotUnindexingCondition() {
   )
 }
 
-export async function ensureWorkspaceCheckout(input: {
-  repositoryId: string
-  workspaceId: string
-  ref: string
-}): Promise<void> {
-  await orgSql(async () => {
-    await getOrgDb()
-      .insert(repositoryCheckouts)
-      .values({
-        id: generateObjectId("co"),
-        orgId: requireCurrentOrgId(),
-        repositoryId: input.repositoryId,
-        ref: input.ref,
-        checkoutKey: workspaceCheckoutKey(input.workspaceId, input.ref),
-      })
-      .onConflictDoNothing()
+/**
+ * A run that uses a checkout key again moves `updated_at` of its row, so the
+ * checkout collection keeps the key for one more hour (CTX-973).
+ */
+const touchCheckoutOnReuse = {
+  target: [repositoryCheckouts.repositoryId, repositoryCheckouts.checkoutKey],
+  set: { updatedAt: sql`now()` },
+}
+
+/**
+ * True when an ingestion published the repository and the checkout that code
+ * reads use exists (see `publishedRepositoryCheckoutKey`). A new repository
+ * has a `default` row before its first ingestion, so the row alone is not
+ * enough.
+ */
+export async function hasPublishedCheckout(
+  repositoryId: string,
+): Promise<boolean> {
+  return orgSql(async () => {
+    const [row] = await getOrgDb()
+      .select({ id: repositoryCheckouts.id })
+      .from(repositories)
+      .innerJoin(
+        repositoryCheckouts,
+        and(
+          eq(repositoryCheckouts.repositoryId, repositories.id),
+          eq(repositoryCheckouts.checkoutKey, publishedRepositoryCheckoutKey()),
+        ),
+      )
+      .where(
+        and(
+          eq(repositories.id, repositoryId),
+          isNotNull(repositories.lastIngestedHash),
+        ),
+      )
+      .limit(1)
+    return Boolean(row)
   })
 }
+
 /** Select only the successfully published immutable source, falling back to pre-upgrade artifacts. */
 export function publishedRepositoryCheckoutKey() {
   return sql<string>`coalesce((select published.checkout_key from repository_checkouts published
@@ -93,7 +116,7 @@ export async function ensureRepositoryRevisionCheckout(input: {
         ref: input.sha,
         checkoutKey: repositoryRevisionCheckoutKey(input.sha),
       })
-      .onConflictDoNothing(),
+      .onConflictDoUpdate(touchCheckoutOnReuse),
   )
 }
 
@@ -264,9 +287,8 @@ export async function pruneGithubConnectionRepositoriesNotInGitUrls(
         ),
       )
   })
-  const { enqueueRepositoryDeletionWorkflow } = await import(
-    "../openworkflow/enqueue-repository-deletion.js"
-  )
+  const { enqueueRepositoryDeletionWorkflow } =
+    await import("../openworkflow/enqueue-repository-deletion.js")
   for (const row of rows) {
     if (allowedGitUrls.has(row.gitUrl)) continue
     await enqueueRepositoryDeletionWorkflow(

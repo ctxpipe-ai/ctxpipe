@@ -2,8 +2,10 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { stringify } from "yaml"
+
 import {
   cleanUpIngestRefs,
   deleteRunIngestRefs,
@@ -1296,19 +1298,18 @@ describe("mergeIngestPublish", () => {
     ).rejects.toThrow(/not a commit of the ingestion run/)
   })
 
-  it.each([
-    "AGENTS.md",
-    ".ctxpipe/sources.yaml",
-    "notion/page.md",
-  ])("refuses a delta that changes %s", async (path) => {
-    const tip = commitOn(
-      pinned,
-      ASSEMBLED,
-      { files: { [path]: "x\n" } },
-      `Ingest step assemble:ws_alpha\n\nCtxpipe-Run: ${RUN}`,
-    )
-    await expect(publish({ tip, current: pinned })).rejects.toThrow(
-      IngestRefRefusedError,
-    )
-  })
+  it.each(["AGENTS.md", ".ctxpipe/sources.yaml", "notion/page.md"])(
+    "refuses a delta that changes %s",
+    async (path) => {
+      const tip = commitOn(
+        pinned,
+        ASSEMBLED,
+        { files: { [path]: "x\n" } },
+        `Ingest step assemble:ws_alpha\n\nCtxpipe-Run: ${RUN}`,
+      )
+      await expect(publish({ tip, current: pinned })).rejects.toThrow(
+        IngestRefRefusedError,
+      )
+    },
+  )
 })

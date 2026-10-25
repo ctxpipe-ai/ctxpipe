@@ -1,8 +1,13 @@
 import { z } from "zod"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
 import { isRepositoryGoneError } from "../../domain/codeIngestion/repositoryGone.js"
+import {
+  collectRepositoryCheckouts,
+  releaseRunCheckout,
+} from "../../domain/codesearchCheckoutGc.js"
 import {
   markRepositoryIndexingIssues,
   markRepositoryIndexingReady,
@@ -15,7 +20,9 @@ import { captureRepositoryIngestionRequest } from "../../models/repository-inges
 import { flushWorkflowLog, getLogger } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
+import { enqueueWorkspaceIndexesAfterPublish } from "../enqueue-workspace-index.js"
 import { indexingOutcome } from "../indexing-outcome.js"
+import { cleanUpUnlessParked } from "../isSleepSignal.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
 import { repositoryIndex } from "./repository-index.js"
 
@@ -146,7 +153,21 @@ export const repositoryIngestion = defineWorkflow(
       throw new Error(`Organization not found: ${input.orgId}`)
     }
 
-    return await withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
+    // The run deletes its codesearch checkout when it ends, unless it is
+    // the published revision (CTX-991). A parked run keeps it.
+    let runSha: string | undefined
+    return await withOrgIdContext({ id: org.id, slug: org.slug }, () =>
+      cleanUpUnlessParked(ingest, async () => {
+        if (runSha)
+          await releaseRunCheckout({
+            orgId: input.orgId,
+            sha: runSha,
+            runId: run.id,
+          })
+      }),
+    )
+
+    async function ingest() {
       try {
         const requestId =
           (await captureRepositoryIngestionRequest(input, run.id)) ?? undefined
@@ -235,6 +256,7 @@ export const repositoryIngestion = defineWorkflow(
             ),
         )
 
+        runSha = resolved.hash
         logWorkflowMilestone("repository-ingestion.step.resolve-ref.done", {
           repositoryId: input.repositoryId,
           targetHash: resolved.hash,
@@ -339,6 +361,28 @@ export const repositoryIngestion = defineWorkflow(
           targetHash: result.targetHash,
         })
 
+        // A Workspace that waits for this repository becomes readable now,
+        // with no new push (CTX-991).
+        await step.run({ name: "enqueue-workspace-indexes" }, () =>
+          wls("enqueue-workspace-indexes", () =>
+            enqueueWorkspaceIndexesAfterPublish(
+              {
+                orgId: input.orgId,
+                repositoryId: input.repositoryId,
+                sha: result.targetHash,
+              },
+              {
+                error: (err) =>
+                  getLogger().error(err, {
+                    step: "repository-ingestion.enqueue-workspace-indexes",
+                    repositoryId: input.repositoryId,
+                    orgId: input.orgId,
+                  }),
+              },
+            ),
+          ),
+        )
+
         // Outside org tx: if tip moved while we were ingesting, start one
         // follow-up for this repo only (no auto-chain on failure paths).
         const followUp = await step.run(
@@ -373,6 +417,17 @@ export const repositoryIngestion = defineWorkflow(
           enqueued: followUp.enqueued,
         })
 
+        // The published revision moved: delete the checkouts that no reader
+        // needs any more (CTX-973). It never throws.
+        await step.run({ name: "collect-old-checkouts" }, () =>
+          collectRepositoryCheckouts({
+            orgId: input.orgId,
+            repositoryId: input.repositoryId,
+            // Three batches: the hourly job finishes the rest.
+            maxBatches: 3,
+          }),
+        )
+
         logWorkflowMilestone("repository-ingestion.complete", {
           repositoryId: input.repositoryId,
           targetHash: result.targetHash,
@@ -391,6 +446,6 @@ export const repositoryIngestion = defineWorkflow(
           repositoryId: input.repositoryId,
         }
       }
-    })
+    }
   },
 )

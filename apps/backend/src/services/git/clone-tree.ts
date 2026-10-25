@@ -1,8 +1,12 @@
-import { execFile } from "node:child_process"
-import { mkdtemp, rm } from "node:fs/promises"
+import { execFile, spawn } from "node:child_process"
+import { mkdtemp, open, readFile, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+
+import { trace } from "@opentelemetry/api"
+
+import { withGitProcessSlot } from "./process-slot.js"
 import {
   workspaceRelativePath,
   workspaceRepositoryPath,
@@ -16,14 +20,21 @@ async function gitExec(
   input?: string,
 ) {
   try {
-    const execution = execFileAsync("git", args, {
-      ...options,
-      encoding: "buffer",
+    return await withGitProcessSlot(() => {
+      const execution = execFileAsync("git", args, {
+        ...options,
+        encoding: "buffer",
+      })
+      // A process that did not start has no reader for its input.
+      execution.child.stdin?.on("error", () => {})
+      if (input !== undefined) execution.child.stdin?.end(input)
+      return execution
     })
-    if (input !== undefined) execution.child.stdin?.end(input)
-    return await execution
   } catch (error) {
-    const err = error as NodeJS.ErrnoException & { message?: string }
+    const err = error as NodeJS.ErrnoException & {
+      message?: string
+      killed?: boolean
+    }
     if (
       err.code === "ENOENT" ||
       /not found in \$PATH/i.test(err.message ?? "")
@@ -32,19 +43,114 @@ async function gitExec(
         "git is not installed on this service; cannot read a repository by clone.",
       )
     }
+    const timeout = options?.timeout
+    if (
+      timeout &&
+      err.killed &&
+      err.code !== "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
+    )
+      throw gitTimeoutError(args, timeout)
     throw error
   }
 }
 
-type GitShaFile =
-  | { kind: "missing" }
-  | { kind: "bytes"; bytes: Uint8Array }
+/** A known sentence for the failure card; the arguments hold no credential. */
+function gitTimeoutError(args: readonly string[], timeout: number) {
+  const command = args.find(
+    (arg, index) => !arg.startsWith("-") && args[index - 1] !== "-C",
+  )
+  return new Error(
+    `Git ${command} did not finish in the time that ctxpipe waits (${Math.round(timeout / 1000)} s).`,
+  )
+}
+
+/**
+ * Run Git with its standard output in a temporary file, then read the file.
+ * The output of these commands grows with the repository, and a buffered
+ * standard output has a fixed limit (CTX-933). A file above `maxBytes` is not
+ * read, so a very large history cannot exhaust the memory of the worker.
+ */
+export async function gitOutput(
+  args: string[],
+  timeout: number,
+  input?: string,
+  maxBytes = 512 * 2 ** 20,
+): Promise<Buffer> {
+  const scratch = await mkdtemp(join(tmpdir(), "ctxpipe-git-output-"))
+  try {
+    const file = join(scratch, "stdout")
+    const stdout = await open(file, "w")
+    try {
+      await withGitProcessSlot(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            const child = spawn("git", args, {
+              stdio: [
+                input === undefined ? "ignore" : "pipe",
+                stdout.fd,
+                "pipe",
+              ],
+            })
+            let stderr = ""
+            let timedOut = false
+            const timer = setTimeout(() => {
+              timedOut = true
+              child.kill()
+            }, timeout)
+            child.stderr?.on("data", (chunk: Buffer) => {
+              stderr = (stderr + chunk.toString()).slice(-4096)
+            })
+            // Git can exit before it reads all of its input; its exit status
+            // gives the result, not the broken pipe.
+            child.stdin?.on("error", () => {})
+            child.stdin?.end(input)
+            child.on("error", (error: NodeJS.ErrnoException) => {
+              clearTimeout(timer)
+              reject(
+                error.code === "ENOENT"
+                  ? new Error(
+                      "git is not installed on this service; cannot read a repository by clone.",
+                    )
+                  : error,
+              )
+            })
+            child.on("close", (code) => {
+              clearTimeout(timer)
+              if (timedOut) reject(gitTimeoutError(args, timeout))
+              else if (code === 0) resolve()
+              else
+                reject(
+                  Object.assign(
+                    new Error(
+                      `Command failed: git ${args.join(" ")}\n${stderr}`,
+                    ),
+                    { code, stderr },
+                  ),
+                )
+            })
+          }),
+      )
+    } finally {
+      await stdout.close()
+    }
+    const { size } = await stat(file)
+    if (size > maxBytes)
+      throw new Error(
+        `The Git repository is too large for ctxpipe to read in one step: the Git output is ${Math.ceil(size / 2 ** 20)} MiB, and the limit is ${Math.floor(maxBytes / 2 ** 20)} MiB.`,
+      )
+    return await readFile(file)
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
+type GitShaFile = { kind: "missing" } | { kind: "bytes"; bytes: Uint8Array }
 
 export const GIT_REMOTE_ACCESS_MESSAGES = {
   noCredential:
-    "ctx| has no access to this repository. Connect GitHub to this Workspace, then retry.",
+    "ctxpipe has no access to this repository. Connect GitHub to this Workspace, then retry.",
   denied:
-    "ctx| has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
+    "ctxpipe has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
 } as const
 
 /** The remote refused the read credential, or the read needs one and has none. */
@@ -167,6 +273,19 @@ function isSafeGitPath(path: string): boolean {
   return parts.every((part) => part !== "" && part !== "." && part !== "..")
 }
 
+/** Time one git call in a span, so a trace shows which fetch is slow. */
+function timedGit<T>(name: string, work: () => Promise<T>): Promise<T> {
+  return trace
+    .getTracer("ctxpipe-backend")
+    .startActiveSpan(name, async (span) => {
+      try {
+        return await work()
+      } finally {
+        span.end()
+      }
+    })
+}
+
 async function withFetchedGitSha<T>(
   input: {
     url: string
@@ -204,28 +323,48 @@ async function withFetchedGitSha<T>(
       })
       await gitExec(
         [...config, "remote.origin.partialclonefilter", "blob:none"],
-        {
-          timeout: 15_000,
-        },
+        { timeout: 15_000 },
       )
     }
     // A remote without filter support sends every blob; the read still works.
     const filter = input.treesOnly ? ["--filter=blob:none"] : []
-    await gitExec(
-      [
-        "-C",
-        dir,
-        "fetch",
-        ...filter,
-        ...(input.includeIntroducingCommits ? [] : ["--depth", "1"]),
-        "origin",
-        input.sha,
-      ],
-      {
-        timeout: 60_000,
-        env,
-      },
+    await timedGit("git.fetch-tip", () =>
+      gitExec(
+        ["-C", dir, "fetch", ...filter, "--depth", "1", "origin", input.sha],
+        {
+          timeout: 60_000,
+          env,
+        },
+      ),
     )
+    if (input.includeIntroducingCommits) {
+      // The history walk reads commits and trees only. It needs no old blob,
+      // and the blobs of a large history are most of its bytes. The tip
+      // blobs came with the fetch above, so the walk adds only the rest.
+      await timedGit("git.fetch-history", () =>
+        gitExec(
+          [
+            // Settings for this command only, so the budget of native Git
+            // commands per tree does not grow.
+            "-c",
+            "remote.origin.promisor=true",
+            "-c",
+            "remote.origin.partialclonefilter=blob:none",
+            "-C",
+            dir,
+            "fetch",
+            "--no-tags",
+            "--filter=blob:none",
+            "--unshallow",
+            "origin",
+            input.sha,
+          ],
+          // The full history of a large repository takes much longer than
+          // its newest commit.
+          { timeout: 10 * 60_000, env },
+        ),
+      )
+    }
     return await read(dir, async (shas) => {
       if (!input.treesOnly || shas.length === 0) return
       // One fetch for all the blobs, not one lazy fetch for each blob.
@@ -239,57 +378,70 @@ async function withFetchedGitSha<T>(
   }
 }
 
+/**
+ * The entries of the fetched tree. After a tree-only fetch (`prefix`), a blob
+ * is not on disk, and `ls-tree -l` would need it for its size: the entries
+ * then have no size.
+ */
 async function listTreeEntries(
   dir: string,
   prefix?: string,
 ): Promise<
   Array<{ kind: string; sha: string; path: string; size: number | null }>
 > {
-  const { stdout } = await gitExec(
+  const stdout = await gitOutput(
     [
       "-C",
       dir,
+      // No lazy fetch: the temporary copy has no credential, so the fetches
+      // with one are the only network reads.
+      "--no-lazy-fetch",
       "ls-tree",
-      "-rlz",
+      prefix ? "-rz" : "-rlz",
       "--full-tree",
       "FETCH_HEAD",
       ...(prefix ? ["--", prefix] : []),
     ],
-    { timeout: 15_000, maxBuffer: 10 * 1024 * 1024 },
+    60_000,
   )
   return stdout
     .toString("utf8")
     .split("\0")
     .filter(Boolean)
     .map((record) => {
-      const entry = /^\d+ (\w+) ([0-9a-f]+) +(\d+|-)\t([\s\S]+)$/.exec(record)
-      if (
-        !entry?.[1] ||
-        !entry[2] ||
-        !entry[3] ||
-        !entry[4] ||
-        !isSafeGitPath(entry[4])
+      const entry = /^\d+ (\w+) ([0-9a-f]+)(?: +(\d+|-))?\t([\s\S]+)$/.exec(
+        record,
       )
+      if (!entry?.[1] || !entry[2] || !entry[4] || !isSafeGitPath(entry[4]))
         throw new Error("Invalid path in immutable Git tree")
       return {
         kind: entry[1],
         sha: entry[2],
         path: entry[4],
-        size: entry[3] === "-" ? null : Number(entry[3]),
+        size:
+          entry[3] === undefined || entry[3] === "-" ? null : Number(entry[3]),
       }
     })
 }
 
-async function gitShowBytes(dir: string, path: string): Promise<GitShaFile> {
+async function gitShowBytes(
+  dir: string,
+  path: string,
+  fetchBlobs?: (shas: readonly string[]) => Promise<void>,
+): Promise<GitShaFile> {
   if (!isSafeGitPath(path)) return { kind: "missing" }
-  const entry = (await listTreeEntries(dir)).find(
-    (candidate) => candidate.kind === "blob" && candidate.path === path,
-  )
+  const entry = (
+    await listTreeEntries(dir, fetchBlobs ? path : undefined)
+  ).find((candidate) => candidate.kind === "blob" && candidate.path === path)
   if (!entry) return { kind: "missing" }
-  const { stdout } = await gitExec(["-C", dir, "cat-file", "blob", entry.sha], {
-    timeout: 15_000,
-    maxBuffer: 10 * 1024 * 1024,
-  })
+  await fetchBlobs?.([entry.sha])
+  const { stdout } = await gitExec(
+    ["-C", dir, "--no-lazy-fetch", "cat-file", "blob", entry.sha],
+    {
+      timeout: 15_000,
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  )
   return { kind: "bytes", bytes: stdout }
 }
 
@@ -312,6 +464,7 @@ export async function listGitPathsAtSha(input: {
       [
         "-C",
         dir,
+        "--no-lazy-fetch",
         "ls-tree",
         "-r",
         "-z",
@@ -416,11 +569,10 @@ export async function listMarkdownFilesAtGitSha(input: {
       const entries = listed.filter((entry) => !tooLarge(entry))
       if (entries.length === 0) return omitted
       await fetchBlobs(entries.map((entry) => entry.sha))
-      // The caller keeps all blob contents in memory. This limit bounds that
-      // memory.
-      const { stdout } = await gitExec(
-        ["-C", dir, "cat-file", "--batch"],
-        { timeout: 30_000, maxBuffer: 200 * 1024 * 1024 },
+      // The caller keeps all blob contents in memory.
+      const stdout = await gitOutput(
+        ["-C", dir, "--no-lazy-fetch", "cat-file", "--batch"],
+        60_000,
         `${entries.map((entry) => entry.sha).join("\n")}\n`,
       )
       const introduced = new Map<string, string>()
@@ -430,10 +582,11 @@ export async function listMarkdownFilesAtGitSha(input: {
           ? workspaceRepositoryPath(input.root ?? "", input.layoutPath)
           : undefined
         // One history walk for all paths, newest first; raw -z keeps tabs/newlines in filenames intact.
-        const { stdout: history } = await gitExec(
+        const history = await gitOutput(
           [
             "-C",
             dir,
+            "--no-lazy-fetch",
             "log",
             "--topo-order",
             "--format=%x00%ct",
@@ -448,7 +601,7 @@ export async function listMarkdownFilesAtGitSha(input: {
             "*.md",
             ...(layoutPath ? [`:(literal)${layoutPath}`] : []),
           ],
-          { timeout: 60_000, maxBuffer: 128 * 1024 * 1024 },
+          5 * 60_000,
         )
         const records = history.toString("utf8").split("\0")
         let timestamp: string | undefined
@@ -553,12 +706,18 @@ export async function listPathsAtGitSha(input: {
   )
 }
 
-/** Read one file at a stored SHA. Token never logged. */
+/**
+ * Read one file at a stored SHA. Token never logged. With `treesOnly`, the
+ * fetch gets the trees and only the blob of this file.
+ */
 export async function readFileAtGitSha(input: {
   url: string
   sha: string
   path: string
   token?: string
+  treesOnly?: boolean
 }): Promise<GitShaFile> {
-  return withFetchedGitSha(input, (dir) => gitShowBytes(dir, input.path))
+  return withFetchedGitSha(input, (dir, fetchBlobs) =>
+    gitShowBytes(dir, input.path, input.treesOnly ? fetchBlobs : undefined),
+  )
 }

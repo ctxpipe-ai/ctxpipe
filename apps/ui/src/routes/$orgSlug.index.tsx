@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
+
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SKELETON_DELAY_MS } from "@/components/ui/Skeleton"
@@ -26,8 +27,8 @@ import {
 import { WorkspaceCreateModal } from "@/features/workspaces/WorkspaceCreateModal"
 import { useSession } from "@/lib/auth-client"
 import { onboardingHandOffFlag, useSessionFlag } from "@/lib/session-flags"
-import { useRevealOnce } from "@/lib/useRevealOnce"
 import { useUserPreferences } from "@/lib/user-preferences"
+import { useRevealOnce } from "@/lib/useRevealOnce"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
 
@@ -107,14 +108,17 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     return <Navigate to="/.auth/sign-in" replace />
   }
 
+  // Named for the view transition that moves it when the notices come or go.
   const composer = (
-    <HomeComposer
-      orgSlug={orgSlug}
-      workspaces={workspaces}
-      selected={selected}
-      onSelectWorkspace={setSelectedId}
-      inputKey={composerKey}
-    />
+    <div className="[view-transition-name:home-composer]">
+      <HomeComposer
+        orgSlug={orgSlug}
+        workspaces={workspaces}
+        selected={selected}
+        onSelectWorkspace={setSelectedId}
+        inputKey={composerKey}
+      />
+    </div>
   )
   // Ask: store the prompt as the draft of the current Workspace, then mount
   // a new text box, which reads that draft and takes focus.

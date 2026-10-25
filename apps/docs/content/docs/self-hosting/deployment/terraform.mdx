@@ -1,10 +1,10 @@
 ---
 title: Terraform
-description: Manage self-hosted ctx| infrastructure with Terraform.
+description: Manage self-hosted ctxpipe infrastructure with Terraform.
 ---
 
 The repo includes a Terraform stack in `infra/` for managed infrastructure. It
-currently models the ctx| Railway and Neon deployment path, with app services
+currently models the ctxpipe Railway and Neon deployment path, with app services
 pulling versioned images from GitHub Container Registry.
 
 ## What the included stack manages
@@ -15,7 +15,7 @@ pulling versioned images from GitHub Container Registry.
 | Database | Neon Postgres 17 project, branch, endpoint, database, owner role, and the `ctxpipe_app` password |
 | App images | `ghcr.io/ctxpipe-ai/backend`, `worker`, `ui`, and `codesearch` tagged by commit SHA |
 | Graph database | Railway service for FalkorDB |
-| Secrets | Terraform variables passed into provider-managed service variables |
+| Secrets | Not in Terraform: CI writes them straight to the Railway service variables |
 
 ## Initialize state
 
@@ -31,8 +31,8 @@ of the repo.
 
 ## Plan and apply
 
-Set the required Terraform variables through your CI secret store or local
-environment, then review the plan:
+The stack has no secret input, so the state holds no app secret. Review the
+plan:
 
 ```bash
 terraform -chdir=infra plan
@@ -44,10 +44,14 @@ Apply only after the plan matches the intended environment:
 terraform -chdir=infra apply
 ```
 
-Optional provider connectors are enabled when their complete credential set is
-supplied. Keep GitHub, Slack, Linear, Notion, and Atlassian values in the CI
-secret store used for Terraform inputs; each provider still requires its
-operator-side App, OAuth, callback, and webhook configuration.
+## Secrets
+
+Keep each app secret in your CI secret store. Before the images start, the
+deploy writes them to the Railway service variables with
+`scripts/railway-sync-variables.mjs`, which lists each secret and the services
+that get it. An optional connector (Slack, Linear, PagerDuty) is on when you set
+its secrets. Each provider still requires its operator-side App, OAuth,
+callback, and webhook configuration.
 
 ## Image rollout
 
@@ -64,24 +68,25 @@ same workflow.
 Terraform generates the `ctxpipe_app` password, and migrate creates the role in
 SQL with it. A role from the Neon API is a member of `neon_superuser`, which has
 `BYPASSRLS`, so migrate refuses it. Railway `DATABASE_URL` on backend, worker, and
-codesearch is the app-role pooler URL. Migrate / `PRODUCTION_DATABASE_URL` stays
-the owner. Do not collapse those two identities.
+codesearch is the app-role pooler URL. Migrate uses the `DATABASE_URL` secret of
+the GitHub Environment `production`, which is the owner URL. Do not collapse
+those two identities.
 
 ## Chat sandboxes
 
 The module runs Workspace chat in Vercel Sandbox (`SANDBOX_PROVIDER=vercel`).
-It takes the Vercel token from `vercel_access_token`. The Vercel team and
-project are set to ctx|'s own values, so a fork must change them. See
+The deploy writes the Vercel token (`VERCEL_TOKEN`) from the CI secret store. The Vercel team and
+project are set to ctxpipe's own values, so a fork must change them. See
 [Configuration](/docs/self-hosting/configuration#chat-sandboxes).
 
 ## Observability
 
 This stack is the hosted Railway layout. It does not deploy Langfuse or
 ClickStack. The module always sets `OTEL_EXPORTER_OTLP_*` from
-`otel_otlp_endpoint`, which defaults to ctx|'s hosted collector
-`https://telemetry.ctxpipe.ai`, and requires `otel_otlp_headers`. If you reuse
-the module, override both; to disable export, remove `otel_shared_env` from
-the module. See [Configuration](/docs/self-hosting/configuration).
+`otel_otlp_endpoint`, which defaults to ctxpipe's hosted collector
+`https://telemetry.ctxpipe.ai`. The deploy writes `OTEL_EXPORTER_OTLP_HEADERS`
+from the CI secret store. If you reuse the module, override both; to disable
+export, remove `otel_shared_env` from the module. See [Configuration](/docs/self-hosting/configuration).
 
 ## When to customize
 

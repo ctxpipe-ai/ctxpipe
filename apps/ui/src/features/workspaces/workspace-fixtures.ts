@@ -3,6 +3,7 @@ import type {
   ConversationDetail,
   ConversationListItem,
 } from "@/features/chat/types"
+
 import type {
   Workspace,
   WorkspaceActivityCommit,
@@ -14,6 +15,7 @@ import type {
   WorkspaceGitStatusResponse,
   WorkspaceGitTreeResponse,
   WorkspaceGraphPayload,
+  WorkspaceSkippedFile,
 } from "./types"
 
 function activityDaysThrough(
@@ -204,9 +206,17 @@ export const emptyLinkedWorkspaceDetail: WorkspaceDetail = {
   linkedRepositories: [],
 }
 
+/** A read-only file that hydrate builds from the database, not from Git. */
+export const legacyOverlaySkippedFile: WorkspaceSkippedFile = {
+  path: "knowledge/apis/imported.md",
+  reason: "malformed",
+  source: "legacy-overlay",
+}
+
 export const skippedFilesWorkspaceDetail: WorkspaceDetail = {
   ...docsWorkspaceDetail,
   skippedFiles: [
+    legacyOverlaySkippedFile,
     { path: "knowledge/billing/tax.md", reason: "malformed" },
     { path: "repositories/app-copy.md", reason: "duplicate_repository" },
   ],

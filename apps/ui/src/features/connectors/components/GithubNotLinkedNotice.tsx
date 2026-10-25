@@ -25,7 +25,7 @@ export function GithubNotLinkedNotice({
           Use your organization's own GitHub App
         </h1>
         <p className="mt-3 text-sm text-zinc-400">
-          GitHub sign-in is not enabled on this deployment, so ctx| cannot
+          GitHub sign-in is not enabled on this deployment, so ctxpipe cannot
           confirm that you can access this installation. Add a GitHub connection
           with your organization's own GitHub App from Connectors instead.
         </p>

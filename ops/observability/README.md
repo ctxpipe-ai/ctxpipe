@@ -20,14 +20,14 @@ Querying: [USING.md](./USING.md). Deploy: [terraform/README.md](./terraform/READ
 
 ## Awake vs sleep
 
-| Awake or scheduled | Sleeps when idle | Serverless on, stays up |
-| --- | --- | --- |
-| collector, clickhouse, langfuse-worker, redis | hyperdx | langfuse-web, mongo |
-| railway-telemetry, cost-telemetry (starts, exports, exits) | | |
+| Awake or scheduled | Serverless on, stays up |
+| --- | --- |
+| collector, clickhouse, hyperdx, langfuse-worker, redis | langfuse-web, mongo |
+| railway-telemetry, cost-telemetry (starts, exports, exits) | |
 
-Sleep is a missing `railway.cpu` sample, not a zero. Nothing polls HyperDX, Mongo, or Langfuse web. The collector scrapes only itself and ClickHouse. Redis stays up because the worker does.
+HyperDX has Serverless off. The first MCP call after a sleep got a Cloudflare 504 while the container woke up, and HyperDX is the first tool for incident triage. It uses about 0.25 GB of memory. A sleeping service shows as a missing `railway.cpu` sample, not a zero. Nothing polls Mongo or Langfuse web. The collector scrapes only itself and ClickHouse. Redis stays up because the worker does.
 
-Langfuse web stays up on the stock image: the Prisma client and ioredis send keepalives. No `LANGFUSE_*` variable turns those off. Mongo stays Online with Serverless on; the volume is billed either way. Collector and ClickHouse have Serverless off. Provider 0.6.1 omits `sleepApplication` on update, so apply does not turn it back on.
+Langfuse web stays up on the stock image: the Prisma client and ioredis send keepalives. No `LANGFUSE_*` variable turns those off. Mongo stays Online with Serverless on; the volume is billed either way. Collector, ClickHouse, and HyperDX have Serverless off. Terraform does not manage this setting. Provider 0.6.1 omits `sleepApplication` on update, so apply neither turns it off nor turns it back on. Set it in Railway (service Settings, Serverless off) or with the `serviceInstanceUpdate` mutation (`sleepApplication: false`).
 
 Langfuse Postgres is database `langfuse` on the existing Neon `ctxpipe` project. Event blobs are Railway bucket `langfuse-events`.
 
@@ -37,19 +37,21 @@ Product traces, logs, and metrics use public OTLP. `service.name` is `backend`, 
 
 ## Secrets
 
-Railway holds runtime values. Terraform holds references and does not list provider secret names, so apply cannot delete them. For `cost-telemetry`, the protected GitHub `observability` Environment also holds source copies; apply syncs them directly to Railway before connecting the image, without placing their values in Terraform state.
+No secret is set by hand in Railway. The protected GitHub `observability` Environment holds each one, and after each apply [`scripts/railway-sync-variables.mjs`](../../scripts/railway-sync-variables.mjs) writes it straight to the Railway service variables. The values do not enter Terraform inputs, plan output, or state. When a value changes, the apply job redeploys that service and the services that refer to it, in reference order. A re-run or a manual run redeploys every service. Terraform holds the values that are not secret and the references. `NEON_ORG_ID` and `CLOUDFLARE_ACCOUNT_ID` are GitHub variables, not secrets.
 
-| Service | Railway-owned | Terraform wires |
+| Service | GitHub Environment → Railway variable | Terraform wires |
 | --- | --- | --- |
 | clickhouse | `CLICKHOUSE_OTEL_PASSWORD`, `CLICKHOUSE_LANGFUSE_PASSWORD` | cold-bucket references |
-| collector | `HYPERDX_API_KEY`, `LANGFUSE_AUTH_STRING` | `CLICKHOUSE_PASSWORD` = `${{clickhouse.CLICKHOUSE_OTEL_PASSWORD}}` |
+| collector | `HYPERDX_API_KEY`; `LANGFUSE_AUTH_STRING` made from `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` | `CLICKHOUSE_PASSWORD` = `${{clickhouse.CLICKHOUSE_OTEL_PASSWORD}}` |
 | hyperdx | — | ClickHouse password and `HYPERDX_API_KEY` from those services |
-| langfuse-web | `DATABASE_URL`, `DIRECT_URL`, `NEXTAUTH_SECRET`, `SALT`, `ENCRYPTION_KEY`, init user email/password, project public/secret keys | ClickHouse password and the collector OTLP header |
+| langfuse-web | `LANGFUSE_DATABASE_URL` → `DATABASE_URL`, `LANGFUSE_DIRECT_URL` → `DIRECT_URL`, `LANGFUSE_NEXTAUTH_SECRET` → `NEXTAUTH_SECRET`, `LANGFUSE_SALT` → `SALT`, `LANGFUSE_ENCRYPTION_KEY` → `ENCRYPTION_KEY`, `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` → `LANGFUSE_INIT_PROJECT_*_KEY` | ClickHouse password and the collector OTLP header |
 | langfuse-worker | — | database, salt, and encryption key from langfuse-web |
-| railway-telemetry | `RAILWAY_API_TOKEN` | collector OTLP header |
-| cost-telemetry | `OPENROUTER_MANAGEMENT_KEY`, `GITHUB_BILLING_TOKEN`, `BLACKSMITH_TOKEN`, `NEON_API_KEY`, `NEON_ORG_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `RAILWAY_API_TOKEN`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN` (synced from GitHub Environment) | collector OTLP header |
+| railway-telemetry | `TELEMETRY_RAILWAY_WORKSPACE_TOKEN` → `RAILWAY_API_TOKEN` | collector OTLP header |
+| cost-telemetry | `COST_TELEMETRY_*` provider credentials, `TELEMETRY_RAILWAY_WORKSPACE_TOKEN` → `RAILWAY_API_TOKEN` | collector OTLP header |
 
-`LANGFUSE_AUTH_STRING` is `base64(pk:sk)` and must match the Langfuse project keys. `DATABASE_URL` and `DIRECT_URL` include `connection_limit=1&keepalives=0`.
+`DATABASE_URL` and `DIRECT_URL` include `connection_limit=1&keepalives=0`. The product GitHub secret `OBSERVABILITY_OTLP_HEADERS` is `authorization=<HYPERDX_API_KEY>`, so change both together.
+
+Langfuse reads the `LANGFUSE_INIT_PROJECT_*` values only to create a missing API key. It finds the key by its public key. So a key rotation needs a new `LANGFUSE_PUBLIC_KEY` and a new `LANGFUSE_SECRET_KEY` together; then delete the old key in the Langfuse project settings. The sync sets no `LANGFUSE_INIT_USER_*` value and deletes them from `langfuse-web`: Langfuse already has its user. Manage users and passwords in Langfuse. A new `SALT` does not revoke an old key. A new `ENCRYPTION_KEY` makes stored LLM connection keys unreadable: enter them again. While the services restart after a ClickHouse or key rotation, OTLP ingestion and LLM traces stop for a short time.
 
 ## Deploy
 

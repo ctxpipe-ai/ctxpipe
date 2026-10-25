@@ -1,4 +1,5 @@
 import { delay, HttpResponse, http } from "msw"
+
 import type {
   WorkspaceUpgradeItem,
   WorkspaceUpgrades,
@@ -41,6 +42,10 @@ export function upgradeItemFixture(
     waitingForSlot: null,
     failureReason: null,
     failure: null,
+    autoRetried: false,
+    runStage: null,
+    mergedAt: null,
+    checkedAt: null,
     approvedBy: null,
     approvedAt: null,
     updatedAt: "2026-10-16T10:00:00.000Z",
@@ -131,50 +136,97 @@ export function workspaceUpgradeCheckHandler(
 
 /**
  * `GET /workspace-upgrades/pending`: the pending upgrades of the org, keyed
- * by Workspace slug. A Workspace with no item is left out, as the server
- * does. Each answered read adds its path to `answered`.
+ * by Workspace slug. `formats` gives the format of a Workspace (default: the
+ * newest). As the server does, a Workspace below the newest format is in the
+ * list also with no item, and a Workspace at the newest format with no item
+ * is left out. `"error"` answers 500. Each answered read adds its path to
+ * `answered`.
  */
 export function pendingWorkspaceUpgradesHandler(
   bySlug: Record<string, WorkspaceUpgradeItem[]>,
   answered?: string[],
+  options: {
+    formats?: Record<string, number | null>
+    answer?: "error"
+  } = {},
 ) {
+  const codeFormat = 3
   return http.get(
     ({ request }) =>
       pathnameOf(request).endsWith("/workspace-upgrades/pending"),
     ({ request }) => {
       answered?.push(pathnameOf(request))
+      if (options.answer === "error")
+        return HttpResponse.json({ error: "Server error" }, { status: 500 })
+      const slugs = new Set([
+        ...Object.keys(bySlug),
+        ...Object.keys(options.formats ?? {}),
+      ])
       return HttpResponse.json({
-        workspaces: Object.entries(bySlug)
-          .map(([workspaceSlug, items]) => ({
+        workspaces: [...slugs]
+          .map((workspaceSlug) => ({
             workspaceSlug,
-            items: items.filter((item) => item.status !== "completed"),
+            formatVersion: options.formats?.[workspaceSlug] ?? codeFormat,
+            codeFormat,
+            items: (bySlug[workspaceSlug] ?? []).filter(
+              (item) => item.status !== "completed",
+            ),
           }))
-          .filter((workspace) => workspace.items.length > 0),
+          .filter(
+            (workspace) =>
+              workspace.items.length > 0 ||
+              (workspace.formatVersion !== null &&
+                workspace.formatVersion >= 0 &&
+                workspace.formatVersion < codeFormat),
+          ),
       })
     },
   )
 }
 
 /**
- * Always update: `POST /workspaces/:slug/upgrades/automatic` and the read of
- * its file job, which completes at once. Each call adds its path to
- * `requests`, so a play can check the order of the calls.
+ * The automatic-upgrades setting: `GET` and `POST
+ * /workspaces/:slug/upgrades/automatic`, and the read of the file job of a
+ * save. The job completes at once, or answers `job` (for example `running`
+ * for a slow save, or `failed` with its cause). `setting` holds the mode and
+ * the reason that the GET answers: a completed save changes the mode. Each call adds its
+ * method and path to `requests` ("POST <path> <mode>" for a save), so a play
+ * can check the calls.
  */
 export function workspaceUpgradeAutomaticHandlers(
-  options: { requests?: string[] } = {},
+  options: {
+    requests?: string[]
+    job?: { status: string; failureReason: string | null }
+    setting?: {
+      mode: "manual" | "automatic" | null
+      reason?: "no_tip" | "invalid_format" | "unreadable" | null
+    }
+  } = {},
 ) {
+  const isSetting = ({ request }: { request: Request }) =>
+    /\/workspaces\/[^/]+\/upgrades\/automatic$/.test(pathnameOf(request))
   return [
-    http.post(
-      ({ request }) =>
-        /\/workspaces\/[^/]+\/upgrades\/automatic$/.test(pathnameOf(request)),
-      ({ request }) => {
-        options.requests?.push(pathnameOf(request))
-        return HttpResponse.json(
-          { queued: true, jobId: "wjob_automatic" },
-          { status: 202 },
-        )
-      },
+    http.get(isSetting, () =>
+      HttpResponse.json({
+        mode: options.setting ? options.setting.mode : "manual",
+        reason: options.setting?.reason ?? null,
+      }),
     ),
+    http.post(isSetting, async ({ request }) => {
+      const { mode } = (await request.json()) as {
+        mode: "manual" | "automatic"
+      }
+      options.requests?.push(`POST ${pathnameOf(request)} ${mode}`)
+      if (
+        options.setting &&
+        (options.job?.status ?? "completed") === "completed"
+      )
+        options.setting.mode = mode
+      return HttpResponse.json(
+        { queued: true, jobId: "wjob_automatic" },
+        { status: 202 },
+      )
+    }),
     http.get(
       ({ request }) =>
         /\/workspaces\/[^/]+\/files\/jobs\/wjob_automatic$/.test(
@@ -182,7 +234,9 @@ export function workspaceUpgradeAutomaticHandlers(
         ),
       ({ request }) => {
         options.requests?.push(pathnameOf(request))
-        return HttpResponse.json({ status: "completed", failureReason: null })
+        return HttpResponse.json(
+          options.job ?? { status: "completed", failureReason: null },
+        )
       },
     ),
   ]

@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query"
+
 import { landingPane } from "./pane"
 import { workspaceProjectionReady } from "./projection"
 import {
@@ -78,4 +79,3 @@ export function prefetchWorkspaceRouteData(
 ) {
   void ensureWorkspaceRouteData(input)
 }
-

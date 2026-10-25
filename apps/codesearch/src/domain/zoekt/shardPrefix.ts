@@ -26,12 +26,24 @@ export function zoektShardFilePrefix(zoektName: string): string {
   return `${encodeURIComponent(zoektName)}_`
 }
 
-function zoektNameFromShardBasename(basename: string): string | null {
-  const match = /^(.+)_v\d+\.\d{5}\.zoekt(?:\.meta)?$/.exec(basename)
+/**
+ * Reads the Zoekt repository Name from a shard file name: a shard
+ * (`<name>_v16.00000.zoekt`), its `.meta` sidecar, or a temporary file that a
+ * stopped build left (`<shard>.<n>.tmp`). Gives null for any other file name.
+ */
+export function parseZoektShardBasename(
+  basename: string,
+): { zoektName: string; temporary: boolean } | null {
+  const match = /^(.+)_v\d+\.\d{5}\.zoekt(?:\.meta)?(\.[^.]+\.tmp)?$/.exec(
+    basename,
+  )
   const encodedName = match?.[1]
   if (!encodedName) return null
   try {
-    return decodeURIComponent(encodedName.replaceAll("+", "%20"))
+    return {
+      zoektName: decodeURIComponent(encodedName.replaceAll("+", "%20")),
+      temporary: Boolean(match[2]),
+    }
   } catch {
     return null
   }
@@ -42,5 +54,6 @@ export function isZoektShardBasenameForName(
   basename: string,
   zoektName: string,
 ): boolean {
-  return zoektNameFromShardBasename(basename) === zoektName
+  const parsed = parseZoektShardBasename(basename)
+  return parsed !== null && !parsed.temporary && parsed.zoektName === zoektName
 }

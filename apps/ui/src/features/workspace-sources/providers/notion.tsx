@@ -6,6 +6,7 @@ import {
   notionSourceScopeSchema,
 } from "backend/domain/workspace-sources/providers/notion"
 import { useEffect, useState } from "react"
+
 import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -19,6 +20,7 @@ import {
   notionConnectorKeys,
   searchNotionResources,
 } from "@/features/connectors/queries/notion-connector"
+
 import type {
   SourceProviderUi,
   SourceScopeEditorProps,
@@ -33,9 +35,7 @@ type NotionRootItem = {
 }
 
 /** The picker selection of a source scope. A bad scope starts empty. */
-function notionScopeToItems(
-  scope: Record<string, unknown>,
-): NotionRootItem[] {
+function notionScopeToItems(scope: Record<string, unknown>): NotionRootItem[] {
   const parsed = notionSourceScopeSchema.safeParse(scope)
   if (!parsed.success) return []
   return [
@@ -153,8 +153,8 @@ export function NotionScopeEditor(props: SourceScopeEditorProps) {
           </InlineAlert>
         ) : listed.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No pages or databases found. Share them with the ctx| integration in
-            Notion, then search again.
+            No pages or databases found. Share them with the ctxpipe integration
+            in Notion, then search again.
           </p>
         ) : (
           <CheckboxGroup

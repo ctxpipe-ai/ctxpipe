@@ -1,5 +1,7 @@
 import { IconExternalLink, IconX } from "@tabler/icons-react"
+
 import { Button } from "@/components/ui/Button"
+
 import { FloatingPanel } from "./FloatingPanel"
 
 /** Product guide: Using the app → Knowledge graph */

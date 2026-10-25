@@ -1,4 +1,5 @@
 import type { z } from "zod"
+
 import { checkPlainGitUrl } from "./providers/git.js"
 import { githubFileSourceScope } from "./providers/github.js"
 import type { SourceScopeDefinition } from "./providers/scope.js"
@@ -23,7 +24,7 @@ import {
 
 export const SOURCE_FILES_FOLDER = "sources"
 
-/** The largest source file that ctx| reads (64 KiB). */
+/** The largest source file that ctxpipe reads (64 KiB). */
 export const SOURCE_FILE_MAX_BYTES = 64 * 1024
 
 /**

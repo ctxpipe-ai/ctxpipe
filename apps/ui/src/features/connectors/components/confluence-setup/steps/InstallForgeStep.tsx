@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { type FormEventHandler, useEffect, useRef, useState } from "react"
+
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Spinner } from "@/components/ui/spinner"
 import { TextField } from "@/components/ui/TextField"
 import { pollWhileOk } from "@/lib/api-result"
 import { useConfluenceForgeRuntime } from "@/providers/ConfluenceForgeRuntimeContext"
+
 import {
   atlassianConnectorKeys,
   type ForgeProvisionStatusPayload,
@@ -279,7 +281,7 @@ export function InstallForgeStep({
         ) : (
           <p className="mt-2 text-sm text-muted-foreground">
             Confluence integrations use embedded Forge apps on Atlassian’s
-            cloud. ctx| will provision one for you below.{" "}
+            cloud. ctxpipe will provision one for you below.{" "}
             <a
               href="https://developer.atlassian.com/platform/forge/"
               target="_blank"

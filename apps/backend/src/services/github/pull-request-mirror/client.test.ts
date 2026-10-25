@@ -1,6 +1,7 @@
 import { HttpResponse, http } from "msw"
 import { Octokit } from "octokit"
 import { describe, expect, it } from "vitest"
+
 import { useMswServer } from "../../../../test/msw.js"
 import {
   fetchClosedPullRequestPage,
@@ -8,7 +9,6 @@ import {
 } from "./client.js"
 
 const API = "https://api.github.com"
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 
 function connection<T>(nodes: T[], hasNextPage = false) {

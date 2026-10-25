@@ -2,8 +2,9 @@
 # not write (dependency install scripts, packages, build steps) and branch
 # code. Such code gets no secret except a credential that works on this
 # preview only:
-# - RAILWAY_API_TOKEN (Railway account token) comes from the protected
-#   GitHub environment `Preview`. It goes only to jobs that run no
+# - RAILWAY_API_TOKEN (Railway workspace token, GitHub secret
+#   RAILWAY_WORKSPACE_TOKEN) comes from the protected GitHub environment
+#   `Preview`. It goes only to jobs that run no
 #   package manager, no migrate and no build. These jobs check out the commit
 #   of this workflow file and source only reviewed scripts from it.
 # - NEON_API_KEY goes only to prepare_pr_database, deploy_pr_environment and
@@ -313,7 +314,7 @@ jobs:
   # scripts of each dependency, migrate) can change the rest of its job: it
   # can write BASH_ENV or PATH to $GITHUB_ENV, change files on disk, leave
   # a process that reads the environment of a later step, or read the memory
-  # of the runner. Thus the account tokens (RAILWAY_API_TOKEN, NEON_API_KEY)
+  # of the runner. Thus the workspace and API tokens (RAILWAY_API_TOKEN, NEON_API_KEY)
   # go only to prepare_pr_environment, prepare_pr_database and
   # deploy_pr_environment, and these jobs run no branch code. They check out
   # the commit of this workflow file (no `ref:`), and run only the scripts that
@@ -349,16 +350,16 @@ jobs:
           fi
 
       # No `ref:`: the commit of this workflow file, not the PR head. This job
-      # holds the account token.
+      # holds the workspace token.
       - name: Checkout workflow commit
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
 
       - name: Check the Railway token
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
         run: |
           [[ -n "$RAILWAY_API_TOKEN" ]] || {
-            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the Preview environment (Settings > Environments)."
+            echo "::error::RAILWAY_WORKSPACE_TOKEN is missing. Add it to the Preview environment (Settings > Environments)."
             exit 1
           }
 
@@ -369,7 +370,7 @@ jobs:
         # production backend value (a missing Preview secret falls back to a
         # repository secret). It reads only those two production variables.
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
           GH_APP_ID: ${{ secrets.GH_APP_ID }}
@@ -413,7 +414,7 @@ jobs:
         # live environment. The step never deletes an environment. When
         # `environment new` fails, the step fails, and the retry looks again.
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
@@ -542,7 +543,7 @@ jobs:
           path: ${{ runner.temp }}/preview-db-handoff
           key: ${{ env.HANDOFF_KEY }}
 
-  # Runs branch code: pnpm install and migrate. It gets no account token, only
+  # Runs branch code: pnpm install and migrate. It gets no workspace token, only
   # the owner URL of the preview branch, which does not work on production.
   migrate_pr_database:
     name: Migrate PR Neon branch
@@ -688,16 +689,16 @@ jobs:
           fi
 
       # No `ref:`: the commit of this workflow file, not the PR head. This job
-      # holds the account token.
+      # holds the workspace token.
       - name: Checkout workflow commit
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
 
       - name: Check the Railway token
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
         run: |
           [[ -n "$RAILWAY_API_TOKEN" ]] || {
-            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the Preview environment (Settings > Environments)."
+            echo "::error::RAILWAY_WORKSPACE_TOKEN is missing. Add it to the Preview environment (Settings > Environments)."
             exit 1
           }
 
@@ -706,7 +707,7 @@ jobs:
         # writes to the environment id of prepare_pr_environment and never
         # creates an environment; this step stops early when the id is gone.
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           ENV_ID: ${{ needs.prepare_pr_environment.outputs.env_id }}
         run: |
@@ -715,7 +716,7 @@ jobs:
           source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
           FOUND="$(railway_environment_id "$RAILWAY_PROJECT_ID" "$PR_ENV")"
           if [[ -z "$FOUND" || "$FOUND" != "$ENV_ID" ]]; then
-            echo "::error::The Railway environment $PR_ENV ($ENV_ID) is gone. The PR-close cleanup removed it; the deploy does not create it again."
+            echo "::error::The Railway environment $PR_ENV ($ENV_ID) is gone, but PR #${PR_NUMBER} is open. A cleanup of an earlier close removed it, or someone deleted it by hand. Fix: start PR Deploy again for this PR (push a commit, or Actions > PR Deploy > Run workflow). The prepare job then creates the environment again. Re-running only the failed jobs does not: it reuses the old id."
             exit 1
           fi
 
@@ -751,7 +752,7 @@ jobs:
         # password before the roll. A kept password changes nothing. A new
         # password replaces a URL that the services cannot use on this branch.
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           ENV_ID: ${{ needs.prepare_pr_environment.outputs.env_id }}
           BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
@@ -778,7 +779,7 @@ jobs:
 
       - name: Update Railway service config via GraphQL and deploy once
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           ENV_ID: ${{ needs.prepare_pr_environment.outputs.env_id }}
           BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
@@ -797,6 +798,24 @@ jobs:
           GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
           GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
           GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          FALKORDB_PASSWORD: ${{ secrets.FALKORDB_PASSWORD }}
+          SMTP_CONNECTION_URL: ${{ secrets.SMTP_CONNECTION_URL }}
+          ATLASSIAN_CLIENT_ID: ${{ secrets.ATLASSIAN_CLIENT_ID }}
+          ATLASSIAN_CLIENT_SECRET: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
+          NOTION_CLIENT_ID: ${{ secrets.NOTION_CLIENT_ID }}
+          NOTION_CLIENT_SECRET: ${{ secrets.NOTION_CLIENT_SECRET }}
+          NOTION_WEBHOOK_SECRET: ${{ secrets.NOTION_WEBHOOK_SECRET }}
+          SLACK_CLIENT_ID: ${{ secrets.SLACK_CLIENT_ID }}
+          SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}
+          SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
+          LINEAR_CLIENT_ID: ${{ secrets.LINEAR_CLIENT_ID }}
+          LINEAR_CLIENT_SECRET: ${{ secrets.LINEAR_CLIENT_SECRET }}
+          LINEAR_WEBHOOK_SECRET: ${{ secrets.LINEAR_WEBHOOK_SECRET }}
+          PAGERDUTY_CLIENT_ID: ${{ secrets.PAGERDUTY_CLIENT_ID }}
+          PAGERDUTY_CLIENT_SECRET: ${{ secrets.PAGERDUTY_CLIENT_SECRET }}
+          BETTER_AUTH_API_KEY: ${{ secrets.BETTER_AUTH_API_KEY }}
+          CONFLUENCE_FORGE_INSTALL_URL: ${{ secrets.CONFLUENCE_FORGE_INSTALL_URL }}
         # Single Railway roll. Do not wrap this script in nick-fields/retry —
         # a second attempt stacks serviceInstanceDeployV2 on a still-DEPLOYING
         # instance. GraphQL HTTP retries live in railway_graphql.
@@ -807,7 +826,7 @@ jobs:
             set -euo pipefail
 
             if [[ -z "${RAILWAY_API_TOKEN:-}" ]]; then
-              echo "Missing RAILWAY_API_TOKEN secret"
+              echo "Missing RAILWAY_WORKSPACE_TOKEN secret"
               exit 1
             fi
 
@@ -1031,6 +1050,8 @@ jobs:
               # Explicit OPENWORKFLOW_PR_IDLE_EXIT so supervisor idle-exits even if
               # RAILWAY_ENVIRONMENT_NAME is missing. 180s idle; 6h stale window
               # so a long connector reconciliation is not killed as "idle".
+              # The worker gets 30 seconds from SIGTERM to SIGKILL to mark its
+              # step attempts failed (CTX-971).
               railway_graphql \
                 'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
                 "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
@@ -1045,11 +1066,12 @@ jobs:
                         OPENWORKFLOW_IDLE_EXIT_SECONDS: "180",
                         OPENWORKFLOW_IDLE_STALE_AFTER_HOURS: "6",
                         OPENWORKFLOW_CONCURRENCY: "6",
-                        CODESEARCH_INDEXER_CONCURRENCY: "1"
+                        CODESEARCH_INDEXER_CONCURRENCY: "1",
+                        RAILWAY_DEPLOYMENT_DRAINING_SECONDS: "30"
                       }
                     }
                   }')"
-              echo "Set OPENWORKFLOW_PR_IDLE_EXIT + IDLE_EXIT=180 + STALE_AFTER_HOURS=6 + small capacity pair for worker $service_id"
+              echo "Set OPENWORKFLOW_PR_IDLE_EXIT + IDLE_EXIT=180 + STALE_AFTER_HOURS=6 + small capacity pair + 30s drain for worker $service_id"
             }
 
             upsert_preview_codesearch_capacity() {
@@ -1093,12 +1115,15 @@ jobs:
               echo "Updated UI image and cleared healthcheckPath for $service_id"
             }
 
-            # Serverless only (no image change) — for infra images managed by Terraform (e.g. FalkorDB).
+            # Serverless and restart policy only (no image change) — for infra images managed by Terraform (e.g. FalkorDB).
             enable_serverless() {
               local service_id="$1"
+              # Production sets restartPolicyType ALWAYS on FalkorDB, and
+              # `environment new --duplicate production` copies it. A serverless
+              # preview must stay down after an idle exit, so set ON_FAILURE.
               railway_graphql \
                 'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
-                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service, input:{sleepApplication:true}}')"
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service, input:{sleepApplication:true, restartPolicyType:"ON_FAILURE"}}')"
             }
 
             # Preview compute next to Neon (aws-us-east-1). Duplicate-from-production
@@ -1332,6 +1357,11 @@ jobs:
             # shellcheck disable=SC1091
             source "${GITHUB_WORKSPACE}/scripts/preview-own-secrets.sh"
             sync_preview_own_secrets
+            # Every other secret comes from the GitHub Environment `Preview`;
+            # each production value that Preview does not set is deleted.
+            # shellcheck disable=SC1091
+            source "${GITHUB_WORKSPACE}/scripts/preview-secrets.sh"
+            sync_preview_secrets
             echo "- This preview has its own \`AUTH_SECRET\` and connection-secrets key. Connection secrets copied from production do not decrypt here: connect each integration again on the preview." >> "$GITHUB_STEP_SUMMARY"
 
             upsert_database_url_without_deploy "$BACKEND_SERVICE_ID" >/dev/null
@@ -1387,7 +1417,7 @@ jobs:
         id: backend_url
         continue-on-error: true
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
           ENV_ID: ${{ needs.prepare_pr_environment.outputs.env_id }}
           BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
         # Railway API/CLI calls can be flaky; retry once before failing.
@@ -1488,10 +1518,10 @@ jobs:
     steps:
       - name: Check the Railway token
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
         run: |
           [[ -n "$RAILWAY_API_TOKEN" ]] || {
-            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the Preview environment (Settings > Environments)."
+            echo "::error::RAILWAY_WORKSPACE_TOKEN is missing. Add it to the Preview environment (Settings > Environments)."
             exit 1
           }
 
@@ -1518,7 +1548,7 @@ jobs:
       - name: Find the Railway environment
         id: railway_env
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           PR_ENV: pr-${{ github.event.number }}
         run: |
@@ -1542,7 +1572,7 @@ jobs:
         if: steps.railway_env.outputs.env_id != ''
         continue-on-error: true
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           ENV_ID: ${{ steps.railway_env.outputs.env_id }}
           PR_ENV: pr-${{ github.event.number }}
@@ -1566,7 +1596,7 @@ jobs:
         # production. Railway API calls can be flaky; retry once.
         if: steps.railway_env.outputs.env_id != ''
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           ENV_ID: ${{ steps.railway_env.outputs.env_id }}
           PR_ENV: pr-${{ github.event.number }}

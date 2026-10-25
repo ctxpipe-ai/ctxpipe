@@ -2,12 +2,14 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import {
   activeMemberRoleHandler,
   connectionSyncHandler,
   connectionUsageHandler,
   connectionUsageItem,
 } from "@/mocks/workspace-sources-handlers"
+
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import {
@@ -184,7 +186,7 @@ export const ConnectedNotInAWorkspace: Story = {
     await expect(
       canvas.getByRole("button", { name: "Add to a Workspace" }),
     ).toBeVisible()
-    // The Linear workspace is the account, not a ctx| Workspace.
+    // The Linear workspace is the account, not a ctxpipe Workspace.
     await expect(canvas.getByText("Account")).toBeVisible()
     await expect(canvas.getByText("Acme Product")).toBeVisible()
   },

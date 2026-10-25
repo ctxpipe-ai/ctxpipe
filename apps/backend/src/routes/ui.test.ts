@@ -1,8 +1,10 @@
 import { createServer } from "node:http"
+
 import { context, propagation, trace } from "@opentelemetry/api"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { initLogger } from "evlog"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import { createLogger, withLogger } from "../observability/logger.js"
 import {
   isViteHmrWebSocketRequest,

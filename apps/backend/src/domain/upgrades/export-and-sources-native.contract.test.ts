@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { claims } from "../../db/schema/claims.js"
@@ -81,7 +82,7 @@ async function seedMainEraOrg(f: NativeHydrationFixture) {
       orgId: f.org.id,
       gitUrl: "https://github.com/team-a/api.git",
     })
-    // A port that is not the default: ctx| does not read it as plain git.
+    // A port that is not the default: ctxpipe does not read it as plain git.
     const gitlab = await ensureOrgRepositoryForGitUrl({
       orgId: f.org.id,
       gitUrl: "https://gitlab.com:8443/team-c/tools.git",
@@ -238,15 +239,12 @@ it(
         f.server.use(http.get(PULLS, () => HttpResponse.json(openPulls)))
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { workspaceUpgradeScan } = await import(
-          "../../openworkflow/workflows/workspace-upgrade-scan.js"
-        )
-        const { workspaceUpgrade } = await import(
-          "../../openworkflow/workflows/workspace-upgrade.js"
-        )
-        const { workspaceTipCheck } = await import(
-          "../../openworkflow/workflows/workspace-tip-check.js"
-        )
+        const { workspaceUpgradeScan } =
+          await import("../../openworkflow/workflows/workspace-upgrade-scan.js")
+        const { workspaceUpgrade } =
+          await import("../../openworkflow/workflows/workspace-upgrade.js")
+        const { workspaceTipCheck } =
+          await import("../../openworkflow/workflows/workspace-tip-check.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
@@ -352,10 +350,10 @@ it(
               )
               .split("\n"),
           ).toEqual([
-            "ctx| upgrade: set the Workspace format to 3",
-            "ctx| upgrade to format 3: Ingestion v2 ownership of extracted files",
-            "ctx| upgrade to format 2: One file for each source under sources/",
-            "ctx| upgrade to format 1: Move the sources and keep the old knowledge",
+            "ctxpipe upgrade: set the Workspace format to 3",
+            "ctxpipe upgrade to format 3: Ingestion v2 ownership of extracted files",
+            "ctxpipe upgrade to format 2: One file for each source under sources/",
+            "ctxpipe upgrade to format 1: Move the sources and keep the old knowledge",
             "Immutable fixture",
           ])
           expect(
@@ -450,21 +448,21 @@ it(
             "Kept 2 knowledge item(s) from https://gitlab.com:8443/team-c/tools in `knowledge/`",
           )
           expect(body).toContain(
-            "Not exported, because ctx| makes it again: 2 item(s) from source repositories (the re-ingestion upgrade), 0 item(s) from Workspace repositories and 1 connector item(s)",
+            "Not exported, because ctxpipe makes it again: 2 item(s) from source repositories (the re-ingestion upgrade), 0 item(s) from Workspace repositories and 1 connector item(s)",
           )
           expect(body).toContain(
             "Not exported: 1 item(s) from a deleted repository.",
           )
           expect(body).toContain("Removed `repositories/api.md`")
           expect(body).toContain(
-            "Not linked: repositories/tools.md. ctx| links only GitHub repositories.",
+            "Not linked: repositories/tools.md. ctxpipe links only GitHub repositories.",
           )
           expect(body).toContain("Added a Linear source")
           expect(body).toContain(
             "Linked https://git.example.org/team-d/plain as a plain git source in `sources/git/git.example.org/team-d-plain.md`.",
           )
           expect(body).toContain(
-            "Not linked: https://gitlab.com:8443/team-c/tools. ctx| does not read it as a plain git source: A plain git URL must use the default HTTPS port. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported. ctx| keeps its knowledge and exports it.",
+            "Not linked: https://gitlab.com:8443/team-c/tools. ctxpipe does not read it as a plain git source: A plain git URL must use the default HTTPS port. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported. ctxpipe keeps its knowledge and exports it.",
           )
 
           // A second plan of each step, on the commit that it made, changes
@@ -518,9 +516,8 @@ it(
           )
           const revision = await f.resolveRevision(true)
           expect(revision.sha).toBe(head)
-          const { workspaceHydrate } = await import(
-            "../../openworkflow/workflows/workspace-hydrate.js"
-          )
+          const { workspaceHydrate } =
+            await import("../../openworkflow/workflows/workspace-hydrate.js")
           await f.worker.start()
           const hydrate = await f.runner.runWorkflow(workspaceHydrate.spec, {
             orgId: f.org.id,
@@ -584,7 +581,7 @@ it(
 )
 
 it(
-  "shows step 1 as blocked on write access, with no write, when ctx| cannot write to the repository",
+  "shows step 1 as blocked on write access, with no write, when ctxpipe cannot write to the repository",
   { timeout: 90_000 },
   async () =>
     withNativeHydrationFixture(
@@ -599,9 +596,8 @@ it(
         f.server.use(http.get(PULLS, () => HttpResponse.json([])))
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { workspaceUpgradeScan } = await import(
-          "../../openworkflow/workflows/workspace-upgrade-scan.js"
-        )
+        const { workspaceUpgradeScan } =
+          await import("../../openworkflow/workflows/workspace-upgrade-scan.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,

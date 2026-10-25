@@ -8,8 +8,10 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { stringify } from "yaml"
+
 import { writeStepIndex } from "../../test/ingest-step-index.js"
 import { gitSource, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
@@ -194,6 +196,7 @@ describe("pattern counting (concept 5.4)", () => {
           "src/gen.test.ts": `// @generated\n${VITEST}`,
           "src/todo.test.ts": `// TODO: move off vitest\n${VITEST}`,
           "src/ignore.test.ts": `// biome-ignore lint: x\n\n${VITEST}`,
+          "src/oxlint.test.ts": `// oxlint-disable-next-line no-x -- y\n\n${VITEST}`,
         },
       },
     ])

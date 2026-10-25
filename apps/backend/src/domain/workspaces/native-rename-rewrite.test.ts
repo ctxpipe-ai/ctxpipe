@@ -2,7 +2,9 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { afterEach, expect, it } from "vitest"
+
 import { captureGitPack } from "../../services/git/pack.js"
 import { nativeRenameRewriteFiles } from "./native-rename-rewrite.js"
 
@@ -65,8 +67,9 @@ it("rewrites the sources list of each unit that names a renamed source file", as
   const after = repo.commit("Rename the shop source")
 
   const changes = await nativeRenameRewriteFiles(
-    await captureGitPack(repo.directory, after, [before]),
+    await captureGitPack(repo.directory, after, null, [before]),
     before,
+    null,
   )
 
   expect(changes).toEqual([

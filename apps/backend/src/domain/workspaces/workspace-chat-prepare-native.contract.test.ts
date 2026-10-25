@@ -1,12 +1,15 @@
 import { execFileSync } from "node:child_process"
 import { writeFile } from "node:fs/promises"
 import { join } from "node:path"
+
 import Docker from "dockerode"
 import { eq } from "drizzle-orm"
 import { expect, it, vi } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
+import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import {
   getWorkspaceById,
@@ -331,6 +334,17 @@ it.each(["conversation", "workspace"] as const)(
       )
       await entered
       const preparing = warmTanstackWorkspaceChat(input)
+      // The turn holds the chat lock before it waits on the native key.
+      await vi.waitFor(async () =>
+        expect(
+          await withOrgDbContext(f.orgId, (db) =>
+            db
+              .select({ key: sandboxLocks.key })
+              .from(sandboxLocks)
+              .where(eq(sandboxLocks.key, `chat-thread:${f.conversationId}`)),
+          ),
+        ).toHaveLength(1),
+      )
       // The native key barrier prevents provider creation while DELETE races.
       const deleting =
         scope === "conversation"
@@ -349,6 +363,8 @@ it.each(["conversation", "workspace"] as const)(
       }
       await holding
       const [prepared, deleted] = await Promise.all([preparing, deleting])
+      // A conversation delete waits for the prepare to release the chat
+      // lock (no turn runs), then deletes. Both scopes destroy the sandbox.
       expect(deleted.status).toBe(204)
       expect(
         await withOrgDbContext(f.orgId, () =>
@@ -424,7 +440,9 @@ it(
     const previous = Object.fromEntries(
       ["SANDBOX_CHAT_IMAGE"].map((key) => [key, process.env[key]]),
     )
-    const docker = new Docker({ timeout: 30_000 })
+    // A busy CI Docker daemon can keep one call silent past 30 s; the
+    // client then drops it as "socket hang up" (CI run 39561981903).
+    const docker = new Docker({ timeout: 120_000 })
     try {
       await withNativeHttpsGitFixture(
         {
@@ -584,7 +602,9 @@ it(
     const previous = Object.fromEntries(
       ["SANDBOX_CHAT_IMAGE"].map((key) => [key, process.env[key]]),
     )
-    const docker = new Docker({ timeout: 30_000 })
+    // A busy CI Docker daemon can keep one call silent past 30 s; the
+    // client then drops it as "socket hang up" (CI run 39561981903).
+    const docker = new Docker({ timeout: 120_000 })
     try {
       await withNativeHttpsGitFixture(
         {

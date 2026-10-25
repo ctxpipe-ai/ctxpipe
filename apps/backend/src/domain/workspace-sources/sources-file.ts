@@ -1,4 +1,5 @@
 import { z } from "zod"
+
 import { confluenceSourceScope } from "./providers/confluence.js"
 import { gitSourceScope } from "./providers/git.js"
 import {
@@ -122,7 +123,7 @@ export function parseSourceEntry(raw: unknown): ParsedSourceEntry {
 
 /**
  * {@link parseSourceEntry} with no cap on the repositories of a GitHub
- * entry. Use it only where ctx| reads an entry that it wrote before the cap
+ * entry. Use it only where ctxpipe reads an entry that it wrote before the cap
  * (CTX-822), so that a long entry still links each of its repositories.
  */
 export function parseLegacySourceEntry(raw: unknown): ParsedSourceEntry {

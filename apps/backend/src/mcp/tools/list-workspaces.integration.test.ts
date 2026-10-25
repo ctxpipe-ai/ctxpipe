@@ -7,6 +7,7 @@ import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { useMswServer } from "../../../test/msw.js"
 import type { AppEnv } from "../../app/env.js"
@@ -18,7 +19,6 @@ import {
   workspaceKnowledgeUnits,
   workspaces,
 } from "../../db/schema/workspaces.js"
-import { workspaceCheckoutKey } from "../../domain/workspaces/derived-stores.js"
 import { generateObjectId } from "../../lib/id.js"
 import { registerMcpRoutes } from "../../routes/mcp.js"
 import { withTestRequestLogger } from "../../test/hono-test-logger.js"
@@ -31,7 +31,6 @@ import { loadServerInstructions } from "../framework/instructions.js"
 import { registerMcpReadTools } from "../framework/tool-registry.js"
 import { listWorkspaces } from "./list-workspaces.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 const CODESEARCH = "http://codesearch.test"
 
@@ -489,12 +488,13 @@ describe("list_workspaces through MCP", () => {
           orgId: seed.orgId,
           name: "example/handbook",
           gitUrl: `${revision.remote.url}.git`,
+          lastIngestedHash: sha,
         })
         await db.insert(repositoryCheckouts).values({
           id: generateObjectId("checkout"),
           orgId: seed.orgId,
           repositoryId,
-          checkoutKey: workspaceCheckoutKey(id, sha),
+          checkoutKey: `rev:${sha}`,
           ref: "main",
           commitSha: sha,
         })

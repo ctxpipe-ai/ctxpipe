@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import { createMiddleware } from "hono/factory"
+
 import type { AppEnv } from "../../app/env.js"
 import { conversationSessionBranch as sessionBranchName } from "../../domain/workspaces/chat-lifecycle.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
@@ -10,11 +11,14 @@ import {
 } from "../../domain/workspaces/conversation-diff.js"
 import {
   attachTurnSandboxForRead,
+  ConversationFileChangedError,
+  conversationRevisionStatus,
   conversationSandboxStatus,
   conversationWorktreeVersion,
   getConversationSandboxBinding,
   listConversationSandboxPaths,
   readConversationSandboxFile,
+  readConversationSandboxFileBytes,
   removeConversationSandboxPath,
   renameConversationSandboxPath,
   UnsafeConversationPathError,
@@ -29,10 +33,16 @@ import { adaptTanstackHandle } from "../../domain/workspaces/job-sandbox.js"
 import type { JobSandboxHandle } from "../../domain/workspaces/job-worktree.js"
 import { LEGACY_KNOWLEDGE_READ_ONLY } from "../../domain/workspaces/legacy-knowledge-overlay.js"
 import {
+  RAW_FILE_MAX_BYTES,
+  rawFileHeaders,
+  rawFileTooLargeMessage,
+} from "../../domain/workspaces/raw-file.js"
+import {
   postgresSandboxLocks,
   withSandboxLockIfFree,
 } from "../../domain/workspaces/sandbox-lock-store.js"
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
+import { conversationBusyError } from "../../domain/workspaces/workspace-chat-persistence.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import {
@@ -85,6 +95,9 @@ const ConversationGitBlobResponseSchema = z
     path: z.string(),
     body: z.string().nullable(),
     binary: z.boolean(),
+    size: z.number().int().optional().openapi({
+      description: "Size in bytes of a binary file.",
+    }),
     readOnlyReason: z.string().optional().openapi({
       description:
         "Set when the file is knowledge from before Workspaces that is not in git. It cannot be edited.",
@@ -99,6 +112,10 @@ const ConversationGitStatusResponseSchema = z
     sha: z.string().nullable(),
     desiredSha: z.string().nullable(),
     stale: z.boolean(),
+    workspaceMovedUnderChanges: z.boolean().openapi({
+      description:
+        "The Workspace has new commits and this conversation has its own changes. False for a conversation with no changes: its next turn moves it to the new commit.",
+    }),
     dirty: z.boolean(),
     differsFromDefault: z.boolean(),
     unpushed: z.boolean(),
@@ -245,7 +262,7 @@ const listTreeRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description:
-        "Chat sandbox missing, or turn_running: a turn holds the conversation now (ask again later)",
+        "Chat sandbox missing, or turn_running: a turn holds the conversation now, or chat_starting: the chat sandbox starts (ask again later)",
     },
   },
 })
@@ -288,6 +305,52 @@ const getBlobRoute = createRoute({
   },
 })
 
+const getRawRoute = createRoute({
+  method: "get",
+  path: "/{conversationId}/files/raw",
+  request: {
+    params: ConversationParamsSchema,
+    query: ConversationGitBlobQuerySchema,
+  },
+  responses: {
+    200: {
+      content: {
+        "application/octet-stream": {
+          schema: z.string().openapi({ format: "binary" }),
+        },
+      },
+      description:
+        "Sandbox file bytes. Only raster images are inline; every other type is an attachment.",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Workspace configuration invalid",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "Chat sandbox missing, a turn is running (`turn_running`), the chat sandbox starts (`chat_starting`), or the file changed during the read (`file_changed`)",
+    },
+    413: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "File is larger than the raw file limit",
+    },
+    429: sandboxAtCapacityResponse,
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Sandbox provider unavailable",
+    },
+  },
+})
+
 const getStatusRoute = createRoute({
   method: "get",
   path: "/{conversationId}/files/status",
@@ -321,7 +384,7 @@ const getStatusRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description:
-        "Chat sandbox missing, or turn_running: a turn holds the conversation now (ask again later)",
+        "Chat sandbox missing, or turn_running: a turn holds the conversation now, or chat_starting: the chat sandbox starts (ask again later)",
     },
   },
 })
@@ -392,7 +455,7 @@ const getTurnChangesRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description:
-        "turn_running: a turn holds the conversation and records its changes when it ends (ask again later)",
+        "turn_running: a turn holds the conversation and records its changes when it ends, or chat_starting: the chat sandbox starts (ask again later)",
     },
   },
 })
@@ -564,12 +627,41 @@ async function conversationFileSnapshot(input: {
     status: {
       source: "sandbox" as const,
       ...status,
-      sha: binding?.desiredSha ?? null,
-      desiredSha: revision?.sha ?? null,
-      stale: binding?.desiredSha !== revision?.sha,
+      ...conversationRevisionStatus({
+        ...status,
+        sha: binding?.desiredSha ?? null,
+        desiredSha: revision?.sha ?? null,
+      }),
       worktreeVersion,
     },
   }
+}
+
+/**
+ * The sandbox that a file read uses. While a turn holds the lock, the read
+ * attaches to the running sandbox and changes nothing.
+ */
+async function conversationReadHandle(
+  loaded: NonNullable<Awaited<ReturnType<typeof loadConversationWorkspace>>>,
+  turnRunning: boolean | undefined,
+) {
+  if (turnRunning) {
+    const attached = await attachTurnSandboxForRead({
+      orgId: loaded.conversation.orgId,
+      conversationId: loaded.conversation.id,
+      signal: loaded.abortSignal,
+    })
+    // Nothing runs to read (the idle sweep may hold the lock): the pane
+    // polls again.
+    if (!attached)
+      return {
+        ok: false as const,
+        status: 409 as const,
+        error: await conversationBusyError(loaded.conversation.id),
+      }
+    return { ok: true as const, handle: attached }
+  }
+  return readySandboxHandle({ ...loaded, existingOnly: true })
 }
 
 type ConversationFileEnv = AppEnv & {
@@ -583,7 +675,8 @@ type ConversationFileEnv = AppEnv & {
 /**
  * A turn holds the conversation lock until its reply ends. The Files pane
  * polls the tree and status, so these reads do not wait for the lock: when a
- * turn holds it, they answer 409 `turn_running` and the pane polls again.
+ * turn holds it, they answer 409 `turn_running` (or `chat_starting` when a
+ * prepare holds it) and the pane polls again.
  */
 const readWithoutWait = createMiddleware<ConversationFileEnv>(
   async (c, next) => {
@@ -594,7 +687,8 @@ const readWithoutWait = createMiddleware<ConversationFileEnv>(
 /**
  * A file read does not wait for a turn either: when another holder has the
  * lock, it reads from the running sandbox with a plain attach that changes
- * nothing, or answers 409 `turn_running` when no sandbox runs.
+ * nothing, or answers 409 (`turn_running` or `chat_starting`) when no
+ * sandbox runs.
  */
 const readDuringTurn = createMiddleware<ConversationFileEnv>(
   async (c, next) => {
@@ -628,7 +722,10 @@ const withConversationFileLock = createMiddleware<ConversationFileEnv>(
         )
         if (!read.busy) return
         if (!c.get("readDuringTurn"))
-          return c.json({ error: "turn_running" }, 409)
+          return c.json(
+            { error: await conversationBusyError(loaded.conversation.id) },
+            409,
+          )
         c.set("turnRunning", true)
         return await next()
       }
@@ -644,6 +741,7 @@ const fileRoutes = new OpenAPIHono<ConversationFileEnv>()
 fileRoutes.get("/:conversationId/files/tree", readWithoutWait)
 fileRoutes.get("/:conversationId/files/status", readWithoutWait)
 fileRoutes.get("/:conversationId/files/blob", readDuringTurn)
+fileRoutes.get("/:conversationId/files/raw", readDuringTurn)
 fileRoutes.use("/:conversationId/files/*", withConversationFileLock)
 // A turn records its changes before it releases the lock. A read while the
 // lock is held would miss them, so it answers 409 and the UI asks again.
@@ -692,23 +790,9 @@ export const conversationFileRoutes = fileRoutes
       c.get("sandboxAbortSignal"),
     )
     if (!loaded) return c.json({ error: "Not found" }, 404)
-    let handle: JobSandboxHandle
-    if (c.get("turnRunning")) {
-      const attached = await attachTurnSandboxForRead({
-        orgId: loaded.conversation.orgId,
-        conversationId,
-        signal: c.get("sandboxAbortSignal"),
-      })
-      // Nothing runs to read (the idle sweep may hold the lock): the pane
-      // polls again.
-      if (!attached) return c.json({ error: "turn_running" }, 409)
-      handle = attached
-    } else {
-      const ready = await readySandboxHandle({ ...loaded, existingOnly: true })
-      if (!ready.ok) return c.json({ error: ready.error }, ready.status)
-      handle = ready.handle
-    }
-    const blob = await readConversationSandboxFile(handle, path)
+    const read = await conversationReadHandle(loaded, c.get("turnRunning"))
+    if (!read.ok) return c.json({ error: read.error }, read.status)
+    const blob = await readConversationSandboxFile(read.handle, path)
     if (blob) return c.json(blob, 200)
     // A main-era knowledge unit that hydrate serves from Postgres: it is not
     // in the sandbox, and it is read-only.
@@ -724,6 +808,38 @@ export const conversationFileRoutes = fileRoutes
         readOnlyReason: LEGACY_KNOWLEDGE_READ_ONLY,
       },
       200,
+    )
+  })
+  .openapi(getRawRoute, async (c) => {
+    if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
+    const conversationId = c.req.param("conversationId")
+    const path = c.req.query("path") ?? ""
+    const loaded = await loadConversationWorkspace(
+      conversationId,
+      c.get("sandboxAbortSignal"),
+    )
+    if (!loaded) return c.json({ error: "Not found" }, 404)
+    const read = await conversationReadHandle(loaded, c.get("turnRunning"))
+    if (!read.ok) return c.json({ error: read.error }, read.status)
+    let file: Awaited<ReturnType<typeof readConversationSandboxFileBytes>>
+    try {
+      file = await readConversationSandboxFileBytes(
+        read.handle,
+        path,
+        RAW_FILE_MAX_BYTES,
+      )
+    } catch (error) {
+      if (error instanceof ConversationFileChangedError)
+        return c.json({ error: "file_changed" }, 409)
+      throw error
+    }
+    if (file.kind === "missing") return c.json({ error: "Not found" }, 404)
+    if (file.kind === "too_large")
+      return c.json({ error: rawFileTooLargeMessage(file.size) }, 413)
+    return c.body(
+      new Uint8Array(file.bytes),
+      200,
+      rawFileHeaders(path, file.bytes.length),
     )
   })
   .openapi(getStatusRoute, async (c) => {
@@ -758,9 +874,11 @@ export const conversationFileRoutes = fileRoutes
       {
         source: "sandbox" as const,
         ...status,
-        sha: binding?.desiredSha ?? null,
-        desiredSha: revision?.sha ?? null,
-        stale: binding?.desiredSha !== revision?.sha,
+        ...conversationRevisionStatus({
+          ...status,
+          sha: binding?.desiredSha ?? null,
+          desiredSha: revision?.sha ?? null,
+        }),
         worktreeVersion,
       },
       200,

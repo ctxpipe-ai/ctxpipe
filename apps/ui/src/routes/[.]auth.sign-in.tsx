@@ -1,5 +1,6 @@
 import { AuthView } from "@daveyplate/better-auth-ui"
 import { createFileRoute } from "@tanstack/react-router"
+
 import {
   betterAuthAuthViewClassNames,
   betterAuthEmailPlaceholder,

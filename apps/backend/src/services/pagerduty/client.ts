@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto"
+
 import type { Env } from "../../config/env.js"
 import type {
   PagerdutyOAuthAppCreds,
@@ -670,7 +671,7 @@ async function createPagerdutyWebhookSubscription(input: {
           type: "http_delivery_method",
           url: input.deliveryUrl,
         },
-        description: "ctx| PagerDuty incident sync",
+        description: "ctxpipe PagerDuty incident sync",
         events: [...PAGERDUTY_INCIDENT_WEBHOOK_EVENTS],
         filter: { type: "account_reference" },
       },

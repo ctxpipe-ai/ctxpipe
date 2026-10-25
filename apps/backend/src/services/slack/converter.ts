@@ -1,5 +1,7 @@
 import { extname } from "node:path"
+
 import slugify from "@sindresorhus/slugify"
+
 import {
   canonicalConnectorAssetUrl,
   gitBlobSha,

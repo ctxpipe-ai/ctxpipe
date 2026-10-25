@@ -9,9 +9,11 @@ import {
 import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { isDeepStrictEqual } from "node:util"
+
 import { fromMarkdown } from "mdast-util-from-markdown"
 import { parseDocument, stringify, type YAMLSeq } from "yaml"
 import { z } from "zod"
+
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { isHostOnlyPath } from "../workspaces/host-only.js"
 import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
@@ -281,7 +283,7 @@ export function disallowedPathReason(path: string): string | null {
   const segments = path.split("/")
   if (segments.some((s) => s === "" || s === "." || s === ".."))
     return "The path has an empty, '.', or '..' segment"
-  if (isHostOnlyPath(path)) return "Only ctx| writes host-only paths"
+  if (isHostOnlyPath(path)) return "Only ctxpipe writes host-only paths"
   if (segments.some((s) => s.startsWith(".")))
     return "Dot paths are not allowed"
   if (path !== path.normalize("NFC"))
@@ -1300,7 +1302,7 @@ function contentProblem(text: string): CheckFailure | null {
     return fail("The file has a bidirectional control character")
   if (/[\u200B-\u200D\u2060\uFEFF]/.test(text))
     return fail("The file has a zero-width character")
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: the check finds control characters
+  // oxlint-disable-next-line no-control-regex -- the check finds control characters
   if (/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(text))
     return fail("The file has a control character")
   const tokens = [...text.matchAll(HUMAN_MARKER)].map((m) =>
@@ -1688,7 +1690,7 @@ function codeSpans(
     later.set(length, k)
   }
   const spans: Array<{ start: number; end: number; text: string }> = []
-  for (let k = 0; k < runs.length; ) {
+  for (let k = 0; k < runs.length;) {
     const open = runs[k]
     const close = runs[next[k] ?? -1]
     if (!open || !close) {

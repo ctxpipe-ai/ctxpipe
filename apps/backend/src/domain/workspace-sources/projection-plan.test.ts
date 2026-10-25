@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import {
   FILE_ERROR_SOURCE_KEY,
   planSourceRows,
@@ -110,7 +111,7 @@ sources:
       leftoverFiles: [
         {
           path: "repositories/tools.md",
-          reason: "ctx| links only GitHub repositories",
+          reason: "ctxpipe links only GitHub repositories",
         },
       ],
     })
@@ -122,7 +123,7 @@ sources:
         scope: {},
         status: "invalid",
         statusDetail:
-          "repositories/tools.md: ctx| links only GitHub repositories. Move the link into a file under sources/github/ or remove the file.",
+          "repositories/tools.md: ctxpipe links only GitHub repositories. Move the link into a file under sources/github/ or remove the file.",
       },
     ])
   })

@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
-import { WorkspacePierreFile } from "./WorkspacePierreFile"
+
 import { docsWorkspaceGitBlobs } from "./workspace-fixtures"
+import { WorkspacePierreFile } from "./WorkspacePierreFile"
 
 function findInShadows(root: ParentNode, selector: string): Element | null {
   const direct = root.querySelector(selector)

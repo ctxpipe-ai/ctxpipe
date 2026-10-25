@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+
 import {
   installLinearGraphql,
   type LinearGraphqlCall,
@@ -55,7 +56,6 @@ vi.mock("../github/installation-write-client.js", async (importOriginal) => {
 vi.mock("./incremental.js", () => incremental)
 
 const linearCalls: LinearGraphqlCall[] = []
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 
 const connection = {

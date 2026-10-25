@@ -1,5 +1,6 @@
 import { HttpResponse, http } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import {
   CHAT_PERMISSION_MODE,
@@ -12,7 +13,6 @@ import {
   parseChatJudgeReply,
 } from "./chat-sandbox-policy.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: Vitest owns this MSW lifecycle.
 const server = useMswServer()
 afterEach(() => vi.unstubAllEnvs())
 

@@ -16,6 +16,7 @@ import {
 import { type ComponentType, type ReactNode, useMemo, useState } from "react"
 import { Heading, Link } from "react-aria-components"
 import { toast } from "sonner"
+
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -27,9 +28,13 @@ import {
   useSkeletonHold,
 } from "@/components/ui/Skeleton"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
+import { workspaceNeedsFormatUpgrade } from "@/features/workspace-upgrades/format-gate"
+import { FormatUpgradeNotice } from "@/features/workspace-upgrades/FormatUpgradeNotice"
+import { workspaceUpgradesOptions } from "@/features/workspace-upgrades/queries"
 import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+
 import {
   GithubSourceRepositories,
   repositoryNeedsAttention,
@@ -46,10 +51,6 @@ import {
 } from "./queries"
 import { RenameSourceDialog } from "./RenameSourceDialog"
 import {
-  SourceEditorDialog,
-  type SourceEditorTarget,
-} from "./SourceEditorDialog"
-import {
   SOURCE_PROVIDER_UI,
   sourceAnchorId,
   sourceProviderLabel,
@@ -65,6 +66,10 @@ import {
   sourceRowsClassName,
   sourceTableHeadClassName,
 } from "./source-table"
+import {
+  SourceEditorDialog,
+  type SourceEditorTarget,
+} from "./SourceEditorDialog"
 
 // The same dot + word shape as `ConnectorHealthIndicator` on the Connectors page.
 const statusBase = "inline-flex shrink-0 items-center gap-1.5 font-mono text-xs"
@@ -453,7 +458,20 @@ export function WorkspaceSources(props: {
   const { orgSlug, workspaceSlug, linkedRepositories } = props
   const queryClient = useQueryClient()
   const sourcesQuery = useQuery(workspaceSourcesOptions(orgSlug, workspaceSlug))
-  const loading = useSkeletonHold(sourcesQuery.isPending)
+  // The sources of a Workspace below the newest format move with the format
+  // upgrade (CTX-934): Sources then says so and offers no Add (CTX-935).
+  const upgradesQuery = useQuery(
+    workspaceUpgradesOptions(orgSlug, workspaceSlug),
+  )
+  const needsUpgrade = upgradesQuery.data
+    ? workspaceNeedsFormatUpgrade(upgradesQuery.data)
+    : false
+  // Without the answer of the upgrades read, the page cannot tell whether the
+  // Workspace may take a source: it fails like a failed sources read.
+  const loadFailed = sourcesQuery.isError || upgradesQuery.isError
+  const loading = useSkeletonHold(
+    sourcesQuery.isPending || upgradesQuery.isPending,
+  )
   const connectionsQuery = useQuery(orgConnectionsOptions(orgSlug))
   const [editor, setEditor] = useState<SourceEditorTarget | null>(null)
   const [renaming, setRenaming] = useState<WorkspaceSource | null>(null)
@@ -482,13 +500,14 @@ export function WorkspaceSources(props: {
 
   // A GitHub group with nothing in it gets one primary add button in its
   // body, in place of the quiet one in the header.
-  const githubEmptyAction = useGithubEmptyAction({
-    orgSlug,
-    workspaceSlug,
-    linkedRepositories,
-  })
+  const githubEmptyAction =
+    useGithubEmptyAction({
+      orgSlug,
+      workspaceSlug,
+      linkedRepositories,
+    }) && !needsUpgrade
   const data = sourcesQuery.data
-  const canEdit = data?.canEdit ?? false
+  const canEdit = (data?.canEdit ?? false) && !needsUpgrade && !loadFailed
   const items = data?.items ?? []
   const githubRepositories = useMemo(
     () =>
@@ -509,8 +528,14 @@ export function WorkspaceSources(props: {
       connectionsOf(provider).length > 0 ||
       (provider === "github" && (linkedRepositories?.length ?? 0) > 0),
   )
-  const isEmpty =
-    groups.length === 0 && unknownProvider.length === 0 && !data?.fileError
+  // Before the format upgrade, a connected tool alone is not a row: nothing
+  // is listed, so the notice stands in place of the empty provider groups.
+  const isEmpty = needsUpgrade
+    ? items.length === 0 &&
+      pendingChanges.length === 0 &&
+      githubRepositories.length === 0 &&
+      !data?.fileError
+    : groups.length === 0 && unknownProvider.length === 0 && !data?.fileError
 
   return (
     // The section is the container of the table columns (`source-table.ts`).
@@ -523,7 +548,7 @@ export function WorkspaceSources(props: {
         <div className="min-w-0">
           {loading ? (
             <SkeletonText className="text-sm" boneClassName="h-3.5 w-48" />
-          ) : data && !isEmpty ? (
+          ) : data && !isEmpty && !loadFailed ? (
             <p className="text-sm font-medium text-foreground">
               {connectorsSummary(
                 items,
@@ -539,7 +564,7 @@ export function WorkspaceSources(props: {
             </p>
           )}
         </div>
-        {data && !isEmpty && !sourcesQuery.isError ? (
+        {data && !isEmpty && !loadFailed && !needsUpgrade ? (
           <Link
             href={`/${orgSlug}/connectors`}
             className={cn(
@@ -554,14 +579,17 @@ export function WorkspaceSources(props: {
 
       {loading ? (
         <SourcesSkeleton />
-      ) : sourcesQuery.isError ? (
+      ) : loadFailed ? (
         <div className="mt-4">
           <InlineAlert
             variant="error"
             actions={
               <Button
                 variant="secondary"
-                onPress={() => sourcesQuery.refetch()}
+                onPress={() => {
+                  if (sourcesQuery.isError) void sourcesQuery.refetch()
+                  if (upgradesQuery.isError) void upgradesQuery.refetch()
+                }}
               >
                 Retry
               </Button>
@@ -569,6 +597,15 @@ export function WorkspaceSources(props: {
           >
             Could not load the sources of this Workspace.
           </InlineAlert>
+        </div>
+      ) : needsUpgrade && isEmpty ? (
+        <div className="mt-4">
+          <FormatUpgradeNotice
+            orgSlug={orgSlug}
+            workspaceSlug={workspaceSlug}
+            context="sources"
+            items={upgradesQuery.data?.items ?? []}
+          />
         </div>
       ) : isEmpty ? (
         <div className="flex flex-col gap-3">
@@ -590,6 +627,16 @@ export function WorkspaceSources(props: {
         </div>
       ) : (
         <>
+          {needsUpgrade ? (
+            <div className="mt-4">
+              <FormatUpgradeNotice
+                orgSlug={orgSlug}
+                workspaceSlug={workspaceSlug}
+                context="sources"
+                items={upgradesQuery.data?.items ?? []}
+              />
+            </div>
+          ) : null}
           {data?.fileError ? (
             <div className="mt-4">
               <InlineAlert

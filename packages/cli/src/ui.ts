@@ -1,5 +1,6 @@
 import { intro, log } from "@clack/prompts"
 import chalk from "chalk"
+
 import { CLIENT_LABELS, CLIENTS } from "./constants.js"
 import type { ApplyOperationResult } from "./fs-operations.js"
 import type { Operation } from "./mcp/mcp-operations.js"
@@ -74,10 +75,14 @@ export function pathText(value: string): string {
 
 export function describeOperation(op: Operation): string {
   if (op.description) return op.description
-  if (op.type === "write-json") return `write ${relativePath(op.path, process.cwd())}`
-  if (op.type === "write-text") return `seed ${relativePath(op.path, process.cwd())}`
-  if (op.type === "mkdir") return `create ${relativePath(op.path, process.cwd())}`
-  if (op.type === "remove-path") return `remove ${relativePath(op.path, process.cwd())}`
+  if (op.type === "write-json")
+    return `write ${relativePath(op.path, process.cwd())}`
+  if (op.type === "write-text")
+    return `seed ${relativePath(op.path, process.cwd())}`
+  if (op.type === "mkdir")
+    return `create ${relativePath(op.path, process.cwd())}`
+  if (op.type === "remove-path")
+    return `remove ${relativePath(op.path, process.cwd())}`
   if (op.type === "run") return `run ${op.command.join(" ")}`
   return op.detail
 }
@@ -128,7 +133,9 @@ export function printDoctorTable(data: {
   log.message(`${muted("cwd")} ${data.cwd}`)
   log.step("Detected clients")
   for (const client of CLIENTS) {
-    const found = data.detectedClients[client] ? successText("yes") : muted("no")
+    const found = data.detectedClients[client]
+      ? successText("yes")
+      : muted("no")
     log.message(`${CLIENT_LABELS[client]} ${found}`)
   }
 }

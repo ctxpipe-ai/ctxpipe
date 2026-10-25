@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { parseEnv } from "./env.js"
 
 describe("parseEnv PagerDuty optional secrets", () => {

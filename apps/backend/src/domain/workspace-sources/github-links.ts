@@ -4,16 +4,16 @@ import {
   githubLegacyScopeSchema,
   githubScopeRepositories,
 } from "./providers/github.js"
-import { githubSourcePath } from "./source-file.js"
 import { parseSourceFile } from "./source-file-text.js"
+import { githubSourcePath } from "./source-file.js"
 import {
   type ParsedSourceEntry,
   parseLegacySourceEntry,
   type SourceEntry,
   sourcesFileSchema,
 } from "./sources-file.js"
-import { parseSourcesYaml } from "./sources-yaml.js"
 import { applySourcesYamlChange } from "./sources-yaml-edit.js"
+import { parseSourcesYaml } from "./sources-yaml.js"
 
 /**
  * The id of the GitHub entry in `.ctxpipe/sources.yaml` that the legacy
@@ -256,7 +256,7 @@ export function linkGithubSourceFile(input: {
  * Unlink one GitHub repository (`owner/name`): delete each GitHub source
  * file that names it. Returns null when no file does. Throws
  * {@link SourceChangeError} when the file at the path of the repository
- * cannot be read, because then ctx| cannot tell what it links.
+ * cannot be read, because then ctxpipe cannot tell what it links.
  */
 export function unlinkGithubSourceFile(input: {
   files: ReadonlyArray<RepoFile>

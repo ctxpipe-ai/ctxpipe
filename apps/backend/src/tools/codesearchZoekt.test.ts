@@ -1,12 +1,12 @@
 import { HttpResponse, http } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
 import { useMswServer } from "../../test/msw.js"
 import {
   isZoektSearchClientFailure,
   zoektSearchRepository,
 } from "./codesearchZoekt.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 
 const repository = {

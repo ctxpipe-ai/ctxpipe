@@ -1,4 +1,5 @@
 import { z } from "zod"
+
 import { parseEnv } from "../../config/env.js"
 import {
   retiredPublishPipelineField,
@@ -9,6 +10,7 @@ import { sourcesHaveNoRepository } from "../../domain/workspace-sources/projecti
 import { checkSourcePath } from "../../domain/workspace-sources/source-file.js"
 import { readSourcesTree } from "../../domain/workspace-sources/source-tree.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
+import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -102,6 +104,12 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
         "workspace-write-unlink-retraction",
         async () => {
           const env = parseEnv(process.env)
+          // Read access to the bound repository, from the workflow input (CTX-955).
+          const read = workspaceGitRead({
+            orgId: input.orgId,
+            env,
+            remote: input.revision.remote,
+          })
           let revision = input.revision
           const repositoryName = githubRepoFullNameFromWorkspaceUrl(
             revision.remote.url,
@@ -161,7 +169,7 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
                 }
                 if (
                   workspacePublishPipeline(
-                    await packWorkspaceFormat(acquired.pack),
+                    await packWorkspaceFormat(acquired.pack, read),
                   ) !== "v2"
                 )
                   return none
@@ -171,6 +179,7 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
                 // row that still holds the repository also keeps it.
                 const { sourcesFile, sourceFiles } = await readSourcesTree(
                   acquired.pack,
+                  read,
                 )
                 if (
                   !(await sourcesHaveNoRepository(
@@ -185,6 +194,7 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
                   return none
                 const plan = await planUnlinkRetraction({
                   pack: acquired.pack,
+                  read,
                   sourceUrl: input.retractRepositoryUrl,
                   sourcePath: input.retractSourcePath,
                   workspaceRepositoryUrl: revision.remote.url,
@@ -227,10 +237,15 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
               }
             }
             const staged = await step.run({ name: "stage" }, () =>
-              stageGitFiles(acquired.pack, changes.files, changes.deletePaths),
+              stageGitFiles(
+                acquired.pack,
+                changes.files,
+                changes.deletePaths,
+                read,
+              ),
             )
             await step.run({ name: "validate" }, () =>
-              validateGitTree(staged, changedPaths),
+              validateGitTree(staged, changedPaths, {}, read),
             )
             const subject = await step.run({ name: "commit-subject" }, () =>
               generateCommitSubject({
@@ -240,10 +255,14 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
               }),
             )
             const committed = await step.run({ name: "commit" }, async () => {
-              const pack = await commitGitTree(staged, {
-                subject,
-                createdAt: run.createdAt,
-              })
+              const pack = await commitGitTree(
+                staged,
+                {
+                  subject,
+                  createdAt: run.createdAt,
+                },
+                read,
+              )
               await persistWriteJobPreparedCommit(input.jobId, pack.sha)
               return pack
             })

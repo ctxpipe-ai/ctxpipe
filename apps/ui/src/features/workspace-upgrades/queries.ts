@@ -1,7 +1,11 @@
-import { queryOptions } from "@tanstack/react-query"
+import { type QueryClient, queryOptions } from "@tanstack/react-query"
 import type { InferResponseType } from "hono/client"
+
 import { type client, getApiClient } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
+
+import { checkingFormatExpired } from "./checking-format-clock"
+import { upgradeIsCheckingFormat } from "./upgrade-copy"
 
 type UpgradesResponse = InferResponseType<
   (typeof client)[":orgSlug"]["api"]["v1"]["workspaces"][":workspaceSlug"]["upgrades"]["$get"],
@@ -35,31 +39,64 @@ type PendingUpgradesResponse = InferResponseType<
 /** The pending upgrades of the org, one entry for each Workspace that has one. */
 type PendingWorkspaceUpgrades = PendingUpgradesResponse["workspaces"]
 
-/** The hash of the Workspace settings link that lands on the Upgrades group. */
+/** The hash of the Workspace settings link that lands on the Status group. */
 export const WORKSPACE_UPGRADES_HASH = "upgrades"
 
 /**
  * How long to wait before the next read. A run that prepares the pull
- * request changes fast (3 s). An open pull request changes when someone
- * merges it on GitHub (15 s). Nothing else changes by itself: no polling.
+ * request changes fast (3 s). A merged pull request that ctxpipe reads changes
+ * when the hydrate and the scan end (3 s). An open pull request changes when
+ * someone merges it on GitHub (15 s). An item that waits for a click changes when a
+ * scan starts it (Always update) or when the user starts it elsewhere (15 s).
+ * A re-ingestion that is still blocked for the format, while the Workspace
+ * has the new format, waits for the scan after the hydrate (3 s, CTX-944).
+ * Nothing else changes by itself: no polling.
  */
 export function upgradePollInterval(
-  items: readonly Pick<WorkspaceUpgradeItem, "status">[] | undefined,
+  items:
+    | readonly (Pick<
+        WorkspaceUpgradeItem,
+        "key" | "kind" | "status" | "blockedReason" | "targetFormat"
+      > &
+        Partial<Pick<WorkspaceUpgradeItem, "mergedAt">>)[]
+    | undefined,
+  formatVersion?: number | null,
+  /** `<org>/<workspace>`: names the items for the one-minute limit of the checking state. */
+  scope = "",
 ): number | false {
   const statuses = items?.map((item) => item.status) ?? []
-  if (statuses.some((status) => status === "queued" || status === "running"))
+  // A checking state that lasts more than a minute does not keep the poll
+  // fast (CTX-949). `map` visits every item, so each one keeps its own clock.
+  const checking = (items ?? [])
+    .map((item) => {
+      const is = upgradeIsCheckingFormat(item, formatVersion)
+      const expired = checkingFormatExpired(`${scope}/${item.key}`, is)
+      return is && !expired
+    })
+    .some(Boolean)
+  if (
+    statuses.some((status) => status === "queued" || status === "running") ||
+    items?.some((item) => item.status === "pr_open" && item.mergedAt) ||
+    checking
+  )
     return 3_000
-  if (statuses.includes("pr_open")) return 15_000
+  if (statuses.includes("pr_open") || statuses.includes("awaiting_operator"))
+    return 15_000
   return false
 }
 
 /** The refetch interval of the upgrades read: no poll after an error. */
 export function upgradesRefetchInterval(query: {
+  queryKey?: readonly unknown[]
   state: { status: string; data: WorkspaceUpgrades | undefined }
 }): number | false {
   return query.state.status === "error"
     ? false
-    : upgradePollInterval(query.state.data?.items)
+    : upgradePollInterval(
+        query.state.data?.items,
+        query.state.data?.formatVersion,
+        query.queryKey?.slice(1, 3).join("/"),
+      )
 }
 
 export function workspaceUpgradesOptions(
@@ -125,8 +162,8 @@ export async function startWorkspaceUpgrade(
   })
 }
 
-/** Starts the tip check now: ctx| reads the default branch of the Workspace repository. */
-export async function checkWorkspaceUpgrades(
+/** Starts the tip check now: ctxpipe reads the default branch of the Workspace repository. */
+async function checkWorkspaceUpgrades(
   orgSlug: string,
   workspaceSlug: string,
 ): Promise<{ queued: boolean }> {
@@ -137,37 +174,145 @@ export async function checkWorkspaceUpgrades(
   return readApiJson(res, { message: "Failed to check the upgrade" })
 }
 
+type WorkspaceUpgradeMode = "manual" | "automatic"
+
 /**
- * Always update: ctx| commits `upgrades: automatic` into the format file of
- * the Workspace repository. This waits until the commit is on the default
- * branch, so that the pull request of the next start contains the setting.
+ * Automatic upgrades on (Always update) or off: ctxpipe commits
+ * `upgrades: <mode>` into the format file of the Workspace repository. The
+ * reply comes at once with the id of the file job. With `automatic`, the
+ * server starts the waiting upgrades when the commit is done, so the browser
+ * sends no second request and does not wait for the commit.
  */
-export async function enableAutomaticWorkspaceUpgrades(
+export async function saveWorkspaceUpgradeMode(
   orgSlug: string,
   workspaceSlug: string,
-): Promise<void> {
+  mode: WorkspaceUpgradeMode,
+): Promise<{ jobId: string }> {
   const client = await getApiClient()
-  const workspace = client[":orgSlug"].api.v1.workspaces[":workspaceSlug"]
-  const { jobId } = await readApiJson(
-    await workspace.upgrades.automatic.$post({
+  return readApiJson(
+    await client[":orgSlug"].api.v1.workspaces[
+      ":workspaceSlug"
+    ].upgrades.automatic.$post({
       param: { orgSlug, workspaceSlug },
+      json: { mode },
     }),
     { message: "Failed to save the setting" },
   )
-  // A commit takes a few seconds. Stop after about two minutes.
-  for (let attempt = 0; attempt < 120; attempt++) {
-    const job = await readApiJson(
-      await workspace.files.jobs[":jobId"].$get({
-        param: { orgSlug, workspaceSlug, jobId },
-      }),
-      { message: "Failed to save the setting" },
-    )
-    if (job.status === "completed") return
+}
+
+/**
+ * The automatic-upgrades setting of the Workspace, from git at the head of
+ * the default branch. The server reads git on each request, so this read
+ * does not poll and does not read again on window focus. When `mode` is
+ * null, `reason` tells why.
+ */
+export function workspaceUpgradeModeOptions(
+  orgSlug: string,
+  workspaceSlug: string,
+) {
+  return queryOptions({
+    queryKey: ["workspace-upgrade-mode", orgSlug, workspaceSlug] as const,
+    queryFn: async () => {
+      const client = await getApiClient()
+      return readApiJson(
+        await client[":orgSlug"].api.v1.workspaces[
+          ":workspaceSlug"
+        ].upgrades.automatic.$get({ param: { orgSlug, workspaceSlug } }),
+        { message: "Failed to read the setting" },
+      )
+    },
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  })
+}
+
+/**
+ * The file job of the automatic-upgrades setting, read every 2 s until it is done. A job whose
+ * run ended with an error comes back `failed` with the cause, so the poll
+ * ends. The read is progress only: the server does not need it.
+ */
+export function automaticUpgradesJobOptions(
+  orgSlug: string,
+  workspaceSlug: string,
+  jobId: string,
+) {
+  return queryOptions({
+    queryKey: ["workspace-upgrades", orgSlug, workspaceSlug, "job", jobId],
+    queryFn: async () => {
+      const client = await getApiClient()
+      return readApiJson(
+        await client[":orgSlug"].api.v1.workspaces[":workspaceSlug"].files.jobs[
+          ":jobId"
+        ].$get({ param: { orgSlug, workspaceSlug, jobId } }),
+        { message: "Failed to read the setting" },
+      )
+    },
+    refetchInterval: (query) =>
+      query.state.status === "error" ||
+      query.state.data?.status === "completed" ||
+      query.state.data?.status === "failed"
+        ? false
+        : 2_000,
+  })
+}
+
+/**
+ * Save the automatic-upgrades setting, and wait for its commit, up to about a
+ * minute. It throws the cause when the commit fails. It returns `"pending"`
+ * when the commit is not done by then: the server still saves it.
+ */
+export async function saveWorkspaceUpgradeModeAndWait(
+  queryClient: QueryClient,
+  orgSlug: string,
+  workspaceSlug: string,
+  mode: WorkspaceUpgradeMode,
+): Promise<"saved" | "pending"> {
+  const { jobId } = await saveWorkspaceUpgradeMode(orgSlug, workspaceSlug, mode)
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const job = await queryClient.fetchQuery({
+      ...automaticUpgradesJobOptions(orgSlug, workspaceSlug, jobId),
+      staleTime: 0,
+    })
+    if (job.status === "completed") return "saved"
     if (job.status === "failed")
-      throw new Error(job.failureReason ?? "ctx| could not save the setting.")
-    await new Promise((resolve) => setTimeout(resolve, 1_000))
+      throw new Error(
+        `ctxpipe could not save the setting. ${job.failureReason ?? "ctxpipe gives no reason."}`,
+      )
+    await new Promise((resolve) => setTimeout(resolve, 2_000))
   }
-  throw new Error(
-    "ctx| is still saving the setting. Start the upgrade in Workspace settings.",
+  return "pending"
+}
+
+/**
+ * Check again, and wait for the scan to write its result. The reply of the
+ * check comes at once, and the scan runs on the server. This reads the
+ * upgrades until the item has a new check time or a new status (the scan
+ * ran), up to about a minute. It returns `"pending"` when the scan did not
+ * write by then: the page still updates when it does.
+ */
+export async function checkWorkspaceUpgradesAndWait(
+  queryClient: QueryClient,
+  orgSlug: string,
+  workspaceSlug: string,
+  key: string,
+): Promise<"checked" | "pending"> {
+  const summary = (data: WorkspaceUpgrades | undefined) => {
+    const item = data?.items.find((candidate) => candidate.key === key)
+    return item ? `${item.status} ${item.checkedAt}` : null
+  }
+  const before = summary(
+    queryClient.getQueryData(workspaceUpgradeKeys.list(orgSlug, workspaceSlug)),
   )
+  await checkWorkspaceUpgrades(orgSlug, workspaceSlug)
+  for (let attempt = 0; attempt < 30; attempt++) {
+    await new Promise((resolve) =>
+      setTimeout(resolve, attempt === 0 ? 1_500 : 2_000),
+    )
+    const data = await queryClient.fetchQuery({
+      ...workspaceUpgradesOptions(orgSlug, workspaceSlug),
+      staleTime: 0,
+    })
+    if (summary(data) !== before) return "checked"
+  }
+  return "pending"
 }

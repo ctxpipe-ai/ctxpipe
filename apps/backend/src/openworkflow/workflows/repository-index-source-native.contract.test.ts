@@ -1,10 +1,12 @@
 import { chmod, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { join } from "node:path"
+
 import { eq } from "drizzle-orm"
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
@@ -23,8 +25,8 @@ import { searchTool } from "../../tools/search.js"
 import { enqueueRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
 import { repositoryIndex } from "./repository-index.js"
-import { repositoryIngestion } from "./repository-ingestion.js"
 import { repositoryIngestionOrchestrator } from "./repository-ingestion-orchestrator.js"
+import { repositoryIngestion } from "./repository-ingestion.js"
 
 it(
   "keeps the published source files and search when an older index finishes last",

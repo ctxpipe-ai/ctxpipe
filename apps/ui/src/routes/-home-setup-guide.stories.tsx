@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http, type RequestHandler } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import { responseGate } from "@/components/ui/skeletonMatchStory"
 import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
 import type { Workspace, WorkspaceDetail } from "@/features/workspaces/types"
@@ -39,6 +40,7 @@ import {
   upgradesFixture,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
+
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { OrgHomePageContent } from "./$orgSlug.index"
@@ -266,7 +268,7 @@ export const GuideEditorStepCopiesCommand: Story = {
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
     await waitFor(() =>
-      expect(guide.getByText("Use ctx| from your agents")).toBeVisible(),
+      expect(guide.getByText("Use ctxpipe from your agents")).toBeVisible(),
     )
     expect(
       guide.getByText(/Works with Cursor, Claude Code, Codex/),

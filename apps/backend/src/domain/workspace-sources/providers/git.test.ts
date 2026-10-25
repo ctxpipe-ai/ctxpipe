@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { gitSourcePath } from "../source-file.js"
+
 import { parseSourceFile } from "../source-file-text.js"
+import { gitSourcePath } from "../source-file.js"
 import {
   checkPlainGitUrl,
   gitSourceScopeUrl,
@@ -234,7 +235,7 @@ describe("a plain git source file", () => {
     })
   })
 
-  it("refuses a connection, a URL that ctx| does not read, and another key", () => {
+  it("refuses a connection, a URL that ctxpipe does not read, and another key", () => {
     const parse = (frontMatter: string) =>
       parseSourceFile(
         "sources/git/git.example.org/team-app.md",

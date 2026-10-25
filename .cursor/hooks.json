@@ -3,12 +3,12 @@
   "hooks": {
     "beforeSubmitPrompt": [
       {
-        "command": "bash .cursor/hooks/memory-capture.sh memory capture observe --host cursor --event beforeSubmitPrompt"
+        "command": "bash .agents/hooks/memory-capture.sh memory capture observe --host cursor --event beforeSubmitPrompt"
       }
     ],
     "stop": [
       {
-        "command": "bash .cursor/hooks/memory-capture.sh memory capture finalize --host cursor --event stop",
+        "command": "bash .agents/hooks/memory-capture.sh memory capture finalize --host cursor --event stop",
         "loop_limit": 1
       }
     ]

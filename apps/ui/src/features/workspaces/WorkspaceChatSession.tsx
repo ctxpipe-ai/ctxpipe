@@ -6,13 +6,15 @@ import {
   type ReactNode,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react"
+
 import { InlineAlert } from "@/components/ui/InlineAlert"
-import { ConversationThread } from "@/features/chat/ConversationThread"
 import { chatDraftKey } from "@/features/chat/chat-draft"
+import { ConversationThread } from "@/features/chat/ConversationThread"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import { reviveChatMessages } from "@/features/chat/reviveChatMessageCreatedAt"
 import type {
@@ -21,17 +23,20 @@ import type {
   ConversationListInfiniteData,
   ConversationListItem,
 } from "@/features/chat/types"
-import { ConversationSyncEntry } from "./ConversationSyncEntry"
-import { ConversationTitleButton } from "./ConversationTitleButton"
-import { ConversationTurnChangesCard } from "./ConversationTurnChangesCard"
+import { createTreeFileResolver } from "@/lib/workspace-file-path"
+
 import { placeThreadRecords } from "./conversationDiff"
 import {
   conversationAllowsEdits,
   conversationBranchShortName,
   conversationGithubTreeHref,
 } from "./conversationPublish"
+import { ConversationSyncEntry } from "./ConversationSyncEntry"
+import { ConversationTitleButton } from "./ConversationTitleButton"
+import { ConversationTurnChangesCard } from "./ConversationTurnChangesCard"
 import type { ParsedPane } from "./pane"
 import {
+  conversationGitTreeOptions,
   conversationTurnChangesOptions,
   isDefaultConversationName,
   refreshConversationAfterTurn,
@@ -115,6 +120,22 @@ export function WorkspaceChatSession(props: {
   const turnChanges = useQuery(
     conversationTurnChangesOptions(orgSlug, conversationId, started),
   )
+  const treeQuery = useQuery(
+    conversationGitTreeOptions(orgSlug, conversationId),
+  )
+  const treePaths = treeQuery.data?.paths
+  const onOpenPane = props.onOpenPane
+  // Without a known tree there is no file to link, so file links stay off.
+  const fileLinks = useMemo(
+    () =>
+      treePaths && onOpenPane
+        ? {
+            resolve: createTreeFileResolver(treePaths),
+            open: (path: string) => onOpenPane({ kind: "file", path }),
+          }
+        : undefined,
+    [treePaths, onOpenPane],
+  )
   const queryClient = useQueryClient()
   const [headerTitle, setHeaderTitle] = useState(title)
   const [sandboxPhase, setSandboxPhase] = useState<SandboxPhase>("idle")
@@ -131,8 +152,15 @@ export function WorkspaceChatSession(props: {
     setHeaderTitle(title)
   }, [title])
 
+  // The conversation whose transcript load from the server has ended.
+  const [hydratedConversation, setHydratedConversation] = useState<
+    string | null
+  >(null)
   const connection = useMemo(
-    () => workspaceChatWebSocket(orgSlug, conversationId),
+    () =>
+      workspaceChatWebSocket(orgSlug, conversationId, {
+        onHydrated: () => setHydratedConversation(conversationId),
+      }),
     [orgSlug, conversationId],
   )
   const revivedInitialMessages = useMemo(
@@ -143,7 +171,11 @@ export function WorkspaceChatSession(props: {
     [initialMessages],
   )
 
-  useEffect(() => {
+  // A layout effect closes the sockets before every cleanup of `useChat`.
+  // The cleanup of `useChat` aborts the turn's signal, and the adapter sends an
+  // abort frame on a socket that is open. Thus leaving the conversation sends
+  // none, and the turn continues on the server. Only Stop sends one.
+  useLayoutEffect(() => {
     connection.warm()
     return () => {
       connection.dispose()
@@ -179,6 +211,12 @@ export function WorkspaceChatSession(props: {
     workspaceChatPrepareOptions(orgSlug, conversationId, workspace.id),
   )
   const gitStatus = props.publish?.status ?? null
+  // A cached status can omit the field; derive it the way the backend does.
+  const workspaceMovedUnderChanges =
+    gitStatus?.workspaceMovedUnderChanges ??
+    Boolean(
+      gitStatus?.stale && (gitStatus.differsFromDefault || gitStatus.unpushed),
+    )
 
   // When the first turn fails, the backend can drop the new conversation.
   // Give the text back to the composer and reload the list from the server.
@@ -192,7 +230,16 @@ export function WorkspaceChatSession(props: {
     })
   }
 
-  const { messages, sendMessage, status, error, isLoading, stop } = useChat({
+  const {
+    messages,
+    sendMessage,
+    reload,
+    status,
+    error,
+    isLoading,
+    stop,
+    runId,
+  } = useChat({
     threadId: conversationId,
     connection,
     persistence: true,
@@ -209,6 +256,16 @@ export function WorkspaceChatSession(props: {
       if (name && userRenamedRef.current !== conversationId) applyRename(name)
       const phase = sandboxPhaseFromChunk(chunk)
       if (phase) setSandboxPhase(phase)
+      if (
+        chunk.type === "RUN_STARTED" ||
+        chunk.type === "RUN_FINISHED" ||
+        chunk.type === "RUN_ERROR"
+      ) {
+        // The status dot of this chat in the list follows the run record.
+        void queryClient.invalidateQueries({
+          queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
+        })
+      }
       if (chunk.type === "RUN_FINISHED" || chunk.type === "RUN_ERROR") {
         setSandboxPhase("idle")
         if (chunk.type === "RUN_FINISHED") firstMessageRef.current = null
@@ -280,6 +337,36 @@ export function WorkspaceChatSession(props: {
     }
   }
 
+  // A turn continues on the server when its socket closes, so Stop also
+  // tells the server, for a turn that this view attached to again.
+  const handleStop = () => {
+    if (runId) connection.stopRun(runId)
+    stop()
+  }
+
+  // The last turn has the question but no answer: it stopped before the
+  // first answer. A turn that still runs shows as running after the load.
+  const turnStopped =
+    hydratedConversation === conversationId &&
+    status === "ready" &&
+    !isLoading &&
+    !error &&
+    !sendError &&
+    messages.at(-1)?.role === "user"
+
+  const retryStoppedTurn = async () => {
+    setSandboxPhase("starting")
+    setSendError(null)
+    try {
+      await reload()
+    } catch (error) {
+      setSandboxPhase("idle")
+      setSendError(
+        error instanceof Error ? error : new Error("Failed to send message"),
+      )
+    }
+  }
+
   // A new conversation's first message waits in the query cache. The
   // session takes it once and sends it on this chat, so the first turn
   // streams live.
@@ -299,6 +386,7 @@ export function WorkspaceChatSession(props: {
     <WorkspaceChatChrome
       workspace={workspace}
       hintOrgSlug={orgSlug}
+      orgSlug={orgSlug}
       title={
         <ConversationTitleButton
           orgSlug={orgSlug}
@@ -340,18 +428,24 @@ export function WorkspaceChatSession(props: {
           </InlineAlert>
         </div>
       ) : null}
-      {gitStatus?.stale ? (
-        <InlineAlert variant="warning" title="Branch needs a rebase">
-          This conversation is on {gitStatus.sha?.slice(0, 7)}; the workspace is
-          now {gitStatus.desiredSha?.slice(0, 7)}. Continue chatting to resolve
-          the conflict before publishing.
-        </InlineAlert>
+      {/* A conversation with no changes moves to the new commit at its next
+          turn, so it gets no notice. */}
+      {workspaceMovedUnderChanges ? (
+        <div className="px-6 pt-3">
+          <InlineAlert variant="warning" title="The Workspace has new commits">
+            Send your next message to bring this conversation up to date. Then
+            you can publish.
+          </InlineAlert>
+        </div>
       ) : null}
       <ConversationThread
         messages={messages as ChatMessage[]}
         error={error ?? sendError}
         status={status}
         waitLabel={workspaceChatWaitLabel(sandboxPhase)}
+        onRetryStoppedTurn={
+          turnStopped ? () => void retryStoppedTurn() : undefined
+        }
         renderAfterMessage={(messageId) => {
           const after = [
             ...(placed.turns.get(messageId)?.map((changes) => (
@@ -375,17 +469,13 @@ export function WorkspaceChatSession(props: {
           ]
           return after.length > 0 ? after : null
         }}
-        onOpenFile={
-          props.onOpenPane
-            ? (path) => props.onOpenPane?.({ kind: "file", path })
-            : undefined
-        }
+        fileLinks={fileLinks}
       />
       <MessageInputBox
         layout="thread"
         sendMessage={handleSendMessage}
         status={status}
-        onStop={stop}
+        onStop={handleStop}
         isDisabled={isLoading}
         draftSeed={draftSeed}
         draftKey={chatDraftKey(orgSlug, workspace.id, conversationId)}

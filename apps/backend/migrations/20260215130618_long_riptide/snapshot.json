@@ -2,9 +2,7 @@
   "version": "8",
   "dialect": "postgres",
   "id": "b9ca5f1f-5b7b-4b4b-8872-63bbcb86654c",
-  "prevIds": [
-    "3b9f10ad-5584-40fa-a1ec-0d01c899f7ec"
-  ],
+  "prevIds": ["3b9f10ad-5584-40fa-a1ec-0d01c899f7ec"],
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -117,9 +115,7 @@
       "table": "repositories"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "repositories_pkey",
       "schema": "public",
@@ -128,10 +124,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "slug",
-        "org_id"
-      ],
+      "columns": ["slug", "org_id"],
       "nullsNotDistinct": false,
       "name": "repositories_slug_org_id_unique",
       "entityType": "uniques",
@@ -140,9 +133,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "zoekt_repo_id"
-      ],
+      "columns": ["zoekt_repo_id"],
       "nullsNotDistinct": false,
       "name": "repositories_zoekt_repo_id_key",
       "schema": "public",

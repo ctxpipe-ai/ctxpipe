@@ -1,10 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import type { WorkspaceSkippedFile } from "@/features/workspaces/types"
 import {
   docsWorkspace,
   docsWorkspaceDetail,
+  legacyOverlaySkippedFile,
 } from "@/features/workspaces/workspace-fixtures"
 import { workspaceShellHandlers } from "@/mocks/workspace-handlers"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
@@ -14,6 +16,7 @@ import {
   workspaceUpgradeAutomaticHandlers,
   workspaceUpgradeStartHandler,
 } from "@/mocks/workspace-upgrades-handlers"
+
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { OrgHomePageContent } from "./$orgSlug.index"
@@ -66,10 +69,13 @@ function homeHandlers(
   role: string,
   items: Parameters<typeof pendingWorkspaceUpgradesHandler>[0],
   skippedFiles: Record<string, WorkspaceSkippedFile[]> = {},
+  automaticJob?: { status: string; failureReason: string | null },
 ) {
   return {
     msw: {
       handlers: {
+        // The global default answers "no pending upgrade"; this key replaces it.
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler(items, answered)],
         page: [
           activeMemberRoleHandler(role),
           // The detail of each Workspace, with its skipped files.
@@ -87,9 +93,11 @@ function homeHandlers(
             })
           }),
           ...workspaceShellHandlers({ workspaces: [docsWorkspace, handbook] }),
-          pendingWorkspaceUpgradesHandler(items, answered),
           workspaceUpgradeStartHandler({ requests }),
-          ...workspaceUpgradeAutomaticHandlers({ requests }),
+          ...workspaceUpgradeAutomaticHandlers({
+            requests,
+            ...(automaticJob ? { job: automaticJob } : {}),
+          }),
           // The home reads the org once. A read of one Workspace fails the story.
           http.get(/\/workspaces\/[^/]+\/upgrades$/, () => {
             perWorkspaceReads.push("upgrades")
@@ -137,9 +145,13 @@ export const SingleToast: Story = {
     )
     await waitFor(() =>
       expect(
-        within(region).getByText(/into \.ctxpipe\/sources\.yaml/),
+        within(region).getByText(
+          "ctxpipe opens a pull request for format 3. Nothing changes until you merge it.",
+        ),
       ).toBeVisible(),
     )
+    // One short line: the full description stays in Workspace settings.
+    expect(within(region).queryByText(/sources\.yaml/)).toBeNull()
     for (const name of ["Update once", "Always update", "Dismiss"])
       await waitFor(() =>
         expect(
@@ -153,6 +165,48 @@ export const SingleToast: Story = {
     // One read for the org, and no read for each Workspace.
     expect(answered).not.toHaveLength(0)
     expect(perWorkspaceReads).toEqual([])
+  },
+}
+
+/**
+ * CTX-939. The toast is a title and one short line, so it does not cover the
+ * composer. When the toast goes, it leaves no gap: the composer moves back up
+ * by the height of the toast.
+ */
+export const ToastTakesNoSpaceAfterItGoes: Story = {
+  parameters: homeHandlers("owner", { docs: [upgradeItemFixture()] }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const region = await canvas.findByRole("region", {
+      name: "Workspace notices",
+    })
+    await document.fonts.ready
+    const composerTop = () =>
+      canvas
+        .getByRole("button", { name: "Select workspace" })
+        .getBoundingClientRect().top
+    await waitFor(() =>
+      expect(within(region).getByText("Docs upgrade available")).toBeVisible(),
+    )
+    const toast = region.getBoundingClientRect()
+    // The toast ends above the composer, and its text is short.
+    expect(toast.bottom).toBeLessThanOrEqual(composerTop())
+    expect(region.textContent?.split(/\s+/).length ?? 0).toBeLessThan(40)
+    const before = composerTop()
+    await userEvent.click(
+      within(region).getByRole("button", {
+        name: "Dismiss: Docs, Upgrade to format 3",
+      }),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("region", { name: "Workspace notices" }),
+      ).toBeNull(),
+    )
+    // The view transition ends, and the layout holds no gap.
+    await waitFor(() =>
+      expect(composerTop()).toBeLessThanOrEqual(before - toast.height),
+    )
   },
 }
 
@@ -175,8 +229,9 @@ export const UpdateOnce: Story = {
 }
 
 /**
- * Always update saves the setting, waits for its commit, then starts this
- * item, so the pull request contains the setting.
+ * Always update answers at once. The server saves the setting and starts the
+ * upgrade, so the browser sends no start request and does not wait for the
+ * commit. The toast follows the save as progress.
  */
 export const AlwaysUpdate: Story = {
   parameters: homeHandlers("owner", { docs: [upgradeItemFixture()] }),
@@ -188,12 +243,163 @@ export const AlwaysUpdate: Story = {
       }),
     )
     await waitFor(() =>
-      expect(requests).toEqual([
-        "/acme/api/v1/workspaces/docs/upgrades/automatic",
-        "/acme/api/v1/workspaces/docs/files/jobs/wjob_automatic",
-        "/acme/api/v1/workspaces/docs/upgrades/format-3/start",
-      ]),
+      expect(
+        canvas.getByText(
+          "ctxpipe saved the setting. The upgrade starts in a moment.",
+        ),
+      ).toBeVisible(),
     )
+    expect(requests).toEqual([
+      "POST /acme/api/v1/workspaces/docs/upgrades/automatic automatic",
+      "/acme/api/v1/workspaces/docs/files/jobs/wjob_automatic",
+    ])
+    expect(requests.some((path) => path.endsWith("/start"))).toBe(false)
+  },
+}
+
+/**
+ * A slow save does not block the toast: it says that the server saves and
+ * starts the upgrade, and the other buttons stay usable. Dismiss still works.
+ */
+export const AlwaysUpdateSlowSave: Story = {
+  parameters: homeHandlers(
+    "owner",
+    { docs: [upgradeItemFixture()] },
+    {},
+    { status: "running", failureReason: null },
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Always update: Docs, Upgrade to format 3",
+      }),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/ctxpipe saves the setting\. It starts the upgrade/),
+      ).toBeVisible(),
+    )
+    expect(canvas.getByText(/You can leave this page/)).toBeVisible()
+    // The save runs on the server: nothing starts in the browser.
+    expect(requests.some((path) => path.endsWith("/start"))).toBe(false)
+  },
+}
+
+/** A failed save shows its cause and the next steps. */
+export const AlwaysUpdateSaveFails: Story = {
+  parameters: homeHandlers(
+    "owner",
+    { docs: [upgradeItemFixture()] },
+    {},
+    {
+      status: "failed",
+      failureReason:
+        "The write stopped before it finished. stdout maxBuffer length exceeded",
+    },
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Always update: Docs, Upgrade to format 3",
+      }),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/ctxpipe could not save the setting\./),
+      ).toBeVisible(),
+    )
+    expect(canvas.getByText(/stdout maxBuffer length exceeded/)).toBeVisible()
+    expect(
+      canvas.getByRole("link", {
+        name: "Review upgrade: Docs, Upgrade to format 3",
+      }),
+    ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
+    // Update once is still a way to go on.
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", {
+          name: "Update once: Docs, Upgrade to format 3",
+        }),
+      ).toBeEnabled(),
+    )
+  },
+}
+
+const failedUpgrade = upgradeItemFixture({
+  status: "failed",
+  failureReason: "stdout maxBuffer length exceeded",
+  failure: {
+    code: "unknown",
+    step: null,
+    repository: null,
+    summary: "stdout maxBuffer length exceeded",
+  },
+})
+
+/**
+ * A failed item has a cause that can repeat, so the toast offers no Update
+ * once and no Always update. It shows the cause and two next steps. Ask the
+ * agent puts the prompt into the composer of that Workspace.
+ */
+export const FailedUpgrade: Story = {
+  parameters: homeHandlers("owner", { docs: [failedUpgrade] }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const region = await canvas.findByRole("region", {
+      name: "Workspace notices",
+    })
+    await waitFor(() =>
+      expect(within(region).getByText("Docs upgrade failed")).toBeVisible(),
+    )
+    expect(within(region).getByText(/maxBuffer length exceeded/)).toBeVisible()
+    expect(
+      within(region).queryByRole("button", { name: /Update once/ }),
+    ).toBeNull()
+    expect(
+      within(region).queryByRole("button", { name: /Always update/ }),
+    ).toBeNull()
+    expect(
+      within(region).getByRole("link", {
+        name: "Review upgrade: Docs, Upgrade to format 3",
+      }),
+    ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
+    await userEvent.click(
+      within(region).getByRole("button", {
+        name: "Ask the agent: Docs, Upgrade to format 3",
+      }),
+    )
+    const composer = () =>
+      canvas.getByPlaceholderText(/what should ctxpipe do in this workspace/i)
+    await waitFor(() =>
+      expect((composer() as HTMLTextAreaElement).value).toContain(
+        'The upgrade "Upgrade to format 3" of this Workspace failed',
+      ),
+    )
+    expect(requests).toEqual([])
+  },
+}
+
+/** A member sees the cause and the next steps of a failed upgrade too. */
+export const FailedUpgradeMember: Story = {
+  parameters: homeHandlers("member", { docs: [failedUpgrade] }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const region = await canvas.findByRole("region", {
+      name: "Workspace notices",
+    })
+    await waitFor(() =>
+      expect(within(region).getByText("Docs upgrade failed")).toBeVisible(),
+    )
+    expect(
+      within(region).getByRole("button", {
+        name: "Ask the agent: Docs, Upgrade to format 3",
+      }),
+    ).toBeVisible()
+    expect(
+      within(region).queryByRole("button", { name: /Update once/ }),
+    ).toBeNull()
   },
 }
 
@@ -303,7 +509,9 @@ export const StackOfThree: Story = {
     )
     await waitFor(() =>
       expect(
-        canvas.getByText(/publishes the new knowledge files/),
+        canvas.getByText(
+          "ctxpipe reads each source repository again. This uses model calls.",
+        ),
       ).toBeVisible(),
     )
     await waitFor(() =>
@@ -321,9 +529,7 @@ export const MemberView: Story = {
       name: "Workspace notices",
     })
     await waitFor(() =>
-      expect(
-        within(region).getAllByText("An owner or admin can start it.")[0],
-      ).toBeVisible(),
+      expect(within(region).getAllByText("Ask an admin")[0]).toBeVisible(),
     )
     await waitFor(() =>
       expect(within(region).queryAllByRole("button")).toHaveLength(0),
@@ -420,6 +626,79 @@ export const ProblemOnly: Story = {
     )
     // The problem stays until hydrate reads the file.
     expect(canvas.getByText("Handbook: hydrate skipped 1 file")).toBeVisible()
+  },
+}
+
+/**
+ * A skipped legacy overlay file is knowledge from the database, so no edit
+ * of the Workspace repository fixes it. Hydrate lists the files of Git first,
+ * so the front toast names the file of Git and also the overlay cause. The
+ * agent gets only the file of Git.
+ */
+export const ProblemLegacyOverlayAndFile: Story = {
+  parameters: homeHandlers(
+    "owner",
+    {},
+    { handbook: [taxFile, legacyOverlaySkippedFile] },
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const region = await canvas.findByRole("region", {
+      name: "Workspace notices",
+    })
+    await waitFor(() =>
+      expect(
+        within(region).getByText("Handbook: hydrate skipped 2 files"),
+      ).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        within(region).getByText(/Front matter is not valid, and 1 more file/),
+      ).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        within(region).getByText(
+          /Knowledge from before Workspaces\. ctxpipe shows it from its database/,
+        ),
+      ).toBeVisible(),
+    )
+    await userEvent.click(
+      within(region).getByRole("button", {
+        name: "Fix using agent: Handbook, skipped files",
+      }),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByPlaceholderText(
+          /what should ctxpipe do in this workspace/i,
+        ),
+      ).toHaveValue(
+        "Hydrate skipped knowledge/billing/tax.md: Front matter is not valid. Fix the front matter of this file so that it is valid, then open the change.",
+      ),
+    )
+  },
+}
+
+/** Only a legacy overlay file: no fix exists, so the toast opens settings. */
+export const ProblemLegacyOverlayOnly: Story = {
+  parameters: homeHandlers(
+    "owner",
+    {},
+    { handbook: [legacyOverlaySkippedFile] },
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const region = await canvas.findByRole("region", {
+      name: "Workspace notices",
+    })
+    await within(region).findByText("Handbook: hydrate skipped 1 file")
+    expect(
+      within(region).queryByRole("button", { name: /Fix using agent/ }),
+    ).toBeNull()
+    expect(
+      within(region).getByRole("button", { name: "Open settings: Handbook" }),
+    ).toBeVisible()
   },
 }
 

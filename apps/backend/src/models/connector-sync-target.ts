@@ -1,4 +1,5 @@
 import { and, eq, inArray, sql } from "drizzle-orm"
+
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
 import {
@@ -20,10 +21,7 @@ type SyncTargetCandidate = {
   source: ConnectorSource
 }
 
-type SuggestedConnectorSyncTarget = Omit<
-  SyncTargetCandidate,
-  "source"
-> & {
+type SuggestedConnectorSyncTarget = Omit<SyncTargetCandidate, "source"> & {
   usedBy: ConnectorSource[]
 }
 

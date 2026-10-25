@@ -7,6 +7,7 @@ import {
 } from "@tabler/icons-react"
 import { type ReactNode, useContext, useState } from "react"
 import { DisclosureStateContext } from "react-aria-components"
+
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Button } from "@/components/ui/Button"
 import { Disclosure, DisclosurePanel } from "@/components/ui/Disclosure"
@@ -19,6 +20,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Modal } from "@/components/ui/Modal"
 import { Skeleton, SkeletonChain, SkeletonText } from "@/components/ui/Skeleton"
+
 import type { ConnectorHealth } from "../connectorHealth"
 import { ConnectorHealthIndicator } from "./ConnectorHealthIndicator"
 
@@ -145,7 +147,7 @@ export function ConnectorListItem({
   /**
    * The provider account of the connection, for example the Linear workspace
    * or the GitHub organization. The row labels it "Account", so that it is
-   * not read as a ctx| Workspace.
+   * not read as a ctxpipe Workspace.
    */
   workspace: ReactNode
   /**

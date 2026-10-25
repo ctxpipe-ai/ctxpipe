@@ -1,7 +1,9 @@
 import { writeFileSync } from "node:fs"
+
 import { and, eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaceWriteJobs } from "../../db/schema/workspaces.js"
@@ -69,7 +71,7 @@ it(
       body: string
     }> = []
     // A pull request of someone else from a fork uses the upgrade branch
-    // name. ctx| ignores it: it does not record it, it does not change its
+    // name. ctxpipe ignores it: it does not record it, it does not change its
     // text (the fixture refuses a pull request update), and it opens its own
     // pull request on the same branch name.
     const foreignPulls = [
@@ -124,12 +126,10 @@ it(
         )
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { defineWorkspaceUpgradeScan } = await import(
-          "../../openworkflow/workflows/workspace-upgrade-scan.js"
-        )
-        const { defineWorkspaceUpgrade } = await import(
-          "../../openworkflow/workflows/workspace-upgrade.js"
-        )
+        const { defineWorkspaceUpgradeScan } =
+          await import("../../openworkflow/workflows/workspace-upgrade-scan.js")
+        const { defineWorkspaceUpgrade } =
+          await import("../../openworkflow/workflows/workspace-upgrade.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
@@ -231,9 +231,9 @@ it(
           // One commit for each step that changes a file, in order; the
           // format file comes last. The default branch does not change.
           expect(branchLog()).toEqual([
-            "ctx| upgrade: set the Workspace format to 3",
-            "ctx| upgrade to format 3: Move notes",
-            "ctx| upgrade to format 1: Add notes",
+            "ctxpipe upgrade: set the Workspace format to 3",
+            "ctxpipe upgrade to format 3: Move notes",
+            "ctxpipe upgrade to format 1: Add notes",
             "Immutable fixture",
           ])
           expect(
@@ -292,8 +292,26 @@ it(
             },
           })
 
-          // A pull request that closes without a merge waits for a new click.
+          // A pull request that merged stays `pr_open`. The row keeps the time
+          // of the first scan that saw the merge, and the time of the last scan.
           openPulls = []
+          closedPull = {
+            number: 41,
+            state: "closed",
+            merged_at: "2026-10-15T00:00:00Z",
+            html_url: "https://github.com/fixture/hydration-contract/pull/41",
+            head: { ref: BRANCH, sha: "a".repeat(40) },
+          }
+          await runScan("after-merge")
+          const merged = await row()
+          expect(merged?.status).toBe("pr_open")
+          const mergedAt = merged?.upgrade.mergedAt
+          expect(Date.parse(mergedAt ?? "")).not.toBeNaN()
+          expect(Date.parse(merged?.upgrade.checkedAt ?? "")).not.toBeNaN()
+          await runScan("after-merge-again")
+          expect((await row())?.upgrade.mergedAt).toBe(mergedAt)
+
+          // A pull request that closes without a merge waits for a new click.
           closedPull = {
             number: 41,
             state: "closed",
@@ -316,7 +334,7 @@ it(
 )
 
 it(
-  "does not push over the branch of a pull request that ctx| does not own, and adopts its own pull request on the suffixed branch",
+  "does not push over the branch of a pull request that ctxpipe does not own, and adopts its own pull request on the suffixed branch",
   { timeout: 150_000 },
   async () => {
     const opened: Array<{ head: string; base: string }> = []
@@ -361,12 +379,10 @@ it(
         f.server.use(http.get(PULLS, () => HttpResponse.json(openPulls)))
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { defineWorkspaceUpgradeScan } = await import(
-          "../../openworkflow/workflows/workspace-upgrade-scan.js"
-        )
-        const { defineWorkspaceUpgrade } = await import(
-          "../../openworkflow/workflows/workspace-upgrade.js"
-        )
+        const { defineWorkspaceUpgradeScan } =
+          await import("../../openworkflow/workflows/workspace-upgrade-scan.js")
+        const { defineWorkspaceUpgrade } =
+          await import("../../openworkflow/workflows/workspace-upgrade.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
@@ -413,7 +429,7 @@ it(
           await expect
             .poll(async () => (await row())?.status, { timeout: 60_000 })
             .toBe("pr_open")
-          // ctx| left the branch of the others alone and used the next free
+          // ctxpipe left the branch of the others alone and used the next free
           // name.
           expect(hasBranch(BRANCH)).toBe(false)
           expect(hasBranch(`${BRANCH}-2`)).toBe(true)
@@ -469,12 +485,10 @@ it(
         f.server.use(http.get(PULLS, () => HttpResponse.json([])))
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { defineWorkspaceUpgradeScan } = await import(
-          "../../openworkflow/workflows/workspace-upgrade-scan.js"
-        )
-        const { workspaceHydrate } = await import(
-          "../../openworkflow/workflows/workspace-hydrate.js"
-        )
+        const { defineWorkspaceUpgradeScan } =
+          await import("../../openworkflow/workflows/workspace-upgrade-scan.js")
+        const { workspaceHydrate } =
+          await import("../../openworkflow/workflows/workspace-hydrate.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
@@ -566,9 +580,8 @@ it(
         f.server.use(http.get(PULLS, () => HttpResponse.json([])))
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { defineWorkspaceUpgradeScan } = await import(
-          "../../openworkflow/workflows/workspace-upgrade-scan.js"
-        )
+        const { defineWorkspaceUpgradeScan } =
+          await import("../../openworkflow/workflows/workspace-upgrade-scan.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,

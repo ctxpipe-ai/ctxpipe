@@ -1,4 +1,5 @@
 import type { Decorator } from "@storybook/react-vite"
+
 import { withAuth } from "./with-auth"
 import { withHyperDx } from "./with-hyperdx"
 import { withOrgAppShell } from "./with-org-app-shell"
@@ -16,8 +17,6 @@ export const entryPageInnerDecorators: Decorator[] = [
   withAuth,
   withStoryRoute,
 ]
-
-
 
 export const orgPageDecorators: Decorator[] = [
   withOrgAppShell,

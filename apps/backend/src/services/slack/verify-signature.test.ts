@@ -1,5 +1,7 @@
 import { createHmac } from "node:crypto"
+
 import { describe, expect, it } from "vitest"
+
 import { verifySlackRequestSignature } from "./verify-signature.js"
 
 function sign(secret: string, timestamp: string, body: string): string {

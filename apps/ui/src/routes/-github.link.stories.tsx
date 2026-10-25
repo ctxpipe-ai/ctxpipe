@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, fn, waitFor, within } from "storybook/test"
+
 import { GITHUB_POPUP_FLOW_KEY, GITHUB_SETUP_RESULT_KEY } from "@/lib/popup"
+
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { GithubLinkStep } from "./[.]github.link"
@@ -38,7 +40,7 @@ function startFlow() {
 }
 
 /**
- * The GitHub account belongs to another ctx| user. The page names GitHub,
+ * The GitHub account belongs to another ctxpipe user. The page names GitHub,
  * and it leaves the error, with the flow nonce, for the opener.
  */
 export const LinkedToAnotherUser: Story = {
@@ -61,7 +63,9 @@ export const LinkedToAnotherUser: Story = {
     )
     await waitFor(() =>
       expect(
-        canvas.getByText(/This GitHub account is linked to another ctx\| user/),
+        canvas.getByText(
+          /This GitHub account is linked to another ctxpipe user/,
+        ),
       ).toBeVisible(),
     )
     await expect(canvas.queryByText(/Atlassian/)).not.toBeInTheDocument()

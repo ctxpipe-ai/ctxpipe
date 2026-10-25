@@ -118,7 +118,7 @@ export const WORKSPACE_CHAT_VERCEL_SETUP = [
  */
 export const SANDBOX_READ_GIT = `git -c credential.helper= -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f'`
 
-/** The author and committer of the commits ctx| makes in a sandbox. */
+/** The author and committer of the commits ctxpipe makes in a sandbox. */
 export const COMMIT_IDENTITY = {
   GIT_AUTHOR_NAME: "ctxpipe",
   GIT_AUTHOR_EMAIL: "workspace-chat@ctxpipe.local",

@@ -14,6 +14,7 @@ import {
 import { useParams } from "@tanstack/react-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Heading } from "react-aria-components"
+
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -22,6 +23,7 @@ import { SkeletonSuspense, useSkeletonHold } from "@/components/ui/Skeleton"
 import { TextField } from "@/components/ui/TextField"
 import { ApiError } from "@/lib/api-result"
 import { cn } from "@/lib/utils"
+
 import { conversationAllowsEdits } from "./conversationPublish"
 import { joinFileName, optimisticPathsAfterJob } from "./fileTreeMutations"
 import {
@@ -41,6 +43,11 @@ import type {
   WorkspaceGitStatusItem,
   WorkspaceGitTreeResponse,
 } from "./types"
+import {
+  isSvgFile,
+  rawFileUrl,
+  WorkspaceBinaryFile,
+} from "./WorkspaceBinaryFile"
 import {
   WorkspaceFileTree,
   type WorkspaceFileTreeItem,
@@ -669,6 +676,7 @@ function WorkspaceFilesPaneContent(props: {
         if (content === undefined) continue
         void enqueueWriteRef.current({ op: "save", path, content })
       }
+      // oxlint-disable-next-line react-hooks/exhaustive-deps -- the deps list is kept as is
       void Promise.all([...writeQueuesRef.current.values()])
     }
   }, [props.conversationId])
@@ -1091,6 +1099,18 @@ function SandboxGitFilePreview(
   const { data } = useSuspenseQuery(
     conversationGitBlobOptions(props.orgSlug, props.conversationId, props.path),
   )
+  // The query asks again by itself until the holder lets go.
+  if (data.busy) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6">
+        <output className="text-sm text-muted-foreground">
+          {data.busy === "chat_starting"
+            ? "The chat is starting…"
+            : "The agent is working. The file shows when it is free…"}
+        </output>
+      </div>
+    )
+  }
   return <GitFilePreviewBody {...props} data={data} />
 }
 
@@ -1124,6 +1144,7 @@ function GitFilePreviewBody(props: {
     path: string
     body: string | null
     binary: boolean
+    size?: number
     readOnlyReason?: string
   }
 }) {
@@ -1143,12 +1164,14 @@ function GitFilePreviewBody(props: {
     }
   }
   if (data.binary) {
+    const rawUrl = rawFileUrl(props)
     return (
-      <div className="flex h-full min-h-0 items-center p-4">
-        <p className="text-sm text-muted-foreground">
-          This file is binary and cannot be previewed.
-        </p>
-      </div>
+      <WorkspaceBinaryFile
+        key={rawUrl}
+        path={data.path}
+        size={data.size}
+        rawUrl={rawUrl}
+      />
     )
   }
   const headBody = agentUpdated ? loadedBody : data.body
@@ -1162,7 +1185,7 @@ function GitFilePreviewBody(props: {
       </div>
     )
   }
-  return (
+  const textView = (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       {data.readOnlyReason ? (
         <output className="block px-3 py-2 text-xs text-muted-foreground">
@@ -1200,4 +1223,16 @@ function GitFilePreviewBody(props: {
       </div>
     </div>
   )
+  if (isSvgFile(data.path)) {
+    const rawUrl = rawFileUrl(props)
+    return (
+      <WorkspaceBinaryFile
+        key={rawUrl}
+        path={data.path}
+        rawUrl={rawUrl}
+        source={textView}
+      />
+    )
+  }
+  return textView
 }

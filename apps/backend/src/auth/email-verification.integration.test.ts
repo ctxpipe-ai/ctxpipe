@@ -1,5 +1,6 @@
 import { inArray } from "drizzle-orm"
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest"
+
 import { describeWithDatabase } from "../../test/db.js"
 import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { users } from "../db/schema/auth.js"
@@ -113,7 +114,7 @@ describeWithDatabase("email verification (Postgres)", () => {
 
     expect(mailsTo(email).map((mail) => mail.subject)).toEqual([
       "Verify your email address",
-      "You already have a ctx| account",
+      "You already have a ctxpipe account",
     ])
   })
 

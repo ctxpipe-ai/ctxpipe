@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, within } from "storybook/test"
+
 import {
   expectSkeletonMatchesLoaded,
   SkeletonMatchFrame,
@@ -8,6 +9,7 @@ import {
   docsWorkspaceActivity,
   emptyWorkspaceActivity,
 } from "@/features/workspaces/workspace-fixtures"
+
 import { CALENDAR_WEEKDAYS } from "./calendar-days"
 import {
   WorkspaceActivityHeatmap,

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest"
+
 import {
   emptyLinearPage,
   installLinearGraphql,
@@ -12,7 +13,6 @@ import { resetLinearGraphqlForTests } from "./graphql.js"
 
 const calls: LinearGraphqlCall[] = []
 let projectHasNextPage = false
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 
 const connection = {

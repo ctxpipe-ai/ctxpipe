@@ -3,6 +3,7 @@ import { useLocation } from "@tanstack/react-router"
 import { delay, HttpResponse, http, type RequestHandler } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import { onboardingHandOffFlag } from "@/lib/session-flags"
 import {
@@ -13,6 +14,7 @@ import {
   sessionSignedInOnboardingHandler,
 } from "@/mocks/handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
+
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { IndexRoutePage } from "./index"
@@ -130,7 +132,7 @@ function onboardingSession() {
 /** A joiner has one slide. "Get started" on How it works finishes. */
 async function finishJoiner(canvasElement: HTMLElement) {
   const canvas = within(canvasElement)
-  await canvas.findByRole("heading", { name: "Welcome to ctx|" })
+  await canvas.findByRole("heading", { name: "Welcome to ctxpipe" })
   expect(
     canvas.queryByRole("button", { name: /^Go to slide/ }),
   ).not.toBeInTheDocument()
@@ -205,7 +207,7 @@ export const JoinerFinishStaysWhenSessionIsStale: Story = {
     // The page fades back in after the failed finish.
     await waitFor(() =>
       expect(
-        canvas.getByRole("heading", { name: "Welcome to ctx|" }),
+        canvas.getByRole("heading", { name: "Welcome to ctxpipe" }),
       ).toBeVisible(),
     )
   },
@@ -279,7 +281,7 @@ export const AdminFlowCreateOrgLandsOnHome: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByRole("heading", { name: "Welcome to ctx|" })
+    await canvas.findByRole("heading", { name: "Welcome to ctxpipe" })
     // Two steps, Next then Create organization, and no slide buttons.
     expect(
       canvas.queryByRole("button", { name: /^Go to slide/ }),

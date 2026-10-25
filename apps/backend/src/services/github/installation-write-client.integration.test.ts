@@ -9,6 +9,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import { parseEnv } from "../../config/env.js"
 import {
@@ -49,7 +50,6 @@ const repositoryName = "example-org/mono"
 const repo = `https://api.github.com/repos/${repositoryName}`
 const ROOT = "docs/ctx"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 
 afterEach(() => {

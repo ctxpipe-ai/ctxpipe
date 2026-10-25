@@ -8,8 +8,10 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { stringify } from "yaml"
+
 import { writeStepIndex } from "../../test/ingest-step-index.js"
 import { gitSource, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
@@ -308,7 +310,7 @@ describe("find-apis", () => {
         'app.get("/users/:id", getUser)',
         "router.post('/users', createUser)",
         'cache.get("key")',
-        // biome-ignore lint/suspicious/noTemplateCurlyInString: source text of the fixture
+        // oxlint-disable-next-line no-template-curly-in-string -- source text of the fixture
         "app.delete(`/things/${id}`, remove)",
         "app.get(somePath, dynamic)",
         'app.get("relative", nope)',

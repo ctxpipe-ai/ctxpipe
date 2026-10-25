@@ -1,29 +1,30 @@
-import * as cdk from "aws-cdk-lib";
-import * as autoscaling from "aws-cdk-lib/aws-autoscaling";
-import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
-import * as ec2 from "aws-cdk-lib/aws-ec2";
-import * as ecs from "aws-cdk-lib/aws-ecs";
-import * as iam from "aws-cdk-lib/aws-iam";
-import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
-import * as servicediscovery from "aws-cdk-lib/aws-servicediscovery";
-import * as cr from "aws-cdk-lib/custom-resources";
-import { Construct } from "constructs";
+import * as cdk from "aws-cdk-lib"
+import * as autoscaling from "aws-cdk-lib/aws-autoscaling"
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch"
+import * as ec2 from "aws-cdk-lib/aws-ec2"
+import * as ecs from "aws-cdk-lib/aws-ecs"
+import * as iam from "aws-cdk-lib/aws-iam"
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
+import * as servicediscovery from "aws-cdk-lib/aws-servicediscovery"
+import * as cr from "aws-cdk-lib/custom-resources"
+import { Construct } from "constructs"
+
 import type {
   SandboxHostConstructProps,
   SandboxHostResources,
-} from "./contracts";
+} from "./contracts"
 
-const DOCKER_TLS_PORT = 2376;
+const DOCKER_TLS_PORT = 2376
 /** Agent Vault's API (backend and worker) and proxy (sandboxes only). */
-const AGENT_VAULT_API_PORT = 14321;
-const AGENT_VAULT_PROXY_PORT = 14322;
+const AGENT_VAULT_API_PORT = 14321
+const AGENT_VAULT_PROXY_PORT = 14322
 /**
  * Linux ephemeral range on both sides: Docker publishes sandbox ports from it
  * on the host, and the backend's per-run tool bridges listen on port 0.
  */
-const EPHEMERAL_PORTS = ec2.Port.tcpRange(32768, 60999);
+const EPHEMERAL_PORTS = ec2.Port.tcpRange(32768, 60999)
 /** One fixed Cloud Map instance: a replacement host overwrites the record. */
-const DISCOVERY_INSTANCE_ID = "sandbox-host";
+const DISCOVERY_INSTANCE_ID = "sandbox-host"
 
 /**
  * One EC2 Docker host for Workspace chat sandboxes (stock TanStack
@@ -32,14 +33,20 @@ const DISCOVERY_INSTANCE_ID = "sandbox-host";
  * the backend task back on its own IP.
  */
 export class SandboxHostConstruct extends Construct {
-  public readonly resources: SandboxHostResources;
+  public readonly resources: SandboxHostResources
 
-  public constructor(scope: Construct, id: string, props: SandboxHostConstructProps) {
-    super(scope, id);
-    const { vpc, cluster } = props.networking;
-    const namespace = cluster.defaultCloudMapNamespace;
+  public constructor(
+    scope: Construct,
+    id: string,
+    props: SandboxHostConstructProps,
+  ) {
+    super(scope, id)
+    const { vpc, cluster } = props.networking
+    const namespace = cluster.defaultCloudMapNamespace
     if (!(namespace instanceof servicediscovery.PrivateDnsNamespace)) {
-      throw new Error("The sandbox host needs the cluster's private DNS namespace");
+      throw new Error(
+        "The sandbox host needs the cluster's private DNS namespace",
+      )
     }
 
     const hostSecurityGroup = new ec2.SecurityGroup(this, "HostSecurityGroup", {
@@ -48,112 +55,138 @@ export class SandboxHostConstruct extends Construct {
       // Sandboxes clone from Git hosts and call the model proxy; the host
       // pulls images and packages. Data stores only admit the app group.
       allowAllOutbound: true,
-    });
+    })
     // Egress for both comes from the app security group the tasks also carry.
-    const backendSecurityGroup = new ec2.SecurityGroup(this, "BackendSecurityGroup", {
-      vpc,
-      description: "ctxpipe backend: sandbox host client and sandbox callbacks",
-      allowAllOutbound: false,
-    });
-    const workerSecurityGroup = new ec2.SecurityGroup(this, "WorkerSecurityGroup", {
-      vpc,
-      description: "ctxpipe worker: sandbox host client",
-      allowAllOutbound: false,
-    });
+    const backendSecurityGroup = new ec2.SecurityGroup(
+      this,
+      "BackendSecurityGroup",
+      {
+        vpc,
+        description:
+          "ctxpipe backend: sandbox host client and sandbox callbacks",
+        allowAllOutbound: false,
+      },
+    )
+    const workerSecurityGroup = new ec2.SecurityGroup(
+      this,
+      "WorkerSecurityGroup",
+      {
+        vpc,
+        description: "ctxpipe worker: sandbox host client",
+        allowAllOutbound: false,
+      },
+    )
     for (const client of [backendSecurityGroup, workerSecurityGroup]) {
       hostSecurityGroup.addIngressRule(
         client,
         ec2.Port.tcp(DOCKER_TLS_PORT),
         "Docker API (mutual TLS)",
-      );
+      )
       hostSecurityGroup.addIngressRule(
         client,
         ec2.Port.tcp(AGENT_VAULT_API_PORT),
         "Agent Vault API (run vaults)",
-      );
+      )
     }
     hostSecurityGroup.addIngressRule(
       backendSecurityGroup,
       EPHEMERAL_PORTS,
       "Published sandbox agent ports from backend",
-    );
+    )
     backendSecurityGroup.addIngressRule(
       hostSecurityGroup,
       ec2.Port.tcp(3000),
       "Model proxy from sandboxes",
-    );
+    )
     backendSecurityGroup.addIngressRule(
       hostSecurityGroup,
       EPHEMERAL_PORTS,
       "Per-run tool bridges from sandboxes",
-    );
+    )
 
     // Created with a CloudFormation-generated placeholder that CloudFormation
     // never rewrites; the first host replaces it and every replacement host
     // reuses it, so running tasks keep trusting the daemon. The CA key is
     // never stored.
     const serverTlsSecret = new secretsmanager.Secret(this, "ServerTlsSecret", {
-      description: "ctxpipe sandbox host: Docker daemon TLS (written by the host)",
-    });
+      description:
+        "ctxpipe sandbox host: Docker daemon TLS (written by the host)",
+    })
     const clientTlsSecret = new secretsmanager.Secret(this, "ClientTlsSecret", {
-      description: "ctxpipe sandbox host: Docker client TLS for backend and worker (written by the host)",
-    });
+      description:
+        "ctxpipe sandbox host: Docker client TLS for backend and worker (written by the host)",
+    })
 
     // Agent Vault adds sandbox credentials in flight. The stack generates
     // both passwords. Only the host reads the master password; backend and
     // worker log in as the owner (the first login registers it).
-    const agentVaultMasterSecret = new secretsmanager.Secret(this, "AgentVaultMasterSecret", {
-      description: "ctxpipe sandbox host: Agent Vault master password",
-      generateSecretString: { excludePunctuation: true, passwordLength: 40 },
-    });
-    const agentVaultOwnerSecret = new secretsmanager.Secret(this, "AgentVaultOwnerSecret", {
-      description: "ctxpipe sandbox host: Agent Vault owner password for backend and worker",
-      generateSecretString: { excludePunctuation: true, passwordLength: 40 },
-    });
+    const agentVaultMasterSecret = new secretsmanager.Secret(
+      this,
+      "AgentVaultMasterSecret",
+      {
+        description: "ctxpipe sandbox host: Agent Vault master password",
+        generateSecretString: { excludePunctuation: true, passwordLength: 40 },
+      },
+    )
+    const agentVaultOwnerSecret = new secretsmanager.Secret(
+      this,
+      "AgentVaultOwnerSecret",
+      {
+        description:
+          "ctxpipe sandbox host: Agent Vault owner password for backend and worker",
+        generateSecretString: { excludePunctuation: true, passwordLength: 40 },
+      },
+    )
 
     const discovery = new servicediscovery.Service(this, "Discovery", {
       namespace,
       name: "sandbox-host",
       dnsRecordType: servicediscovery.DnsRecordType.A,
       dnsTtl: cdk.Duration.seconds(10),
-    });
-    const dockerHostname = `${discovery.serviceName}.${namespace.namespaceName}`;
+    })
+    const dockerHostname = `${discovery.serviceName}.${namespace.namespaceName}`
 
     const role = new iam.Role(this, "InstanceRole", {
       assumedBy: new iam.ServicePrincipal("ec2.amazonaws.com"),
       managedPolicies: [
         // Session Manager for operator checks; no SSH key or open port.
-        iam.ManagedPolicy.fromAwsManagedPolicyName("AmazonSSMManagedInstanceCore"),
-        iam.ManagedPolicy.fromAwsManagedPolicyName("CloudWatchAgentServerPolicy"),
+        iam.ManagedPolicy.fromAwsManagedPolicyName(
+          "AmazonSSMManagedInstanceCore",
+        ),
+        iam.ManagedPolicy.fromAwsManagedPolicyName(
+          "CloudWatchAgentServerPolicy",
+        ),
       ],
-    });
-    serverTlsSecret.grantRead(role);
-    serverTlsSecret.grantWrite(role);
-    clientTlsSecret.grantRead(role);
-    clientTlsSecret.grantWrite(role);
-    agentVaultMasterSecret.grantRead(role);
+    })
+    serverTlsSecret.grantRead(role)
+    serverTlsSecret.grantWrite(role)
+    clientTlsSecret.grantRead(role)
+    clientTlsSecret.grantWrite(role)
+    agentVaultMasterSecret.grantRead(role)
     role.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: ["servicediscovery:RegisterInstance"],
         resources: [discovery.serviceArn],
       }),
-    );
-    role.addToPrincipalPolicy(cloudMapRoute53Statement(namespace, ["route53:CreateHealthCheck"]));
+    )
+    role.addToPrincipalPolicy(
+      cloudMapRoute53Statement(namespace, ["route53:CreateHealthCheck"]),
+    )
     role.addToPrincipalPolicy(
       new iam.PolicyStatement({
         // Cloud Map checks the registered instance; describe has no resource scope.
         actions: ["ec2:DescribeInstances"],
         resources: ["*"],
       }),
-    );
+    )
     role.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: ["cloudformation:SignalResource"],
         resources: [cdk.Stack.of(this).stackId],
       }),
-    );
+    )
 
-    const userData = ec2.UserData.forLinux();
+    const userData = ec2.UserData.forLinux()
     const launchTemplate = new ec2.LaunchTemplate(this, "LaunchTemplate", {
       instanceType: props.instanceType,
       // Resolved when an instance launches, not at deploy: a new AMI release
@@ -185,49 +218,59 @@ export class SandboxHostConstruct extends Construct {
           }),
         },
       ],
-    });
+    })
 
-    const autoScalingGroup = new autoscaling.AutoScalingGroup(this, "AutoScalingGroup", {
-      vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      launchTemplate,
-      minCapacity: 1,
-      maxCapacity: 1,
-      healthChecks: autoscaling.HealthChecks.ec2({
-        gracePeriod: cdk.Duration.minutes(15),
-      }),
-      // The host signals once Docker and TLS are ready, so a deploy fails
-      // instead of leaving chat without a sandbox host.
-      signals: autoscaling.Signals.waitForAll({ timeout: cdk.Duration.minutes(30) }),
-      // A changed instance type, volume, or boot script replaces the one host.
-      updatePolicy: autoscaling.UpdatePolicy.rollingUpdate({
-        maxBatchSize: 1,
-        minInstancesInService: 0,
-      }),
-    });
+    const autoScalingGroup = new autoscaling.AutoScalingGroup(
+      this,
+      "AutoScalingGroup",
+      {
+        vpc,
+        vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+        launchTemplate,
+        minCapacity: 1,
+        maxCapacity: 1,
+        healthChecks: autoscaling.HealthChecks.ec2({
+          gracePeriod: cdk.Duration.minutes(15),
+        }),
+        // The host signals once Docker and TLS are ready, so a deploy fails
+        // instead of leaving chat without a sandbox host.
+        signals: autoscaling.Signals.waitForAll({
+          timeout: cdk.Duration.minutes(30),
+        }),
+        // A changed instance type, volume, or boot script replaces the one host.
+        updatePolicy: autoscaling.UpdatePolicy.rollingUpdate({
+          maxBatchSize: 1,
+          minInstancesInService: 0,
+        }),
+      },
+    )
 
     // Cloud Map refuses to delete a service with instances; the host registers
     // itself, so deregister after the host is gone and before the service goes.
-    const deregistration = new cr.AwsCustomResource(this, "DiscoveryDeregistration", {
-      onDelete: {
-        service: "ServiceDiscovery",
-        action: "deregisterInstance",
-        parameters: {
-          ServiceId: discovery.serviceId,
-          InstanceId: DISCOVERY_INSTANCE_ID,
+    const deregistration = new cr.AwsCustomResource(
+      this,
+      "DiscoveryDeregistration",
+      {
+        onDelete: {
+          service: "ServiceDiscovery",
+          action: "deregisterInstance",
+          parameters: {
+            ServiceId: discovery.serviceId,
+            InstanceId: DISCOVERY_INSTANCE_ID,
+          },
+          ignoreErrorCodesMatching: "InstanceNotFound|ServiceNotFound",
         },
-        ignoreErrorCodesMatching: "InstanceNotFound|ServiceNotFound",
+        policy: cr.AwsCustomResourcePolicy.fromStatements([
+          new iam.PolicyStatement({
+            actions: ["servicediscovery:DeregisterInstance"],
+            resources: [discovery.serviceArn],
+          }),
+          cloudMapRoute53Statement(namespace, ["route53:DeleteHealthCheck"]),
+        ]),
+        installLatestAwsSdk: false,
       },
-      policy: cr.AwsCustomResourcePolicy.fromStatements([
-        new iam.PolicyStatement({
-          actions: ["servicediscovery:DeregisterInstance"],
-          resources: [discovery.serviceArn],
-        }),
-        cloudMapRoute53Statement(namespace, ["route53:DeleteHealthCheck"]),
-      ]),
-      installLatestAwsSdk: false,
-    });
-    autoScalingGroup.node.addDependency(deregistration);
+    )
+    autoScalingGroup.node.addDependency(deregistration)
 
     userData.addCommands(
       ...hostBootstrapScript({
@@ -251,9 +294,11 @@ export class SandboxHostConstruct extends Construct {
           .subnets.map((subnet) => subnet.ipv4CidrBlock),
         operatorAllowlist: props.agentVaultNetworkAllowlist ?? [],
       }),
-    );
+    )
 
-    const dimensions = { AutoScalingGroupName: autoScalingGroup.autoScalingGroupName };
+    const dimensions = {
+      AutoScalingGroupName: autoScalingGroup.autoScalingGroupName,
+    }
     const diskAlarm = new cloudwatch.Alarm(this, "DockerDiskAlarm", {
       alarmDescription:
         "ctxpipe sandbox host: /var/lib/docker is over 80% full. Check `docker system df` and stopped sandboxes.",
@@ -266,8 +311,9 @@ export class SandboxHostConstruct extends Construct {
       }),
       threshold: 80,
       evaluationPeriods: 2,
-      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-    });
+      comparisonOperator:
+        cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+    })
     const memoryAlarm = new cloudwatch.Alarm(this, "MemoryAlarm", {
       alarmDescription:
         "ctxpipe sandbox host: memory is over 85% for 15 minutes. Sandboxes are near their cgroup cap; consider a larger sandboxHost.instanceType.",
@@ -280,8 +326,9 @@ export class SandboxHostConstruct extends Construct {
       }),
       threshold: 85,
       evaluationPeriods: 3,
-      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-    });
+      comparisonOperator:
+        cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+    })
 
     this.resources = {
       autoScalingGroup,
@@ -292,7 +339,7 @@ export class SandboxHostConstruct extends Construct {
       agentVaultAddress: `http://${dockerHostname}:${AGENT_VAULT_API_PORT}`,
       agentVaultOwnerSecret,
       alarms: [diskAlarm, memoryAlarm],
-    };
+    }
   }
 }
 
@@ -309,8 +356,8 @@ export function addSandboxHostClient(
   image: ecs.ContainerImage,
   host: SandboxHostResources,
 ): void {
-  const certPath = "/run/ctxpipe-docker-tls";
-  task.addVolume({ name: "docker-tls" });
+  const certPath = "/run/ctxpipe-docker-tls"
+  task.addVolume({ name: "docker-tls" })
   const certs = task.addContainer("docker-tls", {
     image,
     essential: false,
@@ -330,24 +377,32 @@ export function addSandboxHostClient(
       KEY: ecs.Secret.fromSecretsManager(host.clientTlsSecret, "key"),
     },
     logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-docker-tls" }),
-  });
-  certs.addMountPoints({ sourceVolume: "docker-tls", containerPath: certPath, readOnly: false });
-  app.addMountPoints({ sourceVolume: "docker-tls", containerPath: certPath, readOnly: true });
+  })
+  certs.addMountPoints({
+    sourceVolume: "docker-tls",
+    containerPath: certPath,
+    readOnly: false,
+  })
+  app.addMountPoints({
+    sourceVolume: "docker-tls",
+    containerPath: certPath,
+    readOnly: true,
+  })
   app.addContainerDependencies({
     container: certs,
     condition: ecs.ContainerDependencyCondition.SUCCESS,
-  });
-  app.addEnvironment("SANDBOX_PROVIDER", "docker");
-  app.addEnvironment("DOCKER_HOST", host.dockerHost);
-  app.addEnvironment("DOCKER_TLS_VERIFY", "1");
-  app.addEnvironment("DOCKER_CERT_PATH", certPath);
+  })
+  app.addEnvironment("SANDBOX_PROVIDER", "docker")
+  app.addEnvironment("DOCKER_HOST", host.dockerHost)
+  app.addEnvironment("DOCKER_TLS_VERIFY", "1")
+  app.addEnvironment("DOCKER_CERT_PATH", certPath)
   // Docker sandboxes get credentials only through Agent Vault.
-  app.addEnvironment("AGENT_VAULT_ADDR", host.agentVaultAddress);
+  app.addEnvironment("AGENT_VAULT_ADDR", host.agentVaultAddress)
   // Sandboxes call the backend task back by its VPC DNS name: Agent Vault
   // rules take host names. us-east-1 names differ from other regions.
   const usEast1 = new cdk.CfnCondition(app, "UsEast1Callback", {
     expression: cdk.Fn.conditionEquals(cdk.Aws.REGION, "us-east-1"),
-  });
+  })
   app.addEnvironment(
     "SANDBOX_CALLBACK_DNS_SUFFIX",
     cdk.Fn.conditionIf(
@@ -355,11 +410,11 @@ export function addSandboxHostClient(
       "ec2.internal",
       `${cdk.Aws.REGION}.compute.internal`,
     ).toString(),
-  );
+  )
   app.addSecret(
     "AGENT_VAULT_OWNER_PASSWORD",
     ecs.Secret.fromSecretsManager(host.agentVaultOwnerSecret),
-  );
+  )
 }
 
 /** Cloud Map writes the instance's DNS record with the caller's permissions. */
@@ -378,25 +433,25 @@ function cloudMapRoute53Statement(
       `arn:${cdk.Aws.PARTITION}:route53:::hostedzone/${namespace.namespaceHostedZoneId}`,
       `arn:${cdk.Aws.PARTITION}:route53:::healthcheck/*`,
     ],
-  });
+  })
 }
 
 interface HostBootstrapInput {
-  readonly region: string;
-  readonly stackName: string;
-  readonly autoScalingGroupLogicalId: string;
-  readonly serverTlsSecretArn: string;
-  readonly clientTlsSecretArn: string;
-  readonly discoveryServiceId: string;
-  readonly dockerHostname: string;
-  readonly agentVaultMasterSecretArn: string;
+  readonly region: string
+  readonly stackName: string
+  readonly autoScalingGroupLogicalId: string
+  readonly serverTlsSecretArn: string
+  readonly clientTlsSecretArn: string
+  readonly discoveryServiceId: string
+  readonly dockerHostname: string
+  readonly agentVaultMasterSecretArn: string
   /** Agent Vault may dial these private addresses: the backend tasks. */
-  readonly backendSubnetCidrs: string[];
+  readonly backendSubnetCidrs: string[]
   /**
    * And these, from `sandboxHost.agentVaultNetworkAllowlist` (for example a
    * private git server). `CtxPipe` checks each entry.
    */
-  readonly operatorAllowlist: readonly string[];
+  readonly operatorAllowlist: readonly string[]
 }
 
 /**
@@ -505,9 +560,16 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
     "ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -i docker0 -j REJECT 2>/dev/null || iptables -I DOCKER-USER 1 -i docker0 -j REJECT'",
     `ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -i docker0 -o ctxpipe-av -p tcp --dport ${AGENT_VAULT_PROXY_PORT} -j RETURN 2>/dev/null || iptables -I DOCKER-USER 1 -i docker0 -o ctxpipe-av -p tcp --dport ${AGENT_VAULT_PROXY_PORT} -j RETURN'`,
     "ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -i docker0 -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN 2>/dev/null || iptables -I DOCKER-USER 1 -i docker0 -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN'",
+    "# With the default userland-proxy, Docker skips DNAT for docker0 traffic to a host IP,",
+    "# so a sandbox's connection to <host IP>:14322 reaches INPUT (docker-proxy). Insert this",
+    "# after the INPUT REJECT above so it sits above it. The DOCKER-USER RETURN above applies",
+    "# if an operator sets userland-proxy=false. No other port opens from docker0.",
+    `ExecStartPost=/bin/sh -c 'iptables -C INPUT -i docker0 -p tcp --dport ${AGENT_VAULT_PROXY_PORT} -j ACCEPT 2>/dev/null || iptables -I INPUT -i docker0 -p tcp --dport ${AGENT_VAULT_PROXY_PORT} -j ACCEPT'`,
     "# Agent Vault never reaches the host (its own management API on the host's",
     "# address, the Docker API) or itself back through a published port.",
-    "ExecStartPost=/bin/sh -c 'iptables -C INPUT -i ctxpipe-av -j REJECT 2>/dev/null || iptables -I INPUT -i ctxpipe-av -j REJECT'",
+    "# INPUT refuses only new connections: replies to the host's own /health check",
+    "# (docker-proxy, then the Agent Vault bridge) must pass.",
+    "ExecStartPost=/bin/sh -c 'iptables -C INPUT -i ctxpipe-av -m conntrack ! --ctstate ESTABLISHED,RELATED -j REJECT 2>/dev/null || iptables -I INPUT -i ctxpipe-av -m conntrack ! --ctstate ESTABLISHED,RELATED -j REJECT'",
     "ExecStartPost=/bin/sh -c 'iptables -C DOCKER-USER -i ctxpipe-av -o ctxpipe-av -j REJECT 2>/dev/null || iptables -I DOCKER-USER 1 -i ctxpipe-av -o ctxpipe-av -j REJECT'",
     "UNIT",
     "systemctl daemon-reload",
@@ -523,7 +585,8 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
     "docker rm -f ctxpipe-agent-vault >/dev/null 2>&1 || true",
     `docker run -d --name ctxpipe-agent-vault --restart unless-stopped --network ctxpipe-av -p ${AGENT_VAULT_API_PORT}:${AGENT_VAULT_API_PORT} -p ${AGENT_VAULT_PROXY_PORT}:${AGENT_VAULT_PROXY_PORT} -v ctxpipe-agent-vault:/data -e AGENT_VAULT_MASTER_PASSWORD="$AGENT_VAULT_MASTER_PASSWORD" -e AGENT_VAULT_RATELIMIT_PROXY_RATE=200 -e AGENT_VAULT_RATELIMIT_PROXY_BURST=2000 -e AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256 -e AGENT_VAULT_TELEMETRY=false -e AGENT_VAULT_NETWORK_ALLOWLIST='${[...input.backendSubnetCidrs, ...input.operatorAllowlist].join(",")}' infisical/agent-vault:latest`,
     "unset AGENT_VAULT_MASTER_PASSWORD",
-    `curl -sf --retry 30 --retry-connrefused --retry-delay 2 http://127.0.0.1:${AGENT_VAULT_API_PORT}/health`,
+    "# While Agent Vault starts, docker-proxy accepts and then resets the connection, so retry every error.",
+    `curl -sf --max-time 5 --retry 30 --retry-all-errors --retry-delay 2 http://127.0.0.1:${AGENT_VAULT_API_PORT}/health`,
 
     "# Disk and memory metrics for the CloudFormation alarms.",
     "cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'JSON'",
@@ -531,11 +594,17 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
       agent: { metrics_collection_interval: 60, omit_hostname: true },
       metrics: {
         namespace: "CWAgent",
-        // biome-ignore lint/suspicious/noTemplateCurlyInString: the CloudWatch agent's own placeholder.
-        append_dimensions: { AutoScalingGroupName: "${aws:AutoScalingGroupName}" },
+        append_dimensions: {
+          // oxlint-disable-next-line no-template-curly-in-string -- the CloudWatch agent's own placeholder
+          AutoScalingGroupName: "${aws:AutoScalingGroupName}",
+        },
         aggregation_dimensions: [["AutoScalingGroupName", "path"]],
         metrics_collected: {
-          disk: { measurement: ["used_percent"], resources: ["/var/lib/docker"], drop_device: true },
+          disk: {
+            measurement: ["used_percent"],
+            resources: ["/var/lib/docker"],
+            drop_device: true,
+          },
           mem: { measurement: ["used_percent"] },
         },
       },
@@ -547,8 +616,8 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
     'jq -r .ca "$WORK/client.json" > "$WORK/client-ca.pem"',
     'jq -r .cert "$WORK/client.json" > "$WORK/client-cert.pem"',
     'jq -r .key "$WORK/client.json" > "$WORK/client-key.pem"',
-    `curl -sf --retry 10 --retry-connrefused --resolve "$DOCKER_HOSTNAME:${DOCKER_TLS_PORT}:127.0.0.1" --cacert "$WORK/client-ca.pem" --cert "$WORK/client-cert.pem" --key "$WORK/client-key.pem" "https://$DOCKER_HOSTNAME:${DOCKER_TLS_PORT}/_ping"`,
+    `curl -sf --max-time 5 --retry 30 --retry-delay 2 --retry-all-errors --resolve "$DOCKER_HOSTNAME:${DOCKER_TLS_PORT}:127.0.0.1" --cacert "$WORK/client-ca.pem" --cert "$WORK/client-cert.pem" --key "$WORK/client-key.pem" "https://$DOCKER_HOSTNAME:${DOCKER_TLS_PORT}/_ping"`,
     `aws servicediscovery register-instance --region "$REGION" --service-id '${input.discoveryServiceId}' --instance-id '${DISCOVERY_INSTANCE_ID}' --attributes "AWS_INSTANCE_IPV4=$PRIVATE_IP"`,
     "signal SUCCESS",
-  ];
+  ]
 }

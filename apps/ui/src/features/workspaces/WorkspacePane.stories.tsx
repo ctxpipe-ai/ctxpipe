@@ -4,6 +4,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import { Button } from "@/components/ui/Button"
 import {
   conversationFilePutHandler,
@@ -24,6 +25,7 @@ import {
   workspaceGraphLoadingHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
@@ -41,7 +43,6 @@ import {
 import { type ParsedPane, parsePane, serializePane } from "./pane"
 import { workspaceKeys } from "./queries"
 import { useConversationPublish } from "./useConversationPublish"
-import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
 import {
   docsWorkspace,
   docsWorkspaceDetail,
@@ -52,6 +53,7 @@ import {
   skippedFilesWorkspaceDetail,
 } from "./workspace-fixtures"
 import { workspaceChatColumnClassName } from "./workspaceChrome"
+import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
 
 const paneCallbacks = {
   onPane: fn(),
@@ -548,7 +550,7 @@ export const ReadOnly: Story = {
 
 const legacyPath = "knowledge/services/tools-cli.md"
 const legacyReason =
-  "This file is knowledge from before Workspaces. ctx| shows it from its database, not from git, so you cannot edit, move, or delete it. The re-ingestion of its repository replaces it after the format upgrade."
+  "This file is knowledge from before Workspaces. ctxpipe shows it from its database, not from git, so you cannot edit, move, or delete it. The re-ingestion of its repository replaces it after the format upgrade."
 
 /** The editor of the open file takes keys only when it is editable. */
 async function expectFileEditable(
@@ -639,6 +641,56 @@ export const GitFileEditable: Story = {
     expect(
       within(canvasElement).queryByText(legacyReason),
     ).not.toBeInTheDocument()
+  },
+}
+
+let startingBlobHits = 0
+
+/**
+ * A prepare (sandbox resume) holds the chat: the file read answers 409
+ * chat_starting twice. The pane says the chat starts, asks again by itself,
+ * and then shows the file. It never shows the code or "a turn is running".
+ */
+export const FileWhileChatStarts: Story = {
+  ...conversationFileStory(ledgerPath),
+  beforeEach: () => {
+    startingBlobHits = 0
+  },
+  parameters: {
+    ...conversationFileStory(ledgerPath).parameters,
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+                new URL(request.url).pathname,
+              ),
+            // After two answers, the next handler serves the file.
+            () =>
+              startingBlobHits++ < 2
+                ? HttpResponse.json({ error: "chat_starting" }, { status: 409 })
+                : undefined,
+          ),
+          ...legacyConversationHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(
+      () => expect(canvas.getByText("The chat is starting…")).toBeVisible(),
+      { timeout: 5000 },
+    )
+    expect(textInShadows(canvasElement)).not.toContain("chat_starting")
+    expect(canvasElement.textContent).not.toContain("chat_starting")
+    expect(canvasElement.textContent).not.toMatch(/turn is (still )?running/i)
+    await waitFor(
+      () => expect(textInShadows(canvasElement)).toContain("Billing ledger"),
+      { timeout: 10_000 },
+    )
+    expect(canvas.queryByText("The chat is starting…")).toBeNull()
   },
 }
 
@@ -821,7 +873,10 @@ const graphPaneRoute = {
 
 const graphGets = { count: 0 }
 
-/** The graph phase is pending: the pane waits and does not read the graph. */
+/**
+ * The graph phase is pending: the pane waits and does not read the graph.
+ * A retry of a failed graph also sets the phase to pending while it builds.
+ */
 export const GraphPhasePending: Story = {
   tags: ["workspace-golden"],
   args: {
@@ -861,7 +916,7 @@ export const GraphPhasePending: Story = {
     await waitFor(() =>
       expect(
         canvas.getByText(
-          "The graph opens when ctx| finishes reading this Workspace.",
+          "The graph opens when ctxpipe finishes reading this Workspace.",
         ),
       ).toBeVisible(),
     )
@@ -946,7 +1001,7 @@ export const GraphLostRebuilds: Story = {
     await waitFor(() =>
       expect(
         canvas.getByText(
-          "The graph opens when ctx| finishes reading this Workspace.",
+          "The graph opens when ctxpipe finishes reading this Workspace.",
         ),
       ).toBeVisible(),
     )
@@ -955,7 +1010,7 @@ export const GraphLostRebuilds: Story = {
       () => {
         expect(
           canvas.queryByText(
-            "The graph opens when ctx| finishes reading this Workspace.",
+            "The graph opens when ctxpipe finishes reading this Workspace.",
           ),
         ).toBeNull()
       },

@@ -12,7 +12,7 @@ module "ctxpipe" {
   railway_workspace_id = "aa3ec44f-f8bd-4beb-bbe0-e4c46e20b14c"
   railway_project = {
     name           = "ctxpipe"
-    description    = "This is the ctx| application deployed as our SaaS platform"
+    description    = "This is the ctxpipe application deployed as our SaaS platform"
     private        = true
     has_pr_deploys = true
   }
@@ -26,32 +26,10 @@ module "ctxpipe" {
     },
   ]
 
-  image_tag               = var.image_tag
-  better_auth_secret      = var.better_auth_secret
-  model_provider_api_key  = var.model_provider_api_key
-  model_provider          = var.model_provider
-  smtp_connection_url     = var.smtp_connection_url
-  github_private_key      = var.github_private_key
-  github_client_secret    = var.github_client_secret
-  github_webhook_secret   = var.github_webhook_secret
-  atlassian_client_id     = var.atlassian_client_id
-  atlassian_client_secret = var.atlassian_client_secret
-  slack_client_id         = var.slack_client_id
-  slack_client_secret     = var.slack_client_secret
-  slack_signing_secret    = var.slack_signing_secret
-  linear_client_id        = var.linear_client_id
-  linear_client_secret    = var.linear_client_secret
-  linear_redirect_uri     = var.linear_redirect_uri
-  linear_webhook_secret   = var.linear_webhook_secret
-  notion_client_id        = var.notion_client_id
-  notion_client_secret    = var.notion_client_secret
-  notion_webhook_secret   = var.notion_webhook_secret
-  pagerduty_client_id     = var.pagerduty_client_id
-  pagerduty_client_secret = var.pagerduty_client_secret
-  pagerduty_redirect_uri  = var.pagerduty_redirect_uri
-  falkordb_password       = var.falkordb_password
-  otel_otlp_headers       = var.otel_otlp_headers
-  vercel_access_token     = var.vercel_access_token
+  image_tag              = var.image_tag
+  model_provider         = var.model_provider
+  linear_redirect_uri    = var.linear_redirect_uri
+  pagerduty_redirect_uri = var.pagerduty_redirect_uri
 
   neon_project = {
     name                      = "ctxpipe"

@@ -11,12 +11,26 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { dirname, join, relative, resolve, sep } from "node:path"
+
 import { REPO_CACHE_DIR } from "../../config/paths.js"
 
 /** Matches backend `DEFAULT_CHECKOUT_KEY` for the primary branch checkout. */
 export const DEFAULT_CHECKOUT_KEY = "default"
 
-export { workspaceCheckoutKey } from "../../../../../shared/workspace-checkout.js"
+/**
+ * Each repository has one shared bare clone. Each checkout key is a git
+ * worktree of that clone at `checkouts/<key>`, so the readers (Zoekt, SCIP,
+ * file reads) keep their paths. Only the shared clone fetches, deepens, or
+ * unshallows.
+ */
+export function repoSharedClonePath(orgId: string, repoId: string): string {
+  return `${REPO_CACHE_DIR}/${orgId}/${repoId}/shared.git`
+}
+
+/** The directory of a repository that holds its checkouts and `.scip` files. */
+export function repoCheckoutsDir(orgId: string, repoId: string): string {
+  return `${REPO_CACHE_DIR}/${orgId}/${repoId}/checkouts`
+}
 
 /** Git working tree for a given ref checkout. */
 export function repoCheckoutPath(
@@ -24,7 +38,7 @@ export function repoCheckoutPath(
   repoId: string,
   checkoutKey: string = DEFAULT_CHECKOUT_KEY,
 ): string {
-  return `${REPO_CACHE_DIR}/${orgId}/${repoId}/checkouts/${checkoutKey}`
+  return `${repoCheckoutsDir(orgId, repoId)}/${checkoutKey}`
 }
 
 /** Merged SCIP index beside the checkout directory (sibling `.scip` file). */
@@ -127,8 +141,24 @@ export async function resolveSafeReadableFilePath(
 export async function readContainedFile(
   basePath: string,
   relativePath: string,
+  root?: string,
+): Promise<Buffer<ArrayBuffer>>
+/**
+ * With `maxBytes`, a file larger than the limit is not read: the result has
+ * only its size, from the stat of the open descriptor.
+ */
+export async function readContainedFile(
+  basePath: string,
+  relativePath: string,
+  root: string,
+  maxBytes: number,
+): Promise<Buffer<ArrayBuffer> | { size: number; tooLarge: true }>
+export async function readContainedFile(
+  basePath: string,
+  relativePath: string,
   root = "",
-) {
+  maxBytes?: number,
+): Promise<Buffer<ArrayBuffer> | { size: number; tooLarge: true }> {
   const rootPath = resolveSafePath(basePath, root)
   const resolved = await resolveSafeReadableFilePath(
     basePath,
@@ -148,10 +178,30 @@ export async function readContainedFile(
         throw notFound()
       }
     }
-    if (!(await handle.stat()).isFile()) {
+    const stats = await handle.stat()
+    if (!stats.isFile()) {
       throw new Error("Not a file")
     }
-    return await handle.readFile()
+    if (maxBytes !== undefined && stats.size > maxBytes) {
+      return { size: stats.size, tooLarge: true }
+    }
+    if (maxBytes === undefined) return await handle.readFile()
+    // The file can grow after the stat. Read one byte past the limit, from the
+    // same descriptor, into a fixed buffer.
+    const buffer = Buffer.alloc(maxBytes + 1)
+    let length = 0
+    while (length < buffer.length) {
+      const { bytesRead } = await handle.read(
+        buffer,
+        length,
+        buffer.length - length,
+        length,
+      )
+      if (bytesRead === 0) break
+      length += bytesRead
+    }
+    if (length > maxBytes) return { size: length, tooLarge: true }
+    return buffer.subarray(0, length)
   } finally {
     await handle.close()
   }

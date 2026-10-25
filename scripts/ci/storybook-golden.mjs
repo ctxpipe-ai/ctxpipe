@@ -115,6 +115,15 @@ const chosenStories = (index) => {
 
 const playInitScript = () => {
   window.__CTXPIPE_GOLDEN__ = { result: null, waiters: [] }
+  // Storybook ends a play in the "errored" phase, with no error event, when the
+  // page had an unhandled error during the play. Keep the errors to name them.
+  const unhandled = []
+  window.addEventListener("unhandledrejection", (event) =>
+    unhandled.push(String(event.reason?.stack ?? event.reason)),
+  )
+  window.addEventListener("error", (event) =>
+    unhandled.push(String(event.error?.stack ?? event.message)),
+  )
   // The headless browser keeps a real cursor over the page. After a layout
   // change it sends real pointer-move events, which end a hover that a play set
   // with synthetic events. Plays use synthetic events only, so drop real ones.
@@ -163,6 +172,17 @@ const playInitScript = () => {
     channel.on("storyRenderPhaseChanged", (info) => {
       const phase = info?.newPhase ?? info?.phase
       if (phase === "played") record({ ok: true, phase })
+      // Storybook names the phase before it emits the error of a play that
+      // threw. Wait a moment, so that error comes first.
+      if (phase === "errored")
+        setTimeout(
+          () =>
+            record({
+              ok: false,
+              error: `The story ended in the errored phase. Unhandled errors: ${unhandled.join(" | ") || "none seen"}`,
+            }),
+          50,
+        )
     })
   }
   hook()

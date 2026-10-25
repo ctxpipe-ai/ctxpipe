@@ -1,10 +1,11 @@
 import { z } from "zod"
+
 import { normalizeWorkspaceRepositoryUrl } from "../../workspaces/slug.js"
 import { githubRepositoryUrls } from "./github.js"
 import type { SourceScopeDefinition } from "./scope.js"
 
 /*
- * A plain git source (CTX-815): a repository that ctx| reads with git over
+ * A plain git source (CTX-815): a repository that ctxpipe reads with git over
  * HTTP(S), with no connection and no credential ({@link plainGitUrlPolicy}). On main, an operator
  * added such a repository with `POST /v1/repositories` and the old ingestion
  * cloned it with no token. A source file `sources/git/<host>/<name>.md`
@@ -57,7 +58,7 @@ const PRIVATE_NAME_SUFFIXES = [
   "arpa",
 ]
 
-/** Where ctx| runs: ctx| runs the service (`hosted`), or a customer does. */
+/** Where ctxpipe runs: ctxpipe runs the service (`hosted`), or a customer does. */
 type PlainGitDeployment = "hosted" | "self-host"
 
 /**
@@ -93,7 +94,7 @@ export type PlainGitUrlPolicy = {
  * - Hosted: HTTPS, the default port, and a public host only. The host must
  *   not be an IP address or a private name, and each of its addresses must
  *   be public.
- * - Self-host (Docker): the customer runs ctx| inside its own network, as
+ * - Self-host (Docker): the customer runs ctxpipe inside its own network, as
  *   on main. A URL may use `http://`, another port, an IP address, a
  *   private name, and a host with private addresses. The host must not
  *   resolve to a cloud metadata or link-local address (169.254.0.0/16,

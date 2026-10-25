@@ -2,6 +2,7 @@ import { IconBrandGithub } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
 import { SOURCE_SCOPES } from "backend/domain/workspace-sources/sources-file"
 import { useMemo, useState } from "react"
+
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SearchField } from "@/components/ui/SearchField"
 import {
@@ -13,6 +14,7 @@ import {
   githubInstallationReposOptions,
   sortGithubRepos,
 } from "@/features/repositories/githubRepoSelection"
+
 import type {
   SourceProviderUi,
   SourceScopeEditorProps,

@@ -3,12 +3,12 @@ title: Workspaces
 description: A Workspace is a git repository of team knowledge plus the code repositories it searches.
 ---
 
-A **Workspace** is where ctx| keeps one body of team knowledge. Each Workspace
+A **Workspace** is where ctxpipe keeps one body of team knowledge. Each Workspace
 has:
 
 - one **workspace repository**: a git repository of Markdown knowledge files,
   connector content, and `AGENTS.md`;
-- zero or more **linked repositories**: code repositories that ctx| indexes
+- zero or more **linked repositories**: code repositories that ctxpipe indexes
   so chat and agents can search them.
 
 An organization can have many Workspaces, for example one per product area or
@@ -16,15 +16,15 @@ team.
 
 ## Git is the source of truth
 
-Everything ctx| knows about a Workspace lives as files in its workspace
-repository. ctx| reads those files to build its search indexes and knowledge
+Everything ctxpipe knows about a Workspace lives as files in its workspace
+repository. ctxpipe reads those files to build its search indexes and knowledge
 graph, and it writes new knowledge back as ordinary commits.
 
 That means:
 
 - you can read, review, and edit the knowledge with the tools you already use;
-- every change ctx| makes is a commit in the repository's history;
-- if you stop using ctx|, the repository and its knowledge stay with you.
+- every change ctxpipe makes is a commit in the repository's history;
+- if you stop using ctxpipe, the repository and its knowledge stay with you.
 
 ## What you can do in a Workspace
 
@@ -48,13 +48,13 @@ shows recent activity and commits across them.
     ### Files change in git
 
     Someone pushes to the workspace repository, a connector mirrors new content
-    into it, or ctx| commits extracted knowledge.
+    into it, or ctxpipe commits extracted knowledge.
   </Step>
 
   <Step>
-    ### ctx| refreshes its index
+    ### ctxpipe refreshes its index
 
-    ctx| reads the new commit and rebuilds the Workspace's search index and
+    ctxpipe reads the new commit and rebuilds the Workspace's search index and
     knowledge graph. It never edits files while doing this. The previous
     version keeps serving until the new one is ready.
   </Step>
@@ -62,7 +62,7 @@ shows recent activity and commits across them.
   <Step>
     ### Linked code is indexed
 
-    Linked repositories are indexed for code search. ctx| also extracts
+    Linked repositories are indexed for code search. ctxpipe also extracts
     services, APIs, libraries, and their relationships from that code, and
     commits the results to the workspace repository as knowledge files.
   </Step>
@@ -70,7 +70,7 @@ shows recent activity and commits across them.
 
 ## Read-only Workspaces
 
-ctx| writes to the workspace repository only through the ctx| GitHub App. If
+ctxpipe writes to the workspace repository only through the ctxpipe GitHub App. If
 it cannot push, for example because the repository is not on GitHub or the
 App lost access, the Workspace becomes **read-only**. Search, chat, and the
 graph keep working on the latest commit, and Settings explains why writes are

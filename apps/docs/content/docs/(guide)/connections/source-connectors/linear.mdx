@@ -1,18 +1,18 @@
 ---
 title: Linear connector
-description: Connect a Linear workspace, add it to a Workspace, and keep selected teams and projects available to ctx|.
+description: Connect a Linear workspace, add it to a Workspace, and keep selected teams and projects available to ctxpipe.
 ---
 
 The **Linear connector** mirrors selected Linear teams and projects into the
-repository of a [Workspace](/docs/workspaces). ctx| indexes the files like any
+repository of a [Workspace](/docs/workspaces). ctxpipe indexes the files like any
 other knowledge file. A source file in the Workspace holds the scope. A pull
 request adds it, so a person reviews the scope before content syncs.
 
-ctx| requests read-only Linear access. It does not create or update Linear
+ctxpipe requests read-only Linear access. It does not create or update Linear
 issues.
 
 <Callout title="Fully managed app flow">
-  The hosted ctx| service supplies the Linear OAuth application and webhook
+  The hosted ctxpipe service supplies the Linear OAuth application and webhook
   configuration. Self-hosted operators register their own application in the
   connector wizard (or optionally with `LINEAR_*`). See
   [Self-host Linear](/docs/self-hosting/linear).
@@ -36,7 +36,7 @@ include:
   relative links.
 
 GitHub pull requests, commits, reviews, diffs, CI output, and patches are not
-copied through Linear. When Linear references GitHub work, ctx| stores only
+copied through Linear. When Linear references GitHub work, ctxpipe stores only
 reference metadata and the original URL. This avoids duplicating source content
 that the GitHub connector already indexes.
 
@@ -49,9 +49,9 @@ that the GitHub connector already indexes.
 ## Prerequisites
 
 - Permission to authorize an application in the Linear workspace.
-- A Workspace whose repository the ctx| GitHub App can write to. The repository
+- A Workspace whose repository the ctxpipe GitHub App can write to. The repository
   must use format 2 or higher. If it does not, the Workspace shows **Upgrade
-  this Workspace first**. See [Upgrades](/docs/workspaces/settings#upgrades).
+  this Workspace first**. See [Status](/docs/workspaces/settings#status).
 - Permission to merge the pull request that adds the source.
 
 ## Where the scope lives
@@ -84,7 +84,7 @@ Linear source files, and each Workspace has its own scope.
     ### Connect Linear
 
     Open **Connectors**, choose **Add connection**, then select **Linear**.
-    Authorize the read-only ctx| application in the Linear popup. A
+    Authorize the read-only ctxpipe application in the Linear popup. A
     self-hosted deployment without shared credentials starts with **Register
     Linear OAuth app**.
   </Step>
@@ -106,7 +106,7 @@ Linear source files, and each Workspace has its own scope.
   <Step>
     ### Merge the pull requests
 
-    ctx| opens one pull request for each Workspace. Each pull request adds
+    ctxpipe opens one pull request for each Workspace. Each pull request adds
     `sources/linear/<name>.md`. The dialog shows **Merge the pull request** (or
     **Merge the pull requests**) with a link to each one. Review the scope and
     the repository audience, then merge.
@@ -118,7 +118,7 @@ Linear source files, and each Workspace has its own scope.
   <Step>
     ### Wait for the first sync
 
-    After GitHub reports the merge, ctx| reads the source file and makes the
+    After GitHub reports the merge, ctxpipe reads the source file and makes the
     first Linear mirror. The Workspace indexes the new files after that. See
     [Indexing](/docs/connections/ingestion) for the lifecycle.
   </Step>
@@ -150,16 +150,16 @@ oversized downloads leave a Linear link or textual stub. GitHub pull requests
 and commits remain references rather than copied attachments.
 
 The source owns these folders. Do not edit the files by hand: the next sync
-overwrites them. When you remove a source, ctx| deletes its files in a sync
+overwrites them. When you remove a source, ctxpipe deletes its files in a sync
 commit. Git history keeps them.
 
 ## Keeping content current
 
-Linear sends signed webhook events to ctx| when supported entities change. For
-a source with the status **OK**, ctx| checks the event against the scope of the
+Linear sends signed webhook events to ctxpipe when supported entities change. For
+a source with the status **OK**, ctxpipe checks the event against the scope of the
 source, updates the affected files, and starts indexing again. Events that
 arrive before the source is live, including during the first sync, are skipped
-and not queued. ctx| does not backfill missed webhook events. Repair the
+and not queued. ctxpipe does not backfill missed webhook events. Repair the
 webhook delivery, then choose **Sync now** in the menu of the connector card.
 An owner or admin can do this.
 
@@ -182,7 +182,7 @@ the Linear webhook delivery.
 
 ### Authorization fails
 
-Allow popups and retry. On fully managed ctx|, report persistent OAuth errors to
+Allow popups and retry. On fully managed ctxpipe, report persistent OAuth errors to
 support. On a self-hosted deployment, ask the operator to verify that Linear
 OAuth credentials are configured and that the callback URI matches exactly.
 

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import {
   shouldReuseWarmedWorkspaceChatSocket,
   workspaceChatSocketIsResume,
@@ -56,20 +57,21 @@ describe("workspaceChatWebSocket hydrate", () => {
     expect(hydrated.messages[0]?.createdAt).toBeInstanceOf(Date)
   })
 
-  it.each([
-    401, 403, 500,
-  ])("throws when hydration returns %i", async (status) => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(null, { status })),
-    )
+  it.each([401, 403, 500])(
+    "throws when hydration returns %i",
+    async (status) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(null, { status })),
+      )
 
-    const connection = workspaceChatWebSocket("acme", "conv_1")
+      const connection = workspaceChatWebSocket("acme", "conv_1")
 
-    await expect(connection.hydrate("conv_1")).rejects.toMatchObject({
-      status,
-    })
-  })
+      await expect(connection.hydrate("conv_1")).rejects.toMatchObject({
+        status,
+      })
+    },
+  )
 
   it("treats a missing thread as an empty hydration", async () => {
     vi.stubGlobal(
@@ -190,6 +192,68 @@ describe("workspace chat websocket dispose", () => {
     connection.warm()
     connection.dispose()
     expect(instances[0]?.close).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("workspace chat websocket stop", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  class FakeSocket {
+    static instances: FakeSocket[] = []
+    readyState = 0
+    url: string
+    sent: string[] = []
+    listeners = new Map<string, () => void>()
+    send = vi.fn((data: string) => {
+      this.sent.push(data)
+    })
+    close = vi.fn(() => {
+      this.readyState = 3
+    })
+    constructor(url: string | URL) {
+      this.url = String(url)
+      FakeSocket.instances.push(this)
+    }
+    addEventListener(type: string, listener: () => void) {
+      this.listeners.set(type, listener)
+    }
+    open() {
+      this.readyState = 1
+      this.listeners.get("open")?.()
+    }
+  }
+
+  it("sends the abort frame of the run on a socket that is open", () => {
+    FakeSocket.instances = []
+    vi.stubGlobal("WebSocket", FakeSocket)
+    const connection = workspaceChatWebSocket("acme", "conv_1")
+    connection.warm()
+    FakeSocket.instances[0]?.open()
+
+    connection.stopRun("run_1")
+
+    expect(FakeSocket.instances).toHaveLength(1)
+    expect(FakeSocket.instances[0]?.sent).toEqual([
+      JSON.stringify({ type: "abort", runId: "run_1" }),
+    ])
+  })
+
+  it("opens a socket for the abort frame when no socket is open", () => {
+    FakeSocket.instances = []
+    vi.stubGlobal("WebSocket", FakeSocket)
+    const connection = workspaceChatWebSocket("acme", "conv_1")
+
+    connection.stopRun("run_1")
+    const socket = FakeSocket.instances[0]
+    expect(socket?.url).toMatch(/\/acme\/api\/v1\/conversations\/conv_1$/)
+    socket?.open()
+
+    expect(socket?.sent).toEqual([
+      JSON.stringify({ type: "abort", runId: "run_1" }),
+    ])
+    expect(socket?.close).toHaveBeenCalledTimes(1)
   })
 })
 

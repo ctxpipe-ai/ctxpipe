@@ -1,6 +1,6 @@
 ---
 title: Workspace settings
-description: Manage the sources of a Workspace, and read its write access, upgrade, and status messages.
+description: Manage the sources of a Workspace, and read its status, write access, and upgrade messages.
 ---
 
 Open a Workspace and choose the **Settings** tab. The pane has two tags at the
@@ -8,19 +8,87 @@ top and these groups:
 
 | Part | What it holds |
 | --- | --- |
-| Write access tag | Whether ctx\| can save changes. See [Write access](#write-access). |
+| Write access tag | Whether ctxpipe can save changes. See [Write access](#write-access). |
 | Hydrate tag | The state of the last read of the repository. See [Hydrate and skipped files](#hydrate-and-skipped-files). |
+| **Status** | Whether you must do something, the work that ctxpipe does now, the repository format, and the automatic-upgrades setting. |
 | **General** | **Name** and **URL name**. |
 | **Repositories** | The **Context repository** and the **Root folder**. |
 | **Sources** | The source files of the Workspace, grouped by provider. |
-| **Upgrades** | The repository format and the upgrade items. |
 | **Danger zone** | **Delete Workspace**. |
+
+## Status
+
+The **Status** group is the first group of the pane. Its first line is a
+headline tag and one sentence. They tell you if you must do something:
+
+| Headline | Sentence | Meaning |
+| --- | --- | --- |
+| **Needs you** | "Action needed. N items need you." | An item waits for a person: a start, a merge, or a fix. A format file that ctxpipe cannot read also counts as one item. |
+| **Working** | "No action needed. ctxpipe works on N items now." | ctxpipe runs an item, or reads a merged pull request. |
+| **Working** | "No action needed. Ingesting N sources now." | ctxpipe ingests a source of the Workspace, and no item is open. A slow read of the newest commit shows "No action needed. Indexing the newest commit now." |
+| **Working** | "No action needed. ctxpipe checks the format of the repository now." | The repository is below the newest format, and ctxpipe has not recorded the upgrade yet. |
+| **Up to date** | "No action needed. Upgrades show here and on Home when one is ready." | No item is open. |
+
+While an item is open, the group also says: "ctxpipe keeps this Workspace
+current. Some upgrades open a pull request for you to merge. Others run here and
+use model calls." The open items are in two lists, **Needs you** and **Working
+now**. Each item in **Working now** says "No action needed." A re-ingestion also
+shows its spend, for example "Spend so far: $1.20". A re-ingestion that waits
+for an open format upgrade is in the list of that upgrade. The headline counts
+the two items as one item.
+
+**Working now** also lists the ingestion work that runs now for the Workspace:
+each source repository or connection sync, its stage, its progress, and the
+time so far. A slow read of the newest commit shows as one line. You can leave
+the page. The work continues. While ingestion runs, the sidebar shows a teal dot
+next to the Workspace. The dot and the headline use the same data: the dot
+shows only when the headline is **Working** or **Needs you**.
+
+Every member can read the group. Only an organization owner or admin can start
+an item. A member sees **Ask an admin** in place of the button.
+
+After the lists, the health line compares the repository format with the format
+that ctxpipe reads:
+
+| Health line | Meaning |
+| --- | --- |
+| "Format N" | The repository has the newest format. |
+| "The repository uses format N. ctxpipe reads format M." | An upgrade is available. |
+| "The repository uses format N. ctxpipe reads format M. This Workspace needs a newer ctxpipe version. Ask the operator of ctxpipe to update it." | The repository is newer than ctxpipe. The Workspace is **Read-only**. The headline is **Needs you**. |
+| "The format file in the repository is not valid. Fix .ctxpipe/workspace.yaml: it must hold format, an integer of 0 or more." | Repair `.ctxpipe/workspace.yaml`. The Workspace is **Read-only**. The headline is **Needs you**. |
+| "ctxpipe has not read the repository format." | The first hydrate did not finish. |
+
+Items that are done show under **History**, for example "History · 2 applied,
+last on Oct 21". The Home page shows one alert for each Workspace that has an
+item to finish. It names the Workspace and reads "has N upgrades to finish".
+**Review upgrades** opens this group.
+
+### Automatic upgrades
+
+The health line also shows "Automatic upgrades: Off" or "Automatic upgrades:
+On". An owner or admin chooses **Turn on** or **Turn off**. ctxpipe then commits
+`upgrades: automatic` or `upgrades: manual` into `.ctxpipe/workspace.yaml` on
+the default branch. The message "Automatic upgrades are on. ctxpipe starts each
+upgrade by itself." confirms the change.
+
+When automatic upgrades are on, ctxpipe starts each upgrade item when it finds
+it. A merge of a pull request always needs a person. **Always update** on the
+Home alert does the same as **Turn on**.
+
+When ctxpipe cannot read the setting, the health line shows the cause and the
+fix in place of the button:
+
+| Line | Fix |
+| --- | --- |
+| ctxpipe has not read the repository yet. | Refresh the Workspace. |
+| The format file `.ctxpipe/workspace.yaml` is not valid. | Fix the file on the default branch. |
+| ctxpipe could not read the repository. | Check the GitHub connection on the Connectors page, then reload the page. |
 
 ## General
 
-- **Name**: shown in the sidebar and to your team. ctx| stores it in `AGENTS.md`.
+- **Name**: shown in the sidebar and to your team. ctxpipe stores it in `AGENTS.md`.
 - **URL name**: used in the web address of the Workspace. If you change it, old
-  links stop working. ctx| does not keep the old name as an alias.
+  links stop working. ctxpipe does not keep the old name as an alias.
 
 Choose **Save** to apply a change. The message "Workspace updated" confirms it.
 
@@ -42,7 +110,7 @@ Choose **Save** to apply a change. The message "Workspace updated" confirms it.
 
 ## Write access
 
-ctx| writes to the context repository through the ctx| GitHub App. The tag at
+ctxpipe writes to the context repository through the ctxpipe GitHub App. The tag at
 the top of the pane shows the result of the last check. The tag next to it shows
 the [hydrate status](#hydrate-and-skipped-files).
 
@@ -50,9 +118,9 @@ the [hydrate status](#hydrate-and-skipped-files).
 | --- | --- |
 | **Can save changes** | The GitHub App can push to the repository. |
 | **Changes by pull request** | The default branch is protected. A conversation pushes its own branch and opens a pull request. Source changes use pull requests too. This is a normal state, not a fault. |
-| **Checking write access** | ctx\| is checking whether the GitHub App can push. The pane checks again by itself. |
+| **Checking write access** | ctxpipe is checking whether the GitHub App can push. The pane checks again by itself. |
 | **Could not check write access** | GitHub returned an error or a rate limit. Choose **Check again**. |
-| **Read-only** | ctx\| cannot write. Search, chat, and the graph keep working on the latest commit. The pane shows the reason. |
+| **Read-only** | ctxpipe cannot write. Search, chat, and the graph keep working on the latest commit. The pane shows the reason. |
 
 If the check takes longer than usual, the pane shows **Still checking write
 access** with the text "The check takes longer than usual." and **Check again**.
@@ -65,8 +133,8 @@ A **Read-only** Workspace shows an alert with one of these reasons:
 | "GitHub is not connected for this organization. An owner or admin must install the GitHub App and add this repository to the installation." | Connect GitHub on **Connectors**. Then choose **Select the repository again** in the alert. |
 | "This repository is not in the GitHub App installation. An installation owner or admin must add it, then refresh." | Add the repository to the installation in GitHub. |
 | "The GitHub App cannot write to this repository. Grant Contents: write so ctxpipe can push a conversation branch." | Grant **Contents: Read and write** to the GitHub App. |
-| "This Workspace needs a newer ctx\| version. ctx\| can read it, but it cannot write to it until you upgrade ctx\|." | The repository format is newer than this ctx\| version. Upgrade ctx\|. See [Repository format](#repository-format). |
-| "The file .ctxpipe/workspace.yaml is not valid. ctx\| can read this Workspace, but it cannot write to it until the file is repaired." | Repair the format file in the repository. |
+| "This Workspace needs a newer ctxpipe version. ctxpipe can read it, but it cannot write to it until you upgrade ctxpipe." | The repository format is newer than this ctxpipe version. Upgrade ctxpipe. See [Repository format](#repository-format). |
+| "The file .ctxpipe/workspace.yaml is not valid. ctxpipe can read this Workspace, but it cannot write to it until the file is repaired." | Repair the format file in the repository. |
 
 For a **Read-only** reason, the alert adds: "After you fix it, reload this page.
 ctxpipe checks again at most once a minute." The button **Check again** shows
@@ -75,26 +143,26 @@ write access**. It does not show on a **Read-only** alert.
 
 ## Hydrate and skipped files
 
-Hydrate is the step where ctx| reads the files of the context repository at a
+Hydrate is the step where ctxpipe reads the files of the context repository at a
 commit and builds the search index and the graph. The second tag at the top of
 the pane shows its status:
 
 | Tag | Meaning |
 | --- | --- |
-| **Ready** | ctx\| read the latest commit. |
-| **Hydrate pending** | ctx\| did not start yet. |
-| **Hydrating** | ctx\| is reading a commit. The previous index keeps serving. |
-| **Loading failed** | ctx\| could not read the repository. |
+| **Ready** | ctxpipe read the latest commit. |
+| **Hydrate pending** | ctxpipe did not start yet. |
+| **Hydrating** | ctxpipe is reading a commit. The previous index keeps serving. |
+| **Loading failed** | ctxpipe could not read the repository. |
 
 Before the first hydrate ends, the Workspace page shows **Preparing** and the
 name of the Workspace, with the steps **Fetching repository** and **Reading
-knowledge**. If ctx| does not know
+knowledge**. If ctxpipe does not know
 the latest commit, the page says so and shows **Try again**. If the first read
 fails, the page shows **Prepare failed** and **Could not prepare the Workspace**
-with the reason and **Try again**. When the reason starts with "ctx| has no access
+with the reason and **Try again**. When the reason starts with "ctxpipe has no access
 to this repository.", the alert also has **Open Connectors**.
 
-When ctx| skips files, **Settings** shows **Hydrate skipped N files** (or **1
+When ctxpipe skips files, **Settings** shows **Hydrate skipped N files** (or **1
 file**) with the text "Chat, MCP, search, and the graph do not use these files.
 Fix each file and push the change to the default branch." Each row gives the path
 and the reason. Select the path to open the file in **Files**. For the reasons,
@@ -109,7 +177,7 @@ body is an optional description. The path of the file is the identity of the
 source.
 
 The file on the default branch is the live scope. The file on the branch of an
-open pull request is a draft scope. ctx| keeps no second copy of the scope
+open pull request is a draft scope. ctxpipe keeps no second copy of the scope
 outside Git.
 
 The **Sources** group shows one line of summary, for example "3 sources from 2
@@ -124,11 +192,11 @@ yet. Connect a tool under Connectors, then add it to this Workspace." Choose
 **Add connection** to open **Connectors**.
 
 Each change to a source is a pull request that a person merges. No agent can
-change `sources/` without that review. The buttons show only when ctx| can
+change `sources/` without that review. The buttons show only when ctxpipe can
 open a pull request: the Workspace must have a connected GitHub repository and
 must allow edits. See [Write access](#write-access). A context repository
 that is below format 2 refuses each change with **Upgrade this Workspace first**.
-See [Upgrades](#upgrades).
+See [Status](#status).
 
 ### Add a source
 
@@ -160,7 +228,7 @@ See [Upgrades](#upgrades).
     - **File name (optional)**: the name of the file. The hint shows the result,
       for example `sources/linear/linear.md`. A name has lowercase letters,
       digits, `.`, `_`, and `-`. It starts with a letter or a digit and has at
-      most 100 characters. Without a name, ctx| names the file from the
+      most 100 characters. Without a name, ctxpipe names the file from the
       provider, with the next free number (`linear`, `linear-2`). A GitHub source is
       always `sources/github/<owner>/<name>.md`.
     - **Description (optional)**: what the source is for. People and agents read
@@ -180,9 +248,9 @@ See [Upgrades](#upgrades).
 ### Add source shows an error
 
 - **Upgrade this Workspace first.** The context repository does not use one file
-  for each source yet. An owner or admin starts the upgrade in **Upgrades**.
+  for each source yet. An owner or admin starts the upgrade in **Status**.
   Merge the pull request, then add the source again.
-- **This Workspace is read-only.** ctx| cannot open a pull request. See
+- **This Workspace is read-only.** ctxpipe cannot open a pull request. See
   [Write access](#write-access).
 - **Ask an admin to choose what this source syncs.** Only an owner or admin can
   list the content of this provider.
@@ -217,7 +285,7 @@ A rename that you make in Git gets the same update in a follow-up commit.
 Choose the remove button of the row (**Remove sources/…md**). The dialog **Remove
 sources/…md?** says "The change deletes the source file. After it lands, the sync
 deletes the files that the source wrote. Git history keeps them." Choose **Open a
-pull request** to confirm, or **Cancel**. A Slack source is the exception: ctx|
+pull request** to confirm, or **Cancel**. A Slack source is the exception: ctxpipe
 keeps the threads that it captured.
 
 For a GitHub repository, choose the unlink button (**Unlink owner/name**). See
@@ -245,10 +313,10 @@ Each row has one status. The reason shows under the row.
 
 | Status | Meaning |
 | --- | --- |
-| **OK** | ctx\| read the file, and the connection and the scope work. The source syncs. |
+| **OK** | ctxpipe read the file, and the connection and the scope work. The source syncs. |
 | **Not valid** | The file does not parse, has a wrong shape, or breaks a rule. The sync skips it. The reason names the problem. |
 | **Connection missing** | The connection of the source was removed. The file stays. |
-| **Out of access** | The connection cannot reach the scope, for example a GitHub repository that is not in the GitHub App installation. Add the repository to the installation. ctx\| checks again later. |
+| **Out of access** | The connection cannot reach the scope, for example a GitHub repository that is not in the GitHub App installation. Add the repository to the installation. ctxpipe checks again later. |
 
 A file under `sources/` that has an unknown provider or a path that breaks the
 rules shows in the group **Files not valid**. The reason names the problem. A row
@@ -285,35 +353,12 @@ Each path segment after the provider folder matches
 `[a-z0-9][a-z0-9._-]{0,99}`. `id` and `kind` are not allowed in the front
 matter. Do not repeat the front matter in the body.
 
-## Upgrades
-
-The **Upgrades** group says: "Upgrades move your Workspace repository to the
-layout that this version of ctx| reads. Nothing changes until you merge the pull
-request." Every member can read the group. Only an organization owner or admin
-can start an item. A member sees **Ask an admin** in place of the button.
-
-The first line is the health line. It compares the repository format with the
-format that ctx| reads:
-
-| Health line | Meaning |
-| --- | --- |
-| "The repository uses format N. It is up to date." | The repository has the newest format. |
-| "The repository uses format N. ctx\| reads format M." | An upgrade is available. |
-| "The repository uses format N. ctx\| reads format M. This Workspace needs a newer ctx\| version." | The repository is newer than ctx\|. The Workspace is **Read-only**. |
-| "The format file in the repository is not valid." | Repair `.ctxpipe/workspace.yaml`. The Workspace is **Read-only**. |
-| "ctx\| has not read the repository format." | The first hydrate did not finish. |
-
-When nothing is pending, the group says "No upgrades are pending." Items that are
-done show under **History**. The Home page shows one alert for each Workspace
-that has an item to finish. It names the Workspace and reads "has N upgrades to
-finish". **Review upgrades** opens this group.
-
 ### Upgrade items
 
 There are two kinds of item.
 
 - **Upgrade to format N** moves the layout of the repository. The card says
-  "Format A to format B. ctx| opens one pull request. Nothing changes until you
+  "Format A to format B. ctxpipe opens one pull request. Nothing changes until you
   merge it." It lists its steps, with the commit of each step after the run.
 - **Fresh re-ingestion of the source repositories** reads each source repository
   again and publishes the new knowledge to the Workspace. It needs format 3.
@@ -322,33 +367,34 @@ Each item shows one status:
 
 | Status | Meaning | What to do |
 | --- | --- | --- |
-| **Ready to start** | ctx\| found the upgrade. It waits for a start. | An owner or admin chooses **Start**. A member sees **Ask an admin**. |
+| **Ready to start** | ctxpipe found the upgrade. It waits for a start. | An owner or admin chooses **Start**. A member sees **Ask an admin**. |
 | **Queued** | The start is recorded. The run did not begin. | Wait. |
 | **Preparing the pull request** | The run builds the commits. | Wait. |
 | **Waiting for merge** | The pull request is open. | Review and merge it. If the card does not change after a few minutes, an owner or admin chooses **Check again**. |
+| **Waiting** | The item is in **Working now** and waits for ctxpipe, for example for the format upgrade that ctxpipe reads now. | None. |
 | **Applied** | The upgrade is done. | None. |
 | **Failed** | The run stopped. The card shows "The upgrade failed" and the reason. | Fix the cause, then an owner or admin chooses **Start again**. |
-| **Blocked** | ctx\| cannot start the item. The card shows a title and a reason. | Remove the cause. See [Blocked items](#blocked-items). |
+| **Blocked** | ctxpipe cannot start the item. The card shows a title and a reason. | Remove the cause. See [Blocked items](#blocked-items). |
 
-Nothing starts by itself. This is true for hosted and for self-hosted
-deployments.
+Nothing starts by itself, unless [automatic upgrades](#automatic-upgrades) are
+on. This is true for hosted and for self-hosted deployments.
 
 ### The merge step
 
 A format upgrade is a pull request:
 
-1. An owner or admin chooses **Start**. The message "The upgrade is queued. ctx|
+1. An owner or admin chooses **Start**. The message "The upgrade is queued. ctxpipe
    prepares a pull request." confirms it.
-2. ctx| opens one pull request on the branch `ctxpipe/upgrade/format-<target>`.
+2. ctxpipe opens one pull request on the branch `ctxpipe/upgrade/format-<target>`.
    It holds one commit for each step that changes a file. The last commit
-   writes `.ctxpipe/workspace.yaml`. ctx| never pushes to the default branch.
-3. The card links to the pull request (**Pull request #N**) and says "ctx| waits
-   for you to merge pull request #N on GitHub. After the merge, ctx| reads the
+   writes `.ctxpipe/workspace.yaml`. ctxpipe never pushes to the default branch.
+3. The card links to the pull request (**Pull request #N**) and says "ctxpipe waits
+   for you to merge pull request #N on GitHub. After the merge, ctxpipe reads the
    new format of the repository. This takes a few minutes. This page updates by
    itself."
 4. Review and merge the pull request. The merge lands the files and the new
    format together. If the card does not change after a few minutes, an owner or
-   admin chooses **Check again**. The message "ctx| is reading the repository
+   admin chooses **Check again**. The message "ctxpipe is reading the repository
    now. This takes a minute." confirms it.
 
 If someone closes the pull request without a merge, the item goes back to
@@ -360,7 +406,7 @@ Read the notes before you merge.
 
 ### Re-ingestion
 
-When you choose **Start** on a re-ingestion, the message "The re-ingestion is queued. ctx| reads each source repository
+When you choose **Start** on a re-ingestion, the message "The re-ingestion is queued. ctxpipe reads each source repository
 again." confirms it. A re-ingestion opens no pull request when it
 starts.
 
@@ -369,27 +415,30 @@ For the spend, the throttle, and the restart rules, see
 
 ### Blocked items
 
-A blocked card shows a title and a reason. The title tells the cause:
+A blocked card shows a title and a reason. The title tells the cause. A
+re-ingestion that waits until ctxpipe reads a valid format file shows
+**Waiting** in **Working now** and needs no action.
 
 | Title | Item | Cause |
 | --- | --- | --- |
-| "ctx\| cannot open the upgrade pull request" | Format upgrade | ctx\| has no write access through the GitHub App. See [Write access](#write-access). |
-| "ctx\| cannot publish the re-ingestion" | Re-ingestion | ctx\| has no write access through the GitHub App. See [Write access](#write-access). |
-| "Apply the format upgrade first" | Re-ingestion | The repository is below format 3. Merge the format upgrade. An owner or admin chooses **Check again** on the card. |
+| "ctxpipe cannot open the upgrade pull request" | Format upgrade | ctxpipe has no write access through the GitHub App. See [Write access](#write-access). |
+| "ctxpipe cannot publish the re-ingestion" | Re-ingestion | ctxpipe has no write access through the GitHub App. See [Write access](#write-access). |
+| "Apply the format upgrade first" | Re-ingestion | The repository is below format 3. Merge the format upgrade. An owner or admin chooses **Check again** on the card. After the merge, the item shows **Waiting** in **Working now** until ctxpipe reads the new format. |
 | "This deployment cannot run the re-ingestion" | Re-ingestion | The deployment has no ingest sandbox. The operator must configure one. |
-| "The re-ingestion cannot run here yet" | Re-ingestion | ctx\| has not read a valid format file of this Workspace. |
 
 ### Repository format
 
 Each context repository holds `.ctxpipe/workspace.yaml`, below its root folder.
-The file has one key:
+The file has the key `format`. The key `upgrades` is optional. It holds
+`manual` (the default) or `automatic`. See [Automatic upgrades](#automatic-upgrades).
 
 ```yaml
 format: 3
+upgrades: manual
 ```
 
-The format is the version of the repository layout. ctx| reads the file at each
-hydrate. The **Upgrades** health line shows it.
+The format is the version of the repository layout. ctxpipe reads the file at each
+hydrate. The **Status** health line shows it.
 
 | Format | Layout |
 | --- | --- |
@@ -398,17 +447,17 @@ hydrate. The **Upgrades** health line shows it.
 | 2 | One Markdown file for each source under `sources/`. |
 | 3 | The ownership front matter that ingestion writes in each knowledge file. This is the current format. |
 
-- Only the setup commit of a new Workspace and an upgrade pull request write the
-  file. No agent or chat write can change it.
+- Only the setup commit of a new Workspace, an upgrade pull request, and the
+  automatic-upgrades setting write the file. No agent or chat write can change it.
 - A change that needs a newer layout refuses on an older repository. A source
   change on a repository below format 2 shows **Upgrade this Workspace first**:
   "Its repository does not use one file for each source yet. Run the Workspace
   upgrade, then try again." Ingestion needs format 3.
-- A repository with a format that this ctx| version does not know, or a format
+- A repository with a format that this ctxpipe version does not know, or a format
   file that does not parse, is **Read-only**. Reads continue.
 
 ## Danger zone
 
 Choose **Delete Workspace**. The dialog **Delete Workspace?** asks you to type the
 name of the Workspace to confirm. The deletion removes the Workspace and its
-conversations from ctx|. Your GitHub repository and its files stay.
+conversations from ctxpipe. Your GitHub repository and its files stay.

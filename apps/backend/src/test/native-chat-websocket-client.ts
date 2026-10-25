@@ -2,8 +2,10 @@ import { execFile } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
+
 import type { StreamChunk } from "@tanstack/ai"
 import { initLogger } from "evlog"
+
 import {
   bunSocketToWebSocketLike,
   type ConversationWebSocketData,
@@ -82,9 +84,7 @@ await withNativeChatFixture(async (f) => {
         } else if (frame.chunk.type === "RUN_ERROR") {
           clearTimeout(timer)
           socket.close()
-          if (activeDisconnect && frame.chunk.code === "aborted")
-            resolve(frames)
-          else reject(new Error(JSON.stringify(frame.chunk)))
+          reject(new Error(JSON.stringify(frame.chunk)))
         } else if (frame.chunk.type === "RUN_FINISHED") {
           clearTimeout(timer)
           socket.close()
@@ -122,24 +122,6 @@ await withNativeChatFixture(async (f) => {
       `${url}?runId=${encodeURIComponent(runId)}&offset=${encodeURIComponent(first[0]?.id ?? "")}`,
     )
     const noReplayModelCall = f.modelRequests.length === modelCalls
-    if (activeDisconnect) {
-      await collect(url, {
-        threadId: conversationId,
-        runId: `${runId}-retry`,
-        messages: [
-          { id: "user-socket", role: "user", content: "First socket question" },
-          {
-            id: "user-retry",
-            role: "user",
-            content: "Question after disconnect",
-          },
-        ],
-        tools: [],
-        context: [],
-        state: {},
-        forwardedProps: { workspaceId: f.workspaceId },
-      })
-    }
     const { stdout } = await promisify(execFile)(
       process.execPath,
       [
@@ -158,15 +140,12 @@ await withNativeChatFixture(async (f) => {
       `${JSON.stringify({
         ...(activeDisconnect
           ? {
-              abortedTerminal: first.some(
-                (frame) =>
-                  frame.chunk.type === "RUN_ERROR" &&
-                  frame.chunk.code === "aborted",
-              ),
-              retryMadeOneModelCall: f.modelRequests.length === modelCalls + 1,
+              // The turn continued after its socket closed.
               disconnectedBeforeTerminal: prefix.every(
                 (frame) => frame.chunk.type !== "RUN_FINISHED",
               ),
+              finishedAfterDisconnect:
+                first.at(-1)?.chunk.type === "RUN_FINISHED",
             }
           : {}),
         replayMatches:

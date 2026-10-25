@@ -80,7 +80,7 @@ type ApiOkJson<R> =
   R extends ClientResponse<
     infer T,
     infer S extends number,
-    // biome-ignore lint/suspicious/noExplicitAny: the response format does not matter here
+    // oxlint-disable-next-line typescript/no-explicit-any -- the response format does not matter here
     any
   >
     ? number extends S
@@ -95,7 +95,7 @@ type ApiOkJson<R> =
  * so a changed backend response fails to compile here.
  */
 export async function readApiJson<
-  // biome-ignore lint/suspicious/noExplicitAny: any ClientResponse
+  // oxlint-disable-next-line typescript/no-explicit-any -- any ClientResponse
   R extends ClientResponse<any, any, any> | Response,
   E = never,
 >(

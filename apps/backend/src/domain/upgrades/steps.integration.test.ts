@@ -2,7 +2,9 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   type GitPack,
@@ -81,6 +83,7 @@ async function readCommits(pack: GitPack) {
       }
     },
     pack,
+    null,
   )
 }
 
@@ -150,9 +153,9 @@ sources:
     )
     const head = await readCommits(built.pack)
     expect(head.subjects).toEqual([
-      "ctx| upgrade: set the Workspace format to 3",
-      "ctx| upgrade to format 3: Ingestion v2 ownership of extracted files",
-      "ctx| upgrade to format 2: One file for each source under sources/",
+      "ctxpipe upgrade: set the Workspace format to 3",
+      "ctxpipe upgrade to format 3: Ingestion v2 ownership of extracted files",
+      "ctxpipe upgrade to format 2: One file for each source under sources/",
       "Base",
     ])
     expect(head.files).not.toContain(".ctxpipe/sources.yaml")
@@ -186,8 +189,11 @@ sources:
     expect(head.files).toContain(KNOWLEDGE_SKILL_PATH)
 
     // Hydrate on the merged tree plans no direct write.
-    const markdown = await readGitFiles(built.pack, (path) =>
-      path.endsWith(".md"),
+    const markdown = await readGitFiles(
+      built.pack,
+      (path) => path.endsWith(".md"),
+      undefined,
+      null,
     )
     expect(
       await planHydrateWrites({

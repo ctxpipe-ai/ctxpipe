@@ -7,6 +7,9 @@ import {
 import type { SourceProvider } from "backend/domain/workspace-sources/sources-file"
 import { useState } from "react"
 import { toast } from "sonner"
+
+import { useWorkspaceFormatGate } from "@/features/workspace-upgrades/use-workspace-format-gate"
+
 import {
   type ChooseWorkspacesValue,
   chooseWorkspacesChanges,
@@ -105,9 +108,19 @@ export function useAddToWorkspaces(input: {
     setValue(chooseWorkspacesFromExisting(existing))
   }
 
-  const changes = ready
-    ? chooseWorkspacesChanges(value, { provider, connectionId }, existing)
-    : null
+  // The server refuses a change in a Workspace below the newest format
+  // (CTX-935), and the step shows such a Workspace as not chosen. The save
+  // sends nothing for it, also when the Workspace was chosen before the read
+  // of the formats said so. Until that read has succeeded, nothing saves.
+  const gate = useWorkspaceFormatGate(orgSlug)
+  const changes =
+    ready && gate.ready
+      ? (chooseWorkspacesChanges(
+          value,
+          { provider, connectionId },
+          existing,
+        )?.filter((change) => !gate.needsUpgrade(change.workspaceSlug)) ?? null)
+      : null
   const mutation = useMutation({
     mutationFn: (list: WorkspaceSourceChange[]) =>
       Promise.all(

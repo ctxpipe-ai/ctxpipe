@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
@@ -22,7 +23,7 @@ import { WRITE_STATUS_REASONS } from "./write-status.js"
 
 const unit = { path: "knowledge/a.md", body: "# A\nCommitted body.\n" }
 
-// ctx| content from before Workspaces: the sources file of format 1.
+// ctxpipe content from before Workspaces: the sources file of format 1.
 const legacySources = {
   path: SOURCES_FILE_PATH,
   body: "version: 1\nsources: []\n",
@@ -36,11 +37,11 @@ it.each([
     format: 0,
     reason: null,
   },
-  // A repository with no ctx| content gets its format file from the
+  // A repository with no ctxpipe content gets its format file from the
   // bootstrap commit. Until then the format is not known: 0 would ask for an
   // upgrade that the repository does not need.
   {
-    name: "no format file and no ctx| content as not known",
+    name: "no format file and no ctxpipe content as not known",
     file: null,
     format: null,
     reason: null,

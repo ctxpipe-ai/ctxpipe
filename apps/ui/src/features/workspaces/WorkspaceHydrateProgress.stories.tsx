@@ -1,12 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, waitFor, within } from "storybook/test"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceHydrateProgress } from "./WorkspaceHydrateProgress"
 import {
   failedHydrateWorkspace,
   hydratingWorkspace,
 } from "./workspace-fixtures"
+import { WorkspaceHydrateProgress } from "./WorkspaceHydrateProgress"
 
 const orgSlug = "acme"
 
@@ -121,13 +122,13 @@ export const PreparePendingWithError: Story = {
   },
 }
 
-/** A Workspace that ctx| cannot read links to Connectors to fix the access. */
+/** A Workspace that ctxpipe cannot read links to Connectors to fix the access. */
 export const PrepareNoAccess: Story = {
   args: {
     workspace: {
       ...failedHydrateWorkspace,
       hydrateError:
-        "ctx| has no access to this repository. Connect GitHub to this Workspace, then retry.",
+        "ctxpipe has no access to this repository. Connect GitHub to this Workspace, then retry.",
     },
   },
   play: async ({ canvasElement }) => {

@@ -11,8 +11,10 @@ import {
   DisclosureGroup,
   DisclosurePanel,
 } from "react-aria-components"
+
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+
 import { groupChangedFilesByFolder } from "./conversationDiff"
 import type { ConversationTurnChanges } from "./types"
 import {

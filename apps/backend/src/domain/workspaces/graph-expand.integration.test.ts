@@ -1,5 +1,6 @@
 import { FalkorDB } from "falkordb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import {
   closeGraphDb,
   getGraphClient,

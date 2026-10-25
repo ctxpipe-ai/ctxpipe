@@ -90,6 +90,7 @@ async function withTreeReader<T>(
       })
     },
     pack,
+    null,
   )
 }
 
@@ -139,12 +140,14 @@ async function commitChange(
   change: Pick<UpgradeStepPlan, "writes" | "deletes">,
   input: { subject: string; createdAt: Date | string },
 ): Promise<GitPack> {
-  const staged = await stageGitFiles(pack, change.writes, change.deletes)
-  await validateGitTree(staged, [
-    ...change.writes.map((write) => write.path),
-    ...change.deletes,
-  ])
-  return commitGitTree(staged, input)
+  const staged = await stageGitFiles(pack, change.writes, change.deletes, null)
+  await validateGitTree(
+    staged,
+    [...change.writes.map((write) => write.path), ...change.deletes],
+    undefined,
+    null,
+  )
+  return commitGitTree(staged, input, null)
 }
 
 /**
@@ -172,7 +175,7 @@ export async function buildUpgradeCommits(input: {
     const change = await effectiveChange(pack, step, input.ctx)
     if (change.writes.length || change.deletes.length) {
       pack = await commitChange(pack, change, {
-        subject: `ctx| upgrade to format ${step.format}: ${step.title}`,
+        subject: `ctxpipe upgrade to format ${step.format}: ${step.title}`,
         createdAt: input.createdAt,
       })
       results.push({
@@ -209,7 +212,7 @@ export async function buildUpgradeCommits(input: {
       pack,
       { writes: [formatFile], deletes: [] },
       {
-        subject: `ctx| upgrade: set the Workspace format to ${input.targetFormat}`,
+        subject: `ctxpipe upgrade: set the Workspace format to ${input.targetFormat}`,
         createdAt: input.createdAt,
       },
     )
@@ -238,9 +241,9 @@ export function upgradePullRequestText(input: {
     return [`### Format ${step.format}: ${step.title}`, ...lines].join("\n")
   })
   return {
-    title: `Upgrade this ctx| Workspace to format ${input.targetFormat}`,
+    title: `Upgrade this ctxpipe Workspace to format ${input.targetFormat}`,
     body: [
-      `ctx| upgrades the layout of this Workspace from format ${input.fromFormat} to format ${input.targetFormat}. Each step that changes a file has its own commit. The last commit sets \`${WORKSPACE_FORMAT_PATH}\` to \`format: ${input.targetFormat}\`.`,
+      `ctxpipe upgrades the layout of this Workspace from format ${input.fromFormat} to format ${input.targetFormat}. Each step that changes a file has its own commit. The last commit sets \`${WORKSPACE_FORMAT_PATH}\` to \`format: ${input.targetFormat}\`.`,
       "Merge this pull request to apply the upgrade. When you close it without a merge, the upgrade waits in the Workspace settings until an owner or admin starts it again.",
       "There is one commit for each step, and a last commit that sets the format. This lets you review each step alone or revert it alone. The format commit comes last, so the files and the format cannot disagree. You can use any merge method: merge, squash, or rebase.",
       ...sections,

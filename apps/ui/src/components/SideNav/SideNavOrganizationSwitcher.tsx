@@ -10,6 +10,7 @@ import HyperDX from "@hyperdx/browser"
 import { IconPlus, IconSelector, IconSettings } from "@tabler/icons-react"
 import type { Organization } from "better-auth/plugins/organization"
 import { useCallback, useContext, useEffect, useMemo, useState } from "react"
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +20,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
+
 import { SideNavOrganizationCreateDialog } from "./SideNavOrganizationCreateDialog"
 import {
   sideNavAccountAvatarClassNames,
@@ -85,7 +87,7 @@ export function SideNavOrganizationSwitcher({
     activeOrganizationPending ||
     organizationPending
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: mirror library switcher refetch reset
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- mirror library switcher refetch reset
   useEffect(() => {
     if (organizationRefetching) return
     setActiveOrganizationPending(false)

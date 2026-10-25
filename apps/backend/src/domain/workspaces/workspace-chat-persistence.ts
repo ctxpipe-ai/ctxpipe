@@ -12,6 +12,7 @@ import {
   type RunStore,
 } from "@tanstack/ai-persistence"
 import { and, asc, desc, eq, isNotNull, lte } from "drizzle-orm"
+
 import { requireCurrentOrgId } from "../../auth/context.js"
 import { getOrgDb } from "../../db/client.js"
 import { withAmbientOrgDb } from "../../db/org-sql.js"
@@ -404,4 +405,19 @@ export function workspaceChatPersistence(input?: { threadId?: string }) {
       metadata: chatStores.stores.metadata,
     },
   })
+}
+
+/**
+ * The 409 code for a held `chat-thread:` lock. A running row means a turn
+ * runs. Without it, the holder is a prepare, a sandbox resume, the idle
+ * sweep, or a turn that has not inserted its row yet: the chat is starting.
+ */
+export async function conversationBusyError(
+  conversationId: string,
+): Promise<"turn_running" | "chat_starting"> {
+  return (await workspaceChatPersistence().stores.runs.findActiveRun(
+    conversationId,
+  ))
+    ? "turn_running"
+    : "chat_starting"
 }

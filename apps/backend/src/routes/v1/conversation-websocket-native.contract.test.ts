@@ -3,8 +3,10 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
-import type { StreamChunk } from "@tanstack/ai"
+import { modelMessagesToUIMessages, type StreamChunk } from "@tanstack/ai"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
+
+import { workspaceChatPersistence } from "../../domain/workspaces/workspace-chat-persistence.js"
 import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import {
@@ -184,6 +186,225 @@ it(
           .map((chunk) => chunk.delta)
           .join(""),
       ).toBe("Native reply completed.")
+    })
+  },
+)
+
+/**
+ * A chat socket on the production socket handlers. Only the transport
+ * between the browser and Bun is left out. `ended` resolves on the first
+ * terminal chunk or when the server closes the socket.
+ */
+function nativeSocket(
+  f: { orgSlug: string; orgId: string; conversationId: string; userId: string },
+  query = "",
+) {
+  const chunks: StreamChunk[] = []
+  let end!: () => void
+  const ended = new Promise<void>((resolve) => {
+    end = resolve
+  })
+  const url = `http://127.0.0.1/${f.orgSlug}/api/v1/conversations/${f.conversationId}${query}`
+  const ws = {
+    data: {
+      kind: "workspace-chat" as const,
+      orgSlug: f.orgSlug,
+      orgId: f.orgId,
+      conversationId: f.conversationId,
+      userId: f.userId,
+      request: new Request(url),
+      socket: bunSocketToWebSocketLike({ send() {}, close() {} }),
+    },
+    readyState: 1,
+    send(data: string) {
+      const frame = JSON.parse(data) as
+        | StreamChunk
+        | { chunk: StreamChunk }
+        | { type: "ping" }
+      if (!("chunk" in frame) && frame.type === "ping") return
+      const chunk = "chunk" in frame ? frame.chunk : (frame as StreamChunk)
+      chunks.push(chunk)
+      if (chunk.type === "RUN_FINISHED" || chunk.type === "RUN_ERROR") end()
+    },
+    close() {
+      end()
+    },
+  }
+  conversationWebSocketHandlers.open(ws)
+  return { ws, chunks, ended }
+}
+
+function answerText(chunks: StreamChunk[]): string {
+  return chunks
+    .filter((chunk) => chunk.type === "TEXT_MESSAGE_CONTENT")
+    .map((chunk) => chunk.delta)
+    .join("")
+}
+
+async function storedTexts(conversationId: string): Promise<string[]> {
+  const stored =
+    await workspaceChatPersistence().stores.messages.loadThread(conversationId)
+  return modelMessagesToUIMessages(stored).map((message) =>
+    message.parts
+      .map((part) => (part.type === "text" ? part.content : ""))
+      .join(""),
+  )
+}
+
+it(
+  "keeps a UI turn running when the browser leaves the conversation, and stores its answer",
+  { timeout: 120_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      const runId = `run-${f.conversationId}`
+      const first = nativeSocket(f)
+      conversationWebSocketHandlers.message(
+        first.ws,
+        JSON.stringify({
+          threadId: f.conversationId,
+          runId,
+          messages: [{ id: "user-1", role: "user", content: "Hello socket" }],
+          tools: [],
+          context: [],
+          state: {},
+          forwardedProps: { workspaceId: f.workspaceId, source: "ui" },
+        }),
+      )
+      await vi.waitFor(
+        () =>
+          expect(first.chunks.map((chunk) => chunk.type)).toContain(
+            "RUN_STARTED",
+          ),
+        { timeout: 30_000 },
+      )
+      // The user opens another conversation during the sandbox setup.
+      conversationWebSocketHandlers.close(first.ws)
+
+      // The user comes back and attaches to the run from its start.
+      const back = nativeSocket(f, `?runId=${runId}&offset=-1`)
+      await back.ended
+      expect(back.chunks.at(-1)?.type).toBe("RUN_FINISHED")
+      expect(answerText(back.chunks)).toBe("Native reply completed.")
+      expect(answerText(first.chunks)).toBe("")
+      // The persistence `onFinish` stores the transcript, then ends the run
+      // record. Both come after the terminal chunk reaches the run log.
+      await vi.waitFor(
+        async () =>
+          expect(
+            await workspaceChatPersistence().stores.runs.findActiveRun(
+              f.conversationId,
+            ),
+          ).toBeNull(),
+        { timeout: 30_000 },
+      )
+      expect(await storedTexts(f.conversationId)).toEqual([
+        "Hello socket",
+        "Native reply completed.",
+      ])
+    })
+  },
+)
+
+it(
+  "stops a UI turn before its first answer from a later socket, and keeps the question",
+  { timeout: 120_000 },
+  async () => {
+    let modelCalled!: () => void
+    const modelStarted = new Promise<void>((resolve) => {
+      modelCalled = resolve
+    })
+    let release!: () => void
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await withNativeChatFixture(
+      async (f) => {
+        const runId = `run-${f.conversationId}`
+        const first = nativeSocket(f)
+        conversationWebSocketHandlers.message(
+          first.ws,
+          JSON.stringify({
+            threadId: f.conversationId,
+            runId,
+            messages: [{ id: "user-1", role: "user", content: "Hello socket" }],
+            tools: [],
+            context: [],
+            state: {},
+            forwardedProps: { workspaceId: f.workspaceId, source: "ui" },
+          }),
+        )
+        await vi.waitFor(
+          () =>
+            expect(first.chunks.map((chunk) => chunk.type)).toContain(
+              "RUN_STARTED",
+            ),
+          { timeout: 30_000 },
+        )
+        conversationWebSocketHandlers.close(first.ws)
+        // The model call starts after the sandbox setup; it answers only
+        // after the stop.
+        await modelStarted
+        expect(
+          (
+            await workspaceChatPersistence().stores.runs.findActiveRun(
+              f.conversationId,
+            )
+          )?.runId,
+        ).toBe(runId)
+
+        const back = nativeSocket(f, `?runId=${runId}&offset=-1`)
+        conversationWebSocketHandlers.message(
+          back.ws,
+          JSON.stringify({ type: "abort", runId }),
+        )
+        release()
+        await back.ended
+        await vi.waitFor(
+          async () =>
+            expect(
+              await workspaceChatPersistence().stores.runs.findActiveRun(
+                f.conversationId,
+              ),
+            ).toBeNull(),
+          { timeout: 30_000 },
+        )
+
+        expect(answerText(back.chunks)).toBe("")
+        expect(await storedTexts(f.conversationId)).toEqual(["Hello socket"])
+      },
+      async () => {
+        modelCalled()
+        await released
+      },
+    )
+  },
+)
+
+it(
+  "ends a running run that no turn runs when a socket joins it, so a push is not blocked",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      // A deploy or a crash stopped the process during the turn: the run
+      // record says running, and this process has no turn for it.
+      const runId = `run-${f.conversationId}`
+      const runs = workspaceChatPersistence({
+        threadId: f.conversationId,
+      }).stores.runs
+      await runs.createOrResume({
+        runId,
+        threadId: f.conversationId,
+        startedAt: Date.now(),
+      })
+
+      await nativeSocket(f, `?runId=${runId}&offset=-1`).ended
+
+      expect(
+        await workspaceChatPersistence().stores.runs.findActiveRun(
+          f.conversationId,
+        ),
+      ).toBeNull()
+      expect((await runs.get(runId))?.status).toBe("aborted")
     })
   },
 )

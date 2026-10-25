@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
+
 import type { CaptureHost } from "./capture.js"
 
 /**
@@ -36,7 +37,9 @@ export function resolveCaptureHost(
 
 function hasCaptureHook(path: string): boolean {
   try {
-    return existsSync(path) && readFileSync(path, "utf8").includes("memory capture")
+    return (
+      existsSync(path) && readFileSync(path, "utf8").includes("memory capture")
+    )
   } catch {
     return false
   }

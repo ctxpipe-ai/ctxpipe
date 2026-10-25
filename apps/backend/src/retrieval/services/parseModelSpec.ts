@@ -1,7 +1,5 @@
 import { type ModelParams, paramsToModelParams } from "./modelParams.js"
 
-
-
 type ParsedModelSpec = {
   readonly modelId: string
   readonly params: Record<string, string>

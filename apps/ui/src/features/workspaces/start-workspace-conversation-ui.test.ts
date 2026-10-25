@@ -10,6 +10,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { workspaceKeys } from "./queries"
 import { installRelativeFetch } from "./relative-fetch-test"
 import { installMemorySessionStorage } from "./session-storage-test"
@@ -141,6 +142,30 @@ describe("openWorkspaceConversation", () => {
       "What is hydrate status?",
     )
     expect(takeFirstMessage(queryClient, "acme", opened)).toBeUndefined()
+  })
+
+  it("does not carry a file or diff pane of the last conversation into the new one", () => {
+    const queryClient = new QueryClient()
+    const navigate = vi.fn().mockResolvedValue(undefined)
+    server.use(
+      http.get(/\/api\/v1\/workspaces\/[^/]+$/, () =>
+        HttpResponse.json(docsWorkspace),
+      ),
+    )
+    openWorkspaceConversation({
+      queryClient,
+      navigate: navigate as never,
+      selectNav: vi.fn(),
+      orgSlug: "acme",
+      workspace: { id: "ws_1", slug: "docs" },
+      text: "Hello",
+    })
+    const search = navigate.mock.calls[0]?.[0]?.search as (
+      prev: Record<string, unknown>,
+    ) => unknown
+    expect(search({ pane: "file:a.md" })).toEqual({ pane: "files" })
+    expect(search({ pane: "diff:turn=t1" })).toEqual({ pane: undefined })
+    expect(search({ pane: "graph" })).toEqual({ pane: "graph" })
   })
 
   it("sends the first message once when Strict Mode runs the effect twice", () => {

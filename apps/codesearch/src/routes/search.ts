@@ -1,11 +1,14 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import { and, eq, inArray } from "drizzle-orm"
+
+import { repositoryRevisionCheckoutKey } from "../../../../shared/workspace-checkout.js"
 import type { AppEnv } from "../app/env.js"
-import { checkoutKeysFromAuth } from "../auth/jwt.js"
+import { workspaceLinksRepository } from "../auth/jwt.js"
 import { ZOEKT_WEBSERVER_URL } from "../config/paths.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
 import { repositories, repositoryCheckouts } from "../db/schema.js"
+import { hasGitSegment } from "../domain/repositories/paths.js"
 import { publishedRepositoryCheckoutKey } from "../domain/repositories/service.js"
 import { pinRepos } from "../domain/zoekt/pinManager.js"
 import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
@@ -77,6 +80,30 @@ async function zoektClientErrorMessage(res: Response): Promise<string> {
   return `Zoekt rejected the query: ${text}`
 }
 
+/**
+ * A checkout is a git worktree, so its root has a `.git` file that names the
+ * shared clone. Zoekt skips a `.git` directory but indexes that file, so the
+ * response drops it. Codesearch never reads or searches inside `.git`.
+ */
+function withoutWorktreeGitFiles(
+  record: Record<string, unknown>,
+): Record<string, unknown> {
+  const result =
+    record.Result && typeof record.Result === "object"
+      ? (record.Result as Record<string, unknown>)
+      : record
+  if (Array.isArray(result.Files))
+    result.Files = result.Files.filter(
+      (file) =>
+        !(
+          file &&
+          typeof file === "object" &&
+          hasGitSegment(String(file.FileName))
+        ),
+    )
+  return record
+}
+
 export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
   app.openapi(searchRoute, async (c) => {
     const db = c.get("db")
@@ -86,8 +113,10 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
     const auth = c.get("auth")
     if (!auth) throw new Error("Missing auth context")
     const body = c.req.valid("json")
-    const scoped = Boolean(auth.workspaceId || auth.repositoryRevisions)
-    const checkoutKeys = scoped ? checkoutKeysFromAuth(auth) : []
+    // An ingestion run token reads its own `rev:<sha>` checkouts. A Workspace
+    // token and a token with no scope read the published checkouts; a
+    // Workspace token reads only the repositories that its Workspace links.
+    const runRevisions = auth.repositoryRevisions
     const rows = await withOrgDbContext(db, auth.orgId, async (tx) =>
       tx
         .select({
@@ -103,8 +132,13 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
           and(
             eq(repositoryCheckouts.repositoryId, repositories.id),
             eq(repositoryCheckouts.orgId, auth.orgId),
-            scoped
-              ? inArray(repositoryCheckouts.checkoutKey, checkoutKeys)
+            runRevisions
+              ? inArray(
+                  repositoryCheckouts.checkoutKey,
+                  runRevisions.map((item) =>
+                    repositoryRevisionCheckoutKey(item.sha),
+                  ),
+                )
               : eq(
                   repositoryCheckouts.checkoutKey,
                   publishedRepositoryCheckoutKey(),
@@ -116,13 +150,13 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
     assertNotInOrgDbContext()
     const zoektNameById = new Map(
       rows
-        .filter(
-          (r) =>
-            !(auth.repositoryRevisions ?? auth.workspaceRevisions) ||
-            (auth.repositoryRevisions ?? auth.workspaceRevisions)?.some(
-              (revision) =>
-                revision.repositoryId === r.repoId && revision.sha === r.sha,
-            ),
+        .filter((r) =>
+          runRevisions
+            ? runRevisions.some(
+                (revision) =>
+                  revision.repositoryId === r.repoId && revision.sha === r.sha,
+              )
+            : !auth.workspaceId || workspaceLinksRepository(auth, r.repoId),
         )
         .map((r) => [
           r.zoektRepoId,
@@ -192,8 +226,11 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
           503,
         )
       }
-      const data = await res.json().catch(() => ({}))
-      return c.json(data, 200)
+      const data = (await res.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >
+      return c.json(withoutWorktreeGitFiles(data), 200)
     } catch {
       return c.json({ error: "Zoekt webserver is unavailable" }, 503)
     }

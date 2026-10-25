@@ -3,10 +3,10 @@ title: Connections
 description: How connections and sources bring content from your tools into a Workspace as reviewable Git files.
 ---
 
-A **connection** gives ctx| access to one of your tools. A **source** tells one
-[Workspace](/docs/workspaces) what to read through a connection. ctx| writes
+A **connection** gives ctxpipe access to one of your tools. A **source** tells one
+[Workspace](/docs/workspaces) what to read through a connection. ctxpipe writes
 the content into the repository of the Workspace as Markdown files. You can see,
-review, and keep the files that ctx| and your agents use.
+review, and keep the files that ctxpipe and your agents use.
 
 ## Connections and sources
 
@@ -31,7 +31,7 @@ files.
     ### Connect the tool
 
     Open **Connectors**. Choose **Add connection**, then choose the tool. Follow
-    the steps in the guide of the connector. This step authorizes ctx|. It does
+    the steps in the guide of the connector. This step authorizes ctxpipe. It does
     not choose a Workspace.
   </Step>
 
@@ -53,7 +53,7 @@ files.
   <Step>
     ### Merge the pull requests
 
-    ctx| opens one pull request for each Workspace. The pull request adds the
+    ctxpipe opens one pull request for each Workspace. The pull request adds the
     source file. The dialog shows **Merge the pull request** (or **Merge the
     pull requests**) with a link to each one. After you merge a pull request,
     the dialog shows **Pull request merged**.
@@ -65,7 +65,7 @@ files.
   <Step>
     ### Wait for the first sync
 
-    After the merge, ctx| reads the source file and starts the first sync. The
+    After the merge, ctxpipe reads the source file and starts the first sync. The
     Workspace then indexes the new files like any other knowledge file.
   </Step>
 </Steps>
@@ -82,12 +82,12 @@ Each connector on **Connectors** has a menu with these items:
   sees it, and only when the connection has a source with the status **OK**. A
   second request in the same minute starts no other sync.
 - **Remove connector** removes the authorization. The sources of the connection
-  stop syncing. The source files and the files that ctx| already committed stay
+  stop syncing. The source files and the files that ctxpipe already committed stay
   in Git.
 
 ## Available connectors
 
-| Connector | Model | What enters ctx\| | Scope in the source file |
+| Connector | Model | What enters ctxpipe | Scope in the source file |
 | --- | --- | --- | --- |
 | **GitHub** | Git source | Selected repositories, indexed for code search and extraction | One repository, and an optional `ref` |
 | **Linear** | Scoped mirror | Issues, projects, cycles, and related content of the selected teams and projects | Teams and projects |
@@ -95,7 +95,7 @@ Each connector on **Connectors** has a menu with these items:
 | **Confluence** | Scoped mirror | Selected spaces and pages | Spaces, with all pages or a page list |
 | **PagerDuty** | Scoped mirror | Incidents of the selected services | Services |
 | **Slack** | Intent capture | One existing thread at a time | Channels |
-| **Plain git** | Git source | A repository on a git host that ctx\| can read under the URL rule, with no connection | A URL (see [Linked repositories](/docs/workspaces/linked-repositories#plain-git-repositories)) |
+| **Plain git** | Git source | A repository on a git host that ctxpipe can read under the URL rule, with no connection | A URL (see [Linked repositories](/docs/workspaces/linked-repositories#plain-git-repositories)) |
 
 Repository-native docs, such as README files, `docs/**`, ADRs, `AGENTS.md`,
 and skills in linked repositories, are indexed with the code.
@@ -110,7 +110,7 @@ specific thread into Git history only when it is worth keeping.
 
 Each source has a maximum number of items in one list. The limit keeps one
 sync in the API rate limits of the provider. When you need more items, add a
-second source with the same connection. ctx| shows an error when a selection
+second source with the same connection. ctxpipe shows an error when a selection
 is above its limit.
 
 | Source | Maximum in one source |
@@ -132,11 +132,11 @@ pull request is the review of the scope. No agent can add or change a source
 file without that review.
 
 - **Scoped mirrors** (Linear, Notion, Confluence, PagerDuty): after the merge,
-  ctx| writes the generated Markdown under the managed folder of the provider,
-  for example `linear/` or `notion/`, in each Workspace repository. ctx|
+  ctxpipe writes the generated Markdown under the managed folder of the provider,
+  for example `linear/` or `notion/`, in each Workspace repository. ctxpipe
   indexes it like any other knowledge file. Do not edit these files by hand:
   the next sync overwrites them.
-- **Slack**: a mention in a thread is the approval signal. ctx| commits the
+- **Slack**: a mention in a thread is the approval signal. ctxpipe commits the
   thread directly to the default branch of each Workspace that has the channel
   as a source. Git history records the capture.
 
@@ -145,7 +145,7 @@ Use separate Workspaces when different sources need different audiences.
 
 ## GitHub is the foundation
 
-Connect GitHub first. The ctx| GitHub App lets ctx|:
+Connect GitHub first. The ctxpipe GitHub App lets ctxpipe:
 
 - read and write Workspace repositories;
 - index linked code repositories for search and extraction;
@@ -169,8 +169,8 @@ duplicated notes or old chat history.
 ## Agent access is separate
 
 MCP clients are not connections. Cursor, CI agents, and other MCP clients
-connect to ctx| through the MCP endpoint, then ask about a Workspace. For setup,
-see [ctx| MCP](/docs/mcp/mcp-docs).
+connect to ctxpipe through the MCP endpoint, then ask about a Workspace. For setup,
+see [ctxpipe MCP](/docs/mcp/mcp-docs).
 
 ## Roadmap and self-hosting
 

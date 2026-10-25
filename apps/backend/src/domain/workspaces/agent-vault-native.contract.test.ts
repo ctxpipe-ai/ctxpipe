@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { withAgentVault } from "../../test/agent-vault-fixture.js"
 import {
   AgentVaultUnavailableError,
@@ -232,7 +233,13 @@ cd /tmp/clone && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m
 git push origin HEAD:refs/ctxpipe/ingest/test 2>&1 && echo PUSHED || echo REFUSED
 cd /
 echo "== github-fetch"
-${code("https://github.com/octocat/hello-world.git/info/refs?service=git-upload-pack")}
+# 502 means the vault could not reach github.com: an outside outage. Retry.
+for attempt in 1 2 3 4; do
+  c=$(${code("https://github.com/octocat/hello-world.git/info/refs?service=git-upload-pack")})
+  [ "$c" != 502 ] && break
+  sleep 5
+done
+printf %s "$c"
 echo
 echo "== github-push"
 ${code("-X POST https://github.com/octocat/hello-world.git/git-receive-pack")}

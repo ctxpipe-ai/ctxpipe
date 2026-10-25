@@ -9,9 +9,7 @@
     "start": "bun run dist/server.js",
     "test": "bash scripts/run-vitest-docker.sh",
     "test:manual:kubernetes-memory": "bash scripts/manual-kubernetes-ingest-memory.sh",
-    "test:vitest": "node scripts/run-vitest-contracts.mjs",
-    "lint": "biome lint .",
-    "format": "biome format --write ."
+    "test:vitest": "node scripts/run-vitest-contracts.mjs"
   },
   "dependencies": {
     "@hono/otel": "^1.2.0",

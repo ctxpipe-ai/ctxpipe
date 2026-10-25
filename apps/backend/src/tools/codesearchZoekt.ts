@@ -18,9 +18,7 @@ type ZoektSearchClientFailure = {
   error: string
 }
 
-type ZoektSearchResult =
-  | Record<string, unknown>
-  | ZoektSearchClientFailure
+type ZoektSearchResult = Record<string, unknown> | ZoektSearchClientFailure
 
 export function isZoektSearchClientFailure(
   r: ZoektSearchResult,
@@ -46,7 +44,7 @@ export async function zoektSearchRepository(
   },
   Q: string,
   opts: Record<string, unknown>,
-  workspace?: { workspaceId: string; sha: string },
+  workspace?: { workspaceId: string },
 ): Promise<ZoektSearchResult> {
   const source = capturedSourceRevision(repository.orgId, repository.id)
   if (source && workspace)
@@ -71,9 +69,7 @@ export async function zoektSearchRepository(
       ...(workspace
         ? {
             workspaceId: workspace.workspaceId,
-            workspaceRevisions: [
-              { repositoryId: repository.id, sha: workspace.sha },
-            ],
+            workspaceRepositoryIds: [repository.id],
           }
         : {}),
     },

@@ -35,9 +35,9 @@ export function shouldShowPagerdutyRegisterStep(
 ): boolean {
   return Boolean(
     oauth &&
-      !oauth.globalPagerdutyOAuthConfigured &&
-      !oauth.oauthAppSaved &&
-      !status.isInstalled,
+    !oauth.globalPagerdutyOAuthConfigured &&
+    !oauth.oauthAppSaved &&
+    !status.isInstalled,
   )
 }
 

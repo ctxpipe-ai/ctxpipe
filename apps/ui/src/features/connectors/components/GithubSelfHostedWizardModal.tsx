@@ -4,6 +4,7 @@ import HyperDX from "@hyperdx/browser"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
+
 import { Modal } from "@/components/ui/Modal"
 import { GithubSelfHostedCredentialsStep } from "@/features/connectors/components/github-setup/steps/GithubSelfHostedCredentialsStep"
 import {

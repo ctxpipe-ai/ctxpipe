@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, within } from "storybook/test"
+
 import { ConversationSyncEntry } from "./ConversationSyncEntry"
 import type { ConversationSync } from "./types"
 
@@ -118,7 +119,7 @@ export const SweepPushEntry: Story = {
   args: { sync: { ...base, trigger: "sweep", files: 2 } },
   play: async ({ canvasElement }) => {
     const entry = within(canvasElement).getByRole("region", {
-      name: `ctx| pushed 2 files to ${branch}`,
+      name: `ctxpipe pushed 2 files to ${branch}`,
     })
     await expectLink(entry, branch, treeUrl)
   },

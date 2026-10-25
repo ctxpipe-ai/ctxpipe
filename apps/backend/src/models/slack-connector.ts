@@ -1,4 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm"
+
 import type { Env } from "../config/env.js"
 import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { withAmbientOrgDb } from "../db/org-sql.js"
@@ -30,7 +31,6 @@ import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
 function orgSql<T>(fn: () => Promise<T>): Promise<T> {
   return withAmbientOrgDb(fn)
 }
-
 
 export {
   derivedSlackSetupPhase,
@@ -141,7 +141,7 @@ export const MULTIPLE_SLACK_CONNECTIONS_MESSAGE =
   "Multiple Slack connections for this organization; specify connectionId query parameter"
 
 const SLACK_TEAM_ALREADY_CONNECTED_MESSAGE =
-  "This Slack workspace is already connected to another ctx| organization"
+  "This Slack workspace is already connected to another ctxpipe organization"
 
 export class SlackTeamAlreadyConnectedError extends Error {
   constructor() {

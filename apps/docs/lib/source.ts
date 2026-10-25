@@ -1,5 +1,6 @@
-import { docs } from "@/.source"
 import { loader, type VirtualFile } from "fumadocs-core/source"
+
+import { docs } from "@/.source"
 
 const mdxSource = docs.toFumadocsSource()
 
@@ -20,7 +21,4 @@ const files = allFiles.filter(
     ),
 )
 
-export const source = loader(
-  { ...mdxSource, files },
-  { baseUrl: "/docs" },
-)
+export const source = loader({ ...mdxSource, files }, { baseUrl: "/docs" })

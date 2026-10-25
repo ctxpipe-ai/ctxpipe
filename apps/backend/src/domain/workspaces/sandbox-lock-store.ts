@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto"
 import { setTimeout as delay } from "node:timers/promises"
+
 import { defineLock, type LockStore } from "@tanstack/ai/locks"
 import { and, eq, sql } from "drizzle-orm"
+
 import { assertNotInOrgDbContext, withOrgDbContext } from "../../db/client.js"
 import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import { markSandboxLifecycle } from "./sandbox-lifecycle-timing.js"
@@ -30,7 +32,7 @@ export function postgresSandboxLocks(
         scoped.withLock(scopeKey, () => locks.withLock(key, fn)),
     })
   }
-  return postgresLocks(orgId, abortController, onAcquired, true)
+  return postgresLocks(orgId, abortController, onAcquired, Infinity)
 }
 
 class SandboxLockBusy extends Error {}
@@ -69,23 +71,24 @@ function wakeWaiters(name: string): void {
 }
 
 /**
- * Run `fn` under `key` only if nobody holds it now; otherwise return
- * `{ busy: true }` at once. A caller uses this when it must not wait for a
- * running turn. `abortController` aborts `fn` the same way as in
- * `postgresSandboxLocks`.
+ * Run `fn` under `key` only if nobody holds it now, or if the holder releases
+ * it within `waitMs`; otherwise return `{ busy: true }`. A caller uses this
+ * when it must not wait for a running turn. `abortController` aborts `fn` the
+ * same way as in `postgresSandboxLocks`.
  */
 export async function withSandboxLockIfFree<T>(
   orgId: string,
   key: string,
   fn: (signal: AbortSignal) => Promise<T>,
   abortController?: AbortController,
+  waitMs = 0,
 ): Promise<{ busy: true } | { busy: false; value: T }> {
   try {
     const value = await postgresLocks(
       orgId,
       abortController,
       undefined,
-      false,
+      waitMs,
     ).withLock(key, fn)
     return { busy: false, value }
   } catch (error) {
@@ -98,7 +101,8 @@ function postgresLocks(
   orgId: string,
   abortController: AbortController | undefined,
   onAcquired: SandboxLockAcquired | undefined,
-  wait: boolean,
+  /** How long to wait for a holder to release the lock. */
+  waitMs: number,
 ): LockStore {
   return defineLock({
     async withLock(key, fn) {
@@ -138,8 +142,9 @@ function postgresLocks(
           markSandboxLifecycle("lock-acquired", { key })
           break
         }
-        if (!wait) throw new SandboxLockBusy(key)
-        await waitForRelease(waitName, 250, signal)
+        const left = waitStarted + waitMs - Date.now()
+        if (left <= 0) throw new SandboxLockBusy(key)
+        await waitForRelease(waitName, Math.min(250, left), signal)
       }
       const holdStarted = Date.now()
       const stopped = new AbortController()

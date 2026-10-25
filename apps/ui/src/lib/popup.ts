@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { useEffect, useRef } from "react"
+
 import {
   githubConnectorKeys,
   githubInstallationIsLinked,
@@ -161,7 +162,7 @@ export function githubLinkPopupUrl(installUrl: string) {
 /** The message for an error code of a failed GitHub account link. */
 export function githubLinkErrorMessage(code: string | undefined) {
   if (code === "account_already_linked_to_different_user") {
-    return "This GitHub account is linked to another ctx| user. Sign in as that user and unlink GitHub (User account → OAuth Providers → Unlink OAuth), or use a different GitHub account."
+    return "This GitHub account is linked to another ctxpipe user. Sign in as that user and unlink GitHub (User account → OAuth Providers → Unlink OAuth), or use a different GitHub account."
   }
   return "Could not link your GitHub account. Try again."
 }

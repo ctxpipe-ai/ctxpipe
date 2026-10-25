@@ -1,8 +1,9 @@
 import { isAlias, isMap, isSeq } from "yaml"
+
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
-import { type HydrateUnit, resolveHydrateLink } from "./hydrate.js"
 import { looksLikeGitSha } from "./hydrate-phases.js"
+import { type HydrateUnit, resolveHydrateLink } from "./hydrate.js"
 import {
   editableMetadataNode,
   materializeMetadataAlias,
@@ -221,4 +222,3 @@ export function importKeyCleanupRemainder(
 ): number {
   return importKeyCleanupFiles(files).length
 }
-

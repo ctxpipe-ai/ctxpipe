@@ -2,8 +2,10 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
+
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
 import { useConnectorSync } from "@/features/workspace-sources/useConnectorSync"
+
 import { resolveConnectorHealth } from "../connectorHealth"
 import { getLinearCardPrimaryCta } from "../linear-setup-model"
 import {

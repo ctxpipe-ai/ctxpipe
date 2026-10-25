@@ -441,7 +441,7 @@ export async function diagnoseMcpEndpoint(
 }
 
 export function formatMcpDoctorResult(result: McpDoctorResult): string {
-  const lines = [`ctx| MCP doctor`, `Target: ${result.target}`, ""]
+  const lines = [`ctxpipe MCP doctor`, `Target: ${result.target}`, ""]
   for (const check of result.checks) {
     lines.push(`${check.status.toUpperCase().padEnd(4)} ${check.summary}`)
   }

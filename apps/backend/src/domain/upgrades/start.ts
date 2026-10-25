@@ -4,8 +4,8 @@ import {
   transitionWorkspaceUpgradeRow,
   type WorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
-import { enqueueWorkspaceUpgrade } from "../../openworkflow/workflows/workspace-upgrade.js"
 import { enqueueWorkspaceUpgradeReingest } from "../../openworkflow/workflows/workspace-upgrade-reingest.js"
+import { enqueueWorkspaceUpgrade } from "../../openworkflow/workflows/workspace-upgrade.js"
 import { UPGRADE_STATUSES } from "./registry.js"
 import { isReingestUpgradeKey } from "./reingest.js"
 
@@ -46,7 +46,12 @@ export async function startWorkspaceUpgrade(input: {
     key: input.key,
     from: [UPGRADE_STATUSES.awaiting_operator, UPGRADE_STATUSES.failed],
     to: UPGRADE_STATUSES.queued,
-    upgrade: { approvedBy: input.userId, approvedAt, note: undefined },
+    upgrade: {
+      approvedBy: input.userId,
+      approvedAt,
+      note: undefined,
+      autoRetry: undefined,
+    },
     workflowRunId: null,
     failureReason: null,
   })
@@ -70,7 +75,7 @@ export async function startWorkspaceUpgrade(input: {
       key: input.key,
       from: [UPGRADE_STATUSES.queued],
       to: UPGRADE_STATUSES.failed,
-      failureReason: "ctx| could not queue the upgrade. Start it again.",
+      failureReason: "ctxpipe could not queue the upgrade. Start it again.",
     })
     throw error
   }

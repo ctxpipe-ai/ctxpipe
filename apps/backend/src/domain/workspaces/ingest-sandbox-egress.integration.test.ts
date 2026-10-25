@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto"
+
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import {
@@ -11,6 +12,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import { parseEnv } from "../../config/env.js"
 import {
@@ -42,7 +44,6 @@ const alpha = generateObjectId("con")
 const beta = generateObjectId("con")
 const log: GithubTokenLog = { minted: [], revoked: [], mintedPermissions: [] }
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer(
   ...githubTokenHandlers(
     log,

@@ -1,4 +1,5 @@
 import HyperDX from "@hyperdx/browser"
+
 import { recordHyperDxActionError } from "@/lib/hyperdxBrowser"
 
 /**

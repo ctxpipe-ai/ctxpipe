@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, waitFor, within } from "storybook/test"
+
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import {
@@ -125,7 +126,7 @@ export const NotLinkedShowsLinkError: Story = {
     const alert = await canvas.findByRole("alert")
     await waitFor(() =>
       expect(alert).toHaveTextContent(
-        /This GitHub account is linked to another ctx\| user/,
+        /This GitHub account is linked to another ctxpipe user/,
       ),
     )
     await expect(canvas.queryByText("Repositories")).not.toBeInTheDocument()

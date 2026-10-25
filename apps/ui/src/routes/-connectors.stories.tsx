@@ -1,8 +1,18 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
+import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
-import { connectionUsageHandler } from "@/mocks/workspace-sources-handlers"
+import {
+  activeMemberRoleHandler,
+  connectionUsageHandler,
+} from "@/mocks/workspace-sources-handlers"
+import {
+  pendingWorkspaceUpgradesHandler,
+  upgradeItemFixture,
+} from "@/mocks/workspace-upgrades-handlers"
+
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { ConnectorsPageContent } from "./$orgSlug.connectors"
@@ -343,13 +353,22 @@ function statusFailed(pathnameSuffix: string, connectionId: string) {
   )
 }
 
-function pageHandlers(handlers: ReturnType<typeof http.get>[]) {
+function pageHandlers(
+  handlers: ReturnType<typeof http.get>[],
+  pendingUpgrades?: ReturnType<typeof pendingWorkspaceUpgradesHandler>,
+) {
   return {
     storyRoute: {
       pattern: "orgConnectors",
       orgSlug,
     } satisfies StoryRouteParams,
-    msw: { handlers: { page: handlers } },
+    msw: {
+      handlers: {
+        page: handlers,
+        // The global default answers "no pending upgrade"; this key replaces it.
+        ...(pendingUpgrades ? { pendingUpgrades: [pendingUpgrades] } : {}),
+      },
+    },
   }
 }
 
@@ -385,6 +404,99 @@ export const Full: Story = {
       expect(canvas.getAllByText("Account")).toHaveLength(expanders.length),
     )
     await expect(canvas.queryAllByText("Scope")).toHaveLength(0)
+  },
+}
+
+/**
+ * Each Workspace of the org is below the newest format (CTX-935): a source
+ * cannot be saved in any of them. The page says so before a connect flow
+ * starts, links to the upgrade, and turns off Add connection.
+ */
+export const NeedsFormatUpgrade: Story = {
+  render: pageRender,
+  parameters: pageHandlers(
+    [
+      connectorsListHandler(),
+      atlassianStatusHandler(atlassianStatusComplete),
+      orgAtlassianOauthHandler,
+      notionStatusHandler(notionStatusComplete),
+      githubInstallationHandler(githubInstallationComplete),
+      linearStatusHandler(linearStatusComplete),
+      slackStatusHandler(slackStatusComplete),
+      pagerdutyStatusHandler(pagerdutyStatusComplete),
+      connectionUsageHandler([]),
+      workspaceListHandler([docsWorkspace]),
+      activeMemberRoleHandler("owner"),
+    ],
+    pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Upgrade a Workspace before you add a source")
+    await expect(
+      canvas.getByRole("link", { name: "Review upgrade: Docs" }),
+    ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
+    await expect(
+      canvas.getByRole("button", { name: "Add connection" }),
+    ).toBeDisabled()
+  },
+}
+
+/**
+ * The Workspace is below the newest format and the scan wrote no upgrade row
+ * yet. The read still lists it with its format, so the page blocks the start.
+ */
+export const NeedsFormatUpgradeNoRowYet: Story = {
+  render: pageRender,
+  parameters: pageHandlers(
+    [
+      connectorsListHandler(),
+      atlassianStatusHandler(atlassianStatusComplete),
+      orgAtlassianOauthHandler,
+      notionStatusHandler(notionStatusComplete),
+      githubInstallationHandler(githubInstallationComplete),
+      linearStatusHandler(linearStatusComplete),
+      slackStatusHandler(slackStatusComplete),
+      pagerdutyStatusHandler(pagerdutyStatusComplete),
+      connectionUsageHandler([]),
+      workspaceListHandler([docsWorkspace]),
+      activeMemberRoleHandler("owner"),
+    ],
+    pendingWorkspaceUpgradesHandler({}, undefined, {
+      formats: { docs: 0 },
+    }),
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Upgrade a Workspace before you add a source")
+    await expect(
+      canvas.getByRole("button", { name: "Add connection" }),
+    ).toBeDisabled()
+  },
+}
+
+/** With no connection yet, the empty state offers no start either. */
+export const NeedsFormatUpgradeNoConnections: Story = {
+  render: pageRender,
+  parameters: pageHandlers(
+    [
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+        () => HttpResponse.json({ items: [] }),
+      ),
+      workspaceListHandler([docsWorkspace]),
+      activeMemberRoleHandler("member"),
+    ],
+    pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Upgrade a Workspace before you add a source")
+    await waitFor(() => expect(canvas.getByText("Ask an admin")).toBeVisible())
+    await expect(
+      canvas.getByRole("button", { name: "Add connection" }),
+    ).toBeDisabled()
   },
 }
 

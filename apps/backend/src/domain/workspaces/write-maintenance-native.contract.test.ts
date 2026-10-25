@@ -1,7 +1,9 @@
 import { execFileSync } from "node:child_process"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
+
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
@@ -92,9 +94,8 @@ it(
             workflowName: "workspace-write-import-key-cleanup",
             input: { revision: { sha: f.sha, access: "write-default" } },
           })
-          const { workspaceImportKeyCleanup } = await import(
-            "../../openworkflow/workflows/workspace-import-key-cleanup.js"
-          )
+          const { workspaceImportKeyCleanup } =
+            await import("../../openworkflow/workflows/workspace-import-key-cleanup.js")
           runner.implementWorkflow(
             workspaceImportKeyCleanup.spec,
             workspaceImportKeyCleanup.fn,
@@ -264,9 +265,8 @@ it(
             workflowName: "workspace-write-claims-upgrade",
             input: { revision: { sha: f.sha, access: "write-default" } },
           })
-          const { workspaceClaimsUpgrade } = await import(
-            "../../openworkflow/workflows/workspace-claims-upgrade.js"
-          )
+          const { workspaceClaimsUpgrade } =
+            await import("../../openworkflow/workflows/workspace-claims-upgrade.js")
           runner.implementWorkflow(
             workspaceClaimsUpgrade.spec,
             workspaceClaimsUpgrade.fn,
@@ -323,9 +323,8 @@ it(
             defaults: [{ to: "archive.md" }],
             claims: [{ to: "archive.md" }, { to: "api.md" }],
           })
-          const { workspaceHydrate } = await import(
-            "../../openworkflow/workflows/workspace-hydrate.js"
-          )
+          const { workspaceHydrate } =
+            await import("../../openworkflow/workflows/workspace-hydrate.js")
           // Consume the post-write hydrate through its native worker.
           await worker.stop()
           runner.implementWorkflow(workspaceHydrate.spec, workspaceHydrate.fn)
@@ -337,9 +336,8 @@ it(
           })
           await worker.start()
           await hydrated.result({ timeoutMs: 30_000 })
-          const { getWorkspaceProjection } = await import(
-            "../../models/workspaces.js"
-          )
+          const { getWorkspaceProjection } =
+            await import("../../models/workspaces.js")
           const { readWorkspaceGraph } = await import("./graph-projection.js")
           const graph = await withOrgIdContext(f.org, async () => {
             const projection = await getWorkspaceProjection(f.workspaceId)
@@ -508,9 +506,8 @@ it(
           expect(queued).toMatchObject({
             workflowName: "workspace-write-valid-from-persist",
           })
-          const { workspaceValidFromPersist } = await import(
-            "../../openworkflow/workflows/workspace-valid-from-persist.js"
-          )
+          const { workspaceValidFromPersist } =
+            await import("../../openworkflow/workflows/workspace-valid-from-persist.js")
           runner.implementWorkflow(
             workspaceValidFromPersist.spec,
             workspaceValidFromPersist.fn,
@@ -672,9 +669,8 @@ it(
             workflowName: "workspace-write-ops-folder-list",
             input: { previousSha: f.sha },
           })
-          const { workspaceOpsFolderList } = await import(
-            "../../openworkflow/workflows/workspace-ops-folder-list.js"
-          )
+          const { workspaceOpsFolderList } =
+            await import("../../openworkflow/workflows/workspace-ops-folder-list.js")
           runner.implementWorkflow(
             workspaceOpsFolderList.spec,
             workspaceOpsFolderList.fn,
@@ -762,9 +758,8 @@ it(
         ],
       },
       async (f) => {
-        const { workspaceImportKeyCleanup } = await import(
-          "../../openworkflow/workflows/workspace-import-key-cleanup.js"
-        )
+        const { workspaceImportKeyCleanup } =
+          await import("../../openworkflow/workflows/workspace-import-key-cleanup.js")
         f.runner.implementWorkflow(
           workspaceImportKeyCleanup.spec,
           workspaceImportKeyCleanup.fn,

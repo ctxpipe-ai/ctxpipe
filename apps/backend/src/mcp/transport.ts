@@ -6,6 +6,7 @@ import {
   SUPPORTED_PROTOCOL_VERSIONS,
 } from "@modelcontextprotocol/sdk/types.js"
 import type { Context } from "hono"
+
 import type { AppEnv } from "../app/env.js"
 import {
   disableToolsOutsideScopes,

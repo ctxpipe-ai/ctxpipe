@@ -8,8 +8,10 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { parse as parseYaml, stringify } from "yaml"
+
 import { ownershipMigrationFiles } from "./ownership-migration.js"
 import {
   findSuspectedSecret,
@@ -848,7 +850,7 @@ describe("validatePatchStep human files", () => {
       {
         path: ".ctxpipe/sources.yaml",
         rule: "path",
-        reason: "Only ctx| writes host-only paths",
+        reason: "Only ctxpipe writes host-only paths",
       },
     ])
   })
@@ -1479,7 +1481,7 @@ describe("validatePatchStep ownership by source path (CTX-721 T9)", () => {
 
 describe("validatePatchStep sources folder (CTX-721)", () => {
   const SOURCE_FILE = "sources/github/example-org/checkout-api.md"
-  const HOST_ONLY = "Only ctx| writes host-only paths"
+  const HOST_ONLY = "Only ctxpipe writes host-only paths"
 
   it.each([
     ["a new source file", "sources/github/evil/exfil.md"],
@@ -2041,7 +2043,7 @@ describe("findSuspectedSecret", () => {
     ],
     ["an empty value", "API_KEY="],
     ["an angle placeholder", "API_KEY=<your-api-key>"],
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: the case is a literal shell placeholder
+    // oxlint-disable-next-line no-template-curly-in-string -- the case is a literal shell placeholder
     ["a shell placeholder", "DATABASE_PASSWORD=${DATABASE_PASSWORD}"],
     ["a changeme value", "AUTH_SECRET=changeme"],
     [
@@ -2087,7 +2089,7 @@ describe("findSuspectedSecret", () => {
     ["a brace placeholder", '"x-api-key": "{env:CTXPIPE_API_KEY}"'],
     [
       "a CI template in a table",
-      // biome-ignore lint/suspicious/noTemplateCurlyInString: the case is a literal CI template
+      // oxlint-disable-next-line no-template-curly-in-string -- the case is a literal CI template
       "| `CLOUD_SECRET_ACCESS_KEY` | `${{cold.SECRET_ACCESS_KEY}}` |",
     ],
     ["a word in a table", "| `MODEL_PROVIDER_API_KEY` | Usually | - |"],
@@ -2110,7 +2112,7 @@ describe("findSuspectedSecret", () => {
     ],
     [
       "a template in a URL",
-      // biome-ignore lint/suspicious/noTemplateCurlyInString: the case is a literal Compose template
+      // oxlint-disable-next-line no-template-curly-in-string -- the case is a literal Compose template
       "postgresql://${DB_USER:-app}:${DB_PASSWORD:-app}@postgres:5432/app",
     ],
     [

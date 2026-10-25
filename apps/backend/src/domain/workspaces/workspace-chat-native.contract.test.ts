@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
+
 import {
   modelMessagesToUIMessages,
   RUN_CANCEL_REASON,
@@ -12,6 +13,7 @@ import { eq } from "drizzle-orm"
 import { HttpResponse, http, passthrough } from "msw"
 import { setupServer } from "msw/node"
 import { expect, it, vi } from "vitest"
+
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
@@ -337,22 +339,12 @@ it.each([false, true])(
     const result = JSON.parse(stdout.trim().split("\n").at(-1) ?? "")
     expect(result).toEqual({
       ...(activeDisconnect
-        ? {
-            disconnectedBeforeTerminal: true,
-            abortedTerminal: true,
-            retryMadeOneModelCall: true,
-          }
+        ? { disconnectedBeforeTerminal: true, finishedAfterDisconnect: true }
         : {}),
       replayMatches: true,
       oneTerminal: true,
       noReplayModelCall: true,
-      freshTranscript: activeDisconnect
-        ? [
-            "First socket question",
-            "Question after disconnect",
-            "Native reply completed.",
-          ]
-        : ["First socket question", "Native reply completed."],
+      freshTranscript: ["First socket question", "Native reply completed."],
     })
   },
 )

@@ -1,6 +1,8 @@
 import { setTimeout as delay } from "node:timers/promises"
+
 import { type Span, SpanStatusCode } from "@opentelemetry/api"
 import { z } from "zod"
+
 import { type Env, parseEnv } from "../../config/env.js"
 import {
   IngestRefRefusedError,
@@ -56,6 +58,7 @@ import {
   listWorkspaceIngestStepFiles,
   pushWorkspaceIngestStep,
 } from "../../domain/workspaces/write-broker.js"
+import { WORKER_BOOT_ID, withCrashLoopGuard } from "../crash-loop.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import {
   cleanUpUnlessParked,
@@ -150,6 +153,33 @@ export type IngestionShardWorkspace = {
    * retraction, concept section 7.3). A repository-wide step has no root.
    */
   partialRoots: string[]
+  /**
+   * The steps that failed after their 3 attempts, by the cause of the last
+   * attempt (CTX-896). A page limit, a page with no op, and a broker refusal
+   * are `partial` but not here: a second run gets the same result.
+   */
+  stepFailures?: IngestStepFailures
+}
+
+/**
+ * The cause of the last failed attempt of a step: its time limit, a model
+ * error, or another cause. `crashLoop`: the step stopped the worker again and
+ * again (for example, out of memory), so the step did not run again.
+ */
+type IngestStepFailureKind = "timeLimit" | "model" | "other" | "crashLoop"
+export type IngestStepFailures = Partial<Record<IngestStepFailureKind, number>>
+
+/** The sum of step failure counts; undefined when no step failed. */
+export function addStepFailures(
+  ...counts: ReadonlyArray<IngestStepFailures | undefined>
+): IngestStepFailures | undefined {
+  const total: IngestStepFailures = {}
+  for (const count of counts)
+    for (const [kind, n] of Object.entries(count ?? {}) as Array<
+      [IngestStepFailureKind, number]
+    >)
+      total[kind] = (total[kind] ?? 0) + n
+  return Object.keys(total).length ? total : undefined
 }
 
 export type IngestionShardOutput = {
@@ -170,7 +200,7 @@ type StepResult = (
       more: boolean
       partial?: undefined
     }
-  | { partial: true }
+  | { partial: true; failed?: IngestStepFailureKind }
 ) & {
   /** The model usage of the step's attempts, when the runtime reports it (the recorded spend reads it). */
   usage?: IngestStepUsage
@@ -220,7 +250,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
       name: INGESTION_SHARD_WORKFLOW_NAME,
       schema: ingestionShardInputSchema,
     },
-    async ({ input, step }) => {
+    async ({ input, step, run }) => {
       const runShard = async (): Promise<IngestionShardOutput> => {
         const bundle = await deps.bundle()
         if (bundle.name !== input.bundle)
@@ -239,10 +269,11 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
         // makes a provider that cannot start fail the child soon.
         await step.run(
           { name: "ensure-sandbox", retryPolicy: { maximumAttempts: 2 } },
-          async () => {
-            await runtime.ensure()
-            return { ready: true }
-          },
+          () =>
+            withCrashLoopGuard(run.id, "ensure-sandbox", async () => {
+              await runtime.ensure()
+              return { ready: true }
+            }),
         )
         const skills = plannedIngestSkills(
           bundle.skills,
@@ -276,10 +307,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
               const current = state.get(destination.workspaceId)
               if (!current) continue
               await runSkillPages({
-                step: (name, fn) =>
-                  step.run({ name, retryPolicy: { maximumAttempts: 1 } }, () =>
-                    withIngestionOrg(input.orgId, fn),
-                  ),
+                step: guardedSkillStep(step, run.id, input.orgId),
                 run: input,
                 broker: workspaceSkillBroker({
                   orgId: input.orgId,
@@ -433,6 +461,33 @@ export function workspaceSkillBroker(input: {
   }
 }
 
+/**
+ * The `step` of `runSkillPages`: one `step.run` with no OpenWorkflow retry,
+ * in the org of the run. A step that stopped the worker again and again
+ * (CTX-971) ends `partial` with the `crashLoop` cause and does not run
+ * again; the run goes on with the next step.
+ */
+export function guardedSkillStep(
+  step: {
+    run: <O>(
+      config: { name: string; retryPolicy: { maximumAttempts: number } },
+      fn: () => Promise<O>,
+    ) => Promise<O>
+  },
+  workflowRunId: string,
+  orgId: string,
+): SkillPages["step"] {
+  return (name, fn) =>
+    step.run({ name, retryPolicy: { maximumAttempts: 1 } }, () =>
+      withCrashLoopGuard(
+        workflowRunId,
+        name,
+        () => withIngestionOrg(orgId, fn),
+        (): StepResult => ({ partial: true, failed: "crashLoop" }),
+      ),
+    )
+}
+
 type SkillPages = {
   /** One workflow step: `step.run` with no OpenWorkflow retry. */
   step: (name: string, fn: () => Promise<StepResult>) => Promise<StepResult>
@@ -487,6 +542,10 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     )
     if (result.partial) {
       failed()
+      if (result.failed)
+        state.stepFailures = addStepFailures(state.stepFailures, {
+          [result.failed]: 1,
+        })
       return
     }
     state.tip = result.tip
@@ -571,11 +630,22 @@ async function attemptSkillStep(
 ): Promise<StepResult> {
   const { run, destination, ref, runBase, broker } = ctx
   let reason = ""
+  let failed: IngestStepFailureKind = "other"
   let usage: IngestStepUsage | undefined
   const withUsage = <T extends object>(result: T) =>
     usage ? { ...result, usage } : result
   for (let attempt = 1; attempt <= STEP_ATTEMPTS; attempt++) {
     span.setAttribute("ctxpipe.ingest.attempts", attempt)
+    // The span of a step that stops the worker is never exported; this
+    // event names the step that was in progress (CTX-971).
+    logIngestEvent("info", "ingestion-v2.step-attempt-started", {
+      ingestionRunId: run.runId,
+      ...(run.shard === undefined ? {} : { shard: run.shard }),
+      workspaceId: destination.workspaceId,
+      ingestStep: ctx.name,
+      attempt,
+      workerBootId: WORKER_BOOT_ID,
+    })
     // Where the attempt is, for the log of a failed attempt.
     let stage: "find" | "list-files" | "runtime" | "push" = "find"
     const signal = ingestStepSignal()
@@ -635,7 +705,7 @@ async function attemptSkillStep(
           workspaceId: destination.workspaceId,
           ingestStep: ctx.name,
           reason:
-            "The model step reported no usage: the spend of the run is unknown, and the recorded spend counts only the known part",
+            "The model step reported no usage, or the worker kept only a part of it: the spend of the run is unknown, and the recorded spend counts only the known part",
         })
       usage = addIngestUsage(usage, stepUsage)
       stage = "push"
@@ -697,6 +767,11 @@ async function attemptSkillStep(
       // attempt failed (the stage, the step command and its exit code, or
       // the time limit) and the fields of `ingestErrorFields`.
       const command = error instanceof IngestStepCommandError ? error : null
+      failed = signal.aborted
+        ? "timeLimit"
+        : command?.model?.errors.length
+          ? "model"
+          : "other"
       logIngestEvent("warn", "ingestion-v2.step-attempt-failed", {
         ingestionRunId: run.runId,
         ...(run.shard === undefined ? {} : { shard: run.shard }),
@@ -722,7 +797,10 @@ async function attemptSkillStep(
     }
   }
   logStepPartial(ctx, ctx.name, reason)
-  return withUsage({ partial: true as const })
+  return withUsage({
+    partial: true as const,
+    ...(reason === "step_failed" ? { failed } : {}),
+  })
 }
 
 function addIngestUsage(

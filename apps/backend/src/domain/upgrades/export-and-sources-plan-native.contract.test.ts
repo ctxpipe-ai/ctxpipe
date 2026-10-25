@@ -1,7 +1,9 @@
 import { execFileSync } from "node:child_process"
+
 import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, expect, it } from "vitest"
 import { parse } from "yaml"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { claims } from "../../db/schema/claims.js"
@@ -96,6 +98,7 @@ async function readTree(pack: GitPack) {
       return { paths: [...modes.keys()], modes, text }
     },
     pack,
+    null,
   )
 }
 
@@ -259,12 +262,12 @@ it(
           "Linked https://github.com/team-b/lost as a plain git source in `sources/git/github.com/team-b-lost.md`. Fresh ingestion reads it over HTTPS with no credential.",
         )
         expect(report).toContain(
-          "Not linked: https://gitlab.com:8443/team-c/tools. ctx| does not read it as a plain git source: A plain git URL must use the default HTTPS port. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported. ctx| keeps its knowledge and exports it.",
+          "Not linked: https://gitlab.com:8443/team-c/tools. ctxpipe does not read it as a plain git source: A plain git URL must use the default HTTPS port. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported. ctxpipe keeps its knowledge and exports it.",
         )
         // Step 1 runs the DNS rule too: a private answer is not linked. The
         // report states the protocol rule, as the repositories route does.
         expect(report).toContain(
-          "Not linked: https://hidden.example.com/team-e/hidden. ctx| does not read it as a plain git source: The host hidden.example.com of the plain git URL has no public address. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported. ctx| keeps its knowledge and exports it.",
+          "Not linked: https://hidden.example.com/team-e/hidden. ctxpipe does not read it as a plain git source: The host hidden.example.com of the plain git URL has no public address. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported. ctxpipe keeps its knowledge and exports it.",
         )
         expect(
           tree.paths.filter((path) => path.startsWith("sources/git/hidden")),
@@ -381,7 +384,7 @@ it(
               /^Kept 2 knowledge item\(s\) from .*Ingestion v2 does not ingest it/,
             ),
             expect.stringMatching(
-              /^Not exported, because ctx\| makes it again: 0 item\(s\) from source repositories .*, 1 item\(s\) from Workspace repositories /,
+              /^Not exported, because ctxpipe makes it again: 0 item\(s\) from source repositories .*, 1 item\(s\) from Workspace repositories /,
             ),
           ]),
         )
@@ -480,7 +483,7 @@ it(
         })
         const report = (await runStep(f)).steps[0]?.report ?? []
         expect(report).toContain(
-          "Not linked: https://gitlab.com:8443/team-c/tools. ctx| does not read it as a plain git source: A plain git URL must not have a user name or a password. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported. ctx| keeps its knowledge and exports it.",
+          "Not linked: https://gitlab.com:8443/team-c/tools. ctxpipe does not read it as a plain git source: A plain git URL must not have a user name or a password. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported. ctxpipe keeps its knowledge and exports it.",
         )
         expect(report.join("\n")).not.toContain("s3cr3t-token")
         expect(report.join("\n")).not.toContain("deploy:")

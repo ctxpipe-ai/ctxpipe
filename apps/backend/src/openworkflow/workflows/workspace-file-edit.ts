@@ -1,7 +1,9 @@
 import { z } from "zod"
+
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { hostOnlyRefusal } from "../../domain/workspaces/host-only.js"
+import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -31,6 +33,7 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
+import { log } from "../../observability/logger.js"
 import { repositoryFilePathSchema } from "../../services/git/file-change.js"
 import { readGitFiles } from "../../services/git/pack.js"
 import {
@@ -77,6 +80,12 @@ export const workspaceFileEdit = defineWorkflow(
       "workspace-write-ui-file-edit",
       async () => {
         const env = parseEnv(process.env)
+        // Read access to the bound repository, from the workflow input (CTX-955).
+        const read = workspaceGitRead({
+          orgId: input.orgId,
+          env,
+          remote: input.revision.remote,
+        })
         let revision = input.revision
         const repositoryName = githubRepoFullNameFromWorkspaceUrl(
           revision.remote.url,
@@ -121,6 +130,32 @@ export const workspaceFileEdit = defineWorkflow(
           )
           throw new Error(refusal)
         }
+        // Always update writes only the format file. After that write is
+        // done and its job is marked, a scan starts the waiting upgrades of
+        // the org with no click, also after the user left the page that asked
+        // for it. The setting is already saved by then, so a failed enqueue
+        // is logged and does not change the job. The scan workflow imports
+        // the write path, so the import is late.
+        const scanAfterSetting = async () => {
+          if (!input.files.some((file) => file.path === WORKSPACE_FORMAT_PATH))
+            return
+          await step.run({ name: "enqueue-upgrade-scan" }, async () => {
+            try {
+              const { enqueueWorkspaceUpgradeScan } =
+                await import("./workspace-upgrade-scan.js")
+              await enqueueWorkspaceUpgradeScan({
+                orgId: input.orgId,
+                trigger: `setting:${input.jobId}`,
+              })
+            } catch (error) {
+              log.error({
+                action: "workspace_file_edit.upgrade_scan_enqueue_failed",
+                jobId: input.jobId,
+                error: error instanceof Error ? error.message : String(error),
+              })
+            }
+          })
+        }
         for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
           let acquired: NonNullable<
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
@@ -151,7 +186,12 @@ export const workspaceFileEdit = defineWorkflow(
               // Root-relative paths below the Workspace root folder.
               const existing = new Map(
                 (
-                  await readGitFiles(acquired.pack, (path) => named.has(path))
+                  await readGitFiles(
+                    acquired.pack,
+                    (path) => named.has(path),
+                    undefined,
+                    read,
+                  )
                 ).map((file) => [file.path, file.content]),
               )
               // The format file changes only in its upgrade setting: a merged
@@ -169,7 +209,7 @@ export const workspaceFileEdit = defineWorkflow(
                     : null
                 if (content === null)
                   throw new Error(
-                    `${WORKSPACE_FORMAT_PATH} is not valid. ctx| cannot change its upgrade setting.`,
+                    `${WORKSPACE_FORMAT_PATH} is not valid. ctxpipe cannot change its upgrade setting.`,
                   )
                 return { path: file.path, content }
               })
@@ -195,19 +235,22 @@ export const workspaceFileEdit = defineWorkflow(
             await step.run({ name: "complete-no-op" }, () =>
               persistWriteJobStatus(input.jobId, "completed"),
             )
+            await scanAfterSetting()
             return {
               committed: false as const,
               reason: "no_changes" as const,
             }
           }
           const staged = await step.run({ name: "stage" }, () =>
-            stageGitFiles(acquired.pack, files, changes.deletePaths),
+            stageGitFiles(acquired.pack, files, changes.deletePaths, read),
           )
           await step.run({ name: "validate" }, () =>
-            validateGitTree(staged, [
-              ...files.map((file) => file.path),
-              ...changes.deletePaths,
-            ]),
+            validateGitTree(
+              staged,
+              [...files.map((file) => file.path), ...changes.deletePaths],
+              {},
+              read,
+            ),
           )
           const subject = await step.run({ name: "commit-subject" }, () =>
             generateCommitSubject({
@@ -220,10 +263,14 @@ export const workspaceFileEdit = defineWorkflow(
             }),
           )
           const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(staged, {
-              subject,
-              createdAt: run.createdAt,
-            })
+            const pack = await commitGitTree(
+              staged,
+              {
+                subject,
+                createdAt: run.createdAt,
+              },
+              read,
+            )
             await persistWriteJobPreparedCommit(input.jobId, pack.sha)
             return pack
           })
@@ -259,6 +306,7 @@ export const workspaceFileEdit = defineWorkflow(
                 result.committed ? result.commitSha : null,
               ),
             )
+            await scanAfterSetting()
             return result
           }
           const published = await step.run({ name: "publish-result" }, () =>
@@ -278,6 +326,7 @@ export const workspaceFileEdit = defineWorkflow(
           await step.run({ name: "complete" }, () =>
             persistWriteJobCommitSha(input.jobId, committed.sha),
           )
+          await scanAfterSetting()
           return { committed: true as const, commitSha: committed.sha }
         }
         throw new Error("Default branch kept changing during no-op validation")

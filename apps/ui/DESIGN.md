@@ -8,6 +8,8 @@ Product chrome uses one radius: `rounded-md` (0.2rem). Apply it to new or touche
 
 Implementation process: [`.agents/skills/product-ui/SKILL.md`](../../.agents/skills/product-ui/SKILL.md). React data flow: [`.agents/skills/react/SKILL.md`](../../.agents/skills/react/SKILL.md). Stories: [`.agents/skills/storybook/SKILL.md`](../../.agents/skills/storybook/SKILL.md).
 
+**Product name:** In text, write the product name as "ctxpipe". Use "ctx|" only in the logo.
+
 ## Personality (copy these)
 
 - **Corners:** `rounded-md` (0.2rem). The `@theme` block in [`styles.css`](src/styles.css) sets every `--radius-*` step to 0.2rem, so each `rounded-*` step gives the same small corner. Use `rounded-full` only for a circle (status dot, switch thumb, radio, slider, progress bar). Do not use it for a pill. Do not add `rounded-none`.

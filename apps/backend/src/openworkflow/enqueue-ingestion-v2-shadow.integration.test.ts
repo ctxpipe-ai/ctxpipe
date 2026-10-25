@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { connections } from "../db/schema/connections.js"
@@ -123,7 +124,7 @@ describe("ingestion v2 shadow trigger", () => {
     })
   })
 
-  it("queues nothing for a repository URL that ctx| does not read as plain git", async () => {
+  it("queues nothing for a repository URL that ctxpipe does not read as plain git", async () => {
     for (const [index, gitUrl] of [
       "http://git.example.com/acme/plain.git",
       "https://token@git.example.com/acme/plain.git",

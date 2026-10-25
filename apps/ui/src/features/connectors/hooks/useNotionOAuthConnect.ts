@@ -2,6 +2,7 @@ import HyperDX from "@hyperdx/browser"
 import { useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { toast } from "sonner"
+
 import {
   consumeNotionSetupPopupResult,
   NOTION_POPUP_NAME,
@@ -9,6 +10,7 @@ import {
   openCenteredPopup,
   useWatchPopupClose,
 } from "@/lib/popup"
+
 import {
   fetchNotionOAuthStart,
   NotionOAuthNotConfiguredError,

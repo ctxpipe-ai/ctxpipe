@@ -1,4 +1,4 @@
-import { z } from "zod"
+import type { z } from "zod"
 
 /**
  * The scope part of one `.ctxpipe/sources.yaml` entry for one provider.
@@ -27,4 +27,3 @@ export type SourceScopeDefinition<
   /** A short summary for settings and "Used in", for example "3 spaces". */
   summarize(scope: S): string
 }
-

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
+
 import {
   isZoektShardBasenameForName,
+  parseZoektShardBasename,
   zoektRepositoryName,
   zoektShardFilePrefix,
 } from "./shardPrefix.js"
@@ -90,5 +92,40 @@ describe("isZoektShardBasenameForName", () => {
     expect(
       isZoektShardBasenameForName("owner%2Frepo_v16.00000.zoekt", zoektName),
     ).toBe(false)
+  })
+})
+
+describe("parseZoektShardBasename", () => {
+  const zoektName = zoektRepositoryName({
+    orgId: "org_alpha",
+    repoId: "repo_main",
+    checkoutKey: "ws:ws_1",
+  })
+  const shard = `${zoektShardFilePrefix(zoektName)}v16.00000.zoekt`
+
+  it("reads the name of a shard, its .meta sidecar, and a temporary file", () => {
+    expect(parseZoektShardBasename(shard)).toEqual({
+      zoektName,
+      temporary: false,
+    })
+    expect(parseZoektShardBasename(`${shard}.meta`)).toEqual({
+      zoektName,
+      temporary: false,
+    })
+    expect(parseZoektShardBasename(`${shard}.456.tmp`)).toEqual({
+      zoektName,
+      temporary: true,
+    })
+  })
+
+  it("gives null for other files and a bad encoding", () => {
+    expect(parseZoektShardBasename("notes.txt")).toBeNull()
+    expect(parseZoektShardBasename("bad%E0_v16.00000.zoekt")).toBeNull()
+  })
+
+  it("does not match a temporary file to its name", () => {
+    expect(isZoektShardBasenameForName(`${shard}.456.tmp`, zoektName)).toBe(
+      false,
+    )
   })
 })

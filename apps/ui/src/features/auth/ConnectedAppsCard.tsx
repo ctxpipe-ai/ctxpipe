@@ -1,6 +1,7 @@
 import { IconPlugConnected, IconTrash } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
+
 import { Button } from "@/components/ui/Button"
 import {
   Card,
@@ -30,9 +31,7 @@ import { useListOrganizations } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
 import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
 
-type ConnectedApp = Awaited<
-  ReturnType<typeof fetchConnectedApps>
->[number]
+type ConnectedApp = Awaited<ReturnType<typeof fetchConnectedApps>>[number]
 
 async function fetchConnectedApps() {
   const res = await userClient.api.v1.me["connected-apps"].$get()
@@ -121,7 +120,7 @@ export function ConnectedAppsCard() {
         <CardHeader>
           <CardTitle>Connected apps</CardTitle>
           <CardDescription className="max-w-prose">
-            Apps that you connected to ctx| with OAuth, for example an MCP
+            Apps that you connected to ctxpipe with OAuth, for example an MCP
             client. Each app can reach only the organizations you select.
           </CardDescription>
         </CardHeader>

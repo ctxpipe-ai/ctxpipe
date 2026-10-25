@@ -1,5 +1,6 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
+
 import type { AppEnv } from "../app/env.js"
 import { checkoutKeyFromAuth, indexCheckoutFromAuth } from "../auth/jwt.js"
 import { isTransientDbConnectionError } from "../db/transient.js"
@@ -21,6 +22,7 @@ import {
 } from "../domain/indexing/phases.js"
 import {
   repoCheckoutPath,
+  repoSharedClonePath,
   scipIndexPath,
 } from "../domain/repositories/paths.js"
 import {
@@ -343,6 +345,7 @@ async function resolvePhaseContext(
       repoGitUrl: repo.gitUrl,
       checkoutKey,
       clonePath: repoCheckoutPath(repo.orgId, repo.id, checkoutKey),
+      sharedClonePath: repoSharedClonePath(repo.orgId, repo.id),
       scipIndexPath: scipIndexPath(repo.orgId, repo.id, checkoutKey),
       zoektRepoId: indexable.zoektRepoId,
       zoektName: zoektRepositoryName({

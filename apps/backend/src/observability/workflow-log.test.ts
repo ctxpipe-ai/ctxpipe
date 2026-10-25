@@ -1,5 +1,6 @@
 import { initLogger } from "evlog"
 import { afterEach, describe, expect, it } from "vitest"
+
 import { withTestLogger } from "../test/with-test-logger.js"
 import { flushWorkflowLog, getLogger } from "./logger.js"
 

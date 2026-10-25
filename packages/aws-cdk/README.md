@@ -305,6 +305,31 @@ That deploy:
 - creates the `ctxpipe_app` LOGIN role (no `BYPASSRLS`) during the migrate task if it is missing, then rewrites the runtime `DATABASE_URL` secret to that role. Do not run `psql`, add `CtxPipe` props, or put a second connection string in your CDK app. Image-tag-only rolls without a construct bump do not create the role.
 - adds the chat sandbox host on the first upgrade that includes it (new resources only; nothing that holds data is replaced). The deploy waits for the host to report ready before it rolls backend and worker.
 
+### Aurora PostgreSQL minor version
+
+The construct pins Aurora PostgreSQL 16.13. This is the version for new clusters. It is also the target when CloudFormation upgrades an existing cluster in place. It does not replace the cluster. The pin does not stop automatic minor version upgrades. Those stay on, so AWS can move a cluster to a newer 16.x minor.
+
+CloudFormation cannot move a cluster to a lower minor version. If your cluster is on 16.14 or later, the deploy fails with `Cannot upgrade aurora-postgresql from 16.x to 16.13` and rolls back. Nothing changes. This can happen after an automatic minor upgrade. You do not need to change anything by hand.
+
+Before your first deploy of this version, read the cluster version:
+
+```bash
+aws rds describe-db-clusters \
+  --query "DBClusters[?Engine=='aurora-postgresql'].[DBClusterIdentifier,EngineVersion]" \
+  --output table
+```
+
+If the version is 16.13 or lower, deploy as usual. If it is higher, set that version on the cluster in your CDK app, then deploy:
+
+```ts
+import * as rds from "aws-cdk-lib/aws-rds";
+
+const ctxpipe = new CtxPipe(stack, "CtxPipe", { /* ... */ });
+const cluster = ctxpipe.node.findChild("DataPlane").node.findChild("Database")
+  .node.defaultChild as rds.CfnDBCluster;
+cluster.engineVersion = "16.15"; // the EngineVersion that `aws rds describe-db-clusters` shows
+```
+
 
 ## Environment checklist
 

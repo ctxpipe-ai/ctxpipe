@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm"
+
 import { withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema/repositories.js"
 import type {
@@ -18,7 +19,7 @@ type IngestionV2ShadowStart =
       started: false
       /**
        * `unsupported_url`: a repository with no GitHub connection whose URL
-       * is not a plain git URL that ctx| reads (CTX-815).
+       * is not a plain git URL that ctxpipe reads (CTX-815).
        */
       reason: "unsupported_url" | "repository_gone"
     }
@@ -64,7 +65,7 @@ export function startIngestionV2Publish(
 
 /**
  * The ingestion source of an org repository: a GitHub repository with its
- * connection, else a plain git repository that ctx| reads with no
+ * connection, else a plain git repository that ctxpipe reads with no
  * credential under the plain git URL policy of the deployment mode, as the
  * old ingestion on main read it (CTX-815). Null when neither applies.
  */

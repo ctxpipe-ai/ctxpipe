@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { beforeAll, expect, it, vi } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
@@ -35,7 +36,7 @@ function pull(number: number, branch: string) {
     number,
     html_url: `https://github.com/fixture/hydration-contract/pull/${number}`,
     head: { ref: branch, repo: { full_name: "fixture/hydration-contract" } },
-    // ctx| opens each pull request as its GitHub App.
+    // ctxpipe opens each pull request as its GitHub App.
     user: { type: "Bot", login: "ctxpipe-fixture[bot]" },
     created_at: "2026-10-13T10:00:00Z",
   }

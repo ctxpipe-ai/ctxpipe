@@ -1,4 +1,5 @@
 import { isSpanContextValid, trace } from "@opentelemetry/api"
+
 import { ATTRIBUTION_KEYS, readAttribution } from "./attribution.js"
 import { flattenDbErrorCause } from "./scrubDbError.js"
 

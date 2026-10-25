@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { ingestOpenCodeConfig } from "./ingest-opencode.js"
 
 describe("ingest OpenCode config", () => {

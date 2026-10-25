@@ -1,4 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
@@ -12,6 +13,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import { recordSpans } from "../../../test/spans.js"
 import type { AppEnv } from "../../app/env.js"
@@ -65,7 +67,6 @@ async function record(request: Request): Promise<unknown> {
   return body
 }
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
   http.post(`${CODESEARCH}/:repositoryId/files-query`, async ({ request }) => {
     const body = (await record(request)) as { paths: string[] }
@@ -254,8 +255,7 @@ function checkoutsOf(org: Pick<Org, "source" | "context">) {
     },
     {
       repositoryId: org.context,
-      checkoutKey: `ws:${workspaceId}:${CONTEXT_SHA}`,
-      sha: CONTEXT_SHA,
+      checkoutKey: `ws:${workspaceId}`,
     },
   ]
 }
@@ -309,9 +309,8 @@ afterAll(async () => {
       .where(eq(organizations.id, org.orgId))
   }
   await backend.stop()
-  const { closeOpenWorkflowClient } = await import(
-    "../../openworkflow/client.js"
-  )
+  const { closeOpenWorkflowClient } =
+    await import("../../openworkflow/client.js")
   await closeOpenWorkflowClient()
   await closeDb()
 })
@@ -338,7 +337,7 @@ describe("ingest tool bridge through registerV1Routes (Postgres, msw codesearch)
     expect(names).not.toContain("list_repositories")
     const checkouts = await callTool(token, "list_checkouts", {})
     expect(checkouts.text).toContain(`rev:${SOURCE_SHA}`)
-    expect(checkouts.text).toContain(`ws:${workspaceId}:${CONTEXT_SHA}`)
+    expect(checkouts.text).toContain(`ws:${workspaceId}`)
   })
 
   it("runs get_file, search, structural_search, and a graph tool on the source checkout with its revision claim", async () => {
@@ -377,20 +376,21 @@ describe("ingest tool bridge through registerV1Routes (Postgres, msw codesearch)
     expect(seen[1]?.body).not.toHaveProperty("RepoIDs")
   })
 
-  it("searches a destination Workspace checkout with its Workspace revision claim", async () => {
+  it("searches a destination Workspace checkout with its Workspace repository claim", async () => {
     const org = await createOrg()
     const { token } = await step(org)
     const result = await callTool(token, "search", {
       repositoryId: org.context,
-      checkoutKey: `ws:${workspaceId}:${CONTEXT_SHA}`,
+      checkoutKey: `ws:${workspaceId}`,
       query: "billing",
     })
     expect(result.isError).toBe(false)
     expect(seen).toHaveLength(1)
     expect(seen[0]?.claims).toMatchObject({
       workspaceId,
-      workspaceRevisions: [{ repositoryId: org.context, sha: CONTEXT_SHA }],
+      workspaceRepositoryIds: [org.context],
     })
+    expect(seen[0]?.claims).not.toHaveProperty("workspaceRevisions")
     expect(seen[0]?.claims).not.toHaveProperty("repositoryRevisions")
     expect(seen[0]?.body).not.toHaveProperty("RepoIDs")
   })
@@ -402,9 +402,9 @@ describe("ingest tool bridge through registerV1Routes (Postgres, msw codesearch)
       { repositoryId: org.source, checkoutKey: `rev:${OTHER_SHA}` },
       {
         repositoryId: org.context,
-        checkoutKey: `ws:${workspaceId}:${OTHER_SHA}`,
+        checkoutKey: `ws:${workspaceId}:${CONTEXT_SHA}`,
       },
-      { repositoryId: org.context, checkoutKey: `ws:ws_other:${CONTEXT_SHA}` },
+      { repositoryId: org.context, checkoutKey: "ws:ws_other" },
       { repositoryId: org.context, checkoutKey: `rev:${SOURCE_SHA}` },
       { repositoryId: "repo_other", checkoutKey: `rev:${SOURCE_SHA}` },
       { repositoryId: org.source },

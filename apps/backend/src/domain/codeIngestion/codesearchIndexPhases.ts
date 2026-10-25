@@ -1,4 +1,5 @@
 import { z } from "zod"
+
 import type { CheckedPlainGitRemote } from "../../../../../shared/plain-git.js"
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
@@ -59,8 +60,6 @@ export type CodesearchIndexAuth = {
   repositoryId: string
   orgId: string
   repositoryRevisions?: Array<{ repositoryId: string; sha: string }>
-  workspaceId?: string
-  workspaceRevisions?: Array<{ repositoryId: string; sha: string }>
 }
 
 async function authorizedCodesearchFetch(
@@ -79,10 +78,6 @@ async function authorizedCodesearchFetch(
       ...(auth.repositoryRevisions
         ? { repositoryRevisions: auth.repositoryRevisions }
         : {}),
-      ...(auth.workspaceRevisions
-        ? { workspaceRevisions: auth.workspaceRevisions }
-        : {}),
-      ...(auth.workspaceId ? { workspaceId: auth.workspaceId } : {}),
     },
   })
   return fetch(`${codesearchBaseUrl()}/${auth.repositoryId}${path}`, {

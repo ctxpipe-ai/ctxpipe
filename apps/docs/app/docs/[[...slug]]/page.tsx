@@ -14,7 +14,9 @@ import {
 import type { Metadata } from "next"
 import { notFound, redirect } from "next/navigation"
 import type { ComponentProps, ComponentType } from "react"
+
 import { source } from "@/lib/source"
+
 import { ConfluenceDataFlowDiagram } from "../components/confluence-data-flow-diagram"
 import { ConfluenceDataModelDiagram } from "../components/confluence-data-model-diagram"
 import { Card, Cards } from "../components/docs-card"
@@ -102,7 +104,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const data = page.data as DocPageData
   return {
-    title: `${data.title} - ctx| docs`,
+    title: `${data.title} - ctxpipe docs`,
     description: data.description,
   }
 }

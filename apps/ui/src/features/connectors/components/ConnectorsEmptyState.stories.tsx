@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+
 import { ConnectorsEmptyState } from "./ConnectorsEmptyState"
 
 const meta = {
@@ -21,5 +22,6 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const EmptyState: Story = {
-  render: () => <ConnectorsEmptyState onAddConnection={() => {}} />,
+  args: { onAddConnection: () => {} },
+  render: (args) => <ConnectorsEmptyState {...args} />,
 }

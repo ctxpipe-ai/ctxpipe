@@ -1,4 +1,5 @@
 import { z } from "zod"
+
 import { parseEnv } from "../../config/env.js"
 import {
   chooseUpgradeBranch,
@@ -22,6 +23,7 @@ import {
   upgradeJobId,
   upgradeTargetFormat,
 } from "../../domain/upgrades/registry.js"
+import { runUpgradeStage } from "../../domain/upgrades/run-stage.js"
 import { resolveRepositoryReadCredential } from "../../domain/workspaces/resolve-revision.js"
 import {
   type WorkspaceRevision,
@@ -40,6 +42,7 @@ import {
   transitionWorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
 import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
 import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
 import { readGitFiles, readGitPackFromRemote } from "../../services/git/pack.js"
 import {
@@ -96,8 +99,14 @@ async function buildAndPushUpgrade(input: {
   steps: readonly GitUpgradeStep[]
   targetFormat: number
   createdAt: Date
+  runId: string
 }): Promise<z.infer<typeof builtSchema>> {
   const { orgId, workspaceId } = input.upgrade
+  const stage = <T>(name: "read" | "build" | "push", work: () => Promise<T>) =>
+    runUpgradeStage(
+      { workspaceId, key: input.upgrade.key, runId: input.runId, stage: name },
+      work,
+    )
   const env = parseEnv(process.env)
   const admission = await getWorkspaceWriteAdmission(workspaceId)
   if (!admission) throw new Error("The Workspace has no repository binding")
@@ -106,7 +115,8 @@ async function buildAndPushUpgrade(input: {
   if (admission.writeStatus === "read_only")
     return {
       kind: "blocked",
-      note: admission.readOnlyReason ?? "ctx| cannot write to this repository.",
+      note:
+        admission.readOnlyReason ?? "ctxpipe cannot write to this repository.",
     }
   const revision: WorkspaceRevision = { ...admission.revision, access: "read" }
   const token = await resolveRepositoryReadCredential({
@@ -114,59 +124,65 @@ async function buildAndPushUpgrade(input: {
     env,
     remote: revision.remote,
   })
-  const pack = await readGitPackFromRemote({
-    url: revision.remote.url,
-    sha: revision.sha,
-    token,
-    root: workspaceRootPath(revision),
+  const { pack, read } = await stage("read", async () => {
+    const pack = await readGitPackFromRemote({
+      url: revision.remote.url,
+      sha: revision.sha,
+      token,
+      root: workspaceRootPath(revision),
+    })
+    const [file] = await readGitFiles(
+      pack,
+      (path) => path === WORKSPACE_FORMAT_PATH,
+      undefined,
+      null,
+    )
+    return { pack, read: readWorkspaceFormat(file?.content ?? null) }
   })
-  const [file] = await readGitFiles(
-    pack,
-    (path) => path === WORKSPACE_FORMAT_PATH,
-  )
-  const read = readWorkspaceFormat(file?.content ?? null)
   if (read.kind === "invalid")
     throw new Error(`${WORKSPACE_FORMAT_PATH} is not valid: ${read.error}`)
   if (read.format >= input.targetFormat || read.format > CODE_FORMAT)
     return { kind: "current", format: read.format }
-  const built = await buildUpgradeCommits({
-    pack,
-    steps: input.steps,
-    fromFormat: read.format,
-    targetFormat: input.targetFormat,
-    ctx: {
-      orgId,
-      workspaceId,
-      baseSha: revision.sha,
-      remote: {
-        url: revision.remote.url,
-        connectionId: revision.remote.connectionId ?? null,
-      },
-      introducedAt: async () =>
-        new Map(
-          (
-            await listMarkdownFilesAtGitSha({
-              url: revision.remote.url,
-              sha: revision.sha,
-              token,
-              includeIntroducingCommits: true,
-              root: workspaceRootPath(revision),
-            })
-          ).flatMap((file) =>
-            file.introducingCommitTimestamp
-              ? [[file.path, file.introducingCommitTimestamp] as const]
-              : [],
+  const built = await stage("build", () =>
+    buildUpgradeCommits({
+      pack,
+      steps: input.steps,
+      fromFormat: read.format,
+      targetFormat: input.targetFormat,
+      ctx: {
+        orgId,
+        workspaceId,
+        baseSha: revision.sha,
+        remote: {
+          url: revision.remote.url,
+          connectionId: revision.remote.connectionId ?? null,
+        },
+        introducedAt: async () =>
+          new Map(
+            (
+              await listMarkdownFilesAtGitSha({
+                url: revision.remote.url,
+                sha: revision.sha,
+                token,
+                includeIntroducingCommits: true,
+                root: workspaceRootPath(revision),
+              })
+            ).flatMap((file) =>
+              file.introducingCommitTimestamp
+                ? [[file.path, file.introducingCommitTimestamp] as const]
+                : [],
+            ),
           ),
-        ),
-    },
-    createdAt: input.createdAt,
-  })
+      },
+      createdAt: input.createdAt,
+    }),
+  )
   const repositoryName = githubRepoFullNameFromWorkspaceUrl(revision.remote.url)
   const githubConnectionId = revision.remote.connectionId
   let branch = upgradeBranch(input.targetFormat)
   try {
     // A pull request of another person on the branch name keeps its branch:
-    // ctx| pushes to the next free suffixed name instead.
+    // ctxpipe pushes to the next free suffixed name instead.
     if (repositoryName && githubConnectionId)
       branch = chooseUpgradeBranch(
         await listUpgradePullRequests(
@@ -175,13 +191,15 @@ async function buildAndPushUpgrade(input: {
         ),
         branch,
       )
-    await pushUpgradeBranch({
-      orgId,
-      revision,
-      committed: built.pack,
-      branch,
-      env,
-    })
+    await stage("push", () =>
+      pushUpgradeBranch({
+        orgId,
+        revision,
+        committed: built.pack,
+        branch,
+        env,
+      }),
+    )
   } catch (error) {
     if (error instanceof UpgradeWriteAccessError)
       return { kind: "blocked", note: error.reason }
@@ -335,6 +353,7 @@ export function defineWorkspaceUpgrade(steps: readonly GitUpgradeStep[]) {
                       steps,
                       targetFormat,
                       createdAt: run.createdAt,
+                      runId: run.id,
                     }),
                 ),
               )
@@ -355,11 +374,15 @@ export function defineWorkspaceUpgrade(steps: readonly GitUpgradeStep[]) {
                   retryPolicy: { maximumAttempts: 3 },
                 },
                 () =>
-                  openOrUpdatePullRequest({
-                    orgId: input.orgId,
-                    built,
-                    targetFormat,
-                  }),
+                  runUpgradeStage(
+                    { workspaceId, key, runId: run.id, stage: "open" },
+                    () =>
+                      openOrUpdatePullRequest({
+                        orgId: input.orgId,
+                        built,
+                        targetFormat,
+                      }),
+                  ),
               )
               if (pull.kind === "stale") continue
               if (pull.kind === "blocked")
@@ -369,10 +392,15 @@ export function defineWorkspaceUpgrade(steps: readonly GitUpgradeStep[]) {
                     note: pull.note,
                   },
                 })
-              if (pull.kind === "failed")
+              if (pull.kind === "failed") {
+                getLogger().error(new Error(pull.reason), {
+                  step: "workspace-upgrade.failed",
+                  upgradeKey: key,
+                })
                 return finish(UPGRADE_STATUSES.failed, {
                   failureReason: pull.reason,
                 })
+              }
               return finish(UPGRADE_STATUSES.pr_open, {
                 desiredSha: built.revision.sha,
                 upgrade: {
@@ -387,10 +415,16 @@ export function defineWorkspaceUpgrade(steps: readonly GitUpgradeStep[]) {
               })
             }
             throw new Error(
-              "The default branch kept changing while ctx| opened the upgrade pull request",
+              "The default branch kept changing while ctxpipe opened the upgrade pull request",
             )
           } catch (error) {
             if (isWorkflowControlSignal(error)) throw error
+            // The row keeps a short reason for the card; the log keeps the
+            // error with its stack for the operator.
+            getLogger().error(
+              error instanceof Error ? error : new Error(String(error)),
+              { step: "workspace-upgrade.failed", upgradeKey: key },
+            )
             return finish(UPGRADE_STATUSES.failed, {
               failureReason:
                 error instanceof Error ? error.message : String(error),

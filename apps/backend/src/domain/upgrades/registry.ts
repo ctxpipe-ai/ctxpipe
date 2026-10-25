@@ -1,7 +1,7 @@
 import type { GitFileMode } from "../../services/git/file-change.js"
 import { CODE_FORMAT } from "../workspaces/workspace-format.js"
-import { exportAndSourcesStep } from "./steps/export-and-sources.js"
 import { ownershipMigrationStep, sourcesConversionStep } from "./steps.js"
+import { exportAndSourcesStep } from "./steps/export-and-sources.js"
 
 /**
  * The upgrades of a Workspace repository, in code (ADR-053 section 4).
@@ -67,7 +67,7 @@ export type UpgradeStepPlan = {
 }
 
 /**
- * A line for the user. `action`: the user must do something. `risk`: ctx|
+ * A line for the user. `action`: the user must do something. `risk`: ctxpipe
  * cannot keep or make again some knowledge or setting.
  */
 export type UpgradeNotice = { kind: "action" | "risk"; text: string }
@@ -125,7 +125,7 @@ export const UPGRADE_STATUSES = {
   pr_open: "pr_open",
   completed: "completed",
   failed: "failed",
-  /** It cannot start, for example because ctx| cannot write to the repository. */
+  /** It cannot start, for example because ctxpipe cannot write to the repository. */
   blocked: "blocked",
 } as const
 
@@ -133,7 +133,7 @@ export type UpgradeStatus =
   (typeof UPGRADE_STATUSES)[keyof typeof UPGRADE_STATUSES]
 
 export const UPGRADE_BLOCKED_REASONS = {
-  /** ctx| cannot push a branch or open a pull request on the repository. */
+  /** ctxpipe cannot push a branch or open a pull request on the repository. */
   writeAccess: "write_access",
   /** The re-ingestion needs format 3 or higher (G5). Merge the format upgrade first. */
   needsFormat: "needs_format",
@@ -216,6 +216,14 @@ export function upgradeRelease(
 }
 
 /**
+ * The stages of a git upgrade run, in order. The user sees them as the
+ * progress of "Preparing the pull request".
+ */
+export const UPGRADE_RUN_STAGES = ["read", "build", "push", "open"] as const
+
+export type UpgradeRunStage = (typeof UPGRADE_RUN_STAGES)[number]
+
+/**
  * The typed payload of an upgrade row (`workspace_write_jobs.payload.upgrade`).
  * The row is a cache of git and a run log: the scan makes it again from the
  * format file and the open pull requests.
@@ -235,6 +243,16 @@ export type WorkspaceUpgradePayload = {
   blockedReason?: UpgradeBlockedReason
   /** A note for the operator, for example why a pull request closed. */
   note?: string
+  /**
+   * Only on a git upgrade while its run prepares the pull request: the
+   * stage of the run and when it began. The model removes it when the row
+   * leaves `running`.
+   */
+  stage?: { name: UpgradeRunStage; since: string }
+  /** Only on a git upgrade: when the scan saw the merge of its pull request. */
+  mergedAt?: string
+  /** When the last scan checked this upgrade (Check again, a webhook or a release). */
+  checkedAt?: string
   /** The commits and reports of the last run, in step order. */
   steps?: Array<{
     format: number
@@ -260,6 +278,12 @@ export type WorkspaceUpgradePayload = {
    * why, and when the wait began. The run clears it when its turn comes.
    */
   waitingForSlot?: { reason: string; since: string }
+  /**
+   * Only on a re-ingestion that ctxpipe started again by itself, once, after a
+   * run failed for a temporary cause (CTX-896): the failed run. A start by
+   * the user removes it.
+   */
+  autoRetry?: { failedRunId: string }
 }
 
 /** A range from the p50 to the p90 value. */
@@ -293,7 +317,7 @@ export type ReingestRepositoryReport = {
   runId: string | null
   status: "pending" | "done" | "partial" | "skipped" | "failed"
   report: string[]
-  /** The model spend in USD of the ingestion run, from the usage that its steps report. */
+  /** The model spend in USD of the ingestion runs of the repository in this upgrade, from the usage that their steps report. A run that starts again adds to it. */
   spendUsd?: number
   /** A model step of the run reported no usage: `spendUsd` is only the known part. */
   spendUnknown?: boolean

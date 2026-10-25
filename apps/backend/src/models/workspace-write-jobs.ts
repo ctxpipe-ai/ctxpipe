@@ -1,8 +1,11 @@
 import { isDeepStrictEqual } from "node:util"
+
 import { and, eq, inArray, lt, ne, type SQL, sql } from "drizzle-orm"
+
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { workspaceWriteJobs } from "../db/schema/workspaces.js"
+import { safeFailureSummary } from "../domain/upgrades/failure.js"
 import type { UnbornBootstrapBinding } from "../domain/workspaces/bootstrap-input.js"
 import type { ConnectorMirrorSource } from "../domain/workspaces/connector-mirror.js"
 import type { IngestPublishSource } from "../domain/workspaces/extraction-source.js"
@@ -41,25 +44,51 @@ export async function getWriteJobCommitSha(
  * The status of one Files pane write job in a Workspace. Row-level security
  * keeps the read in the org of the caller; the Workspace and kind filters keep
  * it to Files pane jobs of that Workspace.
+ *
+ * A run that ended with an error before it recorded its result leaves the row
+ * `queued` or `running`. The read sets such a row to `failed` and gives the
+ * error of the run as the reason, so a caller that polls the job stops with
+ * a cause and does not wait for a result that never comes.
  */
 export async function getWorkspaceFileJobStatus(
   workspaceId: string,
   jobId: string,
 ): Promise<{ status: string; failureReason: string | null } | null> {
   return orgSql(async () => {
+    const forJob = [
+      eq(workspaceWriteJobs.id, jobId),
+      eq(workspaceWriteJobs.workspaceId, workspaceId),
+      eq(workspaceWriteJobs.kind, "ui_file_edit"),
+    ]
+    const failed = await failJobsWithEndedRun(
+      ...forJob,
+      inArray(workspaceWriteJobs.status, [
+        WRITE_JOB_STATUSES.queued,
+        WRITE_JOB_STATUSES.running,
+        WRITE_JOB_STATUSES.paused,
+      ]),
+    ).returning({
+      runId: sql<string>`${workspaceWriteJobs.payload}->>'workflowRunId'`,
+    })
+    if (failed.length > 0) {
+      const { rows } = await getOrgDb().execute<{ message: string | null }>(
+        sql`select error->>'message' as message from openworkflow.workflow_runs where id = ${failed[0]?.runId ?? null}`,
+      )
+      const summary = safeFailureSummary(rows[0]?.message ?? "")
+      await getOrgDb()
+        .update(workspaceWriteJobs)
+        .set({
+          payload: sql`jsonb_set(${workspaceWriteJobs.payload}, '{failureReason}', to_jsonb(${`The write stopped before it finished. ${summary || "ctxpipe recorded no reason."}`}::text))`,
+        })
+        .where(and(...forJob, eq(workspaceWriteJobs.status, "failed")))
+    }
     const [row] = await getOrgDb()
       .select({
         status: workspaceWriteJobs.status,
         payload: workspaceWriteJobs.payload,
       })
       .from(workspaceWriteJobs)
-      .where(
-        and(
-          eq(workspaceWriteJobs.id, jobId),
-          eq(workspaceWriteJobs.workspaceId, workspaceId),
-          eq(workspaceWriteJobs.kind, "ui_file_edit"),
-        ),
-      )
+      .where(and(...forJob))
       .limit(1)
     if (!row) return null
     return {

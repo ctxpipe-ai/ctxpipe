@@ -18,4 +18,3 @@ export const RetrievalPlanSchema = z.object({
   depthLimit: z.number().min(1).max(5).default(3),
   resultLimit: z.number().min(1).max(50).default(20),
 })
-

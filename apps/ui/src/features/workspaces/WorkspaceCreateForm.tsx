@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { type ReactNode, useState } from "react"
 import { Heading } from "react-aria-components"
+
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { InlineLoader } from "@/components/ui/InlineLoader"
@@ -12,6 +13,7 @@ import {
   useGithubEmptyAction,
   WorkspaceSources,
 } from "@/features/workspace-sources/WorkspaceSources"
+import { workspaceNeedsFormatUpgrade } from "@/features/workspace-upgrades/format-gate"
 import {
   upgradesRefetchInterval,
   workspaceUpgradesOptions,
@@ -19,6 +21,7 @@ import {
 import { formatHealthLine } from "@/features/workspace-upgrades/upgrade-copy"
 import { pollWhileOk } from "@/lib/api-result"
 import { workspaceCreatedFlag } from "@/lib/session-flags"
+
 import { WRITE_CHECK_POLL_CAP_MS, writeCheckInFlight } from "./projection"
 import {
   createWorkspace,
@@ -38,10 +41,7 @@ import {
  * The card is one skeleton chain, so a skeleton in the card can hand over to
  * the next one (see `SkeletonChain`).
  */
-function WorkspaceCreateFrame(props: {
-  step: 0 | 1
-  children: ReactNode
-}) {
+function WorkspaceCreateFrame(props: { step: 0 | 1; children: ReactNode }) {
   const steps = [
     { id: "repository", label: "Choose the Workspace repository" },
     { id: "sources", label: "Add code repositories and tools" },
@@ -359,7 +359,7 @@ function AddSourcesStep(props: {
         </InlineAlert>
       )
     // A format file that is not valid reads as a negative number. A format
-    // above the one that ctx| reads makes the Workspace read-only. Neither
+    // above the one that ctxpipe reads makes the Workspace read-only. Neither
     // case is fixed with an upgrade.
     const { formatVersion, codeFormat } = upgrades
     if (formatVersion < 0 || formatVersion > codeFormat)
@@ -368,9 +368,7 @@ function AddSourcesStep(props: {
           {formatHealthLine(formatVersion, codeFormat)}
         </InlineAlert>
       )
-    // Copy of SOURCE_FILES_FORMAT in apps/backend/src/domain/workspaces/workspace-format.ts.
-    const sourceFilesFormat = 2
-    if (formatVersion < sourceFilesFormat)
+    if (workspaceNeedsFormatUpgrade({ items: [], formatVersion, codeFormat }))
       return (
         <InlineAlert
           variant="warning"
@@ -390,7 +388,7 @@ function AddSourcesStep(props: {
             </Button>
           }
         >
-          Sources need repository format 2 or higher. An owner or admin starts
+          Sources need the newest repository format. An owner or admin starts
           the upgrade. It opens a pull request. Merge it, then add sources.
         </InlineAlert>
       )

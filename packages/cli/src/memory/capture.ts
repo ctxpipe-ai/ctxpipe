@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto"
 import {
   appendFileSync,
   existsSync,
@@ -6,13 +7,19 @@ import {
   writeFileSync,
 } from "node:fs"
 import { join } from "node:path"
-import { createHash, randomUUID } from "node:crypto"
+
 import { resolveRepoRoot } from "./paths.js"
 import { uncommittedMemory } from "./uncommitted.js"
 
 export { resolveRepoRoot } from "./paths.js"
 
-export type CaptureHost = "cursor" | "claude" | "codex" | "opencode" | "vscode" | "unknown"
+export type CaptureHost =
+  | "cursor"
+  | "claude"
+  | "codex"
+  | "opencode"
+  | "vscode"
+  | "unknown"
 
 type ClassificationKind = "lesson" | "decision" | "requirement" | "glossary"
 
@@ -45,7 +52,8 @@ const CLASSIFIERS: Array<{
   {
     kind: "decision",
     destination: ".ai/memory/decisions/",
-    action: "Capture via capture-adr or capture-decision skill; update decisions/index.md",
+    action:
+      "Capture via capture-adr or capture-decision skill; update decisions/index.md",
     patterns: [
       /\b(we (decided|chose|picked)|decision:|out of scope)\b/i,
       /\b(going with|will use|won't use)\b/i,
@@ -170,7 +178,8 @@ export function classifyText(text: string): Classification[] {
     hits.push({
       kind: "lesson",
       destination: ".ai/memory/lessons-learned.md",
-      action: "Append a durable fact/lesson with Rule / Category / Date / Source",
+      action:
+        "Append a durable fact/lesson with Rule / Category / Date / Source",
       confidence: "medium",
     })
   }
@@ -180,7 +189,8 @@ export function classifyText(text: string): Classification[] {
 function asString(value: unknown): string {
   if (typeof value === "string") return value
   if (value == null) return ""
-  if (typeof value === "number" || typeof value === "boolean") return String(value)
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value)
   try {
     return JSON.stringify(value)
   } catch {
@@ -216,7 +226,10 @@ export function extractWorkspaceCwd(
   const roots = extractWorkspaceRoots(payload)
   if (filePath && roots.length > 0) {
     const match = roots
-      .filter((r) => filePath === r || filePath.startsWith(r.endsWith("/") ? r : `${r}/`))
+      .filter(
+        (r) =>
+          filePath === r || filePath.startsWith(r.endsWith("/") ? r : `${r}/`),
+      )
       .sort((a, b) => b.length - a.length)[0]
     if (match) return match
   }
@@ -356,11 +369,14 @@ function collectPathHints(value: unknown, out: string[], depth = 0): void {
     return
   }
   if (Array.isArray(value)) {
-    for (const item of value.slice(0, 20)) collectPathHints(item, out, depth + 1)
+    for (const item of value.slice(0, 20))
+      collectPathHints(item, out, depth + 1)
     return
   }
   if (value && typeof value === "object") {
-    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    for (const [key, nested] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
       if (/path|file/i.test(key) && typeof nested === "string") out.push(nested)
       else collectPathHints(nested, out, depth + 1)
     }
@@ -388,7 +404,11 @@ function extractToolBits(payload: Record<string, unknown>): {
   collectPathHints(inputRaw, pathHints)
   collectPathHints(outputRaw, pathHints)
   const input =
-    typeof inputRaw === "string" ? inputRaw : inputRaw != null ? asString(inputRaw) : ""
+    typeof inputRaw === "string"
+      ? inputRaw
+      : inputRaw != null
+        ? asString(inputRaw)
+        : ""
   const output =
     typeof outputRaw === "string"
       ? outputRaw
@@ -405,7 +425,10 @@ function extractToolBits(payload: Record<string, unknown>): {
   return { toolName, toolInput: input, toolOutput: output }
 }
 
-function isSelfCapture(payload: Record<string, unknown>, text: string): boolean {
+function isSelfCapture(
+  payload: Record<string, unknown>,
+  text: string,
+): boolean {
   const { toolName, toolInput } = extractToolBits(payload)
   const blob = `${toolName}\n${toolInput}\n${text}`
   return SELF_CAPTURE_RE.test(blob) || FOLLOWUP_PROMPT_RE.test(blob)
@@ -515,10 +538,7 @@ export function observeCapture(opts: {
     return { ok: true, wrote: false, candidateCount: 0 }
   }
 
-  if (
-    files.some(isMemoryDurablePath) ||
-    editFiles.some(isMemoryDurablePath)
-  ) {
+  if (files.some(isMemoryDurablePath) || editFiles.some(isMemoryDurablePath)) {
     return { ok: true, wrote: false, candidateCount: 0 }
   }
 
@@ -763,13 +783,17 @@ function readLifecycle(repoRoot: string): CandidateLifecycleState {
   const path = lifecyclePath(repoRoot)
   if (existsSync(path)) {
     try {
-      const data = JSON.parse(readFileSync(path, "utf8")) as Partial<CandidateLifecycleState>
+      const data = JSON.parse(
+        readFileSync(path, "utf8"),
+      ) as Partial<CandidateLifecycleState>
       return {
         surfaced: Array.isArray(data.surfaced) ? data.surfaced : [],
         promoted: Array.isArray(data.promoted) ? data.promoted : [],
         dismissed: Array.isArray(data.dismissed) ? data.dismissed : [],
         uncommittedKey:
-          typeof data.uncommittedKey === "string" ? data.uncommittedKey : undefined,
+          typeof data.uncommittedKey === "string"
+            ? data.uncommittedKey
+            : undefined,
         updatedAt: data.updatedAt,
       }
     } catch {
@@ -779,15 +803,14 @@ function readLifecycle(repoRoot: string): CandidateLifecycleState {
   return { surfaced: [], promoted: [], dismissed: [] }
 }
 
-function writeLifecycle(repoRoot: string, state: CandidateLifecycleState): void {
+function writeLifecycle(
+  repoRoot: string,
+  state: CandidateLifecycleState,
+): void {
   ensureEventsDir(repoRoot)
   writeFileSync(
     lifecyclePath(repoRoot),
-    JSON.stringify(
-      { ...state, updatedAt: new Date().toISOString() },
-      null,
-      2,
-    ),
+    JSON.stringify({ ...state, updatedAt: new Date().toISOString() }, null, 2),
     "utf8",
   )
 }
@@ -830,7 +853,10 @@ export function markPromoted(ids: string[], opts: { cwd?: string } = {}): void {
 }
 
 /** Mark candidates dismissed without promoting (surfaced → dismissed). */
-export function markDismissed(ids: string[], opts: { cwd?: string } = {}): void {
+export function markDismissed(
+  ids: string[],
+  opts: { cwd?: string } = {},
+): void {
   if (ids.length === 0) return
   const repoRoot = resolveRepoRoot(opts.cwd)
   const lifecycle = readLifecycle(repoRoot)
@@ -898,8 +924,7 @@ export function summarizeCapture(
     if (notice) return noticeSummary(notice, parseErrors)
     return {
       priority: "low",
-      message:
-        `No new memory candidates. Continue; promote durable knowledge into .ai/memory when decisions land.${parseNote}`,
+      message: `No new memory candidates. Continue; promote durable knowledge into .ai/memory when decisions land.${parseNote}`,
       candidates: [],
       surfacedIds: [],
       parseErrors,
@@ -986,7 +1011,7 @@ function uncommittedNotice(
     key,
     message: [
       `Uncommitted memory (${count} on \`${state.branch}\`): ${files.slice(0, 5).join(", ")}${more}.`,
-      "Memory is shared with teammates and the ctx| graph only once it merges: include these files in the commit for the work they came from, on that work's branch.",
+      "Memory is shared with teammates and the ctxpipe graph only once it merges: include these files in the commit for the work they came from, on that work's branch.",
       "When you open or update that work's pull request, summarize the work in the pull request description: what changed, why, what was tried and ruled out, follow-ups.",
       "If you are not committing now, tell the user in one sentence that memory is uncommitted.",
     ].join("\n"),

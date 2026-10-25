@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { basename, dirname, join } from "node:path"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import type { StreamChunk } from "@tanstack/ai"
 import { defineSandbox, type SandboxHandle } from "@tanstack/ai-sandbox"
@@ -12,6 +13,7 @@ import { eq } from "drizzle-orm"
 import { initLogger } from "evlog"
 import { HttpResponse, http } from "msw"
 import { expect, it, vi } from "vitest"
+
 import type { AppEnv } from "../../app/env.js"
 import { withUserIdContext } from "../../auth/context.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -705,7 +707,7 @@ it(
 )
 
 it(
-  "adopts on a 422 only the open pull request that ctx| opened into the base branch",
+  "adopts on a 422 only the open pull request that ctxpipe opened into the base branch",
   { timeout: 180_000 },
   async () => {
     await withSession({}, async (f, s) => {
@@ -728,7 +730,7 @@ it(
         created_at: "2026-10-17T00:00:00Z",
       })
       // A collaborator and another App opened a pull request on the session
-      // branch first, and ctx| has one into another base branch.
+      // branch first, and ctxpipe has one into another base branch.
       const open = [
         pull(7, "collaborator", { type: "User" }),
         pull(8, "other-app[bot]"),
@@ -762,7 +764,7 @@ it(
         status: refused.status,
         body: await refused.json(),
       }).toMatchObject({ status: 400, body: { error: "pr_refused" } })
-      // The pull request that ctx| opened into main is the one to show.
+      // The pull request that ctxpipe opened into main is the one to show.
       open.push(pull(10, "ctxpipe-fixture[bot]"))
       const adopted = await s.createPr("Write the notes")
       expect({
@@ -905,7 +907,7 @@ it(
 
 /**
  * Serve the fixture remote over HTTP, as GitHub does: a fetch without the
- * read credential is refused. Only the sandbox's `origin` uses it; ctx|'s own
+ * read credential is refused. Only the sandbox's `origin` uses it; ctxpipe's own
  * Git calls keep the fixture's local remote.
  */
 async function serveRemoteWithToken(
@@ -1039,7 +1041,7 @@ it(
         expect(created.title).toBe("Add notes")
         expect(created.body).toMatch(
           new RegExp(
-            `^- Add note one\\n- Add note two\\n\\n\\[Open the conversation in ctx\\|\\]\\(https?://[^)]+/ws/[^)]+/${s.conversationId}\\)$`,
+            `^- Add note one\\n- Add note two\\n\\n\\[Open the conversation in ctxpipe\\]\\(https?://[^)]+/ws/[^)]+/${s.conversationId}\\)$`,
           ),
         )
         // The pull request opens even when GitHub cannot compare the branch.
@@ -1047,7 +1049,7 @@ it(
         expect((await s.createPr("Add notes")).status).toBe(200)
         const second = s.pullRequests[1] as { body: string }
         expect(second.body).toMatch(
-          /^Changes made in a ctx\| conversation\.\n\n\[Open the conversation in ctx\|\]/,
+          /^Changes made in a ctxpipe conversation\.\n\n\[Open the conversation in ctxpipe\]/,
         )
       },
     )

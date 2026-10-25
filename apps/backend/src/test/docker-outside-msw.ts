@@ -1,4 +1,5 @@
 import http from "node:http"
+
 import type { SetupServer } from "msw/node"
 
 /**
@@ -24,7 +25,7 @@ export function listenWithDockerOutsideMsw(
       typeof first === "object" &&
       "socketPath" in first &&
       Boolean(first.socketPath)
-    // biome-ignore lint/suspicious/noExplicitAny: forwards an overloaded call as is
+    // oxlint-disable-next-line typescript/no-explicit-any -- forwards an overloaded call as is
     return ((unixSocket ? direct : intercepted) as any)(...args)
   }) as typeof http.request
 }

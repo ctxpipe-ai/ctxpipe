@@ -3,12 +3,14 @@
 import { IconBrandNotion } from "@tabler/icons-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
+
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
+
 import { useNotionOAuthConnect } from "../hooks/useNotionOAuthConnect"
 import {
   getNotionSetupCurrentIndex,
@@ -127,8 +129,8 @@ export function NotionSetupDialog({
               Connect Notion
             </h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Authorize ctx| to read the Notion workspace. Then select the pages
-              and databases for each Workspace.
+              Authorize ctxpipe to read the Notion workspace. Then select the
+              pages and databases for each Workspace.
             </p>
           </div>
           <Button

@@ -21,7 +21,7 @@ or CDK to finish first-time setup.
 - A public HTTPS `AUTH_BASE_URL`. In production, keep
   `CTXPIPE_PUBLIC_APP_URL` on the same origin.
 - Permission to create a PagerDuty OAuth application.
-- A ctx| GitHub App connection with write access to each Workspace repository
+- A ctxpipe GitHub App connection with write access to each Workspace repository
   that syncs PagerDuty incidents.
 - The backend and worker able to reach `identity.pagerduty.com` and
   `api.pagerduty.com` or `api.eu.pagerduty.com` over HTTPS.
@@ -31,7 +31,7 @@ connector testing requires a public HTTPS deployment or tunnel.
 
 ## 1. Register the OAuth app in the wizard
 
-1. Open **Connectors → Add connection → PagerDuty**. ctx| creates a draft
+1. Open **Connectors → Add connection → PagerDuty**. ctxpipe creates a draft
    connection so the app can be saved before account authorization.
 2. Open [PagerDuty App Registration](https://developer.pagerduty.com/my-apps),
    select **New App**, and name the app `ctxpipe` or after your deployment.
@@ -55,7 +55,7 @@ connector testing requires a public HTTPS deployment or tunnel.
 
 6. Select **Register App**. Copy the generated client id and client secret
    before closing the confirmation; PagerDuty only shows the secret once.
-7. Save both values in **Register PagerDuty OAuth app**. ctx|
+7. Save both values in **Register PagerDuty OAuth app**. ctxpipe
    encrypts the secret on the connection and never returns it from connector
    metadata. Continue to **Connect PagerDuty**.
 

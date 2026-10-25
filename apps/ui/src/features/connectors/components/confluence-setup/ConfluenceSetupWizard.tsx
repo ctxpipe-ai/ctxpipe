@@ -8,6 +8,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
+
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
@@ -15,6 +16,7 @@ import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspace
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import { pollWhileOk } from "@/lib/api-result"
+
 import {
   getConfluenceCardCurrentIndex,
   getConfluenceCardStepDefs,

@@ -3,7 +3,9 @@
 import { IconBrandNotion } from "@tabler/icons-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
+
 import { Spinner } from "@/components/ui/spinner"
+
 import { createDraftNotionConnection } from "../queries/notion-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
 

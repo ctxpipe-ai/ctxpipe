@@ -20,10 +20,11 @@ import {
   ownerAc,
 } from "better-auth/plugins/organization/access"
 import { eq } from "drizzle-orm"
+
 import { parseEnv } from "../config/env.js"
 import { type Db, initDb, isRailwayPrPreview } from "../db/client.js"
-import { members, users } from "../db/schema/auth.js"
 import { schema } from "../db/schema.js"
+import { members, users } from "../db/schema/auth.js"
 import { isValidSlug } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
@@ -163,7 +164,7 @@ export function createBetterAuth() {
   }
 
   return betterAuth({
-    appName: "ctx|",
+    appName: "ctxpipe",
     secret: env.AUTH_SECRET,
     baseURL: env.AUTH_BASE_URL,
     basePath: "/.auth/api/v1/auth",
@@ -247,7 +248,7 @@ export function createBetterAuth() {
         ])
         await sendEmail(
           user.email,
-          "You already have a ctx| account",
+          "You already have a ctxpipe account",
           AccountExistsEmail({
             signInUrl: signInUrl.toString(),
             resetUrl: new URL(
@@ -348,9 +349,8 @@ export function createBetterAuth() {
             assertOrganizationSlug(organization.slug)
           },
           async beforeDeleteOrganization({ organization }) {
-            const { purgeOrgDataBeforeAuthDelete } = await import(
-              "../domain/repositoryDeletion.js"
-            )
+            const { purgeOrgDataBeforeAuthDelete } =
+              await import("../domain/repositoryDeletion.js")
             await purgeOrgDataBeforeAuthDelete(organization.id)
           },
         },
@@ -366,7 +366,7 @@ export function createBetterAuth() {
           ])
           await sendEmail(
             data.email,
-            `ctx| invitation on behalf of ${data.organization.name}`,
+            `ctxpipe invitation on behalf of ${data.organization.name}`,
             InvitationEmail({
               inviteLink,
               inviterName: data.inviter.user.name,

@@ -94,9 +94,8 @@ async function storeProbedWriteStatus(input: {
   retry: boolean
 }): Promise<{ writeStatus: string; desiredSha: string | null } | null> {
   try {
-    const { getGithubRepoWriteView } = await import(
-      "../routes/webhooks/github/github-workspace-tip.js"
-    )
+    const { getGithubRepoWriteView } =
+      await import("../routes/webhooks/github/github-workspace-tip.js")
     const probe = await probeWorkspaceWriteAccess({
       workspaceRepositoryUrl: input.workspace.workspaceRepositoryUrl,
       githubConnectionId: input.workspace.githubConnectionId,
@@ -390,7 +389,7 @@ export async function enqueueWriteJob(
           stored.writeStatus === "writable" ? "queued" : "paused"
       }
       // A bind or rebind writes the bootstrap files directly only at format
-      // 3 or more, or on a repository with no ctx| content: that bootstrap
+      // 3 or more, or on a repository with no ctxpipe content: that bootstrap
       // commit also writes the format file. Below 3 the upgrade pull request
       // carries them (ADR-053 section 7), so the scan offers the upgrade
       // instead. An empty repository took the root commit path above.
@@ -402,9 +401,8 @@ export async function enqueueWriteJob(
         ) &&
         (await revisionHasCtxpipeContent(input.orgId, revision))
       ) {
-        const { enqueueWorkspaceUpgradeScan } = await import(
-          "./workflows/workspace-upgrade-scan.js"
-        )
+        const { enqueueWorkspaceUpgradeScan } =
+          await import("./workflows/workspace-upgrade-scan.js")
         await enqueueWorkspaceUpgradeScan({
           orgId: input.orgId,
           trigger: `bind:${input.workspaceId}:${revision.sha}`,

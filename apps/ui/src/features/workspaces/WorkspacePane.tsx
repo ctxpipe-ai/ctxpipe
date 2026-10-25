@@ -18,6 +18,7 @@ import { ClientOnly } from "@tanstack/react-router"
 import type { CSSProperties, ReactNode } from "react"
 import { lazy, useEffect, useRef } from "react"
 import { type Key, Tab, TabList, TabPanel, Tabs } from "react-aria-components"
+
 import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -34,6 +35,7 @@ import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useMarkWorkspaceExplored } from "@/lib/useOrgGuide"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
+
 import { conversationAllowsEdits } from "./conversationPublish"
 import { filePaneId, type ParsedPane, parsePane, serializePane } from "./pane"
 import {
@@ -52,12 +54,6 @@ import {
   type ConversationCtaChrome,
 } from "./WorkspaceChatChrome"
 import {
-  ConversationDiffEmpty,
-  WorkspaceConversationDiffPane,
-} from "./WorkspaceConversationDiff"
-import { WorkspaceFilesPaneBody } from "./WorkspaceFilesPane"
-import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
-import {
   workspaceChromeCardPaneClassName,
   workspaceChromeIconTabClassName,
   workspaceChromeOuterClassName,
@@ -66,6 +62,12 @@ import {
   workspaceChromeTabIdleClassName,
   workspaceChromeTabStripClassName,
 } from "./workspaceChrome"
+import {
+  ConversationDiffEmpty,
+  WorkspaceConversationDiffPane,
+} from "./WorkspaceConversationDiff"
+import { WorkspaceFilesPaneBody } from "./WorkspaceFilesPane"
+import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
 import {
   WorkspaceFilesPaneSkeleton,
   WorkspaceGraphPaneSkeleton,
@@ -177,6 +179,7 @@ export function WorkspacePane(props: {
     }
     node.addEventListener("keydown", onKeyDown)
     return () => node.removeEventListener("keydown", onKeyDown)
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the deps list is kept as is
   }, [props.fileTabs, props.onCloseFileTab])
 
   return (
@@ -488,7 +491,7 @@ function WorkspaceGraphPaneBody(props: {
       <div className="flex h-full min-h-0 flex-1 items-center justify-center p-6">
         <GraphWaitState
           title="Building graph"
-          detail="The graph opens when ctx| finishes reading this Workspace."
+          detail="The graph opens when ctxpipe finishes reading this Workspace."
           status="Building graph"
         />
       </div>

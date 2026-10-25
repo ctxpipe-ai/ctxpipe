@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm"
+
 import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
@@ -47,7 +48,7 @@ export async function checkGithubSourceAccess(input: {
       })
   }
   return missing.length
-    ? `ctx| has no access to these repositories: ${missing.join(", ")}. Add them to the GitHub App installation of this connection.`
+    ? `ctxpipe has no access to these repositories: ${missing.join(", ")}. Add them to the GitHub App installation of this connection.`
     : null
 }
 

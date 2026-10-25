@@ -2,12 +2,14 @@ import { execFile } from "node:child_process"
 import { rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { HttpResponse, http } from "msw"
 import pg from "pg"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
+
 import type { AppEnv } from "../app/env.js"
 import { withOrgIdContext } from "../auth/withAuth.js"
 import { parseEnv } from "../config/env.js"
@@ -494,15 +496,12 @@ it("upgrades a database of the previous release and its Workspace with no manual
       f.server.use(http.get(PULLS, () => HttpResponse.json(openPulls)))
       const { BackendPostgres } = await import("openworkflow/postgres")
       const { OpenWorkflow } = await import("openworkflow")
-      const { workspaceUpgradeScan } = await import(
-        "../openworkflow/workflows/workspace-upgrade-scan.js"
-      )
-      const { workspaceUpgrade } = await import(
-        "../openworkflow/workflows/workspace-upgrade.js"
-      )
-      const { workspaceHydrate } = await import(
-        "../openworkflow/workflows/workspace-hydrate.js"
-      )
+      const { workspaceUpgradeScan } =
+        await import("../openworkflow/workflows/workspace-upgrade-scan.js")
+      const { workspaceUpgrade } =
+        await import("../openworkflow/workflows/workspace-upgrade.js")
+      const { workspaceHydrate } =
+        await import("../openworkflow/workflows/workspace-hydrate.js")
       const { registerV1Routes } = await import("../routes/v1/index.js")
       const backend = await BackendPostgres.connect(appUrl, {
         namespaceId: openWorkflowNamespaceId(),
@@ -656,12 +655,10 @@ it("upgrades a database of the previous release and its Workspace with no manual
         // knowledge of the previous release from Postgres.
         phase("search the knowledge of the previous release through MCP")
         const { getAuth } = await import("../auth/config.js")
-        const { callTool, connectToolClient } = await import(
-          "../test/related-fixture.js"
-        )
-        const { searchKnowledgeTool } = await import(
-          "../mcp/tools/search-knowledge.js"
-        )
+        const { callTool, connectToolClient } =
+          await import("../test/related-fixture.js")
+        const { searchKnowledgeTool } =
+          await import("../mcp/tools/search-knowledge.js")
         const orgKey = await getAuth().api.createApiKey({
           body: {
             configId: "organization",
@@ -728,10 +725,10 @@ it("upgrades a database of the previous release and its Workspace with no manual
             )
             .split("\n"),
         ).toEqual([
-          "ctx| upgrade: set the Workspace format to 3",
-          "ctx| upgrade to format 3: Ingestion v2 ownership of extracted files",
-          "ctx| upgrade to format 2: One file for each source under sources/",
-          "ctx| upgrade to format 1: Move the sources and keep the old knowledge",
+          "ctxpipe upgrade: set the Workspace format to 3",
+          "ctxpipe upgrade to format 3: Ingestion v2 ownership of extracted files",
+          "ctxpipe upgrade to format 2: One file for each source under sources/",
+          "ctxpipe upgrade to format 1: Move the sources and keep the old knowledge",
         ])
         expect(
           f.git(
@@ -741,7 +738,7 @@ it("upgrades a database of the previous release and its Workspace with no manual
             `${head}:${WORKSPACE_FORMAT_PATH}`,
           ),
         ).toContain("format: 3")
-        // ctx| never pushed to the default branch.
+        // ctxpipe never pushed to the default branch.
         expect(branchHead()).toBe(f.sha)
 
         // The pull request merges. Hydrate reads format 3.

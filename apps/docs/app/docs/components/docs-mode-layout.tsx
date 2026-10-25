@@ -1,9 +1,10 @@
 "use client"
 
-import type { ReactNode } from "react"
-import type * as PageTree from "fumadocs-core/page-tree"
 import { usePathname } from "fumadocs-core/framework"
+import type * as PageTree from "fumadocs-core/page-tree"
 import { DocsLayout } from "fumadocs-ui/layouts/docs"
+import type { ReactNode } from "react"
+
 import { DocsCustomNav } from "./docs-custom-nav"
 import { DocsSidebarModeLinks } from "./docs-sidebar-mode-links"
 

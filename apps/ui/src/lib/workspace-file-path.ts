@@ -59,3 +59,40 @@ export function workspaceFilePath(text: string): string | null {
   if (/^[A-Z][a-z]*\.js$/.test(name)) return null
   return path
 }
+
+/**
+ * Returns the Workspace file path for a link href that the chat agent wrote,
+ * or null. It removes a `file://` prefix, the sandbox repository root, a
+ * `#L12` or `#L12-L20` fragment, and a `:12` or `:12:5` suffix first.
+ */
+export function workspaceFilePathFromHref(href: string): string | null {
+  const cleaned = href
+    .trim()
+    .replace(/^file:\/\//i, "")
+    .replace(/(?<=.)#.*$/, "")
+    .replace(/(?::\d+){1,2}$/, "")
+    .replace(/^\/workspace\//, "")
+  return workspaceFilePath(cleaned)
+}
+
+/**
+ * Returns a function that maps a path in a chat answer to the path of the file
+ * in the tree that it means, or null. An exact path in the tree wins. A name
+ * with no folder matches the one tree file that has this name. No match, or
+ * more than one, gives null. The index is built once, not per lookup.
+ */
+export function createTreeFileResolver(
+  treePaths: readonly string[],
+): (path: string) => string | null {
+  const all = new Set(treePaths)
+  const byName = new Map<string, string | null>()
+  for (const candidate of all) {
+    const name = candidate.split("/").at(-1) ?? candidate
+    byName.set(name, byName.has(name) ? null : candidate)
+  }
+  return (path) => {
+    if (all.has(path)) return path
+    if (path.includes("/")) return null
+    return byName.get(path) ?? null
+  }
+}

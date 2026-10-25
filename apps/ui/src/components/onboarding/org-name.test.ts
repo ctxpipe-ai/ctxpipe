@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import {
   ORG_SLUG_MAX_LENGTH,
   orgNameFromEmail,

@@ -9,6 +9,7 @@ import {
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import type { ReactNode } from "react"
 import { Toaster } from "sonner"
+
 import { getConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeConfig"
 import { getHyperDxDocumentContext } from "@/lib/hyperdxRuntimeConfig"
 import { Providers } from "@/providers"
@@ -39,7 +40,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         name: "viewport",
         content: "width=device-width, initial-scale=1",
       },
-      { title: "ctx | The Context Layer for AI Agents" },
+      { title: "ctxpipe | The Context Layer for AI Agents" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },

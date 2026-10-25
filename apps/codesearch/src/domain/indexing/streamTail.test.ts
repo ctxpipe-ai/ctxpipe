@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { readStreamTail } from "./streamTail.js"
 
 function streamFromChunks(chunks: Uint8Array[]): ReadableStream<Uint8Array> {

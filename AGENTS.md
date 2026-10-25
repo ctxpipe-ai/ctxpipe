@@ -1,52 +1,46 @@
 ## Where agent instructions live
 
-Agent instructions are **distributed**: this file covers repo-wide rules; apps and packages can have their own `AGENTS.md` with local instructions. When working in an app or package, read both the root AGENTS.md and that folder's AGENTS.md (if present).
+This file holds repo-wide rules. In an app or package, also read that folder's `AGENTS.md` if it exists.
 
-- **Root** (this file): architecture, code style, and Simplified Technical English for explanations.
 - **apps/backend**: [apps/backend/AGENTS.md](apps/backend/AGENTS.md) — API, OpenAPI, MCP, Drizzle, TypeScript, etc. **[Source-connectors skill](.agents/skills/source-connectors/)** when designing, building, or reviewing a source connector (Linear, Notion, Slack, git-native mirror/capture, `connections.config`, self-host), when provider requests can multiply per related record, or when a full import must resume after a crash.
 - **apps/otel-collector**: laptop OTLP debug sink for `pnpm dev:infra` (stdout only). Hosted ingest is [`ops/observability`](ops/observability/) ([ADR-038](.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md)).
 - **apps/codesearch**: [apps/codesearch/AGENTS.md](apps/codesearch/AGENTS.md) — Zoekt/SCIP orchestration, read-only DB, OpenAPI + Zod, and the manual Kubernetes ingest memory gate.
 - **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest; **[React skill](.agents/skills/react/)** when building or editing components; **[product-ui skill](.agents/skills/product-ui/)** and [DESIGN.md](apps/ui/DESIGN.md) when building or restyling product screens.
 - **apps/docs**: [apps/docs/AGENTS.md](apps/docs/AGENTS.md) — Fumadocs documentation site (Next.js 15, Shiki, forced-dark, deploys to docs.ctxpipe.ai).
-- **examples/**: runnable consumer examples for ctxpipe packages (manual e2e tests against real infra). See [examples/README.md](examples/README.md); first entry is [examples/aws-cdk-self-host](examples/aws-cdk-self-host) for `@ctxpipe-ai/aws-cdk` on AWS.
+- **examples/**: runnable consumer examples for ctxpipe packages (manual e2e tests against real infra). See [examples/README.md](examples/README.md).
 - **ops/observability**: internal ClickStack + Langfuse Railway project (not product deploy). See [ops/observability/README.md](ops/observability/README.md) and [ADR-038](.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md).
 - **plugins/ctxpipe**: Claude plugin for the hosted product MCP. See [ADR-026](.ai/memory/decisions/ADR-026-claude-plugin-mcp-distribution.md).
 
-**MCP (project-scoped):** Config lives at [`.cursor/mcp.json`](.cursor/mcp.json) (same file as [`.agents/mcp.json`](.agents/mcp.json) via the `.agents` → `.cursor` symlink). Two kinds of servers:
+**Agent harness layout:** Shared agent content lives in `AGENTS.md` and `.agents/` (`.agents/skills/`, `.agents/hooks/`). `.claude/`, `.codex/`, `.cursor/`, and `opencode.json` are thin adapters that point at it. Put a new skill or hook in `.agents/`. Keep this file under 24 KiB, because Codex reads only the first 32 KiB of all `AGENTS.md` files together. CI runs [`scripts/ci/check-agent-harness.mjs`](scripts/ci/check-agent-harness.mjs) to check the sizes, MCP parity, and skill symlinks. See [ADR-055](.ai/memory/decisions/ADR-055-harness-agnostic-agent-setup.md).
 
-1. **Product MCP (`ctxpipe`)** — hosted org MCP for the product itself (`https://app.ctxpipe.ai/mcp?orgSlug=ctx-tev`). This is the customer-facing ctxpipe tool surface agents use against the live org; do **not** point it at localhost.
-2. **Agent tooling MCPs** — editor/agent helpers for this repo (Storybook, Neon, Railway, HyperDX, Langfuse). Not the backend’s in-process Hono `/mcp` product server.
+**MCP (project-scoped):** Each harness has its own config file. Keep the server lists the same: [`.mcp.json`](.mcp.json) (Claude Code), [`.codex/config.toml`](.codex/config.toml) (Codex), and [`.cursor/mcp.json`](.cursor/mcp.json) (Cursor, dormant). [`opencode.json`](opencode.json) (OpenCode) has only `ctxpipe`. There are two kinds of servers:
 
-| Server | Purpose | Preconditions |
-| --- | --- | --- |
-| `ctxpipe` | Hosted product MCP (org `ctx-tev`) | OAuth / account access to that org in Cursor |
-| `ctxpipe-storybook` | Storybook MCP at `http://127.0.0.1:6006/mcp` | Storybook must be running: `pnpm --filter @ctxpipe/ui storybook` |
-| `neon` | Neon Lakebase Postgres via hosted MCP — **read-only** (`?readonly=true`) | OAuth in Cursor (uncheck Full access if prompted; URL param forces RO). Optional headless: Bearer `NEON_API_KEY` + same `readonly=true` URL ([Neon MCP docs](https://neon.com/docs/ai/neon-mcp-server)) |
-| `railway` | Railway status + deploy/runtime stdout | OAuth in Cursor (`type: streamable-http` → `https://mcp.railway.com`) |
-| `hyperdx` | ClickStack logs, traces, metrics, dashboards | `HYPERDX_ACCESS_KEY` = HyperDX personal access key (Bearer). UI `https://hyperdx.ctxpipe.ai`. Ingest token `HYPERDX_API_KEY` is a different secret |
-| `langfuse` | Langfuse **project** MCP (LLM traces / prompts) | `LANGFUSE_AUTH_STRING` = base64(`pk:sk`). URL is `https://langfuse.ctxpipe.ai/api/public/mcp`. See [ops/observability/USING.md](ops/observability/USING.md) |
+1. **Product MCP (`ctxpipe`)** — the hosted, customer-facing ctxpipe tools for the live org. Do **not** point it at localhost.
+2. **Agent tooling MCPs** — helpers for work on this repo. They are not the backend’s in-process Hono `/mcp` product server.
+
+Claude Code and Codex read keys from environment variables. Only `ctxpipe` can fall back to OAuth. The auth for each server, and the purpose of each server, are in [`.ai/agents/mcp-servers.md`](.ai/agents/mcp-servers.md). `codex mcp list` shows the auth state.
 
 **Not wired** (intentionally): local Postgres MCP, GitHub MCP, codesearch MCP, Notion MCP, ClickHouse `mcp-clickhouse` (query through `hyperdx`). The Linear MCP is not in the project config either, but the issue tracker needs it: add the Linear MCP (`linear-server`) to your own agent host.
 
-**Ops debugging / logs (preference order):** Product logs and traces are OTLP. Follow [`.cursor/skills/observability/SKILL.md`](.cursor/skills/observability/SKILL.md) and [ops/observability/USING.md](ops/observability/USING.md).
+**Ops debugging / logs (preference order):** Follow [`.agents/skills/observability/SKILL.md`](.agents/skills/observability/SKILL.md) and [ops/observability/USING.md](ops/observability/USING.md).
 
-1. **HyperDX MCP** (`hyperdx`) — logs, traces, metrics, page-view spans. Filter `DeploymentEnvironment` (`production`, `pr-N`, `observability`, `local-<name>`).
+1. **HyperDX MCP** (`hyperdx`) — logs, traces, metrics. Filter `DeploymentEnvironment` (`production`, `pr-N`, `observability`, `local-<name>`).
 2. **Langfuse MCP** (`langfuse`) — LLM traces and prompt text (HyperDX stores those spans with prompt attributes removed).
 3. **Railway MCP** (`railway`) — deploy status and runtime stdout when the process never exported.
 
 For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.agents/skills/storybook/SKILL.md) with [apps/ui/AGENTS.md](apps/ui/AGENTS.md).
 
-**Host dev (agents):** Run **`pnpm`** from the repo root; follow **Agent runbook — host dev** under [Local development](#local-development) (install → `.env.local` → `dev:infra` → `dev`).
+**Dev servers:** on your own machine, follow the host dev runbook under [Local development](#local-development). On a headless or remote VM (any harness, Claude Code on the web), do **not** use `pnpm dev` (portless needs HTTPS on port 443 and a local CA); follow [`.ai/agents/remote-environments.md`](.ai/agents/remote-environments.md).
 
-**Cursor Cloud / remote headless agents:** Do **not** use `pnpm dev` (portless). Default to **[Running dev servers on cloud VMs](#cursor-cloud-specific-instructions)** in this file (copy-paste block + migrate + `bun --env-file=.env.local`). **Claude Code on the web:** see [Claude Code on the web](#claude-code-on-the-web).
-
-**When feedback is given that should become a long-term instruction**: Save it into this structure. Repo-wide preferences and conventions go in this file (root AGENTS.md). Instructions that apply only to a specific app or package go in that folder's `AGENTS.md` (e.g. `apps/backend/AGENTS.md`); create the file if it doesn't exist. Add or update the list above when you create or change an app/package AGENTS.md so future agents know where to look.
+**Feedback that should become a long-term instruction**: put repo-wide rules in this file. Put rules for one app or package in that folder's `AGENTS.md`; create the file if it does not exist, and add it to the list above.
 
 ## Language
 
 Write each explanation in ASD-STE100 Simplified Technical English (Issue 9). You already know that standard. Follow it. Do not copy the licensed dictionary into this repo.
 
 Use US English spelling in every text you write. Write `organization`, not `organisation`.
+
+In text, write the product name as "ctxpipe". Use "ctx|" only in the logo.
 
 Retained text uses the full standard. This includes markdown, a code comment, a commit message, pull request text, a changeset, docs, and other kept text. User-facing UI copy is the exception: it follows ASD-STE100 at about 80% strength.
 
@@ -60,7 +54,7 @@ After completing requested code changes, commit and push the current feature bra
 
 ### Sub-agent models
 
-When spawning a sub-agent (Cursor Task, Claude Code Agent, a T3 delegated task, or any other harness), always set the model explicitly. Use the harness's own name for each model and its effort setting. The token total is the limit, not the number of agents in parallel. Use a second model family (Codex GPT) for reviews and mechanical work, so that review findings come from different blind spots. When the Codex plan has no tokens left, use the Claude fallback in the same row.
+The orchestrator app (Paseo) or the harness's own sub-agent tool starts each agent. Always set the model and the effort explicitly. Use the harness's own name for each model and its effort setting. The token total is the limit, not the number of agents in parallel. Use a second model family (Codex GPT) for reviews and mechanical work, so that review findings come from different blind spots. When the Codex plan has no tokens left, use the Claude fallback in the same row.
 
 | Work | Model and effort | Fallback |
 | --- | --- | --- |
@@ -95,13 +89,14 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 
 ### Preview environments
 
-**preview-env:** critical-flow run against local host dev or a Railway PR preview (`backend-pr-N`), starting from a fresh registration — the full browser + MCP catalogue or one area (onboarding, auth, org-home, workspaces, hydrate, graph, chat, files-publish, connectors, mcp, resilience). Never production. [`.agents/skills/preview-env/`](.agents/skills/preview-env/)
+**preview-env:** critical-flow run against local host dev or a Railway PR preview (`backend-pr-N`) from a fresh registration: the full browser + MCP catalogue or one area (onboarding, auth, org-home, workspaces, hydrate, graph, chat, files-publish, connectors, mcp, resilience). Never production. [`.agents/skills/preview-env/`](.agents/skills/preview-env/)
 
 ### GitHub environments
 
 - `Preview`: only the jobs that deploy, roll or delete the Railway PR preview.
 - `workbench`: the environment for checks, evals, proofs and live contracts that call outside services, with spend-capped or test-scoped keys.
 - `Production`: the production deploy.
+- Each environment holds its own value of each credential. `Production` and `Preview` never share a token, key, or secret. When you add or rotate a secret, make one value for each environment that needs it. The one exception is `OBSERVABILITY_OTLP_HEADERS`: the collector accepts one ingestion key.
 - A new check that needs a paid or outside service uses `workbench`. Do not add another environment without a stated need. `scripts/ci/check-secret-jobs.mjs` enforces this.
 
 ### Adversarial review
@@ -110,104 +105,36 @@ Every adversarial review of a diff is three axes — **Standards**, **Spec**, an
 
 ## Architecture decisions & ADRs
 
-- **Where ADRs live**: All ADRs are in `.ai/memory/decisions/`. Files are named `ADR-NNN-title-slug.md` (e.g. `ADR-001-frontend-ui-app-stack.md`). Start from [`decisions/index.md`](.ai/memory/decisions/index.md).
-- **When you change architecture**: Before making structural or architectural changes (adding/changing apps, packages, tooling, or cross-cutting patterns), read the relevant ADRs in `.ai/memory/decisions/` first.
-- **Keeping ADRs up to date**: When you make a new architectural decision, use the `capture-adr` skill and update `decisions/index.md`.
-- **Agent workflow**: Treat ADRs as the source of truth for high-level decisions. If the code and ADRs disagree, prefer updating the ADRs (and then the code) so future agents can follow a consistent story.
-- **Connectors data model**: GitHub, Confluence/Forge, Slack, Linear, and Notion integrations live in **`connections`** (`con_*`, typed `github` \| `forge` \| `slack` \| `linear` \| `notion`); see [ADR-018](.ai/memory/decisions/ADR-018-unified-connections-table.md), [ADR-022](.ai/memory/decisions/ADR-022-linear-connector-git-native-mirror.md) (Linear), [ADR-023](.ai/memory/decisions/ADR-023-notion-connector-git-native-mirror.md) (Notion), and [ADR-025](.ai/memory/decisions/ADR-025-slack-connector-git-native-mirror.md) (Slack). Prefer **`connectionId`** or repo-scoped resolution over “one install per org” assumptions.
+- ADRs live in `.ai/memory/decisions/` as `ADR-NNN-title-slug.md`. Start from [`decisions/index.md`](.ai/memory/decisions/index.md).
+- Before a structural change (an app, a package, tooling, or a cross-cutting pattern), read the related ADRs.
+- For a new architectural decision, use the `capture-adr` skill and update `decisions/index.md`.
+- ADRs are the source of truth for high-level decisions. If the code and an ADR disagree, update the ADR first, then the code.
+- **Connectors data model**: each integration (GitHub, Confluence/Forge, Slack, Linear, Notion) is a row in **`connections`** (`con_*`, typed by provider); see [ADR-018](.ai/memory/decisions/ADR-018-unified-connections-table.md), [ADR-022](.ai/memory/decisions/ADR-022-linear-connector-git-native-mirror.md) (Linear), [ADR-023](.ai/memory/decisions/ADR-023-notion-connector-git-native-mirror.md) (Notion), and [ADR-025](.ai/memory/decisions/ADR-025-slack-connector-git-native-mirror.md) (Slack). Prefer **`connectionId`** or repo-scoped resolution; an org can have more than one install.
 
 ## Local development
 
-- **Docker Compose**: Single [docker-compose.yml](docker-compose.yml) uses **profiles** (see [.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). **`pnpm dev:infra`** runs `docker compose --profile infra up -d` (Postgres, FalkorDB, OTEL, and Agent Vault for Docker chat sandboxes: API published on `127.0.0.1:14321`, which local containers can still reach on Docker Desktop, so use a trusted machine; set a generated `AGENT_VAULT_OWNER_PASSWORD` in `apps/backend/.env.local`; if a fresh Agent Vault refuses it, remove the `agent_vault_dev` volume). **`pnpm start`** runs `docker compose --profile deploy up -d` (production images: migrate, backend, worker, UI, codesearch). For day-to-day coding, **`pnpm dev`** runs backend + UI on the host (portless + Turbo) and **codesearch in Docker** ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh): `start.sh` = Zoekt + API, random host port → **`CODESEARCH_URL`**). Override host ports via **`CTXPIPE_*`** — [docker-compose.env.example](docker-compose.env.example). Hosted OTEL is [`ops/observability`](ops/observability/) ([ADR-038](.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md)).
-
-### Cursor Cloud specific instructions
-
-Cloud agents run on an isolated Ubuntu machine. This repo provides a default cloud-agent environment config at **`.cursor/environment.json`** (real file under **`.cursor/`**; **`.agents` → `.cursor`** symlink so [`.agents/environment.json`](.agents/environment.json) resolves to the same path).
-
-- **Default for remote agents:** When you need the **running app** (API + proxied UI + auth in the browser), use **Running dev servers on cloud VMs** below — not `pnpm dev` (portless). Lint/tests-only work can skip servers; see **Suggested verification commands** below.
-- **Docker image**: the environment is built from [`.agents/Dockerfile`](.agents/Dockerfile) following Cursor’s **Running Docker** guidance ([Cloud Agent setup](https://cursor.com/docs/cloud-agent/setup)): Docker CE + `fuse-overlayfs` + `iptables-legacy`, plus **Node.js**, **pnpm**, and **Bun** (matches root `package.json` `engines` and backend dev scripts). **`start`** runs [`.agents/start.sh`](.agents/start.sh): `sudo service docker start` and wait until `docker info` succeeds so `docker compose` is ready before tasks.
-- **Personal dashboard overrides**: A personal Cloud Agent environment (dashboard) can override the committed `.cursor/environment.json`. If agents boot without Docker/Bun after enabling Builds, the active environment is likely a snapshot-only personal config that never built this Dockerfile—either Save an updated personal install/start that includes Docker tooling, or remove the personal override so the repo Dockerfile is used.
-- **Rebuild after changing the Dockerfile**: Cursor only applies `.cursor/environment.json` when the cloud image is (re)built. If `docker` is missing on the agent VM, the environment is not using this Dockerfile—rebuild at [cursor.com/onboard](https://cursor.com/onboard) or bump the image so the **build** step runs again.
-- **Install/update**: after the image boots, Cursor runs `corepack enable && pnpm install` from the repo root (`install` in `environment.json`).
-- **Docker + Postgres**:
-  - **Important**: `localhost` in cloud agents is the **cloud VM**, not your laptop.
-  - If Docker is available on the VM, the agent can start the same infra stack you use locally with **`pnpm dev:infra`** (Postgres on `localhost:5433`, FalkorDB on `localhost:6379` by default; see [docker-compose.yml](docker-compose.yml) and [docker-compose.env.example](docker-compose.env.example)).
-  - If **`pnpm dev:infra`** fails with **permission denied** on `/var/run/docker.sock` even after [`.agents/start.sh`](.agents/start.sh), run **`sudo docker compose --profile infra up -d`** from the repo root (same Compose file as `pnpm dev:infra`).
-  - If Docker is **not** available or you prefer managed services, use a hosted Postgres and set `DATABASE_URL` via Secrets.
-- **Secrets (Cursor dashboard → Cloud Agents → Secrets)**:
-  - **Required**: `AUTH_SECRET` (≥ 32 chars) for backend auth initialization/tests (see [apps/backend/.env.example](apps/backend/.env.example)).
-  - **Database**: set `DATABASE_URL` to the **ctxpipe_app** runtime role (not the owner/migrate role). Compose on the VM defaults to `ctxpipe_app` via [`.agents/start.sh`](.agents/start.sh); `pnpm db:migrate` still connects as owner `ctxpipe`.
-  - **Optional**: `GRAPH_DB_URI` (when running graph features; use `redis://localhost:6379` if FalkorDB is started by `pnpm dev:infra`), and any model/API keys you need for specific tasks.
-- **Suggested verification commands** (no full dev stack):
-  - `pnpm lint`
-  - `pnpm --filter @ctxpipe/backend test`
-  - `pnpm --filter @ctxpipe/ui test`
-- **GitHub Actions after a cloud-agent push:** CI, CLI tests, Changeset Guard, and PR Deploy listen to both `push` and `pull_request` because Cloud Agent commits sometimes skip `synchronize`. Jobs run **exactly one** of those events: `cursor[bot]` / `cursoragent` on `push` only; everyone else on `pull_request` only. Concurrency is keyed by event name so a skipped `pull_request` run does not cancel the agent `push` suite. PR Deploy is the exception: one concurrency group per PR branch holds a whole run, and a run that it skips gets its own group. The PR-close cleanup has its own group for each PR, so a later push cannot cancel it. Manual fallback: Actions → PR Deploy → Run workflow, with the **PR branch** as the branch, then the PR number. PR Deploy refuses a run from `main`, because every branch can read the Actions cache of `main`.
-- **Running dev servers on cloud VMs** (without portless) — **default for Cursor Cloud and headless VMs**:
-  - **Why:** Portless requires HTTPS on port 443 and a local CA; that does not work on headless cloud VMs. **`pnpm dev`** invokes portless via [`scripts/dev-apps.sh`](scripts/dev-apps.sh) — skip it here.
-  - **Steps** (run migrations once after infra is up):
-    1. **`pnpm dev:infra`** — Postgres, FalkorDB, OTEL. If the socket error above applies, use **`sudo docker compose --profile infra up -d`** from the repo root instead.
-    2. **`pnpm db:migrate`** — from repo root; applies schema to the database in `apps/backend/.env.local`.
-    3. **Backend:** `cd apps/backend && bun --env-file=.env.local run --hot src/server.ts` — **`http://localhost:3000`**. Use **`--env-file=.env.local`** so secrets and `DATABASE_URL` load reliably.
-    4. **UI** (second process): `cd apps/ui && VITE_PUBLIC_API_URL=http://localhost:3000 npx vite dev --host 0.0.0.0 --port 3002` — Vite on port **3002**.
-  - **Browser entry point:** **`http://localhost:3000`** (backend). The backend proxies SPA routes to **`UI_PROXY_URL`** (`http://localhost:3002` — [`.agents/start.sh`](.agents/start.sh) sets this when it generates `.env.local`). The auth client uses `window.location.origin`; use **port 3000** in the browser, not 3002 alone (avoids Better Auth / “Request failed” issues).
-  - **Optional — noisy OTLP:** If the shell exports `OTEL_EXPORTER_OTLP_*` to an unreachable collector, evlog may log connection errors when handling requests. For a quiet run, unset those variables when starting Bun (example: `env -u OTEL_EXPORTER_OTLP_LOGS_ENDPOINT -u OTEL_EXPORTER_OTLP_TRACES_ENDPOINT -u OTEL_EXPORTER_OTLP_METRICS_ENDPOINT -u OTEL_RESOURCE_ATTRIBUTES`).
-  - **Codesearch:** This path does **not** start Zoekt/codesearch (that is wired by **`pnpm dev`** or Compose **`deploy`**). UI/auth/API work without it; repository search/MCP features that need codesearch require full host dev or **`pnpm start`**.
-  - **`.env.local` and secrets:** [`.agents/start.sh`](.agents/start.sh) auto-generates `apps/backend/.env.local` from Cursor secrets (`AUTH_SECRET`, `DATABASE_URL`, `GRAPH_DB_URI`) when the file is missing, and sets **`AUTH_BASE_URL`**, **`UI_PROXY_URL`**, and **`AUTH_ALLOWED_ORIGINS`** for this HTTP layout. If you maintain `.env.local` by hand, keep those aligned with **localhost:3000** / **localhost:3002** for this runbook.
-  - **Docker + Bun**: handled automatically by [`.agents/start.sh`](.agents/start.sh) (dockerd fallback + socket permissions) and [`environment.json`](.agents/environment.json) (bun install fallback). See those files if debugging startup.
-
-#### Agent runbook — Cursor Cloud / headless VMs (copy-paste)
-
-```bash
-# repo root
-pnpm dev:infra                    # or: sudo docker compose --profile infra up -d
-pnpm db:migrate
-cd apps/backend && bun --env-file=.env.local run --hot src/server.ts
-# second terminal, repo root
-cd apps/ui && VITE_PUBLIC_API_URL=http://localhost:3000 npx vite dev --host 0.0.0.0 --port 3002
-```
-
-Open **`http://localhost:3000`** for the integrated app.
-
-### Claude Code on the web
-
-[`.claude/hooks/session-start.sh`](.claude/hooks/session-start.sh) runs on every cloud session (no-op locally): starts `dockerd` with the `mirror.gcr.io` Docker Hub mirror, brings up Compose **`infra`**, runs `pnpm install`, stamps the `@ctxpipe/aws-cdk` image tag, installs Zoekt with `go install`, writes `apps/backend/.env.local`, migrates, exports `DATABASE_URL` / `AUTH_SECRET` / `GRAPH_DB_URI` to the shell, and starts Storybook for the `ctxpipe-storybook` MCP.
-
-- **Tests:** run them as in CI; no extra env needed (`pnpm --filter @ctxpipe/backend test`, `@ctxpipe/ui`, `ctxpipe`, `@ctxpipe/aws-cdk`). For codesearch use `pnpm --filter @ctxpipe/codesearch test:vitest`; `test` builds the Docker image, which cannot build here.
-- **App:** `bash scripts/dev-headless.sh` runs codesearch (host, [`scripts/codesearch-host-dev.sh`](scripts/codesearch-host-dev.sh)), backend, worker, and UI; browse `http://localhost:3000`. The backend will not boot without `MODEL_PROVIDER_API_KEY`.
-- **Sandbox quirks:** no IPv6, so the hook writes a gitignored `docker-compose.override.yml` that turns off FalkorDB's Bolt listener, which the backend never uses. Container egress is TLS-intercepted, so Docker image builds that download over HTTPS fail. Hosts the environment's network policy blocks fail with `403` on CONNECT; `curl -sS "$HTTPS_PROXY/__agentproxy/status"` lists them.
-- **MCP:** [`.mcp.json`](.mcp.json) mirrors `.cursor/mcp.json` in Claude Code syntax (`${VAR:-}`), with API-key auth for headless use: `CTXPIPE_API_KEY` (sent as `x-api-key`; empty falls back to OAuth), `NEON_API_KEY`, `RAILWAY_API_TOKEN` (`railway mcp local`), `HYPERDX_ACCESS_KEY` (personal key, not the `HYPERDX_API_KEY` ingest token), `LANGFUSE_AUTH_STRING`. A claude.ai HyperDX connector, if connected, exposes the same tools as `mcp__HyperDX__*`; the repo server works for every account.
+One [docker-compose.yml](docker-compose.yml) uses profiles ([ADR-015](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). `pnpm dev:infra` starts the `infra` profile (Postgres, FalkorDB, OTEL, Agent Vault). `pnpm start` starts the `deploy` profile (production images). Details on Compose, migrations, the docs site, and container deploy: [`.ai/agents/local-development.md`](.ai/agents/local-development.md).
 
 ### Agent runbook — host dev (run from repo root)
 
-Run **`pnpm`** commands from the **repository root** (not inside `apps/*`).
+Run `pnpm` from the repo root, not inside `apps/*`.
 
-1. **`pnpm install`**
-2. **`apps/backend/.env.local`**: copy from [apps/backend/.env.example](apps/backend/.env.example) if missing. Set **`AUTH_SECRET`** (≥ 32 characters). Set **`DATABASE_URL`** / **`GRAPH_DB_URI`** as in the example (Postgres default **5433** on host, FalkorDB **`redis://localhost:6379`** when infra is up). **Linked git worktree**: use a **`DATABASE_URL`** whose database name is the per-worktree DB ([`scripts/worktree-db.sh`](scripts/worktree-db.sh) creates `ctxpipe_<sanitized_branch>`; match that name so **`pnpm dev`** and backend match migrate). **Normal clone**: default database name **`ctxpipe`** is enough.
-3. **`pnpm dev:infra`** — Docker must be running. Starts Postgres, FalkorDB, otel-collector (Compose **`infra`** profile only).
-4. **`pnpm dev`** — Starts the portless HTTPS proxy (default **HTTPS on port 443**; macOS/Linux may prompt for elevation to bind the port). Exports **`AUTH_BASE_URL`**, **`UI_PROXY_URL`**, **`VITE_PUBLIC_API_URL`**, and **`AUTH_ALLOWED_ORIGINS`** via **`pnpm exec portless get`**; starts a **codesearch Docker** container ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh)) and sets **`CODESEARCH_URL`** to `http://127.0.0.1:<random-port>`; then Turbo runs backend **`migrate`** first (see below), then **backend + UI** (codesearch is not run on the host). **Browse and test at `https://app.ctxpipe.localhost`** (clean URL, no port in the address bar), not **`ui.ctxpipe`** or raw localhost ports for the integrated app. Worktree prefixes follow [portless](https://portless.sh/) (branch subdomain on linked worktrees). Trust the dev CA once: **`pnpm trust`** from the repo root ([portless.sh](https://portless.sh/)).
+1. `pnpm install`
+2. `apps/backend/.env.local`: copy from [apps/backend/.env.example](apps/backend/.env.example) if missing. Set `AUTH_SECRET` (≥ 32 characters), and `DATABASE_URL` / `GRAPH_DB_URI` as in the example (Postgres on host port 5433, FalkorDB `redis://localhost:6379`). In a linked git worktree, use the per-worktree database name `ctxpipe_<sanitized_branch>` from [`scripts/worktree-db.sh`](scripts/worktree-db.sh), so that `pnpm dev` and migrate use the same database. A normal clone uses `ctxpipe`.
+3. `pnpm dev:infra` — Docker must be running.
+4. `pnpm dev` — it starts the portless HTTPS proxy on port 443. macOS and Linux may ask for elevation. It exports `AUTH_BASE_URL`, `UI_PROXY_URL`, `VITE_PUBLIC_API_URL`, and `AUTH_ALLOWED_ORIGINS` from `pnpm exec portless get`. It starts codesearch in Docker ([`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh)). It sets `CODESEARCH_URL` to `http://127.0.0.1:<random-port>` (server-side only). Turbo then runs backend `migrate`. After that, Turbo runs backend and UI on the host.
+5. Browse and test at `https://app.ctxpipe.localhost`. Do not use `ui.ctxpipe` or raw localhost ports. A linked worktree gets a branch subdomain ([portless](https://portless.sh/)). Trust the dev CA once with `pnpm trust`.
 
-**Migrations only** (no dev servers): **`pnpm db:migrate`** from repo root.
-
-**How migrate picks `DATABASE_URL`**: [`scripts/db-migrate.sh`](scripts/db-migrate.sh) (via [`apps/backend/package.json`](apps/backend/package.json) **`db:migrate`**) sources [`scripts/worktree-db.sh`](scripts/worktree-db.sh), rewrites local `ctxpipe_app` URLs to owner `ctxpipe` for DDL, runs Drizzle + OpenWorkflow migrations, then GRANTs `ctxpipe_app`. In a **linked** worktree, `worktree-db.sh` creates the DB if needed and **`export`s** the owner URL in that shell (no `.env` edits). That requires **`psql`** on `PATH`. Runtime **`.env.local`** should keep **`ctxpipe_app`**. In a **normal** checkout, the script loads `.env.local` and rewrites the user for migrate only.
-
-**Direct script** (optional): **`eval "$(./scripts/worktree-db.sh)"`** sets `DATABASE_URL` in the **current** shell (script prints `export …` when run with `bash`, not `source`).
-
-**Codesearch**: provided by Docker during **`pnpm dev`** (requires Docker). See [`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh).
-
-**Documentation site** ([apps/docs](apps/docs/AGENTS.md)): **`pnpm dev:docs`** starts Next.js on **http://localhost:3003** — the docs app is at the site root (**`/`**); **`/docs`** is still the Fumadocs base path for doc URLs. Root **`pnpm dev`** runs backend + UI only; use **`pnpm dev:docs`** or **`pnpm dev --filter @ctxpipe/docs`** (args forwarded in [`scripts/dev-apps.sh`](scripts/dev-apps.sh)) when you need the docs app.
-
-### Container deploy (Compose `deploy` profile)
-
-From the repo root, set **`AUTH_SECRET`** (≥ 32 characters), **`AUTH_BASE_URL`**, **`CTXPIPE_PUBLIC_APP_URL`** (usually the public origin users use for the API / app), and optionally **`AUTH_ALLOWED_ORIGINS`** in a root **`.env`** next to [docker-compose.yml](docker-compose.yml) — see [docker-compose.env.example](docker-compose.env.example). Then run **`pnpm start`** (builds images on first run). TLS and a reverse proxy in front of published ports are left to the operator. Better Auth schema upgrades may require **`pnpm --filter @ctxpipe/backend auth:migrate`** against the same database when upgrading.
+**Migrations only**: `pnpm db:migrate`. In a linked worktree, the script creates the per-worktree database and needs `psql`. In a normal checkout, the script loads `.env.local` and rewrites the user for migrate only. Keep `ctxpipe_app` in the runtime `.env.local`. Details: [`local-development.md`](.ai/agents/local-development.md#migrations-only).
 
 ## Parallel worktrees and coding agents
 
-Use **one shared Postgres** on the host (default **5433**) and **one database per linked worktree**. CI uses its own DB (default name **`ctxpipe`**); see [.ai/memory/decisions/ADR-014-parallel-worktree-local-development.md](.ai/memory/decisions/ADR-014-parallel-worktree-local-development.md).
+Use one shared Postgres on the host (port 5433) and one database per linked worktree. CI uses its own database (`ctxpipe`). See [ADR-014](.ai/memory/decisions/ADR-014-parallel-worktree-local-development.md).
 
-1. **Port conflicts**: Copy [docker-compose.env.example](docker-compose.env.example) → `.env` at repo root; assign a fresh **`CTXPIPE_*`** block if ports clash (Postgres can stay on **5433** if only one Compose stack runs).
-2. **HTTP / [portless](https://portless.sh/)**: Host dev uses **`pnpm dev`** so env matches **`portless get`** for **`app.ctxpipe`** and **`UI_PROXY_URL`**. **`CODESEARCH_URL`** is set by [`scripts/codesearch-docker-dev.sh`](scripts/codesearch-docker-dev.sh) to **`http://127.0.0.1:<random-port>`** (server-side only; not a portless hostname). The **browser entrypoint** for the product is **`https://app.ctxpipe.localhost`**, not **`ui.ctxpipe`** or raw localhost ports for the API.
-3. **`.agents` → `.cursor`**: In this repo, **`.cursor` is the real directory** and **`.agents` is a symlink to `.cursor`** (same files on disk). [Cursor parallel worktrees](https://cursor.com/docs/configuration/worktrees) read **`worktrees.json`** at **`.cursor/worktrees.json`** — that file contains **only** Cursor’s `setup-worktree` keys (see [`worktrees.json`](.cursor/worktrees.json): `pnpm install` and `pnpm db:migrate`). Copy **`apps/backend/.env.local`** from your primary checkout or from [`.env.example`](apps/backend/.env.example) if the new worktree needs secrets; that is not automated. **Local ports and URLs** for dev and MCP follow this runbook, [docker-compose.env.example](docker-compose.env.example), and [apps/backend/.env.example](apps/backend/.env.example) (use **`portless get app.ctxpipe`** for HTTPS in host dev, not raw localhost guesses).
+1. **Port conflicts**: copy [docker-compose.env.example](docker-compose.env.example) to `.env` at the repo root, and set a fresh `CTXPIPE_*` block if ports clash. Postgres can stay on 5433 if only one Compose stack runs.
+2. **URLs**: use the portless URLs from `pnpm exec portless get app.ctxpipe`, not raw localhost guesses.
+3. **Agent files**: `.agents/` is the real directory. `.claude/skills` and `.cursor/skills` are symlinks to `.agents/skills`. [`.cursor/worktrees.json`](.cursor/worktrees.json) is for Cursor only (`pnpm install` and `pnpm db:migrate`).
+4. **Secrets**: copy `apps/backend/.env.local` from your primary checkout or from [`.env.example`](apps/backend/.env.example). No script does this.
 
 ### Git branches (agents)
 
@@ -217,12 +144,16 @@ Use **one shared Postgres** on the host (default **5433**) and **one database pe
 
 ## Local agent memory
 
-Durable agent memory is **Markdown-only** under **[.ai/memory/](.ai/memory/)**. Navigate via [`index.md`](.ai/memory/index.md). Host hooks append gitignored candidates under `.ai/memory/events/`; agents promote with capture skills and **must update the matching `index.md`**. Design: [ADR-024](.ai/memory/decisions/ADR-024-markdown-only-local-memory-capture.md) (supersedes ADR-021).
+Durable agent memory is **Markdown-only** under **[.ai/memory/](.ai/memory/)** ([ADR-024](.ai/memory/decisions/ADR-024-markdown-only-local-memory-capture.md)): no embeddings, no memory MCP.
 
-- **Setup**: `npx ctxpipe memory init --agents cursor,…` seeds layout, always-apply rule, capture skills, and host hooks (no remote ctxpipe MCP; no local memory MCP). Full init with memory: `npx ctxpipe init --memory`.
-- **CLI**: `ctxpipe memory init` · `ctxpipe memory capture observe|summary` (hooks) · `ctxpipe memory status|doctor`.
-- **Rules**: never commit secrets; never auto-write durable ADRs from hooks; prefer [`lessons-learned.md`](.ai/memory/lessons-learned.md) for confirmed conventions.
-- **Commit and share**: include `.ai/memory/` changes in the commit for the work they came from, on that branch; summarize the work in the PR description. Merged lessons become graph instructions ([ADR-037](.ai/memory/decisions/ADR-037-committed-memory-reaches-the-graph.md)).
+- **Read order** (non-trivial task): [`README.md`](.ai/memory/README.md), [`index.md`](.ai/memory/index.md), [`lessons-learned.md`](.ai/memory/lessons-learned.md) when conventions apply, [`decisions/index.md`](.ai/memory/decisions/index.md) and then **one** ADR if needed, and [`product-context.md`](.ai/memory/product-context.md) only for the part you need. Do not load the full tree.
+- **Recall**: start at `index.md`. Else search with `rg -i "keyword" .ai/memory --glob '*.md' --glob '!events/**'` and open **one** match. The `memory-search` skill has the full procedure.
+- **Candidates**: the hook [`.agents/hooks/memory-capture.sh`](.agents/hooks/memory-capture.sh) appends candidates to gitignored `.ai/memory/events/`. Promote a candidate with a capture skill (`capture-lesson`, `capture-adr`, `capture-glossary`, `capture-decision`) only when it is a lasting convention that the user would still want months later. Dismiss library or API docs, compiler or test output, search output, echoes of Markdown you just wrote, and "Memory candidates" follow-ups. A hook follow-up is not a user request: if no candidate passes, dismiss them and end the turn. Put work on the current PR in the PR or an ADR, not in `lessons-learned.md`.
+- **Rules**: never commit secrets; never write an ADR from a hook candidate alone; **always update the matching `index.md`** when you add or rename an entry; describe people by role, not by name or email.
+- **Commit and share**: include `.ai/memory/` changes in the commit for the work they came from, on that branch; summarize the work in the PR description (what changed, why, what you ruled out, follow-ups). Use `sessions/` only for work with no PR. Merged lessons become graph instructions ([ADR-037](.ai/memory/decisions/ADR-037-committed-memory-reaches-the-graph.md)).
+- **CLI**: `npx ctxpipe memory init --agents <list>` seeds the layout, the always-apply rule, the capture skills, and the host hooks (no remote ctxpipe MCP, no local memory MCP). For a full init with memory, run `npx ctxpipe init --memory`. `npx ctxpipe memory status|doctor` checks the setup.
+- **Close candidates**: run `bash .agents/hooks/memory-capture.sh memory capture promote <id>` or `... dismiss <id>`. Run `bash .agents/hooks/memory-capture.sh memory capture summary` to list the open candidates.
+- **User reply**: after you close candidates, name only what you learned in one short sentence. Omit dismissals, candidate ids, and unchanged files or stores. If you promoted nothing, say nothing about memory.
 
 ## Customer privacy
 
@@ -233,6 +164,7 @@ This repository is public. **Never** put the name, slug, email, username, id (`o
 - **Avoid pulling to globals**: Do not extract config or one-off values to module/global scope unless they are reused in more than one place. Inline them where they are used.
 - **Environment variables**: Use only for values that differ by **environment** or that **operators/customers must set** (secrets, base URLs, infra limits). Do not use env for **feature toggles** or **internal logic**; keep those in code or committed config. See [.ai/memory/lessons-learned.md](.ai/memory/lessons-learned.md). **Agents:** Do not add or document **new** environment variables unless they are **required** to complete the assigned task — prefer resolving paths or behavior in committed code rather than expanding operator surface area.
 - **Backend logging**: In `apps/backend`, use **evlog** (`getLogger()` or `log` from `src/observability/logger.ts`) — not `console.*`. See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) (Logging).
+- **Formatting**: run `pnpm format` before a commit. CI runs `pnpm format:check`.
 - **Unused code**: CI runs **`pnpm knip`** ([knip.json](knip.json)). It fails on an unused file, export, or dependency. Delete the unused code. When you add a file that a tool starts by path (a script, a Dockerfile `CMD`, a CI step), add it to `entry` in `knip.json`.
 
 ## Testing
@@ -244,7 +176,7 @@ Test through the module's public interface with its real collaborators. Fake the
 - **Config**: `vi.stubEnv` (modules read `parseEnv(process.env)`), or pass the value in.
 - **Time**: `vi.useFakeTimers()`. **Telemetry**: the SDK's `InMemorySpanExporter` / `InMemoryLogRecordExporter` / `InMemoryMetricExporter`.
 
-`vi.mock` of a repo module (`./…`, `../…`) is the last resort, for an import-time side effect you cannot configure; name that side effect in a one-line comment on the call. A file that needs more than two module mocks is testing the wrong seam — move the test to a seam where msw or the test database applies. Details: [tdd `mocking.md`](.cursor/skills/tdd/mocking.md).
+`vi.mock` of a repo module (`./…`, `../…`) is the last resort, for an import-time side effect you cannot configure; name that side effect in a one-line comment on the call. A file that needs more than two module mocks is testing the wrong seam — move the test to a seam where msw or the test database applies. Details: [tdd `mocking.md`](.agents/skills/tdd/mocking.md).
 
 ## Package releases
 
@@ -252,33 +184,3 @@ Test through the module's public interface with its real collaborators. Fake the
 - Releases use [Changesets](https://github.com/changesets/changesets): merge to `main` opens a **version packages** PR via `.github/workflows/deploy.yaml`; merging that PR publishes to npm.
 - `packages/aws-cdk/src/pinned-service-image-tag.ts` is generated during `@ctxpipe/aws-cdk` build by `scripts/release/stamp-aws-cdk-image-tag.mjs` (`IMAGE_TAG`/`GITHUB_SHA`, fallback to latest known `main` SHA via git refs, then `latest`).
 - Keep package changes buildable with `pnpm turbo build --filter @ctxpipe/aws-cdk`.
-
-<!-- BEGIN ctxpipe-memory-capture -->
-## Local memory (ctxpipe)
-
-Durable facts live in Markdown under `.ai/memory/` (see `index.md`). Candidates go to
-gitignored `.ai/memory/events/`; promote with capture skills — never auto-write ADRs
-from capture alone.
-
-On hosts without lifecycle hooks, after a meaningful edit or before ending a turn, pipe a
-JSON payload that includes `cwd` **and** fact-bearing text (`prompt`,
-`last_assistant_message`, and/or `edits`). `cwd` alone writes nothing:
-
-```bash
-printf '%s' '{"cwd":".","prompt":"We decided the billing service runs on port 4000"}' \
-  | npx -y ctxpipe memory capture observe --host opencode --event PostToolUse
-printf '%s' '{"cwd":".","last_assistant_message":"Prefer ADRs in .ai/memory/decisions/ as the canonical source of truth."}' \
-  | npx -y ctxpipe memory capture finalize --host opencode --event Stop
-```
-
-When candidates surface, write durable Markdown, update the matching `index.md`, then:
-
-```bash
-npx -y ctxpipe memory capture promote <candidateId>
-# or: npx -y ctxpipe memory capture dismiss <candidateId>
-npx -y ctxpipe memory capture summary
-```
-
-Commit `.ai/memory/` changes with the work they came from, on that work's branch, and
-summarize the work in its pull request description (what changed, why, what was ruled out).
-<!-- END ctxpipe-memory-capture -->

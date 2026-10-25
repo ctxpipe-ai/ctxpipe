@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { workspaceFilePath } from "./workspace-file-path"
+
+import {
+  createTreeFileResolver,
+  workspaceFilePath,
+  workspaceFilePathFromHref,
+} from "./workspace-file-path"
 
 describe("workspaceFilePath", () => {
   it.each([
@@ -41,5 +46,59 @@ describe("workspaceFilePath", () => {
     "src//a.ts",
   ])("rejects %j", (text) => {
     expect(workspaceFilePath(text)).toBeNull()
+  })
+})
+
+describe("workspaceFilePathFromHref", () => {
+  it.each([
+    "knowledge/x.md",
+    "./knowledge/x.md",
+    "knowledge/x.md#L12",
+    "knowledge/x.md#L12-L20",
+    "knowledge/x.md#heading-anchor-on-a-workspace-file-opens-the-file",
+    "knowledge/x.md:12",
+    "knowledge/x.md:12:5",
+    "file:///workspace/knowledge/x.md",
+    "file:///workspace/knowledge/x.md#L58",
+    "/workspace/knowledge/x.md",
+    "/workspace/knowledge/x.md:12",
+  ])("maps %j to the repository path", (href) => {
+    expect(workspaceFilePathFromHref(href)).toBe("knowledge/x.md")
+  })
+
+  it.each(["#section", "mailto:a@b.co", "/etc/hosts", "docs/", "../x.md"])(
+    "returns null for %j",
+    (href) => {
+      expect(workspaceFilePathFromHref(href)).toBeNull()
+    },
+  )
+})
+
+describe("createTreeFileResolver", () => {
+  const resolve = createTreeFileResolver([
+    "knowledge/apis/anthropic.md",
+    "knowledge/apis/anthropic-2.md",
+    "notes/a.md",
+    "other/a.md",
+  ])
+
+  it("finds the one file that has a bare name", () => {
+    expect(resolve("anthropic-2.md")).toBe("knowledge/apis/anthropic-2.md")
+  })
+
+  it("keeps an exact path in the tree", () => {
+    expect(resolve("notes/a.md")).toBe("notes/a.md")
+  })
+
+  it("returns null when no file has the name", () => {
+    expect(resolve("missing.md")).toBeNull()
+  })
+
+  it("returns null when more than one file has the name", () => {
+    expect(resolve("a.md")).toBeNull()
+  })
+
+  it("returns null for a path with a folder that is not in the tree", () => {
+    expect(resolve("src/index.ts")).toBeNull()
   })
 })

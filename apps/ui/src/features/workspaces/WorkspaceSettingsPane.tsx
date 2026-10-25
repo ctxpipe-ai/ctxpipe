@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router"
 import { type ReactNode, useEffect, useRef, useState } from "react"
 import { Heading, Link } from "react-aria-components"
 import { toast } from "sonner"
+
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -18,6 +19,7 @@ import { WORKSPACE_UPGRADES_HASH } from "@/features/workspace-upgrades/queries"
 import { WorkspaceUpgrades } from "@/features/workspace-upgrades/WorkspaceUpgrades"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+
 import { writeCheckInFlight } from "./projection"
 import {
   checkWorkspaceWriteAccess,
@@ -27,15 +29,19 @@ import {
   workspaceKeys,
 } from "./queries"
 import { normalizeRootFolder, rootFolderError } from "./rootFolder"
+import {
+  skippedFileCopy,
+  skippedFileFixable,
+  skippedFilesFixPrompt,
+} from "./skipped-files"
 import { StatusTag } from "./StatusTag"
-import { skippedFilesFixPrompt, skippedReasonCopy } from "./skipped-files"
 import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
+import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
 import {
   type WorkspaceRepositoryChoice,
   WorkspaceRepositoryPicker,
 } from "./WorkspaceRepositoryPicker"
 import { WorkspaceRootFolderField } from "./WorkspaceRootFolderField"
-import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
 import { useWriteCheckStall } from "./writeCheckStall"
 import { writeStatusLabel } from "./writeStatusLabel"
 
@@ -155,8 +161,10 @@ function SkippedFilesNotice(props: {
         title={`Hydrate skipped ${count} ${count === 1 ? "file" : "files"}`}
       >
         <p>
-          Chat, MCP, search, and the graph do not use these files. Fix each file
-          and push the change to the default branch.
+          Chat, MCP, search, and the graph do not use these files.
+          {props.files.some((file) => file.source !== "legacy-overlay")
+            ? " Fix each file that is in Git and push the change to the default branch."
+            : ""}
         </p>
         <ul className="mt-3 flex flex-col gap-2">
           {props.files.map((file) => (
@@ -165,21 +173,28 @@ function SkippedFilesNotice(props: {
               className="flex min-w-0 items-center justify-between gap-3"
             >
               <div className="min-w-0">
-                <Link
-                  onPress={() => props.onOpenFile(file.path)}
-                  className={cn(
-                    "block cursor-pointer truncate rounded-md font-mono text-xs text-amber-50 underline decoration-amber-200/40 underline-offset-2 hover:decoration-amber-50",
-                    focusVisibleClassName,
-                  )}
-                >
-                  {file.path}
-                </Link>
+                {/* A legacy overlay path is not in Git, so the Files pane cannot open it. */}
+                {file.source === "legacy-overlay" ? (
+                  <span className="block truncate font-mono text-xs text-amber-50">
+                    {file.path}
+                  </span>
+                ) : (
+                  <Link
+                    onPress={() => props.onOpenFile(file.path)}
+                    className={cn(
+                      "block cursor-pointer truncate rounded-md font-mono text-xs text-amber-50 underline decoration-amber-200/40 underline-offset-2 hover:decoration-amber-50",
+                      focusVisibleClassName,
+                    )}
+                  >
+                    {file.path}
+                  </Link>
+                )}
                 <p className="text-xs text-amber-100/70">
-                  {skippedReasonCopy[file.reason]}
+                  {skippedFileCopy(file)}
                 </p>
               </div>
-              {/* Only front matter is for the agent to fix. */}
-              {onFixWithAgent && file.reason === "malformed" ? (
+              {/* Only front matter in a file of Git is for the agent to fix. */}
+              {onFixWithAgent && skippedFileFixable(file) ? (
                 <Button
                   variant="secondary"
                   className="shrink-0"
@@ -469,6 +484,19 @@ export function WorkspaceSettingsPane(props: {
         ) : null}
 
         <div className="mt-8 flex flex-col gap-12">
+          <SettingsGroup
+            eyebrow="Status"
+            landing={hash === WORKSPACE_UPGRADES_HASH}
+          >
+            <WorkspaceUpgrades
+              orgSlug={orgSlug}
+              workspaceSlug={workspace.slug}
+              {...(props.onFixWithAgent
+                ? { onFixWithAgent: props.onFixWithAgent }
+                : {})}
+            />
+          </SettingsGroup>
+
           <SettingsGroup eyebrow="General">
             <form
               id="workspace-settings"
@@ -578,19 +606,6 @@ export function WorkspaceSettingsPane(props: {
               orgSlug={orgSlug}
               workspaceSlug={workspace.slug}
               linkedRepositories={workspace.linkedRepositories}
-            />
-          </SettingsGroup>
-
-          <SettingsGroup
-            eyebrow="Upgrades"
-            landing={hash === WORKSPACE_UPGRADES_HASH}
-          >
-            <WorkspaceUpgrades
-              orgSlug={orgSlug}
-              workspaceSlug={workspace.slug}
-              {...(props.onFixWithAgent
-                ? { onFixWithAgent: props.onFixWithAgent }
-                : {})}
             />
           </SettingsGroup>
 

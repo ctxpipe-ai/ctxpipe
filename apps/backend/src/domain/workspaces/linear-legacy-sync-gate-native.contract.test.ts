@@ -1,4 +1,5 @@
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -9,8 +10,8 @@ import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { linearSyncEntity } from "../../openworkflow/workflows/linear-sync-entity.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
-import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
+import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 
 // A Linear entity sync that writes a deletion starts no repository ingestion
 // on its sync repository, with or without Workspace sources (CTX-651).

@@ -8,6 +8,7 @@ import { evlog } from "evlog/hono"
 import { contextStorage, getContext } from "hono/context-storage"
 import { cors } from "hono/cors"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
+
 import { requestSession } from "../auth/withAuth.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
@@ -16,8 +17,8 @@ import { httpWideEventMessage } from "../domain/workspaces/opencode-chat-stream.
 import { backendOtelMiddleware } from "../observability/http.js"
 import { log } from "../observability/logger.js"
 import { registerAuthRoutes } from "../routes/auth.js"
-import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerMcpBrandAssetRoute } from "../routes/mcp-brand-asset.js"
+import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
 import {
   registerSandboxEgressRoute,
@@ -28,8 +29,7 @@ import { registerUiRoutes } from "../routes/ui.js"
 import { registerV1Routes } from "../routes/v1/index.js"
 import { registerWebhookRoutes } from "../routes/webhooks.js"
 import type { AppEnv } from "./env.js"
-
-
+import { wwwRedirect } from "./www-redirect.js"
 
 /**
  * Paths that must not resolve Better Auth sessions (static UI + auth/webhook).
@@ -72,6 +72,9 @@ export function createApp() {
 
   // First: a sandbox-forwarded request must not reach any other route.
   app.use("*", sandboxEgressGuard())
+
+  // Hosted only: www.app.ctxpipe.ai redirects before auth and routing.
+  app.use("*", wwwRedirect())
 
   const corsOrigins = (env.AUTH_ALLOWED_ORIGINS ?? "")
     .split(",")

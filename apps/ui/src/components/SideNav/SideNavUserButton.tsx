@@ -8,6 +8,7 @@ import {
   IconSettings,
 } from "@tabler/icons-react"
 import { useContext, useState } from "react"
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+
 import {
   sideNavAccountAvatarClassNames,
   sideNavAccountTriggerClassName,

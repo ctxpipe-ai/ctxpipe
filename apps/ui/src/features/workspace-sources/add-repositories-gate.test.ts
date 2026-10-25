@@ -1,20 +1,13 @@
 import { describe, expect, it } from "vitest"
+
 import { addRepositoriesGate } from "./add-repositories-gate"
 
 const ready = { formatVersion: 3, codeFormat: 3 }
 
 describe("addRepositoriesGate", () => {
-  it("lets a writable Workspace at format 2 or higher add repositories", () => {
+  it("lets a writable Workspace at the newest format add repositories", () => {
     expect(
       addRepositoriesGate({ canEdit: true, readOnlyReason: null, ...ready }),
-    ).toBeNull()
-    expect(
-      addRepositoriesGate({
-        canEdit: true,
-        readOnlyReason: null,
-        formatVersion: 2,
-        codeFormat: 3,
-      }),
     ).toBeNull()
   })
 
@@ -32,18 +25,19 @@ describe("addRepositoriesGate", () => {
     })
   })
 
-  it("names the upgrade when the format is below 2", () => {
-    expect(
-      addRepositoriesGate({
-        canEdit: true,
-        readOnlyReason: null,
-        formatVersion: 1,
-        codeFormat: 3,
-      }),
-    ).toMatchObject({
-      title: "Upgrade this Workspace before you add repositories",
-      action: "Review upgrades",
-    })
+  it("names the upgrade when the format is below the newest", () => {
+    for (const formatVersion of [0, 1, 2])
+      expect(
+        addRepositoriesGate({
+          canEdit: true,
+          readOnlyReason: null,
+          formatVersion,
+          codeFormat: 3,
+        }),
+      ).toMatchObject({
+        title: "Upgrade this Workspace before you add repositories",
+        action: "Review upgrades",
+      })
   })
 
   it("waits while the repository has no format yet", () => {

@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, like, ne, or, sql } from "drizzle-orm"
+
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { workspaces, workspaceWriteJobs } from "../db/schema/workspaces.js"
@@ -153,6 +154,8 @@ export async function transitionWorkspaceUpgradeRow(input: {
   failureReason?: string | null
   /** Only change a row that this workflow run owns. */
   ownerRunId?: string
+  /** Only change a row that ctxpipe queued again by itself after this failed run (CTX-896). */
+  autoRetryOf?: string
 }): Promise<WorkspaceUpgradeRow | null> {
   return orgSql(async () => {
     const id = upgradeJobId(input.workspaceId, input.key)
@@ -174,9 +177,16 @@ export async function transitionWorkspaceUpgradeRow(input: {
       current.workflowRunId !== input.ownerRunId
     )
       return null
+    if (
+      input.autoRetryOf !== undefined &&
+      current.upgrade.autoRetry?.failedRunId !== input.autoRetryOf
+    )
+      return null
     const upgrade = { ...current.upgrade, ...input.upgrade }
     for (const [key, value] of Object.entries(upgrade))
       if (value === undefined) delete upgrade[key as keyof typeof upgrade]
+    // The stage of a run lives only while the row runs.
+    if (input.to !== UPGRADE_STATUSES.running) delete upgrade.stage
     // A repository that a re-ingestion did stays done, also when the new
     // reports of a later run do not say so.
     const reingested = reingestedNames(current.upgrade, input.upgrade)

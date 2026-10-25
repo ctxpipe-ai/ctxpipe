@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm"
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -11,8 +12,8 @@ import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { slackMentionAgent } from "../../openworkflow/workflows/slack-mention-agent.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
-import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
+import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 
 it.each([
   "bare",
@@ -60,7 +61,7 @@ it.each([
                 ts: "1700000000.000000",
                 text: "Keep this engineering decision.",
               },
-              { ts: "1700000001.000000", text: "ctx| agent working…" },
+              { ts: "1700000001.000000", text: "ctxpipe agent working…" },
             ],
           },
           "chat.getPermalink": {
@@ -193,7 +194,7 @@ it.each([
               expect(
                 requests.filter((r) => r.method === "chat.postMessage"),
               ).toMatchObject([
-                { body: { text: "ctx| agent working…" } },
+                { body: { text: "ctxpipe agent working…" } },
                 {
                   body: {
                     text: expect.stringContaining(
@@ -270,7 +271,7 @@ it.each([
                 "show",
                 "main:slack/channels/C0FIX0001/threads/2023/11/1700000000.000000/thread.md",
               ),
-            ).not.toContain("ctx| agent working")
+            ).not.toContain("ctxpipe agent working")
             expect(
               requests.filter((r) => r.method === "chat.update"),
             ).toMatchObject([
@@ -355,7 +356,7 @@ it.each([
             "main:slack/channels/engineering--C0FIX0001/threads/2023/11/1700000000.000000/thread.md",
           )
           expect(markdown).toContain("Keep this engineering decision.")
-          expect(markdown).not.toContain("ctx| agent working")
+          expect(markdown).not.toContain("ctxpipe agent working")
           expect(
             requests.filter((r) => r.method === "chat.update"),
           ).toMatchObject([

@@ -1,6 +1,7 @@
 import { eq, sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
@@ -341,7 +342,7 @@ it(
 )
 
 it(
-  "a rebind of a format 0 repository with ctx| content writes no bootstrap to the default branch, and the scan offers the upgrade",
+  "a rebind of a format 0 repository with ctxpipe content writes no bootstrap to the default branch, and the scan offers the upgrade",
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
@@ -349,7 +350,7 @@ it(
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
-        // A repository with no ctx| content is new: bootstrap writes it.
+        // A repository with no ctxpipe content is new: bootstrap writes it.
         files: [
           { path: "document-000.md", body: "# Document 0\n" },
           { path: "repositories/example.md", body: "# Example\n" },
@@ -365,9 +366,8 @@ it(
         )
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { workspaceUpgradeScan } = await import(
-          "../../openworkflow/workflows/workspace-upgrade-scan.js"
-        )
+        const { workspaceUpgradeScan } =
+          await import("../../openworkflow/workflows/workspace-upgrade-scan.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,

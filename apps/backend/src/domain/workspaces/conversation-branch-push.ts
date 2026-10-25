@@ -1,4 +1,5 @@
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
@@ -114,7 +115,7 @@ export function conversationBranchPushTool(input: {
           pushed: false,
           reason: outcome.reason,
           uncommitted,
-          next: "Only ctx| adds or changes the generated_by and sources front matter fields, because they give a file to ingestion. A new commit that undoes the change is not sufficient, because each commit is checked. Remove the change from every unpushed commit (for example, `git reset --soft` to the last pushed commit, undo the change, and commit again), then push again.",
+          next: "Only ctxpipe adds or changes the generated_by and sources front matter fields, because they give a file to ingestion. A new commit that undoes the change is not sufficient, because each commit is checked. Remove the change from every unpushed commit (for example, `git reset --soft` to the last pushed commit, undo the change, and commit again), then push again.",
         }
       if (outcome.status === "skipped" && outcome.reason === "outside_root")
         return {
@@ -128,7 +129,7 @@ export function conversationBranchPushTool(input: {
           pushed: false,
           reason: outcome.reason,
           uncommitted,
-          next: "Only a ctx| upgrade pull request changes .ctxpipe/workspace.yaml. Undo the change to that file in a new commit, and push again.",
+          next: "Only a ctxpipe upgrade pull request changes .ctxpipe/workspace.yaml. Undo the change to that file in a new commit, and push again.",
         }
       if (outcome.status === "skipped" && outcome.reason === "upgrade_needed")
         return {
@@ -142,7 +143,7 @@ export function conversationBranchPushTool(input: {
           pushed: false,
           reason: outcome.reason,
           uncommitted,
-          next: "Your commits write a path of knowledge from before Workspaces. ctx| serves that knowledge from its database, not from git, so it is read-only until the re-ingestion of its repository replaces it. Undo the change to that path in a new commit, write your change at another path, and push again.",
+          next: "Your commits write a path of knowledge from before Workspaces. ctxpipe serves that knowledge from its database, not from git, so it is read-only until the re-ingestion of its repository replaces it. Undo the change to that path in a new commit, write your change at another path, and push again.",
         }
       return { pushed: false, reason: outcome.reason, uncommitted }
     },

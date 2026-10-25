@@ -1,10 +1,10 @@
 import { HttpResponse, http } from "msw"
 import { afterEach, expect, it, vi } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import { classifyUnkeyedKnowledgeCollision } from "./dest-workspace-first.js"
 import { resolveSemanticConflicts } from "./semantic-merge.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: Vitest owns this MSW lifecycle.
 const server = useMswServer()
 afterEach(() => vi.unstubAllEnvs())
 
@@ -19,7 +19,7 @@ function configureModel() {
 
 /** Reply with a forced tool call, and keep the request body. */
 function replyWithToolCall(
-  reply: unknown,
+  reply: unknown | ((body: Record<string, unknown>) => unknown),
   requests: Record<string, unknown>[],
 ) {
   server.use(
@@ -43,7 +43,9 @@ function replyWithToolCall(
                   type: "function",
                   function: {
                     name: tools[0]?.function.name,
-                    arguments: JSON.stringify(reply),
+                    arguments: JSON.stringify(
+                      typeof reply === "function" ? reply(body) : reply,
+                    ),
                   },
                 },
               ],
@@ -60,16 +62,15 @@ const conflicts = [
   { path: "b.md", base: null, current: "x", incoming: "y" },
 ]
 
-it("resolves conflicts with one forced structured call on the high tier", async () => {
+it("resolves each conflicting file with one forced structured call on the high tier", async () => {
   configureModel()
   const requests: Record<string, unknown>[] = []
+  // One file per call, so a large merge does not reach the time limit (CTX-958).
   replyWithToolCall(
-    {
-      files: [
-        { path: "a.md", content: "merged" },
-        { path: "b.md", content: null },
-      ],
-    },
+    (body: Record<string, unknown>) =>
+      JSON.stringify(body.messages).includes("a.md")
+        ? { files: [{ path: "a.md", content: "merged" }] }
+        : { files: [{ path: "b.md", content: null }] },
     requests,
   )
   await expect(
@@ -78,13 +79,13 @@ it("resolves conflicts with one forced structured call on the high tier", async 
     { path: "a.md", content: "merged" },
     { path: "b.md", content: null },
   ])
-  expect(requests).toHaveLength(1)
-  expect(requests[0]).toMatchObject({
-    model: "high-model",
-    stream: false,
-    tool_choice: { type: "function" },
-  })
-  expect(JSON.stringify(requests[0]?.messages)).toContain("a.md")
+  expect(requests).toHaveLength(2)
+  for (const request of requests)
+    expect(request).toMatchObject({
+      model: "high-model",
+      stream: false,
+      tool_choice: { type: "function" },
+    })
 })
 
 it("rejects a resolution that misses a conflicting path", async () => {
@@ -114,20 +115,23 @@ it("rejects a resolution that adds a path outside the conflicts", async () => {
 it.each([
   ["merge", "merge"],
   ["new_name", "new_name"],
-] as const)("classifies a collision as %s through the fast tier", async (decision, expected) => {
-  configureModel()
-  const requests: Record<string, unknown>[] = []
-  replyWithToolCall({ decision }, requests)
-  await expect(
-    classifyUnkeyedKnowledgeCollision({
-      existingPath: "knowledge/a.md",
-      incomingPath: "knowledge/a.md",
-      existingExcerpt: "one",
-      incomingExcerpt: "two",
-    }),
-  ).resolves.toBe(expected)
-  expect(requests[0]).toMatchObject({ model: "fast-model", stream: false })
-})
+] as const)(
+  "classifies a collision as %s through the fast tier",
+  async (decision, expected) => {
+    configureModel()
+    const requests: Record<string, unknown>[] = []
+    replyWithToolCall({ decision }, requests)
+    await expect(
+      classifyUnkeyedKnowledgeCollision({
+        existingPath: "knowledge/a.md",
+        incomingPath: "knowledge/a.md",
+        existingExcerpt: "one",
+        incomingExcerpt: "two",
+      }),
+    ).resolves.toBe(expected)
+    expect(requests[0]).toMatchObject({ model: "fast-model", stream: false })
+  },
+)
 
 it("falls back to a new name when the model returns a value outside the enum", async () => {
   configureModel()

@@ -1,4 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm"
+
 import type { Env } from "../config/env.js"
 import type { Db } from "../db/client.js"
 import {
@@ -615,8 +616,7 @@ export async function refreshLinearConnectionTokensWithLock(input: {
   })
   if (
     snapshot.accessToken !== input.expectedAccessToken ||
-    (snapshot.refreshToken &&
-      snapshot.refreshToken !== input.expectedRefreshToken)
+    snapshot.refreshToken !== input.expectedRefreshToken
   ) {
     if (!snapshot.accessToken) {
       throw new Error("Linear connection is missing OAuth credentials")
@@ -630,7 +630,39 @@ export async function refreshLinearConnectionTokensWithLock(input: {
   if (!snapshot.refreshToken) {
     throw new Error("Linear connection has no refresh token")
   }
-  const refreshed = await input.refresh(snapshot.refreshToken)
+  const usedRefreshToken = snapshot.refreshToken
+  let refreshed: Awaited<ReturnType<typeof input.refresh>>
+  try {
+    refreshed = await input.refresh(usedRefreshToken)
+  } catch (error) {
+    // Linear rotates refresh tokens. When a concurrent caller used the same
+    // refresh token first, our call fails; return the tokens it stored.
+    const stored = await withOrgDbContext(input.orgId, async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
+      )
+      const [row] = await tx
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.id, input.connectionId),
+            eq(connections.orgId, input.orgId),
+            eq(connections.type, CONNECTION_TYPE_LINEAR),
+          ),
+        )
+        .limit(1)
+      return row ? linearConnectionToShape(row, input.env) : null
+    })
+    if (!stored?.accessToken || stored.refreshToken === usedRefreshToken) {
+      throw error
+    }
+    return {
+      accessToken: stored.accessToken,
+      refreshToken: stored.refreshToken,
+      accessTokenExpiresAt: stored.accessTokenExpiresAt,
+    }
+  }
   const result = await withOrgDbContext(input.orgId, async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
@@ -653,8 +685,7 @@ export async function refreshLinearConnectionTokensWithLock(input: {
     }
     if (
       current.accessToken !== input.expectedAccessToken ||
-      (current.refreshToken &&
-        current.refreshToken !== input.expectedRefreshToken)
+      current.refreshToken !== input.expectedRefreshToken
     ) {
       return {
         kind: "current" as const,

@@ -1,7 +1,9 @@
 import { fileURLToPath } from "node:url"
+
 import { drizzle } from "drizzle-orm/node-postgres"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
 import { Pool } from "pg"
+
 import { log } from "../observability/logger.js"
 import { backfillNullOrgIds } from "./backfill-null-org-ids.js"
 import { backfillRepositoryIngestionRequests } from "./backfill-repository-ingestion-requests.js"
@@ -42,6 +44,16 @@ export async function runMigrations(options: {
   // also stop the long backfills.
   const poolWithLockTimeout = (timeoutMs: number) => {
     const created = new Pool({ connectionString: options.connectionString })
+    // `pool.end()` returns before each idle connection has closed. When the
+    // server ends such a connection (FATAL 57P01), the pool emits "error",
+    // and with no listener that error stops the process.
+    created.on("error", (error) => {
+      log.warn({
+        step: "migrate",
+        message: "[migrate] the server closed an idle database connection",
+        error: error.message,
+      })
+    })
     created.on("connect", (client) => {
       client.query(`SET lock_timeout = ${Math.trunc(timeoutMs)}`).catch(() => {
         // The next query on this client shows a broken connection.

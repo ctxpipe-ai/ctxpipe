@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, within } from "storybook/test"
+
 import { NodeDetailDrawer } from "./NodeDetailDrawer"
 import { colorForKind } from "./theme"
 import type { KnowledgeGraphNode, NodeFacts } from "./types"
@@ -108,7 +109,9 @@ export const SourceLink: Story = {
     await expect(
       canvas.getByText("knowledge/connectors/linear.md"),
     ).toBeVisible()
-    await userEvent.click(canvas.getByRole("button", { name: "Go to definition" }))
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Go to definition" }),
+    )
     await expect(args.onOpenSource).toHaveBeenCalledWith(
       "knowledge/connectors/linear.md",
     )
