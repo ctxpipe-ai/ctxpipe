@@ -432,7 +432,7 @@ jobs:
   layer-cache:
     timeout-minutes: 45
     name: Layer cache (${{ matrix.name }})
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'schedule'
     continue-on-error: true
     permissions:
       contents: read
