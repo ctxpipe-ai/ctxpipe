@@ -28,13 +28,16 @@ function issue(number: number, overrides: Record<string, unknown> = {}) {
     labels: { nodes: [{ name: "bug" }] },
     assignees: { nodes: [{ login: "bob" }] },
     // Relations a page carries inline; adding records adds no request.
-    comments: connection(
-      Array.from({ length: 12 }, (_, i) => ({
-        author: { login: "carol", __typename: "User" },
-        body: `Comment ${i}`,
-        createdAt: `2026-03-01T00:00:${String(i).padStart(2, "0")}Z`,
-      })),
-    ),
+    comments: {
+      totalCount: 12,
+      ...connection(
+        Array.from({ length: 12 }, (_, i) => ({
+          author: { login: "carol", __typename: "User" },
+          body: `Comment ${i}`,
+          createdAt: `2026-03-01T00:00:${String(i).padStart(2, "0")}Z`,
+        })),
+      ),
+    },
     closedByPullRequestsReferences: {
       nodes: [{ url: "https://github.com/acme/api/pull/9" }],
     },
@@ -110,6 +113,7 @@ describe("fetchGithubIssuePage", () => {
           issues: connection([
             issue(1, {
               comments: {
+                totalCount: 150,
                 nodes: [
                   {
                     author: null,
@@ -132,6 +136,7 @@ describe("fetchGithubIssuePage", () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]?.query).toContain("comments(last: 100)")
     // A deleted account has no author.
+    expect(page.issues[0]?.commentsTotal).toBe(150)
     expect(page.issues[0]?.comments).toEqual([
       {
         author: { login: "unknown", type: "human" },

@@ -33,6 +33,8 @@ export type GithubIssueSnapshot = {
   updatedAt: string
   closedAt: string | null
   comments: GithubIssueComment[]
+  /** All comments on GitHub, which can be more than `comments` holds. */
+  commentsTotal: number
   /** URLs of the pull requests that GitHub links as closing this issue. */
   closedBy: string[]
 }
@@ -46,7 +48,7 @@ const ISSUE_FIELDS = `
   author { login __typename }
   labels(first: 100) { nodes { name } }
   assignees(first: 20) { nodes { login } }
-  comments(last: 100) { nodes { author { login __typename } body createdAt } }
+  comments(last: 100) { totalCount nodes { author { login __typename } body createdAt } }
   closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { url } }
 `
 
@@ -90,7 +92,7 @@ type IssueNode = {
   author: GraphqlActor
   labels: { nodes: Array<{ name: string }> } | null
   assignees: { nodes: Array<{ login: string }> }
-  comments: { nodes: CommentNode[] }
+  comments: { totalCount: number; nodes: CommentNode[] }
   closedByPullRequestsReferences: {
     nodes: Array<{ url: string } | null>
   } | null
@@ -158,6 +160,7 @@ function snapshot(repository: string, node: IssueNode): GithubIssueSnapshot {
     updatedAt: node.updatedAt,
     closedAt: node.closedAt,
     comments: node.comments.nodes.map(comment),
+    commentsTotal: node.comments.totalCount,
     closedBy:
       node.closedByPullRequestsReferences?.nodes.flatMap((pull) =>
         pull ? [pull.url] : [],

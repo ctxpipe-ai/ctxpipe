@@ -48,14 +48,20 @@ export function renderGithubIssue(issue: GithubIssueSnapshot): {
       "## Closed by",
       issue.closedBy.map((url) => `- ${url}`).join("\n"),
     )
-  if (issue.comments.length > 0)
+  if (issue.comments.length > 0) {
+    const dropped = issue.commentsTotal - issue.comments.length
+    sections.push("## Comments")
+    if (dropped > 0)
+      sections.push(
+        `_${dropped} older ${dropped === 1 ? "comment is" : "comments are"} not mirrored. See the issue on GitHub: ${issue.url}_`,
+      )
     sections.push(
-      "## Comments",
       ...issue.comments.map(
         (comment) =>
           `### ${comment.createdAt} · ${actorLine(comment.author)}\n\n${comment.body}`,
       ),
     )
+  }
   return {
     path: githubIssueMarkdownPath(issue.repository, issue.number),
     content: `${sections.join("\n\n").trim()}\n`,

@@ -900,6 +900,7 @@ describe("hydrateKnowledgeTree GitHub issues", () => {
       updatedAt: "2026-09-01T10:00:00Z",
       closedAt: "2026-09-01T10:00:00Z",
       comments: [],
+      commentsTotal: 0,
       closedBy: ["https://github.com/acme/shop/pull/42"],
     })
     const pull = (number: number, body: string) =>
