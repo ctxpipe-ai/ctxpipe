@@ -61,7 +61,7 @@ const EXCLUDED_NAME =
 const GENERATED_HEADER =
   /@generated|DO NOT EDIT|Code generated|auto-?generated/i
 const SUPPRESSION =
-  /eslint-disable|biome-ignore|@ts-ignore|@ts-expect-error|@ts-nocheck|#\s*noqa|#\s*type:\s*ignore|nolint|NOSONAR|\b(?:TODO|FIXME|HACK|XXX)\b/
+  /eslint-disable|biome-ignore|oxlint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck|#\s*noqa|#\s*type:\s*ignore|nolint|NOSONAR|\b(?:TODO|FIXME|HACK|XXX)\b/
 
 /** True when the path is generated, vendored, a fixture, legacy, or hidden. */
 export function excludedPath(path) {
@@ -80,7 +80,7 @@ export function safeLiteral(text) {
     typeof text === "string" &&
     text.length >= 3 &&
     text.length <= 200 &&
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: the check refuses control characters
+    // oxlint-disable-next-line no-control-regex -- the check refuses control characters
     !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(text)
   )
 }

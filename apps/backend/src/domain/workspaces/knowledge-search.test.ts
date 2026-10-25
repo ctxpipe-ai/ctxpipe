@@ -32,7 +32,6 @@ describe("vectorScanSettings", () => {
   })
 })
 
-// biome-ignore lint/correctness/useHookAtTopLevel: Vitest file-scope MSW setup, not a React hook.
 const server = useMswServer()
 
 describe("searchKnowledge deadline", () => {

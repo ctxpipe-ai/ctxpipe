@@ -30,7 +30,7 @@ permissions:
 jobs:
   lint:
     timeout-minutes: 15
-    name: Biome
+    name: Lint
     if: |
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=

@@ -23,7 +23,7 @@ const MAX_STATUS_TEXT = 60
 
 /** Control, invisible, and direction characters, backticks, and angle brackets. */
 const UNSAFE =
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: the check refuses control and direction characters
+  // oxlint-disable-next-line no-control-regex -- the check refuses control and direction characters
   /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2069\ufeff\x60<>]/g
 
 /** Text that is safe to give to the model and to write into a YAML value or a heading. */

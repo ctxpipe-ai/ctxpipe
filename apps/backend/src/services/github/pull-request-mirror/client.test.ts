@@ -8,7 +8,6 @@ import {
 } from "./client.js"
 
 const API = "https://api.github.com"
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 
 function connection<T>(nodes: T[], hasNextPage = false) {

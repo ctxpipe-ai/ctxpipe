@@ -54,7 +54,6 @@ const provider = new NodeTracerProvider({
   ],
 })
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer(
   http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () =>
     HttpResponse.json({

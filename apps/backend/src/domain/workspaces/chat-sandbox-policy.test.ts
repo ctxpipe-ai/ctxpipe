@@ -12,7 +12,6 @@ import {
   parseChatJudgeReply,
 } from "./chat-sandbox-policy.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: Vitest owns this MSW lifecycle.
 const server = useMswServer()
 afterEach(() => vi.unstubAllEnvs())
 

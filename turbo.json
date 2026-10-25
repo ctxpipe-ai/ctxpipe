@@ -17,14 +17,6 @@
       "outputs": ["dist/**", "build/**", "lib/**"],
       "cache": true
     },
-    "lint": {
-      "outputs": [],
-      "cache": true
-    },
-    "format": {
-      "outputs": [],
-      "cache": false
-    },
     "dev": {
       "cache": false,
       "persistent": true,

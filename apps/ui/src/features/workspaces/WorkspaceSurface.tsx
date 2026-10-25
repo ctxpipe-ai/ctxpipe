@@ -251,7 +251,7 @@ function WorkspaceSurfaceReady(props: {
     restart: useCallback(() => setCheckEpoch((n) => n + 1), []),
   }
   const writeChecking = writeCheckInFlight(workspace ?? {})
-  // biome-ignore lint/correctness/useExhaustiveDependencies: checkEpoch restarts the timer
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- checkEpoch restarts the timer
   useEffect(() => {
     setWriteCheckStalled(false)
     if (!writeChecking) return

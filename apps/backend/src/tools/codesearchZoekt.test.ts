@@ -6,7 +6,6 @@ import {
   zoektSearchRepository,
 } from "./codesearchZoekt.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 
 const repository = {

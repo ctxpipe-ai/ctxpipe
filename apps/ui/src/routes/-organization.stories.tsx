@@ -159,6 +159,7 @@ export const SubPagesKeepOnePosition: Story = {
     msw: { handlers: { page: subPageHandlers } },
   },
   render: (args) => {
+    // oxlint-disable-next-line react-hooks/rules-of-hooks -- a Storybook render function, not a component
     const { organizationView } = useParams({ strict: false })
     return (
       <OrganizationSettingsBody

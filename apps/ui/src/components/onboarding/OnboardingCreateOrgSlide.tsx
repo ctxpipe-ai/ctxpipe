@@ -125,7 +125,7 @@ export function OnboardingCreateOrgSlide({
             }}
             placeholder="Acme Engineering"
             className="mb-4 h-11 w-full rounded-md border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
-            // biome-ignore lint/a11y/noAutofocus: first field on this step of onboarding
+            // oxlint-disable-next-line jsx-a11y/no-autofocus -- first field on this step of onboarding
             autoFocus
           />
           <label

@@ -30,7 +30,6 @@ import { loadServerInstructions } from "../framework/instructions.js"
 import { registerMcpReadTools } from "../framework/tool-registry.js"
 import { listWorkspaces } from "./list-workspaces.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 const CODESEARCH = "http://codesearch.test"
 

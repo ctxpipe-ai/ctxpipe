@@ -48,7 +48,6 @@ const { privateKey: ownAppPrivateKey } = generateKeyPairSync("rsa", {
 
 let installationLookups = 0
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
   http.get("https://api.github.com/user/installations", ({ request }) => {
     installationLookups += 1

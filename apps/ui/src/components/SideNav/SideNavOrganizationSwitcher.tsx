@@ -85,7 +85,7 @@ export function SideNavOrganizationSwitcher({
     activeOrganizationPending ||
     organizationPending
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: mirror library switcher refetch reset
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- mirror library switcher refetch reset
   useEffect(() => {
     if (organizationRefetching) return
     setActiveOrganizationPending(false)

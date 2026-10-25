@@ -42,7 +42,6 @@ function workspaceFileUri(org: string, workspace: string, ref: string): string {
   return `ctxpipe://${org}/${workspace}/${encoded}`
 }
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 const CODESEARCH = "http://codesearch.test"
 

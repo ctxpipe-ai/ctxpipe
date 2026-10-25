@@ -22,7 +22,7 @@ const VISIBLE = 3
  */
 function useHeights(list: RefObject<HTMLOListElement | null>, key: string) {
   const [heights, setHeights] = useState<Record<string, number>>({})
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` names the toasts, so a new toast gets observed.
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- `key` names the toasts, so a new toast gets observed
   useEffect(() => {
     const node = list.current
     if (!node) return

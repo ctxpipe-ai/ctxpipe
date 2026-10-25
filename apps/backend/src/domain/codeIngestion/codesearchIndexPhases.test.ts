@@ -10,7 +10,6 @@ import {
 } from "./codesearchIndexPhases.js"
 import { RepositoryGoneError } from "./repositoryGone.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 const base = "http://codesearch.test"
 

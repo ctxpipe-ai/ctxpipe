@@ -25,7 +25,6 @@ import { resetLinearGraphqlForTests } from "./graphql.js"
 import { linearSourceAdapter } from "./source-adapter.js"
 import { linearSourceEventFromPayload } from "./source-event.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 const calls: LinearGraphqlCall[] = []
 let seed: Awaited<ReturnType<typeof seedSourcesOrg>>

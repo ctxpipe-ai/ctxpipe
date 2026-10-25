@@ -593,8 +593,8 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
       agent: { metrics_collection_interval: 60, omit_hostname: true },
       metrics: {
         namespace: "CWAgent",
-        // biome-ignore lint/suspicious/noTemplateCurlyInString: the CloudWatch agent's own placeholder.
         append_dimensions: {
+          // oxlint-disable-next-line no-template-curly-in-string -- the CloudWatch agent's own placeholder
           AutoScalingGroupName: "${aws:AutoScalingGroupName}",
         },
         aggregation_dimensions: [["AutoScalingGroupName", "path"]],

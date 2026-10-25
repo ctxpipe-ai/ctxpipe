@@ -25,7 +25,6 @@ import { classifyUnkeyedKnowledgeCollision } from "./dest-workspace-first.js"
 import { updateFolderList } from "./folder-list.js"
 import { resolveSemanticConflicts } from "./semantic-merge.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: Vitest owns this MSW lifecycle.
 const server = useMswServer()
 const orgId = generateObjectId("org")
 const org = { id: orgId, slug: `host-model-${orgId}` }

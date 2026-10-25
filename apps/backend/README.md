@@ -131,8 +131,8 @@ Run `pnpm test:contracts` with `DATABASE_URL`, `AUTH_SECRET`, and `GRAPH_DB_URI`
 | `pnpm build` | Compile TypeScript to `dist/` |
 | `pnpm start` | Run built server |
 | `pnpm test` | Run test suite |
-| `pnpm lint` | Run Biome lint |
-| `pnpm format` | Run Biome format |
+| `pnpm lint` | Run Oxlint (from the repository root) |
+| `pnpm format` | Run Oxfmt (from the repository root) |
 | `pnpm db:generate` | Generate Drizzle migration |
 | `pnpm db:migrate` | Apply migrations |
 | `pnpm db:studio` | Open Drizzle Studio |
