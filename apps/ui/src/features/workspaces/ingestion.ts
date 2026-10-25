@@ -38,7 +38,7 @@ function ingestionPollInterval(query: {
 }
 
 /** One read for the sidebar: every Workspace of the org that ingests now. */
-export function orgIngestionOptions(orgSlug: string) {
+function orgIngestionOptions(orgSlug: string) {
   return queryOptions({
     queryKey: ingestionKeys.org(orgSlug),
     queryFn: async (): Promise<WorkspaceIngestionCount[]> => {
@@ -80,7 +80,7 @@ export function workspaceIngestionOptions(
  * The sidebar text for the work of a Workspace, for example "Ingesting 2
  * sources". A hydrate is not a source, so alone it has its own text.
  */
-export function ingestingLabel(
+function ingestingLabel(
   count: Pick<WorkspaceIngestionCount, "sources" | "hydrating"> | undefined,
 ): string | null {
   if (!count) return null
