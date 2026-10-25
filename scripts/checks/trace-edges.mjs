@@ -164,7 +164,9 @@ async function hookHono(lane) {
   if (!routers) throw new Error("hono: no router")
 }
 
-// OpenWorkflow step names: each step resolves its name once per run.
+// OpenWorkflow step names: each step resolves its name once per run. A
+// name can add run data after `:` (`publish:<workspace id>`), so only the
+// part before the first `:` is recorded.
 async function hookOpenWorkflow(lane) {
   const { StepHistory } = await esm(
     lane,
@@ -173,7 +175,7 @@ async function hookOpenWorkflow(lane) {
   )
   const resolveStepName = StepHistory.prototype.resolveStepName
   StepHistory.prototype.resolveStepName = function (name, ...rest) {
-    if (typeof name === "string") edges.steps.add(name)
+    if (typeof name === "string") edges.steps.add(name.split(":")[0])
     return resolveStepName.call(this, name, ...rest)
   }
 }

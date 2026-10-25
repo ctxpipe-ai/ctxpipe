@@ -54,7 +54,7 @@ Semantic edges ([`trace-edges.mjs`](trace-edges.mjs)): the worker installs hooks
 | --- | --- |
 | `tables` | The node-postgres `Client.prototype.query`: the tables after `from` and `join` (`read`), and after `insert into`, `update` and `delete from` (`write`). Schema statements and `truncate` are not recorded. |
 | `routes` | Hono routers: each route handler that runs records `<METHOD> <pattern>`. Middleware is not recorded. |
-| `steps` | OpenWorkflow: the name of each step that a run resolves. |
+| `steps` | OpenWorkflow: the name of each step that a run resolves, up to the first `:` (a name can hold run data after it). |
 | `tools` | The MCP SDK: the name of each tool call. |
 | `models` | Langfuse: the name of each generation (a model call through `withLangfuseGeneration`). |
 | `files` | `fs`: each repo file that the case reads, and each directory that it lists (with a trailing `/`). |

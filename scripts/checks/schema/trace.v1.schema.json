@@ -121,7 +121,7 @@
             "type": "string"
           },
           "uniqueItems": true,
-          "description": "The OpenWorkflow step names that the case ran."
+          "description": "The OpenWorkflow step names that the case ran: the part of each name before the first `:`, because a name can hold run data after it."
         },
         "tools": {
           "type": "array",
