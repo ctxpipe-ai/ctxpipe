@@ -61,7 +61,7 @@ const EXCLUDED_NAME =
 const GENERATED_HEADER =
   /@generated|DO NOT EDIT|Code generated|auto-?generated/i
 const SUPPRESSION =
-  /eslint-disable|biome-ignore|@ts-ignore|@ts-expect-error|@ts-nocheck|#\s*noqa|#\s*type:\s*ignore|nolint|NOSONAR|\b(?:TODO|FIXME|HACK|XXX)\b/
+  /eslint-disable|biome-ignore|oxlint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck|#\s*noqa|#\s*type:\s*ignore|nolint|NOSONAR|\b(?:TODO|FIXME|HACK|XXX)\b/
 
 /** True when the path is generated, vendored, a fixture, legacy, or hidden. */
 export function excludedPath(path) {

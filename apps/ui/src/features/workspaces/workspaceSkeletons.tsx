@@ -129,6 +129,7 @@ export function WorkspaceSurfaceSkeleton(props: { paneOpen: boolean }) {
           <div className={workspaceChromeTabStripClassName}>
             {[true, false, false].map((selected, index) => (
               <div
+                // oxlint-disable-next-line react/no-array-index-key -- fixed bones
                 key={index}
                 className={workspaceChromeIconTabClassName(selected)}
               >

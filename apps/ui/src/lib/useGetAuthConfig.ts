@@ -10,6 +10,7 @@ export function useGetAuthConfig() {
       // TODO: the Better Auth config route is outside the Hono client, so the body is unknown.
       return (await readApiJson(res, {
         message: "Failed to load auth config",
+      // oxlint-disable-next-line typescript/no-empty-object-type -- the body shape is not known here
       })) as {}
     },
     staleTime: Number.POSITIVE_INFINITY,

@@ -1,4 +1,4 @@
-import { z } from "zod"
+import type { z } from "zod"
 
 /**
  * The scope part of one `.ctxpipe/sources.yaml` entry for one provider.

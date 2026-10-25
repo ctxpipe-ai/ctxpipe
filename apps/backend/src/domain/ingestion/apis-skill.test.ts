@@ -308,6 +308,7 @@ describe("find-apis", () => {
         'app.get("/users/:id", getUser)',
         "router.post('/users', createUser)",
         'cache.get("key")',
+        // oxlint-disable-next-line no-template-curly-in-string -- source text of the fixture
         "app.delete(`/things/${id}`, remove)",
         "app.get(somePath, dynamic)",
         'app.get("relative", nope)',
