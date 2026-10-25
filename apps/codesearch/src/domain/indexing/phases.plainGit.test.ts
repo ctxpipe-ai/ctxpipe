@@ -112,6 +112,7 @@ function context(
     repoId: "repo_test",
     checkoutKey: "main",
     clonePath: join(root, "clones", name),
+    sharedClonePath: join(root, "shared", name),
     scipIndexPath: join(root, "scip"),
     zoektRepoId: 1,
     zoektName: "plain-git.invalid/team/app",
@@ -177,7 +178,11 @@ describe("phaseCloneCheckout of a plain git repository", () => {
     const clonePath = join(root, "clones", `stored-${_name.replace(/\W/g, "")}`)
     await expect(
       phaseCloneCheckout(
-        { ...context("unused", { repoGitUrl: url(root) }), clonePath },
+        {
+          ...context("unused", { repoGitUrl: url(root) }),
+          clonePath,
+          sharedClonePath: `${clonePath}-shared.git`,
+        },
         {},
       ),
     ).rejects.toThrow(/only with a GitHub token or with a plain git remote/)

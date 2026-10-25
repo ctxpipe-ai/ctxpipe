@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events"
 import { SpanStatusCode } from "@opentelemetry/api"
+import { initLogger } from "evlog"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { recordSpans } from "../../../test/spans.js"
 
@@ -72,5 +73,44 @@ describe("FalkorDB shared client lifecycle", () => {
     const span = spans.spanNamed("falkordb.connect")
     expect(span?.status.code).toBe(SpanStatusCode.ERROR)
     expect(span?.events.map((event) => event.name)).toContain("exception")
+  })
+
+  it("logs a failed connect as a connection error at most once a minute", async () => {
+    // One hour on, so that a failed connect of an earlier test is not in
+    // the same minute. Only the clock: the span processor needs real timers.
+    const start = Date.now() + 3_600_000
+    vi.useFakeTimers({ now: start, toFake: ["Date"] })
+    const events: Record<string, unknown>[] = []
+    initLogger({
+      pretty: false,
+      silent: true,
+      drain: (ctx) => {
+        events.push(ctx.event)
+      },
+    })
+    try {
+      mocks.connect.mockRejectedValue(new Error("connect ECONNREFUSED"))
+      const connect = () =>
+        expect(withGraphClient(scope, async () => undefined)).rejects.toThrow(
+          "connect ECONNREFUSED",
+        )
+      const connectionErrors = () =>
+        events.filter((event) => event.step === "graph.falkordb.connection")
+      await connect()
+      await connect()
+      expect(connectionErrors()).toHaveLength(1)
+      vi.setSystemTime(start + 59_000)
+      await connect()
+      expect(connectionErrors()).toHaveLength(1)
+      vi.setSystemTime(start + 60_000)
+      await connect()
+      expect(connectionErrors()).toHaveLength(2)
+      expect(connectionErrors()[1]).toMatchObject({
+        error: "connect ECONNREFUSED",
+      })
+    } finally {
+      initLogger({ enabled: false, env: { service: "ctxpipe-backend-test" } })
+      vi.useRealTimers()
+    }
   })
 })

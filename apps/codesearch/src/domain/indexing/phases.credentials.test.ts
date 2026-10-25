@@ -136,6 +136,7 @@ function context(clonePath: string) {
     repoGitUrl: "http://github.com/acme/demo.git",
     checkoutKey: "main",
     clonePath,
+    sharedClonePath: `${clonePath}-shared.git`,
     scipIndexPath: join(root, "scip"),
     zoektRepoId: 1,
     zoektName: "github.com/acme/demo",
@@ -150,7 +151,7 @@ describe("phaseCloneCheckout credentials", () => {
     const clonePath = join(root, "clone-fresh")
     const result = await phaseCloneCheckout(context(clonePath), {})
     expect(result.targetHash).toBe(headSha)
-    const config = await readFile(join(clonePath, ".git", "config"), "utf8")
+    const config = await readFile(`${clonePath}-shared.git/config`, "utf8")
     expect(config).not.toContain(TOKEN)
     expect(config).toContain("url = http://github.com/acme/demo.git")
   })
@@ -160,15 +161,16 @@ describe("phaseCloneCheckout credentials", () => {
     await git([
       "clone",
       "-q",
+      "--bare",
       `http://x-access-token:${TOKEN}@github.com/acme/demo.git`,
-      clonePath,
+      `${clonePath}-shared.git`,
     ])
-    expect(await readFile(join(clonePath, ".git", "config"), "utf8")).toContain(
+    expect(await readFile(`${clonePath}-shared.git/config`, "utf8")).toContain(
       TOKEN,
     )
     const result = await phaseCloneCheckout(context(clonePath), {})
     expect(result.targetHash).toBe(headSha)
-    const config = await readFile(join(clonePath, ".git", "config"), "utf8")
+    const config = await readFile(`${clonePath}-shared.git/config`, "utf8")
     expect(config).not.toContain(TOKEN)
   })
 

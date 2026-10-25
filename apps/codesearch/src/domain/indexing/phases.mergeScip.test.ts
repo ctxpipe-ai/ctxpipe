@@ -47,6 +47,7 @@ describe("phaseMergeScip", () => {
       repoGitUrl: "https://github.com/acme/web.git",
       checkoutKey: "default",
       clonePath: directory,
+      sharedClonePath: `${directory}-shared.git`,
       scipIndexPath: outputPath,
       zoektRepoId: 1,
       zoektName: "acme/web",

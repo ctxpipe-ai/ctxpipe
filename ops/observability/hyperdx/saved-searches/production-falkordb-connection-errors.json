@@ -1,0 +1,15 @@
+{
+  "name": "Production FalkorDB connection errors",
+  "sourceName": "Logs",
+  "select": "Timestamp, ServiceName, Body",
+  "where": "ResourceAttributes['deployment.environment'] IN ('production') AND Body LIKE '%\"step\":\"graph.falkordb.connection\"%'",
+  "whereLanguage": "sql",
+  "orderBy": "Timestamp DESC",
+  "filters": [
+    {
+      "type": "sql",
+      "condition": "ResourceAttributes['deployment.environment'] IN ('production')"
+    }
+  ],
+  "tags": ["ctxpipe", "production"]
+}

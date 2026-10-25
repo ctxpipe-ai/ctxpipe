@@ -53,7 +53,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-043](ADR-043-workspace-chat-keep-alive-serve.md) | In-sandbox keep-alive OpenCode serve | Superseded by [ADR-044](ADR-044-workspace-chat-stock-tanstack.md) |
 | [ADR-044](ADR-044-workspace-chat-stock-tanstack.md) | Stock TanStack workspace chat | Accepted |
 | [ADR-045](ADR-045-required-recovery-ci.md) | CI proves what ran | Accepted |
-| [ADR-046](ADR-046-workspace-revision-projection-identity.md) | Workspace revision and projection identity | Accepted (revised 2026-10-15: Workspace root folder; revised 2026-10-16: Workspace format of a revision) |
+| [ADR-046](ADR-046-workspace-revision-projection-identity.md) | Workspace revision and projection identity | Accepted (revised 2026-10-15: Workspace root folder; revised 2026-10-16: Workspace format of a revision; revised 2026-10-24: Workspace code reads use the published checkout) |
 | [ADR-047](ADR-047-native-durable-write-workflows.md) | Durable write workflows | Accepted (revised 2026-10-06; amended by ADR-052) |
 | [ADR-048](ADR-048-native-postgres-sandbox-ownership.md) | Conversation sandboxes: stock providers, Postgres ownership, git as durable state | Accepted (amended by ADR-051 and ADR-052: ingest sandboxes) |
 | [ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md) | Self-host chat sandboxes: stock Docker on DinD and an EC2 host; Agent Vault adds their credentials | Accepted |

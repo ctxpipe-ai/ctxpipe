@@ -8,7 +8,6 @@ import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
-import { workspaces } from "../db/schema/workspaces.js"
 import { generateObjectId } from "../lib/id.js"
 import { ensureRepositoryRevisionCheckout } from "../models/repositories.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
@@ -16,13 +15,13 @@ import {
   collectRepositoryCheckouts,
   listCollectableCheckouts,
   listLiveShas,
+  releaseRunCheckout,
+  sweepRepositoryDisk,
 } from "./codesearchCheckoutGc.js"
 
 const sha = () => randomBytes(20).toString("hex")
 const orgId = generateObjectId("org")
 const repositoryId = generateObjectId("repo")
-const workspaceId = generateObjectId("ws")
-const goneWorkspaceId = generateObjectId("ws")
 const runIds = {
   parent: `run_${sha()}`,
   finished: `run_${sha()}`,
@@ -42,9 +41,7 @@ const shas = {
   sleeping: sha(),
   stepOutput: sha(),
   oldStepOutput: sha(),
-  wsCurrent: sha(),
-  wsOld: sha(),
-  wsGone: sha(),
+  gone: sha(),
   fresh: sha(),
 }
 const keys = {
@@ -58,21 +55,31 @@ const keys = {
   stepOutput: `rev:${shas.stepOutput}`,
   oldStepOutput: `rev:${shas.oldStepOutput}`,
   raced: `rev:${sha()}`,
-  wsLegacy: `ws:${workspaceId}`,
-  wsCurrent: `ws:${workspaceId}:${shas.wsCurrent}`,
-  wsOld: `ws:${workspaceId}:${shas.wsOld}`,
-  wsGone: `ws:${goneWorkspaceId}:${shas.wsGone}`,
+  // Codesearch keeps it: it has no files there.
+  gone: `rev:${shas.gone}`,
+  // An old Workspace key is not a collection candidate.
+  workspace: `ws:ws_old:${sha()}`,
   fresh: `rev:${shas.fresh}`,
 }
 const deleteRequests: string[][] = []
+const runEndedRequests: string[][] = []
+const runEndedTimes: string[] = []
+let publishedMissing = false
 const codesearch = setupServer(
+  http.post(`${codesearchUrl}/${repositoryId}/checkouts/sweep`, () =>
+    HttpResponse.json({ deletedEntries: 0, deletedBytes: 0, publishedMissing }),
+  ),
   http.post(
     `${codesearchUrl}/${repositoryId}/checkouts/delete`,
     async ({ request }) => {
-      const { checkoutKeys } = (await request.json()) as {
+      const { checkoutKeys, runEndedAt } = (await request.json()) as {
         checkoutKeys: string[]
+        runEndedAt?: string
       }
-      deleteRequests.push(checkoutKeys)
+      if (runEndedAt) {
+        runEndedRequests.push(checkoutKeys)
+        runEndedTimes.push(runEndedAt)
+      } else deleteRequests.push(checkoutKeys)
       // A run takes the key again while codesearch deletes its files.
       if (checkoutKeys.includes(keys.raced))
         await ensureRepositoryRevisionCheckout({
@@ -82,10 +89,10 @@ const codesearch = setupServer(
         })
       return HttpResponse.json({
         deleted: checkoutKeys
-          .filter((key) => key !== keys.wsGone)
+          .filter((key) => key !== keys.gone)
           .map((checkoutKey) => ({ checkoutKey })),
         skipped: checkoutKeys
-          .filter((key) => key === keys.wsGone)
+          .filter((key) => key === keys.gone)
           .map((checkoutKey) => ({ checkoutKey, reason: "not_found" })),
       })
     },
@@ -125,14 +132,6 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
         name: `example/gc-${repositoryId}`,
         gitUrl: `https://github.com/example/gc-${repositoryId}.git`,
         lastIngestedHash: published,
-      })
-      await db.insert(workspaces).values({
-        id: workspaceId,
-        orgId,
-        slug: `gc-${workspaceId}`,
-        displayName: "Checkout collection",
-        workspaceRepositoryUrl: `https://github.com/example/ws-${workspaceId}.git`,
-        indexedSha: shas.wsCurrent,
       })
       await db.insert(repositoryCheckouts).values(
         Object.values(keys).map((checkoutKey) => ({
@@ -212,7 +211,7 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
     await closeDb()
   })
 
-  it("keeps the published, running, current Workspace, recent, and default checkouts", async () => {
+  it("keeps the published, running, recent, default, and Workspace checkouts", async () => {
     const collectable = await listCollectableCheckouts({
       orgId,
       repositoryId,
@@ -225,8 +224,7 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
         keys.finished,
         keys.oldStepOutput,
         keys.raced,
-        keys.wsOld,
-        keys.wsGone,
+        keys.gone,
       ].sort(),
     )
   })
@@ -234,7 +232,7 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
   it("deletes the rows of the checkouts that codesearch deleted, but not of a key a run took again", async () => {
     const result = await collectRepositoryCheckouts({ orgId, repositoryId })
 
-    expect(result).toEqual({ deletedKeys: 4 })
+    expect(result).toEqual({ deletedKeys: 3 })
     expect(await storedKeys()).toEqual(
       [
         keys.default,
@@ -243,9 +241,8 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
         keys.pending,
         keys.sleeping,
         keys.stepOutput,
-        keys.wsLegacy,
-        keys.wsCurrent,
-        keys.wsGone,
+        keys.gone,
+        keys.workspace,
         keys.fresh,
         keys.raced,
       ].sort(),
@@ -257,9 +254,63 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
 
     await collectRepositoryCheckouts({ orgId, repositoryId })
 
-    // Only the skipped `wsGone` is left, and it is asked for once.
-    expect(deleteRequests).toEqual([[keys.wsGone]])
+    // Only the skipped `gone` is left, and it is asked for once.
+    expect(deleteRequests).toEqual([[keys.gone]])
   })
+  it("deletes the recent checkout of an ended run, but keeps the published key and a key another run reads", async () => {
+    runEndedRequests.length = 0
+    const ended = `run_${sha()}`
+
+    expect(
+      await releaseRunCheckout({ orgId, sha: published, runId: ended }),
+    ).toEqual({ deletedKeys: 0 })
+    expect(
+      await releaseRunCheckout({ orgId, sha: shas.live, runId: ended }),
+    ).toEqual({ deletedKeys: 0 })
+    expect(runEndedRequests).toEqual([])
+
+    // The running parent run reads `live`; when it ends, its key goes.
+    expect(
+      await releaseRunCheckout({ orgId, sha: shas.live, runId: runIds.parent }),
+    ).toEqual({ deletedKeys: 1 })
+    // `fresh` changed less than one hour ago; an ended run still deletes it.
+    expect(
+      await releaseRunCheckout({ orgId, sha: shas.fresh, runId: ended }),
+    ).toEqual({ deletedKeys: 1 })
+    expect(runEndedRequests).toEqual([[keys.live], [keys.fresh]])
+    // Codesearch gets the time before the list of unfinished runs, so it
+    // keeps a row that a run touches after that time.
+    for (const at of runEndedTimes)
+      expect(Date.parse(at)).toBeLessThanOrEqual(Date.now())
+    const stored = await storedKeys()
+    expect(stored).toContain(keys.published)
+    expect(stored).not.toContain(keys.live)
+    expect(stored).not.toContain(keys.fresh)
+  })
+
+  it("keeps the checkout of an ended run when another run touched it after the run ended", async () => {
+    runEndedRequests.length = 0
+    const retried = sha()
+    // A retry of the same SHA starts after the list of unfinished runs: its
+    // touch is later than the end time.
+    await withOrgDbContext(orgId, (db) =>
+      db.insert(repositoryCheckouts).values({
+        id: generateObjectId("co"),
+        orgId,
+        repositoryId,
+        ref: retried,
+        checkoutKey: `rev:${retried}`,
+        updatedAt: new Date(Date.now() + 60_000),
+      }),
+    )
+
+    expect(
+      await releaseRunCheckout({ orgId, sha: retried, runId: `run_${sha()}` }),
+    ).toEqual({ deletedKeys: 0 })
+    expect(runEndedRequests).toEqual([])
+    expect(await storedKeys()).toContain(`rev:${retried}`)
+  })
+
   it("stops after maxBatches calls when more keys are left", async () => {
     const old = new Date(Date.now() - 2 * 3_600_000)
     await withOrgDbContext(orgId, (db) =>
@@ -283,7 +334,7 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
     })
 
     expect(deleteRequests.length).toBe(2)
-    // `wsGone` may be in a batch: codesearch skips it.
+    // `gone` may be in a batch: codesearch skips it.
     expect(result.deletedKeys).toBeGreaterThanOrEqual(19)
     expect(result.deletedKeys).toBeLessThanOrEqual(20)
     expect(
@@ -291,8 +342,25 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
         orgId,
         repositoryId,
         liveShas: await listLiveShas(),
-        exclude: [keys.wsGone],
+        exclude: [keys.gone],
       }),
     ).not.toHaveLength(0)
+  })
+
+  it("gives the published revision to index again only when codesearch lost its checkout and no run indexes it", async () => {
+    publishedMissing = false
+    expect(
+      (await sweepRepositoryDisk(orgId, repositoryId, [])).rebuild,
+    ).toBeUndefined()
+
+    publishedMissing = true
+    expect(
+      (await sweepRepositoryDisk(orgId, repositoryId, [])).rebuild,
+    ).toEqual({ orgId, repositoryId, sha: published })
+    // A run indexes the published revision now: no second index.
+    expect(
+      (await sweepRepositoryDisk(orgId, repositoryId, [published])).rebuild,
+    ).toBeUndefined()
+    publishedMissing = false
   })
 })

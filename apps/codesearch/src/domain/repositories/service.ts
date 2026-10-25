@@ -16,6 +16,8 @@ type IndexableRepository = AccessibleRepository & {
   zoektRepoId: number
   /** A run used the checkout row in the last hour (checkout collection). */
   checkoutUsedRecently?: boolean
+  /** The last time a run used the checkout row (checkout collection). */
+  checkoutUsedAt?: Date
 }
 
 export async function getAccessibleRepository(
@@ -57,6 +59,7 @@ export async function getIndexableRepository(
         zoektRepoId: repositoryCheckouts.zoektRepoId,
         name: repositories.name,
         checkoutUsedRecently: sql<boolean>`${repositoryCheckouts.updatedAt} > now() - interval '1 hour'`,
+        checkoutUsedAt: repositoryCheckouts.updatedAt,
       })
       .from(repositories)
       .innerJoin(
@@ -73,6 +76,26 @@ export async function getIndexableRepository(
       return null
     }
     return row
+  })
+}
+
+/** The checkout keys that have a `repository_checkouts` row for the repository. */
+export async function listCheckoutKeys(
+  db: NonNullable<AppEnv["Variables"]["db"]>,
+  repoId: string,
+  orgId: string,
+): Promise<Set<string>> {
+  return withOrgDbContext(db, orgId, async (tx) => {
+    const rows = await tx
+      .select({ checkoutKey: repositoryCheckouts.checkoutKey })
+      .from(repositoryCheckouts)
+      .where(
+        and(
+          eq(repositoryCheckouts.repositoryId, repoId),
+          eq(repositoryCheckouts.orgId, orgId),
+        ),
+      )
+    return new Set(rows.map((row) => row.checkoutKey))
   })
 }
 

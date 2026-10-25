@@ -1,10 +1,7 @@
 import { createToolBridgeCore, handleBridgeJsonRpc } from "@tanstack/ai-sandbox"
 import { and, eq, inArray } from "drizzle-orm"
 import { Hono } from "hono"
-import {
-  repositoryRevisionCheckoutKey,
-  workspaceCheckoutKey,
-} from "../../../../../shared/workspace-checkout.js"
+import { repositoryRevisionCheckoutKey } from "../../../../../shared/workspace-checkout.js"
 import type { AppEnv } from "../../app/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
@@ -39,8 +36,9 @@ import {
 /**
  * The ingest tool bridge (ADR-052 section 7): the shared codesearch tools,
  * bound read-only to the checkouts of the step's `workspace-ingest-tools`
- * capability (T03): the source at `rev:<sha>` and the destination Workspace
- * repositories at `ws:<workspaceId>:<sha>`.
+ * capability (T03): the source at `rev:<sha>` and each destination Workspace
+ * repository at its published checkout, which the label `ws:<workspaceId>`
+ * names.
  *
  * The capability is valid while its step holds the shard lock of an
  * unfinished run, so the next step, `destroy-sandbox`, and a cancelled run
@@ -50,14 +48,24 @@ export const INGEST_TOOL_BRIDGE_PATH = "/api/v1/workspace-ingest/tool-bridge"
 
 type BoundCheckout = WorkspaceIngestToolsClaims["checkouts"][number]
 
+/**
+ * The label of a destination Workspace checkout. It is not a codesearch key:
+ * codesearch serves a Workspace read from the published checkout.
+ */
+export function workspaceCheckoutLabel(workspaceId: string): string {
+  if (!/^[a-zA-Z0-9_-]+$/.test(workspaceId))
+    throw new Error("Invalid workspace id")
+  return `ws:${workspaceId}`
+}
+
 /** The checkout that a claimed key names, or null for an unknown key. */
 function codeCheckout(bound: BoundCheckout): CodeCheckout | null {
   const { repositoryId, checkoutKey, sha } = bound
-  if (checkoutKey === repositoryRevisionCheckoutKey(sha))
+  if (sha && checkoutKey === repositoryRevisionCheckoutKey(sha))
     return { repositoryId, source: { sha } }
-  const workspaceId = /^ws:([a-zA-Z0-9_-]+):/.exec(checkoutKey)?.[1]
-  if (workspaceId && checkoutKey === workspaceCheckoutKey(workspaceId, sha))
-    return { repositoryId, workspace: { workspaceId, sha } }
+  const workspaceId = /^ws:([a-zA-Z0-9_-]+)$/.exec(checkoutKey)?.[1]
+  if (workspaceId && sha === undefined)
+    return { repositoryId, workspace: { workspaceId } }
   return null
 }
 
@@ -155,9 +163,7 @@ function ingestTools(
               checkoutKey: checkoutKey || null,
             })
           const workspace =
-            "workspace" in checkout && "sha" in checkout.workspace
-              ? checkout.workspace
-              : undefined
+            "workspace" in checkout ? checkout.workspace : undefined
           return runCodeTool({
             toolName: tool.name,
             args: parsed.args,

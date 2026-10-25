@@ -1115,12 +1115,15 @@ jobs:
               echo "Updated UI image and cleared healthcheckPath for $service_id"
             }
 
-            # Serverless only (no image change) — for infra images managed by Terraform (e.g. FalkorDB).
+            # Serverless and restart policy only (no image change) — for infra images managed by Terraform (e.g. FalkorDB).
             enable_serverless() {
               local service_id="$1"
+              # Production sets restartPolicyType ALWAYS on FalkorDB, and
+              # `environment new --duplicate production` copies it. A serverless
+              # preview must stay down after an idle exit, so set ON_FAILURE.
               railway_graphql \
                 'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
-                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service, input:{sleepApplication:true}}')"
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service, input:{sleepApplication:true, restartPolicyType:"ON_FAILURE"}}')"
             }
 
             # Preview compute next to Neon (aws-us-east-1). Duplicate-from-production

@@ -18,7 +18,6 @@ import {
   workspaceKnowledgeUnits,
   workspaces,
 } from "../../db/schema/workspaces.js"
-import { workspaceCheckoutKey } from "../../domain/workspaces/derived-stores.js"
 import { generateObjectId } from "../../lib/id.js"
 import { registerMcpRoutes } from "../../routes/mcp.js"
 import { withTestRequestLogger } from "../../test/hono-test-logger.js"
@@ -489,12 +488,13 @@ describe("list_workspaces through MCP", () => {
           orgId: seed.orgId,
           name: "example/handbook",
           gitUrl: `${revision.remote.url}.git`,
+          lastIngestedHash: sha,
         })
         await db.insert(repositoryCheckouts).values({
           id: generateObjectId("checkout"),
           orgId: seed.orgId,
           repositoryId,
-          checkoutKey: workspaceCheckoutKey(id, sha),
+          checkoutKey: `rev:${sha}`,
           ref: "main",
           commitSha: sha,
         })

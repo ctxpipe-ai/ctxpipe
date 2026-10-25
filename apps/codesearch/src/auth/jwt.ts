@@ -3,10 +3,7 @@ import { jwtVerify } from "jose"
 import { z } from "zod"
 import { repositoryRevisionCheckoutKey } from "../../../../shared/workspace-checkout.js"
 import type { Env } from "../config/env.js"
-import {
-  DEFAULT_CHECKOUT_KEY,
-  workspaceCheckoutKey,
-} from "../domain/repositories/paths.js"
+import { DEFAULT_CHECKOUT_KEY } from "../domain/repositories/paths.js"
 
 export type VerifiedToken = {
   sub: string
@@ -14,20 +11,31 @@ export type VerifiedToken = {
   principal: "user" | "service"
   repositoryRevisions?: Array<{ repositoryId: string; sha: string }>
   workspaceId?: string
-  legacyWorkspace?: true
-  workspaceRevisions?: Array<{ repositoryId: string; sha: string }>
+  /**
+   * The repositories that the Workspace links, as the backend minted them.
+   * A Workspace token reads only these repositories, each at its published
+   * checkout.
+   */
+  workspaceRepositoryIds?: string[]
 }
 
+/**
+ * The checkout that a read of `repositoryId` uses:
+ * - an ingestion run token (`repositoryRevisions`) reads its own `rev:<sha>`,
+ * - a Workspace token reads the published checkout of a repository that the
+ *   Workspace links, and gets 403 for any other repository,
+ * - a token with no scope reads the published checkout.
+ * A Workspace token needs `publishedCheckoutKey` from the repository row; a
+ * call without it (an index write) gets 403, so a Workspace token never
+ * writes the published checkout.
+ */
 export function checkoutKeyFromAuth(
   auth: Pick<
     VerifiedToken,
-    | "workspaceId"
-    | "workspaceRevisions"
-    | "legacyWorkspace"
-    | "repositoryRevisions"
+    "workspaceId" | "workspaceRepositoryIds" | "repositoryRevisions"
   >,
   repositoryId?: string,
-  publishedCheckoutKey = DEFAULT_CHECKOUT_KEY,
+  publishedCheckoutKey?: string,
 ): string {
   if (auth.repositoryRevisions) {
     const revisions = auth.repositoryRevisions.filter(
@@ -39,33 +47,26 @@ export function checkoutKeyFromAuth(
       })
     return repositoryRevisionCheckoutKey(revisions[0].sha)
   }
-  if (!auth.workspaceId) return publishedCheckoutKey
-  if (auth.legacyWorkspace && !auth.workspaceRevisions)
-    return workspaceCheckoutKey(auth.workspaceId)
-  if (!auth.workspaceRevisions)
-    throw new HTTPException(403, {
-      message: "Workspace revision is not authorized",
-    })
-  const revisions = auth.workspaceRevisions.filter(
-    (revision) => revision.repositoryId === repositoryId,
+  if (!auth.workspaceId) return publishedCheckoutKey ?? DEFAULT_CHECKOUT_KEY
+  if (
+    !workspaceLinksRepository(auth, repositoryId) ||
+    publishedCheckoutKey === undefined
   )
-  if (revisions.length !== 1 || !revisions[0])
     throw new HTTPException(403, {
-      message: "Repository revision is not authorized",
+      message: "Repository is not linked to this Workspace",
     })
-  return workspaceCheckoutKey(auth.workspaceId, revisions[0].sha)
+  return publishedCheckoutKey
 }
 
-export function checkoutKeysFromAuth(auth: VerifiedToken): string[] {
-  if (auth.repositoryRevisions)
-    return auth.repositoryRevisions.map((item) =>
-      repositoryRevisionCheckoutKey(item.sha),
-    )
-  return auth.workspaceRevisions && auth.workspaceId
-    ? auth.workspaceRevisions.map((revision) =>
-        workspaceCheckoutKey(auth.workspaceId as string, revision.sha),
-      )
-    : [checkoutKeyFromAuth(auth)]
+/** True when the Workspace token lists `repositoryId` exactly once. */
+export function workspaceLinksRepository(
+  auth: Pick<VerifiedToken, "workspaceRepositoryIds">,
+  repositoryId: string | undefined,
+): boolean {
+  return (
+    auth.workspaceRepositoryIds?.filter((id) => id === repositoryId).length ===
+    1
+  )
 }
 
 function readBearerToken(authHeader: string | undefined): string | null {
@@ -120,34 +121,19 @@ export async function verifyCodesearchJwt(input: {
         .string()
         .regex(/^[a-zA-Z0-9_-]+$/)
         .optional(),
-      legacyWorkspace: z.literal(true).optional(),
-      workspaceRevisions: z
-        .array(
-          z.object({
-            repositoryId: z.string().min(1),
-            sha: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/),
-          }),
-        )
-        .min(1)
-        .optional(),
+      workspaceRepositoryIds: z.array(z.string().min(1)).min(1).optional(),
+      // The old Workspace claim. A token that carries it gets 401.
+      workspaceRevisions: z.undefined(),
     })
     .safeParse(payload)
+  if (!scope.success) return null
+  const { workspaceId, workspaceRepositoryIds } = scope.data
   if (
-    !scope.success ||
     (scope.data.repositoryRevisions &&
-      Boolean(
-        scope.data.workspaceId ||
-          scope.data.workspaceRevisions ||
-          scope.data.legacyWorkspace,
-      )) ||
-    ((scope.data.workspaceRevisions || scope.data.legacyWorkspace) &&
-      !scope.data.workspaceId) ||
-    (Boolean(scope.data.workspaceId) &&
-      Boolean(scope.data.workspaceRevisions) ===
-        Boolean(scope.data.legacyWorkspace))
+      Boolean(workspaceId || workspaceRepositoryIds)) ||
+    Boolean(workspaceId) !== Boolean(workspaceRepositoryIds)
   )
     return null
-  const { workspaceId, workspaceRevisions, legacyWorkspace } = scope.data
 
   return {
     sub: subject,
@@ -157,23 +143,26 @@ export async function verifyCodesearchJwt(input: {
     orgId,
     principal,
     ...(workspaceId ? { workspaceId } : {}),
-    ...(legacyWorkspace ? { legacyWorkspace } : {}),
-    ...(workspaceRevisions ? { workspaceRevisions } : {}),
+    ...(workspaceRepositoryIds ? { workspaceRepositoryIds } : {}),
   }
 }
 
-/** Admit an immutable indexing target before any filesystem or database mutation. */
+/**
+ * Admit an immutable indexing target before any filesystem or database
+ * mutation. Only an ingestion run token or a token with no scope can index;
+ * a Workspace token is read-only.
+ */
 export function indexCheckoutFromAuth(
   auth: VerifiedToken,
   repositoryId: string,
   targetHash: string | undefined,
 ): string {
-  const checkoutKey = checkoutKeyFromAuth(auth, repositoryId)
-  if (auth.workspaceId && !auth.workspaceRevisions)
+  if (auth.workspaceId)
     throw new HTTPException(403, {
-      message: "Legacy workspace scope is read-only",
+      message: "Workspace scope is read-only",
     })
-  const revision = (auth.repositoryRevisions ?? auth.workspaceRevisions)?.find(
+  const checkoutKey = checkoutKeyFromAuth(auth, repositoryId)
+  const revision = auth.repositoryRevisions?.find(
     (item) => item.repositoryId === repositoryId,
   )
   if (revision && targetHash !== revision.sha)

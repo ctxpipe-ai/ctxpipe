@@ -1,8 +1,10 @@
-import { gunzipSync, gzipSync } from "node:zlib"
 import type { Attributes } from "@opentelemetry/api"
 import type { Workflow } from "openworkflow"
 import { parseEnv } from "../../config/env.js"
-import { collectRepositoryCheckouts } from "../../domain/codesearchCheckoutGc.js"
+import {
+  collectRepositoryCheckouts,
+  releaseRunCheckout,
+} from "../../domain/codesearchCheckoutGc.js"
 import {
   IngestRefRefusedError,
   ingestRefName,
@@ -19,8 +21,10 @@ import {
 } from "../../domain/ingestion/ingest-telemetry.js"
 import {
   INGEST_SHARD_MAX_ROOTS,
+  packRoots,
   planIngestRoots,
   plannedIngestSkills,
+  unpackRoots,
 } from "../../domain/ingestion/ingestion-plan.js"
 import {
   INGESTION_V2_WORKFLOW_NAME,
@@ -53,7 +57,6 @@ import { cleanUpUnlessParked, settledChildren } from "../isSleepSignal.js"
 import {
   addStepFailures,
   guardedSkillStep,
-  type IngestionRoot,
   type IngestionShardInput,
   type IngestionShardOutput,
   type IngestionShardWorkspace,
@@ -157,12 +160,19 @@ export function defineRepositoryIngestionV2Workflow(
     },
     async ({ input, step, run }) => {
       // A failed run also deletes the worker's copy of the source tree,
-      // and the index repositories of its repository step (shard 0).
+      // and the index repositories of its repository step (shard 0). Each
+      // run that ends deletes its codesearch checkout, unless it is the
+      // published revision.
       return cleanUpUnlessParked(
         () => ingestWithSpan(),
         async () => {
           await releaseIngestSourceTree(run.id, input.sha)
           await releaseIngestStepIndexes(run.id, 0)
+          await releaseRunCheckout({
+            orgId: input.orgId,
+            sha: input.sha,
+            runId: run.id,
+          })
         },
       )
 
@@ -790,23 +800,6 @@ export function defineRepositoryIngestionV2Workflow(
       }
     },
   )
-}
-
-/** The root list in a step output: gzip, then base64. */
-function packRoots(roots: IngestionRoot[]): string {
-  return gzipSync(
-    JSON.stringify(
-      roots.map((r) => ({
-        path: r.path,
-        manifests: r.manifests,
-        evidence: r.evidence,
-      })),
-    ),
-  ).toString("base64")
-}
-
-function unpackRoots(packed: string): IngestionRoot[] {
-  return JSON.parse(gunzipSync(Buffer.from(packed, "base64")).toString("utf8"))
 }
 
 export const repositoryIngestionV2 = defineRepositoryIngestionV2Workflow({

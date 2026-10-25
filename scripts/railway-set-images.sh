@@ -169,9 +169,9 @@ load_project
 
 echo "Deploying Railway $ENVIRONMENT_NAME ($ENV_ID) images at $IMAGE_TAG"
 
-# Stateless services first. Codesearch has a volume; an image change does not
-# copy it, but it still restarts the single replica.
-for name in backend openworkflow ui codesearch; do
+# Codesearch first: the server deploys before its clients.
+# It has a volume; an image change does not copy it, but it restarts the replica.
+for name in codesearch backend openworkflow ui; do
   deploy_image "$name"
 done
 
