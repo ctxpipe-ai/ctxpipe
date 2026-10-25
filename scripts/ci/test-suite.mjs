@@ -6,9 +6,9 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs"
-import { createRequire } from "node:module"
-import { dirname, join, resolve } from "node:path"
+import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { setupSteps, vitestCommand } from "./vitest-launch.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const packages = {
@@ -177,45 +177,31 @@ try {
     const report = join(output, "results.json")
     rmSync(report, { force: true })
     writeFileSync(inventory, JSON.stringify(files, null, 2) + "\n")
-    const require = createRequire(join(cwd, "package.json"))
-    if (name === "cli") {
-      const built = spawnSync(
-        process.execPath,
-        [require.resolve("typescript/bin/tsc"), "-p", "tsconfig.build.json"],
-        { cwd, stdio: "inherit" },
-      )
-      if (built.status !== 0) throw new Error("Required CLI build failed")
-    }
-    if (name === "aws-cdk") run("packages/aws-cdk/scripts/stamp-image-tag.mjs")
-    const vitest = join(
-      dirname(require.resolve("vitest/package.json")),
-      "vitest.mjs",
-    )
-    const result = spawnSync(
-      process.execPath,
-      [
-        vitest,
-        "run",
-        ...selection,
-        "--reporter=default",
-        "--reporter=json",
-        `--outputFile=${report}`,
-      ],
-      {
-        cwd,
+    const lane = { name, directory: packages[name], runtime: "node" }
+    for (const step of setupSteps(lane, root)) {
+      const built = spawnSync(process.execPath, step.args, {
+        cwd: step.cwd,
         stdio: "inherit",
-        // Native contracts include real lease expiry and resource cleanup deadlines.
-        // Each file runs in exactly one lane. Ownership contracts add real lease
-        // expiry and writer-loss recovery; 30 minutes once killed the contract
-        // suite before Failed Tests. Only that lane needs the extra ceiling.
-        timeout:
-          name === "backend"
-            ? 1_800_000
-            : name === "contracts"
-              ? 2_700_000
-              : 600_000,
-      },
-    )
+        timeout: step.timeout,
+      })
+      if (built.error || built.status !== 0)
+        throw new Error(`Required ${name} setup failed`)
+    }
+    const launch = vitestCommand(lane, root, selection, report)
+    const result = spawnSync(launch.command, launch.args, {
+      cwd: launch.cwd,
+      stdio: "inherit",
+      // Native contracts include real lease expiry and resource cleanup deadlines.
+      // Each file runs in exactly one lane. Ownership contracts add real lease
+      // expiry and writer-loss recovery; 30 minutes once killed the contract
+      // suite before Failed Tests. Only that lane needs the extra ceiling.
+      timeout:
+        name === "backend"
+          ? 1_800_000
+          : name === "contracts"
+            ? 2_700_000
+            : 600_000,
+    })
     if (result.error || result.signal)
       throw new Error(
         `Test runner did not finish: ${result.error?.message ?? result.signal}`,

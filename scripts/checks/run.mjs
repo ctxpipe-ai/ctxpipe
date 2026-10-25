@@ -8,37 +8,29 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs"
-import { createRequire } from "node:module"
-import { dirname, join, relative, resolve } from "node:path"
+import { join, relative, resolve } from "node:path"
+import { setupSteps, vitestCommand } from "../ci/vitest-launch.mjs"
 import { lanes, listChecks, root } from "./lanes.mjs"
 
 // Runs the given check ids and writes one result record per id
-// (schema/result.v1.schema.json) as NDJSON. Usage:
-//   run.mjs [ids-file] [--output <file>]
+// (schema/result.v1.schema.json) as NDJSON to stdout. Usage:
+//   run.mjs [ids-file]
 // Without ids-file, the ids come from stdin, one per line.
 // This is the subset path. It does not compare the executed files with the
 // full CI inventory or the failure baseline; test-suite.mjs still does that.
 try {
   const args = process.argv.slice(2)
-  const at = args.indexOf("--output")
-  const output = at === -1 ? undefined : args[at + 1]
-  const positional = args.filter((_, index) => index !== at && index !== at + 1)
-  if ((at !== -1 && !output) || positional.length > 1)
-    throw new Error("Usage: run.mjs [ids-file] [--output <file>]")
+  if (args.length > 1) throw new Error("Usage: run.mjs [ids-file]")
   const ids = [
     ...new Set(
-      readFileSync(positional[0] ?? 0, "utf8")
+      readFileSync(args[0] ?? 0, "utf8")
         .split("\n")
         .map((line) => line.trim())
         .filter(Boolean),
     ),
   ]
-  if (output) writeFileSync(output, "")
-  const emit = (record) => {
-    const line = `${JSON.stringify(record)}\n`
-    if (output) writeFileSync(output, line, { flag: "a" })
-    else process.stdout.write(line)
-  }
+  const emit = (record) =>
+    process.stdout.write(`${JSON.stringify({ schemaVersion: 1, ...record })}\n`)
   const known = new Map((await listChecks()).checks.map((c) => [c.id, c]))
   const groups = new Map()
   let failed = false
@@ -61,8 +53,7 @@ try {
   mkdirSync(results, { recursive: true })
   // One lane at a time: backend files share one database and run in series.
   for (const [lane, checks] of groups) {
-    const { directory, runtime } = lanes[lane]
-    const cwd = join(root, directory)
+    const { directory } = lanes[lane]
     const log = join(results, `${lane}.log`)
     const report = join(results, `${lane}.json`)
     rmSync(report, { force: true })
@@ -75,7 +66,6 @@ try {
       const fd = openSync(log, "a")
       try {
         return spawnSync(command, commandArgs, {
-          cwd,
           stdio: ["ignore", fd, fd],
           ...options,
         })
@@ -83,37 +73,30 @@ try {
         closeSync(fd)
       }
     }
-    const require = createRequire(join(cwd, "package.json"))
-    let setup
-    if (lane === "cli")
-      setup = logged(process.execPath, [
-        require.resolve("typescript/bin/tsc"),
-        "-p",
-        "tsconfig.build.json",
-      ])
-    if (lane === "aws-cdk")
-      setup = logged(process.execPath, [
-        join(root, "packages/aws-cdk/scripts/stamp-image-tag.mjs"),
-      ])
+    const laneConfig = { name: lane, ...lanes[lane] }
     let suites = new Map()
-    let message = setup?.status ? `${lane} setup failed` : undefined
+    let message
+    for (const step of setupSteps(laneConfig, root)) {
+      const setup = logged(process.execPath, step.args, {
+        cwd: step.cwd,
+        timeout: step.timeout,
+      })
+      if (setup.error || setup.status) {
+        message = `${lane} setup failed`
+        break
+      }
+    }
     if (!message) {
-      const vitest = join(
-        dirname(require.resolve("vitest/package.json")),
-        "vitest.mjs",
+      const launch = vitestCommand(
+        laneConfig,
+        root,
+        checks.map(({ file }) => relative(directory, file)),
+        report,
       )
-      const run = logged(
-        runtime === "bun" ? "bun" : process.execPath,
-        [
-          vitest,
-          "run",
-          ...checks.map(({ file }) => relative(directory, file)),
-          "--reporter=default",
-          "--reporter=json",
-          `--outputFile=${report}`,
-        ],
-        { timeout: 2_700_000 },
-      )
+      const run = logged(launch.command, launch.args, {
+        cwd: launch.cwd,
+        timeout: 2_700_000,
+      })
       try {
         const parsed = JSON.parse(readFileSync(report, "utf8"))
         suites = new Map(

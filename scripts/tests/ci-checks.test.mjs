@@ -44,14 +44,10 @@ const validate = (value, rule, document, path = "$") => {
   }
 }
 
-const list = () => {
+test("the manifest matches its schema and has one check for each inventory file", () => {
   const result = node([script("list.mjs")])
   assert.equal(result.status, 0, result.stderr)
-  return JSON.parse(result.stdout)
-}
-
-test("the manifest matches its schema and has one check for each inventory file", () => {
-  const manifest = list()
+  const manifest = JSON.parse(result.stdout)
   const document = schema("manifest")
   validate(manifest, document, document)
   const ids = manifest.checks.map(({ id }) => id)
@@ -64,20 +60,23 @@ test("the manifest matches its schema and has one check for each inventory file"
     "cli",
     "aws-cdk",
   ]) {
-    const result = node([
+    const inventory = node([
       join(root, "scripts/ci/test-suite.mjs"),
       lane,
       "--list",
     ])
-    assert.equal(result.status, 0, result.stderr)
+    assert.equal(inventory.status, 0, inventory.stderr)
     const files = manifest.checks.filter((check) => check.lane === lane)
-    assert.equal(files.length, JSON.parse(result.stdout).length, lane)
+    assert.equal(files.length, JSON.parse(inventory.stdout).length, lane)
   }
   for (const check of manifest.checks) {
     assert.equal(check.id, `vitest:${check.lane}:${check.file}`)
     assert.ok(existsSync(join(root, check.file)), check.file)
     for (const input of check.inputs)
-      assert.ok(existsSync(join(root, input)), `${check.lane}: ${input}`)
+      assert.ok(
+        existsSync(join(root, input.replace(/\/\*\*$/, ""))),
+        `${check.lane}: ${input}`,
+      )
   }
   assert.ok(manifest.checks.some((check) => check.lane === "codesearch"))
   assert.ok(manifest.checks.some((check) => check.lane === "codesearch-bun"))
@@ -88,17 +87,17 @@ test("the runner runs exactly the given ids and writes one schema result for eac
   try {
     const known = "vitest:ui:apps/ui/src/components/onboarding/org-name.test.ts"
     const ids = join(directory, "ids.txt")
-    const output = join(directory, "results.ndjson")
     const input = `${known}\nvitest:ui:apps/ui/src/missing.test.ts\n${known}\n`
-    const result = node([script("run.mjs"), "--output", output], input)
+    const result = node([script("run.mjs")], input)
     // An unknown id is an error, so the run fails.
     assert.equal(result.status, 1, result.stderr)
-    const records = readFileSync(output, "utf8")
+    const records = result.stdout
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line))
     const document = schema("result")
     for (const record of records) validate(record, document, document)
+    assert.ok(records.every((record) => record.schemaVersion === 1))
     assert.deepEqual(
       records.map(({ id, status }) => [id, status]).sort(),
       [

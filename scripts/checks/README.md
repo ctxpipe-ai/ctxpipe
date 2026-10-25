@@ -5,7 +5,7 @@ These two commands are the public check contract. A tool that selects checks (fo
 ## Commands
 
 - `pnpm -s checks:list` prints the manifest as one JSON object: `{ schemaVersion, checks }`. The schema is [`schema/manifest.v1.schema.json`](schema/manifest.v1.schema.json).
-- `pnpm -s checks:run [ids-file] [--output <file>]` runs the given check ids. Without `ids-file`, it reads the ids from stdin, one id on each line. It writes one JSON line for each id to stdout, or to the output file. The schema is [`schema/result.v1.schema.json`](schema/result.v1.schema.json). The Vitest output goes to `.ci-results/checks/<lane>.log`. The exit code is 1 when a check fails or does not run.
+- `pnpm -s checks:run [ids-file]` runs the given check ids. Without `ids-file`, it reads the ids from stdin, one id on each line. It writes one JSON line for each id to stdout. Each line has `schemaVersion`. The schema is [`schema/result.v1.schema.json`](schema/result.v1.schema.json). The Vitest output goes to `.ci-results/checks/<lane>.log`. The exit code is 1 when a check fails or does not run.
 
 ## Check ids
 
@@ -13,11 +13,13 @@ A check id is `<family>:<lane>:<file>`, for example `vitest:ui:apps/ui/src/compo
 
 ## Lanes
 
-A lane is one Vitest run: one package directory, one config and one runtime. [`lanes.mjs`](lanes.mjs) declares each lane, its prerequisites and its inputs.
+A lane is one Vitest run: one package directory, one config and one runtime. [`lanes.mjs`](lanes.mjs) declares each lane and its inputs.
 
 - The CI scripts own which test files belong to a lane. `lanes.mjs` reads the inventories from `scripts/ci/test-suite.mjs --list` and `apps/codesearch/scripts/run-vitest-contracts.mjs --list`.
-- `prerequisites` are coarse names of the tools and services that the lane needs. The runner does not start or check them.
-- `inputs` are the files that change a result, but that a test does not import: configs, setup files and the lockfile. A change to an input selects the full lane.
+- `inputs` are the files that change a result, but that a test does not import: configs, setup files and the lockfile. A path that ends in `/**` stands for a whole directory. A change to an input selects the full lane.
+- A test that spawns built code (for example the CLI tests that run `bin/ctxpipe.js`) does not import that code. Add the source of the built code as a lane input, or a change to it selects no check.
+- A migration file is an input of the backend lanes, because the tests apply it to a real database.
+- `run.mjs` and `scripts/ci/test-suite.mjs` start Vitest through `scripts/ci/vitest-launch.mjs`. Thus a subset run and the CI run use the same setup steps and command line.
 
 To add a lane, add it to `lanes` in `lanes.mjs` and add its inventory to `listChecks`. To add a check family, add a new `family` value to the manifest schema, and make `listChecks` and `run.mjs` handle it.
 
