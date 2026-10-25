@@ -12,20 +12,12 @@
   },
   "rules": {
     "typescript/no-explicit-any": "warn",
-    "eslint/no-unsafe-optional-chaining": "off",
     "react/refs": "off",
     "react/set-state-in-effect": "off",
     "react/purity": "off",
     "react/immutability": "off",
     "react/incompatible-library": "off",
-    "react/globals": "off",
-    "jsx-a11y/prefer-tag-over-role": "off",
-    "jsx-a11y/no-autofocus": "off",
-    "jsx-a11y/control-has-associated-label": "off",
-    "jsx-a11y/no-noninteractive-element-interactions": "off",
-    "jsx-a11y/no-noninteractive-tabindex": "off",
-    "jsx-a11y/heading-has-content": "off",
-    "jsx-a11y/anchor-has-content": "off"
+    "react/globals": "off"
   },
   "env": {
     "builtin": true,
@@ -84,7 +76,101 @@
       "rules": {
         "jsx-a11y/prefer-tag-over-role": "off",
         "jsx-a11y/click-events-have-key-events": "off",
-        "react/no-array-index-key": "off"
+        "react/no-array-index-key": "off",
+        "jsx-a11y/no-autofocus": "off",
+        "jsx-a11y/control-has-associated-label": "off",
+        "jsx-a11y/no-noninteractive-element-interactions": "off",
+        "jsx-a11y/no-noninteractive-tabindex": "off",
+        "jsx-a11y/heading-has-content": "off",
+        "jsx-a11y/anchor-has-content": "off"
+      }
+    },
+    // These files are listed to keep parity with Biome. A follow-up removes them one by one.
+    {
+      "files": [
+        "apps/ui/src/components/SideNav/SideNav.tsx",
+        "apps/ui/src/features/chat/ConversationThread.tsx",
+        "apps/ui/src/features/connectors/components/ConfluenceMark.tsx",
+        "apps/ui/src/features/hints/OnboardingHint.tsx",
+        "apps/ui/src/features/knowledge-graph/KnowledgeGraphIntroCallout.tsx",
+        "apps/ui/src/features/knowledge-graph/NodeDetailDrawer.tsx",
+        "apps/ui/src/features/workspaces/WorkspaceFilesPane.tsx"
+      ],
+      "rules": {
+        "jsx-a11y/prefer-tag-over-role": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/ui/src/providers/AuthProvider.tsx"
+      ],
+      "rules": {
+        "jsx-a11y/anchor-has-content": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/ui/src/components/SideNav/SideNavOrganizationSwitcher.tsx",
+        "apps/ui/src/components/SideNav/SideNavUserButton.tsx"
+      ],
+      "rules": {
+        "jsx-a11y/control-has-associated-label": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/ui/src/components/onboarding/OnboardingCreateOrgSlide.tsx",
+        "apps/ui/src/features/chat/MessageInputBox.tsx",
+        "apps/ui/src/features/organization/OrganizationApiKeysCard.tsx",
+        "apps/ui/src/features/workspace-sources/RenameSourceDialog.tsx",
+        "apps/ui/src/features/workspace-sources/WorkspaceSources.tsx",
+        "apps/ui/src/features/workspaces/ConversationNameInput.tsx",
+        "apps/ui/src/features/workspaces/WorkspaceCommandPalette.tsx",
+        "apps/ui/src/features/workspaces/WorkspaceFilesPane.tsx",
+        "apps/ui/src/features/workspaces/WorkspaceSettingsPane.tsx"
+      ],
+      "rules": {
+        "jsx-a11y/no-autofocus": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/ui/src/features/home/WorkspaceRecentCommits.tsx"
+      ],
+      "rules": {
+        "jsx-a11y/no-noninteractive-tabindex": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/ui/src/features/workspaces/WorkspaceFileTree.tsx"
+      ],
+      "rules": {
+        "jsx-a11y/no-noninteractive-element-interactions": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/backend/src/domain/workspaces/write-ops-native.contract.test.ts",
+        "apps/backend/src/mcp/tools/code-tools.integration.test.ts",
+        "apps/backend/src/mcp/tools/get-related.integration.test.ts",
+        "apps/backend/src/mcp/tools/get-related.latency.ts",
+        "apps/backend/src/mcp/tools/legacy-knowledge.integration.test.ts",
+        "apps/backend/src/mcp/tools/list-workspaces.integration.test.ts",
+        "apps/backend/src/mcp/tools/search-knowledge.integration.test.ts",
+        "apps/backend/src/routes/v1/connector-sync-now.http.integration.test.ts",
+        "apps/backend/src/services/notion/sync.test.ts",
+        "apps/backend/src/services/slack/source-migration.integration.test.ts",
+        "apps/ui/src/features/workspace-sources/WorkspaceSources.stories.tsx",
+        "apps/ui/src/features/workspaces/WorkspaceChatSession.stories.tsx",
+        "apps/ui/src/lib/hyperdxBrowser.test.ts",
+        "apps/ui/src/providers/AuthProvider.test.tsx",
+        "packages/aws-cdk/src/efs-mount.test.ts",
+        "packages/aws-cdk/src/sandbox-host.test.ts",
+        "packages/aws-cdk/src/secrets-construct.test.ts"
+      ],
+      "rules": {
+        "eslint/no-unsafe-optional-chaining": "off"
       }
     }
   ]

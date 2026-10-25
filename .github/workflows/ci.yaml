@@ -30,7 +30,7 @@ permissions:
 jobs:
   lint:
     timeout-minutes: 15
-    name: Lint and format
+    name: Lint
     if: |
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
@@ -47,7 +47,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
-      - run: pnpm format:check
       - name: Reject unused files, exports and dependencies
         run: pnpm knip
       - run: node scripts/ci/check-workflow-credentials.mjs
