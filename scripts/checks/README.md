@@ -5,7 +5,7 @@ These two commands are the public check contract. A tool that selects checks (fo
 ## Commands
 
 - `pnpm -s checks:list` prints the manifest as one JSON object: `{ schemaVersion, checks }`. The schema is [`schema/manifest.v1.schema.json`](schema/manifest.v1.schema.json).
-- `pnpm -s checks:run [ids-file]` runs the given check ids. Without `ids-file`, it reads the ids from stdin, one id on each line. It writes one JSON line for each id to stdout. Each line has `schemaVersion`. The schema is [`schema/result.v1.schema.json`](schema/result.v1.schema.json). The Vitest output goes to `.ci-results/checks/<lane>.log`. The exit code is 1 when a check fails or does not run.
+- `pnpm -s checks:run [--trace <dir>] [ids-file]` runs the given check ids. Without `ids-file`, it reads the ids from stdin, one id on each line. It writes one JSON line for each id to stdout. Each line has `schemaVersion`. The schema is [`schema/result.v1.schema.json`](schema/result.v1.schema.json). The Vitest output goes to `.ci-results/checks/<lane>.log`. The exit code is 1 when a check fails or does not run.
 
 ## Check ids
 
@@ -23,6 +23,31 @@ A lane is one Vitest run: one package directory, one config and one runtime. [`l
 - `run.mjs` and `scripts/ci/test-suite.mjs` start Vitest through `scripts/ci/vitest-launch.mjs`. Thus a subset run and the CI run use the same setup steps and command line.
 
 To add a lane, add it to `lanes` in `lanes.mjs` and add its inventory to `listChecks`. To add a check family, add a new `family` value to the manifest schema, and make `listChecks` and `run.mjs` handle it.
+
+## Traces
+
+`pnpm -s checks:run --trace <dir>` also writes `<dir>/trace.json.gz`, a gzip-compressed JSON file. The schema is [`schema/trace.v1.schema.json`](schema/trace.v1.schema.json). For each check and each test case, the trace gives the source lines that the case executed and the case duration. The line numbers are the lines at `commit`, the commit of the checkout. Thus, trace a clean working tree.
+
+How it works:
+
+- The runner adds [`trace-reporter.mjs`](trace-reporter.mjs) as a Vitest reporter. Vitest has no command-line option for setup files, so the reporter puts [`trace-worker.mjs`](trace-worker.mjs) first in the setup files of each project. The runner gives the part directory to its Vitest workers in the private variable `CTXPIPE_TRACE_PARTS`. Do not set this variable yourself.
+- In each Vitest worker, `trace-worker.mjs` opens a `node:inspector` session and starts V8 precise coverage with block counts. It takes the coverage before and after each test case. Each take resets the counts.
+- The code that runs outside a case (module evaluation, `beforeAll` and `afterAll`) goes to the pseudo-case `<collect>` of the file. Thus, a change to top-level code maps to `<collect>`.
+- The worker maps the V8 offsets to source lines with the inline source maps of the transformed modules. A line ran when the innermost V8 range at a mapped position has a count above zero: the function ranges minus their nested blocks with a zero count. A line with no code does not end a range.
+- The trace records only repo files outside `node_modules`.
+- Tracing does not change a result. If the inspector fails in a file, that file writes no trace record. A check that is not in a trace was not traced; this is not proof that it executes no code.
+
+In CI, `scripts/ci/test-suite.mjs <lane> --trace` writes `trace.json.gz` next to `results.json`. CI traces on a `workflow_dispatch` run and on a push to `main`. A push to `main` runs the test jobs for this purpose only. The Tests job merges the traces with `node scripts/checks/trace.mjs merge <out> <trace>...` and uploads the artifact `trace-<commit>`. A pull request run does not trace, because it tests a merge commit that a reader cannot diff from.
+
+Gaps (no trace):
+
+- Bun lanes (`codesearch-bun`): Bun has no V8 inspector.
+- The `codesearch` lane in CI, because it runs in Docker. `checks:run --trace` traces it on the host.
+- The `vercel` lane, because it runs in its own job with deploy credentials.
+- Child processes and the browser. A test that reaches code through HTTP, a worker process, a CLI, a sandbox or Storybook does not record that code. For example, the CLI lane runs the built `bin/ctxpipe.js` in a child process.
+- Concurrent cases in one file (`test.concurrent`) mix their coverage.
+
+Overhead, measured on a laptop: the UI lane (113 files) took 17 s with and without the trace. 60 backend unit files took 115 s without and 127 s with the trace (+10%). A take costs about 10 to 40 ms in a file that imports a large module graph, so the cost grows with the number of cases in such a file.
 
 ## Why the runner is separate from CI
 

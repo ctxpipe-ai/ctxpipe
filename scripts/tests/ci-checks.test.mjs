@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
+import { gunzipSync } from "node:zlib"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const script = (name) => join(root, "scripts/checks", name)
@@ -38,8 +39,9 @@ const validate = (value, rule, document, path = "$") => {
     for (const key of rule.required ?? [])
       assert.ok(key in value, `${path}.${key}`)
     for (const [key, item] of Object.entries(value)) {
-      assert.ok(key in rule.properties, `${path}: unexpected ${key}`)
-      validate(item, rule.properties[key], document, `${path}.${key}`)
+      const child = rule.properties?.[key] ?? rule.additionalProperties
+      assert.ok(typeof child === "object", `${path}: unexpected ${key}`)
+      validate(item, child, document, `${path}.${key}`)
     }
   }
 }
@@ -111,6 +113,53 @@ test("the runner runs exactly the given ids and writes one schema result for eac
     assert.ok(passed.cases.length > 0)
     assert.ok(existsSync(join(root, passed.log)))
     assert.equal(node([script("run.mjs"), ids, "extra"]).status, 1)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("the runner traces the lines that each case executed", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
+  try {
+    const id = "vitest:ui:apps/ui/src/components/onboarding/org-name.test.ts"
+    const result = node([script("run.mjs"), "--trace", directory], `${id}\n`)
+    assert.equal(result.status, 0, result.stderr)
+    const file = join(directory, "trace.json.gz")
+    const trace = JSON.parse(gunzipSync(readFileSync(file)).toString("utf8"))
+    const document = schema("trace")
+    validate(trace, document, document)
+    const head = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+    })
+    assert.equal(trace.commit, head.stdout.trim())
+    assert.deepEqual(
+      trace.checks.map((check) => check.id),
+      [id],
+    )
+    const cases = new Map(trace.checks[0].cases.map((c) => [c.name, c]))
+    const source = "apps/ui/src/components/onboarding/org-name.ts"
+    const ran = (name, line) =>
+      (cases.get(name)?.lines[source] ?? []).some(
+        ([first, last]) => first <= line && line <= last,
+      )
+    // Module evaluation goes to <collect>: the PERSONAL_MAIL_DOMAINS set.
+    assert.ok(ran("<collect>", 59))
+    // A case owns the function body that it ran, and not the others.
+    const work = "orgNameFromEmail names the organization after a work domain"
+    assert.ok(ran(work, 40))
+    assert.ok(!ran(work, 23))
+    assert.ok(!ran("<collect>", 40))
+    // The merge of one trace gives the same checks; a check twice is refused.
+    const merged = join(directory, "merged.json.gz")
+    const merge = (inputs) =>
+      node([script("trace.mjs"), "merge", merged, ...inputs])
+    assert.equal(merge([file]).status, 0)
+    assert.deepEqual(
+      JSON.parse(gunzipSync(readFileSync(merged)).toString("utf8")),
+      trace,
+    )
+    assert.equal(merge([file, file]).status, 1)
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
