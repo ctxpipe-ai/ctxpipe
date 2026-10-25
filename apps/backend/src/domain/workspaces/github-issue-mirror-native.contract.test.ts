@@ -208,9 +208,8 @@ it(
           output: { written: 2 },
         })
         expect(backfill?.input).not.toHaveProperty("number")
-        expect(filesIn(f)).toEqual(
-          expect.arrayContaining([issuePath(3), issuePath(4)]),
-        )
+        expect(filesIn(f)).toContain(issuePath(3))
+        expect(filesIn(f)).toContain(issuePath(4))
         const mirrored = f.git(
           "--git-dir",
           f.remote,

@@ -22,7 +22,7 @@
     {
       "file": "src/components/ai-elements/prompt-input.tsx",
       "code": 2322,
-      "message": "Type '\"default\"' is not assignable to type '\"primary\" | \"secondary\" | \"destructive\" | \"quiet\" | \"ghost\" | \"outline\"'.",
+      "message": "Type '\"default\"' is not assignable to type '\"primary\" | \"ghost\" | \"secondary\" | \"destructive\" | \"quiet\" | \"outline\"'.",
       "count": 1
     },
     {
