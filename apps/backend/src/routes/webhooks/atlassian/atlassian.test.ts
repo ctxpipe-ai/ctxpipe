@@ -44,7 +44,6 @@ function validFitClaims(): Record<string, unknown> {
         id: "ari:cloud:ecosystem::environment/e1",
       },
     },
-    context: { cloudId: "cloud_1" },
   }
 }
 

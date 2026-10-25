@@ -61,24 +61,13 @@ media redirects and never persists Atlassian download URLs.
 ### Allowed Forge apps
 
 ctxpipe accepts a Forge call only from the Forge app of that Confluence
-connection, with the issuer `forge/invocation-token`. The allowed app is one of
-these:
+connection. The allowed app is one of these:
 
-- The app ID that the connection saved. Provisioning saves this ID after
-  `forge register` and before `forge install`.
+- The app ID that the connection saved. Provisioning saves this ID before
+  `forge install`.
 - When the connection has no saved app ID: the app ID in the install URL of the
   connection, the app ID in **`CONFLUENCE_FORGE_INSTALL_URL`**, or the hosted
-  ctxpipe app (`ari:cloud:ecosystem::app/4ce198e3-2ce7-4a6e-865f-a3e31d15fe43`).
-  Forge sends the calls of the hosted app only to the hosted ctxpipe service,
-  so a self-hosted deployment does not get them. The first install event saves
-  the ID of the app that it accepts.
-
-A deployment accepts only calls from the Forge `production` environment. A
-Railway PR preview (`RAILWAY_ENVIRONMENT_NAME` is `pr-<number>`) and local
-development (`NODE_ENV` is not `production`, off Railway) also accept the
-`development` and `staging` environments. Deploy your Forge app to the
-`production` environment. Set `NODE_ENV=production` when you run the backend
-outside the published images.
+  ctxpipe app. The first install event saves the ID of the app.
 
 ## 3. Finish the connector
 

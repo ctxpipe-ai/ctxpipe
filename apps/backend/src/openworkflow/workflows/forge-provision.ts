@@ -305,7 +305,7 @@ export async function ensureCtxpipeForgeDeveloperSpaceId(opts: {
 /**
  * Saves the app id that `forge register` wrote to `manifest.yml` on the
  * connection. The install event of the app then finds a trusted app.
- * Throws when the manifest has no valid Forge app ARI.
+ * Throws when the manifest has no app id.
  */
 export async function saveRegisteredForgeAppId(input: {
   orgId: string
@@ -317,14 +317,9 @@ export async function saveRegisteredForgeAppId(input: {
   ) as { app?: { id?: unknown } } | null
   const id = manifest?.app?.id
   const appId = forgeAppIdToAri(typeof id === "string" ? id : null)
-  if (
-    !appId ||
-    !/^ari:cloud:ecosystem::app\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      appId,
-    )
-  ) {
+  if (!appId) {
     throw new Error(
-      `forge register wrote no valid app ID to manifest.yml (found ${JSON.stringify(id ?? null)}). Run the Forge setup again. If it fails again, delete the Confluence connection and add it again.`,
+      `forge register wrote no app ID to manifest.yml (found ${JSON.stringify(id ?? null)}). Run the Forge setup again. If it fails again, delete the Confluence connection and add it again.`,
     )
   }
   await patchForgeConnectionTypedConfig(input.orgId, input.connectionId, {

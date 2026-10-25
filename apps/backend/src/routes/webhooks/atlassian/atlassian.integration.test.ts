@@ -4,8 +4,7 @@ import { join } from "node:path"
 
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { eq } from "drizzle-orm"
-import { initLogger } from "evlog"
-import { evlog } from "evlog/hono"
+import { createLogger } from "evlog"
 import { contextStorage } from "hono/context-storage"
 import { exportJWK, generateKeyPair, type JWK, SignJWT } from "jose"
 import { HttpResponse, http } from "msw"
@@ -50,11 +49,6 @@ beforeAll(async () => {
   signingKey = pair.privateKey
   otherKey = (await generateKeyPair("RS256")).privateKey
   publicJwk = { ...(await exportJWK(pair.publicKey)), kid: "k1", alg: "RS256" }
-  // setup-evlog turns evlog off; the token refresh case reads the drained events.
-  initLogger({
-    env: { service: "ctxpipe-backend", environment: "test" },
-    pretty: false,
-  })
   seed = await seedSourcesOrg("forge_webhook")
   routes = await import("./atlassian.js")
   provision = await import("../../../openworkflow/workflows/forge-provision.js")
@@ -81,11 +75,7 @@ function newSite(): Site {
 }
 
 /** Valid Forge claims for a call from `app` on `site`. */
-function claimsForApp(
-  app: string,
-  site: Site,
-  environmentType = "PRODUCTION",
-): Record<string, unknown> {
+function claimsForApp(app: string, site: Site): Record<string, unknown> {
   return {
     iss: "forge/invocation-token",
     aud: app,
@@ -93,51 +83,30 @@ function claimsForApp(
       id: app,
       installationId: `ari:cloud:ecosystem::installation/${site.installationId}`,
       apiBaseUrl: `https://api.atlassian.com/ex/confluence/${site.cloudId}`,
-      environment: { type: environmentType, id: "env_1" },
+      environment: { type: "PRODUCTION", id: "env_1" },
     },
-    context: { cloudId: site.cloudId },
   }
 }
 
-async function bearer(
-  claims: Record<string, unknown>,
-  options: { key?: CryptoKey; issuedAt?: number; expiresAt?: number } = {},
-) {
-  const now = Math.floor(Date.now() / 1000)
+async function bearer(claims: Record<string, unknown>, key = signingKey) {
   const token = await new SignJWT(claims)
     .setProtectedHeader({ alg: "RS256", kid: "k1" })
-    .setIssuedAt(options.issuedAt ?? now)
-    .setExpirationTime(options.expiresAt ?? now + 300)
-    .sign(options.key ?? signingKey)
+    .setIssuedAt()
+    .setExpirationTime("5m")
+    .sign(key)
   return `Bearer ${token}`
 }
 
-function envWith(overrides: Record<string, string | undefined> = {}) {
-  return parseEnv({
+function createApp(confluenceForgeInstallUrl?: string) {
+  const env = parseEnv({
     ...process.env,
-    NODE_ENV: "test",
-    RAILWAY_ENVIRONMENT_NAME: undefined,
-    CONFLUENCE_FORGE_INSTALL_URL: undefined,
-    ...overrides,
+    CONFLUENCE_FORGE_INSTALL_URL: confluenceForgeInstallUrl,
   })
-}
-
-const events: Record<string, unknown>[] = []
-
-function createApp(env = envWith()) {
   const app = new OpenAPIHono<AppEnv>()
   app.use(contextStorage())
-  app.use(
-    evlog({
-      drain: async (ctx) => {
-        for (const item of Array.isArray(ctx) ? ctx : [ctx]) {
-          events.push(item.event as Record<string, unknown>)
-        }
-      },
-    }),
-  )
   app.use("*", async (c, next) => {
     c.set("env", env)
+    c.set("log", createLogger())
     await next()
   })
   routes.registerAtlassianWebhookRoute(app)
@@ -302,106 +271,17 @@ describe("Forge install event (Postgres)", () => {
     expect((await connection(pending.connectionId)).status).toBe("pending")
   })
 
-  it("answers another app the same way with or without a pending setup", async () => {
+  it("refuses another app on a pending setup", async () => {
     const pending = await addPending()
-    const foreign = appAri()
-    const app = createApp()
-
     const site = newSite()
-    const withSetup = await postForge(
-      app,
-      await bearer(claimsForApp(foreign, site)),
+    const res = await postForge(
+      createApp(),
+      await bearer(claimsForApp(appAri(), site)),
       lifecycleBody(site, pending.atlassianAccountId),
     )
-    const otherSite = newSite()
-    const withoutSetup = await postForge(
-      app,
-      await bearer(claimsForApp(foreign, otherSite)),
-      lifecycleBody(otherSite),
-    )
-
-    expect(withSetup.status).toBe(withoutSetup.status)
+    expect(res.status).toBe(401)
     expect((await connection(pending.connectionId)).status).toBe("pending")
   })
-
-  it("saves the app that the claims name", async () => {
-    const site = newSite()
-    const id = await addInstalled(site)
-    const res = await postForge(
-      createApp(),
-      await bearer({
-        ...claimsForApp(hostedAppAri, site),
-        aud: [appAri(), hostedAppAri],
-      }),
-      lifecycleBody(site),
-    )
-    expect(res.status).toBe(204)
-    expect((await connection(id)).appId).toBe(hostedAppAri)
-  })
-
-  it("refuses claims whose app differs from the audience", async () => {
-    const site = newSite()
-    await addInstalled(site)
-    const claims = claimsForApp(hostedAppAri, site)
-    const res = await postForge(
-      createApp(),
-      await bearer({
-        ...claims,
-        app: { ...(claims.app as object), id: appAri() },
-      }),
-      lifecycleBody(site),
-    )
-    expect(res.status).toBe(401)
-  })
-
-  it("refuses a site that differs from the signed API base URL", async () => {
-    const site = newSite()
-    await addInstalled(site)
-    const otherSite = { ...site, cloudId: `cloud_${uuid()}` }
-    const res = await postForge(
-      createApp(),
-      await bearer({
-        ...claimsForApp(hostedAppAri, site),
-        context: { cloudId: otherSite.cloudId },
-      }),
-      lifecycleBody(otherSite),
-    )
-    expect(res.status).toBe(400)
-  })
-})
-
-describe("Forge install event body (Postgres)", () => {
-  it("accepts a body installation id that is a full ARI", async () => {
-    const site = newSite()
-    await addInstalled(site)
-    const body = JSON.parse(lifecycleBody(site)) as Record<string, unknown>
-    const res = await postForge(
-      createApp(),
-      await bearer(claimsForApp(hostedAppAri, site)),
-      JSON.stringify({
-        ...body,
-        id: `ari:cloud:ecosystem::installation/${site.installationId}`,
-      }),
-    )
-    expect(res.status).toBe(204)
-  })
-
-  it.each([
-    ["installation", (site: Site) => ({ ...site, installationId: uuid() })],
-    ["site", (site: Site) => ({ ...site, cloudId: `cloud_${uuid()}` })],
-  ])(
-    "refuses a body whose %s differs from the claims",
-    async (_name, change) => {
-      const site = newSite()
-      await addInstalled(site)
-      const res = await postForge(
-        createApp(),
-        await bearer(claimsForApp(hostedAppAri, site)),
-        lifecycleBody(change(site)),
-      )
-      expect(res.status).toBe(400)
-    },
-  )
 
   it("refuses claims without a valid API base URL", async () => {
     const site = newSite()
@@ -430,30 +310,8 @@ describe("Forge call verification (Postgres)", () => {
 
   it.each([
     [
-      "an expired call",
-      async () =>
-        bearer(claimsForApp(hostedAppAri, site), {
-          issuedAt: Math.floor(Date.now() / 1000) - 600,
-          expiresAt: Math.floor(Date.now() / 1000) - 300,
-        }),
-    ],
-    [
-      "a call older than one minute",
-      async () =>
-        bearer(claimsForApp(hostedAppAri, site), {
-          issuedAt: Math.floor(Date.now() / 1000) - 120,
-        }),
-    ],
-    [
       "another signing key",
-      async () => bearer(claimsForApp(hostedAppAri, site), { key: otherKey }),
-    ],
-    [
-      "no audience",
-      async () => {
-        const { aud: _aud, ...claims } = claimsForApp(hostedAppAri, site)
-        return bearer(claims)
-      },
+      async () => bearer(claimsForApp(hostedAppAri, site), otherKey),
     ],
     [
       "another issuer",
@@ -469,57 +327,24 @@ describe("Forge call verification (Postgres)", () => {
     expect(res.status).toBe(401)
   })
 
-  it("accepts the app of CONFLUENCE_FORGE_INSTALL_URL", async () => {
-    const id = uuid()
-    const own = newSite()
-    await addInstalled(own)
-    const res = await postForge(
-      createApp(
-        envWith({
-          CONFLUENCE_FORGE_INSTALL_URL: `https://developer.atlassian.com/console/install/${id}?signature=x`,
-        }),
-      ),
-      await bearer(claimsForApp(appAri(id), own)),
-      lifecycleBody(own),
-    )
-    expect(res.status).toBe(204)
-  })
-
-  it("accepts the app of the connection install URL", async () => {
-    const id = uuid()
-    const own = newSite()
-    await addInstalled(own, {
-      confluenceForgeInstallUrl: `https://developer.atlassian.com/console/install/${id}?signature=x`,
-    })
-    const res = await postForge(
-      createApp(),
-      await bearer(claimsForApp(appAri(id), own)),
-      lifecycleBody(own),
-    )
-    expect(res.status).toBe(204)
-  })
-
   it.each([
-    ["a production deployment", "production", undefined, 401],
-    ["a deployment with no NODE_ENV", undefined, undefined, 204],
-    ["an unknown Railway deployment", "development", "staging", 401],
-    ["a Railway production", "development", "production", 401],
-    ["a PR preview", "production", "pr-1", 204],
-    ["local development", "development", undefined, 204],
-    ["tests", "test", undefined, 204],
-  ])(
-    "answers a DEVELOPMENT Forge app in %s",
-    async (_name, nodeEnv, railway, status) => {
-      const res = await postForge(
-        createApp(
-          envWith({ NODE_ENV: nodeEnv, RAILWAY_ENVIRONMENT_NAME: railway }),
-        ),
-        await bearer(claimsForApp(hostedAppAri, site, "DEVELOPMENT")),
-        lifecycleBody(site),
-      )
-      expect(res.status).toBe(status)
-    },
-  )
+    ["CONFLUENCE_FORGE_INSTALL_URL", true],
+    ["the connection install URL", false],
+  ])("accepts the app of %s", async (_name, fromEnv) => {
+    const id = uuid()
+    const installUrl = `https://developer.atlassian.com/console/install/${id}?signature=x`
+    const own = newSite()
+    await addInstalled(
+      own,
+      fromEnv ? {} : { confluenceForgeInstallUrl: installUrl },
+    )
+    const res = await postForge(
+      createApp(fromEnv ? installUrl : undefined),
+      await bearer(claimsForApp(appAri(id), own)),
+      lifecycleBody(own),
+    )
+    expect(res.status).toBe(204)
+  })
 })
 
 describe("Forge Confluence event (Postgres)", () => {
@@ -532,18 +357,6 @@ describe("Forge Confluence event (Postgres)", () => {
       pageCreated,
     )
     expect(res.status).toBe(401)
-  })
-
-  it("accepts the app of the connection", async () => {
-    const site = newSite()
-    await addInstalled(site)
-    const res = await postForge(
-      createApp(),
-      await bearer(claimsForApp(hostedAppAri, site)),
-      pageCreated,
-    )
-    expect(res.status).not.toBe(401)
-    expect(res.status).toBeLessThan(300)
   })
 })
 
@@ -559,23 +372,14 @@ describe("Forge token refresh (Postgres)", () => {
     expect((await connection(id)).appSystemToken).toBe("new_system_token")
   })
 
-  it("refuses another app and logs it", async () => {
+  it("refuses another app", async () => {
     const site = newSite()
     const id = await addInstalled(site)
-    events.length = 0
     const res = await postTokenRefresh(
       createApp(),
       await bearer(claimsForApp(appAri(), site)),
     )
     expect(res.status).toBe(401)
-    const warning = events.find((event) =>
-      JSON.stringify(event).includes("forge_token_refresh_untrusted_app"),
-    )
-    expect(warning).toMatchObject({
-      level: "warn",
-      connectionId: id,
-      orgId: seed.orgId,
-    })
     expect((await connection(id)).appSystemToken).toBe("old_system_token")
   })
 })
