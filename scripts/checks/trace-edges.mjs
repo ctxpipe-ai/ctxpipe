@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 // Vitest worker process. trace-worker.mjs installs the hooks once in each
 // worker, and takes the edges at the end of each phase with `takeEdges()`.
 // Each hook records names only: table names, route patterns, step names, tool
-// names, generation names and repo paths. It never records SQL text, request
+// names and repo paths. It never records SQL text, request
 // data, prompt text or arguments. A hook that cannot install (the lane does
 // not use the package, or the package changed) records nothing, and its kind
 // is not in `recorded`. Then a reader must treat that kind as unknown.
@@ -18,7 +18,6 @@ export const emptyEdges = () => ({
   routes: new Set(),
   steps: new Set(),
   tools: new Set(),
-  models: new Set(),
   reads: new Set(),
   dirs: new Set(),
 })
@@ -42,12 +41,12 @@ export async function installEdges(root, skip) {
     routes: () => hookHono(lane),
     steps: () => hookOpenWorkflow(lane),
     tools: () => hookMcp(lane),
-    models: () => hookLangfuse(lane),
   }
   for (const [kind, hook] of Object.entries(hooks))
     try {
       await hook()
-      recorded.push(kind)
+      // The fs hook records both `reads` and `dirs`.
+      recorded.push(...(kind === "reads" ? ["reads", "dirs"] : [kind]))
     } catch {
       // The lane does not use this package, or the package changed: the
       // kind stays unknown for this lane.
@@ -76,38 +75,151 @@ const esm = (lane, name, file, probe) =>
 // queries count (select, insert, update, delete). Schema statements (a test
 // that applies the migrations) and `truncate` (cleanup) do not show what a
 // case uses; a test that applies migrations reads them, so `reads` has it.
+// A recording failure turns the edge off for that call; the query itself
+// always runs unchanged.
 function hookPg(lane) {
   const { Client } = lane("pg")
   const query = Client.prototype.query
   Client.prototype.query = function (config, ...rest) {
-    const text = typeof config === "string" ? config : config?.text
-    if (typeof text === "string") noteTables(text)
+    try {
+      const text = typeof config === "string" ? config : config?.text
+      if (typeof text === "string") noteTables(text)
+    } catch {
+      // The tables of this query are not recorded.
+    }
     return query.call(this, config, ...rest)
   }
 }
 
-const identifier = String.raw`"(?:[^"]|"")+"|[A-Za-z_][\w$]*`
-const tableName = new RegExp(
-  String.raw`\b(insert\s+into|update|delete\s+from|from|join)\s+(?:(?:only|if\s+(?:not\s+)?exists)\s+)*(${identifier})(?:\s*\.\s*(${identifier}))?(\s*\()?`,
-  "gi",
-)
+// The tokens of a statement: words (lower case), quoted identifiers (with
+// their quotes) and single punctuation characters. String literals
+// ('...', E'...', $tag$...$tag$) and comments (`--`, `/* */`) give no token,
+// so that their text can never become a table name.
+function sqlTokens(text) {
+  const tokens = []
+  let at = 0
+  while (at < text.length) {
+    const c = text[at]
+    if (/\s/.test(c)) {
+      at++
+    } else if (text.startsWith("--", at)) {
+      const end = text.indexOf("\n", at)
+      at = end === -1 ? text.length : end + 1
+    } else if (text.startsWith("/*", at)) {
+      // Postgres block comments nest.
+      let depth = 0
+      do {
+        if (text.startsWith("/*", at)) {
+          depth++
+          at += 2
+        } else if (text.startsWith("*/", at)) {
+          depth--
+          at += 2
+        } else at++
+      } while (depth > 0 && at < text.length)
+    } else if (c === "'") {
+      // A backslash escapes only in an E'...' string.
+      const escapes =
+        /^[eE]$/.test(tokens.at(-1)?.raw ?? "") && /[eE]/.test(text[at - 1])
+      if (escapes) tokens.pop()
+      at++
+      while (at < text.length) {
+        if (escapes && text[at] === "\\") at += 2
+        else if (text[at] === "'" && text[at + 1] === "'") at += 2
+        else if (text[at++] === "'") break
+      }
+      tokens.push({ kind: "literal" })
+    } else if (c === "$" && /^\$(?:[A-Za-z_]\w*)?\$/.test(text.slice(at))) {
+      const tag = text.slice(at).match(/^\$(?:[A-Za-z_]\w*)?\$/)[0]
+      const end = text.indexOf(tag, at + tag.length)
+      at = end === -1 ? text.length : end + tag.length
+      tokens.push({ kind: "literal" })
+    } else if (c === '"') {
+      let end = at + 1
+      while (end < text.length) {
+        if (text[end] === '"' && text[end + 1] === '"') end += 2
+        else if (text[end] === '"') break
+        else end++
+      }
+      // An identifier without its closing quote is not a name.
+      tokens.push(
+        end < text.length
+          ? { kind: "name", raw: text.slice(at, end + 1) }
+          : { kind: "literal" },
+      )
+      at = end + 1
+    } else if (/[A-Za-z_]/.test(c)) {
+      const raw = text.slice(at).match(/^[A-Za-z_][\w$]*/)[0]
+      tokens.push({ kind: "word", raw, word: raw.toLowerCase() })
+      at += raw.length
+    } else {
+      tokens.push({ kind: "punct", raw: c })
+      at++
+    }
+  }
+  return tokens
+}
+
 // Words that can follow `from`, `join` or `update` and are not a table:
 // `do update set`, `for update skip locked`, `from lateral (...)`.
 const notTables = new Set(["set", "skip", "nowait", "of", "lateral", "select"])
+const schemaWords = new Set([
+  "create",
+  "alter",
+  "drop",
+  "truncate",
+  "grant",
+  "revoke",
+  "comment",
+  "do",
+])
 
-// Adds the tables that a statement names. A name after `from` or `join`
-// is a read, and a name after `insert into`, `update` or `delete from` is a
-// write.
-// A name after `from` or `join` and before `(` is a function, not a table.
+// Adds the tables that a statement names. Names come only from table
+// positions: after `from` or `join` (a read), and after `insert into`,
+// `update` or `delete from` (a write). A name after `from` or `join` and
+// before `(` is a function, not a table.
 export function noteTables(text, into = edges) {
-  const body = text.replace(/^(?:\s+|--[^\n]*\n?|\/\*[\s\S]*?\*\/)*/, "")
-  if (/^(?:create|alter|drop|truncate|grant|revoke|comment|do)\b/i.test(body))
-    return
-  for (const [, keyword, first, second, call] of text.matchAll(tableName)) {
-    const read = /^(from|join)$/i.test(keyword)
-    if (read && call) continue
+  const tokens = sqlTokens(text)
+  if (schemaWords.has(tokens[0]?.word)) return
+  const isWord = (i, ...words) => words.includes(tokens[i]?.word)
+  for (let i = 0; i < tokens.length; i++) {
+    let read
+    let next
+    if (isWord(i, "insert") && isWord(i + 1, "into")) {
+      read = false
+      next = i + 2
+    } else if (isWord(i, "delete") && isWord(i + 1, "from")) {
+      read = false
+      next = i + 2
+    } else if (isWord(i, "update")) {
+      read = false
+      next = i + 1
+    } else if (isWord(i, "from", "join")) {
+      read = true
+      next = i + 1
+    } else continue
+    while (isWord(next, "only")) next++
+    if (isWord(next, "if")) {
+      next++
+      if (isWord(next, "not")) next++
+      if (isWord(next, "exists")) next++
+    }
+    const name = (j) =>
+      tokens[j]?.kind === "word" || tokens[j]?.kind === "name"
+        ? tokens[j].raw
+        : undefined
+    const first = name(next)
+    if (first === undefined) continue
+    let second
+    let after = next + 1
+    if (tokens[after]?.raw === "." && name(after + 1) !== undefined) {
+      second = name(after + 1)
+      after += 2
+    }
+    if (read && tokens[after]?.raw === "(") continue
     const table = normalizeTable(first, second)
     if (table) (read ? into.read : into.write).add(table)
+    i = after - 1
   }
 }
 
@@ -128,7 +240,8 @@ function normalizeTable(first, second) {
 
 // HTTP route patterns of Hono apps (backend, codesearch): each route handler
 // that runs records `<METHOD> <pattern>`. Middleware (method ALL, a pattern
-// that ends in `*`) is not recorded.
+// that ends in `*`) is not recorded. A recording failure never changes the
+// call or its result.
 async function hookHono(lane) {
   const wrapped = new WeakSet()
   let routers = 0
@@ -153,7 +266,11 @@ async function hookHono(lane) {
         ) {
           const pattern = `${route.method} ${route.path}`
           tuple[0] = function (...args) {
-            edges.routes.add(pattern)
+            try {
+              edges.routes.add(pattern)
+            } catch {
+              // The route of this call is not recorded.
+            }
             return handler.apply(this, args)
           }
         }
@@ -193,61 +310,6 @@ async function hookMcp(lane) {
   McpServer.prototype.validateToolInput = function (tool, args, name) {
     if (typeof name === "string") edges.tools.add(name)
     return validate.call(this, tool, args, name)
-  }
-}
-
-// Model calls: the names of Langfuse generations (withLangfuseGeneration in
-// the backend). A generation is a span that becomes a LangfuseGeneration, so
-// a tracer wrapper remembers each span name, and the generation records it.
-// The wrapper forwards each call to the provider that Langfuse would use
-// without it: the global OpenTelemetry provider at the time of the call (a
-// test can replace it), or a provider that was set before the hook.
-async function hookLangfuse(lane) {
-  const langfuse = await esm(lane, "@langfuse/tracing", "dist/index.mjs")
-  const { trace } = createRequire(
-    join(packageDir(lane, "@langfuse/tracing"), "package.json"),
-  )("@opentelemetry/api")
-  const before = langfuse.getLangfuseTracerProvider()
-  const set = before !== trace.getTracerProvider() ? before : undefined
-  const current = () => set ?? trace.getTracerProvider()
-  const names = new WeakMap()
-  const forward = (target, overrides) =>
-    new Proxy(target, {
-      get(object, property) {
-        if (Object.hasOwn(overrides, property)) return overrides[property]
-        const value = Reflect.get(object, property)
-        return typeof value === "function" ? value.bind(object) : value
-      },
-    })
-  const provider = {
-    getTracer(...args) {
-      const tracer = current().getTracer(...args)
-      return forward(tracer, {
-        startActiveSpan(name, ...rest) {
-          const fn = rest.pop()
-          return tracer.startActiveSpan(name, ...rest, (span) => {
-            names.set(span, name)
-            return fn(span)
-          })
-        },
-      })
-    },
-  }
-  langfuse.setLangfuseTracerProvider(
-    new Proxy(provider, {
-      get(object, property) {
-        if (property === "getTracer") return object.getTracer
-        const target = current()
-        const value = Reflect.get(target, property)
-        return typeof value === "function" ? value.bind(target) : value
-      },
-    }),
-  )
-  const update = langfuse.LangfuseGeneration.prototype.update
-  langfuse.LangfuseGeneration.prototype.update = function (...args) {
-    const name = names.get(this.otelSpan)
-    if (name) edges.models.add(name)
-    return update.apply(this, args)
   }
 }
 

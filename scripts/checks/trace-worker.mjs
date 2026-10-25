@@ -21,8 +21,6 @@ import { emptyEdges, installEdges, takeEdges } from "./trace-edges.mjs"
 // A string, not `new URL()`: under jsdom, `URL` is the jsdom class.
 const root = resolve(fileURLToPath(import.meta.url), "../../..")
 const rootUrl = pathToFileURL(root).href
-// The trace code itself is not traced.
-const own = [import.meta.url, new URL("trace-edges.mjs", import.meta.url).href]
 const collect = "<collect>"
 const parts = process.env.CTXPIPE_TRACE_PARTS
 if (!parts) throw new Error("trace-worker.mjs runs only under the check runner")
@@ -45,6 +43,11 @@ try {
 }
 
 function open() {
+  // The trace code itself is not traced.
+  const own = [
+    import.meta.url,
+    new URL("trace-edges.mjs", import.meta.url).href,
+  ]
   const session = new Session()
   session.connect()
   const scripts = new Map()
@@ -84,13 +87,11 @@ function open() {
 }
 
 // The kinds of semantic edges that this worker records. The hooks install
-// once for each worker.
+// once for each worker. `children` is added for each test file that
+// collected child coverage.
 if (state)
   try {
-    state.recorded ??= [
-      "children",
-      ...(await installEdges(root, `${resolve(parts)}${sep}`)),
-    ]
+    state.recorded ??= await installEdges(root, `${resolve(parts)}${sep}`)
   } catch (error) {
     stop(error)
   }
@@ -220,14 +221,16 @@ function childTable(url, cached) {
   return result
 }
 
-// The lines that the Node child processes wrote to `dir` (NODE_V8_COVERAGE).
+// The lines that the Node child processes wrote to `dir` (NODE_V8_COVERAGE),
+// and the number of coverage files that it read.
 function childLines(dir) {
   const lines = new Map()
+  let reports = 0
   let names = []
   try {
     names = readdirSync(dir)
   } catch {
-    return lines
+    return { lines, reports }
   }
   for (const name of names) {
     if (!name.endsWith(".json")) continue
@@ -237,6 +240,7 @@ function childLines(dir) {
     } catch {
       continue
     }
+    reports++
     const maps = report["source-map-cache"] ?? {}
     for (const script of report.result ?? []) {
       if (
@@ -250,7 +254,7 @@ function childLines(dir) {
       if (positions) executed(ranges, positions, lines)
     }
   }
-  return lines
+  return { lines, reports }
 }
 
 function repoPath(path) {
@@ -398,21 +402,27 @@ afterAll((suite) => {
   else process.env.NODE_V8_COVERAGE = coverage
   if (failed) return
   try {
-    for (const [name, directory] of directories)
-      add(name, childLines(directory), 0)
+    // `children` only when a child wrote coverage: a check without it can
+    // have a child that gave none (its own `env`, a signal, Bun).
+    let reports = 0
+    for (const [name, directory] of directories) {
+      const child = childLines(directory)
+      reports += child.reports
+      add(name, child.lines, 0)
+    }
     const sorted = (set) => [...set].sort()
     mkdirSync(parts, { recursive: true })
     writeFileSync(
       join(parts, `${process.pid}-${state.files}.json`),
       JSON.stringify({
         file: suite.filepath,
-        recorded: state.recorded,
+        recorded: reports ? ["children", ...state.recorded] : state.recorded,
         cases: [...cases].map(([name, { lines, durationMs, edges }]) => {
           const tables = {
             ...(edges.read.size ? { read: sorted(edges.read) } : {}),
             ...(edges.write.size ? { write: sorted(edges.write) } : {}),
           }
-          const lists = ["routes", "steps", "tools", "models", "reads", "dirs"]
+          const lists = ["routes", "steps", "tools", "reads", "dirs"]
           return {
             name,
             durationMs: Math.max(0, Math.round(durationMs)),

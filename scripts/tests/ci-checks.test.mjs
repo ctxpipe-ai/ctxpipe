@@ -220,8 +220,10 @@ test("the trace records the lines that a case runs in a Node child process", () 
     const document = schema("trace")
     validate(trace, document, document)
     const [check] = trace.checks
+    // A child wrote coverage, so `children` is recorded.
     assert.ok(check.recorded.includes("children"))
-    assert.equal(trace.fsRecorded, true)
+    assert.ok(check.recorded.includes("reads") && check.recorded.includes("dirs"))
+    assert.equal(trace.fsRecorded, undefined)
     const help = check.cases.find(({ name }) => name.includes("init --help"))
     // The source map of the build maps the child's lines to the source.
     assert.ok(help.lines["packages/cli/src/cli.ts"]?.length)
@@ -280,8 +282,9 @@ test("the edge hooks record names, never statement text or data", () => {
   )
   assert.equal(result.status, 0, result.stderr)
   const { recorded, edges } = JSON.parse(result.stdout)
-  for (const kind of ["reads", "tables", "routes", "steps", "tools", "models"])
+  for (const kind of ["reads", "dirs", "tables", "routes", "steps", "tools"])
     assert.ok(recorded.includes(kind), kind)
+  assert.ok(!recorded.includes("models"))
   assert.deepEqual(edges.routes, ["GET /v1/things/:id"])
   assert.deepEqual(edges.read, ["users"])
   assert.deepEqual(edges.tools, ["probe_tool"])
@@ -329,4 +332,75 @@ test("the table hook reads the tables of a query and skips schema statements", a
     [[], []],
   )
   assert.deepEqual(tables('TRUNCATE "users"'), [[], []])
+})
+
+test("the table hook never takes a name from literal text or a comment", async () => {
+  const { emptyEdges, noteTables } = await import("../checks/trace-edges.mjs")
+  const tables = (text) => {
+    const edges = emptyEdges()
+    noteTables(text, edges)
+    return [[...edges.read], [...edges.write]]
+  }
+  assert.deepEqual(
+    tables(`SELECT 'from "made_up_private_note"' AS body FROM users`),
+    [["users"], []],
+  )
+  assert.deepEqual(
+    tables(
+      "-- from made_up_secret\nselect /* join made_up_other /* nested */ */ 1 from users",
+    ),
+    [["users"], []],
+  )
+  assert.deepEqual(
+    tables(
+      "select $q$ from made_up_dollar $q$, E'it\\'s from made_up_escape', 'a''from made_up_quote' from users",
+    ),
+    [["users"], []],
+  )
+  // A quoted identifier outside a table position is not a table either.
+  assert.deepEqual(tables('select "from made_up_alias" from users'), [
+    ["users"],
+    [],
+  ])
+  assert.deepEqual(
+    tables("update users set note = 'delete from made_up_private'"),
+    [[], ["users"]],
+  )
+})
+
+test("a failure of the table hook never changes the query or its result", () => {
+  const probe = `
+    import { createRequire } from "node:module"
+    import { installEdges, takeEdges } from ${JSON.stringify(script("trace-edges.mjs"))}
+    const lane = createRequire(process.cwd() + "/package.json")
+    const { Client } = lane("pg")
+    const calls = []
+    Client.prototype.query = function (config) {
+      calls.push(config.text)
+      return "result"
+    }
+    await installEdges(${JSON.stringify(root)}, "/nowhere/")
+    // The first read of the text throws, inside the hook only.
+    let reads = 0
+    const config = {
+      get text() {
+        if (reads++ === 0) throw new Error("boom")
+        return "select 1 from users"
+      },
+    }
+    const result = new Client().query(config)
+    process.stdout.write(JSON.stringify({ result, calls, read: [...takeEdges().read] }))
+    process.exit(0)
+  `
+  const result = spawnSync(
+    process.execPath,
+    ["--input-type=module", "-e", probe],
+    { cwd: join(root, "apps/backend"), encoding: "utf8" },
+  )
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout), {
+    result: "result",
+    calls: ["select 1 from users"],
+    read: [],
+  })
 })

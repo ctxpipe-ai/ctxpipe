@@ -45,21 +45,20 @@ How it works:
 Child processes:
 
 - Before each case, the worker sets `NODE_V8_COVERAGE` to a directory of that case (`<collect>` has one too). A Node child process that inherits the variable writes its V8 coverage there when it exits. After the file, the worker maps that coverage to source lines (with the source maps that Node writes into the coverage file, or the file itself) and adds the lines to the case.
-- A child gives no coverage when the test starts it with an `env` that does not copy `process.env`, when a signal stops it, or when it is not Node. The check's `recorded` holds `children` all the same, so this gap is not visible in the trace.
+- A child gives no coverage when the test starts it with an `env` that does not copy `process.env`, when a signal stops it, or when it is not Node. The check's `recorded` holds `children` only when at least one child of the check wrote a coverage file. A check without `children` can still have started a child that gave no coverage, so a reader must treat its child lines as unknown. A check with `children` can also have a second child that gave none; the trace cannot show that.
 - Bun children give no coverage. These tests start Bun children: `apps/backend/src/domain/workspaces/sandbox-lock-native.contract.test.ts`, `apps/backend/src/domain/workspaces/write-worker-loss-native.contract.test.ts` and `apps/backend/src/openworkflow/workflows/repository-ingestion-v2.integration.test.ts`. The sandbox tests also run processes in Docker containers, which give no coverage.
 
-Semantic edges ([`trace-edges.mjs`](trace-edges.mjs)): the worker installs hooks once in each Vitest worker. Each hook records names only, never statement text, request data, prompt text or arguments.
+Semantic edges ([`trace-edges.mjs`](trace-edges.mjs)): the worker installs hooks once in each Vitest worker. Each hook records names only, never statement text, request data, prompt text or arguments. A hook that fails while it records turns that edge off for the call. It never changes the call or its result.
 
 | Case property | Source |
 | --- | --- |
-| `tables` | The node-postgres `Client.prototype.query`: the tables after `from` and `join` (`read`), and after `insert into`, `update` and `delete from` (`write`). Schema statements and `truncate` are not recorded. |
+| `tables` | The node-postgres `Client.prototype.query`: the tables after `from` and `join` (`read`), and after `insert into`, `update` and `delete from` (`write`). The hook removes string literals (`'...'`, `E'...'`, `$tag$...$tag$`) and comments first, and takes names only from these table positions, so literal text cannot become a table name. Schema statements and `truncate` are not recorded. |
 | `routes` | Hono routers: each route handler that runs records `<METHOD> <pattern>`. Middleware is not recorded. |
 | `steps` | OpenWorkflow: the name of each step that a run resolves, up to the first `:` (a name can hold run data after it). |
 | `tools` | The MCP SDK: the name of each tool call. |
-| `models` | Langfuse: the name of each generation (a model call through `withLangfuseGeneration`). |
-| `reads`, `dirs` | `fs`: each repo file that the case reads (`reads`), and each repo directory that it lists (`dirs`). The kind in `recorded` is `reads`. |
+| `reads`, `dirs` | `fs`: each repo file that the case reads (`reads`), and each repo directory that it lists (`dirs`). The hook adds both kinds to `recorded`. |
 
-- The trace property `fsRecorded` is true when every check recorded `reads` and `dirs`. Then a case without them read and listed no repo path in the test process.
+- A reader decides for each check whether it may trust an empty `reads` and `dirs`: only when the check's `recorded` holds both kinds.
 - A hook that cannot install (the lane does not use the package, or the package changed) records nothing. The check's `recorded` then does not hold that kind, and a reader treats the kind as unknown.
 - The hooks see only the test process. Postgres queries through `postgres.js` (the OpenWorkflow backend) and the operations of a separate process (a child, a container, a server) are not recorded.
 

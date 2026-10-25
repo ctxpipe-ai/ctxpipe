@@ -15,10 +15,6 @@
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
     },
-    "fsRecorded": {
-      "description": "True when every check in the trace has `reads` in `recorded`: then a case without `reads` or `dirs` read or listed no repo path through `fs` in the test process. False or missing: a reader must check `recorded` of each check.",
-      "type": "boolean"
-    },
     "checks": {
       "type": "array",
       "items": {
@@ -37,7 +33,7 @@
           "type": "string"
         },
         "recorded": {
-          "description": "The kinds of data that the trace recorded for this check, in addition to the lines of the test process. `children`: the lines of Node child processes. `tables`, `routes`, `steps`, `tools`, `models`: the case properties of the same name. `reads`: the case properties `reads` and `dirs`. When a kind is not in the list, the check's cases do not show it: a case without that property is then not proof that it used nothing of that kind. Without `recorded`, only the lines of the test process were recorded.",
+          "description": "The kinds of data that the trace recorded for this check, in addition to the lines of the test process. `children`: the lines of Node child processes; it is present only when at least one child of the check wrote coverage. `tables`, `routes`, `steps`, `tools`, `reads`, `dirs`: the case properties of the same name. A reader may treat a case without `reads` and `dirs` as one that read and listed no repo path only when the check has both kinds. When a kind is not in the list, the check's cases do not show it: a case without that property is then not proof that it used nothing of that kind. Without `recorded`, only the lines of the test process were recorded.",
           "type": "array",
           "items": {
             "enum": [
@@ -46,8 +42,8 @@
               "routes",
               "steps",
               "tools",
-              "models",
-              "reads"
+              "reads",
+              "dirs"
             ]
           },
           "uniqueItems": true
@@ -134,14 +130,6 @@
           },
           "uniqueItems": true,
           "description": "The MCP tool names that the case called."
-        },
-        "models": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "uniqueItems": true,
-          "description": "The names of the Langfuse generations (model calls) that the case made. Prompt text, input and output are never recorded."
         },
         "reads": {
           "type": "array",

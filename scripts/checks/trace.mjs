@@ -69,14 +69,9 @@ export function writeTrace(
   }).trim(),
 ) {
   checks.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-  // True when every check recorded its fs reads and directory listings. A
-  // merge computes it again, so one check without them makes it false.
-  const fsRecorded =
-    checks.length > 0 &&
-    checks.every((check) => check.recorded?.includes("reads"))
   writeFileSync(
     path,
-    gzipSync(JSON.stringify({ schemaVersion: 1, commit, fsRecorded, checks })),
+    gzipSync(JSON.stringify({ schemaVersion: 1, commit, checks })),
   )
 }
 
