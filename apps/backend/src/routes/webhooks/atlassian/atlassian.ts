@@ -11,11 +11,10 @@ import { forgeAppIdToAri } from "../../../lib/forge-app-manifest.js"
 import {
   getForgeInstallationByForgeInstallationId,
   getPendingForgeInstallationByInstallerAccountId,
-  updateForgeAppSystemTokenByInstallationId,
+  patchForgeConnectionTypedConfig,
   upsertForgeInstallationFromEvent,
 } from "../../../models/atlassian-connector.js"
 import { getLogger } from "../../../observability/logger.js"
-import { otelDeploymentEnvironment } from "../../../observability/otel.js"
 import { handleForgeConfluenceContentEvent } from "../../../services/confluence/forge-confluence-webhook.js"
 import { CONFLUENCE_DELETED_PAGE_EVENT } from "../../../services/confluence/sync.js"
 import type { ConfluenceSourceEvent } from "../../../services/confluence/workspace-source-adapter.js"
@@ -107,28 +106,39 @@ function getSystemTokenFromHeaders(c: {
 }
 
 /**
- * Checks the signature, the issuer, and the Forge environment. A production
- * deployment accepts only the production Forge environment. The caller must
- * also check the audience with {@link isTrustedForgeApp}.
+ * Forge environment types that this deployment accepts. A Railway PR preview
+ * and local development or tests also accept DEVELOPMENT and STAGING. All
+ * other deployments, also an unknown one, accept only PRODUCTION.
  */
-async function verifyForgeInvocationToken(input: {
-  token: string
-}): Promise<ForgeInvocationTokenPayload> {
+function acceptedForgeEnvironmentTypes(env: Env): string[] {
+  const railway = env.RAILWAY_ENVIRONMENT_NAME?.trim()
+  const preview = railway
+    ? /^pr-\d+$/.test(railway)
+    : env.NODE_ENV !== "production"
+  return preview ? ["PRODUCTION", "DEVELOPMENT", "STAGING"] : ["PRODUCTION"]
+}
+
+/**
+ * Checks the signature, the issuer, the age, and the Forge environment. The
+ * caller must also check the app with {@link trustedForgeAppAri}.
+ */
+async function verifyForgeInvocationToken(
+  token: string,
+  env: Env,
+): Promise<ForgeInvocationTokenPayload> {
   const verified = await jwtVerify(
-    input.token,
+    token,
     getForgeJwks(ATLASSIAN_FORGE_REMOTE_JWKS_URL),
-    { issuer: "forge/invocation-token" },
+    { issuer: "forge/invocation-token", maxTokenAge: "60s" },
   )
   const fit = verified.payload as ForgeInvocationTokenPayload
   if (!fit.app || typeof fit.app !== "object") {
     throw new Error("Forge invocation token has no app claim")
   }
-  if (
-    otelDeploymentEnvironment() === "production" &&
-    fit.app.environment?.type !== "PRODUCTION"
-  ) {
+  const environmentType = fit.app.environment?.type ?? ""
+  if (!acceptedForgeEnvironmentTypes(env).includes(environmentType)) {
     throw new Error(
-      "Forge invocation token is not from a production environment",
+      `This deployment does not accept the Forge environment ${environmentType}`,
     )
   }
   return fit
@@ -143,18 +153,18 @@ function forgeAppAriFromInstallUrl(
 }
 
 /**
- * True when the token audience is the Forge app of this connection: the app
- * that the connection saved, else the hosted ctxpipe app or the app of a
- * configured install URL.
+ * The app ARI when the Forge app of the call is the app of this connection:
+ * the app that the connection saved, else the hosted ctxpipe app or the app of
+ * a configured install URL. The audience and `app.id` must both name it.
  */
-function isTrustedForgeApp(
+function trustedForgeAppAri(
   fit: ForgeInvocationTokenPayload,
   installation: {
     appId?: string | null
     confluenceForgeInstallUrl?: string | null
   },
   env: Env,
-): boolean {
+): string | undefined {
   const trusted = installation.appId
     ? [forgeAppIdToAri(installation.appId)]
     : [
@@ -164,16 +174,22 @@ function isTrustedForgeApp(
         forgeAppAriFromInstallUrl(env.CONFLUENCE_FORGE_INSTALL_URL),
       ]
   const audiences = Array.isArray(fit.aud) ? fit.aud : [fit.aud]
-  return audiences.some((aud) => aud != null && trusted.includes(aud))
+  const app = fit.app.id
+  return audiences.includes(app) && trusted.includes(app) ? app : undefined
 }
 
-/** Site cloud id from the signed claims. */
+/**
+ * Site cloud id from the checked `app.apiBaseUrl`. `null` when the
+ * `context.cloudId` claim names another site.
+ */
 function getCloudIdFromFit(
   fit: ForgeInvocationTokenPayload,
-): string | undefined {
+): string | undefined | null {
+  const cloudId = parseAtlassianApiBaseUrlFromFitPayload(fit)?.split("/").at(-1)
+  if (!cloudId) return undefined
   const fromContext = fit.context?.cloudId
-  if (typeof fromContext === "string" && fromContext) return fromContext
-  return fit.app.apiBaseUrl?.split("/").at(-1) || undefined
+  if (fromContext != null && fromContext !== cloudId) return null
+  return cloudId
 }
 
 function getCloudIdFromContext(event: InstallationEvent): string | undefined {
@@ -220,7 +236,10 @@ async function handleForgeLifecyclePost(
   const cloudId = getCloudIdFromFit(fitPayload)
   if (!installationId || !cloudId) {
     return c.json(
-      { error: "The Forge invocation token has no installation or site" },
+      {
+        error:
+          "The Forge invocation token has no installation or site, or names two sites",
+      },
       400,
     )
   }
@@ -240,13 +259,25 @@ async function handleForgeLifecyclePost(
     )
   }
 
-  const installation =
-    (payload.installerAccountId
-      ? await getPendingForgeInstallationByInstallerAccountId(
-          payload.installerAccountId,
-        )
-      : undefined) ??
-    (await getForgeInstallationByForgeInstallationId(installationId))
+  const env = c.get("env")
+  // The signed installation comes first. The body installer account finds
+  // only a new setup, and only when that setup trusts the app of the call.
+  const installed =
+    await getForgeInstallationByForgeInstallationId(installationId)
+  let installation = installed
+  if (!installed && payload.installerAccountId) {
+    const pending = await getPendingForgeInstallationByInstallerAccountId(
+      payload.installerAccountId,
+    )
+    if (pending && trustedForgeAppAri(fitPayload, pending, env)) {
+      installation = pending
+    } else if (pending) {
+      log.warn("forge_lifecycle_untrusted_app", {
+        connectionId: pending.id,
+        orgId: pending.orgId,
+      })
+    }
+  }
 
   if (!installation) {
     // Accept and no-op to keep retries from spamming when org mapping does not exist yet.
@@ -255,7 +286,8 @@ async function handleForgeLifecyclePost(
 
   noteResolvedWebhookConnections([installation])
 
-  if (!isTrustedForgeApp(fitPayload, installation, c.get("env"))) {
+  const appId = trustedForgeAppAri(fitPayload, installation, env)
+  if (!appId) {
     log.warn("forge_lifecycle_untrusted_app", {
       connectionId: installation.id,
       orgId: installation.orgId,
@@ -282,7 +314,7 @@ async function handleForgeLifecyclePost(
     status: "installed",
     installationContext: `ari:cloud:confluence::site/${cloudId}`,
     installationId,
-    appId: Array.isArray(fitPayload.aud) ? fitPayload.aud[0] : fitPayload.aud,
+    appId,
     appSystemToken,
     atlassianApiBaseUrl,
     lastEventPayload: payload,
@@ -301,9 +333,10 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
 
     let fitPayload: Awaited<ReturnType<typeof verifyForgeInvocationToken>>
     try {
-      fitPayload = await verifyForgeInvocationToken({
-        token: invocationToken,
-      })
+      fitPayload = await verifyForgeInvocationToken(
+        invocationToken,
+        c.get("env"),
+      )
     } catch (e) {
       getLogger().error(e instanceof Error ? e : new Error(String(e)), {
         step: "atlassian.verify_forge_invocation_token",
@@ -372,6 +405,12 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
       }
       const payload = payloadResult.data
       const cloudIdFromFit = getCloudIdFromFit(fitPayload)
+      if (cloudIdFromFit === null) {
+        return c.json(
+          { error: "The Forge invocation token names two sites" },
+          400,
+        )
+      }
       if (!cloudIdFromFit) {
         log.warn("forge_confluence_webhook_missing_cloud_id", { eventType })
         return c.body(null, 202)
@@ -393,7 +432,7 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
         return c.body(null, 202)
       }
       noteResolvedWebhookConnections([installation])
-      if (!isTrustedForgeApp(fitPayload, installation, c.get("env"))) {
+      if (!trustedForgeAppAri(fitPayload, installation, c.get("env"))) {
         log.warn("forge_confluence_webhook_untrusted_app", {
           eventType,
           connectionId: installation.id,
@@ -532,9 +571,10 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
 
     let fitPayload: Awaited<ReturnType<typeof verifyForgeInvocationToken>>
     try {
-      fitPayload = await verifyForgeInvocationToken({
-        token: invocationToken,
-      })
+      fitPayload = await verifyForgeInvocationToken(
+        invocationToken,
+        c.get("env"),
+      )
     } catch {
       return c.json({ error: "Invalid Forge invocation token" }, 401)
     }
@@ -557,22 +597,24 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
     if (!installation) {
       return c.body(null, 202)
     }
-    if (!isTrustedForgeApp(fitPayload, installation, c.get("env"))) {
+    if (!trustedForgeAppAri(fitPayload, installation, c.get("env"))) {
+      getLogger().warn("forge_token_refresh_untrusted_app", {
+        connectionId: installation.id,
+        orgId: installation.orgId,
+      })
       return c.json({ error: "Invalid Forge invocation token" }, 401)
     }
 
     const atlassianApiBaseUrl =
       parseAtlassianApiBaseUrlFromFitPayload(fitPayload)
-    const updated = await updateForgeAppSystemTokenByInstallationId({
-      installationId: installationRecordId,
-      appSystemToken,
-      atlassianApiBaseUrl,
-    })
-
-    if (!updated) {
-      return c.body(null, 202)
-    }
-
-    return c.body(null, 204)
+    const updated = await patchForgeConnectionTypedConfig(
+      installation.orgId,
+      installation.id,
+      {
+        appSystemToken,
+        ...(atlassianApiBaseUrl ? { atlassianApiBaseUrl } : {}),
+      },
+    )
+    return c.body(null, updated ? 204 : 202)
   })
 }

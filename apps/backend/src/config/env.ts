@@ -5,6 +5,8 @@ const envSchema = z.object({
     .enum(["development", "production", "test"])
     .default("development"),
   PORT: z.coerce.number().default(3000),
+  /** Set by Railway, for example `production` or `pr-123`. Unset off Railway. */
+  RAILWAY_ENVIRONMENT_NAME: z.string().optional(),
   DATABASE_URL: z.string().url(),
   CODESEARCH_URL: z.string().url().optional(),
   UI_PROXY_URL: z.string().url().default("http://localhost:3002"),
