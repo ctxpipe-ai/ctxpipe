@@ -245,9 +245,11 @@ export const MergedReadingFormat: Story = {
     expect(canvas.getByText("Merged. Reading the new format")).toBeVisible()
     // The "waits for you to merge" line is gone.
     expect(canvas.queryByText(/waits for you to merge/)).toBeNull()
-    expect(
-      await canvas.findByRole("button", { name: /^Check again/ }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: /^Check again/ }),
+      ).toBeVisible(),
+    )
   },
 }
 
