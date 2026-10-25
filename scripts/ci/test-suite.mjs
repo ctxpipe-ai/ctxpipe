@@ -9,7 +9,7 @@ import {
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { laneChecks, writeTrace } from "../checks/trace.mjs"
+import { freshParts, laneChecks, writeTrace } from "../checks/trace.mjs"
 import { setupSteps, vitestCommand } from "./vitest-launch.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -196,8 +196,7 @@ try {
       if (built.error || built.status !== 0)
         throw new Error(`Required ${name} setup failed`)
     }
-    const parts = trace ? join(output, "trace-parts") : undefined
-    if (parts) rmSync(parts, { recursive: true, force: true })
+    const parts = trace ? freshParts(join(output, "trace-parts"), name) : undefined
     const launch = vitestCommand(lane, root, selection, report, parts)
     const result = spawnSync(launch.command, launch.args, {
       cwd: launch.cwd,

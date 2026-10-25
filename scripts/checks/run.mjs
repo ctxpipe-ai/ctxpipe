@@ -12,7 +12,7 @@ import { join, relative, resolve } from "node:path"
 
 import { setupSteps, vitestCommand } from "../ci/vitest-launch.mjs"
 import { lanes, listChecks, root } from "./lanes.mjs"
-import { laneChecks, writeTrace } from "./trace.mjs"
+import { freshParts, laneChecks, writeTrace } from "./trace.mjs"
 
 // Runs the given check ids and writes one result record per id
 // (schema/result.v1.schema.json) as NDJSON to stdout. Usage:
@@ -96,11 +96,14 @@ try {
       }
     }
     // Bun has no V8 inspector, so a Bun lane has no trace.
-    const parts =
+    let parts =
       trace && laneConfig.runtime === "node"
         ? join(trace, `parts-${lane}`)
         : undefined
-    if (parts) rmSync(parts, { recursive: true, force: true })
+    if (parts) {
+      parts = freshParts(parts, lane)
+      if (!parts) traceFailed = true
+    }
     if (!message) {
       const launch = vitestCommand(
         laneConfig,

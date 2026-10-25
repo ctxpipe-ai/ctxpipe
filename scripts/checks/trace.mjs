@@ -18,6 +18,18 @@ import { gunzipSync, gzipSync } from "node:zlib"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 
+// Empties the parts directory before a lane runs. A failure turns tracing
+// off for the run: it returns undefined and writes one warning.
+export function freshParts(parts, lane) {
+  try {
+    rmSync(parts, { recursive: true, force: true })
+    return parts
+  } catch (error) {
+    process.stderr.write(`No trace for ${lane}: ${error.message}\n`)
+    return undefined
+  }
+}
+
 // Reads the part files that the trace workers of one lane wrote, and returns
 // one check record for each test file. Removes the parts.
 export function laneChecks(parts, lane) {
