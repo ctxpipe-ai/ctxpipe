@@ -561,6 +561,7 @@ async function createNativeHydrationFixture(
         const body = (await request.json()) as {
           messages?: Array<{ role: string }>
           tools?: Array<{ function: { name: string } }>
+          response_format?: { json_schema?: { name?: string } }
           stream?: boolean
           model?: string
         }
@@ -608,7 +609,10 @@ async function createNativeHydrationFixture(
             { headers: { "content-type": "text/event-stream" } },
           )
         }
-        const tool = body.tools?.[0]?.function.name
+        // An openai-like provider at an explicit URL asks for structured
+        // output as a JSON schema, not as a forced tool call.
+        const jsonSchema = body.response_format?.json_schema?.name
+        const tool = body.tools?.[0]?.function.name ?? jsonSchema
         // The Slack mention agent forces one structured `mention_intent` call.
         const mentionIntent =
           tool === "mention_intent"
@@ -621,6 +625,28 @@ async function createNativeHydrationFixture(
           await new Promise((resolve) =>
             setTimeout(resolve, options.semanticMergeDelayMs),
           )
+        const structured =
+          mentionIntent ??
+          folderList ??
+          (tool ? options.semanticMergeResolution : undefined)
+        if (jsonSchema && structured)
+          return HttpResponse.json({
+            id: "fixture-model",
+            object: "chat.completion",
+            created: 1,
+            model: "fixture",
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: "assistant",
+                  content: JSON.stringify(structured),
+                },
+                finish_reason: "stop",
+              },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+          })
         return HttpResponse.json({
           id: "fixture-model",
           object: "chat.completion",

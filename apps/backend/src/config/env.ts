@@ -106,6 +106,8 @@ const envSchema = z.object({
   MODEL_MEDIUM_NAME: z.string().optional(),
   MODEL_HIGH_NAME: z.string().optional(),
   MODEL_EMBEDDING_NAME: z.string().optional(),
+  /** The task for an instruction-aware embedding model (Qwen3-Embedding), sent with each search query */
+  MODEL_EMBEDDING_QUERY_INSTRUCTION: z.string().optional(),
   /** When unset, Bedrock IAM SigV4 resolves region from MODEL_PROVIDER_URL, AWS_REGION, or AWS_DEFAULT_REGION */
   MODEL_BEDROCK_AWS_REGION: z.string().optional(),
 

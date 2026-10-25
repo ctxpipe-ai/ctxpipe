@@ -17,8 +17,8 @@ function configureModel() {
   vi.stubEnv("MODEL_HIGH_NAME", "high-model")
 }
 
-/** Reply with a forced tool call, and keep the request body. */
-function replyWithToolCall(
+/** Reply with JSON schema output, and keep the request body. */
+function replyWithStructuredOutput(
   reply: unknown | ((body: Record<string, unknown>) => unknown),
   requests: Record<string, unknown>[],
 ) {
@@ -26,29 +26,18 @@ function replyWithToolCall(
     http.post("https://merge.test/v1/chat/completions", async ({ request }) => {
       const body = (await request.json()) as Record<string, unknown>
       requests.push(body)
-      const tools = body.tools as Array<{ function: { name: string } }>
       return HttpResponse.json({
         id: "merge",
         model: "fixture",
         choices: [
           {
             index: 0,
-            finish_reason: "tool_calls",
+            finish_reason: "stop",
             message: {
               role: "assistant",
-              content: null,
-              tool_calls: [
-                {
-                  id: "call_1",
-                  type: "function",
-                  function: {
-                    name: tools[0]?.function.name,
-                    arguments: JSON.stringify(
-                      typeof reply === "function" ? reply(body) : reply,
-                    ),
-                  },
-                },
-              ],
+              content: JSON.stringify(
+                typeof reply === "function" ? reply(body) : reply,
+              ),
             },
           },
         ],
@@ -62,11 +51,11 @@ const conflicts = [
   { path: "b.md", base: null, current: "x", incoming: "y" },
 ]
 
-it("resolves each conflicting file with one forced structured call on the high tier", async () => {
+it("resolves each conflicting file with one structured call on the high tier", async () => {
   configureModel()
   const requests: Record<string, unknown>[] = []
   // One file per call, so a large merge does not reach the time limit (CTX-958).
-  replyWithToolCall(
+  replyWithStructuredOutput(
     (body: Record<string, unknown>) =>
       JSON.stringify(body.messages).includes("a.md")
         ? { files: [{ path: "a.md", content: "merged" }] }
@@ -84,13 +73,16 @@ it("resolves each conflicting file with one forced structured call on the high t
     expect(request).toMatchObject({
       model: "high-model",
       stream: false,
-      tool_choice: { type: "function" },
+      response_format: { type: "json_schema" },
     })
 })
 
 it("rejects a resolution that misses a conflicting path", async () => {
   configureModel()
-  replyWithToolCall({ files: [{ path: "a.md", content: "merged" }] }, [])
+  replyWithStructuredOutput(
+    { files: [{ path: "a.md", content: "merged" }] },
+    [],
+  )
   await expect(
     resolveSemanticConflicts(conflicts, { origin: "agent" }),
   ).rejects.toThrow("did not resolve exactly")
@@ -98,7 +90,7 @@ it("rejects a resolution that misses a conflicting path", async () => {
 
 it("rejects a resolution that adds a path outside the conflicts", async () => {
   configureModel()
-  replyWithToolCall(
+  replyWithStructuredOutput(
     {
       files: [
         { path: "a.md", content: "merged" },
@@ -120,7 +112,7 @@ it.each([
   async (decision, expected) => {
     configureModel()
     const requests: Record<string, unknown>[] = []
-    replyWithToolCall({ decision }, requests)
+    replyWithStructuredOutput({ decision }, requests)
     await expect(
       classifyUnkeyedKnowledgeCollision({
         existingPath: "knowledge/a.md",
@@ -135,7 +127,7 @@ it.each([
 
 it("falls back to a new name when the model returns a value outside the enum", async () => {
   configureModel()
-  replyWithToolCall({ decision: "unsure" }, [])
+  replyWithStructuredOutput({ decision: "unsure" }, [])
   await expect(
     classifyUnkeyedKnowledgeCollision({
       existingPath: "knowledge/a.md",

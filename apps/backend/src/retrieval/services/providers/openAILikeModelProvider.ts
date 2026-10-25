@@ -65,12 +65,24 @@ function bearerFetch(apiKey: string): OpenAiCompatibleFetch {
 export function openAILikeModelProvider(
   opts: ProviderCallOpts,
 ): ProviderCallResult {
-  const baseURL = opts.env.MODEL_PROVIDER_URL?.trim() || DEFAULT_OPENROUTER_BASE
+  const explicitURL = opts.env.MODEL_PROVIDER_URL?.trim()
+  const baseURL = explicitURL || DEFAULT_OPENROUTER_BASE
   const modelKwargs = lowerOpenAiChatCompletionsParams(opts.modelParams)
   const fetchFn = bearerFetch(opts.apiKey)
 
   return {
-    chat: openAiHostAdapter(opts, "openai-like", baseURL, fetchFn, modelKwargs),
+    // A server at an explicit URL (oMLX, Ollama, vLLM) gets a JSON schema:
+    // oMLX, for example, ignores a forced `tool_choice`. The default
+    // OpenRouter URL keeps the forced tool, so default deployments do not
+    // change.
+    chat: openAiHostAdapter(
+      opts,
+      "openai-like",
+      baseURL,
+      fetchFn,
+      modelKwargs,
+      explicitURL ? "json_schema" : "tool",
+    ),
     fetch: fetchFn,
   }
 }

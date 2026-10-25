@@ -2,7 +2,10 @@ import { type SQL, sql } from "drizzle-orm"
 
 import { withOrgDbContext } from "../../db/client.js"
 import { log } from "../../observability/logger.js"
-import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
+import {
+  embeddingQueryText,
+  generateEmbedding,
+} from "../../retrieval/services/modelProvider.js"
 
 type KnowledgeSearchInput = {
   orgId: string
@@ -126,7 +129,7 @@ export async function embedQuery(
   signal?: AbortSignal,
 ): Promise<number[] | null> {
   try {
-    return await generateEmbedding(query.trim(), signal)
+    return await generateEmbedding(embeddingQueryText(query.trim()), signal)
   } catch (error) {
     signal?.throwIfAborted()
     log.warn({

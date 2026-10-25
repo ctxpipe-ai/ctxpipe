@@ -37,19 +37,9 @@ const server = setupServer(
           index: 0,
           message: {
             role: "assistant",
-            content: null,
-            tool_calls: [
-              {
-                id: "call_1",
-                type: "function",
-                function: {
-                  name: "workspace_semantic_merge",
-                  arguments: JSON.stringify({ files: answer }),
-                },
-              },
-            ],
+            content: JSON.stringify({ files: answer }),
           },
-          finish_reason: "tool_calls",
+          finish_reason: "stop",
         },
       ],
     })
@@ -307,7 +297,7 @@ it("asks the merge model again when it does not call the output tool", async () 
 it("fails the merge with the cause after a bounded count of slips", async () => {
   server.use(slipThen(Number.POSITIVE_INFINITY))
   await expect(resolveIngestConflicts(ingestConflicts)).rejects.toThrow(
-    "The semantic merge failed: The model did not call the structured output tool (3 attempts)",
+    "The semantic merge failed: The model returned no structured output (3 attempts)",
   )
   expect(calls).toBe(3)
 })
@@ -386,19 +376,9 @@ it("asks for one file per call and flags only the file the model cannot resolve"
               index: 0,
               message: {
                 role: "assistant",
-                content: null,
-                tool_calls: [
-                  {
-                    id: "call_1",
-                    type: "function",
-                    function: {
-                      name: "workspace_semantic_merge",
-                      arguments: JSON.stringify({ files }),
-                    },
-                  },
-                ],
+                content: JSON.stringify({ files }),
               },
-              finish_reason: "tool_calls",
+              finish_reason: "stop",
             },
           ],
         })
@@ -434,7 +414,7 @@ it("fails a non-Markdown conflict that the model cannot resolve, with its cause"
       { origin: "extraction", flagUnresolved: true },
     ),
   ).rejects.toThrow(
-    "Semantic merge could not merge knowledge/services/checkout.json: The model did not call the structured output tool (3 attempts). Only a Markdown file can keep both versions in conflict markers.",
+    "Semantic merge could not merge knowledge/services/checkout.json: The model returned no structured output (3 attempts). Only a Markdown file can keep both versions in conflict markers.",
   )
 }, 30_000)
 

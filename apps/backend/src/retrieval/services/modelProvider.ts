@@ -374,6 +374,18 @@ export async function generateEmbeddings(
 }
 
 /**
+ * The text to embed for a search query. An instruction-aware embedding model
+ * (Qwen3-Embedding) ranks documents better when the query states the task, in
+ * its `Instruct: …\nQuery: …` format. Documents are embedded without it.
+ */
+export function embeddingQueryText(query: string): string {
+  const instruction = modelEnvSchema
+    .parse(process.env)
+    .MODEL_EMBEDDING_QUERY_INSTRUCTION?.trim()
+  return instruction ? `Instruct: ${instruction}\nQuery: ${query}` : query
+}
+
+/**
  * Generates a 2000-dimensional embedding for text using an OpenAI-compatible
  * embeddings API (OpenRouter, OpenAI, Vertex, Bedrock, Ollama /v1/embeddings, etc.).
  */

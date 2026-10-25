@@ -21,6 +21,8 @@ export const modelNameShape = {
     .default("openai/gpt-6-luna?reasoning.effort=xhigh"),
   MODEL_HIGH_NAME: z.string().default("xiaomi/mimo-v2.6-pro"),
   MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
+  /** The task for an instruction-aware embedding model, sent with each search query. */
+  MODEL_EMBEDDING_QUERY_INSTRUCTION: z.string().optional(),
 }
 
 const modelNamesSchema = z.preprocess(

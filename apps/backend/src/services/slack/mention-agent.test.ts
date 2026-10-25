@@ -89,7 +89,7 @@ describe("selectSlackMentionIntent", () => {
       selectSlackMentionIntent(input),
     )
 
-  /** One model reply that carries the forced structured output tool call. */
+  /** One model reply that carries the JSON schema output. */
   function answerWith(
     reply: unknown,
     seen: { body?: Record<string, unknown> } = {},
@@ -108,20 +108,8 @@ describe("selectSlackMentionIntent", () => {
             model: "fast",
             choices: [
               {
-                message: {
-                  role: "assistant",
-                  tool_calls: [
-                    {
-                      id: "call",
-                      type: "function",
-                      function: {
-                        name: "mention_intent",
-                        arguments: JSON.stringify(reply),
-                      },
-                    },
-                  ],
-                },
-                finish_reason: "tool_calls",
+                message: { role: "assistant", content: JSON.stringify(reply) },
+                finish_reason: "stop",
               },
             ],
             usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 },
@@ -154,7 +142,10 @@ describe("selectSlackMentionIntent", () => {
     ).resolves.toEqual({ kind: "capture" })
     expect(seen.body).toMatchObject({
       temperature: 0,
-      tool_choice: { type: "function", function: { name: "mention_intent" } },
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "mention_intent" },
+      },
       messages: [
         { role: "system" },
         { role: "user", content: expect.stringContaining("yes") },

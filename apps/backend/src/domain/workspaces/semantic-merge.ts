@@ -113,9 +113,10 @@ export async function resolveSemanticConflicts(
   const { getModel } = await import("../../retrieval/services/modelProvider.js")
   const deadlineMs = options.deadlineMs ?? MERGE_DEADLINE_MS
   const resolveOne = async (conflict: GitMergeConflict) => {
-    // A model can skip the forced output tool, leave out the path (CTX-899),
-    // or reach the time limit with no output (CTX-958). That slip is not
-    // always a property of the input, so ask again a few times.
+    // A model can skip the forced output tool or give no JSON schema output,
+    // leave out the path (CTX-899), or reach the time limit with no output
+    // (CTX-958). That slip is not always a property of the input, so ask
+    // again a few times.
     let slip: Error | undefined
     for (let attempt = 1; attempt <= MERGE_ATTEMPTS; attempt++) {
       if (attempt > 1)
@@ -142,7 +143,7 @@ export async function resolveSemanticConflicts(
         }
         if (
           error instanceof Error &&
-          /did not call the structured output tool|structured output finalization produced no result/.test(
+          /did not call the structured output tool|returned no structured output|structured output finalization produced no result/.test(
             error.message,
           )
         ) {

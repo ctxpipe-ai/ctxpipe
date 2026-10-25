@@ -18,6 +18,8 @@ If **`MODEL_PROVIDER`** is unset, it defaults to **`openai-like`**. To keep **pr
 
 Vertex and other gateways that expect Bearer + base URL use **`openai-like`** (or **`openrouter`** if routed via OpenRouter).
 
+**Structured output on `openai-like`**: when you set `MODEL_PROVIDER_URL`, host calls that need structured output (titles, folder lists, semantic merge, the Slack mention intent) send `response_format` with a JSON schema. The server must support `json_schema` output. oMLX supports it. When `MODEL_PROVIDER_URL` is not set, these calls use a forced tool call, as before.
+
 <Callout type="info" title="AWS CDK Bedrock deployments">
   When you deploy with [`@ctxpipe/aws-cdk`](/docs/self-hosting/deployment/aws) and `modelProvider.kind: "bedrock"`, the construct does **not** store a static `MODEL_PROVIDER_API_KEY`. Backend and worker tasks receive IAM permissions (`bedrock:InvokeModel`, `bedrock:InvokeModelWithResponseStream`) and call Bedrock Runtime through the AWS SDK using the ECS task role (SigV4). Enable your chosen model IDs in the Bedrock console for the stack region before use. If the account is in an AWS Organization, also confirm **service control policies (SCPs)** allow those same foundation-model ARNs—an SCP explicit deny overrides the task role and surfaces as `AccessDeniedException` … `explicit deny in a service control policy`.
 </Callout>
@@ -48,6 +50,7 @@ LLM and embeddings both use OpenRouter by default. No extra configuration needed
 | `MODEL_MEDIUM_NAME`                | No        | `openai/gpt-6-luna?reasoning.effort=xhigh`   | LLM model for the medium tier.                                                     |
 | `MODEL_HIGH_NAME`                  | No        | `xiaomi/mimo-v2.6-pro`                       | LLM model for the high tier.                                                       |
 | `MODEL_EMBEDDING_NAME`             | No        | `openai/text-embedding-3-large`            | Embedding model ID.                                                                |
+| `MODEL_EMBEDDING_QUERY_INSTRUCTION` | No       | -                                          | Task text for an instruction-aware embedding model. Each search query is sent as `Instruct: <task>\nQuery: <query>`. Documents do not get it. |
 
 \*Required for LLM when not using Bedrock IAM-only.
 
@@ -127,6 +130,20 @@ MODEL_PROVIDER_URL=http://localhost:11434/v1
 MODEL_EMBEDDING_NAME=qwen3-embedding
 # For Docker: use http://host.docker.internal:11434/v1
 ```
+
+### oMLX (local chat + embeddings on Apple silicon)
+
+```bash
+MODEL_PROVIDER_URL=http://localhost:8000/v1
+MODEL_PROVIDER_API_KEY=<oMLX sub-key>
+MODEL_FAST_NAME=qwen3.8-flash-next?reasoning.effort=low
+MODEL_MEDIUM_NAME=qwen3.8-flash-next?reasoning.effort=medium
+MODEL_HIGH_NAME=qwen3.8-flash-next?reasoning.effort=xhigh
+MODEL_EMBEDDING_NAME=qwen3-embedding
+MODEL_EMBEDDING_QUERY_INSTRUCTION=Given a question, retrieve the code or passages that answer it
+```
+
+Use the model aliases that you set in the oMLX admin panel. Load an embedding model with 2000 or more native dimensions, for example Qwen3-Embedding-8B (4096): oMLX shortens a vector to `dimensions`, but it cannot make a vector longer. oMLX uses only the `low`, `medium`, and `xhigh` efforts for Qwen. It sends other values as the nearest supported effort.
 
 ## Resources
 

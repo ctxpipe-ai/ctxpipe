@@ -48,7 +48,7 @@ afterAll(async () => {
   await closeDb()
 })
 
-it.each(["openrouter", "azure", "bedrock"] as const)(
+it.each(["openrouter", "openai-like", "azure", "bedrock"] as const)(
   "sends each host caller through %s with its tier, prompt, and schema",
   async (provider) => {
     vi.stubEnv("MODEL_PROVIDER", provider)
@@ -149,7 +149,20 @@ it.each(["openrouter", "azure", "bedrock"] as const)(
           expect(body).toMatchObject({ model: call.model, stream: false })
           if (call.temperature !== undefined)
             expect(body.temperature).toBe(call.temperature)
-          if (call.tool)
+          // openai-like at an explicit URL asks for a JSON schema instead.
+          const jsonSchema = provider === "openai-like"
+          if (call.tool && jsonSchema) {
+            expect(body).toMatchObject({
+              response_format: {
+                type: "json_schema",
+                json_schema: {
+                  name: call.tool,
+                  schema: { required: [call.property] },
+                },
+              },
+            })
+            expect(body).not.toHaveProperty("tool_choice")
+          } else if (call.tool)
             expect(body).toMatchObject({
               tools: [
                 {
@@ -166,20 +179,22 @@ it.each(["openrouter", "azure", "bedrock"] as const)(
               {
                 message: {
                   role: "assistant",
-                  ...(call.tool
-                    ? {
-                        tool_calls: [
-                          {
-                            id: "call",
-                            type: "function",
-                            function: {
-                              name: call.tool,
-                              arguments: JSON.stringify(call.reply),
+                  ...(call.tool && jsonSchema
+                    ? { content: JSON.stringify(call.reply) }
+                    : call.tool
+                      ? {
+                          tool_calls: [
+                            {
+                              id: "call",
+                              type: "function",
+                              function: {
+                                name: call.tool,
+                                arguments: JSON.stringify(call.reply),
+                              },
                             },
-                          },
-                        ],
-                      }
-                    : { content: call.reply }),
+                          ],
+                        }
+                      : { content: call.reply }),
                 },
               },
             ],

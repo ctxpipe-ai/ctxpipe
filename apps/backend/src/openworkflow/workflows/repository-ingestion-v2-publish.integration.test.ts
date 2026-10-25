@@ -162,31 +162,22 @@ const server = setupServer(
       choices: [
         {
           index: 0,
-          finish_reason: "tool_calls",
+          finish_reason: "stop",
           message: {
             role: "assistant",
-            content: null,
-            tool_calls: [
-              {
-                id: "merge-resolution",
-                type: "function",
-                function: {
-                  name: "workspace_semantic_merge",
-                  arguments: JSON.stringify({
-                    files:
-                      sameFile.reply === "none"
-                        ? []
-                        : conflicts.map((c) => ({
-                            path: c.path,
-                            content:
-                              sameFile.reply === "delete"
-                                ? null
-                                : `${c.incoming ?? ""}${sameFile.resolution}`,
-                          })),
-                  }),
-                },
-              },
-            ],
+            // openai-like at an explicit URL asks for JSON schema output.
+            content: JSON.stringify({
+              files:
+                sameFile.reply === "none"
+                  ? []
+                  : conflicts.map((c) => ({
+                      path: c.path,
+                      content:
+                        sameFile.reply === "delete"
+                          ? null
+                          : `${c.incoming ?? ""}${sameFile.resolution}`,
+                    })),
+            }),
           },
         },
       ],

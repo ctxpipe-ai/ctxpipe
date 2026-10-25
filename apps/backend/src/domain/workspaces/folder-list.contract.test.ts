@@ -12,7 +12,6 @@ const server = setupServer(
     const body = (await event.request.json()) as Record<string, unknown>
     requests.push(body)
     const reply = replies.shift() ?? { listBlock: "none" }
-    const tools = body.tools as Array<{ function: { name: string } }>
     return HttpResponse.json({
       id: "folder-list",
       object: "chat.completion",
@@ -21,21 +20,8 @@ const server = setupServer(
       choices: [
         {
           index: 0,
-          finish_reason: "tool_calls",
-          message: {
-            role: "assistant",
-            content: null,
-            tool_calls: [
-              {
-                id: "call_1",
-                type: "function",
-                function: {
-                  name: tools[0]?.function.name,
-                  arguments: JSON.stringify(reply),
-                },
-              },
-            ],
-          },
+          finish_reason: "stop",
+          message: { role: "assistant", content: JSON.stringify(reply) },
         },
       ],
     })

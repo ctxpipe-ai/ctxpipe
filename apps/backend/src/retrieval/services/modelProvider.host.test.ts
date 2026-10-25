@@ -222,6 +222,111 @@ it.each(["openrouter", "azure", "bedrock"] as const)(
   },
 )
 
+it("asks an openai-like server for structured host output as a JSON schema", async () => {
+  const { z } = await import("zod")
+  vi.stubEnv("MODEL_PROVIDER", "openai-like")
+  vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-key")
+  vi.stubEnv("MODEL_PROVIDER_URL", "https://models.test/v1")
+  vi.stubEnv("MODEL_FAST_NAME", "fast")
+  const replies = [{ decision: "merge" }, { decision: "unsafe" }]
+  server.use(
+    http.post(
+      "https://models.test/v1/chat/completions",
+      async ({ request }) => {
+        const body = await request.json()
+        expect(body).toMatchObject({
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "structured_output",
+              schema: {
+                properties: { decision: { enum: ["merge", "new_name"] } },
+              },
+            },
+          },
+        })
+        expect(body).not.toHaveProperty("tools")
+        expect(body).not.toHaveProperty("tool_choice")
+        return HttpResponse.json({
+          id: "reply",
+          model: "fast",
+          choices: [
+            {
+              message: {
+                role: "assistant",
+                content: JSON.stringify(replies.shift()),
+              },
+              finish_reason: "stop",
+            },
+          ],
+          usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 },
+        })
+      },
+    ),
+  )
+  const call = () =>
+    chat({
+      adapter: getModel("fast"),
+      messages: [{ role: "user", content: "Classify the collision" }],
+      outputSchema: z.object({ decision: z.enum(["merge", "new_name"]) }),
+      stream: false,
+    })
+  await expect(call()).resolves.toEqual({ decision: "merge" })
+  await expect(call()).rejects.toThrow()
+})
+
+it("keeps the forced output tool for openai-like on the default OpenRouter URL", async () => {
+  const { z } = await import("zod")
+  vi.stubEnv("MODEL_PROVIDER", "openai-like")
+  vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-key")
+  vi.stubEnv("MODEL_FAST_NAME", "fast")
+  server.use(
+    http.post(
+      "https://openrouter.ai/api/v1/chat/completions",
+      async ({ request }) => {
+        const body = await request.json()
+        expect(body).toMatchObject({
+          tool_choice: {
+            type: "function",
+            function: { name: "structured_output" },
+          },
+        })
+        expect(body).not.toHaveProperty("response_format")
+        return HttpResponse.json({
+          id: "reply",
+          model: "fast",
+          choices: [
+            {
+              message: {
+                role: "assistant",
+                tool_calls: [
+                  {
+                    id: "call",
+                    type: "function",
+                    function: {
+                      name: "structured_output",
+                      arguments: JSON.stringify({ decision: "merge" }),
+                    },
+                  },
+                ],
+              },
+              finish_reason: "tool_calls",
+            },
+          ],
+        })
+      },
+    ),
+  )
+  await expect(
+    chat({
+      adapter: getModel("fast"),
+      messages: [{ role: "user", content: "Classify the collision" }],
+      outputSchema: z.object({ decision: z.enum(["merge", "new_name"]) }),
+      stream: false,
+    }),
+  ).resolves.toEqual({ decision: "merge" })
+})
+
 const exporter = new InMemorySpanExporter()
 const tracerProvider = new NodeTracerProvider({
   resource: resourceFromAttributes({}),
@@ -306,7 +411,7 @@ it("marks the generation as an error when the provider rejects the request", asy
   expect(failed).toHaveLength(1)
 })
 
-it.each(["openai-like", "bedrock"] as const)(
+it.each(["openrouter", "bedrock"] as const)(
   "rejects a structured reply that has no tool call on %s",
   async (provider) => {
     const { z } = await import("zod")
@@ -418,7 +523,7 @@ it.each([429, 503])("retries a transient HTTP %s response", async (status) => {
   expect(attempts).toBe(2)
 })
 
-it.each(["openai-like", "bedrock"] as const)(
+it.each(["openrouter", "bedrock"] as const)(
   "rejects a reply from an unrelated tool on %s",
   async (provider) => {
     const { z } = await import("zod")

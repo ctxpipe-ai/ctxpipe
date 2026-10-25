@@ -2,7 +2,11 @@ import { http } from "msw"
 import { describe, expect, it, vi } from "vitest"
 
 import { useMswServer } from "../../../test/msw.js"
-import { searchKnowledge, vectorScanSettings } from "./knowledge-search.js"
+import {
+  embedQuery,
+  searchKnowledge,
+  vectorScanSettings,
+} from "./knowledge-search.js"
 
 describe("vectorScanSettings", () => {
   it("uses iterative scan from pgvector 0.8", () => {
@@ -34,6 +38,50 @@ describe("vectorScanSettings", () => {
 })
 
 const server = useMswServer()
+
+describe("embedQuery", () => {
+  /** Embed one query and return the input that the embeddings API got. */
+  async function embeddedInput(instruction?: string): Promise<unknown> {
+    vi.stubEnv("MODEL_PROVIDER", "openai-like")
+    vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
+    vi.stubEnv("MODEL_PROVIDER_URL", "https://query-model.test/v1")
+    vi.stubEnv("MODEL_EMBEDDING_NAME", "qwen3-embedding")
+    if (instruction)
+      vi.stubEnv("MODEL_EMBEDDING_QUERY_INSTRUCTION", instruction)
+    let input: unknown
+    server.use(
+      http.post(
+        "https://query-model.test/v1/embeddings",
+        async ({ request }) => {
+          input = ((await request.json()) as { input: unknown }).input
+          return Response.json({
+            data: [{ index: 0, embedding: Array(2000).fill(0.01) }],
+          })
+        },
+      ),
+    )
+    try {
+      await expect(
+        embedQuery("  where is the runbook  "),
+      ).resolves.toHaveLength(2000)
+      return input
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  }
+
+  it("sends the query in the instruction format when an instruction is set", async () => {
+    await expect(
+      embeddedInput("Given a question, retrieve the passages that answer it"),
+    ).resolves.toEqual([
+      "Instruct: Given a question, retrieve the passages that answer it\nQuery: where is the runbook",
+    ])
+  })
+
+  it("sends the bare query when no instruction is set", async () => {
+    await expect(embeddedInput()).resolves.toEqual(["where is the runbook"])
+  })
+})
 
 describe("searchKnowledge deadline", () => {
   it("refuses an expired budget before it starts any search", async () => {
