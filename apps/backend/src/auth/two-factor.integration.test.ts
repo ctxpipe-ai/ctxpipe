@@ -1,10 +1,30 @@
 import { createHmac } from "node:crypto"
-import { eq, inArray } from "drizzle-orm"
-import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest"
-import { describeWithDatabase } from "../../test/db.js"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+import { config } from "dotenv"
+import { eq, inArray, sql } from "drizzle-orm"
+import { Client } from "pg"
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { twoFactors, users } from "../db/schema/auth.js"
 import { getAuth, resetBetterAuthForTests } from "./config.js"
+
+config({
+  path: resolve(
+    fileURLToPath(new URL(".", import.meta.url)),
+    "../../.env.local",
+  ),
+  quiet: true,
+})
 
 const base = "http://localhost:3000"
 const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
@@ -55,9 +75,20 @@ async function twoFactorRow(userId: string) {
   return row
 }
 
-describeWithDatabase("two-factor (Postgres)", () => {
+const migrationStatements = readFileSync(
+  resolve(
+    fileURLToPath(new URL(".", import.meta.url)),
+    "../../migrations/20261020112959_two_factor_lockout_columns/migration.sql",
+  ),
+  "utf8",
+)
+  .split("--> statement-breakpoint")
+  .map((statement) => statement.trim())
+
+describe("two-factor (Postgres)", () => {
   beforeAll(() => {
-    initDb(process.env.DATABASE_URL as string)
+    if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
+    initDb(process.env.DATABASE_URL)
   })
 
   beforeEach(() => {
@@ -133,5 +164,80 @@ describeWithDatabase("two-factor (Postgres)", () => {
       failedVerificationCount: 0,
       lockedUntil: null,
     })
+  })
+
+  it("the migration marks an unfinished legacy factor as unverified and keeps a finished one verified", async () => {
+    const client = new Client({ connectionString: process.env.DATABASE_URL })
+    await client.connect()
+    try {
+      // Temp tables shadow the real ones for this connection only, in the legacy shape.
+      await client.query(
+        "CREATE TEMP TABLE users (id text PRIMARY KEY, two_factor_enabled boolean DEFAULT false)",
+      )
+      await client.query(
+        "CREATE TEMP TABLE two_factors (id text PRIMARY KEY, secret text, user_id text NOT NULL)",
+      )
+      await client.query(
+        "INSERT INTO users (id, two_factor_enabled) VALUES ('abandoned', false), ('unset', NULL), ('finished', true)",
+      )
+      await client.query(
+        "INSERT INTO two_factors (id, secret, user_id) VALUES ('f1', 's', 'abandoned'), ('f2', 's', 'unset'), ('f3', 's', 'finished')",
+      )
+
+      for (const statement of migrationStatements) await client.query(statement)
+
+      const { rows } = await client.query(
+        "SELECT user_id, verified FROM two_factors ORDER BY user_id",
+      )
+      expect(rows).toEqual([
+        { user_id: "abandoned", verified: false },
+        { user_id: "finished", verified: true },
+        { user_id: "unset", verified: false },
+      ])
+    } finally {
+      await client.end()
+    }
+  })
+
+  it("turns two-factor on when a user with an unfinished legacy factor enables it again and confirms", async () => {
+    const email = `two-factor-legacy-${suffix}@example.com`
+    emails.push(email)
+    const signedUp = await post(
+      "/sign-up/email",
+      { name: "Legacy factor", email, password },
+      "",
+    )
+    const session = cookieOf(signedUp)
+    const userId = ((await signedUp.json()) as { user: { id: string } }).user.id
+    // The state the migration finds: a factor row from before the column existed.
+    await getSystemDb()
+      .insert(twoFactors)
+      .values({
+        id: `legacy-${suffix}`,
+        secret: "legacy",
+        backupCodes: "legacy",
+        userId,
+        verified: true,
+      })
+    const update = migrationStatements.find((statement) =>
+      statement.startsWith("UPDATE"),
+    ) as string
+    await getSystemDb().execute(sql.raw(update))
+    expect(await twoFactorRow(userId)).toMatchObject({ verified: false })
+
+    const enabled = await post("/two-factor/enable", { password }, session)
+    const { totpURI } = (await enabled.json()) as { totpURI: string }
+    const confirmed = await post(
+      "/two-factor/verify-totp",
+      { code: totpCode(totpURI) },
+      session,
+    )
+
+    expect(confirmed.status).toBe(200)
+    const [user] = await getSystemDb()
+      .select({ twoFactorEnabled: users.twoFactorEnabled })
+      .from(users)
+      .where(eq(users.id, userId))
+    expect(user?.twoFactorEnabled).toBe(true)
   })
 })
