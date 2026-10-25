@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { config } from "dotenv"
 import { eq, inArray, sql } from "drizzle-orm"
 import { Client } from "pg"
@@ -14,6 +15,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { twoFactors, users } from "../db/schema/auth.js"
 import { getAuth, resetBetterAuthForTests } from "./config.js"
@@ -75,15 +77,20 @@ async function twoFactorRow(userId: string) {
   return row
 }
 
-const migrationStatements = readFileSync(
-  resolve(
-    fileURLToPath(new URL(".", import.meta.url)),
-    "../../migrations/20261020112959_two_factor_lockout_columns/migration.sql",
-  ),
-  "utf8",
+const migrationStatements = [
+  "20261025060007_two_factor_lockout_columns",
+  "20261025060017_two_factor_unfinished_unverified",
+].flatMap((migration) =>
+  readFileSync(
+    resolve(
+      fileURLToPath(new URL(".", import.meta.url)),
+      `../../migrations/${migration}/migration.sql`,
+    ),
+    "utf8",
+  )
+    .split("--> statement-breakpoint")
+    .map((statement) => statement.trim()),
 )
-  .split("--> statement-breakpoint")
-  .map((statement) => statement.trim())
 
 describe("two-factor (Postgres)", () => {
   beforeAll(() => {
@@ -220,7 +227,7 @@ describe("two-factor (Postgres)", () => {
         verified: true,
       })
     const update = migrationStatements.find((statement) =>
-      statement.startsWith("UPDATE"),
+      statement.includes("UPDATE"),
     ) as string
     await getSystemDb().execute(sql.raw(update))
     expect(await twoFactorRow(userId)).toMatchObject({ verified: false })
