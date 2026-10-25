@@ -75,7 +75,7 @@ const esm = (lane, name, file, probe) =>
 // The table names come from the statement text; the text is not kept. Only
 // queries count (select, insert, update, delete). Schema statements (a test
 // that applies the migrations) and `truncate` (cleanup) do not show what a
-// case uses; a test that applies migrations reads them, so `files` has it.
+// case uses; a test that applies migrations reads them, so `reads` has it.
 function hookPg(lane) {
   const { Client } = lane("pg")
   const query = Client.prototype.query
