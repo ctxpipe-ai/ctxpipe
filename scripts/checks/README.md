@@ -80,14 +80,14 @@ Gaps (no trace):
 - Docker containers, sandboxes, separate servers and the browser (Storybook). A test that reaches code through one of these does not record that code or its edges.
 - Concurrent cases in one file (`test.concurrent`) mix their coverage and edges.
 
-Overhead in CI was measured on one commit. It compares a traced `workflow_dispatch` run with the untraced pull request run.
+Overhead in CI was measured with the child-process coverage and the semantic edges (CTX-776 slice 2b). It compares a traced `workflow_dispatch` run with the untraced pull request run of the same code.
 
-- The backend shard test steps took 2391 s against 2172 s (+10%).
-- The contract shards took 1452 s against 1426 s (+2%).
-- All test jobs together took 4723 s against 4470 s (+6%).
-- The longest job took 919 s against 874 s (+5%).
+- All test jobs together took 5179 s against 4819 s (+7%). The traced run of the line coverage only (slice 2a) took 5186 s, so the child coverage and the edges add no time that the run-to-run noise shows. A second traced run took 5476 s.
+- The backend shard test steps took 2438 s against 2142 s (+14%). The contract shards took 1487 s against 1454 s (+2%).
+- The longest job took 918 s against 831 s (+10%).
+- A child process that writes coverage is slower: the CLI test `argv.test.ts` took 2.1 s against 1.4 s.
 - A take costs about 10 to 40 ms in a file that imports a large module graph. Thus the cost grows with the number of cases in such a file.
-- The trace of the full run is 1.8 MB compressed (17 MB of JSON) for 734 checks and 7079 cases.
+- The trace of the full run is 1.95 MB compressed (18.4 MB of JSON) for 780 checks and 7445 cases.
 
 ## Why the runner is separate from CI
 
