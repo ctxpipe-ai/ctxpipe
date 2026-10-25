@@ -1,5 +1,5 @@
-import { lowerOpenAiChatCompletionsParams } from "./openAILikeModelProvider.js"
 import { openAiHostAdapter } from "./openAiHostAdapter.js"
+import { lowerOpenAiChatCompletionsParams } from "./openAILikeModelProvider.js"
 import type {
   OpenAiCompatibleFetch,
   ProviderCallOpts,

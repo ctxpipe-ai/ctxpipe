@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+
 import { log } from "../../observability/logger.js"
 import { listTreeBlobs } from "../../services/git/pack.js"
 import { gitBlobSha, readSourcesStamp, stampSources } from "./stamp-sources.js"

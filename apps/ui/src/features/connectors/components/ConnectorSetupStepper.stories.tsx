@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+
 import {
   MANAGED_CONFLUENCE_WIZARD_STEPS,
   SELF_HOSTED_CONFLUENCE_WIZARD_STEPS,

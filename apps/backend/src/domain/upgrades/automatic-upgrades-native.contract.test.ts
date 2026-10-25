@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { expect, it } from "vitest"
+
 import { cleanupSeededOrg, seedOrg } from "../../../test/db.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, initDb } from "../../db/client.js"
@@ -89,15 +90,12 @@ it(
           )
           const { BackendPostgres } = await import("openworkflow/postgres")
           const { OpenWorkflow } = await import("openworkflow")
-          const { defineWorkspaceUpgradeScan } = await import(
-            "../../openworkflow/workflows/workspace-upgrade-scan.js"
-          )
-          const { defineWorkspaceUpgrade } = await import(
-            "../../openworkflow/workflows/workspace-upgrade.js"
-          )
-          const { workspaceFileEdit } = await import(
-            "../../openworkflow/workflows/workspace-file-edit.js"
-          )
+          const { defineWorkspaceUpgradeScan } =
+            await import("../../openworkflow/workflows/workspace-upgrade-scan.js")
+          const { defineWorkspaceUpgrade } =
+            await import("../../openworkflow/workflows/workspace-upgrade.js")
+          const { workspaceFileEdit } =
+            await import("../../openworkflow/workflows/workspace-file-edit.js")
           const backend = await BackendPostgres.connect(f.databaseUrl, {
             namespaceId: openWorkflowNamespaceId(),
             runMigrations: false,
@@ -278,9 +276,8 @@ it(
         await f.publish()
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { workspaceFileEdit } = await import(
-          "../../openworkflow/workflows/workspace-file-edit.js"
-        )
+        const { workspaceFileEdit } =
+          await import("../../openworkflow/workflows/workspace-file-edit.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,

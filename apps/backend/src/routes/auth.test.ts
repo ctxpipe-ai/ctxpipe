@@ -1,5 +1,6 @@
 import { Hono } from "hono"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
 import type { AppEnv } from "../app/env.js"
 
 const previousEnv = {

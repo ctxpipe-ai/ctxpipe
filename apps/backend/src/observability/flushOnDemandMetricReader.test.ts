@@ -5,6 +5,7 @@ import {
   MeterProvider,
 } from "@opentelemetry/sdk-metrics"
 import { describe, expect, it } from "vitest"
+
 import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
 
 describe("FlushOnDemandMetricReader", () => {

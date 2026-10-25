@@ -24,9 +24,8 @@ export async function enqueueFollowUpIfTipAhead(
   if (tip.hash === input.ingestedHash)
     return { enqueued: false, tipHash: tip.hash }
   // Loaded at the callback boundary to avoid the orchestrator/producer module cycle.
-  const { enqueueRepositoryIngestionWorkflow } = await import(
-    "./enqueue-repository-ingestion.js"
-  )
+  const { enqueueRepositoryIngestionWorkflow } =
+    await import("./enqueue-repository-ingestion.js")
   const owner = await enqueueRepositoryIngestionWorkflow(
     {
       orgId: input.orgId,

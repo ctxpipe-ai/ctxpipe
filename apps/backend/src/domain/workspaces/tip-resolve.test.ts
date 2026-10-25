@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import type { ProjectionState, WorkspaceRevision } from "./revision.js"
 import {
   failedPhaseRetryDue,

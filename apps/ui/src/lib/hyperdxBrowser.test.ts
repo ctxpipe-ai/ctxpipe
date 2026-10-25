@@ -1,5 +1,6 @@
 import HyperDX from "@hyperdx/browser"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import {
   clearHyperDxGlobalAttributes,
   initHyperDxBrowser,

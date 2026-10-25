@@ -1,6 +1,7 @@
 "use client"
 
 import { AnimatedBackground } from "@/components/AnimatedBackground"
+
 import { ignoreRepeatClick } from "./ignoreRepeatClick"
 
 type OnboardingPageShellProps = {

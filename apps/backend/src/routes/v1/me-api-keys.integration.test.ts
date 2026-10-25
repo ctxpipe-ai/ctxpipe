@@ -5,6 +5,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { and, eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import type { AppEnv } from "../../app/env.js"
 import { PERSONAL_API_KEY_ORGANIZATIONS_HEADER } from "../../auth/personal-api-key-organizations.js"

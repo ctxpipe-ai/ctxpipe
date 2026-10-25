@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import type { Implementation } from "@modelcontextprotocol/sdk/types.js"
 
 const moduleDir = dirname(fileURLToPath(import.meta.url))

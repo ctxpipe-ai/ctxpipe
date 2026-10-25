@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { useEffect, useRef } from "react"
+
 import {
   githubConnectorKeys,
   githubInstallationIsLinked,

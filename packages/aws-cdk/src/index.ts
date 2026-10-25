@@ -1,4 +1,4 @@
-export { CtxPipe } from "./ctxpipe";
+export { CtxPipe } from "./ctxpipe"
 export type {
   CtxPipeBedrockModelProviderProps,
   CtxPipeConnectorSecretsProps,
@@ -10,4 +10,4 @@ export type {
   CtxPipeProps,
   CtxPipeSandboxHostProps,
   CtxPipeSize,
-} from "./types";
+} from "./types"

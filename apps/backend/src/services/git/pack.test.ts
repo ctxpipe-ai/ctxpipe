@@ -4,7 +4,9 @@ import { mkdir, mkdtemp, open, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import { expect, it, vi } from "vitest"
+
 import {
   captureGitPack,
   fetchGitCommits,
@@ -281,27 +283,26 @@ it.each([
     readUrl: "https://github.com\\@evil.example/o/r",
     stored: {},
   },
-])("rejects a stored base on $name before it asks for a token (CTX-955)", async ({
-  url,
-  readUrl,
-  stored,
-}) => {
-  const sha = "a".repeat(40)
-  const token = vi.fn(async () => "fixture-only-token")
-  const pack = {
-    sha,
-    objects: "",
-    shallow: "",
-    base: { url, shas: [sha], ...stored },
-  } as GitPack
-  await expect(
-    withGitDirectory(sha, async () => "opened", pack, {
-      url: readUrl,
-      token,
-    }),
-  ).rejects.toThrow("not the GitHub repository of its Workspace")
-  expect(token).not.toHaveBeenCalled()
-})
+])(
+  "rejects a stored base on $name before it asks for a token (CTX-955)",
+  async ({ url, readUrl, stored }) => {
+    const sha = "a".repeat(40)
+    const token = vi.fn(async () => "fixture-only-token")
+    const pack = {
+      sha,
+      objects: "",
+      shallow: "",
+      base: { url, shas: [sha], ...stored },
+    } as GitPack
+    await expect(
+      withGitDirectory(sha, async () => "opened", pack, {
+        url: readUrl,
+        token,
+      }),
+    ).rejects.toThrow("not the GitHub repository of its Workspace")
+    expect(token).not.toHaveBeenCalled()
+  },
+)
 
 it("fetches a stored base with the read access of the caller, not with the org and connection in the output (CTX-955)", async () => {
   const source = await seededRepository()
@@ -349,31 +350,31 @@ it.each([
   { status: 503, attempts: 3, error: "returned error: 503" },
   { status: 404, attempts: 1, error: "not found" },
   { status: 403, attempts: 1, error: "returned error: 403" },
-])("fetches again after a $status answer only when the Git host can recover: $attempts attempts", async ({
-  status,
-  attempts,
-  error,
-}) => {
-  let requests = 0
-  const server = createServer((_request, response) => {
-    requests++
-    response.writeHead(status).end()
-  })
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
-  const address = server.address()
-  if (!address || typeof address === "string") throw new Error("No port")
-  const directory = await mkdtemp(join(tmpdir(), "ctxpipe-fetch-retry-"))
-  try {
-    await nativeGit(directory, ["init", "-q"])
-    await expect(
-      fetchGitCommits(directory, {
-        url: `http://127.0.0.1:${address.port}/fixture/bound.git`,
-        shas: ["a".repeat(40)],
-      }),
-    ).rejects.toThrow(error)
-    expect(requests).toBe(attempts)
-  } finally {
-    server.close()
-    await rm(directory, { recursive: true, force: true })
-  }
-}, 30_000)
+])(
+  "fetches again after a $status answer only when the Git host can recover: $attempts attempts",
+  async ({ status, attempts, error }) => {
+    let requests = 0
+    const server = createServer((_request, response) => {
+      requests++
+      response.writeHead(status).end()
+    })
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    const address = server.address()
+    if (!address || typeof address === "string") throw new Error("No port")
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-fetch-retry-"))
+    try {
+      await nativeGit(directory, ["init", "-q"])
+      await expect(
+        fetchGitCommits(directory, {
+          url: `http://127.0.0.1:${address.port}/fixture/bound.git`,
+          shas: ["a".repeat(40)],
+        }),
+      ).rejects.toThrow(error)
+      expect(requests).toBe(attempts)
+    } finally {
+      server.close()
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+  30_000,
+)

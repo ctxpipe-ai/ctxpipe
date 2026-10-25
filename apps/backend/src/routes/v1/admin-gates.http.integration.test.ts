@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
@@ -75,9 +76,8 @@ describe("admin-gated connector routes (Postgres)", () => {
   })
 
   afterAll(async () => {
-    const { closeOpenWorkflowClient } = await import(
-      "../../openworkflow/client.js"
-    )
+    const { closeOpenWorkflowClient } =
+      await import("../../openworkflow/client.js")
     await closeOpenWorkflowClient()
     if (seed) await cleanupSeededOrg(seed)
     vi.unstubAllEnvs()
@@ -95,16 +95,17 @@ describe("admin-gated connector routes (Postgres)", () => {
     "GET connectors/pagerduty/status",
   ]
 
-  it.each(
-    routes,
-  )("%s refuses an org member who is not an admin", async (path) => {
-    await setRole("member")
-    try {
-      expect((await call(path)).status).toBe(403)
-    } finally {
-      await setRole("owner")
-    }
-  })
+  it.each(routes)(
+    "%s refuses an org member who is not an admin",
+    async (path) => {
+      await setRole("member")
+      try {
+        expect((await call(path)).status).toBe(403)
+      } finally {
+        await setRole("owner")
+      }
+    },
+  )
 
   it.each(routes)("%s answers 200 for an owner", async (path) => {
     expect((await call(path)).status).toBe(200)

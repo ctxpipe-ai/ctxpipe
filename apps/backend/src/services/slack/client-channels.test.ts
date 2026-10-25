@@ -1,5 +1,6 @@
 import { HttpResponse, http } from "msw"
 import { describe, expect, it } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import type { Env } from "../../config/env.js"
 import { encodeSlackBotTokenForDb } from "../../lib/connection-config.js"

@@ -1,4 +1,5 @@
 import YAML from "yaml"
+
 import {
   getAllowedConnections,
   PREDICATE_DESCRIPTIONS,

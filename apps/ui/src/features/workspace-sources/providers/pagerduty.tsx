@@ -4,6 +4,7 @@ import {
   pagerdutySourceScopeSchema,
 } from "backend/domain/workspace-sources/providers/pagerduty"
 import { useEffect, useState } from "react"
+
 import { Button } from "@/components/ui/Button"
 import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
@@ -20,6 +21,7 @@ import {
   pagerdutyConnectorKeys,
   searchPagerdutyServices,
 } from "@/features/connectors/queries/pagerduty-connector"
+
 import type {
   SourceProviderUi,
   SourceScopeEditorProps,

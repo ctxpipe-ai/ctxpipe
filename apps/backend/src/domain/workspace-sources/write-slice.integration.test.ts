@@ -1,7 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+
 import { and, eq } from "drizzle-orm"
 import { beforeAll, expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -31,12 +33,10 @@ async function runConnectorMirror(f: Fixture, jobId: string) {
     runMigrations: false,
   })
   const runner = new OpenWorkflow({ backend })
-  const { workspaceConnectorMirror } = await import(
-    "../../openworkflow/workflows/workspace-connector-mirror.js"
-  )
-  const { workspaceSemanticMerge } = await import(
-    "../../openworkflow/workflows/workspace-semantic-merge.js"
-  )
+  const { workspaceConnectorMirror } =
+    await import("../../openworkflow/workflows/workspace-connector-mirror.js")
+  const { workspaceSemanticMerge } =
+    await import("../../openworkflow/workflows/workspace-semantic-merge.js")
   runner.implementWorkflow(
     workspaceConnectorMirror.spec,
     workspaceConnectorMirror.fn,

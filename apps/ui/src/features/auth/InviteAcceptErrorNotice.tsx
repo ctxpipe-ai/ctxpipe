@@ -1,8 +1,9 @@
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
-import { InviteWrongAccountNotice } from "./InviteWrongAccountNotice"
+
 import { inviteSignInHref, inviteSignOutHref } from "./invite-accept-decision"
 import type { InviteAcceptError } from "./invite-accept-error"
+import { InviteWrongAccountNotice } from "./InviteWrongAccountNotice"
 
 /** A failed invitation accept: what happened and the next step. */
 export function InviteAcceptErrorNotice({

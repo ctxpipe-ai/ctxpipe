@@ -4,6 +4,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import { Button } from "@/components/ui/Button"
 import {
   conversationFilePutHandler,
@@ -24,6 +25,7 @@ import {
   workspaceGraphLoadingHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
@@ -41,7 +43,6 @@ import {
 import { type ParsedPane, parsePane, serializePane } from "./pane"
 import { workspaceKeys } from "./queries"
 import { useConversationPublish } from "./useConversationPublish"
-import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
 import {
   docsWorkspace,
   docsWorkspaceDetail,
@@ -52,6 +53,7 @@ import {
   skippedFilesWorkspaceDetail,
 } from "./workspace-fixtures"
 import { workspaceChatColumnClassName } from "./workspaceChrome"
+import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
 
 const paneCallbacks = {
   onPane: fn(),

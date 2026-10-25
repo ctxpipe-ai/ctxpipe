@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, within } from "storybook/test"
+
 import { OnboardingHowItWorksSlide } from "@/components/onboarding/OnboardingHowItWorksSlide"
 import { OnboardingPageShell } from "@/components/onboarding/OnboardingPageShell"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 
 function ShellChildren() {

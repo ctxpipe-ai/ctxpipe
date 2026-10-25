@@ -164,6 +164,7 @@ This repository is public. **Never** put the name, slug, email, username, id (`o
 - **Avoid pulling to globals**: Do not extract config or one-off values to module/global scope unless they are reused in more than one place. Inline them where they are used.
 - **Environment variables**: Use only for values that differ by **environment** or that **operators/customers must set** (secrets, base URLs, infra limits). Do not use env for **feature toggles** or **internal logic**; keep those in code or committed config. See [.ai/memory/lessons-learned.md](.ai/memory/lessons-learned.md). **Agents:** Do not add or document **new** environment variables unless they are **required** to complete the assigned task — prefer resolving paths or behavior in committed code rather than expanding operator surface area.
 - **Backend logging**: In `apps/backend`, use **evlog** (`getLogger()` or `log` from `src/observability/logger.ts`) — not `console.*`. See [apps/backend/AGENTS.md](apps/backend/AGENTS.md) (Logging).
+- **Formatting**: run `pnpm format` before a commit. CI runs `pnpm format:check`.
 - **Unused code**: CI runs **`pnpm knip`** ([knip.json](knip.json)). It fails on an unused file, export, or dependency. Delete the unused code. When you add a file that a tool starts by path (a script, a Dockerfile `CMD`, a CI step), add it to `entry` in `knip.json`.
 
 ## Testing

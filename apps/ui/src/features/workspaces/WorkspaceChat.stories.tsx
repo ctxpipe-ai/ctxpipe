@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { StrictMode, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { Button } from "@/components/ui/Button"
 import {
   conversationAguiTextEvents,
@@ -13,10 +14,11 @@ import {
   conversationDetailLoadingHandler,
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceChat } from "./WorkspaceChat"
 import { docsConversationDetail, docsWorkspace } from "./workspace-fixtures"
+import { WorkspaceChat } from "./WorkspaceChat"
 
 const meta = {
   title: "Components/Workspaces/Chat",

@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query"
+
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
 import {
   activityOptions,

@@ -8,6 +8,7 @@ import { HttpResponse, http } from "msw"
 import { useState } from "react"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { emptyLinkedWorkspaceDetail } from "@/features/workspaces/workspace-fixtures"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import {
@@ -28,6 +29,7 @@ import {
   workspaceUpgradeStartHandler,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceSources } from "./WorkspaceSources"

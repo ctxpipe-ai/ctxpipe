@@ -94,9 +94,8 @@ async function storeProbedWriteStatus(input: {
   retry: boolean
 }): Promise<{ writeStatus: string; desiredSha: string | null } | null> {
   try {
-    const { getGithubRepoWriteView } = await import(
-      "../routes/webhooks/github/github-workspace-tip.js"
-    )
+    const { getGithubRepoWriteView } =
+      await import("../routes/webhooks/github/github-workspace-tip.js")
     const probe = await probeWorkspaceWriteAccess({
       workspaceRepositoryUrl: input.workspace.workspaceRepositoryUrl,
       githubConnectionId: input.workspace.githubConnectionId,
@@ -402,9 +401,8 @@ export async function enqueueWriteJob(
         ) &&
         (await revisionHasCtxpipeContent(input.orgId, revision))
       ) {
-        const { enqueueWorkspaceUpgradeScan } = await import(
-          "./workflows/workspace-upgrade-scan.js"
-        )
+        const { enqueueWorkspaceUpgradeScan } =
+          await import("./workflows/workspace-upgrade-scan.js")
         await enqueueWorkspaceUpgradeScan({
           orgId: input.orgId,
           trigger: `bind:${input.workspaceId}:${revision.sha}`,

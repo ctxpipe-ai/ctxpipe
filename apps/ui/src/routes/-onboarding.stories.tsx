@@ -3,6 +3,7 @@ import { useLocation } from "@tanstack/react-router"
 import { delay, HttpResponse, http, type RequestHandler } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import { onboardingHandOffFlag } from "@/lib/session-flags"
 import {
@@ -13,6 +14,7 @@ import {
   sessionSignedInOnboardingHandler,
 } from "@/mocks/handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
+
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { IndexRoutePage } from "./index"

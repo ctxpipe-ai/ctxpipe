@@ -6,6 +6,7 @@ import { oauthProviderResourceClient } from "@better-auth/oauth-provider/resourc
 import { createAuthClient } from "better-auth/client"
 import { and, eq, gt } from "drizzle-orm"
 import type { Context, Hono } from "hono"
+
 import type { AppEnv } from "../app/env.js"
 import { atlassianLinkCallbackFirst } from "../auth/atlassian-link-callback.js"
 import { getAuth } from "../auth/config.js"

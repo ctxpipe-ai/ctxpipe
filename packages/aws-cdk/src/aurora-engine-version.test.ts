@@ -2,6 +2,7 @@ import * as cdk from "aws-cdk-lib"
 import { Template } from "aws-cdk-lib/assertions"
 import type * as rds from "aws-cdk-lib/aws-rds"
 import { describe, expect, it } from "vitest"
+
 import { CtxPipe } from "./ctxpipe"
 
 type CfnResource = {

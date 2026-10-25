@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
+
 import { upgradeItemFixture } from "@/mocks/workspace-upgrades-handlers"
+
 import type { WorkspaceUpgradeItem } from "./queries"
 import {
   formatHealthLine,

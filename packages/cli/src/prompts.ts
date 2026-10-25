@@ -1,4 +1,5 @@
 import { resolve } from "node:path"
+
 import {
   confirm as confirmPrompt,
   isCancel,
@@ -8,6 +9,7 @@ import {
   spinner,
   text,
 } from "@clack/prompts"
+
 import type { Organization } from "./auth.js"
 import {
   fetchOrganizations,

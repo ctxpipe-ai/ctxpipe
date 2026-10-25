@@ -1,6 +1,7 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
+
 import { Button } from "@/components/ui/Button"
 import {
   Disclosure,
@@ -9,6 +10,7 @@ import {
 } from "@/components/ui/Disclosure"
 import { InlineLoader } from "@/components/ui/InlineLoader"
 import { authClient } from "@/lib/auth-client"
+
 import {
   atlassianConnectorKeys,
   fetchOrgAtlassianOauth,

@@ -1,5 +1,7 @@
 import { readFileSync, renameSync } from "node:fs"
+
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { listWorkspaceKnowledgeUnits } from "../../models/workspaces.js"
 import {
@@ -115,9 +117,8 @@ it(
         // Postgres refuses the first write workflow that hydrate admits. A
         // sequence is not transactional, so the second admission passes.
         const { Pool } = await import("pg")
-        const { ownerUrlForMigrate } = await import(
-          "../../db/owner-migrate-url.js"
-        )
+        const { ownerUrlForMigrate } =
+          await import("../../db/owner-migrate-url.js")
         const owner = new Pool({
           connectionString: ownerUrlForMigrate(f.databaseUrl),
         })

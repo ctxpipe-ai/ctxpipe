@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
+
 import { completeOnboarding } from "@/components/onboarding/complete-onboarding"
 import { OnboardingCreateOrgSlide } from "@/components/onboarding/OnboardingCreateOrgSlide"
 import { OnboardingHowItWorksSlide } from "@/components/onboarding/OnboardingHowItWorksSlide"

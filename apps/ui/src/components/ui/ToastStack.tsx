@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react"
+
 import { cn } from "@/lib/utils"
 
 /** The space between two open toasts, and the step of the closed stack (px). */

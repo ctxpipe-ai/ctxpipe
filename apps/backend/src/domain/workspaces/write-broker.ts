@@ -214,11 +214,11 @@ function sameWriteBinding(
 ): boolean {
   return Boolean(
     current &&
-      sameWorkspaceRevision(current, {
-        ...revision,
-        sha: current.sha,
-        access: current.access,
-      }),
+    sameWorkspaceRevision(current, {
+      ...revision,
+      sha: current.sha,
+      access: current.access,
+    }),
   )
 }
 
@@ -387,9 +387,8 @@ export async function captureSemanticHandoff(
   /** Paths of the delta that must not go onto the new tip. */
   dropPaths?: (nextRevision: WorkspaceRevision) => Promise<string[]>,
 ) {
-  const { readGitCommitChanges } = await import(
-    "../../services/git/write-tree.js"
-  )
+  const { readGitCommitChanges } =
+    await import("../../services/git/write-tree.js")
   // The refresh comes first: it proves that the remote is the bound
   // repository before the delta read sends it a credential.
   const nextRevision = await refreshWorkspaceWriteRevision(input, revision, env)

@@ -6,6 +6,7 @@ import {
   notionSourceScopeSchema,
 } from "backend/domain/workspace-sources/providers/notion"
 import { useEffect, useState } from "react"
+
 import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -19,6 +20,7 @@ import {
   notionConnectorKeys,
   searchNotionResources,
 } from "@/features/connectors/queries/notion-connector"
+
 import type {
   SourceProviderUi,
   SourceScopeEditorProps,

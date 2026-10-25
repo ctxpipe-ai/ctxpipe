@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+
 import type { AppEnv } from "../app/env.js"
 
 const requireCurrentOrgIdMock = vi.hoisted(() => vi.fn(() => "org_1"))

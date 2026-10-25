@@ -1,6 +1,7 @@
 import { OrganizationView } from "@daveyplate/better-auth-ui"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
 import type { ReactNode } from "react"
+
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { organizationApiKeyLocalization } from "@/features/organization/apiKeyCopy"
 import { OrganizationApiKeysCard } from "@/features/organization/OrganizationApiKeysCard"

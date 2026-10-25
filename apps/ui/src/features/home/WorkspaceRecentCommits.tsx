@@ -6,6 +6,7 @@ import {
   Tooltip,
   TooltipTrigger,
 } from "react-aria-components"
+
 import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
 import type { WorkspaceActivityCommit } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"

@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process"
 import { fileURLToPath } from "node:url"
+
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
+
 import {
   closeDb,
   getSystemDb,

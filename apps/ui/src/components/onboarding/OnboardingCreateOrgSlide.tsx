@@ -2,9 +2,11 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useId, useState } from "react"
+
 import { authClient } from "@/lib/auth-client"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useUserPreferences } from "@/lib/user-preferences"
+
 import { orgNameFromEmail, orgSlugError, orgSlugFromName } from "./org-name"
 
 type OnboardingCreateOrgSlideProps = {

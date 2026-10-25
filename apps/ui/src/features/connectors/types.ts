@@ -3,9 +3,7 @@ import type {
   fetchAtlassianSpacePages,
   fetchAtlassianSpaces,
 } from "./queries/atlassian-connector"
-import type {
-  searchNotionResources,
-} from "./queries/notion-connector"
+import type { searchNotionResources } from "./queries/notion-connector"
 
 export type AtlassianConnectorStatus = Awaited<
   ReturnType<typeof fetchAtlassianConnectorStatus>

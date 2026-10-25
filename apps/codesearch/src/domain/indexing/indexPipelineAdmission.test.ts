@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import {
   INDEX_PIPELINE_IDLE_TTL_MS,
   releaseIndexPipelineReference,

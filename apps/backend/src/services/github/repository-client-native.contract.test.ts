@@ -1,4 +1,5 @@
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -108,9 +109,8 @@ it(
         },
       },
       async (f) => {
-        const { listFilesInTree } = await import(
-          "./installation-write-client.js"
-        )
+        const { listFilesInTree } =
+          await import("./installation-write-client.js")
         const result = await withOrgIdContext(f.org, () =>
           listFilesInTree({
             orgId: f.org.id,
@@ -165,9 +165,8 @@ it.each(["feature", "advanced", "empty"])(
         onGithubPullRequest: () => {},
       },
       async (f) => {
-        const { commitFiles, createPullRequestWithFiles } = await import(
-          "./installation-write-client.js"
-        )
+        const { commitFiles, createPullRequestWithFiles } =
+          await import("./installation-write-client.js")
         const input = {
           orgId: f.org.id,
           repositoryName: "fixture/hydration-contract",
@@ -242,9 +241,8 @@ it(
     await withNativeHydrationFixture({ github: true }, async (f) => {
       const { withOrgDbContext } = await import("../../db/client.js")
       const { repositories } = await import("../../db/schema/repositories.js")
-      const { getRepositoryReadCloneToken } = await import(
-        "../../models/github-installation.js"
-      )
+      const { getRepositoryReadCloneToken } =
+        await import("../../models/github-installation.js")
       const repositoryId = `repo_${f.id}`
       await withOrgDbContext(f.org.id, (db) =>
         db.insert(repositories).values({

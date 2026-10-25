@@ -1,5 +1,7 @@
 import net from "node:net"
+
 import { expect, it } from "vitest"
+
 import { graphReady } from "../../../../scripts/ci/graph-ready.mjs"
 
 it("CI graph prerequisite fails at its deadline when the server accepts but never answers", async () => {

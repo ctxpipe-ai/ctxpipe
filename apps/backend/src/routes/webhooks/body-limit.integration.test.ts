@@ -1,11 +1,13 @@
 import { createHmac } from "node:crypto"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { config } from "dotenv"
 import { createLogger } from "evlog"
 import { contextStorage } from "hono/context-storage"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import { closeDb, initDb } from "../../db/client.js"
@@ -147,35 +149,32 @@ const routes: Array<{
 ]
 
 describe("webhook body limit", () => {
-  it.each(
-    routes,
-  )("$path rejects a body above the declared length with 413 and reads none of it", async ({
-    path,
-    limit,
-    headers,
-  }) => {
-    const app = createTestApp()
-    const { stream, counter } = countingBody(limit + 1)
-    const res = await app.request(
-      path,
-      streamPost(
-        {
-          ...headers,
-          "content-type": "application/json",
-          "content-length": String(limit + 1),
-        },
-        stream,
-      ),
-    )
+  it.each(routes)(
+    "$path rejects a body above the declared length with 413 and reads none of it",
+    async ({ path, limit, headers }) => {
+      const app = createTestApp()
+      const { stream, counter } = countingBody(limit + 1)
+      const res = await app.request(
+        path,
+        streamPost(
+          {
+            ...headers,
+            "content-type": "application/json",
+            "content-length": String(limit + 1),
+          },
+          stream,
+        ),
+      )
 
-    expect(res.status).toBe(413)
-    expect(await res.json()).toEqual({ error: "Payload too large" })
-    // The handler did not run: it reads the full body before the
-    // signature check, and some handlers read the database first. The
-    // stream gives one chunk before the first read, so a read of the body
-    // would pull more than one chunk.
-    expect(counter.pulled).toBeLessThanOrEqual(64 * 1024)
-  })
+      expect(res.status).toBe(413)
+      expect(await res.json()).toEqual({ error: "Payload too large" })
+      // The handler did not run: it reads the full body before the
+      // signature check, and some handlers read the database first. The
+      // stream gives one chunk before the first read, so a read of the body
+      // would pull more than one chunk.
+      expect(counter.pulled).toBeLessThanOrEqual(64 * 1024)
+    },
+  )
 
   it("rejects a chunked body with 413 when it passes the limit", async () => {
     const app = createTestApp()

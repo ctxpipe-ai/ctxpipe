@@ -1,4 +1,5 @@
 import { createContext, type ReactNode, useContext } from "react"
+
 import type { ConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeConfig"
 
 const defaultConfig: ConfluenceForgeRuntimeConfig = {

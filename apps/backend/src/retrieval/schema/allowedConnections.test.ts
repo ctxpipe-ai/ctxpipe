@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { EXTENSION_TRAVERSAL_PREDICATES } from "../services/graphTraversal.js"
 import {
   CORE_ALLOWED_CONNECTIONS,

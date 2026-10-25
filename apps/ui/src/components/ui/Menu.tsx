@@ -17,6 +17,7 @@ import {
   Separator,
 } from "react-aria-components"
 import { twMerge } from "tailwind-merge"
+
 import { dropdownItemStylesDark } from "@/components/ui/ListBox"
 import { Popover, type PopoverProps } from "@/components/ui/Popover"
 
@@ -133,4 +134,3 @@ export function MenuTrigger(props: MenuTriggerProps) {
     </AriaMenuTrigger>
   )
 }
-

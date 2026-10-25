@@ -1,5 +1,6 @@
 import { Skeleton } from "@/components/ui/Skeleton"
 import { cn } from "@/lib/utils"
+
 import { chatColumnClassName, chatUserBubbleClassName } from "../chat-column"
 
 export function ConversationThreadSkeleton() {

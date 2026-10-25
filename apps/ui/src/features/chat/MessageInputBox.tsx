@@ -3,6 +3,7 @@
 import { IconArrowUp, IconChevronRight } from "@tabler/icons-react"
 import { type RefObject, useEffect, useRef } from "react"
 import { Disclosure, DisclosurePanel } from "react-aria-components"
+
 import {
   PromptInput,
   PromptInputBody,
@@ -17,6 +18,7 @@ import { Button } from "@/components/ui/Button"
 import type { ChatStatus } from "@/features/chat/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+
 import { chatColumnClassName } from "./chat-column"
 import { readChatDraft, writeChatDraft } from "./chat-draft"
 

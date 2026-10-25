@@ -1,5 +1,6 @@
 import type { StreamChunk } from "@tanstack/ai"
 import { describe, expect, it } from "vitest"
+
 import {
   sandboxPhaseFromChunk,
   workspaceChatHasAssistantText,

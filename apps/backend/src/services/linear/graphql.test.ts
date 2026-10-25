@@ -2,6 +2,7 @@ import { LinearClient } from "@linear/sdk"
 import { type DocumentNode, parse } from "graphql"
 import { HttpResponse, http } from "msw"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+
 import { linearBudgetHeaders } from "../../../test/linear-graphql.js"
 import { useMswServer } from "../../../test/msw.js"
 import * as generated from "./documents.generated.js"

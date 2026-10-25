@@ -4,6 +4,7 @@ import { delay, HttpResponse, http } from "msw"
 import { useEffect, useState } from "react"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { responseGate } from "@/components/ui/skeletonMatchStory"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import {
@@ -30,10 +31,10 @@ import {
   upgradesFixture,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
+
 import { orgPageDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import type { IngestionItem } from "./ingestion"
-import { WorkspaceSurface } from "./WorkspaceSurface"
 import {
   docsConversationDetail,
   docsWorkspace,
@@ -46,6 +47,7 @@ import {
   skippedFilesWorkspaceDetail,
   waitingForTipWorkspaceDetail,
 } from "./workspace-fixtures"
+import { WorkspaceSurface } from "./WorkspaceSurface"
 
 const orgSlug = "acme"
 const workspaceSlug = "docs"

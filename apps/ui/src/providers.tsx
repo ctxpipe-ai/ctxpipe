@@ -2,9 +2,11 @@ import { QueryClientProvider } from "@tanstack/react-query"
 import { useRouter } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 import { RouterProvider } from "react-aria-components"
+
 import type { ConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeConfig"
 import type { HyperDxSessionIdentity } from "@/lib/hyperdxAttributes"
 import type { HyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
+
 import { AuthProvider } from "./providers/AuthProvider"
 import { ConfluenceForgeRuntimeProvider } from "./providers/ConfluenceForgeRuntimeContext"
 import { HyperDxProvider } from "./providers/HyperDxProvider"

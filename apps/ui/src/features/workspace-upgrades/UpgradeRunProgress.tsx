@@ -1,5 +1,7 @@
 import { ProgressBar } from "react-aria-components"
+
 import { useNow } from "@/lib/useNow"
+
 import { formatElapsed, type UpgradeProgress } from "./upgrade-progress"
 
 /**

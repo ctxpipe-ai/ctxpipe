@@ -1,5 +1,6 @@
 import { Hono } from "hono"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+
 import type { AppEnv } from "../../app/env.js"
 
 const orgHasGithubMock = vi.hoisted(() => vi.fn())

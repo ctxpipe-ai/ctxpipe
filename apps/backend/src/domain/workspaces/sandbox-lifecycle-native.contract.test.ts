@@ -5,6 +5,7 @@ import Docker from "dockerode"
 import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   closeDb,
@@ -58,9 +59,8 @@ const FIVE_MINUTES = 5 * 60_000
 const docker = new Docker({ timeout: 30_000 })
 
 afterAll(async () => {
-  const { closeOpenWorkflowClient } = await import(
-    "../../openworkflow/client.js"
-  )
+  const { closeOpenWorkflowClient } =
+    await import("../../openworkflow/client.js")
   await closeOpenWorkflowClient()
   await closeDb()
 })

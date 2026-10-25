@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import {
   shouldReuseWarmedWorkspaceChatSocket,
   workspaceChatSocketIsResume,
@@ -56,20 +57,21 @@ describe("workspaceChatWebSocket hydrate", () => {
     expect(hydrated.messages[0]?.createdAt).toBeInstanceOf(Date)
   })
 
-  it.each([
-    401, 403, 500,
-  ])("throws when hydration returns %i", async (status) => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(null, { status })),
-    )
+  it.each([401, 403, 500])(
+    "throws when hydration returns %i",
+    async (status) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(null, { status })),
+      )
 
-    const connection = workspaceChatWebSocket("acme", "conv_1")
+      const connection = workspaceChatWebSocket("acme", "conv_1")
 
-    await expect(connection.hydrate("conv_1")).rejects.toMatchObject({
-      status,
-    })
-  })
+      await expect(connection.hydrate("conv_1")).rejects.toMatchObject({
+        status,
+      })
+    },
+  )
 
   it("treats a missing thread as an empty hydration", async () => {
     vi.stubGlobal(

@@ -6,6 +6,7 @@ import {
   type SpanExporter,
 } from "@opentelemetry/sdk-trace-base"
 import { afterEach, describe, expect, it } from "vitest"
+
 import {
   findBatchSpanProcessor,
   flushSpansOnPageHide,

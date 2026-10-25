@@ -19,9 +19,7 @@ type LinearOauthAppMeta = {
   oauthAppSaved: boolean
 }
 
-type LinearSetupStepId =
-  | (typeof LINEAR_SETUP_STEPS)[number]["id"]
-  | "register"
+type LinearSetupStepId = (typeof LINEAR_SETUP_STEPS)[number]["id"] | "register"
 
 export function getLinearSetupSteps(oauthMeta?: LinearOauthAppMeta) {
   if (!oauthMeta || oauthMeta.globalLinearOauthConfigured) {

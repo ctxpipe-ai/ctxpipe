@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
+
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
@@ -13,6 +14,7 @@ import {
   consumePagerdutySetupPopupResult,
   PAGERDUTY_SETUP_RESULT_KEY,
 } from "@/lib/popup"
+
 import {
   getPagerdutySetupCurrentIndex,
   getPagerdutySetupSteps,

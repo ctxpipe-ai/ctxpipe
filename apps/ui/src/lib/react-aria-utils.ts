@@ -1,9 +1,7 @@
 import { composeRenderProps } from "react-aria-components"
 import { twMerge } from "tailwind-merge"
 
-export {
-  focusRing,
-} from "./focus-styles"
+export { focusRing } from "./focus-styles"
 
 export function composeTailwindRenderProps<T>(
   className: string | ((v: T) => string) | undefined,

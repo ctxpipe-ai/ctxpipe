@@ -2,7 +2,9 @@ import { existsSync } from "node:fs"
 import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import { heldScratch, holdScratch, releaseScratch } from "./held-scratch.js"
 
 const make = async () => ({

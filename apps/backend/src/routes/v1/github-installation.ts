@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import { RequestError } from "octokit"
+
 import type { AppEnv } from "../../app/env.js"
 import { rebindUnboundWorkspaces } from "../../domain/workspaces/workspace-lifecycle.js"
 import type { GitHubInstallationShape } from "../../models/connection-rows.js"

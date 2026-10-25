@@ -7,11 +7,12 @@ import {
   type UIMessage,
   uiMessagesToWire,
 } from "@tanstack/ai"
-import { BaseTextAdapter } from "@tanstack/ai/adapters"
-import { InMemoryLockStore } from "@tanstack/ai/locks"
 import { ChatClient, stream } from "@tanstack/ai-client"
 import { memoryPersistence, withPersistence } from "@tanstack/ai-persistence"
+import { BaseTextAdapter } from "@tanstack/ai/adapters"
+import { InMemoryLockStore } from "@tanstack/ai/locks"
 import { afterEach, expect, it, vi } from "vitest"
+
 import {
   openCodeExtractableUserText,
   openCodeTrailingUserMiddleware,

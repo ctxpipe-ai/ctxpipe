@@ -1,7 +1,9 @@
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
+
 import type { AppEnv } from "../app/env.js"
 
 // config/paths.js reads this variable when it loads.
@@ -97,19 +99,19 @@ describe("POST /{repoId}/graph checkout isolation", () => {
     expect(res.status).toBe(403)
   })
 
-  it.each([
-    ".git/config",
-    "../outside.ts",
-  ])("answers 404 for the file path %s", async (filePath) => {
-    const res = await createTestApp().request("/repo_abcdef27/graph", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ primitive: "get_imports", filePath }),
-    })
+  it.each([".git/config", "../outside.ts"])(
+    "answers 404 for the file path %s",
+    async (filePath) => {
+      const res = await createTestApp().request("/repo_abcdef27/graph", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ primitive: "get_imports", filePath }),
+      })
 
-    expect(res.status).toBe(404)
-    expect(await res.json()).toEqual({ error: "Path not found" })
-  })
+      expect(res.status).toBe(404)
+      expect(await res.json()).toEqual({ error: "Path not found" })
+    },
+  )
 
   it("queries the graph for a file inside the checkout", async () => {
     const res = await createTestApp().request("/repo_abcdef27/graph", {

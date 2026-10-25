@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import {
   afterAll,
@@ -22,6 +23,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import type { AppEnv } from "../app/env.js"
 import { startGitHttpServer } from "../test/gitHttpServer.js"
 
@@ -725,18 +727,19 @@ describe("reads stay inside the checkout", () => {
     "git-dir/config",
   ]
 
-  it.each(
-    refusedFiles,
-  )("GET /files/{path} answers %s like a missing file", async (path) => {
-    const app = createTestApp()
-    const missing = await app.request("/repo_abcdef27/files/missing.txt")
-    const res = await app.request(
-      `/repo_abcdef27/files/${encodeURIComponent(path)}`,
-    )
+  it.each(refusedFiles)(
+    "GET /files/{path} answers %s like a missing file",
+    async (path) => {
+      const app = createTestApp()
+      const missing = await app.request("/repo_abcdef27/files/missing.txt")
+      const res = await app.request(
+        `/repo_abcdef27/files/${encodeURIComponent(path)}`,
+      )
 
-    expect(res.status).toBe(404)
-    expect(await res.json()).toEqual(await missing.json())
-  })
+      expect(res.status).toBe(404)
+      expect(await res.json()).toEqual(await missing.json())
+    },
+  )
 
   it("POST /files-query omits refused files and keeps files inside", async () => {
     const app = createTestApp()
@@ -852,25 +855,23 @@ describe("reads stay inside the checkout", () => {
   })
 
   // .git/config can hold a clone token, so .git is never listed.
-  it.each([
-    ".git",
-    ".GIT",
-    "nested/.git",
-    "git-dir",
-  ])("GET /files and POST /glob answer %s like a missing directory", async (path) => {
-    const app = createTestApp()
-    const list = await app.request(
-      `/repo_abcdef27/files?path=${encodeURIComponent(path)}`,
-    )
-    const glob = await app.request("/repo_abcdef27/glob", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ pattern: "*", path }),
-    })
+  it.each([".git", ".GIT", "nested/.git", "git-dir"])(
+    "GET /files and POST /glob answer %s like a missing directory",
+    async (path) => {
+      const app = createTestApp()
+      const list = await app.request(
+        `/repo_abcdef27/files?path=${encodeURIComponent(path)}`,
+      )
+      const glob = await app.request("/repo_abcdef27/glob", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pattern: "*", path }),
+      })
 
-    expect(list.status).toBe(404)
-    expect(glob.status).toBe(404)
-  })
+      expect(list.status).toBe(404)
+      expect(glob.status).toBe(404)
+    },
+  )
 
   it("POST /glob answers a symlinked directory outside like a missing one", async () => {
     const app = createTestApp()

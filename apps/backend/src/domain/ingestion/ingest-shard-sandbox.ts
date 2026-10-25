@@ -1,7 +1,9 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
+
 import { repositoryRevisionCheckoutKey } from "../../../../../shared/workspace-checkout.js"
 import { type Env, parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -13,7 +15,6 @@ import {
   VERCEL_INGEST_AGENT_PATH,
   workspaceChatDockerImage,
 } from "../workspaces/chat-runtime.js"
-import { ingestSandbox } from "../workspaces/ingest-sandbox.js"
 import {
   assertHostedIngestEgress,
   dockerIngestSandboxProvider,
@@ -24,6 +25,7 @@ import {
   revokeIngestGitTokens,
   vercelIngestSandboxProvider,
 } from "../workspaces/ingest-sandbox-egress.js"
+import { ingestSandbox } from "../workspaces/ingest-sandbox.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
 import { sandboxFetchUrl } from "../workspaces/sandbox-credential-rules.js"
 import { postgresSandboxLocks } from "../workspaces/sandbox-lock-store.js"

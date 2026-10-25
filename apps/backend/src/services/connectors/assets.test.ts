@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events"
 import { PassThrough } from "node:stream"
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const network = vi.hoisted(() => ({
@@ -215,22 +216,22 @@ describe("connector asset boundary", () => {
       limits: { maxAssetBytes: 10, maxEntityBytes: 6 },
       reason: "entity_limit",
     },
-  ] as const)("enforces the streamed $reason before retaining an oversized response", async ({
-    limits,
-    reason,
-  }) => {
-    mockHttpsResponses({
-      status: 200,
-      chunks: [Buffer.alloc(4), Buffer.alloc(4)],
-    })
+  ] as const)(
+    "enforces the streamed $reason before retaining an oversized response",
+    async ({ limits, reason }) => {
+      mockHttpsResponses({
+        status: 200,
+        chunks: [Buffer.alloc(4), Buffer.alloc(4)],
+      })
 
-    await expect(
-      downloadConnectorAsset({
-        url: "https://cdn.example/large.bin",
-        budget: createConnectorAssetBudget(limits),
-      }),
-    ).resolves.toEqual({ status: "stub", reason })
-  })
+      await expect(
+        downloadConnectorAsset({
+          url: "https://cdn.example/large.bin",
+          budget: createConnectorAssetBudget(limits),
+        }),
+      ).resolves.toEqual({ status: "stub", reason })
+    },
+  )
 
   it("bounds a DNS lookup that outlives the entity deadline", async () => {
     vi.useFakeTimers()

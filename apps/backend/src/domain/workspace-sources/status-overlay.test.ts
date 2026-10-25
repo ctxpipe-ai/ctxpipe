@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import type { SourceAdapter } from "./adapter.js"
 import { overlaySourceStatus } from "./status-overlay.js"
 

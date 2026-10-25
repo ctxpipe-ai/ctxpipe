@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { isValidPredicate, validatePredicate } from "./predicateValidation.js"
 
 describe("predicateValidation", () => {

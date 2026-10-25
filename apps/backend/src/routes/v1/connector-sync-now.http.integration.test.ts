@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
@@ -142,9 +143,8 @@ describe("POST /connectors/{connectionId}/sync (Postgres)", () => {
       await db.delete(connections).where(eq(connections.orgId, seed.orgId))
     })
     await backend?.stop()
-    const { closeOpenWorkflowClient } = await import(
-      "../../openworkflow/client.js"
-    )
+    const { closeOpenWorkflowClient } =
+      await import("../../openworkflow/client.js")
     await closeOpenWorkflowClient()
     if (seed) await cleanupSeededOrg(seed)
     vi.unstubAllEnvs()

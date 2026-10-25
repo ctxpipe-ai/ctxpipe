@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query"
+
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SkeletonText, useSkeletonHold } from "@/components/ui/Skeleton"
-import { UpgradeRunProgress } from "@/features/workspace-upgrades/UpgradeRunProgress"
 import { formatElapsed } from "@/features/workspace-upgrades/upgrade-progress"
+import { UpgradeRunProgress } from "@/features/workspace-upgrades/UpgradeRunProgress"
 import { useNow } from "@/lib/useNow"
+
 import {
   ingestionItemTitle,
   ingestionProgress,

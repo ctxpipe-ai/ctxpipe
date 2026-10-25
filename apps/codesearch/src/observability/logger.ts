@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+
 import { context, propagation, trace } from "@opentelemetry/api"
 import {
   createLogger,
@@ -11,6 +12,7 @@ import {
 import { createOTLPDrain } from "evlog/otlp"
 import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
+
 import type { AppEnv } from "../app/env.js"
 import { type Env, parseEnv } from "../config/env.js"
 import { ATTRIBUTION_KEYS } from "./contract.js"

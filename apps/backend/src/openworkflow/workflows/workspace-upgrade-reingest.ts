@@ -1,4 +1,5 @@
 import { z } from "zod"
+
 import { parseEnv } from "../../config/env.js"
 import type { IngestionV2Input } from "../../domain/ingestion/ingestion-run.js"
 import {
@@ -378,13 +379,17 @@ async function planReingest(input: {
     // and the reason. A plain git repository is read with no credential,
     // from a host that passes the plain git rules (CTX-815).
     let tipError: string | null = null
-    const tip = await (source.githubConnectionId
-      ? resolveRepositoryReadTip({
-          orgId: input.orgId,
-          env,
-          remote: { url: source.url, connectionId: source.githubConnectionId },
-        })
-      : resolvePlainGitTip(source.url)
+    const tip = await (
+      source.githubConnectionId
+        ? resolveRepositoryReadTip({
+            orgId: input.orgId,
+            env,
+            remote: {
+              url: source.url,
+              connectionId: source.githubConnectionId,
+            },
+          })
+        : resolvePlainGitTip(source.url)
     ).catch((error: unknown) => {
       tipError = tipErrorText(error)
       return null

@@ -7,6 +7,7 @@ import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { chat } from "@tanstack/ai"
 import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+
 import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
 import { AttributionUrlSpanProcessor } from "../../observability/otel.js"
 import {

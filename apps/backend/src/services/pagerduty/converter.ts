@@ -1,4 +1,3 @@
-
 import { isConnectorAssetCredentialUrl } from "../connectors/assets.js"
 import { connectorPathSegment } from "../connectors/path-segment.js"
 
@@ -365,5 +364,3 @@ export function rewritePagerdutyIncidentImageSrcs(
   }
   return next
 }
-
-

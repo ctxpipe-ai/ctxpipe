@@ -2,8 +2,10 @@ import { QueryClient } from "@tanstack/react-query"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+
 import { workspaceListOptions } from "@/features/workspaces/queries"
 import { installRelativeFetch } from "@/features/workspaces/relative-fetch-test"
+
 import { warmWorkspaceLists } from "./index"
 
 const server = setupServer()

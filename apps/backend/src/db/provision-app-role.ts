@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from "pg"
+
 import { log } from "../observability/logger.js"
 
 export const APP_ROLE_NAME = "ctxpipe_app"

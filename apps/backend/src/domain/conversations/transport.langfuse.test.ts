@@ -8,6 +8,7 @@ import { initLogger } from "evlog"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest"
+
 import type { AppEnv } from "../../app/env.js"
 import { applyAttribution } from "../../observability/attribution.js"
 import { backendOtelMiddleware } from "../../observability/http.js"

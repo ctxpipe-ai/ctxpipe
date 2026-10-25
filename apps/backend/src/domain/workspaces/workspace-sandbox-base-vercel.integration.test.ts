@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
+
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
@@ -16,6 +17,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import {
   closeDb,
@@ -391,163 +393,162 @@ describe("hosted base choice", () => {
     { answer: 400, snapshot: "created", kept: true },
     { answer: 409, snapshot: "created", kept: true },
     { answer: 500, snapshot: "failed", kept: false },
-  ] as const)("a start that fails with $answer keeps the base only while its snapshot is $snapshot", async ({
-    answer,
-    snapshot,
-    kept,
-  }) => {
-    const ws = await workspace()
-    const baseId = `base:${ws.id}:blip`
-    await row({
-      id: baseId,
-      kind: "base",
-      orgId,
-      workspaceId: ws.id,
-      provider: "vercel",
-      providerSandboxId: "builder-blip",
-      latestSnapshotId: "snap_blip",
-      image: agent.image,
-      revision: ws.revision,
-      state: "live",
-      lastHeartbeatAt: new Date(),
-    })
-    // The choice reads a good snapshot; the re-check after the failed
-    // start reads `snapshot`.
-    let reads = 0
-    const sources: string[] = []
-    server.use(
-      http.get(`${API}/snapshots/snap_blip`, () =>
-        HttpResponse.json(
-          snapshotBody("snap_blip", reads++ === 0 ? "created" : snapshot),
+  ] as const)(
+    "a start that fails with $answer keeps the base only while its snapshot is $snapshot",
+    async ({ answer, snapshot, kept }) => {
+      const ws = await workspace()
+      const baseId = `base:${ws.id}:blip`
+      await row({
+        id: baseId,
+        kind: "base",
+        orgId,
+        workspaceId: ws.id,
+        provider: "vercel",
+        providerSandboxId: "builder-blip",
+        latestSnapshotId: "snap_blip",
+        image: agent.image,
+        revision: ws.revision,
+        state: "live",
+        lastHeartbeatAt: new Date(),
+      })
+      // The choice reads a good snapshot; the re-check after the failed
+      // start reads `snapshot`.
+      let reads = 0
+      const sources: string[] = []
+      server.use(
+        http.get(`${API}/snapshots/snap_blip`, () =>
+          HttpResponse.json(
+            snapshotBody("snap_blip", reads++ === 0 ? "created" : snapshot),
+          ),
         ),
-      ),
-      http.post(API, async ({ request }) => {
-        const body = (await request.json()) as {
-          source?: { snapshotId?: string }
-        }
-        const source = body.source?.snapshotId ?? ""
-        sources.push(source)
-        if (source === "snap_blip")
-          return HttpResponse.json(
-            { error: { code: "busy", message: "try again" } },
-            { status: answer },
-          )
-        return HttpResponse.json(sandboxBody("conversation-1"))
-      }),
-    )
-    const noTokens: SandboxGitTokenStore = {
-      get: async () => null,
-      put: async () => undefined,
-      take: async () => null,
-    }
-    const provider = vercelConversationProvider({
-      credentials,
-      agentPassword: "password",
-      access: {
-        firewall: conversationFirewall("ctxpipe.test"),
-        mintGitToken: async () => "read-token",
-        revokeGitToken: async () => undefined,
-        tokens: noTokens,
-      },
-      tags: { ctxpipe: "workspace-chat", environment: "pr-1" },
-      base: () =>
-        baseForNewSandbox({
-          orgId,
-          workspaceId: ws.id,
-          agent,
-          revision: ws.revision,
+        http.post(API, async ({ request }) => {
+          const body = (await request.json()) as {
+            source?: { snapshotId?: string }
+          }
+          const source = body.source?.snapshotId ?? ""
+          sources.push(source)
+          if (source === "snap_blip")
+            return HttpResponse.json(
+              { error: { code: "busy", message: "try again" } },
+              { status: answer },
+            )
+          return HttpResponse.json(sandboxBody("conversation-1"))
         }),
-      agentSnapshot: async () => "snap_agent",
-    })
-    const handle = await withTestLogger(() =>
-      provider.create({
-        workspace: { source: { type: "none" } },
-      } as Parameters<typeof provider.create>[0]),
-    )
-    expect(handle.id).toBe("conversation-1")
-    // The SDK may retry the failed start before it gives up.
-    expect(sources[0]).toBe("snap_blip")
-    expect(sources.at(-1)).toBe("snap_agent")
-    expect((await getSandboxInstance(baseId, orgId))?.state).toBe(
-      kept ? "live" : "destroy_failed",
-    )
-  })
+      )
+      const noTokens: SandboxGitTokenStore = {
+        get: async () => null,
+        put: async () => undefined,
+        take: async () => null,
+      }
+      const provider = vercelConversationProvider({
+        credentials,
+        agentPassword: "password",
+        access: {
+          firewall: conversationFirewall("ctxpipe.test"),
+          mintGitToken: async () => "read-token",
+          revokeGitToken: async () => undefined,
+          tokens: noTokens,
+        },
+        tags: { ctxpipe: "workspace-chat", environment: "pr-1" },
+        base: () =>
+          baseForNewSandbox({
+            orgId,
+            workspaceId: ws.id,
+            agent,
+            revision: ws.revision,
+          }),
+        agentSnapshot: async () => "snap_agent",
+      })
+      const handle = await withTestLogger(() =>
+        provider.create({
+          workspace: { source: { type: "none" } },
+        } as Parameters<typeof provider.create>[0]),
+      )
+      expect(handle.id).toBe("conversation-1")
+      // The SDK may retry the failed start before it gives up.
+      expect(sources[0]).toBe("snap_blip")
+      expect(sources.at(-1)).toBe("snap_agent")
+      expect((await getSandboxInstance(baseId, orgId))?.state).toBe(
+        kept ? "live" : "destroy_failed",
+      )
+    },
+  )
 })
 
 describe("hosted base retention", () => {
-  it.each([
-    "live",
-    "destroy_failed",
-  ] as const)("keeps a superseded %s base while a conversation sandbox created before the next base was published exists", async (oldState) => {
-    const ws = await workspace()
-    const now = Date.now()
-    const base = (id: string, publishedAt: number) => ({
-      id,
-      kind: "base",
-      orgId,
-      workspaceId: ws.id,
-      provider: "vercel",
-      providerSandboxId: `builder-${id}`,
-      latestSnapshotId: `snap-${id}`,
-      image: agent.image,
-      revision: ws.revision,
-      state: "live",
-      lastHeartbeatAt: new Date(publishedAt),
-      createdAt: new Date(publishedAt),
-    })
-    const oldId = `base:${ws.id}:old`
-    await row({ ...base(oldId, now - 2 * DAY), state: oldState })
-    await row(base(`base:${ws.id}:new`, now - 60_000))
-    // Started from the old base while the new one was still building: it
-    // was created after the new build was reserved, before it published.
-    const conversationRow = `chat-${ws.id}`
-    await row({
-      id: conversationRow,
-      kind: "chat",
-      orgId,
-      workspaceId: ws.id,
-      conversationId: generateObjectId("conv"),
-      provider: "vercel",
-      providerSandboxId: "conversation-old",
-      state: "stopped",
-      lastHeartbeatAt: new Date(now - 5 * 60_000),
-      createdAt: new Date(now - 5 * 60_000),
-    })
-    const deleted: string[] = []
-    server.use(
-      http.get(`${API}/snapshots/:id`, ({ params }) =>
-        HttpResponse.json(snapshotBody(String(params.id), "created")),
-      ),
-      http.delete(`${API}/snapshots/:id`, ({ params }) => {
-        deleted.push(String(params.id))
-        return HttpResponse.json(snapshotBody(String(params.id), "deleted"))
-      }),
-      http.get(`${API}/snapshots`, () =>
-        HttpResponse.json({
-          snapshots: [],
-          pagination: { count: 0, next: null },
+  it.each(["live", "destroy_failed"] as const)(
+    "keeps a superseded %s base while a conversation sandbox created before the next base was published exists",
+    async (oldState) => {
+      const ws = await workspace()
+      const now = Date.now()
+      const base = (id: string, publishedAt: number) => ({
+        id,
+        kind: "base",
+        orgId,
+        workspaceId: ws.id,
+        provider: "vercel",
+        providerSandboxId: `builder-${id}`,
+        latestSnapshotId: `snap-${id}`,
+        image: agent.image,
+        revision: ws.revision,
+        state: "live",
+        lastHeartbeatAt: new Date(publishedAt),
+        createdAt: new Date(publishedAt),
+      })
+      const oldId = `base:${ws.id}:old`
+      await row({ ...base(oldId, now - 2 * DAY), state: oldState })
+      await row(base(`base:${ws.id}:new`, now - 60_000))
+      // Started from the old base while the new one was still building: it
+      // was created after the new build was reserved, before it published.
+      const conversationRow = `chat-${ws.id}`
+      await row({
+        id: conversationRow,
+        kind: "chat",
+        orgId,
+        workspaceId: ws.id,
+        conversationId: generateObjectId("conv"),
+        provider: "vercel",
+        providerSandboxId: "conversation-old",
+        state: "stopped",
+        lastHeartbeatAt: new Date(now - 5 * 60_000),
+        createdAt: new Date(now - 5 * 60_000),
+      })
+      const deleted: string[] = []
+      server.use(
+        http.get(`${API}/snapshots/:id`, ({ params }) =>
+          HttpResponse.json(snapshotBody(String(params.id), "created")),
+        ),
+        http.delete(`${API}/snapshots/:id`, ({ params }) => {
+          deleted.push(String(params.id))
+          return HttpResponse.json(snapshotBody(String(params.id), "deleted"))
         }),
-      ),
-      http.get(`${API}/:name`, () => HttpResponse.json({}, { status: 404 })),
-    )
-    const collect = () =>
-      withTestLogger(() =>
-        collectUnusedWorkspaceBases({ orgId, workspaceId: ws.id, agent }),
+        http.get(`${API}/snapshots`, () =>
+          HttpResponse.json({
+            snapshots: [],
+            pagination: { count: 0, next: null },
+          }),
+        ),
+        http.get(`${API}/:name`, () => HttpResponse.json({}, { status: 404 })),
       )
+      const collect = () =>
+        withTestLogger(() =>
+          collectUnusedWorkspaceBases({ orgId, workspaceId: ws.id, agent }),
+        )
 
-    expect(await collect()).toBe(0)
-    expect(await getSandboxInstance(oldId, orgId)).not.toBeNull()
+      expect(await collect()).toBe(0)
+      expect(await getSandboxInstance(oldId, orgId)).not.toBeNull()
 
-    // That sandbox is gone (deleted 30 days after last use): the old base goes.
-    await withOrgDbContext(orgId, (db) =>
-      db
-        .delete(workspaceSandboxInstances)
-        .where(eq(workspaceSandboxInstances.id, conversationRow)),
-    )
-    expect(await collect()).toBe(1)
-    expect(await getSandboxInstance(oldId, orgId)).toBeNull()
-    expect(deleted).toEqual([`snap-${oldId}`])
-  })
+      // That sandbox is gone (deleted 30 days after last use): the old base goes.
+      await withOrgDbContext(orgId, (db) =>
+        db
+          .delete(workspaceSandboxInstances)
+          .where(eq(workspaceSandboxInstances.id, conversationRow)),
+      )
+      expect(await collect()).toBe(1)
+      expect(await getSandboxInstance(oldId, orgId)).toBeNull()
+      expect(deleted).toEqual([`snap-${oldId}`])
+    },
+  )
 })
 
 describe("Vercel build step", () => {

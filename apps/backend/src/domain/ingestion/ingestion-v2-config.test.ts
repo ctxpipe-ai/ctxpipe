@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import {
   CODE_FORMAT,
   WORKSPACE_FORMAT_INVALID,
@@ -50,14 +51,12 @@ describe("ingestion v2 shadow switch", () => {
     expect(inDeployment(name)).toBe(false)
   })
 
-  it.each([
-    "pr-280",
-    "development",
-    "local-dev",
-    "local-jakub.mac",
-  ])("is on in the deployment %j", (name) => {
-    expect(inDeployment(name)).toBe(true)
-  })
+  it.each(["pr-280", "development", "local-dev", "local-jakub.mac"])(
+    "is on in the deployment %j",
+    (name) => {
+      expect(inDeployment(name)).toBe(true)
+    },
+  )
 
   it("is on in a Railway preview deployment", () => {
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-280")

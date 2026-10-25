@@ -17,6 +17,7 @@ import {
   Button as RACButton,
   RangeCalendar,
 } from "react-aria-components"
+
 import { Button } from "@/components/ui/Button"
 import { CalendarGridHeader, CalendarHeader } from "@/components/ui/Calendar"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -32,6 +33,7 @@ import type { Workspace } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
+
 import {
   type ActivitySearch,
   activitySearch,

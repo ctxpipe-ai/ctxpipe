@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises"
 import { join } from "node:path"
+
 import { REPO_CACHE_DIR } from "../../config/paths.js"
 import { purgeZoektShardsForRepo } from "../zoekt/pinManager.js"
 import { zoektRepositoryName } from "../zoekt/shardPrefix.js"

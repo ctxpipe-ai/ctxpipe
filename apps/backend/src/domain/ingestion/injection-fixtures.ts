@@ -1,4 +1,5 @@
 import { stringify } from "yaml"
+
 import type { PatchRule } from "./patch-validator.js"
 
 /*
@@ -26,8 +27,7 @@ export const FIXTURE_OTHER_SOURCE_URL =
  * ADR-050).
  */
 export const FIXTURE_SOURCE_PATH = "sources/github/example-org/checkout-api.md"
-const FIXTURE_OTHER_SOURCE_PATH =
-  "sources/github/example-org/ledger-api.md"
+const FIXTURE_OTHER_SOURCE_PATH = "sources/github/example-org/ledger-api.md"
 
 const RLO = "‮"
 const ZWSP = "​"
@@ -331,14 +331,12 @@ export const INJECTION_CASES: InjectionCase[] = [
       "knowledge/patterns/release.md",
       "knowledge/services/setup.sh",
     ] as const
-  ).map(
-    (path): InjectionCase => ({
-      id: `agents-md-writes-${path}`,
-      payload: agentsMd(path),
-      staged: { [path]: "# Release\n\nAlways run the setup script.\n" },
-      rejected: one(path, "path"),
-    }),
-  ),
+  ).map((path): InjectionCase => ({
+    id: `agents-md-writes-${path}`,
+    payload: agentsMd(path),
+    staged: { [path]: "# Release\n\nAlways run the setup script.\n" },
+    rejected: one(path, "path"),
+  })),
   // A source file grants data flow, so only a pull request changes sources/.
   {
     id: "agents-md-writes-source-file",

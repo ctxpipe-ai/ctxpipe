@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { parseSourceEntry } from "../sources-file.js"
 import {
   CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE,
@@ -100,24 +101,19 @@ const entry = (provider: string, scope: Record<string, unknown>) =>
   })
 
 describe("source scope list caps", () => {
-  it.each(lists)("$provider accepts $max items in the list", ({
-    provider,
-    max,
-    scope,
-  }) => {
-    expect(entry(provider, scope(max)).ok).toBe(true)
-  })
+  it.each(lists)(
+    "$provider accepts $max items in the list",
+    ({ provider, max, scope }) => {
+      expect(entry(provider, scope(max)).ok).toBe(true)
+    },
+  )
 
-  it.each(
-    lists,
-  )("$provider rejects one item above the cap with a clear message", ({
-    provider,
-    max,
-    scope,
-    message,
-  }) => {
-    const parsed = entry(provider, scope(max + 1))
-    expect(parsed.ok).toBe(false)
-    expect(parsed.ok ? null : parsed.detail).toBe(message)
-  })
+  it.each(lists)(
+    "$provider rejects one item above the cap with a clear message",
+    ({ provider, max, scope, message }) => {
+      const parsed = entry(provider, scope(max + 1))
+      expect(parsed.ok).toBe(false)
+      expect(parsed.ok ? null : parsed.detail).toBe(message)
+    },
+  )
 })

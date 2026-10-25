@@ -1,7 +1,9 @@
 import { writeFileSync } from "node:fs"
+
 import { and, eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaceWriteJobs } from "../../db/schema/workspaces.js"
@@ -124,12 +126,10 @@ it(
         )
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { defineWorkspaceUpgradeScan } = await import(
-          "../../openworkflow/workflows/workspace-upgrade-scan.js"
-        )
-        const { defineWorkspaceUpgrade } = await import(
-          "../../openworkflow/workflows/workspace-upgrade.js"
-        )
+        const { defineWorkspaceUpgradeScan } =
+          await import("../../openworkflow/workflows/workspace-upgrade-scan.js")
+        const { defineWorkspaceUpgrade } =
+          await import("../../openworkflow/workflows/workspace-upgrade.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
@@ -379,12 +379,10 @@ it(
         f.server.use(http.get(PULLS, () => HttpResponse.json(openPulls)))
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { defineWorkspaceUpgradeScan } = await import(
-          "../../openworkflow/workflows/workspace-upgrade-scan.js"
-        )
-        const { defineWorkspaceUpgrade } = await import(
-          "../../openworkflow/workflows/workspace-upgrade.js"
-        )
+        const { defineWorkspaceUpgradeScan } =
+          await import("../../openworkflow/workflows/workspace-upgrade-scan.js")
+        const { defineWorkspaceUpgrade } =
+          await import("../../openworkflow/workflows/workspace-upgrade.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
@@ -487,12 +485,10 @@ it(
         f.server.use(http.get(PULLS, () => HttpResponse.json([])))
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { defineWorkspaceUpgradeScan } = await import(
-          "../../openworkflow/workflows/workspace-upgrade-scan.js"
-        )
-        const { workspaceHydrate } = await import(
-          "../../openworkflow/workflows/workspace-hydrate.js"
-        )
+        const { defineWorkspaceUpgradeScan } =
+          await import("../../openworkflow/workflows/workspace-upgrade-scan.js")
+        const { workspaceHydrate } =
+          await import("../../openworkflow/workflows/workspace-hydrate.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
@@ -584,9 +580,8 @@ it(
         f.server.use(http.get(PULLS, () => HttpResponse.json([])))
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { defineWorkspaceUpgradeScan } = await import(
-          "../../openworkflow/workflows/workspace-upgrade-scan.js"
-        )
+        const { defineWorkspaceUpgradeScan } =
+          await import("../../openworkflow/workflows/workspace-upgrade-scan.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,

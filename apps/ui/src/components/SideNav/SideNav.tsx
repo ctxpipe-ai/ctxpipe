@@ -9,6 +9,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "@tanstack/react-router"
 import { type CSSProperties, useEffect, useRef, useState } from "react"
 import { Button } from "react-aria-components"
+
 import { OverlayNavCloseButton } from "@/components/OverlayNavButton"
 import { useShellLayout } from "@/components/ShellLayoutContext"
 import { WorkspaceCommandPalette } from "@/features/workspaces/WorkspaceCommandPalette"
@@ -23,12 +24,11 @@ import {
   useUserPreferences,
 } from "@/lib/user-preferences"
 import { cn } from "@/lib/utils"
+
 import { prefetchOrgConnectors, prefetchOrgHome } from "./prefetch-org-pages"
 import { SideNavItem } from "./SideNavItem"
 import { SideNavLogo } from "./SideNavLogo"
 import { SideNavOrganizationButton } from "./SideNavOrganizationButton"
-import { SideNavTooltip } from "./SideNavTooltip"
-import { SideNavUserButton } from "./SideNavUserButton"
 import {
   sideNavIconGutterClassName,
   sideNavLabelClassName,
@@ -36,6 +36,8 @@ import {
   sideNavRowClassName,
   sideNavTrailingSlotClassName,
 } from "./sideNavStyles"
+import { SideNavTooltip } from "./SideNavTooltip"
+import { SideNavUserButton } from "./SideNavUserButton"
 
 export function SideNav() {
   const router = useRouter()

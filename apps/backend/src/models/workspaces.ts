@@ -11,6 +11,7 @@ import {
 } from "drizzle-orm"
 import type { AnyPgColumn } from "drizzle-orm/pg-core"
 import { createError } from "evlog"
+
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { conversations } from "../db/schema/conversations.js"
@@ -24,12 +25,12 @@ import {
   workspaces,
 } from "../db/schema/workspaces.js"
 import { firstConnectorTarget } from "../domain/workspaces/dest-workspace-first.js"
+import { initialHydratePhases } from "../domain/workspaces/hydrate-phases.js"
 import {
   type HydrateSkip,
   type HydrateUnit,
   LEGACY_UNIT_SOURCE,
 } from "../domain/workspaces/hydrate.js"
-import { initialHydratePhases } from "../domain/workspaces/hydrate-phases.js"
 import {
   type KnowledgeChunkRow,
   knowledgeChunkRows,

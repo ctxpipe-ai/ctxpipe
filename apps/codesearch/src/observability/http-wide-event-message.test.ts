@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { httpWideEventMessage } from "./http-wide-event-message.js"
 
 describe("httpWideEventMessage", () => {

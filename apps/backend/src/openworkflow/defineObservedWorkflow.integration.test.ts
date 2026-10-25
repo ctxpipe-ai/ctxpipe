@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, expect, it } from "vitest"
 import { z } from "zod"
+
 import { recordSpans } from "../../test/spans.js"
 import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"

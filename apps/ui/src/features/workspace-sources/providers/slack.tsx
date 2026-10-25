@@ -2,6 +2,7 @@ import { IconBrandSlack, IconLock } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
 import { slackScopeSchema } from "backend/domain/workspace-sources/providers/slack"
 import { useState } from "react"
+
 import { Button } from "@/components/ui/Button"
 import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
@@ -12,6 +13,7 @@ import {
   type SlackChannel,
   slackConnectorKeys,
 } from "@/features/connectors/queries/slack-connector"
+
 import type {
   SourceProviderUi,
   SourceScopeEditorProps,

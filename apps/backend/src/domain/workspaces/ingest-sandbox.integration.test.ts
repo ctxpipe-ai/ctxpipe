@@ -4,6 +4,7 @@ import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   closeDb,
@@ -54,9 +55,8 @@ beforeAll(() => {
 })
 
 afterAll(async () => {
-  const { closeOpenWorkflowClient } = await import(
-    "../../openworkflow/client.js"
-  )
+  const { closeOpenWorkflowClient } =
+    await import("../../openworkflow/client.js")
   await closeOpenWorkflowClient()
   await closeDb()
 })

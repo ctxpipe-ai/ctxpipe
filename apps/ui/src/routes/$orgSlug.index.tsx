@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
+
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SKELETON_DELAY_MS } from "@/components/ui/Skeleton"
@@ -26,8 +27,8 @@ import {
 import { WorkspaceCreateModal } from "@/features/workspaces/WorkspaceCreateModal"
 import { useSession } from "@/lib/auth-client"
 import { onboardingHandOffFlag, useSessionFlag } from "@/lib/session-flags"
-import { useRevealOnce } from "@/lib/useRevealOnce"
 import { useUserPreferences } from "@/lib/user-preferences"
+import { useRevealOnce } from "@/lib/useRevealOnce"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
 

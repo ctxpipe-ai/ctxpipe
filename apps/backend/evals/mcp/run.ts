@@ -17,8 +17,10 @@
 import { spawnSync } from "node:child_process"
 import { readFile, writeFile } from "node:fs/promises"
 import { parseArgs } from "node:util"
+
 import { EvalTest, HostRunner, MCPClientManager } from "@mcpjam/sdk"
 import { z } from "zod"
+
 import { type EvalCase, evalCases } from "./cases.js"
 import {
   casePrompt,

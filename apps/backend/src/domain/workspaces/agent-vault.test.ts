@@ -1,6 +1,7 @@
 import { HttpResponse, type HttpResponseResolver, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import { AgentVaultUnavailableError, openRunVault } from "./agent-vault.js"
 
 /**
@@ -84,47 +85,50 @@ describe("openRunVault with unmatchedHosts deny", () => {
     // sweep deletes a vault that the API made all the same.
     ["the create call", "POST", "/v1/vaults", 0],
     ["the settings call", "PATCH", "/settings", 1],
-  ])("fails closed when the answer to %s stops in its body", async (_call, method, path, deletes) => {
-    const address = `http://agent-vault-stalled-${method.toLowerCase()}.test`
-    let stalled: () => void = () => undefined
-    const reached = new Promise<void>((resolve) => {
-      stalled = resolve
-    })
-    const calls = agentVault(
-      address,
-      () => HttpResponse.json({ unmatched_host_policy: "deny" }),
-      // The headers arrive; the body never ends. An abort errors the body,
-      // as the network does.
-      ({ request }) => {
-        if (request.method !== method || !request.url.endsWith(path)) return
-        const body = new ReadableStream<Uint8Array>({
-          start(controller) {
-            controller.enqueue(new TextEncoder().encode('{"unmatched'))
-            request.signal.addEventListener("abort", () =>
-              controller.error(request.signal.reason),
-            )
-            stalled()
-          },
-        })
-        return new HttpResponse(body, {
-          headers: { "content-type": "application/json" },
-        })
-      },
-    )
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
-    try {
-      const outcome = open(address).then(
-        () => "opened",
-        (error: unknown) => error,
+  ])(
+    "fails closed when the answer to %s stops in its body",
+    async (_call, method, path, deletes) => {
+      const address = `http://agent-vault-stalled-${method.toLowerCase()}.test`
+      let stalled: () => void = () => undefined
+      const reached = new Promise<void>((resolve) => {
+        stalled = resolve
+      })
+      const calls = agentVault(
+        address,
+        () => HttpResponse.json({ unmatched_host_policy: "deny" }),
+        // The headers arrive; the body never ends. An abort errors the body,
+        // as the network does.
+        ({ request }) => {
+          if (request.method !== method || !request.url.endsWith(path)) return
+          const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"unmatched'))
+              request.signal.addEventListener("abort", () =>
+                controller.error(request.signal.reason),
+              )
+              stalled()
+            },
+          })
+          return new HttpResponse(body, {
+            headers: { "content-type": "application/json" },
+          })
+        },
       )
-      await reached
-      // The 10 second timeout covers the body, not only the headers.
-      await vi.advanceTimersByTimeAsync(10_000)
-      expect(await outcome).toBeInstanceOf(AgentVaultUnavailableError)
-    } finally {
-      vi.useRealTimers()
-    }
-    expect(calls.deleted).toHaveLength(deletes)
-    expect(calls.sessions).toBe(0)
-  })
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+      try {
+        const outcome = open(address).then(
+          () => "opened",
+          (error: unknown) => error,
+        )
+        await reached
+        // The 10 second timeout covers the body, not only the headers.
+        await vi.advanceTimersByTimeAsync(10_000)
+        expect(await outcome).toBeInstanceOf(AgentVaultUnavailableError)
+      } finally {
+        vi.useRealTimers()
+      }
+      expect(calls.deleted).toHaveLength(deletes)
+      expect(calls.sessions).toBe(0)
+    },
+  )
 })

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { invitationEmailLink } from "./invitation-email-url.js"
 
 describe("invitationEmailLink", () => {

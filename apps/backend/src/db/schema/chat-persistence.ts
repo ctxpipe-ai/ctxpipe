@@ -8,6 +8,7 @@ import {
   primaryKey,
   text,
 } from "drizzle-orm/pg-core"
+
 import { conversations } from "./conversations.js"
 import { orgIsolationPolicy } from "./org-rls.js"
 

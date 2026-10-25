@@ -2,7 +2,9 @@
 
 import { useMutation } from "@tanstack/react-query"
 import { toast } from "sonner"
+
 import { Button } from "@/components/ui/Button"
+
 import { fetchLinearOAuthStart } from "../../queries/linear-connector"
 
 type LinearConnectStepProps = {

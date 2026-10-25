@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
+
 import { upgradeItemFixture } from "@/mocks/workspace-upgrades-handlers"
+
 import {
   formatUpgradeStatusLine,
   pendingFormatUpgrade,

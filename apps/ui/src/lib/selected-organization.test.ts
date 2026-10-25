@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { resolveSelectedOrganizationSlug } from "./selected-organization"
 
 describe("resolveSelectedOrganizationSlug", () => {

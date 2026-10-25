@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs"
 import { join } from "node:path"
+
 import { log, note } from "@clack/prompts"
+
 import { resolveCtxpipeBaseUrl } from "../auth.js"
 import { resolveMemoryRoot, resolveRepoRoot } from "./paths.js"
 import { type UncommittedMemory, uncommittedMemory } from "./uncommitted.js"

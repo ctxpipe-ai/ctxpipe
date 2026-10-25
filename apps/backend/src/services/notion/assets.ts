@@ -1,4 +1,5 @@
 import { posix } from "node:path"
+
 import { log } from "../../observability/logger.js"
 import {
   CONNECTOR_ENTITY_MAX_ASSETS,

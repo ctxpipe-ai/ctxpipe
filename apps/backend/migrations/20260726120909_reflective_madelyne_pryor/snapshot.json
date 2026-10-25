@@ -2,18 +2,10 @@
   "version": "8",
   "dialect": "postgres",
   "id": "f2711932-b53b-48fe-a40f-df0531d81f96",
-  "prevIds": [
-    "97bc910b-559c-41c6-bc4a-2e25560cbcf6"
-  ],
+  "prevIds": ["97bc910b-559c-41c6-bc4a-2e25560cbcf6"],
   "ddl": [
     {
-      "values": [
-        "queued",
-        "running",
-        "ready",
-        "failed",
-        "unindexing"
-      ],
+      "values": ["queued", "running", "ready", "failed", "unindexing"],
       "name": "repository_indexing_status",
       "entityType": "enums",
       "schema": "public"
@@ -4643,14 +4635,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "accounts_user_id_users_id_fkey",
@@ -4660,14 +4648,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
+      "columns": ["organization_id"],
       "schemaTo": "public",
       "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "invitations_organization_id_organizations_id_fkey",
@@ -4677,14 +4661,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "inviter_id"
-      ],
+      "columns": ["inviter_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "invitations_inviter_id_users_id_fkey",
@@ -4694,14 +4674,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
+      "columns": ["organization_id"],
       "schemaTo": "public",
       "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "members_organization_id_organizations_id_fkey",
@@ -4711,14 +4687,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "members_user_id_users_id_fkey",
@@ -4728,14 +4700,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "client_id"
-      ],
+      "columns": ["client_id"],
       "schemaTo": "public",
       "tableTo": "oauth_clients",
-      "columnsTo": [
-        "client_id"
-      ],
+      "columnsTo": ["client_id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_access_tokens_client_id_oauth_clients_client_id_fkey",
@@ -4745,14 +4713,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "session_id"
-      ],
+      "columns": ["session_id"],
       "schemaTo": "public",
       "tableTo": "sessions",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "oauth_access_tokens_session_id_sessions_id_fkey",
@@ -4762,14 +4726,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_access_tokens_user_id_users_id_fkey",
@@ -4779,14 +4739,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "refresh_id"
-      ],
+      "columns": ["refresh_id"],
       "schemaTo": "public",
       "tableTo": "oauth_refresh_tokens",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_access_tokens_refresh_id_oauth_refresh_tokens_id_fkey",
@@ -4796,14 +4752,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_clients_user_id_users_id_fkey",
@@ -4813,14 +4765,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "client_id"
-      ],
+      "columns": ["client_id"],
       "schemaTo": "public",
       "tableTo": "oauth_clients",
-      "columnsTo": [
-        "client_id"
-      ],
+      "columnsTo": ["client_id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_consents_client_id_oauth_clients_client_id_fkey",
@@ -4830,14 +4778,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_consents_user_id_users_id_fkey",
@@ -4847,14 +4791,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "client_id"
-      ],
+      "columns": ["client_id"],
       "schemaTo": "public",
       "tableTo": "oauth_clients",
-      "columnsTo": [
-        "client_id"
-      ],
+      "columnsTo": ["client_id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_refresh_tokens_client_id_oauth_clients_client_id_fkey",
@@ -4864,14 +4804,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "session_id"
-      ],
+      "columns": ["session_id"],
       "schemaTo": "public",
       "tableTo": "sessions",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "oauth_refresh_tokens_session_id_sessions_id_fkey",
@@ -4881,14 +4817,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "oauth_refresh_tokens_user_id_users_id_fkey",
@@ -4898,14 +4830,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "passkeys_user_id_users_id_fkey",
@@ -4915,14 +4843,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "sessions_user_id_users_id_fkey",
@@ -4932,14 +4856,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "two_factors_user_id_users_id_fkey",
@@ -4949,14 +4869,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "claim_id"
-      ],
+      "columns": ["claim_id"],
       "schemaTo": "public",
       "tableTo": "claims",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "claim_evidence_claim_id_claims_id_fkey",
@@ -4966,14 +4882,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "org_id"
-      ],
+      "columns": ["org_id"],
       "schemaTo": "public",
       "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "connections_org_id_organizations_id_fkey",
@@ -4983,14 +4895,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "connection_id"
-      ],
+      "columns": ["connection_id"],
       "schemaTo": "public",
       "tableTo": "connections",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "confluence_spaces_connection_id_connections_id_fkey",
@@ -5000,14 +4908,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "org_id"
-      ],
+      "columns": ["org_id"],
       "schemaTo": "public",
       "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "confluence_sync_targets_org_id_organizations_id_fkey",
@@ -5017,14 +4921,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "connection_id"
-      ],
+      "columns": ["connection_id"],
       "schemaTo": "public",
       "tableTo": "connections",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "confluence_sync_targets_connection_id_connections_id_fkey",
@@ -5034,14 +4934,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "repository_id"
-      ],
+      "columns": ["repository_id"],
       "schemaTo": "public",
       "tableTo": "repositories",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "name": "confluence_sync_targets_repository_id_repositories_id_fkey",
@@ -5051,14 +4947,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "github_connection_id"
-      ],
+      "columns": ["github_connection_id"],
       "schemaTo": "public",
       "tableTo": "connections",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "repositories_github_connection_id_connections_id_fkey",
@@ -5068,14 +4960,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "repository_id"
-      ],
+      "columns": ["repository_id"],
       "schemaTo": "public",
       "tableTo": "repositories",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "repository_checkouts_repository_id_repositories_id_fkey",
@@ -5085,14 +4973,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
+      "columns": ["organization_id"],
       "schemaTo": "public",
       "tableTo": "organizations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "org_onboarding_organization_id_organizations_id_fkey",
@@ -5102,14 +4986,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "completed_by_user_id"
-      ],
+      "columns": ["completed_by_user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "org_onboarding_completed_by_user_id_users_id_fkey",
@@ -5119,14 +4999,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "schemaTo": "public",
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "pending_accounts_user_id_users_id_fkey",
@@ -5135,9 +5011,7 @@
       "table": "pending_accounts"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "accounts_pkey",
       "schema": "public",
@@ -5145,9 +5019,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "apikeys_pkey",
       "schema": "public",
@@ -5155,9 +5027,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "device_codes_pkey",
       "schema": "public",
@@ -5165,9 +5035,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "invitations_pkey",
       "schema": "public",
@@ -5175,9 +5043,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "jwkss_pkey",
       "schema": "public",
@@ -5185,9 +5051,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "members_pkey",
       "schema": "public",
@@ -5195,9 +5059,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "oauth_access_tokens_pkey",
       "schema": "public",
@@ -5205,9 +5067,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "oauth_clients_pkey",
       "schema": "public",
@@ -5215,9 +5075,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "oauth_consents_pkey",
       "schema": "public",
@@ -5225,9 +5083,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "oauth_refresh_tokens_pkey",
       "schema": "public",
@@ -5235,9 +5091,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "organizations_pkey",
       "schema": "public",
@@ -5245,9 +5099,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "passkeys_pkey",
       "schema": "public",
@@ -5255,9 +5107,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "sessions_pkey",
       "schema": "public",
@@ -5265,9 +5115,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "two_factors_pkey",
       "schema": "public",
@@ -5275,9 +5123,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "users_pkey",
       "schema": "public",
@@ -5285,9 +5131,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "verifications_pkey",
       "schema": "public",
@@ -5295,9 +5139,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "claim_evidence_pkey",
       "schema": "public",
@@ -5305,9 +5147,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "claims_pkey",
       "schema": "public",
@@ -5315,9 +5155,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "connections_pkey",
       "schema": "public",
@@ -5325,9 +5163,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "confluence_spaces_pkey",
       "schema": "public",
@@ -5335,9 +5171,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "confluence_sync_targets_pkey",
       "schema": "public",
@@ -5345,9 +5179,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "conversations_pkey",
       "schema": "public",
@@ -5355,9 +5187,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "repositories_pkey",
       "schema": "public",
@@ -5365,9 +5195,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "repository_checkouts_pkey",
       "schema": "public",
@@ -5375,9 +5203,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "objects_pkey",
       "schema": "public",
@@ -5385,9 +5211,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "organization_id"
-      ],
+      "columns": ["organization_id"],
       "nameExplicit": false,
       "name": "org_onboarding_pkey",
       "schema": "public",
@@ -5395,9 +5219,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "pending_accounts_pkey",
       "schema": "public",
@@ -5406,10 +5228,7 @@
     },
     {
       "nameExplicit": true,
-      "columns": [
-        "connection_id",
-        "space_key"
-      ],
+      "columns": ["connection_id", "space_key"],
       "nullsNotDistinct": false,
       "name": "confluence_spaces_connection_space_key_uq",
       "entityType": "uniques",
@@ -5418,10 +5237,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "name",
-        "org_id"
-      ],
+      "columns": ["name", "org_id"],
       "nullsNotDistinct": false,
       "name": "repositories_name_org_id_unique",
       "entityType": "uniques",
@@ -5430,10 +5246,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "git_url",
-        "org_id"
-      ],
+      "columns": ["git_url", "org_id"],
       "nullsNotDistinct": false,
       "name": "repositories_git_url_org_id_unique",
       "entityType": "uniques",
@@ -5442,10 +5255,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "repository_id",
-        "checkout_key"
-      ],
+      "columns": ["repository_id", "checkout_key"],
       "nullsNotDistinct": false,
       "name": "repository_checkouts_repository_id_checkout_key_unique",
       "entityType": "uniques",
@@ -5454,9 +5264,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "token"
-      ],
+      "columns": ["token"],
       "nullsNotDistinct": false,
       "name": "oauth_access_tokens_token_key",
       "schema": "public",
@@ -5465,9 +5273,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "client_id"
-      ],
+      "columns": ["client_id"],
       "nullsNotDistinct": false,
       "name": "oauth_clients_client_id_key",
       "schema": "public",
@@ -5476,9 +5282,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "slug"
-      ],
+      "columns": ["slug"],
       "nullsNotDistinct": false,
       "name": "organizations_slug_key",
       "schema": "public",
@@ -5487,9 +5291,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "token"
-      ],
+      "columns": ["token"],
       "nullsNotDistinct": false,
       "name": "sessions_token_key",
       "schema": "public",
@@ -5498,9 +5300,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "email"
-      ],
+      "columns": ["email"],
       "nullsNotDistinct": false,
       "name": "users_email_key",
       "schema": "public",
@@ -5509,9 +5309,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "zoekt_repo_id"
-      ],
+      "columns": ["zoekt_repo_id"],
       "nullsNotDistinct": false,
       "name": "repository_checkouts_zoekt_repo_id_key",
       "schema": "public",

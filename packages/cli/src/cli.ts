@@ -1,6 +1,8 @@
 import { runProgram } from "./program.js"
 
-export async function runCli(rawArgs: string[] = process.argv.slice(2)): Promise<void> {
+export async function runCli(
+  rawArgs: string[] = process.argv.slice(2),
+): Promise<void> {
   await runProgram(rawArgs)
 }
 

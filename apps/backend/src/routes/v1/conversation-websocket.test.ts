@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto"
+
 import { EventType, memoryStream, type StreamChunk } from "@tanstack/ai"
 import { describe, expect, it, vi } from "vitest"
+
 import {
   bunSocketToWebSocketLike,
   conversationWebSocketHasResumeOffset,

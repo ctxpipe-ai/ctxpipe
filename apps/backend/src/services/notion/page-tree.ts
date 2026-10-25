@@ -29,8 +29,8 @@ function skippable(
 ): error is NotionApiError {
   return Boolean(
     onUnreadable &&
-      error instanceof NotionApiError &&
-      (error.status === 403 || error.status === 404),
+    error instanceof NotionApiError &&
+    (error.status === 403 || error.status === 404),
   )
 }
 

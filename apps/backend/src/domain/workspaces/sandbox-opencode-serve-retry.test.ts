@@ -1,5 +1,6 @@
 import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
 import { describe, expect, it } from "vitest"
+
 import { withOpencodeServeRetry } from "./sandbox-process-guards.js"
 
 async function* lines(...chunks: string[]) {

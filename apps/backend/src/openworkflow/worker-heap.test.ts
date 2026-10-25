@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { workerHeapLimitMib, workerNodeOptions } from "./worker-heap.js"
 
 const GiB = 1024 ** 3

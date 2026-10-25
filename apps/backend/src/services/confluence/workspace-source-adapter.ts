@@ -1,4 +1,5 @@
 import { z } from "zod"
+
 import type { SourceAdapter } from "../../domain/workspace-sources/adapter.js"
 import type { ConfluenceSourceScope } from "../../domain/workspace-sources/providers/confluence.js"
 import type { ForgeSourceSync } from "../../lib/connection-config.js"

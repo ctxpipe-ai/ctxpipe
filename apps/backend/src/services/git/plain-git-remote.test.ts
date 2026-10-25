@@ -9,6 +9,7 @@ import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+
 import {
   afterAll,
   afterEach,
@@ -19,6 +20,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { plainGitUrlPolicy } from "../../domain/workspace-sources/providers/git.js"
 import {
   isMetadataAddress,
@@ -207,23 +209,26 @@ describe("the plain git policy of the deployment mode (SANDBOX_PROVIDER)", () =>
     "64:ff9b::a9fe:a9fe",
     "fd00:ec2::254",
     "fe80::1",
-  ])("docker: refuses a host that resolves to the cloud metadata address %s", async (address) => {
-    vi.stubEnv("SANDBOX_PROVIDER", "docker")
-    await expect(
-      resolvePlainGitRemote(
-        "http://metadata.internal/team/app.git",
-        async () => [{ address }],
-      ),
-    ).rejects.toMatchObject({ rule: "metadata_address" })
-    // The same address as the host of the URL: no DNS lookup.
-    const host = address.includes(":") ? `[${address}]` : address
-    await expect(
-      resolvePlainGitRemote(
-        `http://${host}/latest/meta-data.git`,
-        async () => [],
-      ),
-    ).rejects.toMatchObject({ rule: "metadata_address" })
-  })
+  ])(
+    "docker: refuses a host that resolves to the cloud metadata address %s",
+    async (address) => {
+      vi.stubEnv("SANDBOX_PROVIDER", "docker")
+      await expect(
+        resolvePlainGitRemote(
+          "http://metadata.internal/team/app.git",
+          async () => [{ address }],
+        ),
+      ).rejects.toMatchObject({ rule: "metadata_address" })
+      // The same address as the host of the URL: no DNS lookup.
+      const host = address.includes(":") ? `[${address}]` : address
+      await expect(
+        resolvePlainGitRemote(
+          `http://${host}/latest/meta-data.git`,
+          async () => [],
+        ),
+      ).rejects.toMatchObject({ rule: "metadata_address" })
+    },
+  )
 
   it("keeps only a short list of the backend variables in the git environment, with the proxy, and adds a low-speed limit", () => {
     vi.stubEnv("CTXPIPE_TEST_SECRET", "not-for-git")
@@ -267,25 +272,33 @@ describe("the plain git policy of the deployment mode (SANDBOX_PROVIDER)", () =>
   it.each([
     ["vercel", "vercel"],
     ["unset", undefined],
-  ])("%s: refuses a private host and http, and never allows http in git", async (_mode, value) => {
-    vi.stubEnv("SANDBOX_PROVIDER", value)
-    await expect(
-      resolvePlainGitRemote("https://git.internal/team/app.git", internal),
-    ).rejects.toMatchObject({ rule: "private_host" })
-    await expect(
-      resolvePlainGitRemote("http://git.example.org/team/app.git", lookup),
-    ).rejects.toMatchObject({ rule: "not_https" })
-    await expect(
-      resolvePlainGitRemote("https://private.example.org/team/app.git", lookup),
-    ).rejects.toMatchObject({ rule: "private_address" })
-    const env = plainGitRemoteEnvironment("http://git.example.org/team/app.git")
-    expect(
-      Array.from(
-        { length: Number(env.GIT_CONFIG_COUNT) },
-        (_, i) => env[`GIT_CONFIG_KEY_${i}`],
-      ),
-    ).not.toContain("protocol.http.allow")
-  })
+  ])(
+    "%s: refuses a private host and http, and never allows http in git",
+    async (_mode, value) => {
+      vi.stubEnv("SANDBOX_PROVIDER", value)
+      await expect(
+        resolvePlainGitRemote("https://git.internal/team/app.git", internal),
+      ).rejects.toMatchObject({ rule: "private_host" })
+      await expect(
+        resolvePlainGitRemote("http://git.example.org/team/app.git", lookup),
+      ).rejects.toMatchObject({ rule: "not_https" })
+      await expect(
+        resolvePlainGitRemote(
+          "https://private.example.org/team/app.git",
+          lookup,
+        ),
+      ).rejects.toMatchObject({ rule: "private_address" })
+      const env = plainGitRemoteEnvironment(
+        "http://git.example.org/team/app.git",
+      )
+      expect(
+        Array.from(
+          { length: Number(env.GIT_CONFIG_COUNT) },
+          (_, i) => env[`GIT_CONFIG_KEY_${i}`],
+        ),
+      ).not.toContain("protocol.http.allow")
+    },
+  )
 
   it("docker: the hosted policy, as the hosted egress proxy gives it, stays strict", async () => {
     vi.stubEnv("SANDBOX_PROVIDER", "docker")

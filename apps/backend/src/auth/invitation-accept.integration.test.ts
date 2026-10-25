@@ -1,6 +1,7 @@
 import { eq, inArray } from "drizzle-orm"
 import { Hono } from "hono"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
 import type { AppEnv } from "../app/env.js"
 import { getSystemDb } from "../db/client.js"
@@ -160,19 +161,22 @@ describe("invitation accept on a PR preview (Postgres)", () => {
           headers: new Headers({ origin: base, cookie: owner.cookie }),
         }),
     ],
-  ])("refuses an %s invitation with the code the page maps", async (name, end) => {
-    const email = newEmail(name)
-    const invitationId = await invite(email)
-    const signedUp = await signUp(email)
-    expect(await publicInvitationStatus(invitationId)).toBe(200)
+  ])(
+    "refuses an %s invitation with the code the page maps",
+    async (name, end) => {
+      const email = newEmail(name)
+      const invitationId = await invite(email)
+      const signedUp = await signUp(email)
+      expect(await publicInvitationStatus(invitationId)).toBe(200)
 
-    await end(invitationId)
+      await end(invitationId)
 
-    expect(await publicInvitationStatus(invitationId)).toBe(404)
-    const refused = await accept(invitationId, cookieOf(signedUp))
-    expect(refused.status).toBe(400)
-    expect(await refused.json()).toMatchObject({
-      code: "INVITATION_NOT_FOUND",
-    })
-  })
+      expect(await publicInvitationStatus(invitationId)).toBe(404)
+      const refused = await accept(invitationId, cookieOf(signedUp))
+      expect(refused.status).toBe(400)
+      expect(await refused.json()).toMatchObject({
+        code: "INVITATION_NOT_FOUND",
+      })
+    },
+  )
 })

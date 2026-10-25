@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm"
 import { OpenWorkflow } from "openworkflow"
 import { expect, it, vi } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
@@ -17,8 +18,8 @@ import {
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
-import { workspaceTipCheck } from "./workspace-tip-check.js"
 import { workspaceTipCheckSchedule } from "./workspace-tip-check-schedule.js"
+import { workspaceTipCheck } from "./workspace-tip-check.js"
 
 // The tip check queues its runs in the app namespace, so each fixture worker
 // runs that namespace.

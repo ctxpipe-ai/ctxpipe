@@ -3,6 +3,7 @@ import { AuthUIProviderTanstack } from "@daveyplate/better-auth-ui/tanstack"
 import { Link, useRouter } from "@tanstack/react-router"
 import { type ComponentProps, type FC, useEffect, useRef } from "react"
 import { toast } from "sonner"
+
 import { authClient } from "@/lib/auth-client"
 import { orgGateKeys } from "@/lib/org-gate"
 import { useAuthEvlogIdentity } from "@/lib/useAuthEvlogIdentity"

@@ -1,14 +1,13 @@
 "use client"
 
 import { IconMenu2, IconX } from "@tabler/icons-react"
+
 import { useShellLayout } from "@/components/ShellLayoutContext"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 
 /** Opens the overlay SideNav. Visible only below `md`; hidden while the drawer is open. */
-export function OverlayNavMenuButton(props: {
-  className?: string
-}) {
+export function OverlayNavMenuButton(props: { className?: string }) {
   const { navOpen, toggleNav } = useShellLayout()
 
   return (
@@ -30,9 +29,7 @@ export function OverlayNavMenuButton(props: {
   )
 }
 
-export function OverlayNavCloseButton(props: {
-  className?: string
-}) {
+export function OverlayNavCloseButton(props: { className?: string }) {
   const { setNavOpen } = useShellLayout()
 
   return (

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 
 const mocks = vi.hoisted(() => ({

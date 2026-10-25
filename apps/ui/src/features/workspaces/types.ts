@@ -1,4 +1,5 @@
 import type { InferResponseType } from "hono/client"
+
 import type { ApiClient } from "@/lib/api"
 
 type WithOptional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
 import { runMcpDoctor } from "../src/commands.js"
 import {
   diagnoseMcpEndpoint,
@@ -80,10 +81,7 @@ function initializeOkResponse(): Response {
   })
 }
 
-function apiKeyFetch(
-  secret: string,
-  appOrigin = "https://app.example.com",
-) {
+function apiKeyFetch(secret: string, appOrigin = "https://app.example.com") {
   return vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url =
       input instanceof Request

@@ -1,5 +1,6 @@
 import { lstat, readdir, rm } from "node:fs/promises"
 import { join } from "node:path"
+
 import { ZOEKT_HOT_DIR, ZOEKT_INDEX_DIR } from "../../config/paths.js"
 import { purgeZoektShardsForRepo } from "../zoekt/pinManager.js"
 import {

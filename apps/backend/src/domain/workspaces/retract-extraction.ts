@@ -1,5 +1,7 @@
 import { posix } from "node:path"
+
 import { isAlias, isMap, isSeq } from "yaml"
+
 import {
   editableMetadataNode,
   materializeMetadataAlias,

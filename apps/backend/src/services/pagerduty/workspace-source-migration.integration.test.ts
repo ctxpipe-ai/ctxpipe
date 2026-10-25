@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
@@ -8,8 +9,8 @@ import {
   parseSourceEntry,
   sourcesFileSchema,
 } from "../../domain/workspace-sources/sources-file.js"
-import { parseSourcesYaml } from "../../domain/workspace-sources/sources-yaml.js"
 import { applySourcesYamlChange } from "../../domain/workspace-sources/sources-yaml-edit.js"
+import { parseSourcesYaml } from "../../domain/workspace-sources/sources-yaml.js"
 import { encryptConnectionSecret } from "../../lib/connection-secrets.js"
 import { getPagerdutyConnectionByConnectionId } from "../../models/pagerduty-connector.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"

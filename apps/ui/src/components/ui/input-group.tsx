@@ -2,6 +2,7 @@
 
 import { cva, type VariantProps } from "class-variance-authority"
 import type * as React from "react"
+
 import { Button } from "@/components/ui/Button"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
@@ -117,9 +118,4 @@ function InputGroupTextarea({
   )
 }
 
-export {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupTextarea,
-}
+export { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea }

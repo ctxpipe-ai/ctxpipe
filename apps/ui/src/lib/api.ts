@@ -1,4 +1,5 @@
 import { hc } from "hono/client"
+
 import type {
   registerV1Routes,
   UserScopedV1Rpc,

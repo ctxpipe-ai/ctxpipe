@@ -26,9 +26,15 @@
 import { readFileSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { config } from "dotenv"
+
 import { parseEnv } from "../config/env.js"
 import { closeDb, initDb } from "../db/client.js"
+import {
+  type ComparisonRevisions,
+  compareShadowRun,
+} from "../domain/ingestion/ingestion-compare-run.js"
 import {
   buildComparisonReport,
   type IngestionLabelSet,
@@ -36,10 +42,6 @@ import {
   type RunComparison,
   renderComparisonMarkdown,
 } from "../domain/ingestion/ingestion-compare.js"
-import {
-  type ComparisonRevisions,
-  compareShadowRun,
-} from "../domain/ingestion/ingestion-compare-run.js"
 import { INJECTION_CASES } from "../domain/ingestion/injection-fixtures.js"
 import { resolveRepositoryReadCredential } from "../domain/workspaces/resolve-revision.js"
 import { finishedShadowRunPairs } from "../models/ingestion-shadow-runs.js"

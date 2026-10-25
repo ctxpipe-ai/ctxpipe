@@ -9,6 +9,7 @@ import {
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
 import { GraphWaitState } from "@/features/knowledge-graph/GraphWaitState"
 import { cn } from "@/lib/utils"
+
 import {
   workspaceChatColumnClassName,
   workspaceChromeCardClassName,

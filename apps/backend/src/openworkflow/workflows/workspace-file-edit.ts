@@ -1,4 +1,5 @@
 import { z } from "zod"
+
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { hostOnlyRefusal } from "../../domain/workspaces/host-only.js"
@@ -140,9 +141,8 @@ export const workspaceFileEdit = defineWorkflow(
             return
           await step.run({ name: "enqueue-upgrade-scan" }, async () => {
             try {
-              const { enqueueWorkspaceUpgradeScan } = await import(
-                "./workspace-upgrade-scan.js"
-              )
+              const { enqueueWorkspaceUpgradeScan } =
+                await import("./workspace-upgrade-scan.js")
               await enqueueWorkspaceUpgradeScan({
                 orgId: input.orgId,
                 trigger: `setting:${input.jobId}`,

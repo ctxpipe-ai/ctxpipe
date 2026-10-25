@@ -1,4 +1,5 @@
 import { IconPlugConnected } from "@tabler/icons-react"
+
 import { Button } from "@/components/ui/Button"
 
 type ConnectorsEmptyStateProps = {

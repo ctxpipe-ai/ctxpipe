@@ -11,6 +11,7 @@ import {
   or,
   sql,
 } from "drizzle-orm"
+
 import { repositoryRevisionCheckoutKey } from "../../../../shared/workspace-checkout.js"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { type Db, getOrgDb, withOrgDbContext } from "../db/client.js"
@@ -286,9 +287,8 @@ export async function pruneGithubConnectionRepositoriesNotInGitUrls(
         ),
       )
   })
-  const { enqueueRepositoryDeletionWorkflow } = await import(
-    "../openworkflow/enqueue-repository-deletion.js"
-  )
+  const { enqueueRepositoryDeletionWorkflow } =
+    await import("../openworkflow/enqueue-repository-deletion.js")
   for (const row of rows) {
     if (allowedGitUrls.has(row.gitUrl)) continue
     await enqueueRepositoryDeletionWorkflow(

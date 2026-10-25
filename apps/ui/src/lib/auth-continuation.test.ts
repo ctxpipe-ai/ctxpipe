@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import {
   getAuthContinuationProps,
   getOAuthRedirectUri,
@@ -26,18 +27,17 @@ describe("getAuthContinuationProps", () => {
     })
   })
 
-  it.each([
-    "https://evil.example/",
-    "//evil.example",
-    "javascript:alert(1)",
-  ])("drops a redirectTo that leaves the origin: %j", (value) => {
-    const result = getAuthContinuationProps(
-      origin,
-      `?redirectTo=${encodeURIComponent(value)}`,
-    )
+  it.each(["https://evil.example/", "//evil.example", "javascript:alert(1)"])(
+    "drops a redirectTo that leaves the origin: %j",
+    (value) => {
+      const result = getAuthContinuationProps(
+        origin,
+        `?redirectTo=${encodeURIComponent(value)}`,
+      )
 
-    expect(result).toEqual({ redirectTo: undefined })
-  })
+      expect(result).toEqual({ redirectTo: undefined })
+    },
+  )
 })
 
 describe("getOAuthRedirectUri", () => {

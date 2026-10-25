@@ -3,7 +3,9 @@ import { mkdtemp, open, readFile, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+
 import { trace } from "@opentelemetry/api"
+
 import { withGitProcessSlot } from "./process-slot.js"
 import {
   workspaceRelativePath,

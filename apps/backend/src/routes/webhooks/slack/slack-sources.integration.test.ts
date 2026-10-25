@@ -1,9 +1,11 @@
 import { createHmac } from "node:crypto"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { sql } from "drizzle-orm"
 import { createLogger } from "evlog"
 import { contextStorage } from "hono/context-storage"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
 import { getSystemDb } from "../../../db/client.js"
@@ -102,9 +104,8 @@ describe("Slack webhook starts the mention agent for Workspace sources (Postgres
       sql`delete from connection_directory where org_id = ${seed.orgId}`,
     )
     await seed.cleanup()
-    const { closeOpenWorkflowClient } = await import(
-      "../../../openworkflow/client.js"
-    )
+    const { closeOpenWorkflowClient } =
+      await import("../../../openworkflow/client.js")
     await closeOpenWorkflowClient()
   })
 
@@ -121,19 +122,19 @@ describe("Slack webhook starts the mention agent for Workspace sources (Postgres
         enabled: false,
       },
     },
-  ])("enqueues the agent for a $name installed connection", async ({
-    name,
-    legacyConfig,
-  }) => {
-    const { connectionId, teamId } = await slackConnection(name, {
-      status: "installed",
-      ...legacyConfig,
-    })
-    expect((await mention(teamId, "1790000100.000100")).status).toBe(200)
-    await vi.waitFor(async () =>
-      expect(await runs(connectionId)).toEqual([
-        { threadTs: "1790000000.000100" },
-      ]),
-    )
-  })
+  ])(
+    "enqueues the agent for a $name installed connection",
+    async ({ name, legacyConfig }) => {
+      const { connectionId, teamId } = await slackConnection(name, {
+        status: "installed",
+        ...legacyConfig,
+      })
+      expect((await mention(teamId, "1790000100.000100")).status).toBe(200)
+      await vi.waitFor(async () =>
+        expect(await runs(connectionId)).toEqual([
+          { threadTs: "1790000000.000100" },
+        ]),
+      )
+    },
+  )
 })

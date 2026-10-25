@@ -2,7 +2,9 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { afterEach, expect, it } from "vitest"
+
 import { captureGitPack } from "../../services/git/pack.js"
 import { nativeRenameRewriteFiles } from "./native-rename-rewrite.js"
 

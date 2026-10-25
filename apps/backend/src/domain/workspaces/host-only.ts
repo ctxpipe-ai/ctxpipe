@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util"
+
 import { parseYamlObject, splitFrontMatter } from "../ingestion/front-matter.js"
 import type { HOST_FIELDS } from "../ingestion/patch-validator.js"
 

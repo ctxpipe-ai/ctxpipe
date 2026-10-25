@@ -1,5 +1,6 @@
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
+
 import type { Client, McpAuthMode, Scope } from "../constants.js"
 import { CLIENTS, DEFAULT_BASE_URL, MCP_AUTH_MODES } from "../constants.js"
 import { resolveRepoRoot } from "../memory/paths.js"

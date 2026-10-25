@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm"
+
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
@@ -9,13 +10,13 @@ import { SOURCES_FOLDER_PREFIX } from "../workspace-sources/source-tree.js"
 import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
 import { bootstrapWorkspaceFiles } from "../workspaces/bootstrap.js"
 import { removeFolderMapMarkers } from "../workspaces/folder-list.js"
-import { hydrateKnowledgeTree } from "../workspaces/hydrate.js"
 import {
   claimsUpgradeFiles,
   importKeyCleanupFiles,
   validFromPersistFiles,
   validFromPersistRemainder,
 } from "../workspaces/hydrate-write-jobs.js"
+import { hydrateKnowledgeTree } from "../workspaces/hydrate.js"
 import type { GitUpgradeStep, UpgradeNotice } from "./registry.js"
 
 type UpgradeTree = Parameters<GitUpgradeStep["plan"]>[0]

@@ -8,6 +8,7 @@ import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
 import * as servicediscovery from "aws-cdk-lib/aws-servicediscovery"
 import * as cr from "aws-cdk-lib/custom-resources"
 import { Construct } from "constructs"
+
 import type {
   SandboxHostConstructProps,
   SandboxHostResources,

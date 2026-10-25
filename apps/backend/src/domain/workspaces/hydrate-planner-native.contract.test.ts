@@ -1,16 +1,18 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
 import { bootstrapWorkspaceFiles } from "./bootstrap.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
-import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
 
 it(
   "hydration durably admits each remaining maintenance concern once",
@@ -152,15 +154,12 @@ it(
           namespaceId: openWorkflowNamespaceId(),
         })
         const runner = new OpenWorkflow({ backend })
-        const { workspaceClaimsUpgrade } = await import(
-          "../../openworkflow/workflows/workspace-claims-upgrade.js"
-        )
-        const { workspaceValidFromPersist } = await import(
-          "../../openworkflow/workflows/workspace-valid-from-persist.js"
-        )
-        const { workspaceSemanticMerge } = await import(
-          "../../openworkflow/workflows/workspace-semantic-merge.js"
-        )
+        const { workspaceClaimsUpgrade } =
+          await import("../../openworkflow/workflows/workspace-claims-upgrade.js")
+        const { workspaceValidFromPersist } =
+          await import("../../openworkflow/workflows/workspace-valid-from-persist.js")
+        const { workspaceSemanticMerge } =
+          await import("../../openworkflow/workflows/workspace-semantic-merge.js")
         runner.implementWorkflow(
           workspaceClaimsUpgrade.spec,
           workspaceClaimsUpgrade.fn,
@@ -328,9 +327,8 @@ it(
   { timeout: 60_000 },
   async () => {
     const { withOrgIdContext } = await import("../../auth/withAuth.js")
-    const { listPausedWriteJobs } = await import(
-      "../../models/workspace-write-jobs.js"
-    )
+    const { listPausedWriteJobs } =
+      await import("../../models/workspace-write-jobs.js")
     await withNativeHydrationFixture(
       { github: true, writeStatus: "writable", format: 3 },
       async (f) => {
@@ -508,12 +506,10 @@ it(
   "reserves a new folder-list job for a new folder change on the same root",
   { timeout: 30_000 },
   async () => {
-    const { reserveHydrateWrites } = await import(
-      "../../models/workspace-write-planning.js"
-    )
-    const { persistWriteJobStatus } = await import(
-      "../../models/workspace-write-jobs.js"
-    )
+    const { reserveHydrateWrites } =
+      await import("../../models/workspace-write-planning.js")
+    const { persistWriteJobStatus } =
+      await import("../../models/workspace-write-jobs.js")
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {

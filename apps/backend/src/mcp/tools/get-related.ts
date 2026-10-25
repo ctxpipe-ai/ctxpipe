@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto"
+
 import { and, eq, inArray } from "drizzle-orm"
 import { z } from "zod"
+
 import { withOrgDbContext } from "../../db/client.js"
 import {
   workspaceKnowledgeUnits,
@@ -352,7 +354,7 @@ async function resolveSeeds(
 
 /** The deadline of a search, or a Postgres statement timeout (57014). */
 function isTimeout(error: unknown): boolean {
-  for (let current = error; current; ) {
+  for (let current = error; current;) {
     if (current instanceof DOMException && current.name === "TimeoutError")
       return true
     if (typeof current !== "object") return false

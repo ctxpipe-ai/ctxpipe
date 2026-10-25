@@ -1,5 +1,6 @@
 import { chat } from "@tanstack/ai"
 import { z } from "zod"
+
 import { greenfieldKnowledgePath } from "./layout.js"
 
 /** Distinct connector-target rows: created_at, then id. */

@@ -11,9 +11,10 @@ import {
   useRef,
   useState,
 } from "react"
+
 import { InlineAlert } from "@/components/ui/InlineAlert"
-import { ConversationThread } from "@/features/chat/ConversationThread"
 import { chatDraftKey } from "@/features/chat/chat-draft"
+import { ConversationThread } from "@/features/chat/ConversationThread"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import { reviveChatMessages } from "@/features/chat/reviveChatMessageCreatedAt"
 import type {
@@ -23,15 +24,16 @@ import type {
   ConversationListItem,
 } from "@/features/chat/types"
 import { createTreeFileResolver } from "@/lib/workspace-file-path"
-import { ConversationSyncEntry } from "./ConversationSyncEntry"
-import { ConversationTitleButton } from "./ConversationTitleButton"
-import { ConversationTurnChangesCard } from "./ConversationTurnChangesCard"
+
 import { placeThreadRecords } from "./conversationDiff"
 import {
   conversationAllowsEdits,
   conversationBranchShortName,
   conversationGithubTreeHref,
 } from "./conversationPublish"
+import { ConversationSyncEntry } from "./ConversationSyncEntry"
+import { ConversationTitleButton } from "./ConversationTitleButton"
+import { ConversationTurnChangesCard } from "./ConversationTurnChangesCard"
 import type { ParsedPane } from "./pane"
 import {
   conversationGitTreeOptions,

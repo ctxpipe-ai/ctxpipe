@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
+
 import type { Repository } from "../types"
 import { RepositoryCard } from "./RepositoryCard"
 

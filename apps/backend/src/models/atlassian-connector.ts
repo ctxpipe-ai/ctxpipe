@@ -1,4 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm"
+
 import {
   type Db,
   getOrgDb,
@@ -689,4 +690,3 @@ export async function updateConfluenceSpaceSyncState(input: {
       )
   })
 }
-

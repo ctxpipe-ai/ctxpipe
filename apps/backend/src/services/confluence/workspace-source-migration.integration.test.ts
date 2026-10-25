@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { confluenceSpaces } from "../../db/schema/confluenceSpaces.js"
@@ -10,8 +11,8 @@ import {
   parseSourceEntry,
   sourcesFileSchema,
 } from "../../domain/workspace-sources/sources-file.js"
-import { parseSourcesYaml } from "../../domain/workspace-sources/sources-yaml.js"
 import { applySourcesYamlChange } from "../../domain/workspace-sources/sources-yaml-edit.js"
+import { parseSourcesYaml } from "../../domain/workspace-sources/sources-yaml.js"
 import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"

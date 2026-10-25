@@ -1,11 +1,13 @@
 import type { QueryClient } from "@tanstack/react-query"
 import type { NavigateFn } from "@tanstack/react-router"
+
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { insertConversationListItem } from "@/features/chat/insertConversationListItem"
 import type {
   ConversationDetail,
   ConversationListInfiniteData,
 } from "@/features/chat/types"
+
 import { paneSearchForOtherConversation } from "./pane"
 import {
   workspaceDetailOptions,

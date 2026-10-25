@@ -17,6 +17,7 @@ import {
   ProgressBar as RACProgressBar,
 } from "react-aria-components"
 import { toast } from "sonner"
+
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
 import { Disclosure, DisclosurePanel } from "@/components/ui/Disclosure"
@@ -29,6 +30,7 @@ import { AwaitingMergeLink } from "@/features/workspace-sources/WorkspaceSources
 import type { WorkspaceHydrateView } from "@/features/workspaces/projection"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+
 import {
   editorSetupCommand,
   recordMcpConfigCopied,

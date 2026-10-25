@@ -1,7 +1,9 @@
 import { IconX } from "@tabler/icons-react"
+
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Modal } from "@/components/ui/Modal"
+
 import { WorkspaceCreateForm } from "./WorkspaceCreateForm"
 
 export function WorkspaceCreateModal(props: {

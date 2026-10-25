@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { addedOwnershipField, isHostOnlyPath } from "./host-only.js"
 
 describe("isHostOnlyPath", () => {

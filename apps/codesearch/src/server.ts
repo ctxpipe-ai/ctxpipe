@@ -1,4 +1,5 @@
 import type { Serve } from "bun"
+
 import { createApp } from "./app/app.js"
 import { parseEnv } from "./config/env.js"
 import {

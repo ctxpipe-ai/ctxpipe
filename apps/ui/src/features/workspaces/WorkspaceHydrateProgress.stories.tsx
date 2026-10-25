@@ -1,12 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, waitFor, within } from "storybook/test"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceHydrateProgress } from "./WorkspaceHydrateProgress"
 import {
   failedHydrateWorkspace,
   hydratingWorkspace,
 } from "./workspace-fixtures"
+import { WorkspaceHydrateProgress } from "./WorkspaceHydrateProgress"
 
 const orgSlug = "acme"
 

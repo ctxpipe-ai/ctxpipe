@@ -1,6 +1,7 @@
 import type { BetterAuthPlugin } from "better-auth"
 import { createAuthMiddleware } from "better-auth/api"
 import { eq } from "drizzle-orm"
+
 import { getSystemDb } from "../db/client.js"
 import { apikeys } from "../db/schema/auth.js"
 import {

@@ -1,6 +1,7 @@
 import { render } from "@react-email/render"
 import { createTransport } from "nodemailer"
 import type { ReactElement } from "react"
+
 import { parseEnv } from "../config/env.js"
 import { log } from "../observability/logger.js"
 

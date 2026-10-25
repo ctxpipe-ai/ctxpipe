@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm"
+
 import type { AppEnv } from "../../../app/env.js"
 import type { Env } from "../../../config/env.js"
 import { getOrgDb, withOrgDbContext } from "../../../db/client.js"
@@ -14,10 +15,7 @@ import { githubRowHasOwnApp } from "../../../models/connection-rows.js"
  * Why a GitHub webhook delivery reached no connection. The handler answers 200
  * for such a delivery, so this reason is the only record of the miss.
  */
-type GithubWebhookMissReason =
-  | "no_connection"
-  | "own_app"
-  | "other_connection"
+type GithubWebhookMissReason = "no_connection" | "own_app" | "other_connection"
 
 const MISS_MESSAGES: Record<GithubWebhookMissReason, string> = {
   no_connection:

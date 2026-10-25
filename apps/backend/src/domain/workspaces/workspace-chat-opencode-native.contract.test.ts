@@ -11,6 +11,7 @@ import {
 import { createServer, request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import { type AdapterYieldChunk, chat } from "@tanstack/ai"
 import {
   type OpencodePermissionRequest,
@@ -28,6 +29,7 @@ import {
 } from "@tanstack/ai-sandbox"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { expect, it, vi } from "vitest"
+
 import { createWorkspaceChatPermissionHandler } from "./chat-sandbox-policy.js"
 import { timedSandboxProvider } from "./sandbox-lifecycle-timing.js"
 import { withOpencodeServeRetry } from "./sandbox-process-guards.js"

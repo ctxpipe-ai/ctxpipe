@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest"
+
 import { withTestLogger } from "../test/with-test-logger.js"
 import { withLoggedStepAttempt } from "./withLoggedStepAttempt.js"
 
@@ -64,26 +65,29 @@ describe("withLoggedStepAttempt", () => {
     "SleepSignal",
     "SleepSignalError",
     "StaleExecutionBranchError",
-  ] as const)("rethrows %s without treating it as an attempt failure", async (name) => {
-    const sleepSignal = new Error(name)
-    sleepSignal.name = name
+  ] as const)(
+    "rethrows %s without treating it as an attempt failure",
+    async (name) => {
+      const sleepSignal = new Error(name)
+      sleepSignal.name = name
 
-    await expect(
-      withTestLogger(() =>
-        withLoggedStepAttempt(
-          "some-step",
-          {
-            workflow: "repository-deletion",
-            repositoryId: "repo_1",
-            orgId: "org_1",
-          },
-          async () => {
-            throw sleepSignal
-          },
+      await expect(
+        withTestLogger(() =>
+          withLoggedStepAttempt(
+            "some-step",
+            {
+              workflow: "repository-deletion",
+              repositoryId: "repo_1",
+              orgId: "org_1",
+            },
+            async () => {
+              throw sleepSignal
+            },
+          ),
         ),
-      ),
-    ).rejects.toMatchObject({ name })
-  })
+      ).rejects.toMatchObject({ name })
+    },
+  )
 
   it("rethrows index failures labelled as repository-index", async () => {
     const err = new Error("zoekt failed")

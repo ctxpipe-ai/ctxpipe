@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm"
+
 import type { Db } from "../db/client.js"
 import { userFacingIndexingError } from "../lib/memoryFitError.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"

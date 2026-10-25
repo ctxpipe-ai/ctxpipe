@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { pullRequestBody, pullRequestTitle } from "./pull-request-text.js"
 
 const changes = {

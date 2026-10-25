@@ -1,4 +1,5 @@
 import type { Pool } from "pg"
+
 import { log } from "../observability/logger.js"
 
 const TRANSIENT_CONNECTION_CODES = new Set([

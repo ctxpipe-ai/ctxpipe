@@ -1,7 +1,9 @@
 import { readdir, rename, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
+
 import { eq, sql } from "drizzle-orm"
 import { expect, it } from "vitest"
+
 import { encodeScipIndex } from "../../../../codesearch/src/domain/graph/scipProto.js"
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -1010,7 +1012,9 @@ it(
       expect(String(result)).toContain("Use amberquartz instructions.")
       expect(
         String(
-          await (await freshChatTool(f, "get_file"))?.execute({
+          await (
+            await freshChatTool(f, "get_file")
+          )?.execute({
             repositoryId: f.repositoryId,
             path: "AGENTS.md",
           }),
@@ -1047,7 +1051,9 @@ it(
       expect(String(result)).toContain("sample.js")
       expect(
         String(
-          await (await freshChatTool(f, "glob_files"))?.execute({
+          await (
+            await freshChatTool(f, "glob_files")
+          )?.execute({
             repositoryId: f.repositoryId,
             pattern: "*.js",
           }),

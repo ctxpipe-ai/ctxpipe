@@ -3,6 +3,7 @@ import {
   linearScopeSchema,
   linearTeams,
 } from "backend/domain/workspace-sources/providers/linear"
+
 import type { LinearChecklistItem } from "@/features/connectors/components/linear-setup/LinearScopeChecklist"
 import type { LinearScope } from "@/features/connectors/queries/linear-connector"
 

@@ -10,7 +10,9 @@ import {
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { Readable } from "node:stream"
+
 import { describe, expect, it, vi } from "vitest"
+
 import {
   buildAstGrepArgv,
   resolveStructuralSearchPaths,

@@ -9,6 +9,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { type FakeSmtp, startFakeSmtp } from "../test/fake-smtp.js"
 import { sendEmail } from "./index.js"
 

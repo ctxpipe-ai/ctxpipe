@@ -1,6 +1,8 @@
 import { queryOptions } from "@tanstack/react-query"
+
 import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
+
 import { fetchOrgConnections } from "./org-connections"
 
 export const githubConnectorKeys = {
@@ -141,4 +143,3 @@ export async function patchGithubDraftConnection(
     message: "Failed to save connector",
   })
 }
-

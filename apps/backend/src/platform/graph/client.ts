@@ -1,7 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import { FalkorDB } from "falkordb"
 import neo4j, { type Driver } from "neo4j-driver"
+
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import {
   serverAddressFromUrl,

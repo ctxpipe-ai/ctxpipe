@@ -1,7 +1,8 @@
 import { chat, modelMessagesToUIMessages } from "@tanstack/ai"
-import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import { memoryPersistence, withPersistence } from "@tanstack/ai-persistence"
+import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import { expect, it } from "vitest"
+
 import { withOrderedTranscript } from "./workspace-chat-reasoning-steps.js"
 
 type Chunk = Record<string, unknown>

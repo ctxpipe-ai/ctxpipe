@@ -1,5 +1,6 @@
 import HyperDX from "@hyperdx/browser"
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query"
+
 import { retryQuery } from "./api-result"
 
 /** First query/mutation key segment when it is a string. */

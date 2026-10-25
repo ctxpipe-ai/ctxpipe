@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { confluenceTreeHandlers } from "@/mocks/confluence-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
@@ -11,6 +12,7 @@ import {
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
+
 import { entryPageInnerDecorators } from "../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
 import { docsWorkspace } from "../../../workspaces/workspace-fixtures"

@@ -1,12 +1,11 @@
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import { describe, expect, it } from "vitest"
+
+import { readStoredCtxpipeConfig, resolveCtxpipeBaseUrl } from "../src/auth.js"
 import { DEFAULT_BASE_URL } from "../src/constants.js"
-import {
-  readStoredCtxpipeConfig,
-  resolveCtxpipeBaseUrl,
-} from "../src/auth.js"
 
 function seedConfig(cwd: string, config: Record<string, unknown>): void {
   const dir = join(cwd, ".ctxpipe")
@@ -18,9 +17,9 @@ describe("ctxpipe repo config", () => {
   it("resolveCtxpipeBaseUrl prefers explicit CLI override", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-config-"))
     seedConfig(cwd, { baseUrl: "https://custom.example" })
-    expect(
-      resolveCtxpipeBaseUrl(cwd, "https://cli.example"),
-    ).toBe("https://cli.example")
+    expect(resolveCtxpipeBaseUrl(cwd, "https://cli.example")).toBe(
+      "https://cli.example",
+    )
   })
 
   it("resolveCtxpipeBaseUrl falls back to repo config when CLI uses default", () => {

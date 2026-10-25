@@ -1,6 +1,7 @@
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest"
+
 import { createLogger, withLogger } from "../../observability/logger.js"
 import { updateFolderList } from "./folder-list.js"
 

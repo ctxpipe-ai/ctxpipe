@@ -1,10 +1,12 @@
 import { generateKeyPairSync } from "node:crypto"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { Webhooks } from "@octokit/webhooks"
 import { initLogger } from "evlog"
 import { evlog } from "evlog/hono"
 import { HttpResponse, http } from "msw"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+
 import {
   cleanupSeededOrg,
   type SeededOrg,
@@ -223,35 +225,38 @@ describe("GitHub webhooks reach only the connections they belong to (Postgres)",
         commits: [],
       },
     ],
-  ])("delivers a deployment App %s event to a connection that stores the deployment App's credentials", async (event, payload) => {
-    const copy = await createDraftGithubConnection({
-      orgId: seed.orgId,
-      env,
-      githubAppId: "2",
-      appSlug: "ctxpipe-agent",
-      privateKey: env.GITHUB_PRIVATE_KEY ?? "",
-      webhookSecret: deploymentSecret,
-    })
-    await registerInstallationOnConnection({
-      orgId: seed.orgId,
-      connectionId: copy.id,
-      installationId,
-      env,
-    })
+  ])(
+    "delivers a deployment App %s event to a connection that stores the deployment App's credentials",
+    async (event, payload) => {
+      const copy = await createDraftGithubConnection({
+        orgId: seed.orgId,
+        env,
+        githubAppId: "2",
+        appSlug: "ctxpipe-agent",
+        privateKey: env.GITHUB_PRIVATE_KEY ?? "",
+        webhookSecret: deploymentSecret,
+      })
+      await registerInstallationOnConnection({
+        orgId: seed.orgId,
+        connectionId: copy.id,
+        installationId,
+        env,
+      })
 
-    const res = await deliver(
-      "/api/v1/webhook/github",
-      deploymentSecret,
-      event,
-      payload,
-    )
+      const res = await deliver(
+        "/api/v1/webhook/github",
+        deploymentSecret,
+        event,
+        payload,
+      )
 
-    expect(res.status).toBe(200)
-    expect(spans.attributes()).toMatchObject({
-      "ctxpipe.org.id": seed.orgId,
-      "ctxpipe.connection.id": copy.id,
-    })
-  })
+      expect(res.status).toBe(200)
+      expect(spans.attributes()).toMatchObject({
+        "ctxpipe.org.id": seed.orgId,
+        "ctxpipe.connection.id": copy.id,
+      })
+    },
+  )
 
   it.each([
     ["ignores an installation its own App does not own", installationId, null],
@@ -260,40 +265,46 @@ describe("GitHub webhooks reach only the connections they belong to (Postgres)",
       ownAppInstallationId,
       ownAppInstallationId,
     ],
-  ])("%s from a connection's webhook", async (_, eventInstallationId, attached) => {
-    const draft = await createOwnAppDraft()
+  ])(
+    "%s from a connection's webhook",
+    async (_, eventInstallationId, attached) => {
+      const draft = await createOwnAppDraft()
 
-    const res = await deliver(
-      `/api/v1/webhook/github/${draft.id}`,
-      draftSecret,
-      "installation",
-      { action: "created", installation: { id: eventInstallationId } },
-    )
+      const res = await deliver(
+        `/api/v1/webhook/github/${draft.id}`,
+        draftSecret,
+        "installation",
+        { action: "created", installation: { id: eventInstallationId } },
+      )
 
-    expect(res.status).toBe(200)
-    const rows = await listGithubConnectionsForOrg(seed.orgId)
-    expect(rows.map((row) => row.installationId)).toEqual([attached])
-  })
+      expect(res.status).toBe(200)
+      const rows = await listGithubConnectionsForOrg(seed.orgId)
+      expect(rows.map((row) => row.installationId)).toEqual([attached])
+    },
+  )
 
   it.each([
     ["installation", "created"],
     ["installation_repositories", "added"],
-  ])("attaches nothing when a deployment-signed %s event is replayed to a connection on the deployment App", async (event, action) => {
-    const placeholder = await createPlaceholderGithubConnection({
-      orgId: seed.orgId,
-    })
+  ])(
+    "attaches nothing when a deployment-signed %s event is replayed to a connection on the deployment App",
+    async (event, action) => {
+      const placeholder = await createPlaceholderGithubConnection({
+        orgId: seed.orgId,
+      })
 
-    const res = await deliver(
-      `/api/v1/webhook/github/${placeholder.id}`,
-      deploymentSecret,
-      event,
-      { action, installation: { id: ownAppInstallationId } },
-    )
+      const res = await deliver(
+        `/api/v1/webhook/github/${placeholder.id}`,
+        deploymentSecret,
+        event,
+        { action, installation: { id: ownAppInstallationId } },
+      )
 
-    expect(res.status).toBe(503)
-    const rows = await listGithubConnectionsForOrg(seed.orgId)
-    expect(rows.map((row) => row.installationId)).toEqual([null])
-  })
+      expect(res.status).toBe(503)
+      const rows = await listGithubConnectionsForOrg(seed.orgId)
+      expect(rows.map((row) => row.installationId)).toEqual([null])
+    },
+  )
   describe("logs why a delivery reached no organization or no Workspace", () => {
     const events: Record<string, unknown>[] = []
 
@@ -376,32 +387,38 @@ describe("GitHub webhooks reach only the connections they belong to (Postgres)",
     it.each([
       ["push", push(ownAppInstallationId)],
       ["pull_request", upgradePullRequestMerged(ownAppInstallationId)],
-    ])("names a %s delivery for an installation that no connection has", async (event, payload) => {
-      expect(await deliverLogged(event, payload)).toMatchObject({
-        installationId: ownAppInstallationId,
-        outcome: "no_organization",
-        reason: "no_connection",
-      })
-    })
+    ])(
+      "names a %s delivery for an installation that no connection has",
+      async (event, payload) => {
+        expect(await deliverLogged(event, payload)).toMatchObject({
+          installationId: ownAppInstallationId,
+          outcome: "no_organization",
+          reason: "no_connection",
+        })
+      },
+    )
 
     it.each([
       ["push", push(installationId)],
       ["pull_request", upgradePullRequestMerged(installationId)],
-    ])("names a %s delivery for a connection that uses its own App", async (event, payload) => {
-      const draft = await createOwnAppDraft()
-      await registerInstallationOnConnection({
-        orgId: seed.orgId,
-        connectionId: draft.id,
-        installationId,
-        env,
-      })
+    ])(
+      "names a %s delivery for a connection that uses its own App",
+      async (event, payload) => {
+        const draft = await createOwnAppDraft()
+        await registerInstallationOnConnection({
+          orgId: seed.orgId,
+          connectionId: draft.id,
+          installationId,
+          env,
+        })
 
-      expect(await deliverLogged(event, payload)).toMatchObject({
-        installationId,
-        outcome: "no_organization",
-        reason: "own_app",
-      })
-    })
+        expect(await deliverLogged(event, payload)).toMatchObject({
+          installationId,
+          outcome: "no_organization",
+          reason: "own_app",
+        })
+      },
+    )
 
     it("names a push for an organization that has no Workspace", async () => {
       const placeholder = await createPlaceholderGithubConnection({

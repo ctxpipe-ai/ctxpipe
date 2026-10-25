@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 
 const revision: WorkspaceRevision = {

@@ -11,8 +11,10 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import { DockerHandle } from "@tanstack/ai-sandbox-docker"
 import { describe, expect, it } from "vitest"
+
 import { conversationBaseDiff } from "./conversation-diff.js"
 import {
   ConversationFileChangedError,

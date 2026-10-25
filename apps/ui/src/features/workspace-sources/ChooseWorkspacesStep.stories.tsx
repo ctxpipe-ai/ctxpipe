@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
@@ -9,6 +10,7 @@ import {
   pendingWorkspaceUpgradesHandler,
   upgradeItemFixture,
 } from "@/mocks/workspace-upgrades-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
@@ -16,14 +18,14 @@ import {
   readOnlyWorkspace,
 } from "../workspaces/workspace-fixtures"
 import {
-  CHOOSE_WORKSPACES_HINT,
-  ChooseWorkspacesStep,
-} from "./ChooseWorkspacesStep"
-import {
   type ChooseWorkspacesValue,
   chooseWorkspacesRequests,
   emptyChooseWorkspaces,
 } from "./choose-workspaces"
+import {
+  CHOOSE_WORKSPACES_HINT,
+  ChooseWorkspacesStep,
+} from "./ChooseWorkspacesStep"
 
 /** The step with its state, as a wizard holds it. */
 function StepWithState(

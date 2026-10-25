@@ -1,4 +1,5 @@
 import { type QueryClient, queryOptions } from "@tanstack/react-query"
+
 import {
   fetchSsrOrganizations,
   fetchSsrSession,

@@ -1,5 +1,6 @@
 import { readFile, stat } from "node:fs/promises"
 import { resolve } from "node:path"
+
 import { decodeScipField, scipIndexFields } from "./scipProto.js"
 
 type GraphPrimitiveName =

@@ -8,8 +8,10 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { afterAll, describe, expect, it } from "vitest"
 import { parse, stringify } from "yaml"
+
 import { buildContextIndexEntries } from "./context-index.js"
 import { gitSource, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
@@ -1022,15 +1024,18 @@ describe("ownership skill", () => {
       ["a trailing no-break space", "../apps/web.md\u00a0"],
       ["a trailing ideographic space", "../apps/web.md\u3000"],
       ["an ideographic space before a hash", "../apps/web.md\u3000#x"],
-    ])("skips the file with a reason when a plain claim target has %s", (_name, to) => {
-      const s = teamStep(["claims:", ...claim(to)])
-      const out = s.run("ownership")
-      expect(out.skipped).toContainEqual({
-        path: TEAM,
-        reason: "The file has claims that the script cannot read",
-      })
-      expect(out.ops).toEqual([])
-    })
+    ])(
+      "skips the file with a reason when a plain claim target has %s",
+      (_name, to) => {
+        const s = teamStep(["claims:", ...claim(to)])
+        const out = s.run("ownership")
+        expect(out.skipped).toContainEqual({
+          path: TEAM,
+          reason: "The file has claims that the script cannot read",
+        })
+        expect(out.ops).toEqual([])
+      },
+    )
 
     it("reads no claim from a file with a line or paragraph separator, and pairs no target with a later predicate", async () => {
       const lib = await import(join(INGEST_SKILLS_DIR, "bin/knowledge-lib.mjs"))

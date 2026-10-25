@@ -2,8 +2,10 @@ import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import { parse } from "protobufjs"
 import { describe, expect, it, vi } from "vitest"
+
 import { executeScipGraphQuery } from "./executeGraphPrimitive.js"
 
 vi.mock("node:fs/promises", async (importOriginal) => {

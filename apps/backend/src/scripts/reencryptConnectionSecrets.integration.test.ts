@@ -1,8 +1,10 @@
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
+
 import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto"
 import pg from "pg"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import { getAuth, resetBetterAuthForTests } from "../auth/config.js"
 import type { Env } from "../config/env.js"
 import { closeDb, initDb } from "../db/client.js"

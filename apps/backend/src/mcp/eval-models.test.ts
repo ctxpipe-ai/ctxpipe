@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { openRouterClient, openRouterModelId } from "../../evals/mcp/models.js"
 
 describe("openRouterModelId", () => {

@@ -1,6 +1,8 @@
 import { setTimeout as delay } from "node:timers/promises"
+
 import { type Span, SpanStatusCode } from "@opentelemetry/api"
 import { z } from "zod"
+
 import { type Env, parseEnv } from "../../config/env.js"
 import {
   IngestRefRefusedError,

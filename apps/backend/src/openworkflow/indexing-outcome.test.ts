@@ -1,4 +1,5 @@
 import { expect, it } from "vitest"
+
 import { indexingOutcome } from "./indexing-outcome.js"
 
 it("publishes a complete index as ready", () => {

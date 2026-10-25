@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { createRouter as createTanStackRouter } from "@tanstack/react-router"
 import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query"
+
 import { createHyperDxQueryClient } from "./lib/hyperdxQueryErrors"
 import { routeTree } from "./routeTree.gen"
 

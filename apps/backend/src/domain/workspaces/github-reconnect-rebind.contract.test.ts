@@ -1,6 +1,7 @@
 import { eq, sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
@@ -365,9 +366,8 @@ it(
         )
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { workspaceUpgradeScan } = await import(
-          "../../openworkflow/workflows/workspace-upgrade-scan.js"
-        )
+        const { workspaceUpgradeScan } =
+          await import("../../openworkflow/workflows/workspace-upgrade-scan.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,

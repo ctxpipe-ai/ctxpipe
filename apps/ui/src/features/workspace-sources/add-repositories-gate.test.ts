@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { addRepositoriesGate } from "./add-repositories-gate"
 
 const ready = { formatVersion: 3, codeFormat: 3 }

@@ -3,6 +3,7 @@ import type {
   RegisteredTool,
 } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { Context } from "hono"
+
 import type { AppEnv } from "../app/env.js"
 
 export const MCP_READ_SCOPE = "ctxpipe:read"
@@ -33,9 +34,7 @@ export function grantedMcpScopes(
  * A tool with `readOnlyHint: true` needs `ctxpipe:read`. Each other tool
  * needs `ctxpipe:write`, so a tool without annotations fails closed.
  */
-function requiredMcpScope(
-  tool: Pick<RegisteredTool, "annotations">,
-): McpScope {
+function requiredMcpScope(tool: Pick<RegisteredTool, "annotations">): McpScope {
   return tool.annotations?.readOnlyHint === true
     ? MCP_READ_SCOPE
     : MCP_WRITE_SCOPE

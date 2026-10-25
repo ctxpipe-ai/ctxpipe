@@ -1,9 +1,11 @@
 import { createServer, request as httpRequest } from "node:http"
+
 import type { SandboxHandle, SandboxInstanceRecord } from "@tanstack/ai-sandbox"
-import { runSandboxInstanceStoreConformance } from "@tanstack/ai-sandbox/testkit"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
+import { runSandboxInstanceStoreConformance } from "@tanstack/ai-sandbox/testkit"
 import { eq } from "drizzle-orm"
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest"
+
 import {
   closeDb,
   getSystemDb,
@@ -81,102 +83,105 @@ async function makeStore() {
 
 runSandboxInstanceStoreConformance("native Postgres", makeStore)
 
-it.each([
-  "workspace",
-  "conversation",
-] as const)("rejects a global sandbox key collision across %s owners", async (scope) => {
-  const orgId = generateObjectId("org")
-  const firstWorkspaceId = generateObjectId("ws")
-  const secondWorkspaceId = generateObjectId("ws")
-  const firstConversationId = generateObjectId("conv")
-  const secondConversationId = generateObjectId("conv")
-  const key = `forced-global-key-collision-${orgId}`
-  await getSystemDb().insert(organizations).values({
-    id: orgId,
-    slug: orgId,
-    name: "Sandbox collision proof",
-    createdAt: new Date(),
-  })
-  try {
-    await withOrgDbContext(orgId, (db) =>
-      db.transaction(async (tx) => {
-        await tx.insert(workspaces).values([
-          {
-            id: firstWorkspaceId,
-            orgId,
-            slug: "collision-a",
-            displayName: "Collision A",
-            workspaceRepositoryUrl: "https://example.test/collision-a.git",
-          },
-          {
-            id: secondWorkspaceId,
-            orgId,
-            slug: "collision-b",
-            displayName: "Collision B",
-            workspaceRepositoryUrl: "https://example.test/collision-b.git",
-          },
-        ])
-        await tx.insert(conversations).values([
-          {
-            id: firstConversationId,
-            orgId,
-            workspaceId: firstWorkspaceId,
-          },
-          {
-            id: secondConversationId,
-            orgId,
-            workspaceId:
-              scope === "workspace" ? secondWorkspaceId : firstWorkspaceId,
-          },
-        ])
-      }),
-    )
-    const first = postgresSandboxInstanceStore({
-      orgId,
-      workspaceId: firstWorkspaceId,
-      conversationId: firstConversationId,
-      provider: "docker",
-      image: "node:22",
+it.each(["workspace", "conversation"] as const)(
+  "rejects a global sandbox key collision across %s owners",
+  async (scope) => {
+    const orgId = generateObjectId("org")
+    const firstWorkspaceId = generateObjectId("ws")
+    const secondWorkspaceId = generateObjectId("ws")
+    const firstConversationId = generateObjectId("conv")
+    const secondConversationId = generateObjectId("conv")
+    const key = `forced-global-key-collision-${orgId}`
+    await getSystemDb().insert(organizations).values({
+      id: orgId,
+      slug: orgId,
+      name: "Sandbox collision proof",
+      createdAt: new Date(),
     })
-    const second = postgresSandboxInstanceStore({
-      orgId,
-      workspaceId: scope === "workspace" ? secondWorkspaceId : firstWorkspaceId,
-      conversationId: secondConversationId,
-      provider: "docker",
-      image: "node:22",
-    })
-    const owned: SandboxInstanceRecord = {
-      key,
-      provider: "docker",
-      providerSandboxId: "container-owned-by-a",
-      threadId: firstConversationId,
-      updatedAt: 1,
+    try {
+      await withOrgDbContext(orgId, (db) =>
+        db.transaction(async (tx) => {
+          await tx.insert(workspaces).values([
+            {
+              id: firstWorkspaceId,
+              orgId,
+              slug: "collision-a",
+              displayName: "Collision A",
+              workspaceRepositoryUrl: "https://example.test/collision-a.git",
+            },
+            {
+              id: secondWorkspaceId,
+              orgId,
+              slug: "collision-b",
+              displayName: "Collision B",
+              workspaceRepositoryUrl: "https://example.test/collision-b.git",
+            },
+          ])
+          await tx.insert(conversations).values([
+            {
+              id: firstConversationId,
+              orgId,
+              workspaceId: firstWorkspaceId,
+            },
+            {
+              id: secondConversationId,
+              orgId,
+              workspaceId:
+                scope === "workspace" ? secondWorkspaceId : firstWorkspaceId,
+            },
+          ])
+        }),
+      )
+      const first = postgresSandboxInstanceStore({
+        orgId,
+        workspaceId: firstWorkspaceId,
+        conversationId: firstConversationId,
+        provider: "docker",
+        image: "node:22",
+      })
+      const second = postgresSandboxInstanceStore({
+        orgId,
+        workspaceId:
+          scope === "workspace" ? secondWorkspaceId : firstWorkspaceId,
+        conversationId: secondConversationId,
+        provider: "docker",
+        image: "node:22",
+      })
+      const owned: SandboxInstanceRecord = {
+        key,
+        provider: "docker",
+        providerSandboxId: "container-owned-by-a",
+        threadId: firstConversationId,
+        updatedAt: 1,
+      }
+      await first.upsert(owned)
+      await expect(second.get(key)).rejects.toThrow(
+        "already owned by another workspace identity",
+      )
+      await expect(
+        second.upsert({
+          ...owned,
+          providerSandboxId: "container-owned-by-b",
+          threadId: secondConversationId,
+        }),
+      ).rejects.toThrow("already owned by another workspace identity")
+      await expect(second.delete(key)).rejects.toThrow(
+        "already owned by another workspace identity",
+      )
+      expect(await first.get(key)).toEqual(owned)
+    } finally {
+      await withOrgDbContext(orgId, (db) =>
+        db.transaction(async (tx) => {
+          await tx.delete(conversations).where(eq(conversations.orgId, orgId))
+          await tx.delete(workspaces).where(eq(workspaces.orgId, orgId))
+        }),
+      )
+      await getSystemDb()
+        .delete(organizations)
+        .where(eq(organizations.id, orgId))
     }
-    await first.upsert(owned)
-    await expect(second.get(key)).rejects.toThrow(
-      "already owned by another workspace identity",
-    )
-    await expect(
-      second.upsert({
-        ...owned,
-        providerSandboxId: "container-owned-by-b",
-        threadId: secondConversationId,
-      }),
-    ).rejects.toThrow("already owned by another workspace identity")
-    await expect(second.delete(key)).rejects.toThrow(
-      "already owned by another workspace identity",
-    )
-    expect(await first.get(key)).toEqual(owned)
-  } finally {
-    await withOrgDbContext(orgId, (db) =>
-      db.transaction(async (tx) => {
-        await tx.delete(conversations).where(eq(conversations.orgId, orgId))
-        await tx.delete(workspaces).where(eq(workspaces.orgId, orgId))
-      }),
-    )
-    await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
-  }
-})
+  },
+)
 
 it(
   "keeps sandbox secrets out of Docker create requests",

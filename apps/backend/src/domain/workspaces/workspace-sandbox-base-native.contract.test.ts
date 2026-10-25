@@ -6,10 +6,12 @@ import { basename, join } from "node:path"
 import { PassThrough } from "node:stream"
 import { finished } from "node:stream/promises"
 import { promisify } from "node:util"
+
 import Docker from "dockerode"
 import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   closeDb,
@@ -70,9 +72,8 @@ const exec = promisify(execFile)
 const docker = new Docker({ timeout: 60_000 })
 
 afterAll(async () => {
-  const { closeOpenWorkflowClient } = await import(
-    "../../openworkflow/client.js"
-  )
+  const { closeOpenWorkflowClient } =
+    await import("../../openworkflow/client.js")
   await closeOpenWorkflowClient()
   await closeDb()
 })

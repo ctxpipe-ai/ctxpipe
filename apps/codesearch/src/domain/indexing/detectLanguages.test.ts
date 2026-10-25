@@ -1,7 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { afterEach, describe, expect, it } from "vitest"
+
 import { detectLanguages, type ScipIndexerId } from "./detectLanguages.js"
 
 const temporaryDirectories: string[] = []
@@ -59,16 +61,16 @@ describe("detectLanguages", () => {
     expect(detectLanguages(checkoutPath)).toEqual([])
   })
 
-  it.each([
-    "tsconfig.json",
-    "jsconfig.json",
-  ] as const)("selects typescript from nested-only %s", (marker) => {
-    const checkoutPath = createCheckout()
-    touch(checkoutPath, join("packages", "x", marker))
-    touch(checkoutPath, join("apps", "foo", "package.json"))
+  it.each(["tsconfig.json", "jsconfig.json"] as const)(
+    "selects typescript from nested-only %s",
+    (marker) => {
+      const checkoutPath = createCheckout()
+      touch(checkoutPath, join("packages", "x", marker))
+      touch(checkoutPath, join("apps", "foo", "package.json"))
 
-    expect(detectLanguages(checkoutPath)).toEqual(["typescript"])
-  })
+      expect(detectLanguages(checkoutPath)).toEqual(["typescript"])
+    },
+  )
 
   it("still selects typescript when root tsconfig.json exists alongside nested configs", () => {
     const checkoutPath = createCheckout()

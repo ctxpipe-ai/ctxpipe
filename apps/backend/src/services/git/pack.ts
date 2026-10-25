@@ -5,7 +5,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pipeline } from "node:stream/promises"
 import { promisify } from "node:util"
+
 import { trace } from "@opentelemetry/api"
+
 import { log } from "../../observability/logger.js"
 import { gitRemoteEnvironment } from "./clone-tree.js"
 import { withGitProcessSlot } from "./process-slot.js"

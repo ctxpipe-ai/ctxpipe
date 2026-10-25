@@ -2,10 +2,12 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { stringify } from "yaml"
+
 import { EMPTY_TREE } from "../../test/ingest-step-index.js"
 import { workspaceChatDockerImage } from "../workspaces/chat-runtime.js"
 import { contextIndexAtStepBase } from "./context-index.js"

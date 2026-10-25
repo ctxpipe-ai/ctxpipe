@@ -1,4 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
@@ -12,6 +13,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import { recordSpans } from "../../../test/spans.js"
 import type { AppEnv } from "../../app/env.js"
@@ -307,9 +309,8 @@ afterAll(async () => {
       .where(eq(organizations.id, org.orgId))
   }
   await backend.stop()
-  const { closeOpenWorkflowClient } = await import(
-    "../../openworkflow/client.js"
-  )
+  const { closeOpenWorkflowClient } =
+    await import("../../openworkflow/client.js")
   await closeOpenWorkflowClient()
   await closeDb()
 })

@@ -2,8 +2,10 @@ import { execFile } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
+
 import type { StreamChunk } from "@tanstack/ai"
 import { initLogger } from "evlog"
+
 import {
   bunSocketToWebSocketLike,
   type ConversationWebSocketData,

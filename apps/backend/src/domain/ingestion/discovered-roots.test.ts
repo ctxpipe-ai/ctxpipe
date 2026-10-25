@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { resolveDiscoveredRoots } from "./discovered-roots.js"
 
 const SCRIPT = {

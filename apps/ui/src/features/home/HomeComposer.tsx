@@ -2,6 +2,7 @@ import { IconChevronDown } from "@tabler/icons-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Button as RACButton } from "react-aria-components"
+
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
 import { chatDraftKey } from "@/features/chat/chat-draft"
@@ -12,6 +13,7 @@ import type { Workspace } from "@/features/workspaces/types"
 import { workspaceSuggestions } from "@/features/workspaces/workspace-suggestions"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+
 import { ShowNoticesButton } from "./HomeNotices"
 
 export function HomeComposer(props: {

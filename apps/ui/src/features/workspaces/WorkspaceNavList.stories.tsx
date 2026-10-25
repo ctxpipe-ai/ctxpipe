@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import {
   conversationsListHandler,
   githubInstallationReposHandler,
@@ -18,9 +19,9 @@ import {
   upgradesFixture,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceNavList } from "./WorkspaceNavList"
 import {
   createdWorkspace,
   createdWritableWorkspaceDetail,
@@ -28,6 +29,7 @@ import {
   docsWorkspace,
   readOnlyWorkspace,
 } from "./workspace-fixtures"
+import { WorkspaceNavList } from "./WorkspaceNavList"
 
 const meta = {
   title: "Components/Workspaces/NavList",

@@ -1,4 +1,5 @@
 import { BackendPostgres } from "openworkflow/postgres"
+
 import { log } from "../observability/logger.js"
 
 /** Apply OpenWorkflow schema as the table owner. Runtime connects with migrations off. */

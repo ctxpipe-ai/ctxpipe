@@ -1,5 +1,6 @@
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
+
 import { contextIndexAtStepBase } from "../domain/ingestion/context-index.js"
 
 /** The tree of no file: a projection with no unit. */

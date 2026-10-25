@@ -1,5 +1,6 @@
 import { defineChatMiddleware } from "@tanstack/ai"
 import { expect, it, vi } from "vitest"
+
 import {
   endWorkspaceChatTurn,
   workspaceChatLockMiddleware,

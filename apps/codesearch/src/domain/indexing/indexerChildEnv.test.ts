@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest"
+
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
 
 const envKeysTouchedByTests = [

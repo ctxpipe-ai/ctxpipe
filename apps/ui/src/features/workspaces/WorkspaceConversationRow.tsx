@@ -7,12 +7,13 @@ import {
 import { useRouter } from "@tanstack/react-router"
 import { useEffect, useRef, useState } from "react"
 import { Link } from "react-aria-components"
-import { SideNavTooltip } from "@/components/SideNav/SideNavTooltip"
+
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import {
   sideNavLabelClassName,
   sideNavRowClassName,
 } from "@/components/SideNav/sideNavStyles"
+import { SideNavTooltip } from "@/components/SideNav/SideNavTooltip"
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -24,13 +25,14 @@ import {
   useUserPreferences,
   withSeenConversation,
 } from "@/lib/user-preferences"
-import { ConversationNameInput } from "./ConversationNameInput"
-import { ConversationStatusDot } from "./ConversationStatusDot"
+
 import { conversationShortLabel } from "./conversationLabel"
+import { ConversationNameInput } from "./ConversationNameInput"
 import {
   conversationStatus,
   conversationStatusLabel,
 } from "./conversationStatus"
+import { ConversationStatusDot } from "./ConversationStatusDot"
 import type { paneSearchForOtherConversation } from "./pane"
 import { deleteConversation, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"

@@ -6,6 +6,7 @@ import {
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+
 import { BetterAuthSpanFilter } from "./betterAuthSpanFilter.js"
 
 const exporter = new InMemorySpanExporter()

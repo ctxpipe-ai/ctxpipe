@@ -1,7 +1,9 @@
 import { EventType, StreamProcessor } from "@tanstack/ai"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
+
 import type { ChatMessage } from "@/features/chat/types"
+
 import { ConversationThread } from "./ConversationThread"
 
 function renderThread(

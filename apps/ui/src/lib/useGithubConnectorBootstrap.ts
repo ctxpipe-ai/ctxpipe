@@ -1,12 +1,9 @@
 import { useQuery } from "@tanstack/react-query"
+
 import {
   fetchGithubConnectorBootstrap,
   githubConnectorKeys,
 } from "@/features/connectors/queries/github-connector"
-
-
-
-
 
 export function useGithubConnectorBootstrap(
   orgSlug: string | null,

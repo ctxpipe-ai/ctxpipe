@@ -1,7 +1,9 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import { describe, expect, it } from "vitest"
+
 import { resolveCaptureHost } from "../../src/memory/harness.js"
 
 function dirs(prefix: string): { repo: string; home: string } {
@@ -42,7 +44,10 @@ describe("memory/harness", () => {
 
   it("runs a Claude-format hook as VS Code in VS Code, unless VS Code has its own capture hook", () => {
     const { repo, home } = dirs("harness-vscode")
-    const payload = { timestamp: "2026-09-24T03:00:00Z", stop_hook_active: false }
+    const payload = {
+      timestamp: "2026-09-24T03:00:00Z",
+      stop_hook_active: false,
+    }
     expect(resolveCaptureHost("claude", payload, repo, home)).toBe("vscode")
 
     writeCaptureHook(join(home, ".copilot", "hooks", "ctxpipe-memory.json"))

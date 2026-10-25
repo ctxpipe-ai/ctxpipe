@@ -11,6 +11,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { recordSpans } from "../../../test/spans.js"
 import type { WorkspaceProjectionSnapshot } from "../../models/workspaces.js"
 import {
@@ -132,7 +133,9 @@ async function tool(name: string, kind: "active" | "legacy" = "active") {
 
 describe("workspace chat explorer tools (msw codesearch)", () => {
   it("reads a bound repository, named by its Workspace link", async () => {
-    const result = await (await tool("get_file")).execute({
+    const result = await (
+      await tool("get_file")
+    ).execute({
       repositoryId: "repo_bound",
       path: "OWNERS",
     })
@@ -147,7 +150,9 @@ describe("workspace chat explorer tools (msw codesearch)", () => {
   })
 
   it("lists the linked repository for a legacy projection too", async () => {
-    await (await tool("get_file", "legacy")).execute({
+    await (
+      await tool("get_file", "legacy")
+    ).execute({
       repositoryId: "repo_bound",
       path: "OWNERS",
     })
@@ -160,7 +165,9 @@ describe("workspace chat explorer tools (msw codesearch)", () => {
 
   it("searches the bound Zoekt repository and keeps compact output", async () => {
     const result = String(
-      await (await tool("search")).execute({
+      await (
+        await tool("search")
+      ).execute({
         repositoryId: "repo_bound",
         query: "billing",
       }),
@@ -185,7 +192,9 @@ describe("workspace chat explorer tools (msw codesearch)", () => {
 
   it("refuses a repository outside the Workspace and calls no codesearch", async () => {
     const result = String(
-      await (await tool("get_file")).execute({
+      await (
+        await tool("get_file")
+      ).execute({
         repositoryId: "repo_unrelated",
         path: "OWNERS",
       }),

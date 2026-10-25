@@ -16,6 +16,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
 import { generateEmbeddings } from "./modelProvider.js"

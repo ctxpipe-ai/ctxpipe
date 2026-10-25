@@ -472,7 +472,7 @@ function entropy(value: string): number {
  * the next `://`, so the scans do not overlap.
  */
 function urlPassword(line: string): boolean {
-  for (let at = line.indexOf("://"); at !== -1; ) {
+  for (let at = line.indexOf("://"); at !== -1;) {
     const next = line.indexOf("://", at + 3)
     let end = next === -1 ? line.length : next
     const space = line.slice(at + 3, end).search(/[\s"'`<>)\]]/)

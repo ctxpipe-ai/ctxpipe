@@ -16,6 +16,7 @@ import {
 import { type ComponentType, type ReactNode, useMemo, useState } from "react"
 import { Heading, Link } from "react-aria-components"
 import { toast } from "sonner"
+
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -27,12 +28,13 @@ import {
   useSkeletonHold,
 } from "@/components/ui/Skeleton"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
-import { FormatUpgradeNotice } from "@/features/workspace-upgrades/FormatUpgradeNotice"
 import { workspaceNeedsFormatUpgrade } from "@/features/workspace-upgrades/format-gate"
+import { FormatUpgradeNotice } from "@/features/workspace-upgrades/FormatUpgradeNotice"
 import { workspaceUpgradesOptions } from "@/features/workspace-upgrades/queries"
 import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+
 import {
   GithubSourceRepositories,
   repositoryNeedsAttention,
@@ -49,10 +51,6 @@ import {
 } from "./queries"
 import { RenameSourceDialog } from "./RenameSourceDialog"
 import {
-  SourceEditorDialog,
-  type SourceEditorTarget,
-} from "./SourceEditorDialog"
-import {
   SOURCE_PROVIDER_UI,
   sourceAnchorId,
   sourceProviderLabel,
@@ -68,6 +66,10 @@ import {
   sourceRowsClassName,
   sourceTableHeadClassName,
 } from "./source-table"
+import {
+  SourceEditorDialog,
+  type SourceEditorTarget,
+} from "./SourceEditorDialog"
 
 // The same dot + word shape as `ConnectorHealthIndicator` on the Connectors page.
 const statusBase = "inline-flex shrink-0 items-center gap-1.5 font-mono text-xs"

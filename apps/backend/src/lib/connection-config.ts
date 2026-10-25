@@ -1,4 +1,5 @@
 import { z } from "zod"
+
 import type { Env } from "../config/env.js"
 import {
   decryptConnectionSecret,
@@ -246,8 +247,8 @@ export function linearOauthAppSavedInConfig(
 ): boolean {
   return Boolean(
     stored.oauthClientId &&
-      stored.oauthClientSecretEnc &&
-      stored.webhookSecretEnc,
+    stored.oauthClientSecretEnc &&
+    stored.webhookSecretEnc,
   )
 }
 

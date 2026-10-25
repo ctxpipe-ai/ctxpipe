@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import {
   parseUserPreferences,
   SIDE_NAV_DEFAULT_WIDTH,

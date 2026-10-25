@@ -8,6 +8,7 @@ import {
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { afterAll, beforeEach } from "vitest"
+
 import { AttributionUrlSpanProcessor } from "../src/observability/otel.js"
 
 export type RecordedSpans = {

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+
 import { InlineAlert } from "@/components/ui/InlineAlert"
+
 import type { ActivityBuckets } from "./ActivitySparkline"
 import { GraphWaitState } from "./GraphWaitState"
 import {

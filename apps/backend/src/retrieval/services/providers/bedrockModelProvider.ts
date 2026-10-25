@@ -2,11 +2,9 @@ import {
   ConverseCommand,
   type ToolInputSchema,
 } from "@aws-sdk/client-bedrock-runtime"
+
 import { bedrockConverseInput, withBedrockClient } from "./bedrockConverse.js"
 import { invokeBedrockEmbedding } from "./bedrockEmbeddings.js"
-
-
-
 import {
   HostTextAdapter,
   messageText,
