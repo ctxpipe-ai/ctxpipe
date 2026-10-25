@@ -157,7 +157,7 @@ try {
     const report = join(resultsRoot, "results.json")
     const inventory = join(resultsRoot, "inventory.json")
     writeFileSync(report, JSON.stringify(merged))
-    writeFileSync(inventory, JSON.stringify(files, null, 2) + "\n")
+    writeFileSync(inventory, `${JSON.stringify(files, null, 2)}\n`)
     run(
       "scripts/ci/check-test-report.mjs",
       [report, join(root, baseline), String(status), inventory],
@@ -176,7 +176,7 @@ try {
     const inventory = join(output, "inventory.json")
     const report = join(output, "results.json")
     rmSync(report, { force: true })
-    writeFileSync(inventory, JSON.stringify(files, null, 2) + "\n")
+    writeFileSync(inventory, `${JSON.stringify(files, null, 2)}\n`)
     const lane = { name, directory: packages[name], runtime: "node" }
     for (const step of setupSteps(lane, root)) {
       const built = spawnSync(process.execPath, step.args, {
