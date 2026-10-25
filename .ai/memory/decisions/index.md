@@ -62,5 +62,6 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) | Ingestion as sandbox skills that write patches | Accepted (amended by ADR-050: `sources` holds source paths; revised 2026-10-16: publish gate at format 3, re-ingestion in the upgrade; revised 2026-10-17: no rollback to the old pipeline; revised 2026-10-18: plain git sources) |
 | [ADR-053](ADR-053-minor-upgrades-expand-only-sql-workspace-format.md) | Minor upgrades: expand-only SQL and Workspace format versions in git | Accepted |
 | [ADR-054](ADR-054-secrets-sync-from-github-to-railway.md) | Secrets go from GitHub Environments straight to Railway, not through Terraform | Accepted |
+| [ADR-055](ADR-055-harness-agnostic-agent-setup.md) | Harness-agnostic agent setup: shared `.agents/`, one `AGENTS.md`, thin harness adapters, MCP parity in CI | Accepted |
 
-Numbers 035 and 036 are unused. The next new ADR is 055.
+Numbers 035 and 036 are unused. The next new ADR is 056.

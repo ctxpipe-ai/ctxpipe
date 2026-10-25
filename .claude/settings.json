@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .cursor/hooks/memory-capture.sh memory capture observe --host claude --event UserPromptSubmit"
+            "command": "bash .agents/hooks/memory-capture.sh memory capture observe --host claude --event UserPromptSubmit"
           }
         ]
       }
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .cursor/hooks/memory-capture.sh memory capture finalize --host claude --event Stop"
+            "command": "bash .agents/hooks/memory-capture.sh memory capture finalize --host claude --event Stop"
           }
         ]
       }

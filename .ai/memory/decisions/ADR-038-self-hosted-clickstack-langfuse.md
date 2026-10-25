@@ -16,7 +16,7 @@ Hosted observability was Langfuse Cloud plus unused Better Stack and Amplitude. 
 
 4. **LLM tracing** is the Langfuse LangChain `CallbackHandler` plus `propagateAttributes` ([ADR-011](ADR-011-backend-observability-otel.md)). Spans leave the process once, on the same OTLP exporter. LangSmith is removed ([ADR-006](ADR-006-langsmith-studio-dev-routes.md)).
 
-5. **Resource attribute** `deployment.environment` follows the [observability skill](../../../.cursor/skills/observability/SKILL.md). The backend flushes PR metrics on demand; codesearch exports traces only on PR. Production keeps a 60s metric reader.
+5. **Resource attribute** `deployment.environment` follows the [observability skill](../../../.agents/skills/observability/SKILL.md). The backend flushes PR metrics on demand; codesearch exports traces only on PR. Production keeps a 60s metric reader.
 
 6. **Browser:** `@hyperdx/browser` posts `POST /.otel/v1/$signal` on the same origin. The UI server holds the collector URL and ingest key. Replay is off. Supersedes [ADR-017](ADR-017-amplitude-analytics.md).
 
