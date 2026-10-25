@@ -9,7 +9,7 @@ import { evlog } from "evlog/hono"
 import { contextStorage } from "hono/context-storage"
 import { exportJWK, generateKeyPair, type JWK, SignJWT } from "jose"
 import { HttpResponse, http } from "msw"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { useMswServer } from "../../../../test/msw.js"
 import type { AppEnv } from "../../../app/env.js"
@@ -501,26 +501,23 @@ describe("Forge call verification (Postgres)", () => {
 
   it.each([
     ["a production deployment", "production", undefined, 401],
-    ["a deployment with no NODE_ENV", undefined, undefined, 401],
-    ["an unknown deployment", "test", "staging", 401],
-    ["a Railway production", "test", "production", 401],
+    ["a deployment with no NODE_ENV", undefined, undefined, 204],
+    ["an unknown Railway deployment", "development", "staging", 401],
+    ["a Railway production", "development", "production", 401],
     ["a PR preview", "production", "pr-1", 204],
     ["local development", "development", undefined, 204],
     ["tests", "test", undefined, 204],
   ])(
     "answers a DEVELOPMENT Forge app in %s",
     async (_name, nodeEnv, railway, status) => {
-      vi.stubEnv("NODE_ENV", nodeEnv)
-      try {
-        const res = await postForge(
-          createApp(envWith({ RAILWAY_ENVIRONMENT_NAME: railway })),
-          await bearer(claimsForApp(hostedAppAri, site, "DEVELOPMENT")),
-          lifecycleBody(site),
-        )
-        expect(res.status).toBe(status)
-      } finally {
-        vi.unstubAllEnvs()
-      }
+      const res = await postForge(
+        createApp(
+          envWith({ NODE_ENV: nodeEnv, RAILWAY_ENVIRONMENT_NAME: railway }),
+        ),
+        await bearer(claimsForApp(hostedAppAri, site, "DEVELOPMENT")),
+        lifecycleBody(site),
+      )
+      expect(res.status).toBe(status)
     },
   )
 })

@@ -110,16 +110,14 @@ function getSystemTokenFromHeaders(c: {
  * and local development or tests also accept DEVELOPMENT and STAGING. All
  * other deployments, also an unknown one, accept only PRODUCTION.
  *
- * Off Railway, only a set `NODE_ENV` of `development` or `test` counts as
- * local. `Env.NODE_ENV` defaults an unset value to `development`, so this
- * reads the value from the process.
+ * Off Railway, `NODE_ENV` of `development` or `test` counts as local. An unset
+ * value parses as `development`. The published images set `production`.
  */
 function acceptedForgeEnvironmentTypes(env: Env): string[] {
   const railway = env.RAILWAY_ENVIRONMENT_NAME?.trim()
-  const nodeEnv = process.env.NODE_ENV
   const preview = railway
     ? /^pr-\d+$/.test(railway)
-    : nodeEnv === "development" || nodeEnv === "test"
+    : env.NODE_ENV !== "production"
   return preview ? ["PRODUCTION", "DEVELOPMENT", "STAGING"] : ["PRODUCTION"]
 }
 

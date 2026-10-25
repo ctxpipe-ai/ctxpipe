@@ -77,7 +77,8 @@ A deployment accepts only calls from the Forge `production` environment. A
 Railway PR preview (`RAILWAY_ENVIRONMENT_NAME` is `pr-<number>`) and local
 development (`NODE_ENV` is not `production`, off Railway) also accept the
 `development` and `staging` environments. Deploy your Forge app to the
-`production` environment.
+`production` environment. Set `NODE_ENV=production` when you run the backend
+outside the published images.
 
 ## 3. Finish the connector
 
