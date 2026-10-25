@@ -279,6 +279,12 @@ export function GithubSelfHostedCredentialsStep({
                           </strong>
                           : Read and write
                         </li>
+                        <li>
+                          <strong className="font-medium text-foreground">
+                            Issues
+                          </strong>
+                          : Read-only
+                        </li>
                       </ul>
                     </li>
                     <li>
@@ -316,6 +322,11 @@ export function GithubSelfHostedCredentialsStep({
                     <li>
                       <strong className="font-medium text-foreground">
                         Pull request review comment
+                      </strong>
+                    </li>
+                    <li>
+                      <strong className="font-medium text-foreground">
+                        Issues
                       </strong>
                     </li>
                     <li>

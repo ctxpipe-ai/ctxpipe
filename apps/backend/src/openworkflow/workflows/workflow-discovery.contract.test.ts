@@ -61,6 +61,7 @@ it(
         "workspace-write-connector-mirror",
         "workspace-write-semantic-merge",
         "github-sync-pull-request",
+        "github-sync-issue",
         "workspace-upgrade-scan",
         "workspace-upgrade",
         "workspace-upgrade-reingest",

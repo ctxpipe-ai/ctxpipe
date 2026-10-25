@@ -69,18 +69,24 @@ export function githubPrMirrorIdempotencyKey(input: {
 }
 
 /**
- * One mirror job per Workspace that links the repository; none when no
+ * Start one mirror job per Workspace that links the repository; none when no
  * Workspace does. A failed enqueue throws so the delivery answers 5xx and
  * GitHub's redelivery retries; the idempotency key skips jobs already started.
+ * The issue mirror fans out the same way.
  */
-async function enqueueMirror(input: {
-  installationId: number
-  githubConnectionId?: string
-  repositoryFullName: string
-  number: number
-  candidate?: GithubSyncPullRequestCandidate
-  version: string | undefined
-}): Promise<void> {
+export async function enqueueForLinkingWorkspaces(
+  input: {
+    installationId: number
+    githubConnectionId?: string
+    repositoryFullName: string
+  },
+  start: (target: {
+    orgId: string
+    workspaceId: string
+    gitUrl: string
+    connectionId: string
+  }) => Promise<unknown>,
+): Promise<void> {
   const gitUrl = normalizeWorkspaceRepositoryUrl(
     `https://github.com/${input.repositoryFullName}`,
   )
@@ -95,33 +101,44 @@ async function enqueueMirror(input: {
       orgId: installation.orgId,
       gitUrl,
     })
-    for (const workspaceId of workspaceIds) {
-      await runWorkflowWithWorkerWake(
-        githubSyncPullRequest.spec,
-        {
-          orgId: installation.orgId,
-          workspaceId,
-          gitUrl,
-          connectionId: installation.id,
-          numbers: [input.number],
-          ...(input.candidate ? { candidate: input.candidate } : {}),
-        },
-        {
-          idempotencyKey: githubPrMirrorIdempotencyKey({
-            workspaceId,
-            gitUrl,
-            number: input.number,
-            version: input.version,
-          }),
-        },
-      ).catch((error: unknown) => failures.push(error))
-    }
+    for (const workspaceId of workspaceIds)
+      await start({
+        orgId: installation.orgId,
+        workspaceId,
+        gitUrl,
+        connectionId: installation.id,
+      }).catch((error: unknown) => failures.push(error))
   }
   if (failures.length)
-    throw new AggregateError(
-      failures,
-      "GitHub pull request mirror could not be enqueued",
-    )
+    throw new AggregateError(failures, "GitHub mirror could not be enqueued")
+}
+
+function enqueueMirror(input: {
+  installationId: number
+  githubConnectionId?: string
+  repositoryFullName: string
+  number: number
+  candidate?: GithubSyncPullRequestCandidate
+  version: string | undefined
+}): Promise<void> {
+  return enqueueForLinkingWorkspaces(input, (target) =>
+    runWorkflowWithWorkerWake(
+      githubSyncPullRequest.spec,
+      {
+        ...target,
+        numbers: [input.number],
+        ...(input.candidate ? { candidate: input.candidate } : {}),
+      },
+      {
+        idempotencyKey: githubPrMirrorIdempotencyKey({
+          workspaceId: target.workspaceId,
+          gitUrl: target.gitUrl,
+          number: input.number,
+          version: input.version,
+        }),
+      },
+    ),
+  )
 }
 
 export async function maybeEnqueueGithubPrMirror(input: {

@@ -1,6 +1,36 @@
 # ADR-031: GitHub pull-request scoped mirror
 
-**Status:** Accepted (revised 2026-10-03, 2026-10-13) (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-09-16 | **Tags:** connectors, github, git, graph, ingestion, workspaces
+**Status:** Accepted (revised 2026-10-03, 2026-10-13, 2026-10-25) (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-09-16 | **Tags:** connectors, github, git, graph, ingestion, workspaces
+
+## Revision (2026-10-25): issues follow linked repositories
+
+- **Scope:** the issues of a linked repository, open and closed, are mirrored
+  into every Workspace that links it, the same as closed pull requests. There
+  is no setting; the link is the scope.
+- **Files:** one file per issue at `github/issues/<owner>/<repo>/<number>.md`.
+  GitHub never reuses an issue number. The file holds the description, the
+  labels, the assignees, the state and the comments. The URLs of the pull
+  requests that closed the issue are in the front matter and in the body.
+  Hydrate reads the file as an `Issue`. A GitHub issue or pull request URL in
+  a mirror file links to the mirrored unit of that number (`ghn:` key);
+  GitHub numbers issues and pull requests from one sequence.
+- **Workflow:** `github-sync-issue` is a separate workflow next to
+  `github-sync-pull-request`. It mirrors one webhook issue, or backfills the
+  200 most recently updated issues: one GraphQL request per page of 50 with
+  the first 100 comments of each issue inline, one durable step per page,
+  and one commit. An issue that GitHub no longer has (deleted or moved) is
+  removed from the Workspace.
+- **Triggers:** the `issues` event and the `issue_comment` event on an issue
+  (not on a pull request) fan out to the linked Workspaces as the pull
+  request events do. Hydrate starts the issue backfill of a new link in the
+  same step as the pull request backfill.
+- **Permission:** the App needs **Issues: Read-only** and the **Issues**
+  event. The issue credential asks only for that permission. When the owner
+  of an installation has not accepted it, GitHub refuses the credential and
+  the issue mirror skips with a warning; the pull request mirror is a
+  separate workflow and is not affected. Links that existed before this
+  release, and installations that accept the permission later, get issues as
+  they change, with no backfill.
 
 ## Revision (2026-10-13): closed pull requests and RESOLVES
 

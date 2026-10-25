@@ -65,6 +65,7 @@ Connect GitHub from the **Get started** guide on Home, or from the **Connectors*
 - Code search and extraction across linked repositories.
 - Repo-native docs, ADRs, `AGENTS.md`, skills, and standards as agent context.
 - Pull requests for source changes, Workspace chat changes, and MCP setup.
+- Mirroring of the issues of each linked repository, open and closed.
 - Mirroring of **closed** pull requests, merged or not (conversation,
   reviews, and changed paths, not diffs), into a Workspace. After indexing,
   the knowledge graph records `PullRequest TARGETS` the source repository and
@@ -99,6 +100,25 @@ repository:
 
 Draft and open pull requests are not mirrored. There is no toggle and no
 configuration file.
+
+### Issues follow linked repositories
+
+The issues of a linked repository, open and closed, are mirrored in the same
+way. Each issue is one file at `github/issues/<owner>/<repo>/<number>.md`, with
+its description, labels, assignees, state, and comments:
+
+- **When you link** the repository, ctxpipe backfills up to 200 of its most
+  recently updated issues.
+- **After that**, each change to an issue, and each comment on it, is mirrored
+  as GitHub reports it. When an issue is deleted or moved to another
+  repository, its file is removed.
+- After indexing, the graph has an `Issue` for each file. An issue links to the
+  pull requests that closed it, and a pull request links to each mirrored
+  issue whose URL it contains.
+
+The GitHub App needs the **Issues: Read-only** permission. If the owner of your
+GitHub installation has not accepted that permission, issues are not mirrored,
+and pull requests and code continue to work.
 
 ## After you connect
 

@@ -66,6 +66,7 @@ Set repository permissions:
 
 - **Contents:** Read and write
 - **Pull requests:** Read and write
+- **Issues:** Read-only
 
 Set account permissions:
 
@@ -76,14 +77,35 @@ Subscribe to these events:
 - **Pull request**
 - **Pull request review**
 - **Pull request review comment**
-- **Issue comment** (conversation on pull requests)
+- **Issues**
+- **Issue comment** (conversation on issues and pull requests)
 - **Push**
 - **Repository**
 
-The pull request events mirror merged pull requests of every linked repository
-into the Workspaces that link it. The App installation must be able to read
-those linked repositories. Optional for richer PR conversation: **Issues:
-Read**. Required-check conclusions are not mirrored in v1.
+The pull request events mirror closed pull requests of every linked repository
+into the Workspaces that link it. The **Issues** and **Issue comment** events
+mirror the issues of every linked repository in the same way. The App
+installation must be able to read those linked repositories. Required-check
+conclusions are not mirrored.
+
+### Add the Issues permission to an existing App
+
+An App that you created before the issue mirror does not have **Issues:
+Read-only** or the **Issues** event. Do these steps:
+
+1. In the GitHub App settings, set **Issues** to **Read-only** under
+   repository permissions.
+2. Subscribe to the **Issues** event.
+3. Save the changes.
+4. Tell the owner of each installation of the App to accept the new
+   permission. GitHub shows the request on the installation settings page of
+   that account and sends an email to the owner.
+
+Until the owner of an installation accepts the permission, ctxpipe does not
+mirror the issues of that installation. The pull request mirror and indexing
+continue to work. After the owner accepts, new issue changes are mirrored.
+Issues that did not change after you linked the repository are not mirrored
+until they change, or until you link the repository again.
 
 Write access is required because ctxpipe commits to workspace repositories and
 opens pull requests for connector configuration and Workspace chat. Limit the App
@@ -154,6 +176,13 @@ afterwards.
 The secret in the GitHub App settings must match the secret saved for this ctxpipe
 connection. Do not reuse a connection-specific URL with credentials from
 another connection.
+
+### Issues do not appear in the Workspace
+
+Confirm that the App has **Issues: Read-only**, that it subscribes to the
+**Issues** event, and that the owner of the installation accepted the
+permission. The backend logs `github_issue_mirror_no_permission` for each
+repository that it cannot read issues from.
 
 ### Connector writes fail
 

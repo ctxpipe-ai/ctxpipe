@@ -22,6 +22,7 @@ import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueu
 import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
+import { maybeEnqueueGithubIssueMirror } from "./github-issue-mirror-events.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
 import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.js"
@@ -430,8 +431,27 @@ export async function processGithubWebhookPayload(
       return
     case "pull_request_review":
     case "pull_request_review_comment":
+      await maybeEnqueueGithubPrMirror({
+        eventName,
+        payload,
+        githubConnectionId: opts?.connectionId,
+      })
+      return
+    // A comment goes to the pull request mirror or to the issue mirror.
     case "issue_comment":
       await maybeEnqueueGithubPrMirror({
+        eventName,
+        payload,
+        githubConnectionId: opts?.connectionId,
+      })
+      await maybeEnqueueGithubIssueMirror({
+        eventName,
+        payload,
+        githubConnectionId: opts?.connectionId,
+      })
+      return
+    case "issues":
+      await maybeEnqueueGithubIssueMirror({
         eventName,
         payload,
         githubConnectionId: opts?.connectionId,

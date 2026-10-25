@@ -38,6 +38,32 @@ export function parseGithubPullRequestUrl(
   }
 }
 
+/**
+ * `ghn:<owner>/<repo>#<number>` for a GitHub issue or pull request URL.
+ * GitHub numbers issues and pull requests from one sequence, so both URL
+ * forms of one number give the same key. Owner and repository are
+ * case-insensitive.
+ */
+export function githubIssueOrPullDedupKey(rawUrl: string): string | null {
+  let url: URL
+  try {
+    url = new URL(rawUrl.trim())
+  } catch {
+    return null
+  }
+  if (url.hostname.toLowerCase() !== "github.com") return null
+  const [owner, repo, kind, number] = url.pathname.split("/").filter(Boolean)
+  if (
+    !owner ||
+    !repo ||
+    (kind !== "issues" && kind !== "pull") ||
+    !number ||
+    !/^\d+$/.test(number)
+  )
+    return null
+  return `ghn:${owner.toLowerCase()}/${repo.toLowerCase()}#${Number(number)}`
+}
+
 /** `prq:${sourceRepositoryId}:${number}`; falls back to the GitHub name when unresolved. */
 export function pullRequestDedupKey(input: {
   sourceRepositoryId?: string | null

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { stringify } from "yaml"
 
+import { renderGithubIssue } from "../../services/github/issue-mirror/converter.js"
 import { renderGithubPullRequest } from "../../services/github/pull-request-mirror/converter.js"
 import {
   applyEffectiveValidFromToUnits,
@@ -878,5 +879,73 @@ describe("hydrateKnowledgeTree source files", () => {
         confidence: 1,
       },
     ])
+  })
+})
+
+describe("hydrateKnowledgeTree GitHub issues", () => {
+  it("reads a mirrored issue as an Issue linked to the pull requests that name it", () => {
+    const issue = renderGithubIssue({
+      id: "I_kw1",
+      number: 12,
+      repository: "acme/shop",
+      url: "https://github.com/acme/shop/issues/12",
+      title: "Checkout fails",
+      body: "The total is wrong.",
+      state: "closed",
+      stateReason: "completed",
+      author: { login: "dev", type: "human" },
+      labels: ["bug"],
+      assignees: [],
+      createdAt: "2026-08-30T10:00:00Z",
+      updatedAt: "2026-09-01T10:00:00Z",
+      closedAt: "2026-09-01T10:00:00Z",
+      comments: [],
+      closedBy: ["https://github.com/acme/shop/pull/42"],
+    })
+    const pull = (number: number, body: string) =>
+      renderGithubPullRequest({
+        id: number * 100,
+        number,
+        repository: "acme/shop",
+        url: `https://github.com/acme/shop/pull/${number}`,
+        title: `Change ${number}`,
+        body,
+        state: "closed",
+        merged: true,
+        draft: false,
+        author: { login: "dev", type: "human" },
+        base: { ref: "main", sha: "a".repeat(40) },
+        head: { ref: "change", sha: "b".repeat(40) },
+        reviewDecision: null,
+        labels: [],
+        requestedReviewers: [],
+        createdAt: "2026-08-30T10:00:00Z",
+        updatedAt: "2026-09-01T10:00:00Z",
+        mergedAt: "2026-09-01T10:00:00Z",
+        files: [],
+        reviews: [],
+        comments: [],
+        requiredChecks: [],
+      })
+    const closing = pull(42, "Fix the total.")
+    const mention = pull(
+      43,
+      "Follow-up to https://github.com/ACME/shop/issues/12.",
+    )
+    const other = pull(44, "See https://github.com/acme/other/issues/12.")
+    const { units } = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [issue, closing, mention, other],
+    })
+    const unit = (path: string) => units.find((entry) => entry.path === path)
+    expect(issue.path).toBe("github/issues/acme/shop/12.md")
+    expect(unit(issue.path)).toMatchObject({
+      kind: "Issue",
+      title: "Checkout fails",
+      source: "github",
+      links: [`workspace:${closing.path}`],
+    })
+    expect(unit(mention.path)?.links).toEqual([`workspace:${issue.path}`])
+    expect(unit(other.path)?.links).toEqual([])
   })
 })

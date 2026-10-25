@@ -173,15 +173,20 @@ export function defineWorkspaceHydrateWorkflow() {
       return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
         const orgSql = <T>(fn: () => Promise<T>) =>
           withOrgDbContext(input.orgId, fn)
+        // The step keeps its first name; it also starts the issue backfills.
         const enqueueBackfills = (gitUrls: readonly string[]) =>
           step.run({ name: "enqueue-github-pr-backfills" }, async () => {
             const { enqueueGithubPrBackfills } =
               await import("./github-sync-pull-request.js")
-            await enqueueGithubPrBackfills({
+            const { enqueueGithubIssueBackfills } =
+              await import("./github-sync-issue.js")
+            const links = {
               orgId: input.orgId,
               workspaceId: input.workspaceId,
               gitUrls,
-            })
+            }
+            await enqueueGithubPrBackfills(links)
+            await enqueueGithubIssueBackfills(links)
           })
         // A retry can end early after the projection wrote a source row
         // and before the enqueue was recorded. A later hydrate sees that

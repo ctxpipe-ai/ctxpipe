@@ -50,8 +50,11 @@ const GithubSyncPullRequestInputSchema = z.object({
   candidate: GithubSyncPullRequestCandidateSchema.optional(),
 })
 
-/** Revision to write, the connection that reads the repository, and the row to re-index. */
-async function captureTarget(input: {
+/**
+ * Revision to write, the connection that reads the repository, and the row
+ * to re-index. The GitHub issue mirror uses it too.
+ */
+export async function captureGithubMirrorTarget(input: {
   orgId: string
   workspaceId: string
   gitUrl: string
@@ -73,7 +76,7 @@ async function captureTarget(input: {
     const connectionId = input.connectionId ?? revision.remote.connectionId
     const repository = githubRepoFullNameFromWorkspaceUrl(input.gitUrl)
     if (!connectionId || !repository) {
-      getLogger().warn("github_pr_mirror_no_source", {
+      getLogger().warn("github_mirror_no_source", {
         workspaceId: input.workspaceId,
         gitUrl: input.gitUrl,
       })
@@ -101,11 +104,12 @@ async function captureTarget(input: {
   })
 }
 
-/** The mirror files of the repository with a wrong or missing stamp. */
-async function readStampsToWrite(input: {
+/** The mirror files under `prefix` with a wrong or missing stamp. */
+export async function readGithubMirrorStampsToWrite(input: {
   orgId: string
   workspaceId: string
-  repository: string
+  /** `github/pulls/<owner>/<repo>/` or `github/issues/<owner>/<repo>/`. */
+  prefix: string
   sourcePath: string
 }) {
   const blobs = await readWorkspaceBlobs({
@@ -114,7 +118,7 @@ async function readStampsToWrite(input: {
     env: parseEnv(process.env),
     owners: [
       {
-        prefixes: [`${GITHUB_PR_PULLS_PREFIX}${input.repository}/`],
+        prefixes: [input.prefix],
         sourcePath: input.sourcePath,
       },
     ],
@@ -141,7 +145,7 @@ export const githubSyncPullRequest = defineWorkflow(
       return { written: 0, skipped: "policy" as const }
     const target = await step.run(
       { name: "capture-github-pr-mirror-target" },
-      () => captureTarget(input),
+      () => captureGithubMirrorTarget(input),
     )
     if ("skipped" in target) return { written: 0, skipped: target.skipped }
     const source = {
@@ -187,10 +191,10 @@ export const githubSyncPullRequest = defineWorkflow(
           files,
           sourcePath,
           await step.run({ name: "read-github-pr-mirror-stamps" }, () =>
-            readStampsToWrite({
+            readGithubMirrorStampsToWrite({
               orgId: input.orgId,
               workspaceId: input.workspaceId,
-              repository: target.repository,
+              prefix: `${GITHUB_PR_PULLS_PREFIX}${target.repository}/`,
               sourcePath,
             }),
           ),
