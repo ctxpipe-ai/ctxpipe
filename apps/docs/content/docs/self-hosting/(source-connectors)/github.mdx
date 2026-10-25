@@ -66,6 +66,7 @@ Set repository permissions:
 
 - **Contents:** Read and write
 - **Pull requests:** Read and write
+- **Issues:** Read-only
 
 Set account permissions:
 
@@ -76,14 +77,40 @@ Subscribe to these events:
 - **Pull request**
 - **Pull request review**
 - **Pull request review comment**
-- **Issue comment** (conversation on pull requests)
+- **Issues**
+- **Issue comment** (conversation on issues and pull requests)
 - **Push**
 - **Repository**
 
-The pull request events mirror merged pull requests of every linked repository
-into the Workspaces that link it. The App installation must be able to read
-those linked repositories. Optional for richer PR conversation: **Issues:
-Read**. Required-check conclusions are not mirrored in v1.
+With the pull request events, ctxpipe mirrors the closed pull requests of every
+linked repository into the Workspaces that link it. With the **Issues** and
+**Issue comment** events, ctxpipe mirrors the issues of every linked repository
+in the same way. The App installation must be able to read those linked
+repositories. ctxpipe does not mirror required-check conclusions.
+
+A backfill of the issues of one linked repository reads up to 200 of the most
+recently updated issues. It sends one GraphQL request for each 50 issues, with
+the 100 most recent comments of each issue, and writes all the files in one
+commit.
+
+### Add the Issues permission to an existing App
+
+An App that you created before the issue mirror does not have **Issues:
+Read-only** or the **Issues** event. Do these steps:
+
+1. In the GitHub App settings, set **Issues** to **Read-only** under
+   repository permissions.
+2. Subscribe to the **Issues** event.
+3. Save the changes.
+4. Tell the owner of each installation of the App to accept the new
+   permission. GitHub shows the request on the installation settings page of
+   that account and sends an email to the owner.
+
+Until the owner of an installation accepts the permission, ctxpipe does not
+mirror the issues of that installation. The pull request mirror and indexing
+continue to work. When the owner accepts, GitHub sends an `installation` event,
+and ctxpipe backfills the issues of each linked repository of that account.
+After that, ctxpipe mirrors each issue change.
 
 Write access is required because ctxpipe commits to workspace repositories and
 opens pull requests for connector configuration and Workspace chat. Limit the App
@@ -154,6 +181,19 @@ afterwards.
 The secret in the GitHub App settings must match the secret saved for this ctxpipe
 connection. Do not reuse a connection-specific URL with credentials from
 another connection.
+
+### Issues do not appear in the Workspace
+
+Confirm that the App has **Issues: Read-only** and that it subscribes to the
+**Issues** event. Then find the cause in the backend logs:
+
+- `github_issue_mirror_no_permission`: the owner of the installation did not
+  accept the Issues permission. Tell the owner to accept it on the installation
+  settings page in GitHub. ctxpipe then backfills the issues.
+- `github_issue_mirror_repository_not_covered`: the installation does not have
+  access to the repository. Add the repository to the repository access of the
+  installation in GitHub. After that, ctxpipe mirrors each issue change of
+  that repository.
 
 ### Connector writes fail
 

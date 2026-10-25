@@ -1,6 +1,33 @@
 # ADR-031: GitHub pull-request scoped mirror
 
-**Status:** Accepted (revised 2026-10-03, 2026-10-13) (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-09-16 | **Tags:** connectors, github, git, graph, ingestion, workspaces
+**Status:** Accepted (revised 2026-10-03, 2026-10-13, 2026-10-25) (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-09-16 | **Tags:** connectors, github, git, graph, ingestion, workspaces
+
+## Revision (2026-10-25): issues follow linked repositories
+
+- **Scope:** the issues of a linked repository, open and closed, are mirrored
+  into every Workspace that links it, the same as closed pull requests. There
+  is no setting; the link is the scope.
+- **Files:** one file per issue, named by the issue number, because GitHub
+  never reuses an issue number. Hydrate reads the file as an `Issue`. A
+  GitHub issue or pull request URL in a mirror file links to the mirrored
+  unit of that number, because GitHub numbers issues and pull requests from
+  one sequence.
+- **Workflow:** `github-sync-issue` is a separate workflow next to
+  `github-sync-pull-request`, with the same target, stamp and commit path. It
+  mirrors one webhook issue, or backfills a capped number of the most
+  recently updated issues in one commit. An issue that GitHub no longer has
+  (deleted or moved) is removed from the Workspace.
+- **Triggers:** the `issues` event and the `issue_comment` event on an issue
+  (not on a pull request) fan out to the linked Workspaces as the pull
+  request events do. Hydrate starts the issue backfill of a new link with
+  the pull request backfill. When the owner of an installation accepts new
+  permissions, each GitHub link of that account gets one more issue backfill.
+- **Permission:** the App needs **Issues: Read-only** and the **Issues**
+  event. The issue credential asks only for that permission. When GitHub
+  refuses the credential, the issue mirror skips with a warning that names
+  the cause (permission not accepted, or repository not in the
+  installation); the pull request mirror is a separate workflow and is not
+  affected.
 
 ## Revision (2026-10-13): closed pull requests and RESOLVES
 

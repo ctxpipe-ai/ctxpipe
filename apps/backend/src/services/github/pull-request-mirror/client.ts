@@ -1,8 +1,9 @@
-import type {
-  GithubPrActor,
-  GithubPrFileStatus,
-  GithubPullRequestSnapshot,
-} from "./types.js"
+import {
+  actorFromGraphql,
+  type GithubActor,
+  type GraphqlActor,
+} from "../github-mirror.js"
+import type { GithubPrFileStatus, GithubPullRequestSnapshot } from "./types.js"
 import { GITHUB_PR_FILE_STATUSES } from "./types.js"
 
 type RestClient = {
@@ -57,7 +58,7 @@ function asString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null
 }
 
-function actorFromUser(value: unknown): GithubPrActor {
+function actorFromUser(value: unknown): GithubActor {
   const user = asRecord(value)
   const login = asString(user?.login) ?? "unknown"
   return {
@@ -273,8 +274,6 @@ type Connection<T> = {
   nodes?: Array<T | null>
 }
 
-type GraphqlActor = { login?: string; __typename?: string } | null
-
 type GraphqlComment = {
   databaseId?: number
   author?: GraphqlActor
@@ -358,16 +357,6 @@ const PULL_REQUEST_FIELDS = `
 
 function nodesOf<T>(connection: Connection<T> | undefined): T[] {
   return (connection?.nodes ?? []).filter((node): node is T => node != null)
-}
-
-function actorFromGraphql(actor: GraphqlActor | undefined): GithubPrActor {
-  const bot = actor?.__typename === "Bot"
-  const login = asString(actor?.login) ?? "unknown"
-  // REST names bot accounts `<app>[bot]`; keep text identical across reads.
-  return {
-    login: bot && !login.endsWith("[bot]") ? `${login}[bot]` : login,
-    type: bot ? "bot" : "human",
-  }
 }
 
 const CHANGE_TYPES: Record<string, GithubPrFileStatus> = {
