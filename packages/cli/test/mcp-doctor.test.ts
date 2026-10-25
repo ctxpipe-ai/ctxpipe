@@ -6,7 +6,7 @@ import {
   formatMcpDoctorResult,
 } from "../src/mcp/doctor.js"
 
-const remoteUrl = "https://app.example.com/mcp"
+const remoteUrl = "https://app.example.com/mcp?orgSlug=acme"
 
 function healthyFetch(
   appOrigin = "https://app.example.com",
@@ -112,7 +112,7 @@ describe("diagnoseMcpEndpoint", () => {
   it("accepts loopback HTTP but reports the transport warning", async () => {
     const fetchFn = healthyFetch("http://localhost:3000")
     const result = await diagnoseMcpEndpoint({
-      url: "http://localhost:3000/mcp",
+      url: "http://localhost:3000/mcp?orgSlug=acme",
       fetch: fetchFn,
     })
 
@@ -126,7 +126,7 @@ describe("diagnoseMcpEndpoint", () => {
   it("rejects remote HTTP before making requests", async () => {
     const fetchFn = healthyFetch()
     const result = await diagnoseMcpEndpoint({
-      url: "http://app.example.com/mcp",
+      url: "http://app.example.com/mcp?orgSlug=acme",
       fetch: fetchFn,
     })
 
@@ -143,7 +143,7 @@ describe("diagnoseMcpEndpoint", () => {
       fetch: healthyFetch(),
     })
     const wrongPath = await diagnoseMcpEndpoint({
-      url: "https://app.example.com/api/mcp",
+      url: "https://app.example.com/api/mcp?orgSlug=acme",
       fetch: healthyFetch(),
     })
 
@@ -358,7 +358,7 @@ describe("diagnoseMcpEndpoint", () => {
 
   it("redacts unrelated target query values from JSON and human output", async () => {
     const result = await diagnoseMcpEndpoint({
-      url: `${remoteUrl}?access_token=secret-value`,
+      url: `${remoteUrl}&access_token=secret-value`,
       fetch: healthyFetch(),
     })
     const output = `${JSON.stringify(result)}\n${formatMcpDoctorResult(result)}`

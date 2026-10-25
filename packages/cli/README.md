@@ -42,11 +42,11 @@ Run the lightweight doctor against the exact organisation-scoped endpoint:
 # Local host development
 NODE_EXTRA_CA_CERTS="$HOME/.portless/ca.pem" \
   npx ctxpipe doctor mcp \
-  --url "https://app.ctxpipe.localhost/mcp"
+  --url "https://app.ctxpipe.localhost/mcp?orgSlug=acme"
 
 # Hosted or self-hosted deployment
 npx ctxpipe doctor mcp \
-  --url "https://app.example.com/mcp" \
+  --url "https://app.example.com/mcp?orgSlug=acme" \
   --json
 
 # API-key initialize (reads CTXPIPE_API_KEY from this process)
@@ -68,12 +68,12 @@ investigation:
 
 ```bash
 npx @mcpjam/cli@3.24.0 oauth login \
-  --url "https://app.example.com/mcp" \
+  --url "https://app.example.com/mcp?orgSlug=acme" \
   --registration dcr \
   --credentials-out .mcpjam/credentials.json
 
 npx @mcpjam/cli@3.24.0 tools list \
-  --url "https://app.example.com/mcp" \
+  --url "https://app.example.com/mcp?orgSlug=acme" \
   --credentials-file .mcpjam/credentials.json
 ```
 

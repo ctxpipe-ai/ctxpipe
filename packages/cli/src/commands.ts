@@ -144,6 +144,7 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     ? buildMcpOperations({
         clients: agents,
         baseUrl: answers.baseUrl,
+        org,
         scope,
         auth: mcpAuth,
         context,
@@ -270,6 +271,7 @@ export async function runMcpAdd(opts: McpAddRunOpts): Promise<void> {
   const operations = buildMcpOperations({
     clients,
     baseUrl: values.baseUrl,
+    org,
     scope,
     auth: mcpAuth,
     context: createOperationContext({ commandExists }),

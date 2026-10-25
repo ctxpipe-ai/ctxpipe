@@ -132,7 +132,7 @@ New keys inherit a **30-day** default expiry and a limit of **1,000 requests per
 
 `--auth api-key` writes a client-specific interpolation of `CTXPIPE_API_KEY`, never the secret. That placeholder is safe in repo or user config (`--scope repo`, `user`, or `both`). `init` and `mcp add` do **not** read `CTXPIPE_API_KEY`. Set the variable in the **MCP client** environment so the client can send `x-api-key`. GUI apps often do not inherit the shell that ran the CLI. See [Set CTXPIPE_API_KEY](#set-ctxpipe_api_key).
 
-The CLI writes the generic `/mcp` URL with no query. All keys work on that URL:
+The CLI still writes `?orgSlug=`. The server ignores it. All keys work on the generic `/mcp` URL with no query:
 
 ```json
 {

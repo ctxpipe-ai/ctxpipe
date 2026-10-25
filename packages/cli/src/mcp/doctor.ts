@@ -42,8 +42,10 @@ function isLoopbackHostname(hostname: string): boolean {
 }
 
 function displayTarget(target: URL): string {
+  const orgSlug = target.searchParams.get("orgSlug")
   const display = new URL(target.origin)
   display.pathname = target.pathname
+  if (orgSlug) display.searchParams.set("orgSlug", orgSlug)
   return display.toString()
 }
 

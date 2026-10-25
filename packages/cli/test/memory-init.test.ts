@@ -404,7 +404,7 @@ describe("memory init (end-to-end)", () => {
           mcpServers: {
             ctxpipe: {
               type: "streamable-http",
-              url: "https://app.ctxpipe.ai/mcp",
+              url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
             },
             "ctxpipe-memory": {
               command: "npx",

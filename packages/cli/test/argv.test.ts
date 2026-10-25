@@ -202,7 +202,7 @@ describe("CLI help and argv", () => {
       }
     }
     expect(repoConfig.mcpServers.ctxpipe?.url).toBe(
-      "https://app.ctxpipe.ai/mcp",
+      "https://app.ctxpipe.ai/mcp?orgSlug=acme",
     )
     expect(repoConfig.mcpServers.ctxpipe?.headers).toBeUndefined()
     expect(JSON.stringify(repoConfig)).not.toContain("ctxp_must_not_be_written")
