@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ctxpipe.ai/schemas/checks/trace.v1.schema.json",
+  "title": "ctxpipe check trace",
+  "description": "The gzip-compressed JSON that `pnpm checks:run --trace <dir>` writes to <dir>/trace.json.gz, and that CI uploads as the artifact trace-<commit>. For each traced check and test case, the source lines that the case executed. A reader rejects an unknown schemaVersion. A check that is not in the trace was not traced: that is not proof that it executes no code.",
+  "type": "object",
+  "required": ["schemaVersion", "commit", "checks"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "commit": {
+      "description": "The commit that ran the checks. Line numbers are lines of the files at this commit.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/check"
+      }
+    }
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "required": ["id", "cases"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "The check id from the manifest.",
+          "type": "string"
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/case"
+          }
+        }
+      }
+    },
+    "case": {
+      "type": "object",
+      "required": ["name", "durationMs", "lines"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "The full case name, as in the result records. `<collect>` is the code that ran outside a case: module evaluation, beforeAll and afterAll.",
+          "type": "string"
+        },
+        "durationMs": {
+          "description": "The time of the case and its beforeEach and afterEach hooks.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "lines": {
+          "description": "Repo-relative source path to the sorted, inclusive [first, last] line ranges that ran. A range can include lines with no code (blank lines, comments, types).",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
