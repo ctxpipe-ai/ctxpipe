@@ -5,6 +5,9 @@ const withMDX = createMDX()
 const config = withMDX({
   reactStrictMode: true,
   output: "standalone",
+  async rewrites() {
+    return [{ source: "/docs/:path*.mdx", destination: "/llms.mdx/:path*" }]
+  },
   async redirects() {
     return [
       {
