@@ -201,10 +201,17 @@ it(
         githubWriteView: "writable",
         writeStatus: "writable",
         format: 3,
-        files: [{ path: "README.md", body: "# Context\n" }],
+        files: [
+          {
+            path: "sources/github/example/tools.md",
+            body: "---\nprovider: github\nconnection: {{connectionId}}\nrepository: example/tools\n---\nThe tools repository.\n",
+          },
+        ],
       },
       async (f) => {
-        await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
+        // Hydration records the source repository of the Workspace.
+        await f.worker.start()
+        await f.handle.result({ timeoutMs: 60_000 })
         const bundle = await readIngestSkillBundle()
         const doneKey = reingestUpgradeKey(bundle.version)
         const waitingKey = reingestUpgradeKey("ingest-5e55efbeee7bd96b")
