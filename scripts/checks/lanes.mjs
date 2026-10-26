@@ -8,7 +8,7 @@ import { setupSteps, vitestCommand } from "../ci/vitest-launch.mjs"
 import { logFile, logged } from "./log.mjs"
 import { freshParts, laneChecks as readParts } from "./trace.mjs"
 
-export const root = fileURLToPath(new URL("../../", import.meta.url))
+const root = fileURLToPath(new URL("../../", import.meta.url))
 
 // Each lane is one Vitest run: one package directory, one config, one runtime.
 // The CI scripts own which test files belong to a lane; this module only reads
@@ -82,7 +82,7 @@ const nativePrerequisites = [
   "ast-grep",
   "chat-sandbox-image",
 ]
-export const lanes = {
+const lanes = {
   backend: {
     directory: "apps/backend",
     runtime: "node",
