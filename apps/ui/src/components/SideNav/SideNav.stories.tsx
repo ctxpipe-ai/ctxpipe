@@ -172,7 +172,7 @@ export const DocsLinkOpensProductDocs: Story = {
   parameters: {
     ...SingleWorkspace.parameters,
     intent:
-      "Catches a Docs link that is missing from the main navigation, does not open the product docs in a new tab, or has no name in the collapsed rail. Not for the other footer items.",
+      "Catches a Docs link that is missing from the main navigation or does not open the product docs in a new tab. Also catches a Docs link with no name in the collapsed rail. Not for the other footer items.",
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

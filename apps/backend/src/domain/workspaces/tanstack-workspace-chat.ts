@@ -1016,7 +1016,7 @@ async function startWorkspaceChat(
             const rootPrompts = [
               JSON.stringify({
                 type: "ctxpipe_docs",
-                instructions: `For a question about ctxpipe itself (Workspaces, sources, upgrades, MCP setup, self-hosting), read ${DOCS_URL}/llms.txt, then the page that matches. Answer from that page and give its URL. If you cannot read it, give the user ${DOCS_URL}. The Workspace knowledge is about this organization, not about ctxpipe.`,
+                instructions: `For a question about ctxpipe itself (Workspaces, sources, upgrades, MCP setup, self-hosting), read ${DOCS_URL}/llms.txt, then the page that matches. Answer from that page, and give its URL without the .mdx ending. Do not answer such a question from the Workspace knowledge: it is about this organization, not about ctxpipe. If you cannot read the docs, give the user ${DOCS_URL}.`,
               }),
               ...(rootPath
                 ? [

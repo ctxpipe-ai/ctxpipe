@@ -250,7 +250,7 @@ export function SideNav() {
                 className={sideNavRowClassName({ active: false })}
               >
                 <span className={sideNavIconGutterClassName}>
-                  <IconBook stroke={1.4} />
+                  <IconBook stroke={1.4} aria-hidden="true" />
                 </span>
                 <span
                   className={[
