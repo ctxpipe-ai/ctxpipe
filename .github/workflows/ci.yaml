@@ -969,7 +969,8 @@ jobs:
         # The check runner verifies the prerequisites, and writes the Vitest
         # output to .ci-results/checks/upgrade.log (the next step prints it).
         run: |
-          echo vitest:upgrade:apps/backend/src/db/upgrade-from-release.upgrade.ts |
+          node scripts/checks/list.mjs |
+            jq -r '.checks[] | select(.family == "vitest" and .lane == "upgrade") | .id' |
             RELEASE_TREE="$RUNNER_TEMP/previous-release" node scripts/checks/run.mjs \
               $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace "$RUNNER_TEMP/upgrade-trace")
       - name: Upgrade test output

@@ -73,7 +73,7 @@ const answers = async (url, fix) => {
   }
 }
 const workbenchFix =
-  "Evals call paid models, so they run only with the workbench environment: set MODEL_PROVIDER_API_KEY (the spend-capped workbench key) and MCP_EVAL_MODELS (two or more provider/model ids, comma-separated)."
+  "Evals call paid models, so they run only with the workbench environment: set MODEL_PROVIDER, MODEL_PROVIDER_API_KEY (the spend-capped workbench key) and MCP_EVAL_MODELS (two or more provider/model ids, comma-separated)."
 
 // Each entry: `needs` (other prerequisites, made first) and `prepare` (makes
 // or verifies). Keep this a small map; it is not a build system.
@@ -202,12 +202,19 @@ export const prerequisites = {
     },
   },
   workbench: {
-    prepare: () => {
+    prepare: async () => {
+      required("MODEL_PROVIDER", workbenchFix)
       required("MODEL_PROVIDER_API_KEY", workbenchFix)
       const models = required("MCP_EVAL_MODELS", workbenchFix)
-      if (new Set(models.split(",").filter(Boolean)).size < 2)
+      const { gateThresholds } = await import(
+        new URL("../../apps/backend/evals/mcp/gate.ts", import.meta.url).href
+      )
+      if (
+        new Set(models.split(",").filter(Boolean)).size <
+        gateThresholds.minModels
+      )
         throw new Error(
-          `MCP_EVAL_MODELS names fewer than two models. ${workbenchFix}`,
+          `MCP_EVAL_MODELS names fewer than ${gateThresholds.minModels} models. ${workbenchFix}`,
         )
     },
   },
@@ -231,13 +238,6 @@ export const prerequisites = {
       )
       if (status !== 401 && (status < 200 || status > 299))
         throw new Error(`${base}/mcp answers ${status}, not an MCP endpoint.`)
-    },
-  },
-  "memory-live-runner": {
-    prepare: () => {
-      throw new Error(
-        "The live runner of the memory evals is not implemented yet (packages/cli/test/memory/evals/README.md).",
-      )
     },
   },
   "aws-cdk-image-tag": {

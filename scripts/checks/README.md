@@ -18,13 +18,13 @@ A check id is `<family>:<lane>:<file>`, for example `vitest:ui:apps/ui/src/compo
 | --- | --- | --- | --- | --- |
 | `vitest` | `backend`, `contracts`, `vercel`, `ui`, `cli`, `aws-cdk`, `codesearch`, `codesearch-bun`, `latency`, `upgrade` | test file | `vitest:ui:apps/ui/src/components/ui/Button.test.tsx` | Vitest, see Lanes |
 | `storybook` | `golden` (tag `workspace-golden`), `plays` (the other stories) | story with a play function | `storybook:golden:apps/ui/src/…/X.stories.tsx#<story id>` | the static Storybook build in Chromium, with [`../ci/storybook-play.mjs`](../ci/storybook-play.mjs) |
-| `eval` | `mcp` (MCPJam, `apps/backend/evals/mcp/cases.ts`), `cli-memory` (`packages/cli/test/memory/evals/scenarios`) | eval case or scenario | `eval:mcp:apps/backend/evals/mcp/cases.ts#stale-cursor` | one seed and one `evals/mcp/run.ts` run for the selected cases |
+| `eval` | `mcp` (MCPJam, `apps/backend/evals/mcp/cases.ts`), eval case | `eval:mcp:apps/backend/evals/mcp/cases.ts#stale-cursor` | one seed and one `evals/mcp/run.ts` run for the selected cases |
 | `typecheck` | the `name` of each project in `scripts/ci/projects.json` | project | `typecheck:ui:apps/ui/tsconfig.json` | `scripts/ci/typecheck.mjs` with the project's diagnostic allowances |
 | `lint` | `oxlint`, `format`, `knip` | tool | `lint:knip:knip.json` | `pnpm lint`, `pnpm format:check`, `pnpm knip` |
 | `policy` | the name of each policy script of the CI lint job | script | `policy:test-policy:scripts/ci/check-test-policy.mjs` | that script |
 
 - A Storybook story is a case of its stories file. The story id is the Storybook id, so the id stays the same when the story moves in its file. [`storybook.mjs`](storybook.mjs) lists the stories with the Storybook indexer (`buildIndex`), and runs them against `apps/ui/storybook-static`.
-- An eval case calls paid models. The record has `stochastic: true`: the same inputs can give a different result, so a result cache must not reuse it. Its inputs are only its harness: a reader selects it by its `intent`, never by an import or a trace. A model passes a case when it passes at least 0.9 of its iterations (3), the floor of the eval gate. The memory evals have no live runner yet; their prerequisite `memory-live-runner` fails and says so.
+- An eval case calls paid models. The record has `stochastic: true`: the same inputs can give a different result, so a result cache must not reuse it. Its inputs are only its harness: a reader selects it by its `intent`, never by an import or a trace. The verdict of a case is the eval gate (`apps/backend/evals/mcp/gate.ts`) for that one case: its thresholds, the minimum model count, and the baseline drop for the case. The memory live evals have no check; each scenario is listed when a live runner can run it.
 - The `latency` and `upgrade` lanes run the files that the PR suite does not run (`*.latency.ts`, `*.upgrade.ts`), each with its own Vitest config. A latency result is `stochastic`: wall-clock bounds vary on shared runners.
 - The `typecheck`, `lint` and `policy` checks run a fixed command over a whole project, so they have no trace. Their `inputs` approximate the files that they read with whole directories (for example `apps/**` for oxlint, and `apps/backend/src/**` for the UI typecheck, because the UI types import the backend RPC types). A change in one of them selects the check. Their `root` is the repo root (`""`) or the project directory.
 
@@ -34,7 +34,6 @@ An expensive check states what it catches, and what is never a reason to run it,
 
 - A golden story: the `intent` string in the story's own `parameters` object. `storybook.mjs` reads it with the Storybook CSF parser, so it must be one string literal.
 - An MCP eval case: the `intent` field of the case in `cases.ts`.
-- A memory eval scenario: the `intent` key of the scenario YAML.
 - A Vitest file (the latency and upgrade checks): a file next to it, `<name>.intent.md`, with only the statement.
 
 ## Prerequisites
@@ -52,10 +51,9 @@ A check lists its `prerequisites` by name. Before the checks run, the runner mak
 | `chromium` | installs the Playwright Chromium |
 | `storybook-build` | builds Storybook; with `SKIP_STORYBOOK_BUILD=1` (CI downloads the build), verifies only that it exists |
 | `previous-release` | verifies `RELEASE_TREE`, a checkout of the previous release with its dependencies |
-| `workbench` | verifies `MODEL_PROVIDER_API_KEY` and `MCP_EVAL_MODELS` (two or more models): the evals spend money, so they run only with the `workbench` environment |
+| `workbench` | verifies `MODEL_PROVIDER`, `MODEL_PROVIDER_API_KEY` and `MCP_EVAL_MODELS` (at least the gate minimum of models): the evals spend money, so they run only with the `workbench` environment |
 | `codesearch-server` | verifies that `CODESEARCH_URL` answers |
 | `mcp-server` | verifies that the backend of this checkout answers at `AUTH_BASE_URL` + `/mcp` |
-| `memory-live-runner` | always fails: the runner is not implemented |
 | `aws-cdk-image-tag`, `aws-cdk-build`, `docs-mdx` | makes the generated files that a typecheck needs |
 
 ## Cost

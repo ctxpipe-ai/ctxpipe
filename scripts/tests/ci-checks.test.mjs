@@ -136,7 +136,7 @@ test("the manifest matches its schema and lists each check of each family", asyn
   assert.equal(count("lint"), 3)
   assert.ok(count("policy") >= 8)
   assert.equal(count("eval", "mcp"), evalCaseCount())
-  assert.ok(count("eval", "cli-memory") >= 1)
+  assert.equal(count("eval", "cli-memory"), 0)
   assert.equal(count("vitest", "latency"), 1)
   assert.equal(count("vitest", "upgrade"), 1)
   // The required golden stories are tagged (ci-storybook-golden.test.mjs),
@@ -536,17 +536,6 @@ test("an eval check refuses to run without the workbench variables", () => {
   assert.match(record.message, /Prerequisite workbench failed/)
   assert.match(record.message, /MODEL_PROVIDER_API_KEY/)
   assert.match(record.message, /workbench environment/)
-  // The memory evals have no runner yet, and say so.
-  const memory = spawnSync(
-    process.execPath,
-    [script("prerequisites.mjs"), "memory-live-runner"],
-    {
-      cwd: root,
-      encoding: "utf8",
-    },
-  )
-  assert.equal(memory.status, 1)
-  assert.match(memory.stdout, /not implemented/)
 })
 
 test("a project check runs its command and records its time in the trace", () => {
@@ -663,4 +652,44 @@ test("the browser trace maps page coverage to source lines through the build's s
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
+})
+
+test("a Vitest exit failure fails every record that has not failed", async () => {
+  const { markExitFailure } = await import("../checks/lanes.mjs")
+  const records = [
+    { id: "a", status: "passed", durationMs: 1, cases: [] },
+    { id: "b", status: "failed", durationMs: 1, cases: [] },
+    { id: "c", status: "skipped", durationMs: 1, cases: [] },
+  ]
+  assert.deepEqual(markExitFailure(records, { status: 0 }), records)
+  const marked = markExitFailure(records, { status: 1 })
+  assert.deepEqual(
+    marked.map(({ status }) => status),
+    ["error", "failed", "error"],
+  )
+  assert.match(marked[0].message, /Vitest failed \(exit 1\)/)
+  assert.match(
+    markExitFailure(records, { status: null, signal: "SIGKILL" })[0].message,
+    /SIGKILL/,
+  )
+})
+
+test("an eval case verdict is the eval gate for that case", async () => {
+  const { caseVerdict } = await import("../checks/evals.mjs")
+  const run = (a, b) => ({ iterations: 3, passes: { m1: { x: a }, m2: { x: b } } })
+  const baseline = {
+    recordedAt: "",
+    models: {
+      m1: { aggregate: 1, cases: { x: 1 } },
+      m2: { aggregate: 1, cases: { x: 1 } },
+    },
+  }
+  const verdict = async (...args) => (await caseVerdict(...args)).cases.map((c) => c.status)
+  assert.deepEqual(await verdict(run(3, 3), "x", baseline), ["passed", "passed"])
+  // 2 of 3 is under the floor of the gate, and 3 of 3 is not required for 0.9.
+  assert.deepEqual(await verdict(run(2, 3), "x", baseline), ["failed", "passed"])
+  assert.deepEqual(await verdict(run(3, 3), "x", null), ["passed", "passed"])
+  // One model is under the gate minimum of models.
+  const single = await caseVerdict({ iterations: 3, passes: { m1: { x: 3 } } }, "x", null)
+  assert.match(single.general.join(), /at least 2 models/)
 })

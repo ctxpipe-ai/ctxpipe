@@ -261,6 +261,22 @@ export async function listVitest() {
   )
 }
 
+// A non-zero Vitest exit (an unhandled error, a teardown failure) fails every
+// record that has not failed already, even when each assertion passed.
+export function markExitFailure(records, run) {
+  if (run.status === 0 && !run.error && !run.signal) return records
+  const cause = run.error?.message ?? run.signal ?? `exit ${run.status}`
+  return records.map((record) =>
+    record.status === "failed"
+      ? record
+      : {
+          ...record,
+          status: "error",
+          message: `Vitest failed (${cause}); see the log${record.message ? `. ${record.message}` : ""}`,
+        },
+  )
+}
+
 // Runs Vitest checks, one lane at a time: backend files share one database
 // and run in series. With `trace`, it also returns the trace records.
 export function runVitest(checks, trace) {
@@ -276,6 +292,7 @@ export function runVitest(checks, trace) {
     const laneConfig = { name: lane, ...lanes[lane] }
     let suites = new Map()
     let message
+    let run
     for (const step of setupSteps(laneConfig, root)) {
       const setup = logged(log.path, process.execPath, step.args, {
         cwd: step.cwd,
@@ -303,7 +320,7 @@ export function runVitest(checks, trace) {
         report,
         parts,
       )
-      const run = logged(log.path, launch.command, launch.args, {
+      run = logged(log.path, launch.command, launch.args, {
         cwd: launch.cwd,
         env: launch.env,
         timeout: 2_700_000,
@@ -331,6 +348,7 @@ export function runVitest(checks, trace) {
         traceFailed = true
         process.stderr.write(`No trace for ${lane}: ${error.message}\n`)
       }
+    const laneRecords = []
     for (const { id, file } of laneChecks) {
       const suite = suites.get(file)
       const cases = (suite?.assertionResults ?? []).map((assertion) => ({
@@ -353,7 +371,7 @@ export function runVitest(checks, trace) {
             : cases.every((c) => c.status === "skipped")
               ? "skipped"
               : "passed"
-      records.push({
+      laneRecords.push({
         id,
         status,
         durationMs: suite
@@ -366,6 +384,7 @@ export function runVitest(checks, trace) {
           : {}),
       })
     }
+    records.push(...(run ? markExitFailure(laneRecords, run) : laneRecords))
   }
   return { records, traced, traceFailed }
 }

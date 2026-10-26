@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { browserTrace } from "../checks/storybook.mjs"
+import { browserTrace, storyCheck } from "../checks/storybook.mjs"
 import { writeTrace } from "../checks/trace.mjs"
 import {
   selectGoldenStories,
@@ -93,6 +93,7 @@ try {
     await (await fetch(`${storybookUrl}/index.json`)).json(),
   )
   const suites = new Map()
+  const durations = {}
   const traced = []
   const tracer = trace ? browserTrace(staticDir) : undefined
   let passed = 0
@@ -111,6 +112,7 @@ try {
       if (tracer) {
         const record = tracer.check(story, durationMs, coverage, mocks)
         if (record) traced.push(record)
+        else durations[storyCheck(story).id] = durationMs
       }
       if (error) {
         failed += 1
@@ -143,7 +145,12 @@ try {
   if (tracer)
     try {
       tracer.report()
-      writeTrace(join(output, "trace.json.gz"), traced)
+      writeTrace(
+        join(output, "trace.json.gz"),
+        traced,
+        undefined,
+        durations,
+      )
     } catch (error) {
       process.stderr.write(`No trace written: ${error.message}\n`)
     }

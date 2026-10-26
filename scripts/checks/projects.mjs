@@ -15,17 +15,6 @@ const shared = ["package.json", "pnpm-lock.yaml", "scripts/checks/projects.mjs"]
 const node = (script, ...args) => [process.execPath, script, ...args]
 const pnpm = (...args) => ["pnpm", ...args]
 
-// The directories that a typecheck of a project reads, other than its own.
-const typecheckReads = {
-  // apps/ui/tsconfig.json maps paths into the backend source (the RPC types).
-  ui: ["apps/backend/src/**"],
-  "self-host": ["packages/aws-cdk/**"],
-}
-const typecheckPrerequisites = {
-  "aws-cdk": ["aws-cdk-image-tag"],
-  "self-host": ["aws-cdk-build"],
-  docs: ["docs-mdx"],
-}
 const code = ["apps/**", "packages/**"]
 
 // Each check: lane, file (the config or script that defines it), root,
@@ -45,13 +34,22 @@ const definitions = () => [
         ...shared,
         "tsconfig.json",
         `${directory}/**`,
-        ...(typecheckReads[name] ?? []),
+        ...({
+          // The directories that a typecheck reads, other than its own.
+          // apps/ui/tsconfig.json maps paths into the backend source (the RPC types).
+          ui: ["apps/backend/src/**"],
+          "self-host": ["packages/aws-cdk/**"],
+        }[name] ?? []),
         diagnostics,
         "scripts/ci/projects.json",
         "scripts/ci/typecheck.mjs",
         "scripts/ci/check-allowlist-history.mjs",
       ],
-      prerequisites: typecheckPrerequisites[name],
+      prerequisites: {
+        "aws-cdk": ["aws-cdk-image-tag"],
+        "self-host": ["aws-cdk-build"],
+        docs: ["docs-mdx"],
+      }[name],
       commands: [
         node("scripts/ci/check-allowlist-history.mjs", diagnostics),
         node("scripts/ci/typecheck.mjs", project, diagnostics),

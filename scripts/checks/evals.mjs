@@ -1,31 +1,26 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { parse } from "yaml"
-
 import { logFile, logged } from "./log.mjs"
 
-// The eval checks: one for each MCPJam eval case (lane `mcp`) and one for
-// each memory live eval scenario (lane `cli-memory`). They call paid models,
-// so their results are stochastic, and they run only with the workbench
-// environment. A reader selects them by intent, never by import or trace:
+// The eval checks: one for each MCPJam eval case (lane `mcp`). The memory live
+// eval scenarios have no check until a live runner exists. They call paid
+// models, so their results are stochastic, and they run only with the
+// workbench environment. A reader selects them by intent, never by import or trace:
 // their inputs are only their harness.
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const cases = "apps/backend/evals/mcp/cases.ts"
-const scenarios = "packages/cli/test/memory/evals/scenarios"
 const shared = ["package.json", "pnpm-lock.yaml", "scripts/checks/evals.mjs"]
 const env = [
   { name: "MODEL_PROVIDER", mode: "value" },
   { name: "MCP_EVAL_MODELS", mode: "value" },
   { name: "MODEL_PROVIDER_API_KEY", mode: "presence" },
 ]
-// A model passes a case when it passes this share of its iterations: the
-// floor of the eval gate (apps/backend/evals/mcp/gate.ts, minPassRate).
-const minPassRate = 0.9
-const iterations = 3
+const gate = pathToFileURL(join(root, "apps/backend/evals/mcp/gate.ts")).href
+const baselineFile = join(root, "apps/backend/evals/mcp/baseline.json")
 
 export async function listEvals() {
   // Node strips the types of cases.ts (it holds only data).
@@ -55,37 +50,61 @@ export async function listEvals() {
     stochastic: true,
     intent: item.intent,
   }))
-  const memory = readdirSync(join(root, scenarios))
-    .filter((name) => name.endsWith(".yaml"))
-    .sort()
-    .map((name) => {
-      const file = `${scenarios}/${name}`
+  return mcp
+}
+
+// The verdict of one case: the eval gate (gate.ts) with the same thresholds,
+// cut to the case. The baseline keeps only the rate of this case.
+export async function caseVerdict(run, caseId, stored, usage = {}) {
+  const { evaluateGate } = await import(gate)
+  const models = Object.keys(run.passes)
+  const report = evaluateGate(
+    {
+      iterations: run.iterations,
+      passes: Object.fromEntries(
+        models.map((model) => [model, { [caseId]: run.passes[model]?.[caseId] }]),
+      ),
+    },
+    stored && {
+      ...stored,
+      models: Object.fromEntries(
+        Object.entries(stored.models).map(([model, entry]) => {
+          const rate = entry.cases[caseId]
+          return [
+            model,
+            {
+              aggregate: rate ?? entry.aggregate,
+              cases: rate === undefined ? {} : { [caseId]: rate },
+            },
+          ]
+        }),
+      ),
+    },
+    [caseId],
+  )
+  const own = (model) => (failure) => failure.startsWith(`${model}:`)
+  return {
+    cases: models.map((model) => {
+      const passes = run.passes[model]?.[caseId] ?? 0
+      const failures = report.failures.filter(own(model))
       return {
-        id: `eval:cli-memory:${file}`,
-        family: "eval",
-        lane: "cli-memory",
-        root: "packages/cli/test/memory/evals",
-        file,
-        inputs: [
-          ...shared,
-          "packages/cli/package.json",
-          "packages/cli/src/**",
-          "packages/cli/test/memory/evals/**",
-        ],
-        env,
-        prerequisites: ["workbench", "memory-live-runner"],
-        stochastic: true,
-        intent: parse(readFileSync(join(root, file), "utf8")).intent,
+        name: model,
+        status: failures.length ? "failed" : "passed",
+        durationMs: usage?.[model]?.[caseId]?.durationMs ?? 0,
+        message: [`${passes}/${run.iterations} iterations passed`, ...failures].join("; "),
       }
-    })
-  return [...mcp, ...memory]
+    }),
+    general: report.failures.filter(
+      (failure) => !models.some((model) => own(model)(failure)),
+    ),
+  }
 }
 
 // Runs MCP eval checks: one seed and one run of apps/backend/evals/mcp/run.ts
 // for the selected cases (a seed supports one run). The prerequisites made
 // sure that the workbench variables, the stores and the backend are there.
-// The memory evals never get here: their prerequisite has no runner yet.
-export function runEvals(checks) {
+// The verdict of a case is the eval gate (gate.ts) for that one case.
+export async function runEvals(checks) {
   const log = logFile("eval-mcp")
   const backend = join(root, "apps/backend")
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-eval-"))
@@ -116,7 +135,7 @@ export function runEvals(checks) {
               "--models",
               process.env.MCP_EVAL_MODELS,
               "--iterations",
-              String(iterations),
+              "3",
               "--cases",
               ids.join(","),
               "--out",
@@ -148,18 +167,12 @@ export function runEvals(checks) {
     for (const [index, check] of checks.entries()) {
       const caseId = ids[index]
       const models = Object.keys(result.result.passes)
-      const cases = models.map((model) => {
-        const passes = result.result.passes[model]?.[caseId] ?? 0
-        return {
-          name: model,
-          status:
-            passes / result.result.iterations >= minPassRate
-              ? "passed"
-              : "failed",
-          durationMs: result.usage?.[model]?.[caseId]?.durationMs ?? 0,
-          message: `${passes}/${result.result.iterations} iterations passed`,
-        }
-      })
+      const { cases, general } = await caseVerdict(
+        result.result,
+        caseId,
+        JSON.parse(readFileSync(baselineFile, "utf8")),
+        result.usage,
+      )
       const usage = models.flatMap((model) => {
         const used = result.usage?.[model]?.[caseId]
         if (!used) return []
@@ -176,14 +189,15 @@ export function runEvals(checks) {
         id: check.id,
         status: !cases.length
           ? "error"
-          : cases.every((item) => item.status === "passed")
-            ? "passed"
-            : "failed",
+          : general.length || cases.some((item) => item.status === "failed")
+            ? "failed"
+            : "passed",
         durationMs: cases.reduce((sum, item) => sum + item.durationMs, 0),
         cases,
         log: log.relative,
         usage,
         ...(!cases.length && { message: "The eval run has no result" }),
+        ...(general.length && { message: general.join("; ") }),
       })
     }
   } finally {
