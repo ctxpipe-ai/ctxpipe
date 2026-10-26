@@ -23,13 +23,16 @@ A lane is one Vitest run: one package directory, one config and one runtime. [`l
 - The inputs of a lane include the files that pin its tools and images: `scripts/ci/prerequisites.mjs` and the chat sandbox image for the native backend lanes, and `apps/codesearch/Dockerfile` (zoekt and the SCIP indexers) for codesearch.
 - A test that spawns built code (for example the CLI tests that run `bin/ctxpipe.js`) does not import that code. Add the source of the built code as a lane input, or a change to it selects no check.
 - A migration file is an input of the backend lanes, because the tests apply it to a real database.
+- `traceInputs` (optional) names the inputs for which a reader with a trace may select from the trace instead of the whole lane. Without a trace, or when the trace does not hold the needed data, the input still selects the whole lane. The manifest schema gives the full rule. There are two kinds:
+  - `lines`: source that the checks run only in Node child processes (the CLI source, which the CLI tests run as `bin/ctxpipe.js`). The trace records those lines, so a changed file selects the checks that ran the changed lines.
+  - `tables`: the Drizzle migration directories of the backend. A changed `migration.sql` selects the checks that touched a table that a changed statement names, and the checks that read the file. `snapshot.json` is drizzle-kit state; no check reads it. A statement whose tables a reader cannot name (for example `DO $$ ... $$`) selects the whole lane.
 - `run.mjs` and `scripts/ci/test-suite.mjs` start Vitest through `scripts/ci/vitest-launch.mjs`. Thus a subset run and the CI run use the same setup steps and command line.
 
 To add a lane, add it to `lanes` in `lanes.mjs` and add its inventory to `listChecks`. To add a check family, add a new `family` value to the manifest schema, and make `listChecks` and `run.mjs` handle it.
 
 ## Traces
 
-`pnpm -s checks:run --trace <dir>` also writes `<dir>/trace.json.gz`, a gzip-compressed JSON file. The schema is [`schema/trace.v1.schema.json`](schema/trace.v1.schema.json). For each check and each test case, the trace gives the source lines that the case executed and the case duration. The line numbers are the lines at `commit`, the commit of the checkout. Thus, trace a clean working tree.
+`pnpm -s checks:run --trace <dir>` also writes `<dir>/trace.json.gz`, a gzip-compressed JSON file. The schema is [`schema/trace.v1.schema.json`](schema/trace.v1.schema.json). For each check and each test case, the trace gives the source lines that the case executed (in the test process and in its Node child processes), the semantic edges that the case used, and the case duration. The line numbers are the lines at `commit`, the commit of the checkout. Thus, trace a clean working tree.
 
 How it works:
 
@@ -42,29 +45,51 @@ How it works:
 - The trace records only repo files outside `node_modules`.
 - Tracing does not change a result. If the inspector fails in a file, that file writes no trace record. A check that is not in a trace was not traced; this is not proof that it executes no code.
 
+Child processes:
+
+- Before each case, the worker sets `NODE_V8_COVERAGE` to a directory of that case (`<collect>` has one too). A Node child process that inherits the variable writes its V8 coverage there when it exits. After the file, the worker maps that coverage to source lines (with the source maps that Node writes into the coverage file, or the file itself) and adds the lines to the case.
+- A child gives no coverage when the test starts it with an `env` that does not copy `process.env`, when a signal stops it, or when it is not Node. The check's `recorded` holds `children` only when at least one child of the check wrote a coverage file. A check without `children` can still have started a child that gave no coverage, so a reader must treat its child lines as unknown. A check with `children` can also have a second child that gave none; the trace cannot show that.
+- Bun children give no coverage. These tests start Bun children: `apps/backend/src/domain/workspaces/sandbox-lock-native.contract.test.ts`, `apps/backend/src/domain/workspaces/write-worker-loss-native.contract.test.ts` and `apps/backend/src/openworkflow/workflows/repository-ingestion-v2.integration.test.ts`. The sandbox tests also run processes in Docker containers, which give no coverage.
+
+Semantic edges ([`trace-edges.mjs`](trace-edges.mjs)): the worker installs hooks once in each Vitest worker. Each hook records names only, never statement text, request data, prompt text or arguments. A hook that fails while it records turns that edge off for the call. It never changes the call or its result.
+
+| Case property | Source |
+| --- | --- |
+| `tables` | The node-postgres `Client.prototype.query`: the tables after `from` and `join` (`read`), and after `insert into`, `update` and `delete from` (`write`). The hook removes string literals (`'...'`, `E'...'`, `$tag$...$tag$`) and comments first, and takes names only from these table positions, so literal text cannot become a table name. Schema statements and `truncate` are not recorded. |
+| `routes` | Hono routers: each route handler that runs records `<METHOD> <pattern>`. Middleware is not recorded. |
+| `steps` | OpenWorkflow: the name of each step that a run resolves, up to the first `:` (a name can hold run data after it). |
+| `tools` | The MCP SDK: the name of each tool call. |
+| `reads`, `dirs` | `fs`: each repo file that the case reads (`reads`), and each repo directory that it lists (`dirs`). The hook adds both kinds to `recorded`. |
+
+- A reader decides for each check whether it may trust an empty `reads` and `dirs`: only when the check's `recorded` holds both kinds.
+- A hook that cannot install (the lane does not use the package, or the package changed) records nothing. The check's `recorded` then does not hold that kind, and a reader treats the kind as unknown.
+- The hooks see only the test process. Postgres queries through `postgres.js` (the OpenWorkflow backend) and the operations of a separate process (a child, a container, a server) are not recorded.
+
 In CI, `scripts/ci/test-suite.mjs <lane> --trace` writes `trace.json.gz` next to `results.json`.
 
 - CI passes `--trace` on a `workflow_dispatch` run and on the nightly `schedule` run (02:23 UTC, on `main`).
-- The nightly run starts only the test jobs and the Tests job. No other job runs on it, so it cannot deploy or publish.
-- The Tests job merges the traces with `node scripts/checks/trace.mjs merge <out> <trace>...`. It uploads the artifact `trace-<commit>`.
+- The `codesearch` lane runs in its Docker test image. `apps/codesearch/scripts/run-vitest-docker.sh --trace <dir>` mounts `<dir>` at `/trace` and gives the commit as an argument, because the image has no `.git` directory. The image holds a copy of `scripts/checks`.
+- The `vercel` lane needs the `workbench` environment (a Vercel token and spend). The nightly run does not start it, so only a `workflow_dispatch` run traces it.
+- The nightly run starts only the test jobs, the codesearch job, the Tests job and the Trace job. No other job runs on it, so it cannot deploy or publish.
+- The Trace job merges the traces with `node scripts/checks/trace.mjs merge <out> <trace>...`. It uploads the artifact `trace-<commit>`. It is not a required check: the trace is data only.
 - A pull request run and a push to `main` do not trace. A pull request tests a merge commit that a reader cannot diff from.
 
 Gaps (no trace):
 
-- Bun lanes (`codesearch-bun`): Bun has no V8 inspector.
-- The `codesearch` lane in CI, because it runs in Docker. `checks:run --trace` traces it on the host.
-- The `vercel` lane, because it runs in its own job with deploy credentials.
-- Child processes and the browser. A test that reaches code through HTTP, a worker process, a CLI, a sandbox or Storybook does not record that code. For example, the CLI lane runs the built `bin/ctxpipe.js` in a child process.
-- Concurrent cases in one file (`test.concurrent`) mix their coverage.
+- Bun lanes (`codesearch-bun`): Bun has no V8 inspector. Bun child processes (see Child processes).
+- The `vercel` lane in the nightly run (see above).
+- A Node child that a test starts with its own `env`, or that a signal stops.
+- Docker containers, sandboxes, separate servers and the browser (Storybook). A test that reaches code through one of these does not record that code or its edges.
+- Concurrent cases in one file (`test.concurrent`) mix their coverage and edges.
 
-Overhead in CI was measured on one commit. It compares a traced `workflow_dispatch` run with the untraced pull request run.
+Overhead in CI was measured with the child-process coverage and the semantic edges (CTX-776 slice 2b). It compares a traced `workflow_dispatch` run with the untraced pull request run of the same code.
 
-- The backend shard test steps took 2391 s against 2172 s (+10%).
-- The contract shards took 1452 s against 1426 s (+2%).
-- All test jobs together took 4723 s against 4470 s (+6%).
-- The longest job took 919 s against 874 s (+5%).
+- All test jobs together took 5179 s against 4819 s (+7%). The traced run of the line coverage only (slice 2a) took 5186 s, so the child coverage and the edges add no time that the run-to-run noise shows. A second traced run took 5476 s.
+- The backend shard test steps took 2438 s against 2142 s (+14%). The contract shards took 1487 s against 1454 s (+2%).
+- The longest job took 918 s against 831 s (+10%).
+- A child process that writes coverage is slower: the CLI test `argv.test.ts` took 2.1 s against 1.4 s.
 - A take costs about 10 to 40 ms in a file that imports a large module graph. Thus the cost grows with the number of cases in such a file.
-- The trace of the full run is 1.8 MB compressed (17 MB of JSON) for 734 checks and 7079 cases.
+- The trace of the full run is 1.95 MB compressed (18.4 MB of JSON) for 780 checks and 7445 cases.
 
 ## Why the runner is separate from CI
 

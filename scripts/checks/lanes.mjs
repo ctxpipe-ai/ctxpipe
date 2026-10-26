@@ -60,23 +60,31 @@ const codesearchInputs = [
   // The test image pins zoekt and the SCIP indexers.
   "apps/codesearch/Dockerfile",
 ]
+// `traceInputs` names the inputs for which a reader with a trace may select
+// from the trace instead of the whole lane (manifest.v1.schema.json).
+// The migrations are Drizzle migration directories: `migration.sql`, which
+// the tests apply, and `snapshot.json`, which only drizzle-kit reads.
+const backendTraceInputs = { "apps/backend/migrations/**": "tables" }
 export const lanes = {
   backend: {
     directory: "apps/backend",
     runtime: "node",
     inputs: [...backendInputs, ...nativeInputs],
+    traceInputs: backendTraceInputs,
     env: backendEnv,
   },
   contracts: {
     directory: "apps/backend",
     runtime: "node",
     inputs: [...backendInputs, ...nativeInputs],
+    traceInputs: backendTraceInputs,
     env: backendEnv,
   },
   vercel: {
     directory: "apps/backend",
     runtime: "node",
     inputs: backendInputs,
+    traceInputs: backendTraceInputs,
     env: [...backendEnv, { name: "VERCEL_TOKEN", mode: "presence" }],
   },
   ui: {
@@ -102,6 +110,11 @@ export const lanes = {
       "packages/cli/src/**",
       "packages/cli/bin/**",
     ],
+    // The trace records the lines of the child processes that run the CLI.
+    traceInputs: {
+      "packages/cli/src/**": "lines",
+      "packages/cli/bin/**": "lines",
+    },
   },
   "aws-cdk": {
     directory: "packages/aws-cdk",
@@ -162,6 +175,9 @@ export async function listChecks() {
         inputs: lanes[lane].inputs,
         runtime: lanes[lane].runtime,
         ...(lanes[lane].env && { env: lanes[lane].env }),
+        ...(lanes[lane].traceInputs
+          ? { traceInputs: lanes[lane].traceInputs }
+          : {}),
       }
     }),
   )

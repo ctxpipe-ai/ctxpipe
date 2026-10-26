@@ -34,12 +34,15 @@ const validate = (value, rule, document, path = "$") => {
   if (rule.enum) assert.ok(rule.enum.includes(value), `${path}: ${value}`)
   if (rule.type === "string") assert.equal(typeof value, "string", path)
   if (rule.type === "integer") assert.ok(Number.isInteger(value), path)
+  if (rule.type === "boolean") assert.equal(typeof value, "boolean", path)
   if (rule.minimum !== undefined) assert.ok(value >= rule.minimum, path)
   if (rule.pattern) assert.match(value, new RegExp(rule.pattern), path)
   if (rule.type === "array") {
     assert.ok(Array.isArray(value), path)
-    if (rule.minItems !== undefined) assert.ok(value.length >= rule.minItems, path)
-    if (rule.maxItems !== undefined) assert.ok(value.length <= rule.maxItems, path)
+    if (rule.minItems !== undefined)
+      assert.ok(value.length >= rule.minItems, path)
+    if (rule.maxItems !== undefined)
+      assert.ok(value.length <= rule.maxItems, path)
     for (const [index, item] of value.entries())
       validate(item, rule.items, document, `${path}[${index}]`)
   }
@@ -183,6 +186,27 @@ test("the runner traces the lines that each case executed", () => {
   }
 })
 
+test("the trace code itself is not traced, also under jsdom", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
+  try {
+    const id = "vitest:ui:apps/ui/src/components/ui/Button.test.tsx"
+    const result = node([script("run.mjs"), "--trace", directory], `${id}\n`)
+    assert.equal(result.status, 0, result.stderr)
+    const file = join(directory, "trace.json.gz")
+    const trace = JSON.parse(gunzipSync(readFileSync(file)).toString("utf8"))
+    const paths = trace.checks[0].cases.flatMap(({ lines }) =>
+      Object.keys(lines),
+    )
+    assert.ok(paths.includes("apps/ui/src/components/ui/Button.tsx"))
+    assert.deepEqual(
+      paths.filter((path) => path.startsWith("scripts/checks/")),
+      [],
+    )
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test("a broken trace never changes the result of a run", async () => {
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
   try {
@@ -212,4 +236,201 @@ test("a broken trace never changes the result of a run", async () => {
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
+})
+
+test("the trace records the lines that a case runs in a Node child process", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
+  try {
+    // The CLI tests run the built bin/ctxpipe.js in a child process.
+    const id = "vitest:cli:packages/cli/test/argv.test.ts"
+    const result = node([script("run.mjs"), "--trace", directory], `${id}\n`)
+    assert.equal(result.status, 0, result.stderr)
+    const file = join(directory, "trace.json.gz")
+    const trace = JSON.parse(gunzipSync(readFileSync(file)).toString("utf8"))
+    const document = schema("trace")
+    validate(trace, document, document)
+    const [check] = trace.checks
+    // A child wrote coverage, so `children` is recorded.
+    assert.ok(check.recorded.includes("children"))
+    assert.ok(check.recorded.includes("reads") && check.recorded.includes("dirs"))
+    assert.equal(trace.fsRecorded, undefined)
+    const help = check.cases.find(({ name }) => name.includes("init --help"))
+    // The source map of the build maps the child's lines to the source.
+    assert.ok(help.lines["packages/cli/src/cli.ts"]?.length)
+    assert.ok(help.lines["packages/cli/bin/ctxpipe.js"]?.length)
+    assert.ok(
+      !check.cases.find(({ name }) => name === "<collect>").lines[
+        "packages/cli/src/cli.ts"
+      ],
+    )
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("the edge hooks record names, never statement text or data", () => {
+  // The hooks resolve the packages as the lane does, so run in apps/backend.
+  const probe = `
+    import { readFileSync } from "node:fs"
+    import { createRequire } from "node:module"
+    import { installEdges, takeEdges } from ${JSON.stringify(script("trace-edges.mjs"))}
+    const root = ${JSON.stringify(root)}
+    const recorded = await installEdges(root, root + ".trace-out/")
+    const lane = createRequire(process.cwd() + "/package.json")
+    const { Hono } = await import("hono")
+    const app = new Hono()
+    app.use("*", async (_c, next) => next())
+    app.get("/v1/things/:id", (c) => c.text("ok"))
+    await app.request("/v1/things/42?secret=1")
+    readFileSync(root + "package.json")
+    const { Client } = lane("pg")
+    new Client().query({ text: 'select "id" from "users" where "email" = $1', values: ["a@b.c"] }).catch(() => {})
+    const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js")
+    const { Client: McpClient } = await import("@modelcontextprotocol/sdk/client/index.js")
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js")
+    const server = new McpServer({ name: "probe", version: "1" })
+    server.registerTool("probe_tool", { description: "probe" }, async () => ({ content: [] }))
+    const [a, b] = InMemoryTransport.createLinkedPair()
+    await server.connect(a)
+    const client = new McpClient({ name: "c", version: "1" })
+    await client.connect(b)
+    await client.callTool({ name: "probe_tool", arguments: {} })
+    const edges = takeEdges()
+    process.stdout.write(JSON.stringify({
+      recorded,
+      edges: Object.fromEntries(Object.entries(edges).map(([k, v]) => [k, [...v]])),
+    }))
+    process.exit(0)
+  `
+  const result = spawnSync(
+    process.execPath,
+    ["--input-type=module", "-e", probe],
+    {
+      cwd: join(root, "apps/backend"),
+      encoding: "utf8",
+    },
+  )
+  assert.equal(result.status, 0, result.stderr)
+  const { recorded, edges } = JSON.parse(result.stdout)
+  for (const kind of ["reads", "dirs", "tables", "routes", "steps", "tools"])
+    assert.ok(recorded.includes(kind), kind)
+  assert.ok(!recorded.includes("models"))
+  assert.deepEqual(edges.routes, ["GET /v1/things/:id"])
+  assert.deepEqual(edges.read, ["users"])
+  assert.deepEqual(edges.tools, ["probe_tool"])
+  assert.ok(edges.reads.includes("package.json"))
+  assert.ok(
+    !result.stdout.includes("a@b.c") && !result.stdout.includes("secret"),
+  )
+})
+
+test("the table hook reads the tables of a query and skips schema statements", async () => {
+  const { emptyEdges, noteTables } = await import("../checks/trace-edges.mjs")
+  const tables = (text) => {
+    const edges = emptyEdges()
+    noteTables(text, edges)
+    return [[...edges.read], [...edges.write]]
+  }
+  assert.deepEqual(
+    tables(
+      'select "a" from "users" left join lateral (select 1 from "members" "m") on true',
+    ),
+    [["users", "members"], []],
+  )
+  assert.deepEqual(
+    tables(
+      'insert into "public"."users" ("id") values ($1) on conflict ("id") do update set "id" = excluded."id"',
+    ),
+    [[], ["users"]],
+  )
+  assert.deepEqual(tables("select * from jobs for update skip locked"), [
+    ["jobs"],
+    [],
+  ])
+  assert.deepEqual(tables('select * from "openworkflow"."workflow_runs"'), [
+    ["openworkflow.workflow_runs"],
+    [],
+  ])
+  assert.deepEqual(
+    tables("select extract(epoch from now()) from unnest($1::text[])"),
+    [[], []],
+  )
+  assert.deepEqual(
+    tables(
+      '-- a\nCREATE TABLE "z" ("id" text REFERENCES "users" ON UPDATE CASCADE)',
+    ),
+    [[], []],
+  )
+  assert.deepEqual(tables('TRUNCATE "users"'), [[], []])
+})
+
+test("the table hook never takes a name from literal text or a comment", async () => {
+  const { emptyEdges, noteTables } = await import("../checks/trace-edges.mjs")
+  const tables = (text) => {
+    const edges = emptyEdges()
+    noteTables(text, edges)
+    return [[...edges.read], [...edges.write]]
+  }
+  assert.deepEqual(
+    tables(`SELECT 'from "made_up_private_note"' AS body FROM users`),
+    [["users"], []],
+  )
+  assert.deepEqual(
+    tables(
+      "-- from made_up_secret\nselect /* join made_up_other /* nested */ */ 1 from users",
+    ),
+    [["users"], []],
+  )
+  assert.deepEqual(
+    tables(
+      "select $q$ from made_up_dollar $q$, E'it\\'s from made_up_escape', 'a''from made_up_quote' from users",
+    ),
+    [["users"], []],
+  )
+  // A quoted identifier outside a table position is not a table either.
+  assert.deepEqual(tables('select "from made_up_alias" from users'), [
+    ["users"],
+    [],
+  ])
+  assert.deepEqual(
+    tables("update users set note = 'delete from made_up_private'"),
+    [[], ["users"]],
+  )
+})
+
+test("a failure of the table hook never changes the query or its result", () => {
+  const probe = `
+    import { createRequire } from "node:module"
+    import { installEdges, takeEdges } from ${JSON.stringify(script("trace-edges.mjs"))}
+    const lane = createRequire(process.cwd() + "/package.json")
+    const { Client } = lane("pg")
+    const calls = []
+    Client.prototype.query = function (config) {
+      calls.push(config.text)
+      return "result"
+    }
+    await installEdges(${JSON.stringify(root)}, "/nowhere/")
+    // The first read of the text throws, inside the hook only.
+    let reads = 0
+    const config = {
+      get text() {
+        if (reads++ === 0) throw new Error("boom")
+        return "select 1 from users"
+      },
+    }
+    const result = new Client().query(config)
+    process.stdout.write(JSON.stringify({ result, calls, read: [...takeEdges().read] }))
+    process.exit(0)
+  `
+  const result = spawnSync(
+    process.execPath,
+    ["--input-type=module", "-e", probe],
+    { cwd: join(root, "apps/backend"), encoding: "utf8" },
+  )
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout), {
+    result: "result",
+    calls: ["select 1 from users"],
+    read: [],
+  })
 })

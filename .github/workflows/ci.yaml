@@ -3,7 +3,7 @@ name: CI
 on:
   workflow_dispatch:
   # A nightly run of the tests on main records the trace of main with
-  # `--trace`. Only the test jobs run on it.
+  # `--trace`. Only the test jobs and the Trace job run on it.
   schedule:
     - cron: "23 2 * * *"
   pull_request:
@@ -340,23 +340,6 @@ jobs:
         run: node scripts/ci/test-suite.mjs backend --merge
       - name: Check the union of the contract shards
         run: node scripts/ci/test-suite.mjs contracts --merge
-      # One trace of the run, named by its commit, for `factory check`. It is
-      # data only, so a failure here does not fail the job.
-      - name: Merge the traces
-        id: trace
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-        continue-on-error: true
-        run: |
-          find .ci-results -name trace.json.gz -print0 | sort -z |
-            xargs -0 node scripts/checks/trace.mjs merge "$RUNNER_TEMP/trace.json.gz"
-      - name: Preserve the trace
-        if: steps.trace.outcome == 'success'
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: trace-${{ github.sha }}
-          path: ${{ runner.temp }}/trace.json.gz
-          if-no-files-found: error
       - name: Preserve executed test inventories and results
         if: always()
         uses: actions/upload-artifact@v4
@@ -364,6 +347,42 @@ jobs:
           name: required-test-results
           path: .ci-results/
           include-hidden-files: true
+          if-no-files-found: error
+
+  # One trace of a traced run, named by its commit, for `factory check`
+  # (scripts/checks/README.md). It is data only, so this job is not required
+  # and a failure here fails no check.
+  trace:
+    timeout-minutes: 10
+    name: Trace
+    needs: [test-shards, package-tests, codesearch, vercel-sandbox]
+    if: |
+      always() &&
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: test-results-*
+          path: .ci-results/
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: lane-trace-*
+          path: .ci-results/trace-parts/
+      - name: Merge the traces
+        run: |
+          find .ci-results -name trace.json.gz -print0 | sort -z |
+            xargs -0 node scripts/checks/trace.mjs merge "$RUNNER_TEMP/trace.json.gz"
+      - name: Preserve the trace
+        uses: actions/upload-artifact@v4
+        with:
+          name: trace-${{ github.sha }}
+          path: ${{ runner.temp }}/trace.json.gz
           if-no-files-found: error
 
   production-builds:
@@ -608,8 +627,10 @@ jobs:
   codesearch:
     timeout-minutes: 30
     name: Codesearch real toolchain contracts
+    # The nightly run (schedule) also runs the tests, to record the trace of main.
     if: |
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -632,7 +653,24 @@ jobs:
       - name: Download pinned release files
         timeout-minutes: 10
         run: bash apps/codesearch/scripts/fetch-releases.sh apps/codesearch/release-assets.txt "$RUNNER_TEMP/releases" .release-cache
-      - run: pnpm --filter @ctxpipe/codesearch test
+      # The trace (scripts/checks/README.md) is data only; PR runs skip it.
+      - name: Required codesearch tests
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then
+            bash apps/codesearch/scripts/run-vitest-docker.sh --trace "$RUNNER_TEMP/codesearch-trace"
+          else
+            pnpm --filter @ctxpipe/codesearch test
+          fi
+      - name: Preserve the codesearch trace
+        if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: lane-trace-codesearch
+          path: ${{ runner.temp }}/codesearch-trace/trace.json.gz
+          if-no-files-found: ignore
 
   vercel-sandbox:
     timeout-minutes: 30
@@ -682,11 +720,22 @@ jobs:
         working-directory: apps/backend
         run: |
           pnpm exec tsx src/db/migrate.ts
+      # The nightly run does not start this job (it needs the workbench
+      # environment), so only a workflow_dispatch run traces it.
       - name: Required real Vercel sandbox contracts
         env:
           DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
           VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
-        run: node scripts/ci/test-suite.mjs vercel
+          EVENT: ${{ github.event_name }}
+        run: node scripts/ci/test-suite.mjs vercel $([ "$EVENT" = workflow_dispatch ] && echo --trace)
+      - name: Preserve the Vercel trace
+        if: always() && github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: lane-trace-vercel
+          path: .ci-results/vercel/trace.json.gz
+          if-no-files-found: ignore
 
   terraform-validate:
     timeout-minutes: 10

@@ -4,12 +4,30 @@ import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import {
+  freshParts,
+  laneChecks,
+  writeTrace,
+} from "../../../scripts/checks/trace.mjs"
+
 const cwd = fileURLToPath(new URL("../", import.meta.url))
 const root = fileURLToPath(new URL("../../../", import.meta.url))
 const require = createRequire(join(cwd, "package.json"))
 try {
   // --list prints the test files of each runtime as JSON and runs nothing.
-  const listOnly = process.argv.slice(2).includes("--list")
+  // --trace <dir> --commit <sha> also writes <dir>/trace.json.gz for the Node
+  // runtime (scripts/checks/README.md). The commit is an argument, because
+  // the Docker test image has no .git directory.
+  const args = process.argv.slice(2)
+  const listOnly = args.includes("--list")
+  const option = (name) =>
+    args.includes(name) ? args[args.indexOf(name) + 1] : undefined
+  const trace = option("--trace")
+  const commit = option("--commit")
+  if ((trace === undefined) !== (commit === undefined) || (listOnly && trace))
+    throw new Error(
+      "Usage: run-vitest-contracts.mjs [--list | --trace <dir> --commit <sha>]",
+    )
   if (!listOnly)
     for (const binary of ["node", "bun", "git"]) {
       process.stdout.write(
@@ -50,6 +68,11 @@ try {
     const inventory = join(directory, `${runtime}-inventory.json`)
     writeFileSync(inventory, JSON.stringify(selected, null, 2))
     rmSync(report, { force: true })
+    // Bun has no V8 inspector, so only the Node runtime has a trace.
+    const parts =
+      trace && runtime === "node"
+        ? freshParts(join(trace, "parts-codesearch"), "codesearch")
+        : undefined
     const result = spawnSync(
       runtime,
       [
@@ -59,11 +82,17 @@ try {
         "--reporter=default",
         "--reporter=json",
         `--outputFile=${report}`,
+        ...(parts
+          ? [`--reporter=${join(root, "scripts/checks/trace-reporter.mjs")}`]
+          : []),
       ],
       {
         cwd,
         stdio: "inherit",
         timeout: 600_000,
+        env: parts
+          ? { ...process.env, CTXPIPE_TRACE_PARTS: parts }
+          : process.env,
       },
     )
     if (result.error || result.signal)
@@ -85,6 +114,17 @@ try {
       },
     )
     if (checked.status !== 0) failed = true
+    // The trace is data only: an error here never changes the result.
+    if (parts)
+      try {
+        writeTrace(
+          join(trace, "trace.json.gz"),
+          laneChecks(parts, "codesearch"),
+          commit,
+        )
+      } catch (error) {
+        process.stderr.write(`No trace written: ${error.message}\n`)
+      }
   }
   process.exitCode = failed ? 1 : 0
 } catch (error) {

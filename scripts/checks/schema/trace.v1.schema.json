@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ctxpipe.ai/schemas/checks/trace.v1.schema.json",
   "title": "ctxpipe check trace",
-  "description": "The gzip-compressed JSON that `pnpm checks:run --trace <dir>` writes to <dir>/trace.json.gz, and that CI uploads as the artifact trace-<commit>. For each traced check and test case, the source lines that the case executed. A reader rejects an unknown schemaVersion. A check that is not in the trace was not traced: that is not proof that it executes no code.",
+  "description": "The gzip-compressed JSON that `pnpm checks:run --trace <dir>` writes to <dir>/trace.json.gz, and that CI uploads as the artifact trace-<commit>. For each traced check and test case, the source lines that the case executed, in the test process and in its Node child processes, and the semantic edges that the case used. A reader rejects an unknown schemaVersion. A check that is not in the trace was not traced: that is not proof that it executes no code.",
   "type": "object",
   "required": ["schemaVersion", "commit", "checks"],
   "additionalProperties": false,
@@ -32,6 +32,22 @@
           "description": "The check id from the manifest.",
           "type": "string"
         },
+        "recorded": {
+          "description": "The kinds of data that the trace recorded for this check, in addition to the lines of the test process. `children`: the lines of Node child processes; it is present only when at least one child of the check wrote coverage. `tables`, `routes`, `steps`, `tools`, `reads`, `dirs`: the case properties of the same name. A reader may treat a case without `reads` and `dirs` as one that read and listed no repo path only when the check has both kinds. When a kind is not in the list, the check's cases do not show it: a case without that property is then not proof that it used nothing of that kind. Without `recorded`, only the lines of the test process were recorded.",
+          "type": "array",
+          "items": {
+            "enum": [
+              "children",
+              "tables",
+              "routes",
+              "steps",
+              "tools",
+              "reads",
+              "dirs"
+            ]
+          },
+          "uniqueItems": true
+        },
         "cases": {
           "type": "array",
           "items": {
@@ -55,7 +71,7 @@
           "minimum": 0
         },
         "lines": {
-          "description": "Repo-relative source path to the sorted, inclusive [first, last] line ranges that ran. A range can include lines with no code (blank lines, comments, types).",
+          "description": "Repo-relative source path to the sorted, inclusive [first, last] line ranges that ran, in the test process and (when `recorded` holds `children`) in the Node child processes that the case started. A range can include lines with no code (blank lines, comments, types).",
           "type": "object",
           "additionalProperties": {
             "type": "array",
@@ -69,6 +85,67 @@
               }
             }
           }
+        },
+        "tables": {
+          "description": "The SQL tables that the case queried through the node-postgres client: `read` after `from` or `join`, `write` after `insert into`, `update` or `delete from`. Schema statements and `truncate` are not recorded. A name is lower case unless it was quoted; a table in the `public` schema has no schema prefix. Only the names are recorded, never the statement text.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "read": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            },
+            "write": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          }
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "The Hono route patterns whose handlers ran, as `<METHOD> <pattern>`, for example `GET /v1/repositories/:id`. Middleware is not recorded."
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "The OpenWorkflow step names that the case ran: the part of each name before the first `:`, because a name can hold run data after it."
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "The MCP tool names that the case called."
+        },
+        "reads": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "Repo-relative paths of the files that the case read through `fs` in the test process. Paths below `node_modules` and `.git` are not recorded. Code that Node loads with `require` can be in the list."
+        },
+        "dirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "Repo-relative paths of the directories inside the repo that the case listed through `fs` in the test process (`readdir`, `readdirSync`, `opendir`, `opendirSync`, and the glob libraries that use them). A new file in such a directory can change the result of the case."
         }
       }
     }

@@ -42,11 +42,17 @@ export function laneChecks(parts, lane) {
   const checks = new Map()
   const top = realpathSync(root)
   for (const name of names) {
+    // `children/` holds the coverage of child processes.
+    if (!name.endsWith(".json")) continue
     const part = JSON.parse(readFileSync(join(parts, name), "utf8"))
     const file = relative(top, realpathSync(part.file)).replaceAll("\\", "/")
     const id = `vitest:${lane}:${file}`
     // A retried file writes a second part; keep the last one.
-    checks.set(id, { id, cases: part.cases })
+    checks.set(id, {
+      id,
+      ...(part.recorded ? { recorded: part.recorded } : {}),
+      cases: part.cases,
+    })
   }
   rmSync(parts, { recursive: true, force: true })
   return [...checks.values()]
