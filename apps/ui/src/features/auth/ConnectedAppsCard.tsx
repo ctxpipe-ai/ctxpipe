@@ -45,7 +45,6 @@ const connectedAppsQueryKey = ["me", "connected-apps"] as const
 
 const SCOPE_LABEL: Record<string, string> = {
   "ctxpipe:read": "Read",
-  "ctxpipe:write": "Changes",
 }
 
 function scopeSummary(scopes: string[]): string {

@@ -88,15 +88,14 @@ the organization is in the grant set and the user is still a member of it.
 For the old `?orgSlug=` URL parameter, see [MCP](/docs/self-hosting/mcp).
 
 OAuth is the normal MCP flow for people. The consent screen grants
-`ctxpipe:read` and `offline_access`. It also offers **Also allow changes**
-(`ctxpipe:write`) when a client asks for it. The MCP tools need only
-`ctxpipe:read`. API keys never hold `ctxpipe:write`.
+`ctxpipe:read` and `offline_access`. ctxpipe offers no write scope. An OAuth
+token and an API key get 403 `write_grant_required` on a REST route that
+changes a Workspace or a connector. Sign in to ctxpipe to make these changes.
 
 | Token | Lifetime |
 |---|---|
 | Browser session | 30 days |
 | OAuth access token | 4 hours, renewed with the refresh token (`offline_access`) |
-| OAuth access token with `ctxpipe:write` | 1 hour |
 
 API keys are stored in the database of this deployment, so there is no
 operator secret to configure. For personal and organization keys, the headers,

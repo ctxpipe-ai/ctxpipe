@@ -145,7 +145,6 @@ export const requiredStories = [
   "NoHistory",
   "ConsentOrgPicker",
   "ConsentNeedsOneOrg",
-  "ConsentWriteOffByDefault",
   "ConnectedAppsEditOrgs",
   "ConnectedAppsRevoke",
   "ConnectedAppsRevokeError",

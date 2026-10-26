@@ -1,14 +1,14 @@
 import { createHash, randomBytes } from "node:crypto"
 import { readFile } from "node:fs/promises"
 
+import { OpenAPIHono } from "@hono/zod-openapi"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { eq, sql } from "drizzle-orm"
 import { evlog } from "evlog/hono"
-import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { decodeJwt } from "jose"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
 import type { AppEnv } from "../app/env.js"
@@ -27,6 +27,10 @@ import { registerMcpTools } from "../mcp/tools.js"
 import { handleMcpTransportRequest } from "../mcp/transport.js"
 import { withTestRequestLogger } from "../test/hono-test-logger.js"
 import { registerAuthRoutes } from "./auth.js"
+import { registerV1Routes } from "./v1/index.js"
+
+// registerV1Routes loads the conversation graph, which builds its model at import time.
+vi.hoisted(() => vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key"))
 
 /** The shipped read tools. `listToolNames` sorts, so this list is sorted too. */
 const READ_TOOLS = [
@@ -58,12 +62,13 @@ async function migrationSql(): Promise<string> {
 const REDIRECT_URI = "http://127.0.0.1:4567/callback"
 
 /**
- * The production `/mcp` chain with the production tools plus one write tool.
- * No write tool ships yet, so the test adds one to prove the write gate.
+ * The production `/mcp` chain with the production tools plus one write tool,
+ * and the REST routes. No write tool ships yet, so the test adds one to prove
+ * that no grant reaches it.
  */
 function createApp() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  const app = new Hono<AppEnv>()
+  const app = new OpenAPIHono<AppEnv>()
   app.use(contextStorage())
   app.use(withTestRequestLogger)
   app.use(evlog())
@@ -81,6 +86,7 @@ function createApp() {
     await next()
   })
   registerAuthRoutes(app)
+  registerV1Routes(app)
   app.all(
     "/mcp",
     withMcpBearerAuth,
@@ -107,7 +113,7 @@ function createApp() {
 
 describe("MCP scopes (Postgres)", () => {
   let seed: SeededOrg | undefined
-  let app: Hono<AppEnv>
+  let app: OpenAPIHono<AppEnv>
   let baseUrl = ""
 
   beforeAll(async () => {
@@ -305,8 +311,10 @@ describe("MCP scopes (Postgres)", () => {
     }
   }
 
-  /** A token row from before the ctxpipe scopes existed. */
-  async function legacyOpaqueToken(): Promise<string> {
+  /** A stored token row with these scopes. The default is a token from before the ctxpipe scopes. */
+  async function storedOpaqueToken(
+    scopes: string[] = ["openid", "offline_access"],
+  ): Promise<string> {
     const s = requireSeed()
     const db = getSystemDb()
     const [session] = await db
@@ -315,8 +323,8 @@ describe("MCP scopes (Postgres)", () => {
       .where(eq(sessions.userId, s.userId))
       .limit(1)
     if (!session) throw new Error("sign-up did not store a session")
-    const clientId = `legacy_${s.userId}`
-    const token = `legacy_opaque_${s.userId}`
+    const clientId = `stored_${generateObjectId("oac")}`
+    const token = `stored_opaque_${clientId}`
     await db.insert(oauthClients).values({
       id: generateObjectId("oac"),
       clientId,
@@ -335,7 +343,7 @@ describe("MCP scopes (Postgres)", () => {
       referenceId: s.orgId,
       expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       createdAt: new Date(),
-      scopes: ["openid", "offline_access"],
+      scopes,
     })
     return token
   }
@@ -375,10 +383,10 @@ describe("MCP scopes (Postgres)", () => {
     )
     expect(response.status).toBe(200)
     const body = (await response.json()) as { scopes_supported?: string[] }
-    expect(body.scopes_supported).toEqual(["ctxpipe:read", "ctxpipe:write"])
+    expect(body.scopes_supported).toEqual(["ctxpipe:read"])
   })
 
-  it("issues a read-only token when the user leaves write unticked", async () => {
+  it("issues a read-only JWT access token", async () => {
     const token = await oauthAccessToken("ctxpipe:read offline_access")
     expect(token.scope?.split(" ").sort()).toEqual([
       "ctxpipe:read",
@@ -395,24 +403,64 @@ describe("MCP scopes (Postgres)", () => {
     )
   })
 
-  it("lists and runs a write tool for a token with the write scope", async () => {
-    const token = await oauthAccessToken(
-      "ctxpipe:read ctxpipe:write offline_access",
+  /** POST /workspaces is a direct-write route. A request past the write gate gets 400. */
+  function createWorkspace(headers: Record<string, string>) {
+    return app.request(
+      `${baseUrl}/${requireSeed().orgSlug}/api/v1/workspaces`,
+      {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ name: "Scope test" }),
+      },
     )
-    expect(token.scope?.split(" ")).toContain("ctxpipe:write")
-    expect(token.expiresIn).toBeLessThanOrEqual(3600)
-    const headers = { authorization: `Bearer ${token.accessToken}` }
+  }
 
-    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual(
-      [...READ_TOOLS, WRITE_TOOL].sort(),
+  it("gives only the read scope to a client that asks for read and write", async () => {
+    const token = await oauthAccessToken(null)
+    expect(token.consentScope).toBe("ctxpipe:read offline_access")
+    expect(token.scope?.split(" ").sort()).toEqual([
+      "ctxpipe:read",
+      "offline_access",
+    ])
+    const headers = { authorization: `Bearer ${token.accessToken}` }
+    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual(READ_TOOLS)
+    const write = await createWorkspace(headers)
+    expect(write.status).toBe(403)
+    expect(await write.json()).toMatchObject({ code: "write_grant_required" })
+
+    for (const path of [
+      "/.well-known/oauth-protected-resource/mcp",
+      "/.well-known/oauth-authorization-server",
+    ]) {
+      const metadata = (await (
+        await app.request(`${baseUrl}${path}`)
+      ).json()) as { scopes_supported?: string[] }
+      expect(metadata.scopes_supported).not.toContain("ctxpipe:write")
+    }
+  })
+
+  it("refuses a consent that adds the write scope", async () => {
+    await expect(
+      oauthAccessToken("ctxpipe:read ctxpipe:write offline_access"),
+    ).rejects.toThrow(/Scope not originally requested/)
+  })
+
+  it("reads a stored grant that lists the write scope as read", async () => {
+    const headers = {
+      authorization: `Bearer ${await storedOpaqueToken(["openid", "ctxpipe:read", "ctxpipe:write"])}`,
+    }
+    expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual(READ_TOOLS)
+    expectInsufficientScope(
+      await callTool(`${baseUrl}/mcp`, headers, WRITE_TOOL),
     )
-    const response = await callTool(`${baseUrl}/mcp`, headers, WRITE_TOOL)
-    expect(response.status).toBe(200)
-    expect(await response.text()).toContain("written")
+    expect((await createWorkspace(headers)).status).toBe(403)
+    expect(
+      (await createWorkspace({ cookie: requireSeed().cookie })).status,
+    ).toBe(400)
   })
 
   it("reads a grant from before the ctxpipe scopes as read", async () => {
-    const headers = { authorization: `Bearer ${await legacyOpaqueToken()}` }
+    const headers = { authorization: `Bearer ${await storedOpaqueToken()}` }
     expect(await listToolNames(`${baseUrl}/mcp`, headers)).toEqual(READ_TOOLS)
     expectInsufficientScope(
       await callTool(`${baseUrl}/mcp`, headers, WRITE_TOOL),
@@ -522,31 +570,17 @@ describe("MCP scopes (Postgres)", () => {
       "offline_access",
     ])
 
-    // The client may ask for write, but the user still decides at consent.
-    const unticked = await oauthAccessToken("ctxpipe:read offline_access", {
-      clientId,
-    })
-    expect(unticked.scope?.split(" ")).not.toContain("ctxpipe:write")
+    // The client may still list write, but it gets read in its place.
+    const asksWrite = await oauthAccessToken(null, { clientId })
+    expect(asksWrite.scope?.split(" ")).not.toContain("ctxpipe:write")
   })
 
-  it("gives no write for a write-only request unless the user ticks it", async () => {
-    // The consent page sends no scope list: no tick was recorded.
-    await expect(
-      oauthAccessToken(null, { requestedScope: "ctxpipe:write" }),
-    ).rejects.toThrow(/consent failed/)
-
-    const ticked = await oauthAccessToken("ctxpipe:write", {
+  it("asks for read in place of a write-only request", async () => {
+    const token = await oauthAccessToken(null, {
       requestedScope: "ctxpipe:write",
     })
-    expect(ticked.scope).toBe("ctxpipe:write")
-  })
-
-  it("leaves write out of a consent with no scope list", async () => {
-    const token = await oauthAccessToken(null)
-    expect(token.scope?.split(" ").sort()).toEqual([
-      "ctxpipe:read",
-      "offline_access",
-    ])
+    expect(token.consentScope).toBe("ctxpipe:read")
+    expect(token.scope).toBe("ctxpipe:read")
   })
 
   it("caps a client that skips consent at read", async () => {
