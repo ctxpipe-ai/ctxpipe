@@ -133,10 +133,33 @@ test("the manifest matches its schema and lists each check of each family", asyn
     readFileSync(join(root, "scripts/ci/projects.json"), "utf8"),
   )
   assert.equal(count("typecheck"), projects.length)
+  // The projects that import the repo-root shared/ directory read it.
+  for (const lane of ["backend", "codesearch", "ui"])
+    assert.ok(
+      manifest.checks
+        .find((check) => check.family === "typecheck" && check.lane === lane)
+        .inputs.includes("shared/**"),
+      lane,
+    )
   assert.equal(count("lint"), 3)
   assert.ok(count("policy") >= 8)
   assert.equal(count("eval", "mcp"), evalCaseCount())
   assert.equal(count("eval", "cli-memory"), 0)
+  // Each eval check lists the MCP tools of its rules, sorted and unique.
+  const evals = manifest.checks.filter((check) => check.family === "eval")
+  for (const check of evals) {
+    assert.ok(Array.isArray(check.tools), `${check.id}: tools`)
+    assert.deepEqual(check.tools, [...new Set(check.tools)].sort(), check.id)
+  }
+  assert.deepEqual(
+    evals.find((check) => check.id.endsWith("#stale-cursor")).tools,
+    ["search_knowledge"],
+  )
+  assert.deepEqual(
+    evals.find((check) => check.id.endsWith("#parallel-knowledge-and-code"))
+      .tools,
+    ["search_code", "search_knowledge"],
+  )
   assert.equal(count("vitest", "latency"), 1)
   assert.equal(count("vitest", "upgrade"), 1)
   // The required golden stories are tagged (ci-storybook-golden.test.mjs),

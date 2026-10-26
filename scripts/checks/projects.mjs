@@ -36,8 +36,17 @@ const definitions = () => [
         `${directory}/**`,
         ...({
           // The directories that a typecheck reads, other than its own.
-          // apps/ui/tsconfig.json maps paths into the backend source (the RPC types).
-          ui: ["apps/backend/src/**"],
+          // The backend and codesearch import the repo-root shared/ directory.
+          // Backend contract tests import the codesearch source and a CI script.
+          backend: [
+            "shared/**",
+            "apps/codesearch/src/**",
+            "scripts/ci/graph-ready.mjs",
+          ],
+          codesearch: ["shared/**"],
+          // apps/ui/tsconfig.json maps paths into the backend source (the RPC
+          // types), and that source imports shared/.
+          ui: ["apps/backend/src/**", "shared/**"],
           "self-host": ["packages/aws-cdk/**"],
         }[name] ?? []),
         diagnostics,
