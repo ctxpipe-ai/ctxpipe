@@ -22,6 +22,18 @@ const env = [
 const gate = pathToFileURL(join(root, "apps/backend/evals/mcp/gate.ts")).href
 const baselineFile = join(root, "apps/backend/evals/mcp/baseline.json")
 
+// The sorted, unique tool names that the rules of a case name.
+// "*" stays as "*" (any tool).
+function toolNames(item) {
+  const rules = [...(item.calls ?? []), ...(item.forbidden ?? [])]
+  return [
+    ...new Set([
+      ...rules.flatMap((rule) => [rule.tool ?? []].flat()),
+      ...(item.parallel ?? []).flat(),
+    ]),
+  ].sort()
+}
+
 export async function listEvals() {
   // Node strips the types of cases.ts (it holds only data).
   const { evalCases } = await import(pathToFileURL(join(root, cases)).href)
@@ -49,6 +61,7 @@ export async function listEvals() {
     ],
     stochastic: true,
     intent: item.intent,
+    tools: toolNames(item),
   }))
   return mcp
 }

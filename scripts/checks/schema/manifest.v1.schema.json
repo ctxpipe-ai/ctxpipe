@@ -96,6 +96,12 @@
         "intent": {
           "description": "For an expensive check: what the check catches, and what is never a reason to run it. A reader selects a check without a trace (an eval) by its intent.",
           "type": "string"
+        },
+        "tools": {
+          "description": "Eval checks: the MCP tool names that the case declares in its rules. `*` stands for any tool. A reader can select the case when a change reaches code that one of these tools runs (the trace's `tools` edges).",
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
         }
       }
     }
