@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
+import { HttpResponse, delay, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
@@ -201,19 +201,35 @@ export const ReingestPlanning: Story = {
 
 /** ctxpipe saw the merge. The card says what it reads now and what comes next. */
 export const MergedReadingFormat: Story = {
-  parameters: withUpgrades(
-    upgradesFixture(
-      [
-        upgradeItemFixture({
-          status: "pr_open",
-          pullRequest,
-          mergedAt: minutesAgo(2),
-          checkedAt: minutesAgo(2),
-        }),
-      ],
-      { formatVersion: 2 },
-    ),
-  ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          // The first match wins: the role answers late, so the action shows after the card text.
+          http.get(
+            "*/.auth/api/v1/auth/organization/get-active-member-role",
+            async () => {
+              await delay(1_000)
+              return HttpResponse.json({ role: "owner" })
+            },
+          ),
+          ...withUpgrades(
+            upgradesFixture(
+              [
+                upgradeItemFixture({
+                  status: "pr_open",
+                  pullRequest,
+                  mergedAt: minutesAgo(2),
+                  checkedAt: minutesAgo(2),
+                }),
+              ],
+              { formatVersion: 2 },
+            ),
+          ).msw.handlers.page,
+        ],
+      },
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const progress = await canvas.findByRole("region", {
@@ -229,7 +245,11 @@ export const MergedReadingFormat: Story = {
     expect(canvas.getByText("Merged. Reading the new format")).toBeVisible()
     // The "waits for you to merge" line is gone.
     expect(canvas.queryByText(/waits for you to merge/)).toBeNull()
-    expect(canvas.getByRole("button", { name: /^Check again/ })).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: /^Check again/ }),
+      ).toBeVisible(),
+    )
   },
 }
 
