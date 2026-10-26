@@ -1,12 +1,17 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { Session } from "node:inspector"
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { decode } from "@jridgewell/sourcemap-codec"
 import { afterAll, afterEach, beforeEach } from "vitest"
 
 import { emptyEdges, installEdges, takeEdges } from "./trace-edges.mjs"
+import {
+  executed,
+  lineRanges,
+  lineStarts,
+  positionsOf as positionsIn,
+} from "./trace-lines.mjs"
 
 // A Vitest setup file. trace-reporter.mjs adds it to each project only when
 // the runner traces. It records, for each test case, the repo source lines
@@ -47,8 +52,10 @@ function open() {
   // resolves against the page (`http://localhost:3000/@fs/...`).
   const own = [
     import.meta.url,
-    pathToFileURL(resolve(fileURLToPath(import.meta.url), "../trace-edges.mjs"))
-      .href,
+    ...["trace-edges.mjs", "trace-lines.mjs"].map(
+      (name) =>
+        pathToFileURL(resolve(fileURLToPath(import.meta.url), "..", name)).href,
+    ),
   ]
   const session = new Session()
   session.connect()
@@ -98,63 +105,7 @@ if (state)
     stop(error)
   }
 
-// The offset of the first character of each line.
-function lineStarts(text) {
-  const starts = [0]
-  let newline = text.indexOf("\n")
-  while (newline !== -1) {
-    starts.push(newline + 1)
-    newline = text.indexOf("\n", newline + 1)
-  }
-  return starts
-}
-
-// The source position of each source map segment of one script, sorted by
-// offset in the script that V8 ran. `starts` are the line offsets of that
-// script, and `prefix` is the length of a wrapper on its first line. Without
-// a source map the script is the source, and `text` gives the first
-// character of each line that is not white space. `base` is the file that
-// relative source names resolve against (the map file, or the script).
-function positionsOf({ path, text, starts, prefix = 0, map, base = path }) {
-  const positions = []
-  if (map) {
-    const names = map.sources.map((source) => {
-      if (source.startsWith("file:")) return repoPath(fileURLToPath(source))
-      const full = isAbsolute(source)
-        ? source
-        : resolve(dirname(base), map.sourceRoot ?? "", source)
-      return repoPath(full)
-    })
-    for (const [line, segments] of decode(map.mappings).entries())
-      for (const [column, source, sourceLine] of segments) {
-        if (
-          source === undefined ||
-          !names[source] ||
-          starts[line] === undefined
-        )
-          continue
-        positions.push({
-          offset: starts[line] + column + (line === 0 ? prefix : 0),
-          source: names[source],
-          line: sourceLine + 1,
-        })
-      }
-  } else {
-    const name = repoPath(path)
-    for (const [line, start] of starts.entries()) {
-      const from = start + (line === 0 ? prefix : 0)
-      const end = starts[line + 1] ?? text.length
-      const indent = text.slice(from, end).search(/\S/)
-      if (!name || indent === -1) continue
-      positions.push({ offset: from + indent, source: name, line: line + 1 })
-    }
-  }
-  for (const { source, line } of positions) {
-    if (!state.code.has(source)) state.code.set(source, new Set())
-    state.code.get(source).add(line)
-  }
-  return positions
-}
+const positionsOf = (script) => positionsIn(script, root, state.code)
 
 // The positions of one script of this worker.
 function table(scriptId) {
@@ -259,11 +210,6 @@ function childLines(dir) {
   return { lines, reports }
 }
 
-function repoPath(path) {
-  const name = relative(root, path).replaceAll("\\", "/")
-  return name.startsWith("..") || name.includes("node_modules/") ? null : name
-}
-
 // Takes the counts since the last take (V8 resets them) and adds the lines
 // that ran to `lines` (source path to a set of line numbers).
 function take(lines) {
@@ -275,55 +221,6 @@ function take(lines) {
     const positions = table(script.scriptId)
     if (positions) executed(ranges, positions, lines)
   }
-}
-
-// Adds the positions that ran to `lines`. A segment ran when the innermost
-// V8 range that holds its offset has a count above zero: the function ranges
-// minus their nested blocks with a zero count.
-function executed(ranges, positions, lines) {
-  ranges.sort(
-    (a, b) => a.startOffset - b.startOffset || b.endOffset - a.endOffset,
-  )
-  const stack = []
-  let next = 0
-  for (const { offset, source, line } of positions) {
-    while (next < ranges.length && ranges[next].startOffset <= offset) {
-      const range = ranges[next++]
-      while (stack.length && stack.at(-1).endOffset <= range.startOffset)
-        stack.pop()
-      stack.push(range)
-    }
-    while (stack.length && stack.at(-1).endOffset <= offset) stack.pop()
-    if (!stack.length || stack.at(-1).count === 0) continue
-    if (!lines.has(source)) lines.set(source, new Set())
-    lines.get(source).add(line)
-  }
-}
-
-// Line sets to sorted [start, end] ranges. A line with no code (blank, a
-// comment, a type) does not end a range.
-function ranges(lines) {
-  const out = {}
-  for (const [source, set] of [...lines].sort(([a], [b]) => (a < b ? -1 : 1))) {
-    const code = state.code.get(source)
-    const sorted = [...set].sort((a, b) => a - b)
-    const list = []
-    for (const line of sorted) {
-      const last = list.at(-1)
-      if (last) {
-        let gap = true
-        for (let between = last[1] + 1; between < line && gap; between++)
-          if (code.has(between)) gap = false
-        if (gap) {
-          last[1] = line
-          continue
-        }
-      }
-      list.push([line, line])
-    }
-    out[source] = list
-  }
-  return out
 }
 
 const cases = new Map()
@@ -428,7 +325,7 @@ afterAll((suite) => {
           return {
             name,
             durationMs: Math.max(0, Math.round(durationMs)),
-            lines: ranges(lines),
+            lines: lineRanges(lines, state.code),
             ...(Object.keys(tables).length ? { tables } : {}),
             ...Object.fromEntries(
               lists

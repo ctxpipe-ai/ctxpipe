@@ -1,6 +1,12 @@
 import { execFile } from "node:child_process"
+import { existsSync, readFileSync, realpathSync, rmSync } from "node:fs"
+import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
+
+import { setupSteps, vitestCommand } from "../ci/vitest-launch.mjs"
+import { logFile, logged } from "./log.mjs"
+import { freshParts, laneChecks as readParts } from "./trace.mjs"
 
 export const root = fileURLToPath(new URL("../../", import.meta.url))
 
@@ -65,6 +71,17 @@ const codesearchInputs = [
 // The migrations are Drizzle migration directories: `migration.sql`, which
 // the tests apply, and `snapshot.json`, which only drizzle-kit reads.
 const backendTraceInputs = { "apps/backend/migrations/**": "tables" }
+// The named prerequisites (prerequisites.mjs) that the runner makes or
+// verifies before a lane runs. The CI jobs set up the same things.
+const databases = ["postgres", "migrations", "falkordb"]
+const nativePrerequisites = [
+  ...databases,
+  "bun",
+  "opencode",
+  "zoekt",
+  "ast-grep",
+  "chat-sandbox-image",
+]
 export const lanes = {
   backend: {
     directory: "apps/backend",
@@ -72,6 +89,7 @@ export const lanes = {
     inputs: [...backendInputs, ...nativeInputs],
     traceInputs: backendTraceInputs,
     env: backendEnv,
+    prerequisites: nativePrerequisites,
   },
   contracts: {
     directory: "apps/backend",
@@ -79,6 +97,7 @@ export const lanes = {
     inputs: [...backendInputs, ...nativeInputs],
     traceInputs: backendTraceInputs,
     env: backendEnv,
+    prerequisites: nativePrerequisites,
   },
   vercel: {
     directory: "apps/backend",
@@ -86,6 +105,41 @@ export const lanes = {
     inputs: backendInputs,
     traceInputs: backendTraceInputs,
     env: [...backendEnv, { name: "VERCEL_TOKEN", mode: "presence" }],
+    prerequisites: databases,
+  },
+  // The files that do not end in `.test.ts` have their own Vitest config,
+  // so the PR suite never runs them. Wall-clock bounds vary on shared
+  // runners, so a latency result is stochastic.
+  latency: {
+    directory: "apps/backend",
+    runtime: "node",
+    config: "vitest.latency.config.ts",
+    match: /^src\/.*\.latency\.ts$/,
+    inputs: [...backendInputs, "apps/backend/vitest.latency.config.ts"],
+    traceInputs: backendTraceInputs,
+    env: backendEnv,
+    prerequisites: databases,
+    stochastic: true,
+  },
+  // The upgrade from the previous release (the CI job
+  // upgrade-from-previous-release). It makes its own database, so its
+  // DATABASE_URL is a role that can create databases and roles.
+  upgrade: {
+    directory: "apps/backend",
+    runtime: "node",
+    config: "vitest.upgrade.config.ts",
+    match: /^src\/.*\.upgrade\.ts$/,
+    inputs: [...backendInputs, "apps/backend/vitest.upgrade.config.ts"],
+    traceInputs: backendTraceInputs,
+    env: [...backendEnv, { name: "RELEASE_TREE", mode: "presence" }],
+    prerequisites: [
+      "postgres",
+      "falkordb",
+      "bun",
+      "zoekt",
+      "ast-grep",
+      "previous-release",
+    ],
   },
   ui: {
     directory: "apps/ui",
@@ -131,11 +185,13 @@ export const lanes = {
     directory: "apps/codesearch",
     runtime: "node",
     inputs: codesearchInputs,
+    prerequisites: ["zoekt"],
   },
   "codesearch-bun": {
     directory: "apps/codesearch",
     runtime: "bun",
     inputs: codesearchInputs,
+    prerequisites: ["bun", "zoekt"],
   },
 }
 
@@ -148,10 +204,23 @@ const json = async (script, args) => {
   return JSON.parse(stdout)
 }
 
-export async function listChecks() {
+// The files of a lane with its own config: the tracked files that match.
+const matching = async (lane) => {
+  const { stdout } = await promisify(execFile)(
+    "git",
+    ["ls-files", "--cached", "--others", "--exclude-standard"],
+    { cwd: join(root, lanes[lane].directory), maxBuffer: 64 * 1024 * 1024 },
+  )
+  return stdout.split("\n").filter((file) => lanes[lane].match.test(file))
+}
+
+// The Vitest checks: one for each test file of each lane.
+export async function listVitest() {
   const suites = ["backend", "contracts", "vercel", "ui", "cli", "aws-cdk"]
-  const [codesearch, ...inventories] = await Promise.all([
+  const [codesearch, latency, upgrade, ...inventories] = await Promise.all([
     json("apps/codesearch/scripts/run-vitest-contracts.mjs", ["--list"]),
+    matching("latency"),
+    matching("upgrade"),
     ...suites.map((lane) =>
       json("scripts/ci/test-suite.mjs", [lane, "--list"]),
     ),
@@ -161,9 +230,15 @@ export async function listChecks() {
   )
   files.codesearch = codesearch.node
   files["codesearch-bun"] = codesearch.bun
-  const checks = Object.entries(files).flatMap(([lane, list]) =>
+  files.latency = latency
+  files.upgrade = upgrade
+  return Object.entries(files).flatMap(([lane, list]) =>
     list.map((relative) => {
       const file = `${lanes[lane].directory}/${relative}`
+      const { inputs, runtime, env, traceInputs, prerequisites, stochastic } =
+        lanes[lane]
+      // An expensive check states its intent in a file next to it.
+      const intent = join(root, file.replace(/\.[cm]?[jt]sx?$/, ".intent.md"))
       // A check id is `<family>:<lane>:<file>`. A later version adds case ids
       // as `<family>:<lane>:<file>#<case>`, so a file id stays a prefix.
       return {
@@ -172,15 +247,125 @@ export async function listChecks() {
         lane,
         root: lanes[lane].directory,
         file,
-        inputs: lanes[lane].inputs,
-        runtime: lanes[lane].runtime,
-        ...(lanes[lane].env && { env: lanes[lane].env }),
-        ...(lanes[lane].traceInputs
-          ? { traceInputs: lanes[lane].traceInputs }
-          : {}),
+        inputs,
+        runtime,
+        ...(env && { env }),
+        ...(traceInputs && { traceInputs }),
+        ...(prerequisites && { prerequisites }),
+        ...(stochastic && { stochastic }),
+        ...(existsSync(intent) && {
+          intent: readFileSync(intent, "utf8").trim(),
+        }),
       }
     }),
   )
-  checks.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-  return { schemaVersion: 1, checks }
+}
+
+// Runs Vitest checks, one lane at a time: backend files share one database
+// and run in series. With `trace`, it also returns the trace records.
+export function runVitest(checks, trace) {
+  const groups = Map.groupBy(checks, (check) => check.lane)
+  const records = []
+  const traced = []
+  let traceFailed = false
+  for (const [lane, laneChecks] of groups) {
+    const { directory } = lanes[lane]
+    const log = logFile(lane)
+    const report = join(root, ".ci-results", "checks", `${lane}.json`)
+    rmSync(report, { force: true })
+    const laneConfig = { name: lane, ...lanes[lane] }
+    let suites = new Map()
+    let message
+    for (const step of setupSteps(laneConfig, root)) {
+      const setup = logged(log.path, process.execPath, step.args, {
+        cwd: step.cwd,
+        timeout: step.timeout,
+      })
+      if (setup.error || setup.status) {
+        message = `${lane} setup failed`
+        break
+      }
+    }
+    // Bun has no V8 inspector, so a Bun lane has no trace.
+    let parts =
+      trace && laneConfig.runtime === "node"
+        ? join(trace, `parts-${lane}`)
+        : undefined
+    if (parts) {
+      parts = freshParts(parts, lane)
+      if (!parts) traceFailed = true
+    }
+    if (!message) {
+      const launch = vitestCommand(
+        laneConfig,
+        root,
+        laneChecks.map(({ file }) => relative(directory, file)),
+        report,
+        parts,
+      )
+      const run = logged(log.path, launch.command, launch.args, {
+        cwd: launch.cwd,
+        env: launch.env,
+        timeout: 2_700_000,
+      })
+      try {
+        const parsed = JSON.parse(readFileSync(report, "utf8"))
+        suites = new Map(
+          parsed.testResults.map((suite) => [
+            relative(realpathSync(root), realpathSync(suite.name)).replaceAll(
+              "\\",
+              "/",
+            ),
+            suite,
+          ]),
+        )
+      } catch {
+        message = `Vitest wrote no report (${run.error?.message ?? run.signal ?? `exit ${run.status}`})`
+      }
+    }
+    // A trace is data only: an error here never changes a result.
+    if (parts)
+      try {
+        traced.push(...readParts(parts, lane))
+      } catch (error) {
+        traceFailed = true
+        process.stderr.write(`No trace for ${lane}: ${error.message}\n`)
+      }
+    for (const { id, file } of laneChecks) {
+      const suite = suites.get(file)
+      const cases = (suite?.assertionResults ?? []).map((assertion) => ({
+        name: assertion.fullName,
+        status:
+          assertion.status === "passed" || assertion.status === "failed"
+            ? assertion.status
+            : "skipped",
+        durationMs: Math.round(assertion.duration ?? 0),
+        ...(assertion.failureMessages?.length
+          ? { message: assertion.failureMessages.join("\n") }
+          : {}),
+      }))
+      const status = !suite
+        ? "error"
+        : suite.message || !cases.length
+          ? "error"
+          : cases.some((c) => c.status === "failed")
+            ? "failed"
+            : cases.every((c) => c.status === "skipped")
+              ? "skipped"
+              : "passed"
+      records.push({
+        id,
+        status,
+        durationMs: suite
+          ? Math.max(0, Math.round(suite.endTime - suite.startTime))
+          : 0,
+        cases,
+        log: log.relative,
+        ...(status === "error"
+          ? { message: suite?.message || message || "Suite did not run" }
+          : {}),
+      })
+    }
+  }
+  return { records, traced, traceFailed }
 }

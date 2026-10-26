@@ -59,7 +59,8 @@ export function laneChecks(parts, lane) {
 }
 
 // The commit is the checkout that ran the checks; a reader maps line numbers
-// with the diff from it.
+// with the diff from it. `durations` gives the time of each check that ran
+// but has no trace record (a project check, a Bun lane).
 export function writeTrace(
   path,
   checks,
@@ -67,11 +68,22 @@ export function writeTrace(
     cwd: root,
     encoding: "utf8",
   }).trim(),
+  durations = {},
 ) {
   checks.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  const sorted = Object.fromEntries(
+    Object.entries(durations).sort(([a], [b]) => (a < b ? -1 : 1)),
+  )
   writeFileSync(
     path,
-    gzipSync(JSON.stringify({ schemaVersion: 1, commit, checks })),
+    gzipSync(
+      JSON.stringify({
+        schemaVersion: 1,
+        commit,
+        checks,
+        ...(Object.keys(sorted).length && { durations: sorted }),
+      }),
+    ),
   )
 }
 
@@ -92,10 +104,18 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (commits.size !== 1)
       throw new Error(`Traces of more than one commit: ${[...commits]}`)
     const checks = traces.flatMap((trace) => trace.checks)
-    const ids = checks.map(({ id }) => id)
+    const ids = [
+      ...checks.map(({ id }) => id),
+      ...traces.flatMap((trace) => Object.keys(trace.durations ?? {})),
+    ]
     if (new Set(ids).size !== ids.length)
       throw new Error("The same check is in more than one trace")
-    writeTrace(out, checks, [...commits][0])
+    writeTrace(
+      out,
+      checks,
+      [...commits][0],
+      Object.assign({}, ...traces.map((trace) => trace.durations)),
+    )
   } catch (error) {
     process.stderr.write(`${error.message}\n`)
     process.exitCode = 1
