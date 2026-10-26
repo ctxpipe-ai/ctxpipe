@@ -79,6 +79,50 @@ const jobOf = (id) => {
   }[lane]
 }
 
+// The steps of the Lint and format job that run one check each, by the
+// `<family>:<lane>:` prefix of its id. The step result is the check result.
+// A test keeps these names equal to the steps in ci.yaml.
+export const lintSteps = {
+  "Run pnpm lint": "lint:oxlint:",
+  "Run pnpm format:check": "lint:format:",
+  "Reject unused files, exports and dependencies": "lint:knip:",
+  "Run node scripts/ci/check-workflow-credentials.mjs":
+    "policy:workflow-credentials:",
+  "Run node scripts/ci/check-secret-jobs.mjs": "policy:secret-jobs:",
+  "Run node scripts/ci/check-agent-harness.mjs": "policy:agent-harness:",
+  "Reject skipped proof and owned mocks": "policy:test-policy:",
+  "Reject slow UI motion": "policy:ui-motion:",
+  "Reject racy Storybook play checks": "policy:story-play-timing:",
+  "Reject non-Blacksmith runners": "policy:runners:",
+  "Reject outside values in run scripts and workflows without permissions":
+    "policy:workflow-inputs:",
+}
+// The step of the Lint and format job that the gated run always runs.
+const ciScriptTests = "CI command regression tests"
+
+// The result of each step above in this run, and of the CI script tests.
+export function stepResults(jobs) {
+  const results = new Map()
+  for (const job of jobs?.jobs ?? []) {
+    if (job.name !== "Lint and format") continue
+    for (const step of job.steps ?? []) {
+      const key =
+        lintSteps[step.name] ??
+        (step.name === ciScriptTests ? ciScriptTests : undefined)
+      if (key)
+        results.set(
+          key,
+          step.conclusion === "success"
+            ? "passed"
+            : step.conclusion === "failure"
+              ? "failed"
+              : "unknown",
+        )
+    }
+  }
+  return results
+}
+
 // The job of these lanes sets lane variables that the manifest job does not
 // set (GITHUB_TOKEN and VERCEL_TOKEN), so the key from the toolchain record
 // does not describe the run of the check. Its hits are not accepted.
@@ -107,8 +151,9 @@ export function decideMode({ config, event, fork, changed }) {
   return { mode: "select", reason: config.mode }
 }
 
-// The result of each check id in the full run: its own record, else its job.
-export function fullRunResults(records, needs) {
+// The result of each check id in the full run: its own record, else its
+// step of the Lint and format job, else its job.
+export function fullRunResults(records, needs, steps = new Map()) {
   const results = new Map()
   for (const record of records) {
     const kept = results.get(record.id)
@@ -118,6 +163,9 @@ export function fullRunResults(records, needs) {
   }
   return (id) => {
     if (results.has(id)) return results.get(id)
+    const [family, lane] = id.split(":")
+    const step = steps.get(`${family}:${lane}:`)
+    if (step) return step
     const job = needs[jobOf(id)]?.result
     return job === "success" ? "passed" : "unknown"
   }
@@ -135,7 +183,13 @@ export function fullVerdict(needs) {
 // What a gated run would decide on the same results. Each selected check needs
 // one accepted result: an accepted hit, or its result in the full run (the
 // gated run would run it).
-export function gatedVerdict({ selection, config, result, needs }) {
+export function gatedVerdict({
+  selection,
+  config,
+  result,
+  needs,
+  steps = new Map(),
+}) {
   const hits = new Map(
     (selection.cache?.hits ?? []).map((hit) => [hit.id, hit]),
   )
@@ -168,6 +222,7 @@ export function gatedVerdict({ selection, config, result, needs }) {
   const failedAlwaysRun = alwaysRun.filter((job) =>
     ["failure", "cancelled"].includes(needs[job]?.result),
   )
+  if (steps.get(ciScriptTests) === "failed") failedAlwaysRun.push(ciScriptTests)
   const bad = ran.filter((item) => ["failed", "error"].includes(item.result))
   const verdict =
     bad.length || failedAlwaysRun.length
@@ -179,16 +234,27 @@ export function gatedVerdict({ selection, config, result, needs }) {
 }
 
 // The failed checks of the full run that the gated run would not run, and why.
-export function escapes({ selection, records, gated }) {
+// A failed check has a failed record, or a failed step of the Lint and format
+// job.
+export function escapes({ selection, records, gated, steps = new Map() }) {
   const ran = new Set(gated.ran.map((item) => item.id))
   const hits = new Map(gated.hits.map((item) => [item.id, item]))
   const omitted = new Map(selection.omitted.map((item) => [item.id, item]))
+  const known = [...selection.selected, ...selection.omitted].map(
+    ({ id }) => id,
+  )
+  const failedSteps = [...steps]
+    .filter(([, result]) => result === "failed")
+    .map(([prefix]) => prefix)
   const failed = [
-    ...new Set(
-      records
+    ...new Set([
+      ...records
         .filter((record) => record.status === "failed")
         .map((record) => record.id),
-    ),
+      ...known.filter((id) =>
+        failedSteps.some((prefix) => id.startsWith(prefix)),
+      ),
+    ]),
   ].sort()
   return {
     failed: failed.length,
@@ -372,7 +438,8 @@ export function shadow({ config, inputs, records, needs, jobs, run }) {
   const selection = readJson(join(inputs, "selection.json"))
   const select = needs["merge-gate-select"]?.result
   const full = fullVerdict(needs)
-  const result = fullRunResults(records, needs)
+  const steps = stepResults(jobs)
+  const result = fullRunResults(records, needs, steps)
   let fallback
   if (!mode)
     fallback = `manifest job ${needs["merge-gate-manifest"]?.result ?? "did not run"}`
@@ -399,7 +466,7 @@ export function shadow({ config, inputs, records, needs, jobs, run }) {
     decision.gatedRun = { verdict: full.verdict }
     return decision
   }
-  const gated = gatedVerdict({ selection, config, result, needs })
+  const gated = gatedVerdict({ selection, config, result, needs, steps })
   const trace = existsSync(join(inputs, "trace.json.gz"))
     ? readTrace(join(inputs, "trace.json.gz"))
     : undefined
@@ -412,7 +479,7 @@ export function shadow({ config, inputs, records, needs, jobs, run }) {
   const hitClasses = {}
   for (const hit of selection.cache?.hits ?? [])
     hitClasses[hit.source] = (hitClasses[hit.source] ?? 0) + 1
-  const recall = escapes({ selection, records, gated })
+  const recall = escapes({ selection, records, gated, steps })
   Object.assign(decision, {
     selection: {
       variant: selection.variant,

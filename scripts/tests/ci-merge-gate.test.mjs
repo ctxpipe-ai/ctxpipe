@@ -605,3 +605,66 @@ test("the CLI writes the decision files from artifacts", () => {
   )
   assert.ok(readFileSync(join(out, "comment.md"), "utf8").startsWith(marker))
 })
+
+test("a lint or policy check takes the result of its step in the Lint and format job", () => {
+  const steps = (failed) => ({
+    jobs: [
+      {
+        name: "Lint and format",
+        started_at: "2026-10-27T10:00:00Z",
+        completed_at: "2026-10-27T10:01:00Z",
+        steps: [
+          { name: "Run pnpm lint", conclusion: failed ? "failure" : "success" },
+          { name: "CI command regression tests", conclusion: "skipped" },
+        ],
+      },
+    ],
+  })
+  const decision = (failed) =>
+    decide({
+      needs: { "test-shards": "success", test: "success", lint: "failure" },
+      shadow: { records: [], jobs: steps(failed) },
+    })
+  const oxlint = (d) =>
+    d.ran.find(({ id }) => id === "lint:oxlint:.oxlintrc.json")
+  // The agent hit of oxlint is accepted, so make it run: no agent results.
+  const run = (failed) =>
+    shadow({
+      config: { ...pinned, acceptAgentResults: false },
+      inputs: inputs({
+        "mode.json": { mode: "select", reason: "shadow" },
+        "selection.json": selection(),
+      }),
+      records: [],
+      needs: needs({
+        "test-shards": "success",
+        test: "success",
+        lint: "failure",
+      }),
+      jobs: steps(failed),
+      run: {},
+    })
+  assert.equal(oxlint(run(true)).result, "failed")
+  assert.equal(run(true).gatedRun.verdict, "fail")
+  assert.deepEqual(run(true).metrics.recall, { failed: 1, ran: 1, escaped: [] })
+  assert.equal(oxlint(run(false)).result, "passed")
+  assert.equal(decision(false).gatedRun.verdict, "pass")
+})
+
+test("the step names of the Lint and format job are the steps in ci.yaml", async () => {
+  const { lintSteps } = await import("../checks/gate.mjs")
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const lint = workflow.slice(
+    workflow.indexOf("  lint:\n"),
+    workflow.indexOf("\n  typecheck:\n"),
+  )
+  for (const name of [
+    ...Object.keys(lintSteps),
+    "CI command regression tests",
+  ]) {
+    const named = name.startsWith("Run ")
+      ? lint.includes(`- run: ${name.slice(4)}\n`)
+      : lint.includes(`- name: ${name}\n`)
+    assert.ok(named, name)
+  }
+})
