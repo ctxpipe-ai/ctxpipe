@@ -118,7 +118,8 @@ export function buildCtxpipeConfigOperation({
 }: {
   baseUrl: string
   context?: OperationContext
-}): WriteJsonOperation {
+}): WriteJsonOperation | null {
+  if (normalizeBaseUrl(baseUrl) === DEFAULT_BASE_URL) return null
   const configPath = resolve(context.cwd, ".ctxpipe", "config.json")
   return {
     type: "write-json",
@@ -137,7 +138,8 @@ export function buildMemoryConfigOperation({
 }: {
   baseUrl: string
   context?: OperationContext
-}): WriteJsonOperation {
+}): WriteJsonOperation | null {
+  if (normalizeBaseUrl(baseUrl) === DEFAULT_BASE_URL) return null
   const configPath = resolve(context.cwd, ".ctxpipe", "config.json")
   return {
     type: "write-json",

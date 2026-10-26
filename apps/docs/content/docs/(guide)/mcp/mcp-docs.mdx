@@ -21,8 +21,8 @@ Run this in a repository:
 npx ctxpipe init
 ```
 
-The wizard signs you in, asks which organization and agent clients to
-configure, and shows the planned file changes before it writes them. Write the
+The wizard asks which agent clients and which scope to configure, and shows the
+planned file changes before it writes them. Write the
 configuration to the repository, to your user profile, or to both. To share the
 setup with your team, commit the repository configuration that the CLI writes.
 It holds no secret.
@@ -38,9 +38,8 @@ the MCP only, run `npx ctxpipe mcp add`.
 | **OpenCode** | `opencode.json` | `~/.config/opencode/opencode.json` |
 | **VS Code / Copilot** | `.vscode/mcp.json` | Prints a VS Code install link |
 
-The CLI sign-in is only for setup. The CLI keeps it in the OS keychain, or in
-`~/.config/ctxpipe/` when no keychain is available. Your agent client asks you
-to authorize ctxpipe separately the first time it connects.
+The wizard does not sign you in. Your agent client asks you to authorize ctxpipe
+with OAuth the first time it connects.
 
 ### Scripts and CI
 

@@ -314,9 +314,7 @@ MCP auth:
 
   const auth = program
     .command("auth")
-    .description(
-      "Setup sign-in for listing organizations (separate from MCP OAuth).",
-    )
+    .description("Sign in to ctxpipe from the CLI.")
 
   auth
     .command("login")
@@ -325,7 +323,7 @@ MCP auth:
     )
     .option(
       "--base-url <url>",
-      `ctxpipe app origin for config (default: ${DEFAULT_BASE_URL})`,
+      `ctxpipe app origin for auth (default: ${DEFAULT_BASE_URL})`,
       DEFAULT_BASE_URL,
     )
     .action(async (rawOpts: Record<string, unknown>) => {

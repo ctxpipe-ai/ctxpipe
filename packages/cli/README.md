@@ -10,7 +10,7 @@ npx ctxpipe init
 
 This opens an interactive wizard with repo/global setup scope selection, detected agent defaults, multi-select client setup, and a final change summary before anything is written.
 
-If no organization is supplied, the wizard signs you in with a browser/device-code flow, loads your ctxpipe organizations, and lets you choose one. MCP clients still perform their own OAuth later when they first use ctxpipe. Pass `--auth api-key` to write a client-specific interpolation of `CTXPIPE_API_KEY` (not the secret) into repo or user MCP config. Set `CTXPIPE_API_KEY` in the **MCP client** process; `init` and `mcp add` do not consume that variable. `npx ctxpipe doctor mcp` does send `x-api-key` when `CTXPIPE_API_KEY` is set in that process. GUI apps often do not inherit the shell that ran `npx ctxpipe` — see [Set CTXPIPE_API_KEY](https://docs.ctxpipe.ai/docs/mcp/api-keys#set-ctxpipe_api_key).
+MCP clients still perform their own OAuth later when they first use ctxpipe. Pass `--auth api-key` to write a client-specific interpolation of `CTXPIPE_API_KEY` (not the secret) into repo or user MCP config. Set `CTXPIPE_API_KEY` in the **MCP client** process; `init` and `mcp add` do not consume that variable. `npx ctxpipe doctor mcp` does send `x-api-key` when `CTXPIPE_API_KEY` is set in that process. GUI apps often do not inherit the shell that ran `npx ctxpipe` — see [Set CTXPIPE_API_KEY](https://docs.ctxpipe.ai/docs/mcp/api-keys#set-ctxpipe_api_key).
 
 **Setup credentials:** the CLI stores setup-auth tokens in the **OS keychain** when available (`@napi-rs/keyring`). If the keychain cannot be used (headless Linux, unsupported environment), it falls back to a file under `~/.config/ctxpipe/` and prints a one-time notice to stderr.
 
@@ -96,7 +96,7 @@ npx ctxpipe memory capture summary
 
 Observe appends candidates under `.ai/memory/events/` (fail-open). Summary prints promotion candidates; it does **not** write durable ADRs. Agents promote via capture skills and update `index.md` files.
 
-`init` does not need an organization slug. In non-interactive mode, `--scope` defaults to `repo`.
+`init` does not need an organization slug. In non-interactive mode, plain `init` requires `--scope`. Only `memory init` defaults `--scope` to `repo`.
 
 Full init with memory add-on (remote MCP + Markdown memory): `npx ctxpipe init --agents cursor --memory --non-interactive`.
 

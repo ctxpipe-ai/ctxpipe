@@ -66,7 +66,12 @@ export async function runMemoryInit(opts: MemoryInitRunOpts): Promise<void> {
     scope,
     context,
   })
-  const operations = [configOp, ...upgradeOps, ...memoryOps, ...hookOps]
+  const operations = [
+    ...(configOp ? [configOp] : []),
+    ...upgradeOps,
+    ...memoryOps,
+    ...hookOps,
+  ]
 
   const modeLine =
     "Markdown-only memory — candidates via hooks; promote with capture skills"

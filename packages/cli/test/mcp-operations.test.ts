@@ -27,20 +27,13 @@ function writeJson(operation: unknown): WriteJsonOperation {
 }
 
 describe("MCP operation builders", () => {
-  it("builds minimal repo ctxpipe config for default SaaS base URL", () => {
-    const operation = buildCtxpipeConfigOperation({
-      baseUrl: "https://app.ctxpipe.ai/",
-      context,
-    })
-
-    expect(operation.path).toBe("/repo/.ctxpipe/config.json")
+  it("writes no repo ctxpipe config for the default SaaS base URL", () => {
     expect(
-      operation.content({
-        keep: true,
-        mcp: { previous: true },
-        memory: { enabled: true },
+      buildCtxpipeConfigOperation({
+        baseUrl: "https://app.ctxpipe.ai/",
+        context,
       }),
-    ).toEqual({})
+    ).toBeNull()
   })
 
   it("builds repo ctxpipe config with non-default baseUrl", () => {
@@ -49,7 +42,8 @@ describe("MCP operation builders", () => {
       context,
     })
 
-    expect(operation.content({})).toEqual({
+    expect(operation?.path).toBe("/repo/.ctxpipe/config.json")
+    expect(operation?.content({ keep: true })).toEqual({
       baseUrl: "https://my.ctxpipe.example",
     })
   })
@@ -154,46 +148,22 @@ describe("MCP operation builders", () => {
     expect(() => validateAuthMode("bearer")).toThrow("--auth must be one of")
   })
 
-  it("buildMemoryConfigOperation ignores existing orgSlug", () => {
-    const operation = buildMemoryConfigOperation({
-      baseUrl: "https://app.ctxpipe.ai",
-      context,
-    })
-    const result = operation.content({}) as {
-      orgSlug?: string
-      memory?: { enabled: boolean }
-    }
-    expect(result).toEqual({})
-  })
-
-  it("buildMemoryConfigOperation does not write orgSlug", () => {
-    const operation = buildMemoryConfigOperation({
-      baseUrl: "https://app.ctxpipe.ai",
-      context,
-    })
-    expect(operation.content({ orgSlug: "old-org" })).toEqual({})
+  it("writes no memory config for the default base URL", () => {
+    expect(
+      buildMemoryConfigOperation({
+        baseUrl: "https://app.ctxpipe.ai",
+        context,
+      }),
+    ).toBeNull()
   })
 
   it("buildMemoryConfigOperation ignores an existing orgSlug", () => {
     const operation = buildMemoryConfigOperation({
-      baseUrl: "https://app.ctxpipe.ai",
+      baseUrl: "https://my.ctxpipe.example",
       context,
     })
-    expect(operation.content({ orgSlug: "old-org" })).toEqual({})
-  })
-
-  it("buildMemoryConfigOperation preserves non-default baseUrl from existing config", () => {
-    const operation = buildMemoryConfigOperation({
-      baseUrl: "https://app.ctxpipe.ai",
-      context,
-    })
-    expect(
-      operation.content({
-        baseUrl: "https://custom.example",
-        mcp: { url: "https://custom.example/mcp" },
-      }),
-    ).toEqual({
-      baseUrl: "https://custom.example",
+    expect(operation?.content({ orgSlug: "old-org" })).toEqual({
+      baseUrl: "https://my.ctxpipe.example",
     })
   })
 

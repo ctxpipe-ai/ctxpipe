@@ -151,7 +151,7 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     ? buildMemoryHookOperations({ clients: agents, scope, context })
     : []
   const operations = [
-    ctxpipeConfig,
+    ...(ctxpipeConfig ? [ctxpipeConfig] : []),
     ...mcpOps,
     ...upgradeOps,
     ...memoryOps,
