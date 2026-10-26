@@ -29,6 +29,7 @@ try {
         .filter(Boolean),
     ),
   ]
+  if (!ids.length) throw new Error("no check ids given")
   let failed = false
   const emit = (record) => {
     if (record.status === "failed" || record.status === "error") failed = true

@@ -208,6 +208,9 @@ test("the runner runs exactly the given ids and writes one schema result for eac
     assert.ok(passed.cases.length > 0)
     assert.ok(existsSync(join(root, passed.log)))
     assert.equal(node([script("run.mjs"), ids, "extra"]).status, 1)
+    const none = node([script("run.mjs")], "\n\n")
+    assert.equal(none.status, 1)
+    assert.match(none.stderr, /no check ids given/)
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
@@ -692,4 +695,12 @@ test("an eval case verdict is the eval gate for that case", async () => {
   // One model is under the gate minimum of models.
   const single = await caseVerdict({ iterations: 3, passes: { m1: { x: 3 } } }, "x", null)
   assert.match(single.general.join(), /at least 2 models/)
+  // A model without a baseline entry for the case gets only the floor.
+  const partial = { recordedAt: "", models: { m1: { aggregate: 1, cases: { y: 1 } } } }
+  const floor = await caseVerdict(run(2, 3), "x", partial)
+  assert.deepEqual(floor.cases.map((c) => c.status), ["failed", "passed"])
+  assert.match(floor.cases[1].message, /no baseline/)
+  assert.doesNotMatch((await caseVerdict(run(3, 3), "x", baseline)).cases[0].message, /no baseline/)
+  // A whole-run failure is not a case failure.
+  assert.deepEqual(single.cases.map((c) => c.status), ["passed"])
 })

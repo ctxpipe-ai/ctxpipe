@@ -969,8 +969,13 @@ jobs:
         # The check runner verifies the prerequisites, and writes the Vitest
         # output to .ci-results/checks/upgrade.log (the next step prints it).
         run: |
-          node scripts/checks/list.mjs |
-            jq -r '.checks[] | select(.family == "vitest" and .lane == "upgrade") | .id' |
+          ids="$(node scripts/checks/list.mjs |
+            jq -r '.checks[] | select(.family == "vitest" and .lane == "upgrade") | .id')"
+          if [ -z "$ids" ]; then
+            echo "::error::The check list has no check in the upgrade lane"
+            exit 1
+          fi
+          printf '%s\n' "$ids" |
             RELEASE_TREE="$RUNNER_TEMP/previous-release" node scripts/checks/run.mjs \
               $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace "$RUNNER_TEMP/upgrade-trace")
       - name: Upgrade test output

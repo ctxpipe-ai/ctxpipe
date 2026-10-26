@@ -24,7 +24,7 @@ A check id is `<family>:<lane>:<file>`, for example `vitest:ui:apps/ui/src/compo
 | `policy` | the name of each policy script of the CI lint job | script | `policy:test-policy:scripts/ci/check-test-policy.mjs` | that script |
 
 - A Storybook story is a case of its stories file. The story id is the Storybook id, so the id stays the same when the story moves in its file. [`storybook.mjs`](storybook.mjs) lists the stories with the Storybook indexer (`buildIndex`), and runs them against `apps/ui/storybook-static`.
-- An eval case calls paid models. The record has `stochastic: true`: the same inputs can give a different result, so a result cache must not reuse it. Its inputs are only its harness: a reader selects it by its `intent`, never by an import or a trace. The verdict of a case is the eval gate (`apps/backend/evals/mcp/gate.ts`) for that one case: its thresholds, the minimum model count, and the baseline drop for the case. The memory live evals have no check; each scenario is listed when a live runner can run it.
+- An eval case calls paid models. The record has `stochastic: true`: the same inputs can give a different result, so a result cache must not reuse it. Its inputs are only its harness: a reader selects it by its `intent`, never by an import or a trace. The verdict of a case is the eval gate (`apps/backend/evals/mcp/gate.ts`) for that one case: its thresholds and the baseline drop for the case. When a model has no baseline entry for the case, only the pass-rate floor applies, and the case message says "no baseline". A whole-run gate failure (for example, too few models) does not change the verdict of a case. The runner writes it to stderr as one note. The memory live evals have no check; each scenario is listed when a live runner can run it.
 - The `latency` and `upgrade` lanes run the files that the PR suite does not run (`*.latency.ts`, `*.upgrade.ts`), each with its own Vitest config. A latency result is `stochastic`: wall-clock bounds vary on shared runners.
 - The `typecheck`, `lint` and `policy` checks run a fixed command over a whole project, so they have no trace. Their `inputs` approximate the files that they read with whole directories (for example `apps/**` for oxlint, and `apps/backend/src/**` for the UI typecheck, because the UI types import the backend RPC types). A change in one of them selects the check. Their `root` is the repo root (`""`) or the project directory.
 
@@ -154,7 +154,7 @@ Overhead in CI was measured with the child-process coverage and the semantic edg
 
 ## Why the runner is separate from CI
 
-CI runs `scripts/ci/test-suite.mjs`. That script requires that the executed files are equal to the full inventory, and it applies the failure baseline. A subset run cannot satisfy those rules. Thus `run.mjs` is a second path, and the CI path does not change.
+CI runs `scripts/ci/test-suite.mjs`. That script requires that the executed files are equal to the full inventory, and it applies the failure baseline. A subset run cannot satisfy those rules. `run.mjs` exits with an error when it gets no check id. Thus `run.mjs` is a second path, and the CI path does not change.
 
 ## Versions
 

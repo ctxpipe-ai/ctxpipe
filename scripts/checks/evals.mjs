@@ -68,16 +68,19 @@ export async function caseVerdict(run, caseId, stored, usage = {}) {
     stored && {
       ...stored,
       models: Object.fromEntries(
-        Object.entries(stored.models).map(([model, entry]) => {
-          const rate = entry.cases[caseId]
-          return [
-            model,
-            {
-              aggregate: rate ?? entry.aggregate,
-              cases: rate === undefined ? {} : { [caseId]: rate },
-            },
-          ]
-        }),
+        Object.entries(stored.models).flatMap(([model, entry]) =>
+          entry.cases[caseId] === undefined
+            ? []
+            : [
+                [
+                  model,
+                  {
+                    aggregate: entry.cases[caseId],
+                    cases: { [caseId]: entry.cases[caseId] },
+                  },
+                ],
+              ],
+        ),
       ),
     },
     [caseId],
@@ -87,11 +90,18 @@ export async function caseVerdict(run, caseId, stored, usage = {}) {
     cases: models.map((model) => {
       const passes = run.passes[model]?.[caseId] ?? 0
       const failures = report.failures.filter(own(model))
+      // Without a baseline entry for this case, only the absolute floor of
+      // the gate for one case applies.
+      const baselined = stored?.models[model]?.cases[caseId] !== undefined
       return {
         name: model,
         status: failures.length ? "failed" : "passed",
         durationMs: usage?.[model]?.[caseId]?.durationMs ?? 0,
-        message: [`${passes}/${run.iterations} iterations passed`, ...failures].join("; "),
+        message: [
+          `${passes}/${run.iterations} iterations passed`,
+          ...(baselined ? [] : ["no baseline"]),
+          ...failures,
+        ].join("; "),
       }
     }),
     general: report.failures.filter(
@@ -109,6 +119,9 @@ export async function runEvals(checks) {
   const backend = join(root, "apps/backend")
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-eval-"))
   const records = []
+  // Gate failures of the whole run. A record has its own verdict, so these
+  // go to stderr as one note.
+  const wholeRun = new Set()
   try {
     const seed = join(directory, "seed.json")
     const out = join(directory, "results.json")
@@ -185,11 +198,12 @@ export async function runEvals(checks) {
           },
         ]
       })
+      for (const failure of general) wholeRun.add(failure)
       records.push({
         id: check.id,
         status: !cases.length
           ? "error"
-          : general.length || cases.some((item) => item.status === "failed")
+          : cases.some((item) => item.status === "failed")
             ? "failed"
             : "passed",
         durationMs: cases.reduce((sum, item) => sum + item.durationMs, 0),
@@ -197,11 +211,12 @@ export async function runEvals(checks) {
         log: log.relative,
         usage,
         ...(!cases.length && { message: "The eval run has no result" }),
-        ...(general.length && { message: general.join("; ") }),
       })
     }
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
+  if (wholeRun.size)
+    process.stderr.write(`Eval gate, whole run: ${[...wholeRun].join("; ")}\n`)
   return { records }
 }
