@@ -133,6 +133,14 @@ test("the manifest matches its schema and lists each check of each family", asyn
     readFileSync(join(root, "scripts/ci/projects.json"), "utf8"),
   )
   assert.equal(count("typecheck"), projects.length)
+  // The projects that import the repo-root shared/ directory read it.
+  for (const lane of ["backend", "codesearch", "ui"])
+    assert.ok(
+      manifest.checks
+        .find((check) => check.family === "typecheck" && check.lane === lane)
+        .inputs.includes("shared/**"),
+      lane,
+    )
   assert.equal(count("lint"), 3)
   assert.ok(count("policy") >= 8)
   assert.equal(count("eval", "mcp"), evalCaseCount())
