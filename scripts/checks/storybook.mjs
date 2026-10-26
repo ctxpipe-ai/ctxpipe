@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
-import { createRequire } from "node:module"
 import { join, relative, resolve } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { fileURLToPath } from "node:url"
 
 import {
   playStories,
@@ -23,10 +22,6 @@ import {
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const ui = join(root, "apps/ui")
-const storybook = async (module) =>
-  import(
-    pathToFileURL(createRequire(join(ui, "package.json")).resolve(module)).href
-  )
 
 // The files that change the result of every story but that a story does not
 // import: the Storybook and Vite configs, the static files, the lockfile and
@@ -75,8 +70,11 @@ function intents(file, loadCsf) {
 }
 
 export async function listStorybook() {
-  const { buildIndex } = await storybook("storybook/internal/core-server")
-  const { loadCsf } = await storybook("storybook/internal/csf-tools")
+  const { coreServer, csfTools } = await import(
+    "../../apps/ui/.storybook/check-modules.mjs"
+  )
+  const { buildIndex } = await coreServer()
+  const { loadCsf } = await csfTools()
   const index = await buildIndex({ configDir: join(ui, ".storybook") })
   const byFile = new Map()
   return Object.values(index.entries)
