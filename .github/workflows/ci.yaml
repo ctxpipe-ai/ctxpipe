@@ -419,13 +419,18 @@ jobs:
           pnpm -s checks:list |
             jq -r '.checks[] | select(.family == "typecheck" or .family == "lint" or .family == "policy") | .id' \
             > "$RUNNER_TEMP/project-checks.txt"
-          node scripts/checks/run.mjs --trace "$RUNNER_TEMP/project-trace" "$RUNNER_TEMP/project-checks.txt"
-      - name: Preserve the project check trace
+          mkdir -p "$RUNNER_TEMP/project-trace"
+          # The result records also go to the Results writer.
+          node scripts/checks/run.mjs --trace "$RUNNER_TEMP/project-trace" "$RUNNER_TEMP/project-checks.txt" |
+            tee "$RUNNER_TEMP/project-trace/records.ndjson"
+      - name: Preserve the project check trace and results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lane-trace-projects
-          path: ${{ runner.temp }}/project-trace/trace.json.gz
+          path: |
+            ${{ runner.temp }}/project-trace/trace.json.gz
+            ${{ runner.temp }}/project-trace/records.ndjson
           if-no-files-found: ignore
 
   production-builds:
@@ -999,3 +1004,335 @@ jobs:
           else
             bash .github/actions/falkordb/diagnose.sh
           fi
+
+  # The merge gate (scripts/checks/README.md, Merge gate) in shadow mode: the
+  # full run gates, and these jobs publish beside it what a gated run would
+  # decide. They never fail or hold up a gating job: each one continues on
+  # error, and no gating job needs them. .github/merge-gate.json pins the
+  # selector and the mode.
+  #
+  # The manifest job holds no credential. It decides the mode with the public
+  # rules (gate.mjs mode), and records the manifest and the toolchain for the
+  # select job and for the nightly Results writer. It has the setup of the
+  # test jobs (Node, pnpm, Bun) and sets none of the lane variables, so its
+  # toolchain record is theirs.
+  merge-gate-manifest:
+    timeout-minutes: 10
+    name: Merge gate manifest
+    if: |
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request' &&
+      github.actor != 'cursor[bot]' && github.actor != 'cursoragent')
+    continue-on-error: true
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Mode
+        id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+          FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/merge-gate"
+          : > "$RUNNER_TEMP/changed.txt"
+          # A pull_request run checks out the merge revision; its first
+          # parent is main.
+          if [ "$EVENT" = pull_request ]; then
+            git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          fi
+          node scripts/checks/gate.mjs mode --config .github/merge-gate.json \
+            --event "$EVENT" --fork "$FORK" --changed "$RUNNER_TEMP/changed.txt" \
+            > "$RUNNER_TEMP/merge-gate/mode.json"
+          cat "$RUNNER_TEMP/merge-gate/mode.json"
+          echo "mode=$(jq -r .mode "$RUNNER_TEMP/merge-gate/mode.json")" >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@v6
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+      - uses: actions/setup-node@v6
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+        with:
+          bun-version: 1.4.4
+      - run: pnpm install --frozen-lockfile
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+      - name: Manifest and toolchain
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+        run: |
+          pnpm -s checks:list > "$RUNNER_TEMP/merge-gate/manifest.json"
+          node scripts/checks/toolchain.mjs "$RUNNER_TEMP/merge-gate/manifest.json" \
+            > "$RUNNER_TEMP/merge-gate/toolchain.json"
+      - name: Preserve the merge gate inputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: merge-gate-inputs
+          path: ${{ runner.temp }}/merge-gate/
+          if-no-files-found: ignore
+
+  # Selects the checks of a same-repo PR and looks up their stored results.
+  # It holds a read-only OIDC role of the factory account, which trusts only
+  # the pull_request subject; a fork PR gets no OIDC token. It runs no package
+  # manager, no local action and no repository script, and each action is
+  # pinned by commit. It reads the manifest and the toolchain only as data.
+  # It downloads the release that .github/merge-gate.json pins, and stops when
+  # the SHA-256 differs.
+  merge-gate-select:
+    timeout-minutes: 5
+    name: Merge gate selection
+    needs: merge-gate-manifest
+    if: needs.merge-gate-manifest.outputs.mode == 'select'
+    continue-on-error: true
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: merge-gate-inputs
+          path: ${{ runner.temp }}/inputs
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::134416647419:role/check-results-gate-reader
+          aws-region: us-west-2
+      - name: Selector release, checked against the pin
+        run: |
+          version="$(jq -er .factory.version .github/merge-gate.json)"
+          sha256="$(jq -er .factory.sha256 .github/merge-gate.json)"
+          aws s3api get-object --bucket ctxpipe-factory-check-results-134416647419 \
+            --expected-bucket-owner 134416647419 \
+            --key "releases/factory/$version/factory-linux-x64.tar.gz" \
+            "$RUNNER_TEMP/factory.tar.gz" > /dev/null
+          echo "$sha256  $RUNNER_TEMP/factory.tar.gz" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
+      - name: Select (variant B, k = 3, no model step)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          XDG_CACHE_HOME: ${{ runner.temp }}/cache
+        run: |
+          out="$RUNNER_TEMP/out"
+          mkdir -p "$out"
+          # The newest nightly trace of main. Without one, the selector uses
+          # variant A and says so in a note.
+          "$RUNNER_TEMP/bin/factory" trace fetch --repo . || echo "No trace: variant A"
+          code=0
+          "$RUNNER_TEMP/bin/factory" check --repo . --base HEAD^1 --k 3 \
+            --manifest "$RUNNER_TEMP/inputs/manifest.json" \
+            --toolchain "$RUNNER_TEMP/inputs/toolchain.json" \
+            --cache-only --json > "$out/raw.json" || code=$?
+          # 0: every selected check is a hit. 1: a check must run. 2: the
+          # selection failed.
+          [ "$code" -le 1 ]
+          # The record is public: it keeps no self-reported writer of a hit.
+          head -n 1 "$out/raw.json" | jq -c 'del(.cache.hits[]?.provenance.who)' > "$out/selection.json"
+          rm "$out/raw.json"
+          find "$XDG_CACHE_HOME/factory/traces" -name '*.json.gz' -exec cp {} "$out/trace.json.gz" \; -quit || true
+      - name: Preserve the selection
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: merge-gate-selection
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: error
+
+  # Publishes the decision of each PR run: the job summary, the artifact
+  # merge-gate-decision, and one PR comment that it updates. In shadow mode
+  # the full run gates; this job computes what a gated run would decide from
+  # the same results, and the agreement record (scripts/checks/README.md).
+  # It runs only the public gate.mjs, with no package.
+  merge-gate:
+    timeout-minutes: 10
+    name: Merge gate (shadow)
+    needs:
+      [
+        merge-gate-manifest,
+        merge-gate-select,
+        lint,
+        typecheck,
+        test-shards,
+        package-tests,
+        test,
+        production-builds,
+        packages,
+        storybook-build,
+        storybook-golden,
+        storybook-plays,
+        codesearch,
+        vercel-sandbox,
+        terraform-validate,
+        migrate,
+        upgrade-from-previous-release,
+      ]
+    if: |
+      always() && github.event_name == 'pull_request' &&
+      github.actor != 'cursor[bot]' && github.actor != 'cursoragent'
+    continue-on-error: true
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: merge-gate-*
+          path: ${{ runner.temp }}/inputs
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: test-results-*
+          path: ${{ runner.temp }}/results
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: storybook-*-results*
+          path: ${{ runner.temp }}/results
+      - name: The jobs of this run
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.run_id }}
+          ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          gh api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" --paginate \
+            --jq '.jobs[]' | jq -s '{jobs: .}' > "$RUNNER_TEMP/jobs.json"
+      - name: Decision
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
+          node scripts/checks/gate.mjs shadow --config .github/merge-gate.json \
+            --inputs "$RUNNER_TEMP/inputs" --results "$RUNNER_TEMP/results" \
+            --needs "$RUNNER_TEMP/needs.json" --jobs "$RUNNER_TEMP/jobs.json" \
+            --out "$RUNNER_TEMP/decision"
+          cat "$RUNNER_TEMP/decision/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve the decision
+        uses: actions/upload-artifact@v4
+        with:
+          name: merge-gate-decision
+          path: |
+            ${{ runner.temp }}/decision/decision.json
+            ${{ runner.temp }}/inputs/selection.json
+          if-no-files-found: warn
+      # A fork PR has a read-only token, so it gets only the summary.
+      - name: Post or update the PR comment
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          body="$(cat "$RUNNER_TEMP/decision/comment.md")"
+          existing=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- merge-gate -->"))) | .id' | head -1)
+          if [ -n "$existing" ]; then
+            gh api --method PATCH "repos/$REPO/issues/comments/$existing" -f body="$body" > /dev/null
+          else
+            gh api --method POST "repos/$REPO/issues/$PR/comments" -f body="$body" > /dev/null
+          fi
+
+  # The trusted writer of the result store, after a full run on main (the
+  # nightly schedule, or a run by hand on main). It stores each pass as the CI
+  # class, and audits each failed check against the passes that the store
+  # holds for its key. A contradiction (a stored pass for a key that failed
+  # tonight) fails this job: a key misses an input, the check is flaky, or a
+  # writer stored a false pass. The output names the check and the key, never
+  # a writer.
+  # Its role trusts only repo:ctxpipe-ai/ctxpipe:ref:refs/heads/main: a job on
+  # main without a GitHub environment. Only reviewed code runs on main, and
+  # only this job asks for an OIDC token there. It runs no package manager and
+  # no repository script: the selector computes each key itself from the
+  # clean checkout of the traced commit, with the manifest, the toolchain and
+  # the trace of this run.
+  results-writer:
+    timeout-minutes: 15
+    name: Results writer
+    needs: [merge-gate-manifest, trace]
+    if: |
+      always() && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      needs.merge-gate-manifest.result == 'success' && needs.trace.result == 'success'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: merge-gate-inputs
+          path: ${{ runner.temp }}/inputs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: trace-${{ github.sha }}
+          path: ${{ runner.temp }}/trace
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: test-results-*
+          path: ${{ runner.temp }}/results
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: storybook-plays-results-*
+          path: ${{ runner.temp }}/results
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: lane-trace-projects
+          path: ${{ runner.temp }}/results/projects
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::134416647419:role/check-results-ci-writer
+          aws-region: us-west-2
+      - name: Selector release, checked against the pin
+        run: |
+          version="$(jq -er .factory.version .github/merge-gate.json)"
+          sha256="$(jq -er .factory.sha256 .github/merge-gate.json)"
+          aws s3api get-object --bucket ctxpipe-factory-check-results-134416647419 \
+            --expected-bucket-owner 134416647419 \
+            --key "releases/factory/$version/factory-linux-x64.tar.gz" \
+            "$RUNNER_TEMP/factory.tar.gz" > /dev/null
+          echo "$sha256  $RUNNER_TEMP/factory.tar.gz" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
+      - name: Store the passes and audit the failures
+        run: |
+          mapfile -d '' records < <(find "$RUNNER_TEMP/results" -name records.ndjson -print0 | sort -z)
+          code=0
+          "$RUNNER_TEMP/bin/factory" store --class ci --repo . \
+            --manifest "$RUNNER_TEMP/inputs/manifest.json" \
+            --toolchain "$RUNNER_TEMP/inputs/toolchain.json" \
+            --trace "$RUNNER_TEMP/trace/trace.json.gz" \
+            --records "${records[@]}" > "$RUNNER_TEMP/store.txt" || code=$?
+          cat "$RUNNER_TEMP/store.txt"
+          {
+            echo "## Results writer"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/store.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"

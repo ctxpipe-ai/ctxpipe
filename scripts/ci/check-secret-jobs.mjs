@@ -39,6 +39,10 @@
 // - A job that holds a secret uses a third-party action (not `actions/…`)
 //   only when it is pinned by a 40-character commit SHA: a tag can move to
 //   other code. Put the version in a comment after the SHA.
+// - A job with `id-token: write` can get a cloud credential through GitHub
+//   OIDC (for example the read-only merge gate role of the factory account).
+//   It follows every rule of a job that holds a secret. The jobs in
+//   oidcPublishJobs are the exception.
 // The production jobs in productionJobs run only on a push to main, so the
 // rules for one job do not apply to them; the pin rule and the cache rule do.
 // Every other job of deploy.yaml gets all the rules.
@@ -115,6 +119,16 @@ const exceptions = new Map(
     ],
   }),
 )
+
+// Jobs that ask for an OIDC token only for npm trusted publishing (the
+// token proves the workflow to npm), by a decision of the team. They run the
+// package manager to build and publish. No cloud role may trust their
+// subjects: a role that trusts a ctxpipe subject names one ref or one event.
+const oidcPublishJobs = new Set([
+  "deploy.yaml:release",
+  "deploy.yaml:prerelease",
+])
+const oidcToken = /^\s+id-token:\s*write\b/
 
 // Jobs that run only for main, as deploy.yaml does. The check keeps their
 // `if:` limited to refs/heads/main.
@@ -271,7 +285,11 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
       )
 
   for (const job of jobs) {
-    const holdsSecret = job.lines.some(({ text }) => secretUse.test(text))
+    const holdsSecret = job.lines.some(
+      ({ text }) =>
+        secretUse.test(text) ||
+        (oidcToken.test(text) && !oidcPublishJobs.has(`${name}:${job.name}`)),
+    )
     const environment = job.lines
       .map(({ text }) => /^ {4}environment:\s*['"]?([\w-]+)/.exec(text)?.[1])
       .find(Boolean)
@@ -301,7 +319,7 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
           !pinnedAction.test(action)
         )
           failures.push(
-            `${file}:${number}: job ${job.name} holds a secret and uses ${action}, a third-party action that is not pinned. Pin it by its 40-character commit SHA, with the version in a comment.`,
+            `${file}:${number}: job ${job.name} holds a secret or an OIDC token and uses ${action}, a third-party action that is not pinned. Pin it by its 40-character commit SHA, with the version in a comment.`,
           )
       }
 
@@ -350,7 +368,7 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     }
     if (!holdsSecret) continue
     const where = (number) =>
-      `${file}:${number}: job ${job.name} holds a secret and`
+      `${file}:${number}: job ${job.name} holds a secret or an OIDC token and`
     for (const { text, number } of job.env)
       if (secretUse.test(text))
         failures.push(
@@ -366,9 +384,8 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
         failures.push(
           `${where(number)} gives ${token[1]} to a job that runs untrusted code. Move it to a job without such code.`,
         )
-      const accountSecret = /secrets\s*\.\s*(NEON_API_KEY|RAILWAY_WORKSPACE_TOKEN)\b/.exec(
-        text,
-      )
+      const accountSecret =
+        /secrets\s*\.\s*(NEON_API_KEY|RAILWAY_WORKSPACE_TOKEN)\b/.exec(text)
       if (accountSecret && /^workbench$/i.test(environment ?? ""))
         failures.push(
           `${where(number)} gives ${accountSecret[1]} to a job in the workbench environment. Only Preview and production jobs may read it.`,

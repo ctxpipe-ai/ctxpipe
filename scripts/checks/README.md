@@ -129,7 +129,7 @@ In CI, `scripts/ci/test-suite.mjs <lane> --trace` and `scripts/ci/storybook-gold
 - CI passes `--trace` on a `workflow_dispatch` run and on the nightly `schedule` run (02:23 UTC, on `main`).
 - The `codesearch` lane runs in its Docker test image. `apps/codesearch/scripts/run-vitest-docker.sh --trace <dir>` mounts `<dir>` at `/trace` and gives the commit as an argument, because the image has no `.git` directory. The image holds a copy of `scripts/checks`.
 - The `vercel` lane needs the `workbench` environment (a Vercel token and spend). The nightly run does not start it, so only a `workflow_dispatch` run traces it.
-- The nightly run starts only the test jobs, the codesearch job, the Storybook build and all-plays jobs, the upgrade job, the Project check times job, the Tests job and the Trace job. No other job runs on it, so it cannot deploy or publish.
+- The nightly run starts only the test jobs, the codesearch job, the Storybook build and all-plays jobs, the upgrade job, the Project check times job, the Tests job, the Trace job, the Merge gate manifest job and the Results writer. No other job runs on it, so it cannot deploy or publish a package. The Results writer writes only the `ci` class of the result store (see Merge gate).
 - The Storybook all-plays shards trace every story with a play function (the golden job does not trace, so no story is traced twice). The upgrade job runs its check through `checks:run`. The Project check times job runs every `typecheck`, `lint` and `policy` check through `checks:run --trace`, only for their `durations`; the lint and typecheck jobs still gate the change.
 - The Trace job merges the traces with `node scripts/checks/trace.mjs merge <out> <trace>...`. It uploads the artifact `trace-<commit>`. It is not a required check: the trace is data only.
 - A pull request run and a push to `main` do not trace. A pull request tests a merge commit that a reader cannot diff from.
@@ -151,6 +151,43 @@ Overhead in CI was measured with the child-process coverage and the semantic edg
 - A child process that writes coverage is slower: the CLI test `argv.test.ts` took 2.1 s against 1.4 s.
 - A take costs about 10 to 40 ms in a file that imports a large module graph. Thus the cost grows with the number of cases in such a file.
 - The trace of the full run is 1.95 MB compressed (18.4 MB of JSON) for 780 checks and 7445 cases.
+
+## Result records in CI
+
+`scripts/ci/test-suite.mjs` and `scripts/ci/storybook-golden.mjs` also write `records.ndjson` next to `results.json`: one result record (schema `result.v1`) for each test file or story that the job ran. The Project check times job keeps the `checks:run` output in the same way. These records are data only: an error that writes no records does not change a result. The merge gate and the Results writer read them.
+
+## Merge gate
+
+The merge gate decides which checks a pull request must pass ([CTX-774](https://linear.app/ctxpipe/issue/CTX-774)). It is in **shadow mode**: the full run of today gates each pull request, and the gate publishes beside it what a gated run would decide. [`.github/merge-gate.json`](../../.github/merge-gate.json) holds the mode (`shadow` or `gate`), the pinned selector release (the `factory` version and the SHA-256 of `factory-linux-x64.tar.gz`), and `acceptAgentResults`.
+
+The jobs in `.github/workflows/ci.yaml`. Each one continues on error, and no gating job needs one of them, so they cannot fail or hold up the full run.
+
+- **Merge gate manifest** holds no credential. `gate.mjs mode` decides with the public rules below whether the selector runs. Then the job writes the manifest (`checks:list`) and the toolchain record ([`toolchain.mjs`](toolchain.mjs), schema [`toolchain.v1`](schema/toolchain.v1.schema.json)). It has the setup of the test jobs and sets none of the lane variables, so the toolchain record is theirs.
+- **Merge gate selection** runs only for a same-repo pull request. It gets a read-only role of the factory account through GitHub OIDC (a pull request from a fork gets no OIDC token). It downloads the pinned selector and stops when the SHA-256 differs. It runs `factory check --cache-only --json` with variant B, k = 3 and no model step, on the merge revision against its first parent. It reads the manifest and the toolchain record only as data. It runs no package manager, no local action and no repository script, and each action is pinned by commit. It writes the selection record (schema [`selection.v1`](schema/selection.v1.schema.json)) without the self-reported writer of each hit.
+- **Merge gate (shadow)** runs after every job. [`gate.mjs`](gate.mjs) `shadow` computes the gated verdict and the metrics, and publishes them in the job summary, in the artifact `merge-gate-decision` (`decision.json` and the selection record) and in one PR comment that it updates. A fork PR gets only the summary.
+- **Results writer** runs after a full run on `main` (the nightly run, or a run by hand on `main`). See Result store.
+
+**When the run is full.** `gate.mjs mode` gives the full run, with the reason, for: an event that is not `pull_request`; a fork PR; a change to `.github/**`, `scripts/checks/**`, `scripts/ci/**`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, the root `package.json` or `.node-version`; no pinned release. The shadow job also gives the full run when the manifest job or the select job did not succeed, or when the selection record does not match its schema. A run by hand (`workflow_dispatch`) is always full.
+
+**The gated verdict** (`gatedVerdict` in `gate.mjs`). Each selected check needs one accepted result:
+
+- A hit of the `ci` class is accepted. A hit of the `agent` class is accepted when `acceptAgentResults` is true, except in the `vercel` lane: its job sets `GITHUB_TOKEN` and `VERCEL_TOKEN`, which the toolchain record does not hold, so the key does not describe that run.
+- Every other selected check runs. In shadow mode its result is its record of the full run. A check without a record (a job that writes no records, for example the UI tests on a pull request) passed when its job succeeded; else its result is unknown.
+- The gated run fails when a check that runs failed or had an error, or when an always-run job failed (production builds, runnable packages, migrations, Terraform). It passes when every check that runs passed or was skipped. Else it is unknown.
+- An omitted check is never a hit, and a hit never runs.
+
+**Metrics** in `decision.json`, for the switch to `gate` mode:
+
+- `agreement`: on a run whose full run failed, `agree` when the gated run would fail too, `escape` when it would pass.
+- `recall`: the checks that failed in the full run, how many of them the gated run would run, and why each other one would not run.
+- `contradictions`: an accepted hit whose check failed in the full run of the same revision. This must not occur.
+- `cost`: the runner minutes and the wall time of the full run (measured from the jobs of the run) and of the gated run (estimated: the manifest and select jobs, the always-run jobs, and the shards of [`shard.mjs`](shard.mjs) with the measured setup time of each profile job).
+
+**Shards.** `shard.mjs` puts the checks that run into the profile jobs (project checks, Node tests, database tests, upgrade, codesearch, Vercel, Storybook). It gives each shard about 5 minutes of test time, with at most the shard count of the full run. The time of a check comes from the newest trace, then from `scripts/ci/test-weights.json`, then from a fixed guess.
+
+**Result store.** The selector looks up passes in the `PaseoHub-CheckResults` bucket of the factory account, in two classes. The `ci` class (`results/v2/ci/<key>.json`) has only one writer: the Results writer job. It stores each pass of a full run on `main`, and audits each failed check against the passes that the store holds for its key. A stored pass for a key that failed is a contradiction: the job fails, and its output names the check and the key. The role of the job trusts only a job on `main` without a GitHub environment. The `agent` class (`results/v2/agent/<key>/<writer>.json`) has the passes of people and agents. The bucket policy lets a writer put only at its own name, so a person with factory access can find the writer of a contradiction from the key. The public output never names a writer.
+
+Known gaps: the toolchain record holds one environment for all lanes (see the `vercel` exception). CI does not pin an exact Node version, so a key from an agent sandbox can differ from the key of CI. The reuse of the passes of an earlier run of the same pull request (the GitHub Actions cache) is not built yet.
 
 ## Why the runner is separate from CI
 

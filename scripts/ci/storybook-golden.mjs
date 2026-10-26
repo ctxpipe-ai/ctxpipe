@@ -93,6 +93,8 @@ try {
     await (await fetch(`${storybookUrl}/index.json`)).json(),
   )
   const suites = new Map()
+  // One result record for each story (scripts/checks/schema/result.v1.schema.json).
+  const records = []
   const durations = {}
   const traced = []
   const tracer = trace ? browserTrace(staticDir) : undefined
@@ -114,6 +116,20 @@ try {
         if (record) traced.push(record)
         else durations[storyCheck(story).id] = durationMs
       }
+      const status = error ? "failed" : "passed"
+      records.push({
+        schemaVersion: 1,
+        id: storyCheck(story).id,
+        status,
+        durationMs: Math.round(durationMs),
+        cases: [
+          {
+            name: story.exportName,
+            status,
+            durationMs: Math.round(durationMs),
+          },
+        ],
+      })
       if (error) {
         failed += 1
         suite.status = "failed"
@@ -145,12 +161,7 @@ try {
   if (tracer)
     try {
       tracer.report()
-      writeTrace(
-        join(output, "trace.json.gz"),
-        traced,
-        undefined,
-        durations,
-      )
+      writeTrace(join(output, "trace.json.gz"), traced, undefined, durations)
     } catch (error) {
       process.stderr.write(`No trace written: ${error.message}\n`)
     }
@@ -163,6 +174,15 @@ try {
     testResults: [...suites.values()],
   }
   writeFileSync(report, `${JSON.stringify(results, null, 2)}\n`)
+  // For the merge gate and the result store. Data only, as the trace.
+  try {
+    writeFileSync(
+      join(output, "records.ndjson"),
+      records.map((record) => `${JSON.stringify(record)}\n`).join(""),
+    )
+  } catch (error) {
+    process.stderr.write(`No result records written: ${error.message}\n`)
+  }
   writeFileSync(
     join(output, "inventory.json"),
     `${JSON.stringify(

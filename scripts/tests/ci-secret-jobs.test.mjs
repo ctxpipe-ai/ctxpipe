@@ -154,7 +154,7 @@ test("rejects any secret in a job that installs dependencies", () => {
     workflow(
       `  test:\n    env:\n      VERCEL_TOKEN: \${{ secrets.VERCEL_ACCESS_TOKEN }}\n    steps:\n      - uses: actions/checkout@v6\n${install}`,
     ),
-    /job test holds a secret and runs a package manager/,
+    /job test holds a secret or an OIDC token and runs a package manager/,
   )
 })
 
@@ -306,7 +306,7 @@ test("rejects a secret in the job env", () => {
     workflow(
       `  deploy:\n    env:\n      PR_ENV: pr-1\n      RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n    steps:\n      - run: echo\n`,
     ),
-    /w\.yaml:6: job deploy holds a secret and puts a secret in the job env/,
+    /w\.yaml:6: job deploy holds a secret or an OIDC token and puts a secret in the job env/,
   )
 })
 
@@ -334,15 +334,17 @@ test("rejects an account token in a job that runs any untrusted code, even in a 
     )
 })
 
-const secretJob = (secret, environment, file = "mcp-evals.yaml", job = "evals") => ({
+const secretJob = (
+  secret,
+  environment,
+  file = "mcp-evals.yaml",
+  job = "evals",
+) => ({
   [`.github/workflows/${file}`]: `on: pull_request\njobs:\n  ${job}:\n${environment}    steps:\n${install}      - env:\n          ${secret}: \${{ secrets.${secret} }}\n        run: bun evals/run.ts\n`,
 })
 
 test("rejects an outside-service secret in a job with untrusted code outside workbench", () => {
-  for (const secret of [
-    "MODEL_PROVIDER_API_KEY",
-    "VERCEL_ACCESS_TOKEN",
-  ]) {
+  for (const secret of ["MODEL_PROVIDER_API_KEY", "VERCEL_ACCESS_TOKEN"]) {
     for (const environment of [
       "",
       "    environment: Production\n",
@@ -434,7 +436,7 @@ test("rejects a main-only job whose if: does not name main", () => {
 test("rejects a third-party action by tag in a job with a secret", () => {
   rejects(
     workflow(deployJob(`      - uses: nick-fields/retry@v4\n${tokenStep}`)),
-    /job deploy holds a secret and uses nick-fields\/retry@v4, a third-party action that is not pinned/,
+    /job deploy holds a secret or an OIDC token and uses nick-fields\/retry@v4, a third-party action that is not pinned/,
   )
   rejects(
     workflow(
@@ -466,7 +468,7 @@ test("rejects an unpinned third-party action in a production job", () => {
     {
       ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: github.event_name != 'workflow_dispatch'\n    steps:\n      - uses: hashicorp/setup-terraform@v3\n      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
     },
-    /deploy\.yaml:6: job terraform holds a secret and uses hashicorp\/setup-terraform@v3/,
+    /deploy\.yaml:6: job terraform holds a secret or an OIDC token and uses hashicorp\/setup-terraform@v3/,
   )
 })
 
@@ -475,7 +477,7 @@ test("applies every rule to a deploy.yaml job that is not a named production job
     {
       ".github/workflows/deploy.yaml": `on: push\njobs:\n  release:\n    if: github.event_name != 'workflow_dispatch'\n    steps:\n${install}      - env:\n          NPM_TOKEN: \${{ secrets.NPM_TOKEN }}\n        run: echo\n`,
     },
-    /job release holds a secret and runs a package manager/,
+    /job release holds a secret or an OIDC token and runs a package manager/,
   )
 })
 
@@ -525,5 +527,50 @@ test("rejects a step that echoes the handoff key", () => {
       `  job:\n    steps:\n${maskStep}      - run: echo "key $HANDOFF_KEY"\n`,
     ),
     /can show HANDOFF_KEY in the log/,
+  )
+})
+
+const oidcJob = (steps) =>
+  `  select:\n    permissions:\n      contents: read\n      id-token: write\n    steps:\n${steps}`
+const awsStep =
+  "      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0\n"
+
+test("treats a job with an OIDC token as a job with a secret", () => {
+  rejects(
+    workflow(oidcJob(`${awsStep}${install}`)),
+    /job select holds a secret or an OIDC token and runs a package manager/,
+  )
+  rejects(
+    workflow(
+      oidcJob("      - uses: aws-actions/configure-aws-credentials@v6\n"),
+    ),
+    /job select holds a secret or an OIDC token and uses aws-actions\/configure-aws-credentials@v6, a third-party action that is not pinned/,
+  )
+  rejects(
+    workflow(oidcJob(`${awsStep}      - run: node scripts/checks/gate.mjs\n`)),
+    /runs scripts\/checks\/gate\.mjs, which is not a reviewed script/,
+  )
+})
+
+test("accepts an OIDC job that runs only pinned actions and a downloaded binary", () => {
+  const result = check(
+    workflow(
+      oidcJob(
+        `      - uses: actions/checkout@v6\n${awsStep}      - run: "$RUNNER_TEMP/bin/factory" check --json\n`,
+      ),
+    ),
+  )
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+})
+
+test("accepts only the npm publish jobs of deploy.yaml as OIDC jobs with a package manager", () => {
+  const publish = `on: push\njobs:\n  release:\n    permissions:\n      id-token: write\n    steps:\n${install}`
+  const result = check({ ".github/workflows/deploy.yaml": publish })
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+  rejects(
+    { ".github/workflows/w.yaml": publish },
+    /job release holds a secret or an OIDC token and runs a package manager/,
   )
 })
