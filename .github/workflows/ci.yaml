@@ -1043,7 +1043,7 @@ jobs:
           # A pull_request run checks out the merge revision; its first
           # parent is main.
           if [ "$EVENT" = pull_request ]; then
-            git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+            git diff-tree -r --no-commit-id --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
           fi
           node scripts/checks/gate.mjs mode --config .github/merge-gate.json \
             --event "$EVENT" --fork "$FORK" --changed "$RUNNER_TEMP/changed.txt" \

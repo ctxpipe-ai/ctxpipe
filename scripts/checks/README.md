@@ -171,12 +171,14 @@ The jobs in `.github/workflows/ci.yaml`. Each one continues on error, and no gat
 
 **The gated verdict** (`gatedVerdict` in `gate.mjs`). Each selected check needs one accepted result:
 
-- A hit of the `ci` class is accepted. A hit of the `agent` class is accepted when `acceptAgentResults` is true, except in the `vercel` lane: its job sets `GITHUB_TOKEN` and `VERCEL_TOKEN`, which the toolchain record does not hold, so the key does not describe that run.
-- Every other selected check runs. In shadow mode its result is its record of the full run. A check without a record (a job that writes no records, for example the UI tests on a pull request) passed when its job succeeded; else its result is unknown.
+- A hit of the `ci` class is accepted, and so is a hit of the local cache of the select job (empty today; the reuse of the passes of an earlier run of the same PR will fill it). A hit of the `agent` class is accepted when `acceptAgentResults` is true, except in the `vercel` lane: its job sets `GITHUB_TOKEN` and `VERCEL_TOKEN`, which the toolchain record does not hold, so the key does not describe that run.
+- Every other selected check runs. In shadow mode its result is its record of the full run. A lint or policy check takes the result of its step in the Lint and format job, which runs one check in each step. A check without a record (a job that writes no records, for example the UI tests on a pull request) passed when its job succeeded; else its result is unknown.
 - The gated run fails when a check that runs failed or had an error, or when an always-run job failed (production builds, runnable packages, migrations, Terraform). It passes when every check that runs passed or was skipped. Else it is unknown.
 - An omitted check is never a hit, and a hit never runs.
 
-**Metrics** in `decision.json`, for the switch to `gate` mode:
+**The switch to `gate` mode** needs the report of the historical validation (a replay of past CI runs) and the yes of the CTO. Then a PR sets `mode` to `gate`. Shadow mode is the safe first deploy: it shows the live behavior of the gate, but its data alone is not the switch criterion.
+
+**Metrics** in `decision.json`, for each PR run:
 
 - `agreement`: on a run whose full run failed, `agree` when the gated run would fail too, `escape` when it would pass.
 - `recall`: the checks that failed in the full run, how many of them the gated run would run, and why each other one would not run.
