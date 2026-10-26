@@ -1,6 +1,6 @@
 import {
-  IconArrowUpRight,
   IconBook,
+  IconExternalLink,
   IconHome,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -236,10 +236,7 @@ export function SideNav() {
           ) : null}
         </ul>
 
-        <ul
-          className="relative w-full shrink-0 space-y-3 pt-3 pb-3"
-          aria-label="User actions"
-        >
+        <ul className="relative w-full shrink-0 pt-3" aria-label="Help">
           <li className="w-full">
             <SideNavTooltip label="Docs" enabled={!expanded}>
               <Link
@@ -260,7 +257,7 @@ export function SideNav() {
                   aria-hidden={!expanded}
                 >
                   Docs
-                  <IconArrowUpRight
+                  <IconExternalLink
                     className="size-3.5 text-zinc-500"
                     aria-hidden="true"
                   />
@@ -268,6 +265,12 @@ export function SideNav() {
               </Link>
             </SideNavTooltip>
           </li>
+        </ul>
+
+        <ul
+          className="relative w-full shrink-0 space-y-3 pt-3 pb-3"
+          aria-label="User actions"
+        >
           <li className="w-full">
             <SideNavOrganizationButton
               expanded={expanded}
