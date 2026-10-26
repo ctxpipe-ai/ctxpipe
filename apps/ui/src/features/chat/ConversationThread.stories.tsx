@@ -211,6 +211,10 @@ export const NextTurnShowsStatus: Story = {
 
 /** After the reply, the current thought hides. The counters and the log stay. */
 export const ChatProgressDone: Story = {
+  parameters: {
+    intent:
+      "Catches a finished chat turn that shows a live status or an open activity log. The log stays closed with counts and the answer is visible. Not for log entries.",
+  },
   tags: ["workspace-golden"],
   args: {
     messages: progressDoneMessages,
@@ -232,6 +236,10 @@ export const ChatProgressDone: Story = {
 
 /** The open log lists each thought and each tool call with its details. */
 export const ChatProgressLogExpanded: Story = {
+  parameters: {
+    intent:
+      "Catches an open activity log that misses a thought or tool call, or shows raw markdown. Each entry shows its details. Not for spacing or the closed state.",
+  },
   tags: ["workspace-golden"],
   args: {
     messages: progressDoneMessages,
@@ -273,6 +281,10 @@ function gapBetween(upper: Element, lower: Element) {
  * name is more prominent than its detail.
  */
 export const ChatProgressSpacing: Story = {
+  parameters: {
+    intent:
+      "Catches uneven gaps between the activity log button, its rows, and the live status. Tool names must stay bolder than their details. Not for log content.",
+  },
   tags: ["workspace-golden"],
   args: {
     messages: progressWorkingMessages,
@@ -326,6 +338,10 @@ const earlierTurns: ChatMessage[] = Array.from({ length: 4 }, (_, index) => [
  * the log does not scroll the thread: the counters stay in place.
  */
 export const OpeningLogKeepsScroll: Story = {
+  parameters: {
+    intent:
+      "Catches an activity log that moves the chat when the user opens it. The thread stays at the bottom and the log button keeps its place. Not for log content.",
+  },
   // The runner turns on reduced motion for this tag, so the thread jumps to
   // the bottom at once and no spring scroll runs.
   tags: ["workspace-golden", "reduced-motion"],
@@ -569,6 +585,10 @@ export const UserBubbleShowsTypedText: Story = {
 
 /** A turn ends with the changed-files card, then a push entry. The entry sits under the card and its long branch truncates. */
 export const PushEntryUnderCard: Story = {
+  parameters: {
+    intent:
+      "Catches a push entry that sits beside or outside the changes card, or whose long branch name does not truncate. Not for card content or push data.",
+  },
   tags: ["workspace-golden"],
   decorators: [
     (Story) => (

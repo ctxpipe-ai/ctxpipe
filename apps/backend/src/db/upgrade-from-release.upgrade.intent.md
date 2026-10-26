@@ -1,0 +1,1 @@
+An operator upgrades from the previous release with no manual step. The check migrates a database that the previous release made and seeded, then runs the one migrate entry point twice. It checks the Workspace upgrade flow, and that the previous code still reads the database. It catches migration, backfill and rollback breaks. Never run it for UI, prompt or retrieval changes.

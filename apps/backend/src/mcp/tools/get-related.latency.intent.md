@@ -1,0 +1,1 @@
+The get_related call stays fast on a large graph. The check seeds 50,000 edges that favor a few hubs, and the p95 of a depth 2 call must stay under 300 ms. It catches slow graph queries, a missing index and a missing planner statistic. Never run it for prompt text, auth or UI changes.

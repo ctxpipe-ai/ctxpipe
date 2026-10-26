@@ -451,6 +451,8 @@ function placement(canvas: ReturnType<typeof within>): Placement {
 export const KeepsPlaceBetweenSteps: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches layout shift between the loading skeleton and the loaded steps of the new workspace page. The step keeps its place while data loads. Not for step content.",
     msw: {
       handlers: {
         defaults: slowSessionDefaults,

@@ -40,6 +40,10 @@ export const OrgGateFailed: Story = {
 
 /** The first org gate load fails. Try again runs the loader again, and the page loads. */
 export const OrgGateTryAgainLoads: Story = {
+  parameters: {
+    intent:
+      "Catches an organization error screen whose Try again button does not load the page again. After a failed session check, a retry must show the organization page. Not for error text.",
+  },
   tags: ["workspace-golden"],
   args: OrgGateFailed.args,
   render: () => <OrgGateRetryRouter />,

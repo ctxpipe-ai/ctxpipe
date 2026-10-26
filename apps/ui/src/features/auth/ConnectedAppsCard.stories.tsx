@@ -37,6 +37,8 @@ const gate = responseGate()
 export const SkeletonRowMatchesLoadedRow: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a connected apps skeleton row whose size or action buttons differ from the loaded row. This causes layout shift. Not for app data or revoke actions.",
     msw: {
       handlers: {
         page: [

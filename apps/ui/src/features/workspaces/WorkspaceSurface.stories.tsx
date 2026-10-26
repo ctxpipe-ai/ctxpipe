@@ -127,6 +127,8 @@ export const SurfaceSkeletonMatches: Story = {
   tags: ["workspace-golden"],
   args: { paneParam: "files" },
   parameters: {
+    intent:
+      "Catches a workspace loading skeleton whose chat and pane columns differ from the loaded layout. This causes layout shift. Not for workspace data.",
     storyRoute: workspaceRoute({ pane: "files" }),
     msw: {
       handlers: {
@@ -186,6 +188,8 @@ const failedTouch = { count: 0, rejections: [] as unknown[] }
 export const FailedTouchIsCaught: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a failed workspace touch request that raises an unhandled promise rejection. The page must catch the 404. Not for visible errors or touch success.",
     storyRoute: workspaceRoute(),
     msw: {
       handlers: {
@@ -612,6 +616,8 @@ export const PublishErrorsToast: Story = {
     ),
   ],
   parameters: {
+    intent:
+      "Catches a failed push that shows no error to the user. A rejected push must show a toast with the cause. Not for a successful push or PR creation.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -669,6 +675,8 @@ export const PublishPrErrorToast: Story = {
   args: { conversationId: "conv_1", paneParam: "files" },
   decorators: PublishErrorsToast.decorators,
   parameters: {
+    intent:
+      "Catches a failed pull request creation that shows no error to the user. A rejected request must show a toast with the cause. Not for push errors.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -723,6 +731,8 @@ export const SyncAddsThreadEntry: Story = {
     ),
   ],
   parameters: {
+    intent:
+      "Catches a successful sync that adds no entry to the conversation. The thread shows a push entry that links the branch. Not for failed syncs or PRs.",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -823,6 +833,8 @@ export const SharedPublishPending: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
+    intent:
+      "Catches two publish buttons that do not share one pending state. While a push runs, every Sync button is pending and disabled. Not for push results.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -904,6 +916,8 @@ export const SingleCreatePr: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
+    intent:
+      "Catches a second Create PR button when the pane is open. Only the conversation header has the button. Not for a closed pane or PR creation.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -954,6 +968,8 @@ export const SingleCreatePrPaneClosed: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1" },
   parameters: {
+    intent:
+      "Catches a closed pane that hides Create PR or shows it twice. One button shows with a PR icon, and pane triggers have no border. Not for an open pane.",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -990,6 +1006,8 @@ export const CreatePrMatchesPaneTriggers: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1" },
   parameters: {
+    intent:
+      "Catches a Create PR button that sits in another row from the pane triggers, or has the wrong size. It shares the header row and is smaller. Not for PR creation.",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -1036,6 +1054,8 @@ export const DiffTriggerPaneClosed: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1" },
   parameters: {
+    intent:
+      "Catches a Diff trigger that is missing from a closed pane, or styled unlike the Files trigger. Both share one parent and class. Not for the diff content.",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -1085,6 +1105,8 @@ export const DiffTriggerNoChanges: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
+    intent:
+      "Catches a Diff tab on a branch with no changes that shows a blank pane. It shows that there are no changes on the branch. Not for diffs with files.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -1114,6 +1136,8 @@ export const PaneTabsStayInPlace: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
+    intent:
+      "Catches a tab switch that moves other tabs. Each trigger keeps its box and the new active tab keeps its x and width. Not for tab content.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -1162,6 +1186,8 @@ export const DiffTabRoundedCorner: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "diff" },
   parameters: {
+    intent:
+      "Catches a wrong joined corner on the pane card. The Diff and Graph tabs give the same rounded corner, and the first tab, Files, keeps it square. Not for tab content.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "diff" }),
     msw: {
       handlers: {
@@ -1207,6 +1233,8 @@ export const MaximizedPaneMatchesHeader: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
+    intent:
+      "Catches a maximized pane whose header differs from the conversation header. The Create PR call to action shows in the pane header with the same layout. Not for PR creation.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -1267,6 +1295,8 @@ export const StableRequestBudget: Story = {
     ),
   ],
   parameters: {
+    intent:
+      "Catches an idle workspace page that keeps sending requests. Conversation, tree, and status reads must stay at a fixed count. Not for response content.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -1543,6 +1573,8 @@ export const WriteCheckFailedStopsPolling: Story = {
     writeCheck.readsWhileChecking = 0
   },
   parameters: {
+    intent:
+      "Catches a failed write access check that polls the workspace forever. Polling stops and the failure reason shows. Not for a stalled check.",
     storyRoute: workspaceRoute({ pane: "settings" }),
     msw: {
       handlers: {
@@ -1632,6 +1664,8 @@ export const WriteCheckStallStopsPolling: Story = {
     writeCheck.detailReads = 0
   },
   parameters: {
+    intent:
+      "Catches a write access check that never ends and polls forever. Polling stops at the cap and the page stops showing a check in progress. Not for failed checks.",
     storyRoute: workspaceRoute({ pane: "settings" }),
     msw: {
       handlers: {
@@ -1836,6 +1870,8 @@ export const DeleteWorkspaceShowsNoError: Story = {
   render: (args) => <DeleteFlowStage {...args} />,
   decorators: deleteFlowDecorators,
   parameters: {
+    intent:
+      "Catches a workspace delete that flashes an error screen. After delete, the page leaves the deleted workspace with no error. Not for the last workspace or conversation URLs.",
     storyRoute: {
       pattern: "flat",
       path: `/${orgSlug}/ws/${workspaceSlug}`,
@@ -1852,6 +1888,8 @@ export const DeleteLastWorkspaceShowsNoError: Story = {
   tags: ["workspace-golden"],
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
   parameters: {
+    intent:
+      "Catches a delete of the last workspace that flashes an error screen. The page leaves with no error. Not for other workspaces.",
     ...DeleteWorkspaceShowsNoError.parameters,
     msw: { handlers: { page: deleteFlowHandlers([]) } },
   },
@@ -1864,6 +1902,8 @@ export const DeleteFromConversationShowsNoError: Story = {
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
   args: { paneParam: "settings", conversationId: "conv_1" },
   parameters: {
+    intent:
+      "Catches a workspace delete from a conversation URL that flashes an error screen. The page leaves with no error. Not for workspace-level URLs.",
     ...DeleteWorkspaceShowsNoError.parameters,
     storyRoute: {
       pattern: "flat",

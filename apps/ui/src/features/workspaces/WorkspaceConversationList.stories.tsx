@@ -153,6 +153,8 @@ const threeConversations = [0, 1, 2].map((row) => ({
 export const ConversationListSkeletonMatches: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a conversation list skeleton whose box differs from the loaded list. This causes layout shift when the data arrives. Not for conversation titles or order.",
     msw: {
       handlers: {
         page: [
