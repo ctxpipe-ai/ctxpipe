@@ -27,7 +27,7 @@ Use **`npx ctxpipe <command> --help`** for full flags (for example `npx ctxpipe 
 ## Agent and CI setup
 
 ```bash
-npx ctxpipe init --org acme --agents codex,claude --scope repo --non-interactive
+npx ctxpipe init --agents codex,claude --scope repo --non-interactive
 npx ctxpipe mcp add --client cursor --scope user --non-interactive
 npx ctxpipe mcp add --client cursor --scope both --auth api-key --non-interactive
 npx ctxpipe memory init --agents cursor --non-interactive
@@ -96,9 +96,9 @@ npx ctxpipe memory capture summary
 
 Observe appends candidates under `.ai/memory/events/` (fail-open). Summary prints promotion candidates; it does **not** write durable ADRs. Agents promote via capture skills and update `index.md` files.
 
-Interactive `memory init` can optionally store an org slug; local Markdown memory works without login. Non-interactive mode defaults `--scope` to `repo` and does not require `--org`.
+`init` does not need an organization slug. In non-interactive mode, `--scope` defaults to `repo`.
 
-Full init with memory add-on (remote MCP + Markdown memory): `npx ctxpipe init --org acme --agents cursor --memory --non-interactive`.
+Full init with memory add-on (remote MCP + Markdown memory): `npx ctxpipe init --agents cursor --memory --non-interactive`.
 
 This package is in alpha while the interactive setup flow is being built.
 

@@ -266,7 +266,6 @@ async function pollDeviceToken({
 
 /** Read `.ctxpipe/config.json` from cwd or any ancestor; returns null if absent. */
 type CtxpipeRepoConfig = {
-  orgSlug: string | null
   baseUrl: string | null
 }
 
@@ -278,7 +277,6 @@ export function readStoredCtxpipeConfig(cwd: string): CtxpipeRepoConfig | null {
     if (existsSync(candidate)) {
       const data = readJsonObject(candidate)
       return {
-        orgSlug: typeof data.orgSlug === "string" ? data.orgSlug : null,
         baseUrl: typeof data.baseUrl === "string" ? data.baseUrl : null,
       }
     }

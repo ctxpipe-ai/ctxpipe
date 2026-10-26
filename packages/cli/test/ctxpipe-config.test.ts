@@ -30,7 +30,7 @@ describe("ctxpipe repo config", () => {
     )
   })
 
-  it("readStoredCtxpipeConfig returns only orgSlug and baseUrl", () => {
+  it("loads baseUrl and ignores an old orgSlug field", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-config-"))
     seedConfig(cwd, {
       orgSlug: "acme",
@@ -39,7 +39,6 @@ describe("ctxpipe repo config", () => {
       mcp: { clients: ["cursor"] },
     })
     expect(readStoredCtxpipeConfig(cwd)).toEqual({
-      orgSlug: "acme",
       baseUrl: "https://custom.example",
     })
   })

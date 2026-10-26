@@ -15,7 +15,6 @@ import { buildMemoryUpgradeOperations } from "./upgrade.js"
 
 type MemoryInitRunOpts = {
   baseUrl: string
-  org?: string
   scope?: string
   agents: string[]
   dryRun: boolean
@@ -26,14 +25,10 @@ type MemoryInitRunOpts = {
 export async function runMemoryInit(opts: MemoryInitRunOpts): Promise<void> {
   const interactive = isInteractive(opts)
   const answers: {
-    org: string | null
-    baseUrl: string
     agents: Client[]
     scope: string | null
     dryRun: boolean
   } = {
-    org: opts.org ?? null,
-    baseUrl: opts.baseUrl,
     agents: [...opts.agents] as Client[],
     scope: opts.scope ?? null,
     dryRun: opts.dryRun,
@@ -41,12 +36,9 @@ export async function runMemoryInit(opts: MemoryInitRunOpts): Promise<void> {
 
   if (interactive) {
     const wizard = await promptMemoryInitWizard({
-      org: answers.org,
-      baseUrl: answers.baseUrl,
       agents: answers.agents,
       scope: answers.scope,
     })
-    if (wizard.org !== undefined) answers.org = wizard.org
     if (wizard.scope) answers.scope = wizard.scope
     if (wizard.agents) answers.agents = wizard.agents
   } else {
@@ -64,8 +56,7 @@ export async function runMemoryInit(opts: MemoryInitRunOpts): Promise<void> {
 
   const context = createOperationContext({ commandExists })
   const configOp = buildMemoryConfigOperation({
-    org: answers.org,
-    baseUrl: answers.baseUrl,
+    baseUrl: opts.baseUrl,
     context,
   })
   const upgradeOps = buildMemoryUpgradeOperations({ context })
@@ -77,9 +68,6 @@ export async function runMemoryInit(opts: MemoryInitRunOpts): Promise<void> {
   })
   const operations = [configOp, ...upgradeOps, ...memoryOps, ...hookOps]
 
-  const orgLine = answers.org
-    ? `Organization ${answers.org}`
-    : "Organization none (local Markdown memory)"
   const modeLine =
     "Markdown-only memory — candidates via hooks; promote with capture skills"
 
@@ -91,7 +79,6 @@ export async function runMemoryInit(opts: MemoryInitRunOpts): Promise<void> {
     dryRun: answers.dryRun,
     introShown: interactive,
     setupSummary: [
-      orgLine,
       scopeLabel(scope),
       `Agents ${agents.map((a) => CLIENT_LABELS[a]).join(", ")}`,
       modeLine,

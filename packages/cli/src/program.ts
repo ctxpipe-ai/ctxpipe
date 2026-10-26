@@ -74,7 +74,7 @@ Human setup:
   npx ctxpipe init
 
 Examples (non-interactive):
-  npx ctxpipe init --org acme --agents codex,claude --scope repo --non-interactive
+  npx ctxpipe init --agents codex,claude --scope repo --non-interactive
   npx ctxpipe mcp add --client cursor --scope repo --non-interactive
   npx ctxpipe mcp add --client cursor --scope both --auth api-key --non-interactive
   npx ctxpipe doctor --json
@@ -91,7 +91,7 @@ Examples (non-interactive):
         )
         .option(
           "--org <slug>",
-          "ctxpipe organization slug (required when not interactive)",
+          "Optional organization slug (accepted for compatibility; not stored)",
         )
         .option(
           "--base-url <url>",
@@ -155,7 +155,6 @@ MCP auth:
     ),
   ).action(async (rawOpts: Record<string, unknown>) => {
     const opts = rawOpts as {
-      org?: string
       baseUrl: string
       scope?: string
       agents: string[]
@@ -174,7 +173,6 @@ MCP auth:
     ]
     await runInit({
       baseUrl: opts.baseUrl,
-      org: opts.org,
       scope: opts.scope,
       agents,
       dryRun: opts.dryRun,
@@ -327,7 +325,7 @@ MCP auth:
     )
     .option(
       "--base-url <url>",
-      `ctxpipe app origin for auth (default: ${DEFAULT_BASE_URL})`,
+      `ctxpipe app origin for config (default: ${DEFAULT_BASE_URL})`,
       DEFAULT_BASE_URL,
     )
     .action(async (rawOpts: Record<string, unknown>) => {
@@ -379,11 +377,11 @@ MCP auth:
       )
       .option(
         "--org <slug>",
-        "ctxpipe organization slug (optional; stored in .ctxpipe/config.json)",
+        "Optional organization slug (accepted for compatibility; not stored)",
       )
       .option(
         "--base-url <url>",
-        `ctxpipe app origin for auth (default: ${DEFAULT_BASE_URL})`,
+        `ctxpipe app origin for config (default: ${DEFAULT_BASE_URL})`,
         DEFAULT_BASE_URL,
       )
       .option(
@@ -416,7 +414,6 @@ MCP auth:
       ),
   ).action(async (rawOpts: Record<string, unknown>) => {
     const opts = rawOpts as {
-      org?: string
       baseUrl: string
       scope?: string
       agents: string[]
@@ -432,7 +429,6 @@ MCP auth:
     ]
     await runMemoryInit({
       baseUrl: opts.baseUrl,
-      org: opts.org,
       scope: opts.scope,
       agents,
       dryRun: opts.dryRun,

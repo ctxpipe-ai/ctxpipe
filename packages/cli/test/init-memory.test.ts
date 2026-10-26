@@ -67,24 +67,20 @@ describe("init --memory (end-to-end)", () => {
     expect(readme).toContain(".ai/memory")
   })
 
-  it("records orgSlug in .ctxpipe/config.json", () => {
+  it("allows non-interactive init without an org and does not store orgSlug", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-init-mem-"))
     runInit(cwd, [
-      "--org",
-      "acme",
       "--scope",
       "repo",
       "--agents",
       "cursor",
-      "--memory",
+      "--no-memory",
       "--non-interactive",
     ])
     const config = JSON.parse(
       readFileSync(join(cwd, ".ctxpipe", "config.json"), "utf8"),
-    ) as { orgSlug?: string; memory?: unknown; mcp?: unknown }
-    expect(config.orgSlug).toBe("acme")
-    expect(config.memory).toBeUndefined()
-    expect(config.mcp).toBeUndefined()
+    ) as { orgSlug?: string }
+    expect(config.orgSlug).toBeUndefined()
   })
 
   it("does not touch the memory tree when --no-memory is passed", () => {

@@ -30,7 +30,6 @@ describe("MCP operation builders", () => {
   it("builds minimal repo ctxpipe config for default SaaS base URL", () => {
     const operation = buildCtxpipeConfigOperation({
       baseUrl: "https://app.ctxpipe.ai/",
-      org: "acme",
       context,
     })
 
@@ -41,20 +40,16 @@ describe("MCP operation builders", () => {
         mcp: { previous: true },
         memory: { enabled: true },
       }),
-    ).toEqual({
-      orgSlug: "acme",
-    })
+    ).toEqual({})
   })
 
   it("builds repo ctxpipe config with non-default baseUrl", () => {
     const operation = buildCtxpipeConfigOperation({
       baseUrl: "https://my.ctxpipe.example",
-      org: "acme",
       context,
     })
 
     expect(operation.content({})).toEqual({
-      orgSlug: "acme",
       baseUrl: "https://my.ctxpipe.example",
     })
   })
@@ -159,7 +154,7 @@ describe("MCP operation builders", () => {
     expect(() => validateAuthMode("bearer")).toThrow("--auth must be one of")
   })
 
-  it("buildMemoryConfigOperation omits orgSlug when org is not provided", () => {
+  it("buildMemoryConfigOperation ignores existing orgSlug", () => {
     const operation = buildMemoryConfigOperation({
       baseUrl: "https://app.ctxpipe.ai",
       context,
@@ -171,26 +166,24 @@ describe("MCP operation builders", () => {
     expect(result).toEqual({})
   })
 
-  it("buildMemoryConfigOperation writes orgSlug for known org", () => {
+  it("buildMemoryConfigOperation does not write orgSlug", () => {
     const operation = buildMemoryConfigOperation({
-      org: "acme",
       baseUrl: "https://app.ctxpipe.ai",
       context,
     })
-    expect(operation.content({})).toEqual({ orgSlug: "acme" })
+    expect(operation.content({ orgSlug: "old-org" })).toEqual({})
   })
 
-  it("buildMemoryConfigOperation preserves existing orgSlug when org is not provided", () => {
+  it("buildMemoryConfigOperation ignores an existing orgSlug", () => {
     const operation = buildMemoryConfigOperation({
       baseUrl: "https://app.ctxpipe.ai",
       context,
     })
-    expect(operation.content({ orgSlug: "acme" })).toEqual({ orgSlug: "acme" })
+    expect(operation.content({ orgSlug: "old-org" })).toEqual({})
   })
 
   it("buildMemoryConfigOperation preserves non-default baseUrl from existing config", () => {
     const operation = buildMemoryConfigOperation({
-      org: "acme",
       baseUrl: "https://app.ctxpipe.ai",
       context,
     })
@@ -200,7 +193,6 @@ describe("MCP operation builders", () => {
         mcp: { url: "https://custom.example/mcp" },
       }),
     ).toEqual({
-      orgSlug: "acme",
       baseUrl: "https://custom.example",
     })
   })
