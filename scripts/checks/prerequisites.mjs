@@ -206,9 +206,7 @@ export const prerequisites = {
       required("MODEL_PROVIDER", workbenchFix)
       required("MODEL_PROVIDER_API_KEY", workbenchFix)
       const models = required("MCP_EVAL_MODELS", workbenchFix)
-      const { gateThresholds } = await import(
-        new URL("../../apps/backend/evals/mcp/gate.ts", import.meta.url).href
-      )
+      const { gateThresholds } = await import("../../apps/backend/evals/mcp/gate.ts")
       if (
         new Set(models.split(",").filter(Boolean)).size <
         gateThresholds.minModels

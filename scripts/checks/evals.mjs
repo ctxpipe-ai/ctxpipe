@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { fileURLToPath } from "node:url"
 
 import { logFile, logged } from "./log.mjs"
 
@@ -19,7 +19,6 @@ const env = [
   { name: "MCP_EVAL_MODELS", mode: "value" },
   { name: "MODEL_PROVIDER_API_KEY", mode: "presence" },
 ]
-const gate = pathToFileURL(join(root, "apps/backend/evals/mcp/gate.ts")).href
 const baselineFile = join(root, "apps/backend/evals/mcp/baseline.json")
 
 // The sorted, unique tool names that the rules of a case name.
@@ -36,7 +35,7 @@ function toolNames(item) {
 
 export async function listEvals() {
   // Node strips the types of cases.ts (it holds only data).
-  const { evalCases } = await import(pathToFileURL(join(root, cases)).href)
+  const { evalCases } = await import("../../apps/backend/evals/mcp/cases.ts")
   const mcp = evalCases.map((item) => ({
     id: `eval:mcp:${cases}#${item.id}`,
     family: "eval",
@@ -69,7 +68,7 @@ export async function listEvals() {
 // The verdict of one case: the eval gate (gate.ts) with the same thresholds,
 // cut to the case. The baseline keeps only the rate of this case.
 export async function caseVerdict(run, caseId, stored, usage = {}) {
-  const { evaluateGate } = await import(gate)
+  const { evaluateGate } = await import("../../apps/backend/evals/mcp/gate.ts")
   const models = Object.keys(run.passes)
   const report = evaluateGate(
     {

@@ -727,3 +727,24 @@ test("an eval case verdict is the eval gate for that case", async () => {
   // A whole-run failure is not a case failure.
   assert.deepEqual(single.cases.map((c) => c.status), ["passed"])
 })
+
+test("the files that the runner loads import only by literal specifiers", () => {
+  // The cache key of a check follows each import() of the runner's closure.
+  // A computed specifier makes the selector refuse a key for every check.
+  const seen = new Set()
+  const computed = []
+  const visit = (file) => {
+    if (seen.has(file)) return
+    seen.add(file)
+    const text = readFileSync(file, "utf8")
+    for (const match of text.matchAll(/\bimport\(\s*(?![\s"'`)])/g))
+      computed.push(`${file}@${match.index}`)
+    for (const match of text.matchAll(
+      /(?:from\s+|\bimport\(\s*)["'](\.[^"']+\.(?:mjs|js|ts))["']/g,
+    ))
+      visit(join(file, "..", match[1]))
+  }
+  visit(script("run.mjs"))
+  assert.ok(seen.size > 5)
+  assert.deepEqual(computed, [])
+})
