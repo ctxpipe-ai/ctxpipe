@@ -223,13 +223,14 @@ jobs:
       - uses: ./.github/actions/setup-buildx
       # This job reads the layer cache without a login. The layer-cache job
       # writes it (see the comment there).
-      - name: Required chat sandbox image
-        run: bun -e 'import { CHAT_IMAGE } from "./apps/backend/src/test/docker-workspace-base.ts"; if (CHAT_IMAGE !== "ctxpipe-chat-sandbox:opencode-1.18.34-r4") throw new Error(`Expected ${CHAT_IMAGE} to match the CI chat sandbox image tag`);'
+      - name: Read chat sandbox image tag
+        id: chat-image
+        run: bun -e 'import { CHAT_IMAGE } from "./apps/backend/src/test/docker-workspace-base.ts"; console.log(`image=${CHAT_IMAGE}`)' >> "$GITHUB_OUTPUT"
       - name: Build chat sandbox image
         uses: docker/build-push-action@v6
         with:
           context: scripts/chat-sandbox
-          tags: ctxpipe-chat-sandbox:opencode-1.18.34-r4
+          tags: ${{ steps.chat-image.outputs.image }}
           load: true
           cache-from: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox
       - name: Required ${{ matrix.lane }} tests

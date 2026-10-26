@@ -447,8 +447,7 @@ it(
     try {
       await withNativeHttpsGitFixture(
         {
-          baseImage:
-            process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() || CHAT_IMAGE,
+          baseImage: CHAT_IMAGE,
           docker,
         },
         async (gitFixture) =>
@@ -608,8 +607,7 @@ it(
     try {
       await withNativeHttpsGitFixture(
         {
-          baseImage:
-            process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() || CHAT_IMAGE,
+          baseImage: CHAT_IMAGE,
           docker,
         },
         async (gitFixture) =>
