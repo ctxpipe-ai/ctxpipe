@@ -125,6 +125,10 @@ export const SingleWorkspace: Story = {
 }
 
 export const ChooseWorkspacesMulti: Story = {
+  parameters: {
+    intent:
+      "Catches a multi-workspace connector step that mixes the shared and per-workspace scope. Same scope shows one picker, different scope shows one for each workspace. Not for connector sign-in.",
+  },
   tags: ["workspace-golden"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

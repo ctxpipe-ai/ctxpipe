@@ -24,27 +24,28 @@
       "additionalProperties": false,
       "properties": {
         "id": {
-          "description": "`<family>:<lane>:<file>`. Case ids append `#<case>` in a later version.",
+          "description": "`<family>:<lane>:<file>`, or `<family>:<lane>:<file>#<case>` for one case of a file (a Storybook story, an eval case). A file id is a prefix of the ids of its cases.",
           "type": "string",
           "pattern": "^[a-z]+:[a-z0-9-]+:[^#]+(#.+)?$"
         },
         "family": {
-          "enum": ["vitest"]
+          "description": "`vitest`: a Vitest test file. `storybook`: a Storybook story with a play function, played in Chromium. `eval`: an eval case that calls paid models. `typecheck`: one TypeScript project. `lint`: oxlint, oxfmt or knip over the repo. `policy`: a policy script of the CI lint job.",
+          "enum": ["vitest", "storybook", "eval", "typecheck", "lint", "policy"]
         },
         "lane": {
-          "description": "One runner invocation: package directory, config and runtime.",
+          "description": "One group of checks that run together: for Vitest one runner invocation (package directory, config and runtime); for other families the kind of check.",
           "type": "string"
         },
         "root": {
-          "description": "Repo-relative root directory of the lane's package. A changed file below it, that no check imports and that is not code, selects the whole lane.",
+          "description": "Repo-relative directory that holds the check (`\"\"` is the repo root). A changed file below it, that no check imports and that is not code, selects the whole lane.",
           "type": "string"
         },
         "file": {
-          "description": "Repo-relative path of the test file.",
+          "description": "Repo-relative path of the file that defines the check: the test file, the stories file, the eval cases or scenario, the tsconfig, or the lint config or policy script.",
           "type": "string"
         },
         "inputs": {
-          "description": "Repo-relative paths that are not imported by the test but change its result: configs, setup files, the lockfile, the runner, and the source of built code that the test runs. A path that ends in `/**` stands for a whole directory. A change to one selects the whole lane.",
+          "description": "Repo-relative paths that are not imported by the check but change its result: configs, setup files, the lockfile, the runner, and the source of built code that the check runs. A path that ends in `/**` stands for a whole directory. A change to one selects the whole lane. For the `typecheck`, `lint` and `policy` families, the inputs are the directories that the check reads, approximated.",
           "type": "array",
           "items": {
             "type": "string"
@@ -79,6 +80,22 @@
               }
             }
           }
+        },
+        "prerequisites": {
+          "description": "The named prerequisites (scripts/checks/prerequisites.mjs) that the runner makes or verifies before the check runs; `pnpm checks:prepare <name>` makes or verifies one. A check whose prerequisite fails does not run, and its result is `error`. Optional; without it, none.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "stochastic": {
+          "description": "true: the result can differ between runs on the same inputs (a model call, a wall-clock bound). A result cache must not reuse such a result. Optional; without it, false.",
+          "type": "boolean"
+        },
+        "intent": {
+          "description": "For an expensive check: what the check catches, and what is never a reason to run it. A reader selects a check without a trace (an eval) by its intent.",
+          "type": "string"
         }
       }
     }

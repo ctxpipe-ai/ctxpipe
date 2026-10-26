@@ -177,6 +177,10 @@ export const Checking: Story = {
 
 /** The loading row has the same box as a collapsed connector row. */
 export const ConnectorRowSkeletonMatches: Story = {
+  parameters: {
+    intent:
+      "Catches a connector list skeleton row whose size differs from the loaded row. This causes layout shift. Not for connector data or health states.",
+  },
   tags: ["workspace-golden"],
   args: {
     ...shared,

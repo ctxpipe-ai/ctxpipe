@@ -116,6 +116,10 @@ const longCommit = {
  * an ellipsis, and the time and hash stay whole at the right.
  */
 export const CompactRowTruncates: Story = {
+  parameters: {
+    intent:
+      "Catches a long commit message that wraps or pushes the time and hash to a second line. The message truncates and the row stays on one line. Not for avatar images.",
+  },
   tags: ["workspace-golden"],
   args: {
     commits: [longCommit, ...docsWorkspaceActivityRecent.slice(1)],
@@ -184,6 +188,10 @@ export const TimeTooltip: Story = {
  * each node sits at the center line of its row, also with a taller row.
  */
 export const CommitLineAligns: Story = {
+  parameters: {
+    intent:
+      "Catches a commit timeline line that does not span its row, or whose node does not align with the row content. Not for commit text or the workspace label.",
+  },
   tags: ["workspace-golden"],
   args: {
     commits: [longCommit, ...docsWorkspaceActivityRecent.slice(1)],
@@ -250,6 +258,8 @@ export const AvatarAndInitialFallback: Story = {
     ],
   },
   parameters: {
+    intent:
+      "Catches a commit author without a loadable avatar that shows a broken image. It must fall back to an initial. A known author shows the image. Not for commit text.",
     msw: {
       handlers: {
         page: [
@@ -333,6 +343,10 @@ export const Loading: Story = {
 
 /** The skeleton has the same box as three loaded commits. */
 export const RecentCommitsSkeletonMatches: Story = {
+  parameters: {
+    intent:
+      "Catches a recent commits skeleton whose size differs from the loaded list. This causes layout shift. Not for commit data or row content.",
+  },
   tags: ["workspace-golden"],
   args: {
     commits: pageOfCommits.slice(0, 3),

@@ -45,11 +45,38 @@
       }
     },
     "log": {
-      "description": "Repo-relative path of the runner log for the lane.",
+      "description": "Repo-relative path of the runner log for the group of checks.",
       "type": "string"
     },
     "message": {
       "type": "string"
+    },
+    "usage": {
+      "description": "The model use of an eval run, for each model. It never holds prompt or answer text. Optional; only eval checks have it.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["model", "inputTokens", "outputTokens"],
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "inputTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "outputTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "costUsd": {
+            "description": "The cost from the price list of the model provider. Absent when the price is not known.",
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
     }
   }
 }

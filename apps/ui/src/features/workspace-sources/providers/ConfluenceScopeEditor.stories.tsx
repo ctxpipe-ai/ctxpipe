@@ -60,6 +60,10 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const SelectAllPagesOfASpace: Story = {
+  parameters: {
+    intent:
+      "Catches a Confluence scope that stays not ready after the user picks a space. Picking a space must select all its pages in the scope. Not for saved page lists.",
+  },
   tags: ["workspace-golden"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -77,6 +81,10 @@ export const SelectAllPagesOfASpace: Story = {
 }
 
 export const EditsASavedPageList: Story = {
+  parameters: {
+    intent:
+      "Catches a saved page list that shows its space as fully or not selected. A partial list shows as partly selected, and a click selects all pages. Not for a new scope.",
+  },
   tags: ["workspace-golden"],
   args: {
     label: "Docs",

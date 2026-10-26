@@ -104,6 +104,10 @@ const visibility = (element: Element) => getComputedStyle(element).visibility
 export const Open: Story = {}
 
 export const PaletteShortcutTogglesAndRestoresFocus: Story = {
+  parameters: {
+    intent:
+      "Catches a command palette that does not toggle with the keyboard shortcut or lose focus on close. Focus returns to the trigger. Not for search or results.",
+  },
   tags: ["workspace-golden"],
   args: { isOpen: false },
   play: async ({ canvasElement }) => {
@@ -125,6 +129,10 @@ export const PaletteShortcutTogglesAndRestoresFocus: Story = {
 }
 
 export const PaletteFiltersAtOnce: Story = {
+  parameters: {
+    intent:
+      "Catches a palette search that does not filter at once or miss a slug match. It reports the result count and makes the first match active. Not for navigation keys.",
+  },
   tags: ["workspace-golden"],
   play: async () => {
     await screen.findByRole("menuitem", { name: /Handbook/ })
@@ -148,6 +156,10 @@ export const PaletteFiltersAtOnce: Story = {
 }
 
 export const PaletteArrowKeysAndEnterKeepPane: Story = {
+  parameters: {
+    intent:
+      "Catches Enter in the palette that opens the wrong workspace, or drops the current pane. Arrow keys move the active item and Enter opens it. Not for search.",
+  },
   tags: ["workspace-golden"],
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
@@ -176,6 +188,10 @@ export const PaletteArrowKeysAndEnterKeepPane: Story = {
 }
 
 export const PaletteEscapeClearsThenCloses: Story = {
+  parameters: {
+    intent:
+      "Catches an Escape in the palette that closes it while text is in the field. The first Escape clears the text and the second closes the dialog. Not for search results.",
+  },
   tags: ["workspace-golden"],
   play: async ({ args }) => {
     const field = await searchField()
@@ -198,6 +214,10 @@ export const PaletteEscapeClearsThenCloses: Story = {
 }
 
 export const PaletteNoResults: Story = {
+  parameters: {
+    intent:
+      "Catches a palette search with no match that shows an empty list with no message. It shows and announces a no results text. Not for matches.",
+  },
   tags: ["workspace-golden"],
   play: async () => {
     await screen.findByRole("menuitem", { name: /Handbook/ })
@@ -219,6 +239,8 @@ export const PaletteNoResults: Story = {
 export const PaletteLoadingKeepsPages: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a palette that shows a lone header or a flash while workspaces load. The header and skeleton wait for the same delay. Not for loaded results.",
     msw: {
       handlers: {
         page: [
@@ -277,6 +299,8 @@ export const PaletteLoadingKeepsPages: Story = {
 export const PaletteSkeletonHandsOverOnce: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a palette that shows two Workspaces headers when loading ends. The list replaces the skeleton in one step. Not for the loading delay.",
     msw: {
       handlers: {
         page: [
@@ -353,6 +377,8 @@ const pressAndExpect = async (key: string, name: RegExp) => {
 export const PaletteArrowKeysWalkEveryItem: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches arrow keys in a long palette that skip an item, stop at a section, or fail to wrap. Home, End, and page keys keep an item active. Not for search.",
     msw: { handlers: { page: [workspaceListHandler(manyWorkspaces)] } },
   },
   play: async () => {
@@ -397,6 +423,10 @@ export const PaletteArrowKeysWalkEveryItem: Story = {
 }
 
 export const PaletteHoverAndKeysShareOneHighlight: Story = {
+  parameters: {
+    intent:
+      "Catches a palette that shows two highlighted items, one from the pointer and one from the keys. Only the active item has a fill. Not for item content.",
+  },
   tags: ["workspace-golden"],
   play: async () => {
     const home = await screen.findByRole("menuitem", { name: "Home" })
@@ -422,6 +452,10 @@ export const PaletteHoverAndKeysShareOneHighlight: Story = {
 }
 
 export const PaletteEnterAfterDeleteRunsFirstMatch: Story = {
+  parameters: {
+    intent:
+      "Catches Enter after Backspace in the palette that does nothing. With no active item, Enter must open the first match. Not for arrow key use.",
+  },
   tags: ["workspace-golden"],
   play: async ({ canvasElement }) => {
     await screen.findByRole("menuitem", { name: /Handbook/ })
@@ -441,6 +475,10 @@ export const PaletteEnterAfterDeleteRunsFirstMatch: Story = {
 }
 
 export const PaletteShortcutClosesAfterSyncRender: Story = {
+  parameters: {
+    intent:
+      "Catches a shortcut listener that opens the palette again right after it closes it. The shortcut must close the palette for good. Not for the first open.",
+  },
   tags: ["workspace-golden"],
   args: { isOpen: false },
   render: (args) => <PaletteHarness {...args} syncRender />,

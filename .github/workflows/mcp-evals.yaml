@@ -217,7 +217,7 @@ jobs:
         if: always()
         run: |
           if [ -f "$RUNNER_TEMP/mcp-eval-results.json" ]; then
-            jq '{result: {iterations: .result.iterations, passes: .result.passes}, rates: .rates, report: {passed: .report.passed, aggregates: .report.aggregates}}' "$RUNNER_TEMP/mcp-eval-results.json" > "$RUNNER_TEMP/mcp-eval-public-results.json"
+            jq '{result: {iterations: .result.iterations, passes: .result.passes}, rates: .rates, usage: .usage, report: {passed: .report.passed, aggregates: .report.aggregates}}' "$RUNNER_TEMP/mcp-eval-results.json" > "$RUNNER_TEMP/mcp-eval-public-results.json"
           fi
       - name: Upload pass rates
         if: always()

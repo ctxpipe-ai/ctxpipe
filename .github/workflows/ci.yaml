@@ -3,7 +3,8 @@ name: CI
 on:
   workflow_dispatch:
   # A nightly run of the tests on main records the trace of main with
-  # `--trace`. Only the test jobs and the Trace job run on it.
+  # `--trace`. Only the test, Storybook, upgrade and Project check times jobs
+  # and the Trace job run on it.
   schedule:
     - cron: "23 2 * * *"
   pull_request:
@@ -355,7 +356,16 @@ jobs:
   trace:
     timeout-minutes: 10
     name: Trace
-    needs: [test-shards, package-tests, codesearch, vercel-sandbox]
+    needs:
+      [
+        test-shards,
+        package-tests,
+        codesearch,
+        vercel-sandbox,
+        storybook-plays,
+        upgrade-from-previous-release,
+        project-checks,
+      ]
     if: |
       always() &&
       (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
@@ -384,6 +394,39 @@ jobs:
           name: trace-${{ github.sha }}
           path: ${{ runner.temp }}/trace.json.gz
           if-no-files-found: error
+
+  # The time of each project check (typecheck, lint, policy) for the trace
+  # (scripts/checks/README.md). The lint and typecheck jobs gate the change;
+  # this job is data only and runs only on a traced run.
+  project-checks:
+    timeout-minutes: 45
+    name: Project check times
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Project checks through the check runner
+        run: |
+          set -o pipefail
+          pnpm -s checks:list |
+            jq -r '.checks[] | select(.family == "typecheck" or .family == "lint" or .family == "policy") | .id' \
+            > "$RUNNER_TEMP/project-checks.txt"
+          node scripts/checks/run.mjs --trace "$RUNNER_TEMP/project-trace" "$RUNNER_TEMP/project-checks.txt"
+      - name: Preserve the project check trace
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lane-trace-projects
+          path: ${{ runner.temp }}/project-trace/trace.json.gz
+          if-no-files-found: ignore
 
   production-builds:
     timeout-minutes: 45
@@ -515,8 +558,10 @@ jobs:
   storybook-build:
     timeout-minutes: 20
     name: Storybook build
+    # The nightly run (schedule) also plays the stories, to record the trace.
     if: |
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -582,8 +627,10 @@ jobs:
     timeout-minutes: 45
     name: Storybook Playwright all plays (${{ matrix.shard }}/4)
     needs: storybook-build
+    # The nightly run (schedule) also plays the stories, to record the trace.
     if: |
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -614,7 +661,11 @@ jobs:
           SKIP_STORYBOOK_BUILD: "1"
           STORYBOOK_PLAYS: all
           STORYBOOK_SHARD: ${{ matrix.shard }}/4
-        run: node scripts/ci/storybook-golden.mjs
+          EVENT: ${{ github.event_name }}
+        # The trace (scripts/checks/README.md) is data only; PR runs skip it.
+        run: |
+          node scripts/ci/storybook-golden.mjs \
+            $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       - name: Preserve play results
         if: always()
         uses: actions/upload-artifact@v4
@@ -623,6 +674,13 @@ jobs:
           path: .ci-results/storybook-plays/
           include-hidden-files: true
           if-no-files-found: error
+      - name: Preserve the Storybook trace
+        if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@v4
+        with:
+          name: lane-trace-storybook-${{ matrix.shard }}
+          path: .ci-results/storybook-plays/trace.json.gz
+          if-no-files-found: ignore
 
   codesearch:
     timeout-minutes: 30
@@ -828,8 +886,10 @@ jobs:
     # after the upgrade (rollback).
     name: Upgrade from the previous release
     timeout-minutes: 15
+    # The nightly run (schedule) also runs it, to record its time and trace.
     if: |
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -905,8 +965,29 @@ jobs:
           DATABASE_APP_PASSWORD: ctxpipe
           GRAPH_DB_URI: redis://127.0.0.1:6379
           AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
-        working-directory: apps/backend
-        run: RELEASE_TREE="$RUNNER_TEMP/previous-release" pnpm test:upgrade-from-release
+          EVENT: ${{ github.event_name }}
+        # The check runner verifies the prerequisites, and writes the Vitest
+        # output to .ci-results/checks/upgrade.log (the next step prints it).
+        run: |
+          ids="$(node scripts/checks/list.mjs |
+            jq -r '.checks[] | select(.family == "vitest" and .lane == "upgrade") | .id')"
+          if [ -z "$ids" ]; then
+            echo "::error::The check list has no check in the upgrade lane"
+            exit 1
+          fi
+          printf '%s\n' "$ids" |
+            RELEASE_TREE="$RUNNER_TEMP/previous-release" node scripts/checks/run.mjs \
+              $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace "$RUNNER_TEMP/upgrade-trace")
+      - name: Upgrade test output
+        if: always()
+        run: cat .ci-results/checks/upgrade.log || true
+      - name: Preserve the upgrade trace
+        if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@v4
+        with:
+          name: lane-trace-upgrade
+          path: ${{ runner.temp }}/upgrade-trace/trace.json.gz
+          if-no-files-found: ignore
       - name: FalkorDB diagnostics
         if: failure()
         continue-on-error: true

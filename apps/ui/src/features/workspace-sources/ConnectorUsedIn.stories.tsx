@@ -218,6 +218,8 @@ export const UsedInManyWorkspaces: Story = {
 export const UsedInLinksToSourceSection: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a connector usage row that links to the wrong place. The link must open the workspace settings pane at the source section of that connector. Not for usage counts.",
     msw: {
       handlers: {
         page: [

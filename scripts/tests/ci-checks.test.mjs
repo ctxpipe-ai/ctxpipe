@@ -14,12 +14,25 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
 
+import { requiredStories } from "../ci/storybook-golden-select.mjs"
+
 const root = fileURLToPath(new URL("../../", import.meta.url))
+const evalCaseCount = () =>
+  (
+    readFileSync(join(root, "apps/backend/evals/mcp/cases.ts"), "utf8").match(
+      /^ {4}id: "/gm,
+    ) ?? []
+  ).length
 const script = (name) => join(root, "scripts/checks", name)
 const schema = (name) =>
   JSON.parse(readFileSync(script(`schema/${name}.v1.schema.json`), "utf8"))
 const node = (args, input) =>
-  spawnSync(process.execPath, args, { cwd: root, encoding: "utf8", input })
+  spawnSync(process.execPath, args, {
+    cwd: root,
+    encoding: "utf8",
+    input,
+    maxBuffer: 64 * 1024 * 1024,
+  })
 
 // Covers the JSON Schema keywords that the committed schemas use.
 const validate = (value, rule, document, path = "$") => {
@@ -34,11 +47,14 @@ const validate = (value, rule, document, path = "$") => {
   if (rule.enum) assert.ok(rule.enum.includes(value), `${path}: ${value}`)
   if (rule.type === "string") assert.equal(typeof value, "string", path)
   if (rule.type === "integer") assert.ok(Number.isInteger(value), path)
+  if (rule.type === "number") assert.equal(typeof value, "number", path)
   if (rule.type === "boolean") assert.equal(typeof value, "boolean", path)
   if (rule.minimum !== undefined) assert.ok(value >= rule.minimum, path)
   if (rule.pattern) assert.match(value, new RegExp(rule.pattern), path)
   if (rule.type === "array") {
     assert.ok(Array.isArray(value), path)
+    if (rule.uniqueItems)
+      assert.equal(new Set(value).size, value.length, `${path}: duplicates`)
     if (rule.minItems !== undefined)
       assert.ok(value.length >= rule.minItems, path)
     if (rule.maxItems !== undefined)
@@ -58,7 +74,7 @@ const validate = (value, rule, document, path = "$") => {
   }
 }
 
-test("the manifest matches its schema and has one check for each inventory file", () => {
+test("the manifest matches its schema and lists each check of each family", async () => {
   const result = node([script("list.mjs")])
   assert.equal(result.status, 0, result.stderr)
   const manifest = JSON.parse(result.stdout)
@@ -80,26 +96,84 @@ test("the manifest matches its schema and has one check for each inventory file"
       "--list",
     ])
     assert.equal(inventory.status, 0, inventory.stderr)
-    const files = manifest.checks.filter((check) => check.lane === lane)
+    const files = manifest.checks.filter(
+      (check) => check.family === "vitest" && check.lane === lane,
+    )
     assert.equal(files.length, JSON.parse(inventory.stdout).length, lane)
   }
+  const { prerequisites } = await import("../checks/prerequisites.mjs")
   for (const check of manifest.checks) {
-    assert.equal(check.id, `vitest:${check.lane}:${check.file}`)
+    // A Storybook story and an eval case are cases of their file.
+    assert.equal(
+      check.id.split("#")[0],
+      `${check.family}:${check.lane}:${check.file}`,
+    )
+    assert.equal(
+      check.id.includes("#"),
+      check.family === "storybook" || check.lane === "mcp",
+      check.id,
+    )
     assert.ok(existsSync(join(root, check.file)), check.file)
-    assert.ok(existsSync(join(root, check.root, "package.json")), check.root)
-    assert.ok(check.file.startsWith(`${check.root}/`), check.file)
+    assert.ok(existsSync(join(root, check.root)), check.root)
+    assert.ok(check.file.startsWith(check.root), check.file)
     for (const input of check.inputs)
       assert.ok(
         existsSync(join(root, input.replace(/\/\*\*$/, ""))),
         `${check.lane}: ${input}`,
       )
+    for (const name of check.prerequisites ?? [])
+      assert.ok(prerequisites[name], `${check.id}: prerequisite ${name}`)
+  }
+  // Each family lists itself; each project of projects.json has a typecheck.
+  const count = (family, lane) =>
+    manifest.checks.filter(
+      (check) => check.family === family && (!lane || check.lane === lane),
+    ).length
+  const projects = JSON.parse(
+    readFileSync(join(root, "scripts/ci/projects.json"), "utf8"),
+  )
+  assert.equal(count("typecheck"), projects.length)
+  assert.equal(count("lint"), 3)
+  assert.ok(count("policy") >= 8)
+  assert.equal(count("eval", "mcp"), evalCaseCount())
+  assert.equal(count("eval", "cli-memory"), 0)
+  assert.equal(count("vitest", "latency"), 1)
+  assert.equal(count("vitest", "upgrade"), 1)
+  // The required golden stories are tagged (ci-storybook-golden.test.mjs),
+  // so the golden lane holds at least them.
+  assert.ok(count("storybook", "golden") >= requiredStories.length)
+  assert.ok(count("storybook", "plays") > 0)
+  // An expensive check states its intent in under about 40 words, and a
+  // check that calls a model or a wall clock is stochastic.
+  for (const check of manifest.checks) {
+    const expensive =
+      check.family === "eval" ||
+      check.lane === "golden" ||
+      check.lane === "latency" ||
+      check.lane === "upgrade"
+    if (expensive) {
+      assert.ok(check.intent, `${check.id} has no intent`)
+      assert.ok(
+        check.intent.split(/\s+/).length <= 45,
+        `${check.id}: long intent`,
+      )
+    }
+    assert.equal(
+      check.stochastic ?? false,
+      check.family === "eval" || check.lane === "latency",
+      check.id,
+    )
   }
   assert.ok(manifest.checks.some((check) => check.lane === "codesearch"))
   assert.ok(manifest.checks.some((check) => check.lane === "codesearch-bun"))
   // A cache key hashes a `value` variable, and holds only set or unset for a
   // `presence` variable.
-  const env = (lane) => manifest.checks.find((check) => check.lane === lane).env
-  const mode = (lane, name) => env(lane).find((item) => item.name === name)?.mode
+  const env = (lane) =>
+    manifest.checks.find(
+      (check) => check.family === "vitest" && check.lane === lane,
+    ).env
+  const mode = (lane, name) =>
+    env(lane).find((item) => item.name === name)?.mode
   assert.equal(mode("backend", "MODEL_PROVIDER"), "value")
   assert.equal(mode("backend", "GITHUB_TOKEN"), "presence")
   assert.equal(mode("backend", "AUTH_BASE_URL"), "presence")
@@ -134,6 +208,9 @@ test("the runner runs exactly the given ids and writes one schema result for eac
     assert.ok(passed.cases.length > 0)
     assert.ok(existsSync(join(root, passed.log)))
     assert.equal(node([script("run.mjs"), ids, "extra"]).status, 1)
+    const none = node([script("run.mjs")], "\n\n")
+    assert.equal(none.status, 1)
+    assert.match(none.stderr, /no check ids given/)
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
@@ -252,7 +329,9 @@ test("the trace records the lines that a case runs in a Node child process", () 
     const [check] = trace.checks
     // A child wrote coverage, so `children` is recorded.
     assert.ok(check.recorded.includes("children"))
-    assert.ok(check.recorded.includes("reads") && check.recorded.includes("dirs"))
+    assert.ok(
+      check.recorded.includes("reads") && check.recorded.includes("dirs"),
+    )
     assert.equal(trace.fsRecorded, undefined)
     const help = check.cases.find(({ name }) => name.includes("init --help"))
     // The source map of the build maps the child's lines to the source.
@@ -433,4 +512,195 @@ test("a failure of the table hook never changes the query or its result", () => 
     calls: ["select 1 from users"],
     read: [],
   })
+})
+
+const records = (result) =>
+  result.stdout
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+
+test("an eval check refuses to run without the workbench variables", () => {
+  const id = "eval:mcp:apps/backend/evals/mcp/cases.ts#stale-cursor"
+  const env = { ...process.env }
+  delete env.MODEL_PROVIDER_API_KEY
+  delete env.MCP_EVAL_MODELS
+  const result = spawnSync(process.execPath, [script("run.mjs")], {
+    cwd: root,
+    encoding: "utf8",
+    input: `${id}\n`,
+    env,
+  })
+  assert.equal(result.status, 1)
+  const [record] = records(result)
+  const document = schema("result")
+  validate(record, document, document)
+  assert.equal(record.status, "error")
+  assert.match(record.message, /Prerequisite workbench failed/)
+  assert.match(record.message, /MODEL_PROVIDER_API_KEY/)
+  assert.match(record.message, /workbench environment/)
+})
+
+test("a project check runs its command and records its time in the trace", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
+  try {
+    const id = "policy:runners:scripts/ci/check-runners.mjs"
+    const result = node([script("run.mjs"), "--trace", directory], `${id}\n`)
+    assert.equal(result.status, 0, result.stderr)
+    const [record] = records(result)
+    const document = schema("result")
+    validate(record, document, document)
+    assert.equal(record.status, "passed")
+    assert.deepEqual(
+      record.cases.map(({ name }) => name),
+      ["runners"],
+    )
+    assert.ok(existsSync(join(root, record.log)))
+    const file = join(directory, "trace.json.gz")
+    const trace = JSON.parse(gunzipSync(readFileSync(file)).toString("utf8"))
+    const traceDocument = schema("trace")
+    validate(trace, traceDocument, traceDocument)
+    assert.deepEqual(trace.checks, [])
+    assert.deepEqual(Object.keys(trace.durations), [id])
+    // The merge keeps the durations and refuses one check twice.
+    const merged = join(directory, "merged.json.gz")
+    assert.equal(node([script("trace.mjs"), "merge", merged, file]).status, 0)
+    assert.deepEqual(
+      JSON.parse(gunzipSync(readFileSync(merged)).toString("utf8")).durations,
+      trace.durations,
+    )
+    assert.equal(
+      node([script("trace.mjs"), "merge", merged, file, file]).status,
+      1,
+    )
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("the browser trace maps page coverage to source lines through the build's source maps", async () => {
+  const { encode } = await import("@jridgewell/sourcemap-codec")
+  const { browserTrace } = await import("../checks/storybook.mjs")
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-storybook-"))
+  try {
+    mkdirSync(join(directory, "assets"))
+    // A built chunk of two functions on one line, from lines 1 and 2 of a
+    // repo file. Only the second one ran.
+    const source = "function a(){return 1}function b(){return 2}"
+    const original = join(root, "apps/ui/src/components/onboarding/org-name.ts")
+    writeFileSync(join(directory, "assets/chunk.js"), source)
+    writeFileSync(
+      join(directory, "assets/chunk.js.map"),
+      JSON.stringify({
+        version: 3,
+        sources: [original],
+        mappings: encode([
+          [
+            [0, 0, 0, 0],
+            [13, 0, 0, 9],
+            [22, 0, 1, 0],
+            [35, 0, 1, 9],
+          ],
+        ]),
+      }),
+    )
+    writeFileSync(join(directory, "assets/unmapped.js"), "function c(){}")
+    const story = {
+      id: "onboarding--org-name",
+      importPath: "./src/components/onboarding/org-name.stories.tsx",
+      exportName: "OrgName",
+      tags: ["play-fn"],
+    }
+    const entry = (path, text, ranges) => ({
+      url: `http://127.0.0.1:6006${path}`,
+      source: text,
+      functions: [{ ranges }],
+    })
+    const tracer = browserTrace(directory)
+    const ran = entry("/assets/chunk.js", source, [
+      { startOffset: 0, endOffset: source.length, count: 1 },
+      { startOffset: 0, endOffset: 22, count: 0 },
+    ])
+    const record = tracer.check(story, 12, [ran], ["GET */api/v1/x"])
+    const document = schema("trace")
+    validate(
+      { schemaVersion: 1, commit: "0".repeat(40), checks: [record] },
+      document,
+      document,
+    )
+    assert.equal(
+      record.id,
+      "storybook:plays:apps/ui/src/components/onboarding/org-name.stories.tsx#onboarding--org-name",
+    )
+    assert.deepEqual(record.recorded, ["browser", "mocks"])
+    assert.deepEqual(record.cases[0].lines, {
+      "apps/ui/src/components/onboarding/org-name.ts": [[2, 2]],
+    })
+    assert.deepEqual(record.cases[0].mocks, ["GET */api/v1/x"])
+    // A built chunk without a map is a gap: no `browser`. A page that did
+    // not expose its MSW handlers records no `mocks`.
+    const gap = tracer.check(
+      story,
+      12,
+      [
+        ran,
+        entry("/assets/unmapped.js", "function c(){}", [
+          { startOffset: 0, endOffset: 14, count: 1 },
+        ]),
+      ],
+      null,
+    )
+    assert.deepEqual(gap.recorded, [])
+    assert.equal(tracer.check(story, 12, undefined, null), null)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("a Vitest exit failure fails every record that has not failed", async () => {
+  const { markExitFailure } = await import("../checks/lanes.mjs")
+  const records = [
+    { id: "a", status: "passed", durationMs: 1, cases: [] },
+    { id: "b", status: "failed", durationMs: 1, cases: [] },
+    { id: "c", status: "skipped", durationMs: 1, cases: [] },
+  ]
+  assert.deepEqual(markExitFailure(records, { status: 0 }), records)
+  const marked = markExitFailure(records, { status: 1 })
+  assert.deepEqual(
+    marked.map(({ status }) => status),
+    ["error", "failed", "error"],
+  )
+  assert.match(marked[0].message, /Vitest failed \(exit 1\)/)
+  assert.match(
+    markExitFailure(records, { status: null, signal: "SIGKILL" })[0].message,
+    /SIGKILL/,
+  )
+})
+
+test("an eval case verdict is the eval gate for that case", async () => {
+  const { caseVerdict } = await import("../checks/evals.mjs")
+  const run = (a, b) => ({ iterations: 3, passes: { m1: { x: a }, m2: { x: b } } })
+  const baseline = {
+    recordedAt: "",
+    models: {
+      m1: { aggregate: 1, cases: { x: 1 } },
+      m2: { aggregate: 1, cases: { x: 1 } },
+    },
+  }
+  const verdict = async (...args) => (await caseVerdict(...args)).cases.map((c) => c.status)
+  assert.deepEqual(await verdict(run(3, 3), "x", baseline), ["passed", "passed"])
+  // 2 of 3 is under the floor of the gate, and 3 of 3 is not required for 0.9.
+  assert.deepEqual(await verdict(run(2, 3), "x", baseline), ["failed", "passed"])
+  assert.deepEqual(await verdict(run(3, 3), "x", null), ["passed", "passed"])
+  // One model is under the gate minimum of models.
+  const single = await caseVerdict({ iterations: 3, passes: { m1: { x: 3 } } }, "x", null)
+  assert.match(single.general.join(), /at least 2 models/)
+  // A model without a baseline entry for the case gets only the floor.
+  const partial = { recordedAt: "", models: { m1: { aggregate: 1, cases: { y: 1 } } } }
+  const floor = await caseVerdict(run(2, 3), "x", partial)
+  assert.deepEqual(floor.cases.map((c) => c.status), ["failed", "passed"])
+  assert.match(floor.cases[1].message, /no baseline/)
+  assert.doesNotMatch((await caseVerdict(run(3, 3), "x", baseline)).cases[0].message, /no baseline/)
+  // A whole-run failure is not a case failure.
+  assert.deepEqual(single.cases.map((c) => c.status), ["passed"])
 })

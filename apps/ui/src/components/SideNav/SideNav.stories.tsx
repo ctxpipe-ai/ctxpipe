@@ -131,6 +131,8 @@ export const PlainLinkMovesCurrentNav: Story = {
     </AppShell>
   ),
   parameters: {
+    intent:
+      "Catches a plain link in the page that does not move the current item in the main navigation. Not for nav styling or workspace list data.",
     storyRoute: {
       pattern: "flat",
       path: "/acme/ws/docs",
@@ -168,7 +170,11 @@ export const PlainLinkMovesCurrentNav: Story = {
 
 export const UserMenuLinksConnectedApps: Story = {
   tags: ["workspace-golden"],
-  parameters: SingleWorkspace.parameters,
+  parameters: {
+    ...SingleWorkspace.parameters,
+    intent:
+      "Catches a user menu whose Connected apps item does not link to the connected apps page in the auth area. Not for other menu items or account data.",
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const body = within(canvasElement.ownerDocument.body)

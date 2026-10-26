@@ -46,3 +46,52 @@ export function openRouterClient(
     },
   }
 }
+
+/** USD for one token of input and of output. */
+export type Price = { input: number; output: number }
+
+/**
+ * The prices of the given OpenRouter model ids, from `GET {baseUrl}/models`
+ * (no key needed). A model without a listed price, or a list that does not
+ * load, has no entry: its cost is then unknown, not zero.
+ */
+export async function openRouterPrices(
+  baseUrl: string,
+  ids: readonly string[],
+): Promise<Map<string, Price>> {
+  const prices = new Map<string, Price>()
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/models`, {
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!response.ok) return prices
+    const { data } = (await response.json()) as {
+      data?: {
+        id: string
+        pricing?: { prompt?: string; completion?: string }
+      }[]
+    }
+    for (const model of data ?? []) {
+      const input = Number(model.pricing?.prompt)
+      const output = Number(model.pricing?.completion)
+      if (
+        ids.includes(model.id) &&
+        Number.isFinite(input) &&
+        Number.isFinite(output)
+      )
+        prices.set(model.id, { input, output })
+    }
+  } catch {
+    // No price list: the cost stays unknown.
+  }
+  return prices
+}
+
+/** The cost in USD of the tokens of one model, or undefined without a price. */
+export function usageCost(
+  tokens: { inputTokens: number; outputTokens: number },
+  price: Price | undefined,
+): number | undefined {
+  if (!price) return undefined
+  return tokens.inputTokens * price.input + tokens.outputTokens * price.output
+}
