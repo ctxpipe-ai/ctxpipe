@@ -1020,8 +1020,7 @@ jobs:
     timeout-minutes: 10
     name: Merge gate manifest
     if: |
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
       github.actor != 'cursor[bot]' && github.actor != 'cursoragent')
     continue-on-error: true
