@@ -574,3 +574,20 @@ test("accepts only the npm publish jobs of deploy.yaml as OIDC jobs with a packa
     /job release holds a secret or an OIDC token and runs a package manager/,
   )
 })
+
+test("rejects an OIDC job that checks out another commit without the proof that it is on main", () => {
+  const job = (steps) =>
+    `on: workflow_dispatch\njobs:\n  prerelease:\n    permissions:\n      id-token: write\n    steps:\n      - uses: actions/checkout@v6\n        with:\n          ref: \${{ inputs.ref }}\n          fetch-depth: 0\n${steps}`
+  const proof = `      - run: git merge-base --is-ancestor HEAD origin/main\n`
+  const setup = "      - uses: pnpm/action-setup@v6\n"
+  for (const steps of [install, `${setup}${proof}${install}`, `${install}${proof}`])
+    rejects(
+      { ".github/workflows/deploy.yaml": job(steps) },
+      /job prerelease has an OIDC token and checks out another commit/,
+    )
+  const result = check({
+    ".github/workflows/deploy.yaml": job(`${proof}${setup}${install}`),
+  })
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+})

@@ -384,6 +384,18 @@ jobs:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
 
+      # A run on main gets an OIDC token with the subject of main, which a
+      # cloud role can trust (scripts/ci/check-secret-jobs.mjs). Thus build
+      # only a commit that is on main.
+      - name: Refuse a commit that is not on main
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::The ref $REF ($(git rev-parse HEAD)) is not on main. Merge it first, or publish from a commit of main."
+            exit 1
+          fi
+
       - uses: pnpm/action-setup@v6
 
       - name: Setup Node.js

@@ -4,16 +4,30 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 IMAGE="${CTXPIPE_CODESEARCH_TEST_IMAGE:-ctxpipe-codesearch:test}"
 
-# --trace <dir> writes <dir>/trace.json.gz (scripts/checks/README.md): the
-# container writes the trace to <dir>, which is mounted at /trace.
-args=("$@")
+# --trace <dir> writes <dir>/trace.json.gz (scripts/checks/README.md), and
+# --records <dir> writes <dir>/records.ndjson (one result record for each test
+# file). The container writes them to the mounted directories.
+args=()
 mount=()
-if [ "${1:-}" = "--trace" ]; then
-  [ "$#" -eq 2 ] || { echo "Usage: run-vitest-docker.sh [--trace <dir>]" >&2; exit 2; }
-  mkdir -p "$2"
-  mount=(-v "$(cd "$2" && pwd):/trace")
-  args=(pnpm run test:vitest --trace /trace --commit "$(git -C "${ROOT}" rev-parse HEAD)")
-fi
+usage="Usage: run-vitest-docker.sh [--trace <dir>] [--records <dir>]"
+while [ "$#" -gt 0 ]; do
+  [ "$#" -ge 2 ] || { echo "$usage" >&2; exit 2; }
+  case "$1" in
+    --trace)
+      mkdir -p "$2"
+      mount+=(-v "$(cd "$2" && pwd):/trace")
+      args+=(--trace /trace --commit "$(git -C "${ROOT}" rev-parse HEAD)")
+      ;;
+    --records)
+      mkdir -p "$2"
+      mount+=(-v "$(cd "$2" && pwd):/records")
+      args+=(--records /records)
+      ;;
+    *) echo "$usage" >&2; exit 2 ;;
+  esac
+  shift 2
+done
+[ "${#args[@]}" -eq 0 ] || args=(pnpm run test:vitest "${args[@]}")
 
 # CI fills .release-cache with checksum-verified release files (fetch-releases.sh).
 context=()

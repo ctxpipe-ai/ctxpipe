@@ -102,8 +102,28 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The check runner runs each project with its diagnostic allowance and
+      # writes one result record for each, for the merge gate. The output of
+      # each project is in .ci-results/checks (the next step prints it).
       - name: Full projects with shrinking diagnostic allowances
-        run: pnpm typecheck
+        run: |
+          set -o pipefail
+          mkdir -p .ci-results/typecheck
+          pnpm -s checks:list |
+            jq -r '.checks[] | select(.family == "typecheck") | .id' > "$RUNNER_TEMP/typecheck.txt"
+          node scripts/checks/run.mjs "$RUNNER_TEMP/typecheck.txt" |
+            tee .ci-results/typecheck/records.ndjson
+      - name: Typecheck output
+        if: always()
+        run: cat .ci-results/checks/*.log || true
+      - name: Preserve the typecheck results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-typecheck
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   test-shards:
     # The runner's own limit (scripts/ci/test-suite.mjs) is 30 min for backend
@@ -287,12 +307,7 @@ jobs:
         with:
           bun-version: 1.4.4
       - name: UI tests
-        run: |
-          if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then
-            node scripts/ci/test-suite.mjs ui --trace
-          else
-            pnpm --filter @ctxpipe/ui test
-          fi
+        run: node scripts/ci/test-suite.mjs ui $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       - name: CLI tests
         run: node scripts/ci/test-suite.mjs cli $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       - name: CDK tests
@@ -717,15 +732,21 @@ jobs:
         timeout-minutes: 10
         run: bash apps/codesearch/scripts/fetch-releases.sh apps/codesearch/release-assets.txt "$RUNNER_TEMP/releases" .release-cache
       # The trace (scripts/checks/README.md) is data only; PR runs skip it.
+      # The result records go to the merge gate and the Results writer.
       - name: Required codesearch tests
         env:
           EVENT: ${{ github.event_name }}
         run: |
-          if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then
-            bash apps/codesearch/scripts/run-vitest-docker.sh --trace "$RUNNER_TEMP/codesearch-trace"
-          else
-            pnpm --filter @ctxpipe/codesearch test
-          fi
+          bash apps/codesearch/scripts/run-vitest-docker.sh --records .ci-results/codesearch \
+            $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace "$RUNNER_TEMP/codesearch-trace")
+      - name: Preserve the codesearch results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-codesearch
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: ignore
       - name: Preserve the codesearch trace
         if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         continue-on-error: true
@@ -791,6 +812,17 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
           EVENT: ${{ github.event_name }}
         run: node scripts/ci/test-suite.mjs vercel $([ "$EVENT" = workflow_dispatch ] && echo --trace)
+      - name: Preserve the Vercel results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-vercel
+          # The Trace job reads the Vercel trace from lane-trace-vercel.
+          path: |
+            .ci-results/
+            !.ci-results/**/trace.json.gz
+          include-hidden-files: true
+          if-no-files-found: ignore
       - name: Preserve the Vercel trace
         if: always() && github.event_name == 'workflow_dispatch'
         continue-on-error: true
@@ -973,19 +1005,31 @@ jobs:
           EVENT: ${{ github.event_name }}
         # The check runner verifies the prerequisites, and writes the Vitest
         # output to .ci-results/checks/upgrade.log (the next step prints it).
+        # The result records go to the merge gate and the Results writer.
         run: |
+          set -o pipefail
           ids="$(node scripts/checks/list.mjs |
             jq -r '.checks[] | select(.family == "vitest" and .lane == "upgrade") | .id')"
           if [ -z "$ids" ]; then
             echo "::error::The check list has no check in the upgrade lane"
             exit 1
           fi
+          mkdir -p .ci-results/upgrade
           printf '%s\n' "$ids" |
             RELEASE_TREE="$RUNNER_TEMP/previous-release" node scripts/checks/run.mjs \
-              $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace "$RUNNER_TEMP/upgrade-trace")
+              $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace "$RUNNER_TEMP/upgrade-trace") |
+            tee .ci-results/upgrade/records.ndjson
       - name: Upgrade test output
         if: always()
         run: cat .ci-results/checks/upgrade.log || true
+      - name: Preserve the upgrade results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-upgrade
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: ignore
       - name: Preserve the upgrade trace
         if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-artifact@v4
@@ -1257,15 +1301,18 @@ jobs:
   # nightly schedule, or a run by hand on main). It stores each pass as the CI
   # class, and audits each failed check against the passes that the store
   # holds for its key. A contradiction (a stored pass for a key that failed
-  # tonight) fails this job: a key misses an input, the check is flaky, or a
-  # writer stored a false pass. The output names the check and the key, never
-  # a writer.
+  # tonight) fails this job and quarantines the key (and the agent writer of
+  # the pass), so that no reader accepts it: a key misses an input, the check
+  # is flaky, or a writer stored a false pass. The output names the check and
+  # the key, never a writer. The job never fails the run.
   # Its role trusts only repo:ctxpipe-ai/ctxpipe:ref:refs/heads/main: a job on
-  # main without a GitHub environment. Only reviewed code runs on main, and
-  # only this job asks for an OIDC token there. It runs no package manager and
-  # no repository script: the selector computes each key itself from the
-  # clean checkout of the traced commit, with the manifest, the toolchain and
-  # the trace of this run.
+  # main without a GitHub environment. The npm publish jobs of deploy.yaml
+  # (release, prerelease) get the same subject, so they can also get this
+  # role. This is an accepted risk: each builds only code on main, and the
+  # risk is that code and its dependencies (scripts/ci/check-secret-jobs.mjs).
+  # This job runs no package manager and no repository script: the selector
+  # computes each key itself from the clean checkout of the traced commit,
+  # with the manifest, the toolchain and the trace of this run.
   results-writer:
     timeout-minutes: 15
     name: Results writer
@@ -1274,6 +1321,7 @@ jobs:
       always() && github.ref == 'refs/heads/main' &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
       needs.merge-gate-manifest.result == 'success' && needs.trace.result == 'success'
+    continue-on-error: true
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -1282,31 +1330,46 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Pinned selector release
+        id: pin
+        run: |
+          if jq -e '.factory.version | test("^[0-9a-f]{40}$")' .github/merge-gate.json > /dev/null; then
+            echo "pinned=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::.github/merge-gate.json pins no factory release, so the Results writer stores nothing."
+          fi
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: steps.pin.outputs.pinned == 'true'
         with:
           name: merge-gate-inputs
           path: ${{ runner.temp }}/inputs
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: steps.pin.outputs.pinned == 'true'
         with:
           name: trace-${{ github.sha }}
           path: ${{ runner.temp }}/trace
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: steps.pin.outputs.pinned == 'true'
         with:
           pattern: test-results-*
           path: ${{ runner.temp }}/results
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: steps.pin.outputs.pinned == 'true'
         with:
           pattern: storybook-plays-results-*
           path: ${{ runner.temp }}/results
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: steps.pin.outputs.pinned == 'true'
         with:
           name: lane-trace-projects
           path: ${{ runner.temp }}/results/projects
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        if: steps.pin.outputs.pinned == 'true'
         with:
           role-to-assume: arn:aws:iam::134416647419:role/check-results-ci-writer
           aws-region: us-west-2
       - name: Selector release, checked against the pin
+        if: steps.pin.outputs.pinned == 'true'
         run: |
           version="$(jq -er .factory.version .github/merge-gate.json)"
           sha256="$(jq -er .factory.sha256 .github/merge-gate.json)"
@@ -1318,10 +1381,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
       - name: Store the passes and audit the failures
+        if: steps.pin.outputs.pinned == 'true'
         run: |
           mapfile -d '' records < <(find "$RUNNER_TEMP/results" -name records.ndjson -print0 | sort -z)
           code=0
-          "$RUNNER_TEMP/bin/factory" store --class ci --repo . \
+          "$RUNNER_TEMP/bin/factory" store --repo . \
             --manifest "$RUNNER_TEMP/inputs/manifest.json" \
             --toolchain "$RUNNER_TEMP/inputs/toolchain.json" \
             --trace "$RUNNER_TEMP/trace/trace.json.gz" \

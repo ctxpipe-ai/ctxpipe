@@ -43,6 +43,15 @@
 //   OIDC (for example the read-only merge gate role of the factory account).
 //   It follows every rule of a job that holds a secret. The jobs in
 //   oidcPublishJobs are the exception.
+// - A job with `id-token: write` that checks out another commit (`ref:`)
+//   proves that the commit is on main (`git merge-base --is-ancestor HEAD
+//   origin/main`) before a later step runs. On main, its token has the
+//   subject of main, which a cloud role can trust.
+// - The merge gate selection job (ci.yaml merge-gate-select) does not use
+//   `workbench`: it reads only our own result store and the selector release
+//   through a read-only OIDC role of the factory account. It needs no secret
+//   and spends no money, so the rule for paid or outside checks does not
+//   apply.
 // The production jobs in productionJobs run only on a push to main, so the
 // rules for one job do not apply to them; the pin rule and the cache rule do.
 // Every other job of deploy.yaml gets all the rules.
@@ -122,13 +131,19 @@ const exceptions = new Map(
 
 // Jobs that ask for an OIDC token only for npm trusted publishing (the
 // token proves the workflow to npm), by a decision of the team. They run the
-// package manager to build and publish. No cloud role may trust their
-// subjects: a role that trusts a ctxpipe subject names one ref or one event.
+// package manager to build and publish. On main their token has the subject
+// repo:ctxpipe-ai/ctxpipe:ref:refs/heads/main, which the result store role
+// check-results-ci-writer also trusts. Thus these jobs and the ci.yaml
+// results-writer can get that role. This is an accepted risk: `release`
+// builds main itself, and `prerelease` builds only a commit that is on main
+// (the ancestor rule below). The risk is the code on main and its
+// dependencies.
 const oidcPublishJobs = new Set([
   "deploy.yaml:release",
   "deploy.yaml:prerelease",
 ])
 const oidcToken = /^\s+id-token:\s*write\b/
+const onMain = /\bgit merge-base --is-ancestor HEAD origin\/main\b/
 
 // Jobs that run only for main, as deploy.yaml does. The check keeps their
 // `if:` limited to refs/heads/main.
@@ -339,6 +354,26 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
       if ((shown && (!masked || number < masked.number)) || echoed)
         failures.push(
           `${file}:${number}: job ${job.name} can show HANDOFF_KEY in the log. Mask it with ::add-mask:: in an earlier step, and do not echo it.`,
+        )
+    }
+
+    // Another commit in a job with an OIDC token: the step that proves it is
+    // on main comes before any action or untrusted code after the checkout.
+    const ref = job.lines.find(({ text }) => /^\s+ref:\s*\S/.test(text))
+    if (ref && job.lines.some(({ text }) => oidcToken.test(text))) {
+      const proof = job.lines.find(
+        ({ text, number }) => number > ref.number && onMain.test(text),
+      )
+      const early = job.lines.find(
+        ({ text, number }) =>
+          number > ref.number &&
+          (!proof || number < proof.number) &&
+          (/^\s+(?:-\s+)?uses:/.test(text) ||
+            untrusted.some(([pattern]) => pattern.test(text))),
+      )
+      if (!proof || early)
+        failures.push(
+          `${file}:${ref.number}: job ${job.name} has an OIDC token and checks out another commit. Directly after the checkout, stop unless \`git merge-base --is-ancestor HEAD origin/main\` passes: on main the token has the subject of main.`,
         )
     }
 
