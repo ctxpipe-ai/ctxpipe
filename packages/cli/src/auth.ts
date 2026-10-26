@@ -29,12 +29,6 @@ type StoredAuth = {
   createdAt: string | null
 }
 
-export type Organization = {
-  id: string | null
-  name: string | null
-  slug: string
-}
-
 type RequestOptions = {
   method?: string
   headers?: Record<string, string>
@@ -298,37 +292,6 @@ export function resolveCtxpipeBaseUrl(
   return fromCli
 }
 
-export async function fetchOrganizations({
-  baseUrl,
-  accessToken,
-}: {
-  baseUrl: string
-  accessToken: string
-}): Promise<Organization[]> {
-  const response = await authFetch(baseUrl, "/organization/list", {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  const json = await response.json()
-  if (!response.ok) {
-    throw new Error(
-      authErrorMessage(json, "Could not load ctxpipe organizations"),
-    )
-  }
-  const data = unwrapBetterAuthData(json)
-  if (!Array.isArray(data)) return []
-  return data
-    .map((org): Organization => {
-      const item = isObject(org) ? org : {}
-      const slug = typeof item.slug === "string" ? item.slug : null
-      return {
-        id: typeof item.id === "string" ? item.id : null,
-        name: typeof item.name === "string" ? item.name : slug,
-        slug: slug ?? "",
-      }
-    })
-    .filter((org) => org.slug)
-}
-
 export async function fetchSession({
   baseUrl,
   accessToken,
@@ -416,12 +379,6 @@ function authErrorMessage(json: unknown, fallback: string): string {
     }
   }
   return fallback
-}
-
-export function orgLabel(org: Organization): string {
-  return org.name && org.name !== org.slug
-    ? `${org.name} (${org.slug})`
-    : org.slug
 }
 
 export function userLabel(

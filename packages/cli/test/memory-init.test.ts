@@ -330,11 +330,7 @@ describe("memory init (end-to-end)", () => {
   it("creates memory config without orgSlug when no --org", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mem-init-local-"))
     runMemoryInit(cwd, ["--agents", "cursor", "--non-interactive"])
-    const config = JSON.parse(
-      readFileSync(join(cwd, ".ctxpipe", "config.json"), "utf8"),
-    ) as { orgSlug?: string; memory?: unknown }
-    expect(config.orgSlug).toBeUndefined()
-    expect(config.memory).toBeUndefined()
+    expect(existsSync(join(cwd, ".ctxpipe", "config.json"))).toBe(false)
   })
 
   it("does not store orgSlug when --org is passed", () => {
@@ -346,10 +342,7 @@ describe("memory init (end-to-end)", () => {
       "cursor",
       "--non-interactive",
     ])
-    const config = JSON.parse(
-      readFileSync(join(cwd, ".ctxpipe", "config.json"), "utf8"),
-    ) as { orgSlug?: string }
-    expect(config.orgSlug).toBeUndefined()
+    expect(existsSync(join(cwd, ".ctxpipe", "config.json"))).toBe(false)
   })
 
   it("does not write user-scope Cursor hooks when scope defaults to repo", () => {

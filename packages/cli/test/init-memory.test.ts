@@ -77,10 +77,7 @@ describe("init --memory (end-to-end)", () => {
       "--no-memory",
       "--non-interactive",
     ])
-    const config = JSON.parse(
-      readFileSync(join(cwd, ".ctxpipe", "config.json"), "utf8"),
-    ) as { orgSlug?: string }
-    expect(config.orgSlug).toBeUndefined()
+    expect(existsSync(join(cwd, ".ctxpipe", "config.json"))).toBe(false)
   })
 
   it("does not touch the memory tree when --no-memory is passed", () => {
@@ -138,9 +135,6 @@ describe("init --memory (end-to-end)", () => {
       "--memory",
       "--yes",
     ])
-    const config = JSON.parse(
-      readFileSync(join(cwd, ".ctxpipe", "config.json"), "utf8"),
-    ) as { memory?: { enabled: boolean } }
-    expect(config.memory).toBeUndefined()
+    expect(existsSync(join(cwd, ".ctxpipe", "config.json"))).toBe(false)
   })
 })
