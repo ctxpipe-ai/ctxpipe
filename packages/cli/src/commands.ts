@@ -49,7 +49,6 @@ export function isInteractive(opts: {
 
 type InitRunOpts = {
   baseUrl: string
-  org?: string
   scope?: string
   agents: string[]
   dryRun: boolean
@@ -85,7 +84,6 @@ function resolveMcpAuthMode(auth?: string | null): McpAuthMode {
 export async function runInit(opts: InitRunOpts): Promise<void> {
   const interactive = isInteractive(opts)
   const answers: {
-    org: string | null
     baseUrl: string
     agents: string[]
     scope: string | null
@@ -96,7 +94,6 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     auth: string | null
     memory: boolean | undefined
   } = {
-    org: opts.org ?? null,
     baseUrl: opts.baseUrl,
     agents: [...opts.agents],
     scope: opts.scope ?? null,
@@ -111,7 +108,6 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
   if (interactive) {
     Object.assign(answers, await promptInitWizard(answers))
   } else {
-    if (!answers.org) throw new Error("Missing --org for non-interactive init")
     if (!answers.scope)
       throw new Error("Missing --scope for non-interactive init")
     if (
@@ -122,10 +118,8 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     }
   }
 
-  const org = answers.org
   const scope = answers.scope
   const agents = answers.agents
-  if (!org) throw new Error("Missing --org")
   if (!scope) throw new Error("Missing --scope")
   validateScope(scope)
   validateClients(agents)
@@ -136,7 +130,6 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
   const context = createOperationContext({ commandExists })
   const ctxpipeConfig = buildCtxpipeConfigOperation({
     baseUrl: answers.baseUrl,
-    org,
     context,
   })
   const mcpOps = answers.mcp
@@ -158,7 +151,7 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     ? buildMemoryHookOperations({ clients: agents, scope, context })
     : []
   const operations = [
-    ctxpipeConfig,
+    ...(ctxpipeConfig ? [ctxpipeConfig] : []),
     ...mcpOps,
     ...upgradeOps,
     ...memoryOps,
@@ -173,7 +166,6 @@ export async function runInit(opts: InitRunOpts): Promise<void> {
     dryRun: answers.dryRun,
     introShown: interactive,
     setupSummary: [
-      `Organization ${org}`,
       `Scope ${scopeLabel(scope)}`,
       `Agents ${agentsLabel(agents, answers.mcp)}`,
       `MCP auth ${describeMcpAuth(mcpAuth)}`,

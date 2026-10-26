@@ -1,5 +1,3 @@
-import { resolve } from "node:path"
-
 import {
   confirm as confirmPrompt,
   isCancel,
@@ -7,18 +5,8 @@ import {
   multiselect,
   select,
   spinner,
-  text,
 } from "@clack/prompts"
 
-import type { Organization } from "./auth.js"
-import {
-  fetchOrganizations,
-  fetchSession,
-  loginWithDeviceFlow,
-  orgLabel,
-  readStoredAuth,
-  userLabel,
-} from "./auth.js"
 import {
   CLIENT_COMMANDS,
   CLIENT_LABELS,
@@ -27,7 +15,6 @@ import {
   MCP_API_KEY_MINT_HINT,
   type McpAuthMode,
 } from "./constants.js"
-import { readJsonObject } from "./fs-operations.js"
 import { commandExists } from "./system.js"
 import { muted, printWizardHeader } from "./ui.js"
 
@@ -38,8 +25,6 @@ type Choice<T extends string> = {
 }
 
 type InitPromptState = {
-  org: string | null
-  baseUrl: string
   agents: string[]
   scope: string | null
   mcp: boolean
@@ -49,7 +34,6 @@ type InitPromptState = {
 }
 
 type InitPromptAnswers = {
-  org?: string
   scope?: "repo" | "user" | "both"
   agents?: Client[]
   memory?: boolean
@@ -69,14 +53,11 @@ type McpPromptAnswers = {
 }
 
 type MemoryInitPromptState = {
-  org: string | null
-  baseUrl: string
   agents: Client[]
   scope: string | null
 }
 
 type MemoryInitPromptAnswers = {
-  org?: string | null
   scope?: "repo" | "user" | "both"
   agents?: Client[]
 }
@@ -92,10 +73,8 @@ export async function promptMemoryInitWizard(
     ),
   )
 
+  log.message(muted("Local Markdown memory does not need a ctxpipe sign-in."))
   const answers: MemoryInitPromptAnswers = {}
-  if (!current.org) {
-    answers.org = await promptMemoryAuthOrSkip(current.baseUrl)
-  }
   if (!current.scope) {
     answers.scope = await promptSelect<"repo" | "user" | "both">({
       message: "Where should memory hooks be installed?",
@@ -151,109 +130,12 @@ async function promptMemoryAgents(): Promise<Client[]> {
   return promptValue(agents) as Client[]
 }
 
-async function promptMemoryAuthOrSkip(baseUrl: string): Promise<string | null> {
-  const auth = await readStoredAuth(baseUrl)
-  if (auth) {
-    return resolveOrgFromAuth(baseUrl, auth.accessToken)
-  }
-
-  const choice = await promptSelect<"sign-in" | "skip">({
-    message: "Sign in to ctxpipe to store an org slug? (optional)",
-    initial: "skip",
-    choices: [
-      {
-        title: "Sign in with browser",
-        value: "sign-in",
-        description: "Optional: store org slug for other ctxpipe features.",
-      },
-      {
-        title: "Continue without login",
-        value: "skip",
-        description: "Local Markdown memory only; no ctxpipe account required.",
-      },
-    ],
-  })
-
-  if (choice === "skip") {
-    log.message(
-      muted(
-        "Local-only mode — Markdown memory and capture hooks need no account.",
-      ),
-    )
-    return null
-  }
-
-  log.step("Sign in")
-  log.message(muted("Sign in to ctxpipe so we can load your organizations."))
-  const freshAuth = await loginWithDeviceFlow({ baseUrl })
-  return resolveOrgFromAuth(baseUrl, freshAuth.accessToken)
-}
-
-async function resolveOrgFromAuth(
-  baseUrl: string,
-  accessToken: string,
-): Promise<string | null> {
-  const fallbackOrg = detectDefaultOrgSlug()
-  const orgSpinner = spinner()
-  orgSpinner.start("Loading ctxpipe organizations")
-  let orgs: Organization[] = []
-  let session: Record<string, unknown> | null = null
-  try {
-    ;[orgs, session] = await Promise.all([
-      fetchOrganizations({ baseUrl, accessToken }).catch(() => []),
-      fetchSession({ baseUrl, accessToken }).catch(() => null),
-    ])
-    orgSpinner.stop(
-      orgs.length > 0
-        ? "Loaded ctxpipe organizations"
-        : "No organizations found",
-    )
-  } catch (error) {
-    orgSpinner.stop("Could not load ctxpipe organizations")
-    throw error
-  }
-
-  const label = userLabel(session)
-  if (label) {
-    log.success(`Signed in as ${label}.`)
-  }
-
-  if (orgs.length === 1) {
-    const org = orgs[0]
-    if (!org) throw new Error("Could not load ctxpipe organization")
-    log.step("Organization")
-    log.message(orgLabel(org))
-    return org.slug
-  }
-
-  if (orgs.length > 1) {
-    return promptSelect({
-      message:
-        "Which ctxpipe organization should memory use for hosted models?",
-      initial: fallbackOrg ?? orgs[0]?.slug,
-      choices: orgs.map((org) => ({
-        title: orgLabel(org),
-        value: org.slug,
-        description: org.slug,
-      })),
-    })
-  }
-
-  return promptText({
-    message: "Which ctxpipe organization should memory use for hosted models?",
-    initial: fallbackOrg,
-  })
-}
-
 export async function promptInitWizard(
   current: InitPromptState,
 ): Promise<InitPromptAnswers> {
   printWizardHeader()
 
   const answers: InitPromptAnswers = {}
-  if (!current.org) {
-    answers.org = await promptSetupOrg(current.baseUrl)
-  }
   if (current.memory === undefined) {
     answers.memory = await promptConfirm(
       "Enable local agent memory for this repo? (writes .ai/memory, capture skills/rule, and host hooks)",
@@ -296,84 +178,6 @@ export async function promptInitWizard(
   }
 
   return answers
-}
-
-async function promptSetupOrg(baseUrl: string): Promise<string> {
-  const fallbackOrg = detectDefaultOrgSlug()
-  let auth = await readStoredAuth(baseUrl)
-  let orgs: Organization[] = []
-  let session: Record<string, unknown> | null = null
-
-  if (auth) {
-    const sessionSpinner = spinner()
-    sessionSpinner.start("Checking existing ctxpipe session")
-    try {
-      ;[orgs, session] = await Promise.all([
-        fetchOrganizations({ baseUrl, accessToken: auth.accessToken }).catch(
-          () => [],
-        ),
-        fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(
-          () => null,
-        ),
-      ])
-      sessionSpinner.stop(
-        orgs.length > 0 ? "Loaded ctxpipe organizations" : "Sign-in required",
-      )
-    } catch (error) {
-      sessionSpinner.stop("Could not check saved sign-in")
-      throw error
-    }
-  }
-
-  if (orgs.length === 0) {
-    log.step("Sign in")
-    log.message(muted("Sign in to ctxpipe so we can load your organizations."))
-    auth = await loginWithDeviceFlow({ baseUrl })
-    const orgSpinner = spinner()
-    orgSpinner.start("Loading ctxpipe organizations")
-    try {
-      ;[orgs, session] = await Promise.all([
-        fetchOrganizations({ baseUrl, accessToken: auth.accessToken }),
-        fetchSession({ baseUrl, accessToken: auth.accessToken }).catch(
-          () => null,
-        ),
-      ])
-      orgSpinner.stop("Loaded ctxpipe organizations")
-    } catch (error) {
-      orgSpinner.stop("Could not load ctxpipe organizations")
-      throw error
-    }
-  }
-
-  const label = userLabel(session)
-  if (label) {
-    log.success(`Signed in as ${label}.`)
-  }
-
-  if (orgs.length === 1) {
-    const org = orgs[0]
-    if (!org) throw new Error("Could not load ctxpipe organization")
-    log.step("Organization")
-    log.message(orgLabel(org))
-    return org.slug
-  }
-
-  if (orgs.length > 1) {
-    return promptSelect({
-      message: "Which ctxpipe organization should this repo use?",
-      initial: fallbackOrg ?? orgs[0]?.slug,
-      choices: orgs.map((org) => ({
-        title: orgLabel(org),
-        value: org.slug,
-        description: org.slug,
-      })),
-    })
-  }
-
-  return promptText({
-    message: "Which ctxpipe organization should this repo use?",
-    initial: fallbackOrg,
-  })
 }
 
 export async function promptMcpWizard(
@@ -464,31 +268,6 @@ async function promptAgents(): Promise<Client[]> {
     })),
   })
   return promptValue(agents) as Client[]
-}
-
-async function promptText({
-  message,
-  initial,
-}: {
-  message: string
-  initial?: string
-}): Promise<string> {
-  const answer = await text({
-    message,
-    initialValue: initial,
-    validate: (value) => (String(value).trim() ? undefined : "Required"),
-  })
-  return String(promptValue(answer)).trim()
-}
-
-function detectDefaultOrgSlug(): string | undefined {
-  const existing = readJsonObject(
-    resolve(process.cwd(), ".ctxpipe", "config.json"),
-  )
-  if (typeof existing.orgSlug === "string" && existing.orgSlug.trim()) {
-    return existing.orgSlug
-  }
-  return process.env.CTXPIPE_ORG_SLUG || process.env.CTXPIPE_ORG || undefined
 }
 
 async function promptSelect<T extends string>({

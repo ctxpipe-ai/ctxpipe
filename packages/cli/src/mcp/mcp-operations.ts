@@ -92,19 +92,13 @@ export function createOperationContext(
 }
 
 function minimalRepoConfigFields({
-  org,
   baseUrl,
   existing = {},
 }: {
-  org?: string | null
   baseUrl: string
   existing?: JsonObject
 }): JsonObject {
   const next: JsonObject = {}
-  const orgSlug =
-    org ?? (typeof existing.orgSlug === "string" ? existing.orgSlug : undefined)
-  if (orgSlug) next.orgSlug = orgSlug
-
   const urlSource =
     normalizeBaseUrl(baseUrl) !== DEFAULT_BASE_URL
       ? baseUrl
@@ -120,41 +114,39 @@ function minimalRepoConfigFields({
 
 export function buildCtxpipeConfigOperation({
   baseUrl,
-  org,
   context = createOperationContext(),
 }: {
   baseUrl: string
-  org: string
   context?: OperationContext
-}): WriteJsonOperation {
+}): WriteJsonOperation | null {
+  if (normalizeBaseUrl(baseUrl) === DEFAULT_BASE_URL) return null
   const configPath = resolve(context.cwd, ".ctxpipe", "config.json")
   return {
     type: "write-json",
     path: configPath,
     description: `write repo ctxpipe config at ${relativePath(configPath, context.cwd)}`,
     content() {
-      return minimalRepoConfigFields({ org, baseUrl })
+      return minimalRepoConfigFields({ baseUrl })
     },
   }
 }
 
-/** Memory-only init: records org/baseUrl when org is known; preserves existing org on re-run. */
+/** Memory-only init: records a custom base URL when set. */
 export function buildMemoryConfigOperation({
-  org,
   baseUrl,
   context = createOperationContext(),
 }: {
-  org?: string | null
   baseUrl: string
   context?: OperationContext
-}): WriteJsonOperation {
+}): WriteJsonOperation | null {
+  if (normalizeBaseUrl(baseUrl) === DEFAULT_BASE_URL) return null
   const configPath = resolve(context.cwd, ".ctxpipe", "config.json")
   return {
     type: "write-json",
     path: configPath,
     description: `write memory config at ${relativePath(configPath, context.cwd)}`,
     content(existing = {}) {
-      return minimalRepoConfigFields({ org, baseUrl, existing })
+      return minimalRepoConfigFields({ baseUrl, existing })
     },
   }
 }
