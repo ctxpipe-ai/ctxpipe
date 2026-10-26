@@ -22,6 +22,7 @@ describe("buildServerInstructions", () => {
     expect(head).toContain("Call these tools in parallel where possible")
     expect(head).toContain("excludeRepositories")
     expect(head).toContain("Name one org in each call")
+    expect(head).toContain("https://docs.ctxpipe.ai/llms.txt")
   })
 
   it("lists each org with its Workspace slugs", () => {
