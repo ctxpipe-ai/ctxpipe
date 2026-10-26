@@ -16,6 +16,7 @@ import {
   listSandboxInstances,
 } from "../../models/workspaces.js"
 import { withTestAgentVaultEnv } from "../../test/agent-vault-fixture.js"
+import { CHAT_IMAGE } from "../../test/docker-workspace-base.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import { withNativeHttpsGitFixture } from "../../test/native-https-git-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
@@ -447,8 +448,7 @@ it(
       await withNativeHttpsGitFixture(
         {
           baseImage:
-            process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() ||
-            "ctxpipe-chat-sandbox:opencode-1.18.34-r4",
+            process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() || CHAT_IMAGE,
           docker,
         },
         async (gitFixture) =>
@@ -609,8 +609,7 @@ it(
       await withNativeHttpsGitFixture(
         {
           baseImage:
-            process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() ||
-            "ctxpipe-chat-sandbox:opencode-1.18.34-r4",
+            process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() || CHAT_IMAGE,
           docker,
         },
         async (gitFixture) =>

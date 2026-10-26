@@ -1676,7 +1676,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.4
+          bun-version-file: package.json
 
       - name: Force pnpm store path
         run: pnpm config set store-dir ~/.pnpm-store

@@ -6,6 +6,7 @@ import { join } from "node:path"
 import Docker from "dockerode"
 import { expect, it } from "vitest"
 
+import { CHAT_IMAGE } from "../../test/docker-workspace-base.js"
 import { withNativeHttpsGitFixture } from "../../test/native-https-git-fixture.js"
 
 it(
@@ -33,8 +34,7 @@ it(
       await withNativeHttpsGitFixture(
         {
           baseImage:
-            process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() ||
-            "ctxpipe-chat-sandbox:opencode-1.18.34-r4",
+            process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() || CHAT_IMAGE,
           docker,
         },
         async (fixture) => {

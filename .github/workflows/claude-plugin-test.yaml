@@ -76,7 +76,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.4
+          bun-version-file: package.json
       - run: pnpm --filter @ctxpipe/ui test
 
   package:

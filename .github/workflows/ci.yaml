@@ -164,7 +164,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.4
+          bun-version-file: package.json
       - name: Required chat engine binary
         run: npm install --global opencode-ai@1.18.34
       # Test files start these images in parallel. A Docker Hub token request
@@ -224,6 +224,8 @@ jobs:
       # This job reads the layer cache without a login. The layer-cache job
       # writes it (see the comment there).
       - name: Required chat sandbox image
+        run: bun -e 'import { CHAT_IMAGE } from "./apps/backend/src/test/docker-workspace-base.ts"; if (CHAT_IMAGE !== "ctxpipe-chat-sandbox:opencode-1.18.34-r4") throw new Error(`Expected ${CHAT_IMAGE} to match the CI chat sandbox image tag`);'
+      - name: Build chat sandbox image
         uses: docker/build-push-action@v6
         with:
           context: scripts/chat-sandbox
@@ -284,7 +286,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.4
+          bun-version-file: package.json
       - name: UI tests
         run: |
           if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then
@@ -504,7 +506,7 @@ jobs:
           cache: pnpm
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.4
+          bun-version-file: package.json
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @ctxpipe/backend build
       - run: pnpm --filter @ctxpipe/codesearch build
@@ -860,7 +862,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.4
+          bun-version-file: package.json
       - name: Checkout of the previous release with its dependencies
         env:
           # The release that operators run now, not main. Main holds the new
