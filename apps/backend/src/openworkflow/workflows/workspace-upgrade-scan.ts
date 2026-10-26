@@ -194,7 +194,7 @@ export async function enqueueWorkspaceUpgradeScan(input: {
 }): Promise<void> {
   const release =
     input.release ??
-    upgradeRelease(GIT_UPGRADE_STEPS, (await readIngestSkillBundle()).name)
+    upgradeRelease(GIT_UPGRADE_STEPS, (await readIngestSkillBundle()).version)
   await runWorkflowWithWorkerWake(
     workspaceUpgradeScan.spec,
     { orgId: input.orgId, release, trigger: input.trigger },
@@ -212,20 +212,20 @@ const SCAN_STAGGER_MS = 15_000
  * Backstop on worker start: queue one scan for each org that has a
  * Workspace, once for each release. The scans start one after the other, so
  * the tip checks and the first hydrates of a deploy do not all start at once.
- * A release with no git step still scans: a new skill bundle offers a new
- * re-ingestion.
+ * A release with no git step still scans: a new re-ingestion version offers
+ * a new re-ingestion.
  */
 export async function scheduleUpgradeScansForAllOrgs(
   input: {
     now?: Date
     steps?: readonly GitUpgradeStep[]
-    bundleName?: string
+    reingestVersion?: string
   } = {},
 ): Promise<number> {
   const now = input.now ?? new Date()
   const release = upgradeRelease(
     input.steps ?? GIT_UPGRADE_STEPS,
-    input.bundleName ?? (await readIngestSkillBundle()).name,
+    input.reingestVersion ?? (await readIngestSkillBundle()).version,
   )
   let index = 0
   for (const orgId of await listOrgIdsWithWorkspaces()) {

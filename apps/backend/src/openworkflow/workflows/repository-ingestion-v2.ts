@@ -41,6 +41,7 @@ import {
   ingestPublishTurn,
   waitForPublishTurn,
 } from "../../domain/ingestion/publish-turn.js"
+import { assertSameReingestVersion } from "../../domain/ingestion/skill-bundle.js"
 import {
   resolveIngestConflicts,
   SemanticResolveError,
@@ -318,6 +319,7 @@ export function defineRepositoryIngestionV2Workflow(
               | {
                   partial?: undefined
                   bundle: string
+                  version?: string
                   roots: string
                   repositorySkills: number
                 }
@@ -355,6 +357,7 @@ export function defineRepositoryIngestionV2Workflow(
               }
               return {
                 bundle: bundle.name,
+                version: bundle.version,
                 roots: packed,
                 repositorySkills: plannedIngestSkills(
                   bundle.skills,
@@ -387,6 +390,7 @@ export function defineRepositoryIngestionV2Workflow(
           mode,
           roots,
           bundle: scope.bundle,
+          ...(scope.version === undefined ? {} : { version: scope.version }),
           source,
           authorTime: input.authorTime,
           destinations,
@@ -396,10 +400,7 @@ export function defineRepositoryIngestionV2Workflow(
         // The repository unit, on the assembled ref and in the sandbox of
         // shard 0. Its tip is the run base of each Workspace.
         const bundle = await deps.bundle()
-        if (bundle.name !== scope.bundle)
-          throw new Error(
-            `The ingest skill bundle changed during the run (${scope.bundle} to ${bundle.name})`,
-          )
+        assertSameReingestVersion(scope, bundle)
         const runtime = deps.runtime({
           orgId: input.orgId,
           runId: run.id,

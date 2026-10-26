@@ -8,9 +8,9 @@ export const UPGRADE_JOB_KIND = "upgrade"
 
 const REINGEST_KEY_PREFIX = "reingest-"
 
-/** The key of the re-ingestion with a skill bundle (`ingest-<hash>`). */
-export function reingestUpgradeKey(bundleName: string): string {
-  return `${REINGEST_KEY_PREFIX}${bundleName}`
+/** The key of the re-ingestion for a re-ingestion version (`version.json`). */
+export function reingestUpgradeKey(version: string): string {
+  return `${REINGEST_KEY_PREFIX}${version}`
 }
 
 export function isReingestUpgradeKey(key: string): boolean {

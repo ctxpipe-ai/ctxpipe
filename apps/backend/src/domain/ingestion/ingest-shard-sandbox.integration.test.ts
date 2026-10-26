@@ -181,7 +181,12 @@ describe("shard step egress", () => {
       runId,
       shard: 0,
       // The egress does not read the bundle.
-      bundle: { name: "ingest-0000000000000000", skills: [], files: [] },
+      bundle: {
+        name: "ingest-0000000000000000",
+        version: "ingest-0000000000000000",
+        skills: [],
+        files: [],
+      },
       source: {
         kind: "github" as const,
         url: "https://github.com/acme/checkout-api",

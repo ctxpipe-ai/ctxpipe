@@ -302,7 +302,7 @@ it(
           const reingest = await withOrgIdContext(f.org, async () =>
             getWorkspaceUpgradeRow(
               f.workspaceId,
-              reingestUpgradeKey((await readIngestSkillBundle()).name),
+              reingestUpgradeKey((await readIngestSkillBundle()).version),
             ),
           )
           expect(reingest).toMatchObject({

@@ -55,7 +55,7 @@ All deploy paths run the same migrate command before the new code serves traffic
 - A fresh ingestion from the source repositories is an upgrade item like a git step. It is the standard way to bring knowledge to the current ingestion, not an optional extra.
 - It costs model money, so the operator sees an estimate before the start.
 - A knowledge export from the database keeps only the content that a fresh ingestion cannot rebuild, and it goes only into the upgrade pull request, never directly to a default branch.
-- Each Workspace with a GitHub source repository needs it once for each skill bundle. It needs format 3 or higher, so that the ingestion v2 publish is allowed.
+- Each Workspace with a GitHub source repository needs it once for each re-ingestion version. It needs format 3 or higher, so that the ingestion v2 publish is allowed.
 - Re-ingestion is throttled for each org (see [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md), revision 2026-10-16).
 
 ### 6. Git holds the upgrade state

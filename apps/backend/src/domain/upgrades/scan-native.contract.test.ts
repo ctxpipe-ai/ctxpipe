@@ -126,7 +126,7 @@ it(
         const row = await withOrgIdContext(f.org, () =>
           getWorkspaceUpgradeRow(
             f.workspaceId,
-            reingestUpgradeKey(bundle.name),
+            reingestUpgradeKey(bundle.version),
           ),
         )
         expect(row?.upgrade.blockedReason).toBe("needs_format")

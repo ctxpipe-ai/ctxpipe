@@ -552,7 +552,12 @@ echo`,
               const root = dockerRootExec(handle.id)
               const agentEnv = await ingestAgentEnv(root, { modelProxyUrl })
               await prepareIngestSandbox(handle, root, {
-                bundle: { name: "ingest-test", skills: [], files: [] },
+                bundle: {
+                  name: "ingest-test",
+                  version: "ingest-test",
+                  skills: [],
+                  files: [],
+                },
                 opencodeConfig: ingestOpenCodeConfig({
                   modelBase: "test/model-medium",
                   models: ["test/model-fast"],

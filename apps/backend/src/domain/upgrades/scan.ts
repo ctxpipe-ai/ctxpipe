@@ -376,7 +376,7 @@ async function reingestRepositories(input: {
 export async function scanWorkspaceReingest(input: {
   orgId: string
   workspace: ScannedWorkspace
-  bundle: { name: string; skills: readonly string[] }
+  bundle: { version: string; skills: readonly string[] }
   /** {@link currentWorkspaceFormat}: the scan reads it once for each Workspace. */
   format: number | null
   env: Env
@@ -386,7 +386,7 @@ export async function scanWorkspaceReingest(input: {
   if (!repositories.length) return { kind: "none", reason: "not_upgradable" }
   if (format === null) return { kind: "none", reason: "unknown_format" }
   if (format > CODE_FORMAT) return { kind: "none", reason: "not_upgradable" }
-  const key = reingestUpgradeKey(input.bundle.name)
+  const key = reingestUpgradeKey(input.bundle.version)
   await failStoppedUpgradeRun(workspace.id, key)
   const blocked = reingestBlock({ ...workspace, format })
   const estimate = await estimateReingest({

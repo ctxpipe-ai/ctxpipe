@@ -49,6 +49,7 @@ import { withIngestionOrg } from "../../domain/ingestion/ingestion-v2-resolve.js
 import type { PatchStepResult } from "../../domain/ingestion/patch-validator.js"
 import {
   type IngestSkillBundle,
+  assertSameReingestVersion,
   readIngestSkillBundle,
 } from "../../domain/ingestion/skill-bundle.js"
 import { checkSourcePath } from "../../domain/workspace-sources/source-file.js"
@@ -119,6 +120,8 @@ export const ingestionShardInputSchema = z.object({
   roots: z.array(ingestionRootSchema),
   /** The bundle name that the parent planned with. */
   bundle: z.string().min(1),
+  /** The re-ingestion version that the parent planned with. */
+  version: z.string().min(1).optional(),
   /** A GitHub or a plain git source (CTX-815), at the run's SHA. */
   source: ingestSourceWith({ sha, repositoryId: z.string().nullable() }),
   authorTime: z.string().datetime(),
@@ -253,10 +256,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
     async ({ input, step, run }) => {
       const runShard = async (): Promise<IngestionShardOutput> => {
         const bundle = await deps.bundle()
-        if (bundle.name !== input.bundle)
-          throw new Error(
-            `The ingest skill bundle changed during the run (${input.bundle} to ${bundle.name})`,
-          )
+        assertSameReingestVersion(input, bundle)
         const runtime = deps.runtime({
           orgId: input.orgId,
           runId: input.runId,
