@@ -66,4 +66,4 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-056](ADR-056-oxlint-and-oxfmt-replace-biome.md) | Oxlint and Oxfmt replace Biome: one Oxc parser ecosystem, lint and format checked in CI, recorded rule gaps | Accepted |
 | [ADR-057](ADR-057-buildkite-connector-sources-only.md) | Buildkite connector, Workspace sources only | Proposed |
 
-Numbers 035 and 036 are unused. Open pull requests hold ADR-058 (Zendesk) and ADR-059 (Plain). The next new ADR is 060.
+Numbers 035 and 036 are unused. ADR-058 and ADR-059 are reserved for the Zendesk and Plain connectors. The next new ADR is 060.
