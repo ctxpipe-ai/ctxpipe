@@ -197,9 +197,11 @@ export const SkippedFiles: Story = {
     const canvas = within(canvasElement)
     await canvas.findByText("ctxpipe skipped 3 files")
     // The summary names the card that needs the user.
-    await expect(
-      await canvas.findByRole("link", { name: "Knowledge graph" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("link", { name: "Knowledge graph" }),
+      ).toBeVisible(),
+    )
     await canvas.findByText("Front matter is not valid")
     await canvas.findByText(
       "Repeats a linked repository or the Workspace's own repository",
@@ -419,9 +421,11 @@ export const HydrateFailed: Story = {
     const canvas = within(canvasElement)
     await canvas.findByText("The knowledge graph did not load")
     // The summary names the card that needs the user.
-    await expect(
-      await canvas.findByRole("link", { name: "Knowledge graph" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("link", { name: "Knowledge graph" }),
+      ).toBeVisible(),
+    )
   },
 }
 
@@ -581,7 +585,7 @@ export const SourceProblemsNeedYou: Story = {
     )
     await sources.findByText("Out of access")
     // The live work loads after the org read: it shows under the problem.
-    await expect(await sources.findByText("Syncing now")).toBeVisible()
+    await waitFor(() => expect(sources.getByText("Syncing now")).toBeVisible())
     await expect(sources.queryByText("Syncing")).toBeNull()
     await expect(sources.getByText("Awaiting merge")).toBeVisible()
     await expect(

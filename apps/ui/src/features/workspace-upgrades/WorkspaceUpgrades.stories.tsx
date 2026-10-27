@@ -1481,11 +1481,13 @@ export const AutomaticUpgradesOnAndOff: Story = {
     ).toBeVisible()
     await userEvent.click(automatic())
     await waitFor(() => expect(automatic()).toBeChecked())
-    expect(
-      await canvas.findByText(
-        "ctxpipe starts each upgrade by itself, paid re-ingestions too. A failed upgrade waits for you.",
-      ),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(
+          "ctxpipe starts each upgrade by itself, paid re-ingestions too. A failed upgrade waits for you.",
+        ),
+      ).toBeVisible(),
+    )
     await waitFor(async () =>
       expect(
         await within(document.body).findByText(
@@ -1495,11 +1497,13 @@ export const AutomaticUpgradesOnAndOff: Story = {
     )
     await userEvent.click(automatic())
     await waitFor(() => expect(automatic()).not.toBeChecked())
-    expect(
-      await canvas.findByText(
-        "You start each upgrade. Turn this on to let ctxpipe start them.",
-      ),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(
+          "You start each upgrade. Turn this on to let ctxpipe start them.",
+        ),
+      ).toBeVisible(),
+    )
     expect(automaticRequests.filter((line) => line.startsWith("POST"))).toEqual(
       [
         "POST /acme/api/v1/workspaces/docs/upgrades/automatic automatic",
