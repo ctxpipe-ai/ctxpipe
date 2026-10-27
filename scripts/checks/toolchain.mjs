@@ -13,11 +13,6 @@ import { pathToFileURL } from "node:url"
 // and NODE_OPTIONS and TZ. Each value is `unset` or `sha256:<16 hex>` of the
 // value: the record never holds a value as text.
 
-// The names of the Rust standard library (std::env::consts), which the
-// factory uses for the same fields.
-const os = { linux: "linux", darwin: "macos", win32: "windows" }
-const arch = { x64: "x86_64", arm64: "aarch64" }
-
 export const hashed = (value) =>
   value === undefined
     ? "unset"
@@ -33,8 +28,12 @@ export function toolchain(manifest, env = process.env, version = probe) {
     node: process.version,
     pnpm: version("pnpm"),
     ...(bun && { bun }),
-    os: os[process.platform] ?? process.platform,
-    arch: arch[process.arch] ?? process.arch,
+    // The names of the Rust standard library (std::env::consts), which the
+    // factory uses for the same fields.
+    os:
+      { linux: "linux", darwin: "macos", win32: "windows" }[process.platform] ??
+      process.platform,
+    arch: { x64: "x86_64", arm64: "aarch64" }[process.arch] ?? process.arch,
     env: Object.fromEntries(
       [...names].sort().map((name) => [name, hashed(env[name])]),
     ),

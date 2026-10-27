@@ -108,8 +108,8 @@
               "id": { "type": "string" },
               "key": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
               "source": {
-                "description": "ci: the nightly CI run on main wrote it. agent: a person or an agent with a factory session wrote it. local: the cache of this machine.",
-                "enum": ["ci", "agent", "local"]
+                "description": "ci: the nightly CI run on main wrote it. agent: a person or an agent with a factory session wrote it.",
+                "enum": ["ci", "agent"]
               },
               "provenance": {
                 "description": "What the writer states. The merge gate publishes hostKind and createdAt, and never a writer id.",

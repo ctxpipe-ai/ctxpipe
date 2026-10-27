@@ -12,6 +12,7 @@ import { schemaErrors } from "./schema.mjs"
 import {
   profiles,
   readTrace,
+  runsInOf,
   shard,
   shardMinutes,
   storybookBuildMinutes,
@@ -27,57 +28,15 @@ import {
 //     run, else `full` and why. <file> lists the changed paths of the PR.
 //
 //   gate.mjs shadow --config <merge-gate.json> --inputs <dir> --results <dir>
-//                   --needs <file> [--jobs <file>] --out <dir>
+//                   --needs <file> [--jobs <file>] [--earlier <file>]
+//                   --out <dir>
 //     The decision of a PR run in shadow mode. The full run gates; this
 //     computes what a gated run would decide from the same results, and
 //     writes decision.json, summary.md and comment.md to <dir>. <inputs>
 //     holds the artifacts of the manifest and select jobs, <results> the test
 //     artifacts, <needs> the `needs` context, <jobs> the jobs of this run
-//     from the GitHub API.
-
-// A change to one of these can change how checks are selected or run, so the
-// run is full. The PR then shows the change of the rule in its diff.
-const gateInputs = [
-  /^\.github\//,
-  /^scripts\/checks\//,
-  /^scripts\/ci\//,
-  /^pnpm-lock\.yaml$/,
-  /^pnpm-workspace\.yaml$/,
-  /^package\.json$/,
-  /^\.node-version$/,
-]
-
-// The jobs that run whatever the selection is. The gate needs them.
-const alwaysRun = [
-  "production-builds",
-  "packages",
-  "migrate",
-  "terraform-validate",
-]
-// The CI script tests run in the Lint and format job, on each run.
-const ciScriptTestMinutes = 0.7
-
-// The job of today's full run that runs each check. A check without its own
-// result record passed when its job succeeded: the job ran every check of
-// its lanes. Otherwise its result is unknown.
-const jobOf = (id) => {
-  const [family, lane] = id.split(":")
-  if (family === "lint" || family === "policy") return "lint"
-  if (family === "typecheck") return "typecheck"
-  if (family === "storybook")
-    return lane === "golden" ? "storybook-golden" : "storybook-plays"
-  return {
-    backend: "test-shards",
-    contracts: "test-shards",
-    ui: "package-tests",
-    cli: "package-tests",
-    "aws-cdk": "package-tests",
-    upgrade: "upgrade-from-previous-release",
-    codesearch: "codesearch",
-    "codesearch-bun": "codesearch",
-    vercel: "vercel-sandbox",
-  }[lane]
-}
+//     attempt from the GitHub API, <earlier> the jobs of the earlier attempts
+//     of this run.
 
 // The steps of the Lint and format job that run one check each, by the
 // `<family>:<lane>:` prefix of its id. The step result is the check result.
@@ -123,25 +82,29 @@ export function stepResults(jobs) {
   return results
 }
 
-// The job of these lanes sets lane variables that the manifest job does not
-// set (GITHUB_TOKEN and VERCEL_TOKEN), so the key from the toolchain record
-// does not describe the run of the check. Its hits are not accepted.
-const runEnvDiffers = new Set(["vercel"])
-
-const shadowJobs = new Set(["merge-gate-manifest", "merge-gate-select"])
-
 export function decideMode({ config, event, fork, changed }) {
   const full = (reason) => ({ mode: "full", reason })
   if (event !== "pull_request") return full(`event ${event}`)
   if (fork) return full("fork PR")
+  // A change to one of these can change how checks are selected or run, so
+  // the run is full. The PR then shows the change of the rule in its diff.
   const inputs = changed.filter((path) =>
-    gateInputs.some((input) => input.test(path)),
+    [
+      /^\.github\//,
+      /^scripts\/checks\//,
+      /^scripts\/ci\//,
+      /^pnpm-lock\.yaml$/,
+      /^pnpm-workspace\.yaml$/,
+      /^package\.json$/,
+      /^\.node-version$/,
+    ].some((input) => input.test(path)),
   )
   if (inputs.length)
     return full(
       `gate inputs changed: ${inputs.slice(0, 5).join(", ")}${inputs.length > 5 ? ` and ${inputs.length - 5} more` : ""}`,
     )
-  if (!["shadow", "gate"].includes(config.mode))
+  // Phase 1 has only the shadow mode: the full run gates.
+  if (config.mode !== "shadow")
     return full("selector unavailable: merge-gate.json has no valid mode")
   if (
     !/^[0-9a-f]{40}$/.test(config.factory?.version ?? "") ||
@@ -152,7 +115,9 @@ export function decideMode({ config, event, fork, changed }) {
 }
 
 // The result of each check id in the full run: its own record, else its
-// step of the Lint and format job, else its job.
+// step of the Lint and format job, else `missing result` with the result of
+// its job. Each job of the full run writes a record for each check that it
+// runs, so a check without one did not run, or its job lost the record.
 export function fullRunResults(records, needs, steps = new Map()) {
   const results = new Map()
   for (const record of records) {
@@ -165,19 +130,26 @@ export function fullRunResults(records, needs, steps = new Map()) {
     if (results.has(id)) return results.get(id)
     const [family, lane] = id.split(":")
     const step = steps.get(`${family}:${lane}:`)
-    if (step) return step
-    const job = needs[jobOf(id)]?.result
-    return job === "success" ? "passed" : "unknown"
+    if (step === "passed" || step === "failed") return step
+    const job = runsInOf(id)?.job
+    return `missing result (job ${job ?? "none"}: ${needs[job]?.result ?? "did not run"})`
   }
 }
 
-// The verdict of today's full run: every job of the run succeeded.
+// The verdict of today's full run: every job of the run succeeded. A run
+// with a cancelled job has no verdict for the agreement metrics.
 export function fullVerdict(needs) {
-  const failed = Object.entries(needs)
-    .filter(([name]) => !shadowJobs.has(name))
+  const jobs = Object.entries(needs).filter(
+    ([name]) => !["merge-gate-manifest", "merge-gate-select"].includes(name),
+  )
+  const failed = jobs
     .filter(([, job]) => job.result === "failure" || job.result === "cancelled")
     .map(([name]) => name)
-  return { verdict: failed.length ? "fail" : "pass", failed }
+  return {
+    verdict: failed.length ? "fail" : "pass",
+    failed,
+    cancelled: jobs.some(([, job]) => job.result === "cancelled"),
+  }
 }
 
 // What a gated run would decide on the same results. Each selected check needs
@@ -193,12 +165,14 @@ export function gatedVerdict({
   const hits = new Map(
     (selection.cache?.hits ?? []).map((hit) => [hit.id, hit]),
   )
+  // The vercel job sets lane variables that the manifest job does not set
+  // (GITHUB_TOKEN and VERCEL_TOKEN), so the key from the toolchain record does
+  // not describe the run of its checks: their agent hits are not accepted.
   const accepted = (hit, lane) =>
     hit.source === "ci" ||
-    hit.source === "local" ||
     (hit.source === "agent" &&
       config.acceptAgentResults === true &&
-      !runEnvDiffers.has(lane))
+      lane !== "vercel")
   const ran = []
   const hit = []
   for (const check of selection.selected) {
@@ -219,18 +193,26 @@ export function gatedVerdict({
         ...(found && { refused: found.source }),
       })
   }
-  const failedAlwaysRun = alwaysRun.filter((job) =>
-    ["failure", "cancelled"].includes(needs[job]?.result),
-  )
+  // The jobs that run whatever the selection is.
+  const failedAlwaysRun = [
+    "production-builds",
+    "packages",
+    "migrate",
+    "terraform-validate",
+  ].filter((job) => ["failure", "cancelled"].includes(needs[job]?.result))
   if (steps.get(ciScriptTests) === "failed") failedAlwaysRun.push(ciScriptTests)
-  const bad = ran.filter((item) => ["failed", "error"].includes(item.result))
-  const verdict =
-    bad.length || failedAlwaysRun.length
-      ? "fail"
-      : ran.some((item) => item.result === "unknown")
-        ? "unknown"
-        : "pass"
-  return { verdict, ran, hits: hit, failedAlwaysRun }
+  const failedChecks = ran.some(
+    (item) =>
+      ["failed", "error"].includes(item.result) ||
+      item.result.startsWith("missing result"),
+  )
+  return {
+    verdict: failedChecks || failedAlwaysRun.length ? "fail" : "pass",
+    failedChecks,
+    ran,
+    hits: hit,
+    failedAlwaysRun,
+  }
 }
 
 // The failed checks of the full run that the gated run would not run, and why.
@@ -284,13 +266,12 @@ function jobMinutes(jobs) {
   return minutes
 }
 
-const round = (value) => Math.round(value * 10) / 10
-
 // Runner minutes and wall time: the full run as measured, and the gated run
 // as estimated from the selection, the shards and the measured setup times.
 // The always-run jobs start with the manifest job; the profile jobs start
 // after the select job.
 export function cost({ ranIds, seconds, jobs }) {
+  const round = (value) => Math.round(value * 10) / 10
   const minutes = jobMinutes(jobs)
   const matching = (match) =>
     [...minutes].filter(([name]) => match(name)).map(([, value]) => value)
@@ -322,7 +303,8 @@ export function cost({ ranIds, seconds, jobs }) {
       60_000
     : undefined
   const profileMinutes = shardMinutes(shards)
-  const always = sum(alwaysRunJob) + ciScriptTestMinutes
+  // The CI script tests run in the Lint and format job, on each run.
+  const always = sum(alwaysRunJob) + 0.7
   return {
     fullRunMinutes: round(sum((name) => !shadowJob(name))),
     gatedRunMinutes: round(manifest + select + always + profileMinutes),
@@ -433,7 +415,24 @@ const readJson = (path) =>
 const traceAge = (notes) =>
   Number(/\((\d+) days old/.exec(notes.join("\n"))?.[1] ?? Number.NaN)
 
-export function shadow({ config, inputs, records, needs, jobs, run }) {
+// The jobs that failed in an earlier attempt of this run and passed in this
+// one: a rerun of the same head passed them, so they are flakes.
+export function flakyJobs(jobs, earlier) {
+  const now = new Map((jobs?.jobs ?? []).map((job) => [job.name, job]))
+  return [
+    ...new Set(
+      (earlier?.jobs ?? [])
+        .filter(
+          (job) =>
+            job.conclusion === "failure" &&
+            now.get(job.name)?.conclusion === "success",
+        )
+        .map((job) => job.name),
+    ),
+  ].sort()
+}
+
+export function shadow({ config, inputs, records, needs, jobs, earlier, run }) {
   const mode = readJson(join(inputs, "mode.json"))
   const selection = readJson(join(inputs, "selection.json"))
   const select = needs["merge-gate-select"]?.result
@@ -444,8 +443,15 @@ export function shadow({ config, inputs, records, needs, jobs, run }) {
   if (!mode)
     fallback = `manifest job ${needs["merge-gate-manifest"]?.result ?? "did not run"}`
   else if (mode.mode !== "select") fallback = mode.reason
-  else if (select !== "success" || !selection)
-    fallback = `selector unavailable: select job ${select ?? "did not run"}`
+  else if (select !== "success" || !selection) {
+    // The select job writes why it failed: the download, the hash, the exit
+    // code of the selector, or a timeout.
+    const path = join(inputs, "select-cause.txt")
+    const cause = existsSync(path)
+      ? readFileSync(path, "utf8").trim().slice(0, 200)
+      : ""
+    fallback = `selector unavailable: ${cause || `select job ${select ?? "did not run"}`}`
+  }
   else {
     const errors = schemaErrors(selection, "selection.v1", 1)
     if (errors.length)
@@ -480,6 +486,14 @@ export function shadow({ config, inputs, records, needs, jobs, run }) {
   for (const hit of selection.cache?.hits ?? [])
     hitClasses[hit.source] = (hitClasses[hit.source] ?? 0) + 1
   const recall = escapes({ selection, records, gated, steps })
+  // Compares a full-run failure with a gated-run failure: `agree`, `escape`
+  // (only the full run failed) or `false failure` (only the gated run failed).
+  const agreement = (fullFailed, gatedFailed) =>
+    fullFailed === gatedFailed
+      ? "agree"
+      : fullFailed
+        ? "escape"
+        : "false failure"
   Object.assign(decision, {
     selection: {
       variant: selection.variant,
@@ -511,14 +525,17 @@ export function shadow({ config, inputs, records, needs, jobs, run }) {
       stochastic: selection.counts.stochasticOmitted ?? 0,
     },
     metrics: {
-      agreement:
-        full.verdict === "fail"
-          ? gated.verdict === "fail"
-            ? "agree"
-            : gated.verdict === "pass"
-              ? "escape"
-              : "unknown"
-          : "not a failing run",
+      // A cancelled run has no verdict, so the report counts it apart.
+      // Selection: only the checks count (a failed check of the full run
+      // against a failed check that the gated run would run). Overall: the
+      // verdicts, with the always-run jobs.
+      selectionAgreement: full.cancelled
+        ? "cancelled"
+        : agreement(recall.failed > 0, gated.failedChecks),
+      overallAgreement: full.cancelled
+        ? "cancelled"
+        : agreement(full.verdict === "fail", gated.verdict === "fail"),
+      flakyJobs: flakyJobs(jobs, earlier),
       recall,
       contradictions: gated.hits
         .filter((item) => item.fullRun === "failed")
@@ -532,8 +549,6 @@ export function shadow({ config, inputs, records, needs, jobs, run }) {
   })
   return decision
 }
-
-const limit = 300
 
 export function summary(decision, runUrl) {
   const lines = ["## Merge gate (shadow)", ""]
@@ -558,10 +573,11 @@ export function summary(decision, runUrl) {
       Object.entries(decision.hitClasses)
         .map(([k, v]) => `${k} ${v}`)
         .join(", ") || "none"
-    }). Agreement: ${m.agreement}. Failed checks of the full run that the gated run would run: ${m.recall.ran} of ${m.recall.failed}. Hit contradictions: ${m.contradictions.length}.`,
+    }). Agreement: selection ${m.selectionAgreement}, overall ${m.overallAgreement}${m.flakyJobs.length ? ` (flaky jobs: ${m.flakyJobs.map(code).join(", ")})` : ""}. Failed checks of the full run that the gated run would run: ${m.recall.ran} of ${m.recall.failed}. Hit contradictions: ${m.contradictions.length}.`,
     "",
     `**Runner minutes:** gated about ${m.cost.gatedRunMinutes} (manifest and select ${m.cost.parts.manifestAndSelect}, always-run ${m.cost.parts.alwaysRun}, checks ${m.cost.parts.profiles}); full run ${m.cost.fullRunMinutes}. **Wall time:** gated about ${m.cost.gatedRunWallMinutes} min; full run ${m.cost.fullRunWallMinutes ?? "?"} min.`,
   )
+  const limit = 300
   const table = (title, header, rows) => {
     lines.push("", `### ${title}`, "")
     if (!rows.length) return lines.push("None.")
@@ -708,6 +724,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
         records: readRecords(options.results),
         needs: JSON.parse(readFileSync(options.needs, "utf8")),
         jobs: readJson(options.jobs),
+        earlier: readJson(options.earlier),
         run,
       })
       mkdirSync(options.out, { recursive: true })

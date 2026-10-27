@@ -1,13 +1,9 @@
 import { readFileSync } from "node:fs"
-import { pathToFileURL } from "node:url"
 import { gunzipSync } from "node:zlib"
 
 // Packs check ids into the shards of the CI jobs that run them (the profile
 // jobs of the merge gate, scripts/checks/README.md). The selector outputs
-// only ids; this public script decides how they run.
-// Usage: shard.mjs [--trace <trace.json.gz>] <ids-file>
-// It prints one JSON object: for each profile with ids, its shards, each with
-// its ids and its estimated test seconds.
+// only ids; this public module decides how they run.
 
 // Each profile is one CI job with one setup. `setupMinutes` is the time of a
 // shard before its tests start, measured on CI run 40322361899.
@@ -25,27 +21,34 @@ export const profiles = {
 // A Storybook shard needs the Storybook build job first.
 export const storybookBuildMinutes = 1.2
 
-// The test time that one shard should get.
-const targetSeconds = 300
+// Where each check runs, by `<family>:<lane>` or else `<family>`: `job` is
+// the job of today's full run, `profile` the profile job of a gated run.
+// A check without an entry (an eval, the latency check) has its own
+// workflow.
+const runsIn = {
+  lint: { job: "lint", profile: "project" },
+  policy: { job: "lint", profile: "project" },
+  typecheck: { job: "typecheck", profile: "project" },
+  "storybook:golden": { job: "storybook-golden", profile: "storybook" },
+  storybook: { job: "storybook-plays", profile: "storybook" },
+  "vitest:backend": { job: "test-shards", profile: "database" },
+  "vitest:contracts": { job: "test-shards", profile: "database" },
+  "vitest:ui": { job: "package-tests", profile: "node" },
+  "vitest:cli": { job: "package-tests", profile: "node" },
+  "vitest:aws-cdk": { job: "package-tests", profile: "node" },
+  "vitest:upgrade": {
+    job: "upgrade-from-previous-release",
+    profile: "upgrade",
+  },
+  "vitest:codesearch": { job: "codesearch", profile: "codesearch" },
+  "vitest:codesearch-bun": { job: "codesearch", profile: "codesearch" },
+  "vitest:vercel": { job: "vercel-sandbox", profile: "vercel" },
+}
 
-// The profile of a check id, or undefined for a check that no profile job
-// runs (an eval, the latency check: they have their own workflows).
-export function profileOf(id) {
+// The job and the profile of a check id, or undefined.
+export function runsInOf(id) {
   const [family, lane] = id.split(":")
-  if (["lint", "policy", "typecheck"].includes(family)) return "project"
-  if (family === "storybook") return "storybook"
-  if (family !== "vitest") return undefined
-  return {
-    ui: "node",
-    cli: "node",
-    "aws-cdk": "node",
-    backend: "database",
-    contracts: "database",
-    upgrade: "upgrade",
-    codesearch: "codesearch",
-    "codesearch-bun": "codesearch",
-    vercel: "vercel",
-  }[lane]
+  return runsIn[`${family}:${lane}`] ?? runsIn[family]
 }
 
 // The seconds of each check of a trace: the sum of its case times, or its
@@ -88,7 +91,7 @@ export function estimate(id, seconds, fileWeights = weights()) {
 export function shard(ids, seconds, fileWeights = weights()) {
   const byProfile = new Map()
   for (const id of new Set(ids)) {
-    const profile = profileOf(id)
+    const profile = runsInOf(id)?.profile
     if (!profile) continue
     byProfile.set(profile, [
       ...(byProfile.get(profile) ?? []),
@@ -102,7 +105,8 @@ export function shard(ids, seconds, fileWeights = weights()) {
     const total = checks.reduce((sum, check) => sum + check.seconds, 0)
     const count = Math.min(
       profiles[profile].maxShards,
-      Math.max(1, Math.ceil(total / targetSeconds)),
+      // About 300 s of tests for each shard.
+      Math.max(1, Math.ceil(total / 300)),
       checks.length,
     )
     const shards = Array.from({ length: count }, () => ({
@@ -136,21 +140,3 @@ export function shardMinutes(shards) {
   if (shards.storybook) minutes += storybookBuildMinutes
   return Math.round(minutes * 10) / 10
 }
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  try {
-    const args = process.argv.slice(2)
-    const at = args.indexOf("--trace")
-    const trace = at === -1 ? undefined : readTrace(args[at + 1])
-    if (at !== -1) args.splice(at, 2)
-    if (args.length !== 1)
-      throw new Error("Usage: shard.mjs [--trace <trace.json.gz>] <ids-file>")
-    const ids = readFileSync(args[0], "utf8")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-    process.stdout.write(`${JSON.stringify(shard(ids, traceSeconds(trace)))}\n`)
-  } catch (error) {
-    process.stderr.write(`${error.message}\n`)
-    process.exitCode = 1
-  }

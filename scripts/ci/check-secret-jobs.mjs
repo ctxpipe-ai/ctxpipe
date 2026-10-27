@@ -42,7 +42,7 @@
 // - A job with `id-token: write` can get a cloud credential through GitHub
 //   OIDC (for example the read-only merge gate role of the factory account).
 //   It follows every rule of a job that holds a secret. The jobs in
-//   oidcPublishJobs are the exception.
+//   oidcPublishJob (the npm publish jobs) are the exception.
 // - A job with `id-token: write` that checks out another commit (`ref:`)
 //   proves that the commit is on main (`git merge-base --is-ancestor HEAD
 //   origin/main`) before a later step runs. On main, its token has the
@@ -129,21 +129,7 @@ const exceptions = new Map(
   }),
 )
 
-// Jobs that ask for an OIDC token only for npm trusted publishing (the
-// token proves the workflow to npm), by a decision of the team. They run the
-// package manager to build and publish. On main their token has the subject
-// repo:ctxpipe-ai/ctxpipe:ref:refs/heads/main, which the result store role
-// check-results-ci-writer also trusts. Thus these jobs and the ci.yaml
-// results-writer can get that role. This is an accepted risk: `release`
-// builds main itself, and `prerelease` builds only a commit that is on main
-// (the ancestor rule below). The risk is the code on main and its
-// dependencies.
-const oidcPublishJobs = new Set([
-  "deploy.yaml:release",
-  "deploy.yaml:prerelease",
-])
 const oidcToken = /^\s+id-token:\s*write\b/
-const onMain = /\bgit merge-base --is-ancestor HEAD origin\/main\b/
 
 // Jobs that run only for main, as deploy.yaml does. The check keeps their
 // `if:` limited to refs/heads/main.
@@ -300,10 +286,22 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
       )
 
   for (const job of jobs) {
+    // Jobs that ask for an OIDC token only for npm trusted publishing (the
+    // token proves the workflow to npm), by a decision of the team. They run the
+    // package manager to build and publish. On main their token has the subject
+    // repo:ctxpipe-ai/ctxpipe:ref:refs/heads/main, which the result store role
+    // check-results-ci-writer also trusts. Thus these jobs and the ci.yaml
+    // results-writer can get that role. This is an accepted risk: `release`
+    // builds main itself, and `prerelease` builds only a commit that is on main
+    // (the ancestor rule below). The risk is the code on main and its
+    // dependencies.
+    const oidcPublishJob = [
+      "deploy.yaml:release",
+      "deploy.yaml:prerelease",
+    ].includes(`${name}:${job.name}`)
     const holdsSecret = job.lines.some(
       ({ text }) =>
-        secretUse.test(text) ||
-        (oidcToken.test(text) && !oidcPublishJobs.has(`${name}:${job.name}`)),
+        secretUse.test(text) || (oidcToken.test(text) && !oidcPublishJob),
     )
     const environment = job.lines
       .map(({ text }) => /^ {4}environment:\s*['"]?([\w-]+)/.exec(text)?.[1])
@@ -362,7 +360,9 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     const ref = job.lines.find(({ text }) => /^\s+ref:\s*\S/.test(text))
     if (ref && job.lines.some(({ text }) => oidcToken.test(text))) {
       const proof = job.lines.find(
-        ({ text, number }) => number > ref.number && onMain.test(text),
+        ({ text, number }) =>
+          number > ref.number &&
+          /\bgit merge-base --is-ancestor HEAD origin\/main\b/.test(text),
       )
       const early = job.lines.find(
         ({ text, number }) =>

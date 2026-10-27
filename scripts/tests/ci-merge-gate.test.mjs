@@ -17,7 +17,7 @@ import {
 } from "../checks/gate.mjs"
 import { suiteRecord } from "../checks/lanes.mjs"
 import { schemaErrors } from "../checks/schema.mjs"
-import { estimate, profileOf, shard, shardMinutes } from "../checks/shard.mjs"
+import { estimate, runsInOf, shard, shardMinutes } from "../checks/shard.mjs"
 import { hashed, toolchain } from "../checks/toolchain.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -68,6 +68,8 @@ test("only a same-repo pull_request without gate input changes runs the selector
     { mode: "full", reason: "selector unavailable: no pinned factory release" },
   )
   assert.equal(mode({ config: { ...pinned, mode: "off" } }).mode, "full")
+  // Phase 1 has no gate mode: only shadow selects.
+  assert.equal(mode({ config: { ...pinned, mode: "gate" } }).mode, "full")
 })
 
 test("the committed merge gate config is valid and in shadow mode", () => {
@@ -212,6 +214,9 @@ const needs = (overrides = {}) =>
   )
 
 const records = [
+  { id: "vitest:ui:apps/ui/src/a.test.tsx", status: "passed" },
+  { id: "vitest:vercel:apps/backend/src/d.contract.test.ts", status: "passed" },
+  { id: "typecheck:ui:apps/ui/tsconfig.json", status: "passed" },
   { id: "vitest:backend:apps/backend/src/b.test.ts", status: "failed" },
   { id: "vitest:backend:apps/backend/src/f.test.ts", status: "failed" },
   { id: "vitest:backend:apps/backend/src/f.test.ts", status: "passed" },
@@ -283,7 +288,9 @@ test("the gated verdict needs one accepted result for each selected check", () =
     ],
   )
   assert.deepEqual(decision.hitClasses, { ci: 1, agent: 2 })
-  assert.equal(decision.metrics.agreement, "agree")
+  assert.equal(decision.metrics.selectionAgreement, "agree")
+  assert.equal(decision.metrics.overallAgreement, "agree")
+  assert.deepEqual(decision.metrics.flakyJobs, [])
   assert.deepEqual(decision.metrics.recall, {
     failed: 2,
     ran: 1,
@@ -341,17 +348,57 @@ test("without acceptAgentResults an agent hit runs, and a failed hit is a contra
   ])
 })
 
-test("a check without a record takes its job result, and an unknown result is not a pass", () => {
+test("a selected check without a result is a missing result, and the gated run fails", () => {
   const decision = decide({
-    needs: { "test-shards": "success", test: "success", typecheck: "failure" },
-    shadow: { records: [] },
+    needs: { "test-shards": "success", test: "success" },
+    shadow: {
+      records: records.filter(({ id }) => !id.startsWith("typecheck")),
+    },
   })
   assert.equal(
     decision.ran.find(({ id }) => id.startsWith("typecheck")).result,
-    "unknown",
+    "missing result (job typecheck: success)",
   )
-  assert.equal(decision.gatedRun.verdict, "unknown")
-  assert.equal(decision.metrics.agreement, "unknown")
+  assert.equal(decision.gatedRun.verdict, "fail")
+  // The full run passed: only the gated run fails.
+  assert.equal(decision.fullRun.verdict, "pass")
+  assert.equal(decision.metrics.overallAgreement, "false failure")
+})
+
+test("the agreement metrics count a cancelled run apart and name the flaky jobs", () => {
+  const cancelled = decide({ needs: { codesearch: "cancelled" } })
+  assert.equal(cancelled.metrics.selectionAgreement, "cancelled")
+  assert.equal(cancelled.metrics.overallAgreement, "cancelled")
+  const passing = records.map((record) => ({ ...record, status: "passed" }))
+  const escape = decide({
+    shadow: {
+      records: [
+        ...passing,
+        { id: "vitest:backend:apps/backend/src/f.test.ts", status: "failed" },
+      ],
+    },
+  })
+  assert.equal(escape.metrics.selectionAgreement, "escape")
+  assert.equal(escape.metrics.overallAgreement, "escape")
+  // Only an always-run job fails: both runs fail, and no check fails.
+  const always = decide({
+    needs: { "test-shards": "success", test: "success", packages: "failure" },
+    shadow: { records: passing },
+  })
+  assert.equal(always.metrics.selectionAgreement, "agree")
+  assert.equal(always.metrics.overallAgreement, "agree")
+  const rerun = decide({
+    shadow: {
+      jobs: { jobs: [{ name: "Typecheck", conclusion: "success" }] },
+      earlier: {
+        jobs: [
+          { name: "Typecheck", conclusion: "failure" },
+          { name: "Lint and format", conclusion: "failure" },
+        ],
+      },
+    },
+  })
+  assert.deepEqual(rerun.metrics.flakyJobs, ["Typecheck"])
 })
 
 test("an always-run job that fails fails the gated run", () => {
@@ -377,6 +424,23 @@ test("every fallback gives a full run with the reason", () => {
   assert.equal(
     full({ needs: { "merge-gate-select": "failure" } }),
     "selector unavailable: select job failure",
+  )
+  // The select job names the exact cause.
+  const cause = inputs({ "mode.json": { mode: "select", reason: "shadow" } })
+  writeFileSync(
+    join(cause, "select-cause.txt"),
+    "the selector release does not match the pinned SHA-256\n",
+  )
+  assert.equal(
+    shadow({
+      config: pinned,
+      inputs: cause,
+      records: [],
+      needs: needs({ "merge-gate-select": "failure" }),
+      jobs,
+      run: {},
+    }).reason,
+    "selector unavailable: the selector release does not match the pinned SHA-256",
   )
   assert.match(
     full({ files: { "selection.json": selection({ schemaVersion: 2 }) } }),
@@ -474,12 +538,20 @@ test("the shards of each profile hold about five minutes, up to today's shard co
   )
   assert.equal(shard([...many.keys()], many, {}).node.length, 1)
   assert.equal(shardMinutes({ node: [{ ids: [], seconds: 60 }] }), 1.3)
-  assert.equal(profileOf("eval:mcp:x"), undefined)
-  assert.equal(profileOf("vitest:latency:x"), undefined)
-  assert.equal(
-    profileOf("policy:runners:scripts/ci/check-runners.mjs"),
-    "project",
-  )
+  assert.equal(runsInOf("eval:mcp:x"), undefined)
+  assert.equal(runsInOf("vitest:latency:x"), undefined)
+  assert.deepEqual(runsInOf("policy:runners:scripts/ci/check-runners.mjs"), {
+    job: "lint",
+    profile: "project",
+  })
+  assert.deepEqual(runsInOf("storybook:golden:x"), {
+    job: "storybook-golden",
+    profile: "storybook",
+  })
+  assert.deepEqual(runsInOf("storybook:plays:x"), {
+    job: "storybook-plays",
+    profile: "storybook",
+  })
   assert.equal(
     estimate("vitest:backend:apps/backend/src/x.test.ts", new Map(), {
       backend: { "src/x.test.ts": 42 },
@@ -623,7 +695,10 @@ test("a lint or policy check takes the result of its step in the Lint and format
   const decision = (failed) =>
     decide({
       needs: { "test-shards": "success", test: "success", lint: "failure" },
-      shadow: { records: [], jobs: steps(failed) },
+      shadow: {
+        records: records.map((record) => ({ ...record, status: "passed" })),
+        jobs: steps(failed),
+      },
     })
   const oxlint = (d) =>
     d.ran.find(({ id }) => id === "lint:oxlint:.oxlintrc.json")

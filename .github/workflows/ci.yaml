@@ -42,13 +42,13 @@ jobs:
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
@@ -93,13 +93,13 @@ jobs:
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # The check runner runs each project with its diagnostic allowance and
@@ -118,7 +118,7 @@ jobs:
         run: cat .ci-results/checks/*.log || true
       - name: Preserve the typecheck results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-results-typecheck
           path: .ci-results/
@@ -173,17 +173,17 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - uses: ./.github/actions/falkordb
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
       - name: Required chat engine binary
@@ -207,11 +207,11 @@ jobs:
           done
       - name: Restore native revision index tools
         id: zoekt
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/ctxpipe-zoekt
           key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: steps.zoekt.outputs.cache-hit != 'true'
         with:
           go-version: 1.25.12
@@ -245,7 +245,7 @@ jobs:
       # This job reads the layer cache without a login. The layer-cache job
       # writes it (see the comment there).
       - name: Required chat sandbox image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: scripts/chat-sandbox
           tags: ctxpipe-chat-sandbox:opencode-1.18.34-r4
@@ -274,7 +274,7 @@ jobs:
           fi
       - name: Preserve shard results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-results-${{ matrix.lane }}-${{ matrix.shard }}
           path: .ci-results/
@@ -294,16 +294,16 @@ jobs:
     env:
       EVENT: ${{ github.event_name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
       - name: UI tests
@@ -314,7 +314,7 @@ jobs:
         run: node scripts/ci/test-suite.mjs aws-cdk $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       - name: Preserve package test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-results-packages
           path: .ci-results/
@@ -343,11 +343,11 @@ jobs:
             echo "Test shards: $SHARDS; package tests: $PACKAGES"
             exit 1
           }
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
-      - uses: actions/download-artifact@v4
+          node-version-file: .node-version
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: test-results-*
           path: .ci-results/
@@ -358,7 +358,7 @@ jobs:
         run: node scripts/ci/test-suite.mjs contracts --merge
       - name: Preserve executed test inventories and results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: required-test-results
           path: .ci-results/
@@ -386,16 +386,16 @@ jobs:
       (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 22
-      - uses: actions/download-artifact@v4
+          node-version-file: .node-version
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: test-results-*
           path: .ci-results/
           merge-multiple: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: lane-trace-*
           path: .ci-results/trace-parts/
@@ -404,7 +404,7 @@ jobs:
           find .ci-results -name trace.json.gz -print0 | sort -z |
             xargs -0 node scripts/checks/trace.mjs merge "$RUNNER_TEMP/trace.json.gz"
       - name: Preserve the trace
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: trace-${{ github.sha }}
           path: ${{ runner.temp }}/trace.json.gz
@@ -419,13 +419,13 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Project checks through the check runner
@@ -440,7 +440,7 @@ jobs:
             tee "$RUNNER_TEMP/project-trace/records.ndjson"
       - name: Preserve the project check trace and results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lane-trace-projects
           path: |
@@ -477,8 +477,8 @@ jobs:
             context: scripts/chat-sandbox
             platforms: linux/arm64
     steps:
-      - uses: actions/checkout@v6
-      - uses: docker/setup-qemu-action@v3
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
         if: matrix.platforms == 'linux/arm64'
         with:
           platforms: arm64
@@ -486,7 +486,7 @@ jobs:
       # Only codesearch reads a layer cache: its toolchain stages are the slow
       # part. This job reads it without a login. The layer-cache job writes it
       # (see the comment there).
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ${{ matrix.context || '.' }}
           file: ${{ matrix.dockerfile }}
@@ -559,13 +559,13 @@ jobs:
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
       - run: pnpm install --frozen-lockfile
@@ -586,18 +586,18 @@ jobs:
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @ctxpipe/ui build-storybook
       - name: Preserve the Storybook build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: storybook-static
           path: apps/ui/storybook-static
@@ -613,20 +613,20 @@ jobs:
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Install Chromium for Storybook Playwright
         working-directory: apps/ui
         run: pnpm exec playwright install --with-deps chromium
       - name: Download the Storybook build
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: storybook-static
           path: apps/ui/storybook-static
@@ -636,7 +636,7 @@ jobs:
         run: node scripts/ci/storybook-golden.mjs
       - name: Preserve golden play results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: storybook-golden-results
           path: .ci-results/storybook-golden/
@@ -659,20 +659,20 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Install Chromium for Storybook Playwright
         working-directory: apps/ui
         run: pnpm exec playwright install --with-deps chromium
       - name: Download the Storybook build
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: storybook-static
           path: apps/ui/storybook-static
@@ -688,7 +688,7 @@ jobs:
             $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       - name: Preserve play results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: storybook-plays-results-${{ matrix.shard }}
           path: .ci-results/storybook-plays/
@@ -696,7 +696,7 @@ jobs:
           if-no-files-found: error
       - name: Preserve the Storybook trace
         if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lane-trace-storybook-${{ matrix.shard }}
           path: .ci-results/storybook-plays/trace.json.gz
@@ -713,16 +713,16 @@ jobs:
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
       # The download script must fail fast when its source stalls.
       - name: Download script timeout proof
         run: node --test apps/codesearch/scripts/fetch-releases.test.mjs
       - name: Restore pinned release files
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .release-cache
           key: codesearch-releases-${{ hashFiles('apps/codesearch/release-assets.txt') }}
@@ -741,7 +741,7 @@ jobs:
             $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace "$RUNNER_TEMP/codesearch-trace")
       - name: Preserve the codesearch results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-results-codesearch
           path: .ci-results/
@@ -750,7 +750,7 @@ jobs:
       - name: Preserve the codesearch trace
         if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lane-trace-codesearch
           path: ${{ runner.temp }}/codesearch-trace/trace.json.gz
@@ -788,13 +788,13 @@ jobs:
       VERCEL_TEAM: ctxpipe
       VERCEL_PROJECT: ctxpipe-previews
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Migrate backend schema
@@ -814,7 +814,7 @@ jobs:
         run: node scripts/ci/test-suite.mjs vercel $([ "$EVENT" = workflow_dispatch ] && echo --trace)
       - name: Preserve the Vercel results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-results-vercel
           # The Trace job reads the Vercel trace from lane-trace-vercel.
@@ -826,7 +826,7 @@ jobs:
       - name: Preserve the Vercel trace
         if: always() && github.event_name == 'workflow_dispatch'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lane-trace-vercel
           path: .ci-results/vercel/trace.json.gz
@@ -841,13 +841,13 @@ jobs:
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: 1.14.7
       # Providers download from GitHub releases, which can answer 500. The
       # cache keeps the locked providers, so most runs do not download.
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ github.workspace }}/.terraform-plugin-cache
           key: terraform-providers-${{ hashFiles('infra/.terraform.lock.hcl') }}
@@ -891,13 +891,13 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Apply migrations to an empty database
@@ -945,17 +945,17 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - uses: ./.github/actions/falkordb
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
       - name: Checkout of the previous release with its dependencies
@@ -970,11 +970,11 @@ jobs:
           pnpm install --frozen-lockfile --filter "@ctxpipe/backend..."
       - name: Restore native revision index tools
         id: zoekt
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/ctxpipe-zoekt
           key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: steps.zoekt.outputs.cache-hit != 'true'
         with:
           go-version: 1.25.12
@@ -1024,7 +1024,7 @@ jobs:
         run: cat .ci-results/checks/upgrade.log || true
       - name: Preserve the upgrade results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-results-upgrade
           path: .ci-results/
@@ -1032,7 +1032,7 @@ jobs:
           if-no-files-found: ignore
       - name: Preserve the upgrade trace
         if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lane-trace-upgrade
           path: ${{ runner.temp }}/upgrade-trace/trace.json.gz
@@ -1072,7 +1072,7 @@ jobs:
     outputs:
       mode: ${{ steps.mode.outputs.mode }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 2
           persist-credentials: false
@@ -1094,14 +1094,14 @@ jobs:
             > "$RUNNER_TEMP/merge-gate/mode.json"
           cat "$RUNNER_TEMP/merge-gate/mode.json"
           echo "mode=$(jq -r .mode "$RUNNER_TEMP/merge-gate/mode.json")" >> "$GITHUB_OUTPUT"
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
         with:
           bun-version: 1.4.4
@@ -1115,7 +1115,7 @@ jobs:
             > "$RUNNER_TEMP/merge-gate/toolchain.json"
       - name: Preserve the merge gate inputs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: merge-gate-inputs
           path: ${{ runner.temp }}/merge-gate/
@@ -1144,32 +1144,46 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      # Each step writes out/select-cause.txt before a part that can fail, so
+      # a failed job tells the decision why: the inputs, the role, the
+      # download, the hash, the exit code of the selector, or a timeout.
+      - name: Start the cause record
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          echo "the inputs of the manifest job did not download" > "$RUNNER_TEMP/out/select-cause.txt"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: merge-gate-inputs
           path: ${{ runner.temp }}/inputs
+      - name: Next cause
+        run: echo "the read-only role of the result store was not assumed" > "$RUNNER_TEMP/out/select-cause.txt"
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: arn:aws:iam::134416647419:role/check-results-gate-reader
           aws-region: us-west-2
       - name: Selector release, checked against the pin
         run: |
+          cause="$RUNNER_TEMP/out/select-cause.txt"
           version="$(jq -er .factory.version .github/merge-gate.json)"
           sha256="$(jq -er .factory.sha256 .github/merge-gate.json)"
+          echo "the download of the selector release $version failed" > "$cause"
           aws s3api get-object --bucket ctxpipe-factory-check-results-134416647419 \
             --expected-bucket-owner 134416647419 \
             --key "releases/factory/$version/factory-linux-x64.tar.gz" \
             "$RUNNER_TEMP/factory.tar.gz" > /dev/null
+          echo "the selector release does not match the pinned SHA-256" > "$cause"
           echo "$sha256  $RUNNER_TEMP/factory.tar.gz" | sha256sum --check --strict
+          echo "the selector release did not unpack" > "$cause"
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
       - name: Select (variant B, k = 3, no model step)
+        timeout-minutes: 3
         env:
           GH_TOKEN: ${{ github.token }}
           XDG_CACHE_HOME: ${{ runner.temp }}/cache
         run: |
           out="$RUNNER_TEMP/out"
-          mkdir -p "$out"
+          echo "the selector did not finish in 3 minutes" > "$out/select-cause.txt"
           # The newest nightly trace of main. Without one, the selector uses
           # variant A and says so in a note.
           "$RUNNER_TEMP/bin/factory" trace fetch --repo . || echo "No trace: variant A"
@@ -1177,20 +1191,27 @@ jobs:
           "$RUNNER_TEMP/bin/factory" check --repo . --base HEAD^1 --k 3 \
             --manifest "$RUNNER_TEMP/inputs/manifest.json" \
             --toolchain "$RUNNER_TEMP/inputs/toolchain.json" \
-            --cache-only --json > "$out/raw.json" || code=$?
+            --cache-only --json > "$RUNNER_TEMP/raw.json" || code=$?
           # 0: every selected check is a hit. 1: a check must run. 2: the
           # selection failed.
-          [ "$code" -le 1 ]
+          if [ "$code" -gt 1 ]; then
+            echo "the selector failed with exit code $code" > "$out/select-cause.txt"
+            exit 1
+          fi
           # The record is public: it keeps no self-reported writer of a hit.
-          head -n 1 "$out/raw.json" | jq -c 'del(.cache.hits[]?.provenance.who)' > "$out/selection.json"
-          rm "$out/raw.json"
+          # The raw output stays outside the uploaded directory.
+          echo "the selection record did not parse" > "$out/select-cause.txt"
+          head -n 1 "$RUNNER_TEMP/raw.json" | jq -c 'del(.cache.hits[]?.provenance.who)' > "$RUNNER_TEMP/selection.json"
+          mv "$RUNNER_TEMP/selection.json" "$out/selection.json"
+          rm "$out/select-cause.txt"
           find "$XDG_CACHE_HOME/factory/traces" -name '*.json.gz' -exec cp {} "$out/trace.json.gz" \; -quit || true
       - name: Preserve the selection
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: merge-gate-selection
           path: ${{ runner.temp }}/out/
-          if-no-files-found: error
+          if-no-files-found: ignore
 
   # Publishes the decision of each PR run: the job summary, the artifact
   # merge-gate-decision, and one PR comment that it updates. In shadow mode
@@ -1230,24 +1251,24 @@ jobs:
       actions: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
-      - uses: actions/download-artifact@v4
+          node-version-file: .node-version
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:
           pattern: merge-gate-*
           path: ${{ runner.temp }}/inputs
           merge-multiple: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:
           pattern: test-results-*
           path: ${{ runner.temp }}/results
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:
           pattern: storybook-*-results*
@@ -1259,9 +1280,15 @@ jobs:
           REPO: ${{ github.repository }}
           RUN: ${{ github.run_id }}
           ATTEMPT: ${{ github.run_attempt }}
+        # The jobs of the earlier attempts show the flakes: a job that failed
+        # in an earlier attempt and passed in this one.
         run: |
           gh api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" --paginate \
             --jq '.jobs[]' | jq -s '{jobs: .}' > "$RUNNER_TEMP/jobs.json"
+          for ((attempt = 1; attempt < ATTEMPT; attempt++)); do
+            gh api "repos/$REPO/actions/runs/$RUN/attempts/$attempt/jobs?per_page=100" --paginate \
+              --jq '.jobs[]'
+          done | jq -s '{jobs: .}' > "$RUNNER_TEMP/earlier.json"
       - name: Decision
         env:
           NEEDS: ${{ toJSON(needs) }}
@@ -1270,10 +1297,10 @@ jobs:
           node scripts/checks/gate.mjs shadow --config .github/merge-gate.json \
             --inputs "$RUNNER_TEMP/inputs" --results "$RUNNER_TEMP/results" \
             --needs "$RUNNER_TEMP/needs.json" --jobs "$RUNNER_TEMP/jobs.json" \
-            --out "$RUNNER_TEMP/decision"
+            --earlier "$RUNNER_TEMP/earlier.json" --out "$RUNNER_TEMP/decision"
           cat "$RUNNER_TEMP/decision/summary.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve the decision
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: merge-gate-decision
           path: |
