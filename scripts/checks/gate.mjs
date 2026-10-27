@@ -179,16 +179,31 @@ function parseYaml(text) {
     if (!long) {
       const line = parse(spaces.length, body)
       lines.push(line)
-      if (!/^\|-?$/.test(line.value ?? "")) continue
+      if (!/^\|-?$/.test(line.value ?? "")) {
+        // A folded scalar or an indicator (`>`, `|+`, `|2`) is not read.
+        if (/^[|>]/.test(line.value ?? ""))
+          throw new Error(`unsupported block scalar: ${body}`)
+        continue
+      }
       // A literal block scalar: its text is each next line that is blank or
-      // indented more than its key.
+      // indented more than its key. The first text line sets the indentation
+      // of the text, and a later line must not be indented less.
       line.value = undefined
       line.literal = ""
+      let textIndent
       while (
         i + 1 < raw.length &&
         (/^ *$/.test(raw[i + 1]) || raw[i + 1].startsWith(`${spaces} `))
-      )
-        line.literal += `${raw[++i]}\n`
+      ) {
+        const next = raw[++i]
+        if (!/^ *$/.test(next)) {
+          const indent = /^ */.exec(next)[0].length
+          textIndent ??= indent
+          if (indent < textIndent)
+            throw new Error(`unexpected indentation in a block scalar: ${body}`)
+        }
+        line.literal += `${next}\n`
+      }
       continue
     }
     const next = new RegExp(`^${spaces}: (.+)$`).exec(raw[++i] ?? "")

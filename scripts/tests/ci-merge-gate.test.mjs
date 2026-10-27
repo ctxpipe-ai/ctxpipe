@@ -617,6 +617,17 @@ test("pnpm-workspace.yaml forces a full run for a change outside the catalogs an
     reason(`${base}  react: [\n`),
     /^package file pnpm-workspace\.yaml: cannot parse: unsupported flow collection/,
   )
+  // A block scalar: the first text line sets the indentation of the text, and
+  // a folded scalar is not read.
+  assert.match(
+    reason(`${base}  x: |\n     a\n   b\n`),
+    /cannot parse: unexpected indentation in a block scalar/,
+  )
+  assert.match(
+    reason(`${base}  x: >\n     a\n`),
+    /cannot parse: unsupported block scalar/,
+  )
+  assert.equal(reason(`${base}  x: |-\n     a\n      b\n`), "shadow")
 })
 
 test("a lockfile change that the gate cannot verify as registry code forces a full run", () => {
