@@ -77,14 +77,18 @@ export function isZendeskId(value: string): boolean {
 const lineBreak = /\r\n|[\r\n\u2028\u2029]/
 
 /**
- * Text without control and format characters, except tab, line feed, and
- * carriage return. A format character (such as a bidi override or a
- * zero-width mark) can change how a reader or an agent sees the text. The
- * strip runs before the redaction, so that such a character cannot hide an
- * email address or a phone number from it.
+ * Text without control, format, and default-ignorable characters, except
+ * tab, line feed, and carriage return. Such a character (a bidi override, a
+ * zero-width mark, a variation selector, a Hangul filler) can change how a
+ * reader or an agent sees the text. The strip runs before the redaction, so
+ * that such a character cannot hide an email address or a phone number from
+ * it. A combining accent stays.
  */
 function withoutControlCharacters(text: string): string {
-  return text.replace(/(?![\t\n\r])[\p{Cc}\p{Cf}]/gu, "")
+  return text.replace(
+    /(?![\t\n\r])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu,
+    "",
+  )
 }
 
 /** The lines of customer text, split at every line end. */
@@ -108,19 +112,16 @@ const MAX_COMMENT_CHARS = 16 * 1024
 const MAX_LINE_CHARS = 2 * 1024
 
 /**
- * The start of the text up to `max` characters. The cut moves back to a
- * space or a line end, so that it cannot leave the start of an email
- * address that the redaction no longer recognizes.
+ * The start of the text up to `max` characters. The cut moves back to the
+ * last space or line end, so that no part of a word stays. A part of an
+ * email address, such as `jo.smith@example.`, is not an address to the
+ * redaction. Text with no space before the cut is dropped.
  */
 function startOf(text: string, max: number): { text: string; cut: boolean } {
   if (text.length <= max) return { text, cut: false }
   const head = text.slice(0, max)
-  const end = Math.max(
-    head.lastIndexOf(" "),
-    head.lastIndexOf("\n"),
-    head.lastIndexOf("\r"),
-    max - 512,
-  )
+  let end = head.length
+  while (end > 0 && !/\s/.test(head[end - 1] ?? "")) end -= 1
   return { text: head.slice(0, end), cut: true }
 }
 
@@ -199,7 +200,7 @@ function withoutUrlQueries(text: string): string {
   // characters.
   const starts = [
     ...text.matchAll(
-      /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/|(?<!\w)www\.|\]\(/gi,
+      /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/|(?<![a-z0-9])www\.|\]\(/gi,
     ),
   ].map((match) => match.index)
   const queryEnd = /[\s<>]|\]\(/g
@@ -376,7 +377,7 @@ function articleBodyMarkdown(html: string): string {
       }),
     },
   )
-  return withoutPrivateUrls(markdown)
+  return redactTicketText(withoutControlCharacters(markdown))
 }
 
 export function zendeskArticleFile(input: {
@@ -388,8 +389,8 @@ export function zendeskArticleFile(input: {
   const { article } = input
   if (!isZendeskId(article.id))
     throw new Error("A Zendesk article id must be a number")
-  const title = escapeLine(oneLine(article.title))
-  const slug = slugify(article.title).slice(0, 80) || "untitled"
+  const title = inlineTicketText(article.title)
+  const slug = slugify(title).slice(0, 80) || "untitled"
   const url = articleUrl(article.url, input.subdomain)
   const lines = [
     ...frontMatter([
@@ -407,12 +408,12 @@ export function zendeskArticleFile(input: {
     url ? `- Zendesk: [${title}](${url})` : `- Zendesk: ${title}`,
   ]
   if (article.sectionName)
-    lines.push(`- Section: ${escapeLine(oneLine(article.sectionName))}`)
+    lines.push(`- Section: ${inlineTicketText(article.sectionName)}`)
   if (article.authorName)
-    lines.push(`- Author: ${escapeLine(oneLine(article.authorName))}`)
+    lines.push(`- Author: ${inlineTicketText(article.authorName)}`)
   if (article.labels.length)
     lines.push(
-      `- Labels: ${article.labels.map((label) => escapeLine(oneLine(label))).join(", ")}`,
+      `- Labels: ${article.labels.map((label) => inlineTicketText(label)).join(", ")}`,
     )
   const body = articleBodyMarkdown(article.bodyHtml).trim()
   lines.push("", ...(body ? [body, ""] : []))

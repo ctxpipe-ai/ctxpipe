@@ -697,3 +697,183 @@ describe("one-line fields of an article file", () => {
     expect(lines).toContain("- Labels: a \\# Fake label, b")
   })
 })
+
+describe("security re-review: probes on the real file functions", () => {
+  const ticketOf = (
+    text: string,
+    fields: Partial<ZendeskTicketForMirror> = {},
+  ) =>
+    zendeskTicketFile({
+      viewId: "1",
+      ticket: {
+        ...ticket,
+        comments: [
+          {
+            authorName: "Alex",
+            createdAt: null,
+            public: true,
+            body: text,
+            attachments: [],
+          },
+        ],
+        ...fields,
+      },
+    }).content
+  const articleOf = (fields: Partial<ZendeskArticleForMirror>) =>
+    zendeskArticleFile({
+      subdomain: "acme",
+      categoryId: "1",
+      article: { ...article, ...fields },
+    }).content
+
+  describe("invisible characters", () => {
+    const invisible = [
+      "️",
+      "\u{e0100}",
+      "᠋",
+      "ᅟ",
+      "ᅠ",
+      "ㅤ",
+      "ﾠ",
+      "឴",
+      "͏",
+      "​",
+      "⁠",
+      "﻿",
+    ]
+
+    it.each(
+      invisible.map(
+        (mark) =>
+          [mark.codePointAt(0)?.toString(16).toUpperCase(), mark] as const,
+      ),
+    )(
+      "does not let U+%s hide an email address or a phone number",
+      (_code, mark) => {
+        const text = `Mail jo.smith${mark}@example.com or call +61${mark} 412 345 678`
+        for (const content of [
+          ticketOf(text),
+          ticketOf("x", { subject: text }),
+          ticketOf("x", { requesterName: text }),
+        ]) {
+          expect(content).not.toContain("jo.smith")
+          expect(content).not.toContain("@example")
+          expect(content).not.toMatch(/412\D*345\D*678/)
+        }
+      },
+    )
+
+    it("keeps a combining accent", () => {
+      expect(ticketOf("café menu")).toContain("> café menu")
+    })
+  })
+
+  describe("a length cut after the redaction made the text shorter", () => {
+    const address = "jo.smith@example.com"
+    // The cut moves back at most 512 characters. A run with no space
+    // leaves the cut at that fallback point, so sweep the address over it.
+    it.each([
+      ["a comment", 16 * 1024, (text: string) => ticketOf(text)],
+      [
+        "a subject",
+        2 * 1024,
+        (text: string) => ticketOf("x", { subject: text }),
+      ],
+    ])("keeps no fragment of an address in %s", (_name, max, render) => {
+      for (const filler of ["(", "<a>"]) {
+        for (let shift = 0; shift <= address.length + 2; shift += 1) {
+          const start = max - 512 - shift
+          const text = `${filler.repeat(Math.ceil(start / filler.length)).slice(0, start)}${address}${"z".repeat(max)}`
+          const content = render(text)
+          expect(content).not.toMatch(/jo\.smith|@example|smith@/)
+        }
+      }
+    })
+
+    it("keeps no fragment after long credential links", () => {
+      const link = `https://f.example.com/${"p".repeat(300)}?token=SECRET2`
+      for (let shift = 0; shift <= address.length + 2; shift += 1) {
+        const links = `<${link}>`.repeat(
+          Math.floor((16 * 1024 - 512) / (link.length + 2)),
+        )
+        const pad = "<".repeat(
+          Math.max(0, 16 * 1024 - 512 - shift - links.length),
+        )
+        const content = ticketOf(`${links}${pad}${address}${"z".repeat(600)}`)
+        expect(content).not.toMatch(/jo\.smith|@example|smith@|SECRET2/)
+      }
+    })
+  })
+
+  describe("a URL query that a character entity hides", () => {
+    it.each(["&apos;", "&quot;", "&amp;", "&lt;", "&gt;", "&#39;"])(
+      "removes the query after %s",
+      (entity) => {
+        const content = ticketOf(
+          `See https://f.example.com/a${entity}?token=SECRET4 and https://f.example.com/b${entity}?x=SECRET4B`,
+        )
+        expect(content).not.toContain("SECRET4")
+      },
+    )
+  })
+
+  describe("www after a Markdown mark", () => {
+    it.each(["_", "*", "~", "(", "[", '"', "'", ">"])(
+      "removes the query of www. after %s",
+      (mark) => {
+        const content = ticketOf(
+          `${mark}www.f.example.com/l?token=SECRET3_ ${mark}www.f.example.com/m?x=SECRET3B${mark}`,
+        )
+        expect(content).not.toContain("SECRET3")
+      },
+    )
+  })
+
+  describe("scheme case", () => {
+    it.each([
+      "HTTPS://f.example.com/l?token=SECRET5",
+      "hTTpS://f.example.com/l?token=SECRET5",
+      "HTTP://f.example.com/l?token=SECRET5",
+      "WWW.f.example.com/l?token=SECRET5",
+      "wWw.f.example.com/l?x=SECRET5",
+      "[a](HTTPS://f.example.com/l?token=SECRET5)",
+      "<HTTPS://f.example.com/l?token=SECRET5>",
+    ])("removes the query of %s", (text) => {
+      expect(ticketOf(text)).not.toContain("SECRET5")
+      expect(ticketOf("x", { subject: text })).not.toContain("SECRET5")
+    })
+  })
+
+  describe("the article path", () => {
+    it("removes a credential parameter with a zero-width space", () => {
+      const content = articleOf({
+        bodyHtml:
+          '<p>See <a href="https://f.example.com/l?to​ken=SECRET7">file</a> and https://f.example.com/m?to​ken=SECRET7</p>',
+      })
+      expect(content).not.toContain("SECRET7")
+    })
+
+    it("removes a credential URL in the title", () => {
+      const content = articleOf({
+        title: "Get https://f.example.com/l?token=SECRET8 now",
+      })
+      expect(content).not.toContain("SECRET8")
+    })
+
+    it("removes an email address and a phone number in the title and the body", () => {
+      const content = articleOf({
+        title: "Write jo.smith@example.com",
+        bodyHtml: "<p>Call +61 412 345 678 or jo.smith@example.com</p>",
+      })
+      expect(content).not.toContain("jo.smith")
+      expect(content).not.toMatch(/412\D*345\D*678/)
+    })
+
+    it("removes the query of a plain URL in the body", () => {
+      const content = articleOf({
+        bodyHtml: "<p>Open https://f.example.com/l?sig=SECRET9</p>",
+      })
+      expect(content).not.toContain("SECRET9")
+    })
+  })
+})
