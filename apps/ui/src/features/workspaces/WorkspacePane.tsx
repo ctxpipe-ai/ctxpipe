@@ -48,6 +48,8 @@ import {
   workspaceGraphBuilding,
   workspaceGraphOptions,
 } from "./queries"
+import { useSettingsPrototypeVariant } from "./settings-prototype/prototype-variant"
+import { WorkspaceSettingsPrototype } from "./settings-prototype/WorkspaceSettingsPrototype"
 import type { WorkspaceDetail, WorkspaceStorePhase } from "./types"
 import {
   ConversationCtaActions,
@@ -106,6 +108,7 @@ export function WorkspacePane(props: {
   cta?: ConversationCtaChrome | null
 }) {
   const queryClient = useQueryClient()
+  const settingsVariant = useSettingsPrototypeVariant()
   const markExplored = useMarkWorkspaceExplored(props.orgSlug)
   const urlPaneKey = serializePane(props.pane)
   const [pane, setPane] = useUrgentValue(props.pane, urlPaneKey)
@@ -451,7 +454,20 @@ export function WorkspacePane(props: {
                 />
               </ClientOnly>
             ) : null}
-            {pane.kind === "settings" ? (
+            {pane.kind === "settings" &&
+            settingsVariant &&
+            settingsVariant !== "current" ? (
+              // PROTOTYPE: only the prototype stories set a variant.
+              <WorkspaceSettingsPrototype
+                variant={settingsVariant}
+                orgSlug={props.orgSlug}
+                workspace={props.workspace}
+                onOpenFile={openFile}
+                {...(props.onFixWithAgent
+                  ? { onFixWithAgent: props.onFixWithAgent }
+                  : {})}
+              />
+            ) : pane.kind === "settings" ? (
               <WorkspaceSettingsPane
                 orgSlug={props.orgSlug}
                 workspace={props.workspace}

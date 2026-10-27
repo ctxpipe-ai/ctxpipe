@@ -38,7 +38,8 @@
     "changeset": "changeset",
     "ci:version": "changeset version",
     "ci:prerelease": "changeset version --snapshot \"$SNAPSHOT_TAG\" && pnpm -r --filter \"./packages/*\" run --if-present build && pnpm -r --filter \"./packages/*\" run --if-present test && changeset publish --no-git-tag --tag \"$SNAPSHOT_TAG\"",
-    "release": "pnpm -r --filter \"./packages/*\" run --if-present build && pnpm -r --filter \"./packages/*\" run --if-present test && changeset publish"
+    "release": "pnpm -r --filter \"./packages/*\" run --if-present build && pnpm -r --filter \"./packages/*\" run --if-present test && changeset publish",
+    "prototype:settings": "pnpm --filter @ctxpipe/ui exec storybook dev -p 6012 --host 127.0.0.1 --initial-path=/story/pages-prototype-workspace-settings--busy-day"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.7",
