@@ -64,7 +64,7 @@ Register callback and webhook URLs against your public origin.
 | Notion webhook | `{AUTH_BASE_URL}/api/v1/webhook/notion?provisioningToken=...` |
 | PagerDuty OAuth | `{AUTH_BASE_URL}/api/v1/integrations/pagerduty/callback` |
 | PagerDuty webhook | `{AUTH_BASE_URL}/api/v1/webhook/pagerduty` |
-| Plain webhook (ctx\| creates the target) | `{AUTH_BASE_URL}/api/v1/webhook/plain/<connectionId>` |
+| Plain webhook (ctxpipe creates the target) | `{AUTH_BASE_URL}/api/v1/webhook/plain/<connectionId>` |
 | MCP | `{AUTH_BASE_URL}/mcp` |
 | App auth | `/.auth/*` routes under `AUTH_BASE_URL` |
 
@@ -161,6 +161,9 @@ Before inviting users:
   ctxpipe creates the webhook subscription after authorization.
 - Confirm backend and worker can reach `identity.pagerduty.com` and
   `api.pagerduty.com` or `api.eu.pagerduty.com`.
+- If using Plain, confirm backend and worker can reach
+  `core-api.uk.plain.com`. Plain posts webhooks only to a public HTTPS URL.
+  Without one, Plain sources use the daily sync and **Sync now**.
 - Confirm the worker can run connector jobs.
 - Confirm `codesearch` can clone the expected repositories.
 - Confirm model provider credentials work for both chat and embedding calls.
