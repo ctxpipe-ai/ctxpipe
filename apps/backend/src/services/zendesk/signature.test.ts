@@ -1,12 +1,11 @@
 import { createHmac } from "node:crypto"
 
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { verifyZendeskWebhookSignature } from "./signature.js"
 
 const secret = "webhook-signing-secret"
 const rawBody = Buffer.from('{"type":"zen:event-type:article.published"}')
-const nowMs = Date.parse("2026-10-14T00:00:00Z")
 const timestamp = "2026-10-14T00:00:00Z"
 
 const sign = (body: Buffer, at = timestamp, key = secret) =>
@@ -24,10 +23,18 @@ const verify = (
     signature,
     timestamp: at,
     secret,
-    nowMs,
   })
 
 describe("verifyZendeskWebhookSignature", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-14T00:00:00Z"))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it("accepts a base64 HMAC of the timestamp and the raw body", () => {
     expect(verify(sign(rawBody))).toBe(true)
   })

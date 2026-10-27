@@ -3,6 +3,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { formatUnknownError } from "../../db/transientDbRetry.js"
+import { isZendeskSubdomain } from "../../lib/connection-config.js"
 import {
   createZendeskDraft,
   deleteZendeskConnection,
@@ -28,7 +29,6 @@ import {
   createZendeskOAuthState,
   createZendeskPkcePair,
   exchangeZendeskCode,
-  isZendeskSubdomain,
   verifyZendeskOAuthState,
   ZendeskAuthorizationRevokedError,
   zendeskAuthorizeUrl,

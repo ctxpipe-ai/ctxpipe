@@ -13,13 +13,12 @@ export function verifyZendeskWebhookSignature(input: {
   signature: string | undefined
   timestamp: string | undefined
   secret: string
-  nowMs?: number
 }): boolean {
   if (!input.signature || !input.timestamp) return false
   const sentMs = Date.parse(input.timestamp)
   if (
     Number.isNaN(sentMs) ||
-    Math.abs((input.nowMs ?? Date.now()) - sentMs) > MAX_SIGNATURE_AGE_MS
+    Math.abs(Date.now() - sentMs) > MAX_SIGNATURE_AGE_MS
   )
     return false
   const expected = Buffer.from(

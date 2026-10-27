@@ -847,17 +847,17 @@ export const zendeskSourceSyncSchema = z.object({
 })
 export type ZendeskSourceSync = z.infer<typeof zendeskSourceSyncSchema>
 
+/** A Zendesk subdomain. It goes into a host name, so it must be strict. */
+export function isZendeskSubdomain(value: string): boolean {
+  return /^[a-z0-9][a-z0-9-]{0,62}$/.test(value)
+}
+
 /**
  * Stored in `connections.config` for `type === "zendesk"` (ADR-058). A
  * self-host admin saves a local OAuth client on the row; hosted ctxpipe uses
  * its global OAuth client from env (`ZENDESK_CLIENT_*`). Tokens and the
  * webhook signing secret are encrypted.
  */
-/** A Zendesk subdomain. It goes into a host name, so it must be strict. */
-export function isZendeskSubdomain(value: string): boolean {
-  return /^[a-z0-9][a-z0-9-]{0,62}$/.test(value)
-}
-
 export const zendeskConnectionConfigStoredSchema = z.object({
   subdomain: z.string().refine(isZendeskSubdomain),
   status: z.enum(["pending", "installed", "revoked"]),

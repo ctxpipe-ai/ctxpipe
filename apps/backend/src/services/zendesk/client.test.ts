@@ -350,6 +350,31 @@ describe("listZendeskViewTickets", () => {
     ])
     expect(tickets).toMatchObject([{ id: "13" }])
   })
+
+  it("stops at 10 pages of comments for one ticket, and marks the ticket as cut", async () => {
+    let commentRequests = 0
+    server.use(
+      http.get(`${API}/views/90/tickets`, () =>
+        HttpResponse.json({ tickets: [{ id: 14, status: "open" }] }),
+      ),
+      http.get(`${API}/tickets/14/comments`, () => {
+        commentRequests += 1
+        return HttpResponse.json({
+          comments: [{ id: commentRequests, public: true, plain_body: "hi" }],
+          meta: { has_more: true },
+          links: { next: `${API}/tickets/14/comments?page[after]=x` },
+        })
+      }),
+    )
+
+    const tickets = await listZendeskViewTickets({ ...ctx, viewId: "90" })
+
+    expect(commentRequests).toBe(10)
+    expect(tickets).toHaveLength(1)
+    const comments = tickets[0]?.comments ?? []
+    expect(comments).toHaveLength(11)
+    expect(comments.at(-1)?.body).toBe("[More comments in Zendesk.]")
+  })
 })
 
 describe("createZendeskArticleWebhook", () => {

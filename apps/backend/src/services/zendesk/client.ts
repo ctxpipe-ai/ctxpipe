@@ -85,10 +85,15 @@ async function readPages<T extends z.ZodTypeAny>(
   first: URL,
   schema: T,
   what: string,
+  limit?: { pages: number; onCap: () => void },
 ): Promise<Array<z.infer<T>> | "not_found" | "forbidden"> {
   const pages: Array<z.infer<T>> = []
   let url: URL | null = first
   while (url) {
+    if (limit && pages.length >= limit.pages) {
+      limit.onCap()
+      break
+    }
     const response = await zendeskRequest(auth, url)
     if (!pages.length && response.status === 404) return "not_found"
     if (!pages.length && response.status === 403) return "forbidden"
@@ -104,6 +109,9 @@ async function readPages<T extends z.ZodTypeAny>(
   }
   return pages
 }
+
+/** Zendesk pages of comments that one ticket file reads. */
+const ZENDESK_COMMENT_PAGES_PER_TICKET = 10
 
 const id = z.union([z.number(), z.string()]).transform(String)
 const nullableString = z.string().nullish().default(null)
@@ -242,7 +250,9 @@ const commentPageSchema = z.object({
 /**
  * The most recently updated tickets of one view, with their comments.
  * Zendesk has no bulk comment read for a list of tickets, so each ticket
- * is one more request (the count is capped by ZENDESK_TICKETS_PER_VIEW).
+ * is at least one more request (the ticket count is capped by
+ * ZENDESK_TICKETS_PER_VIEW, and the pages of one ticket by
+ * ZENDESK_COMMENT_PAGES_PER_TICKET).
  */
 export async function listZendeskViewTickets(
   input: ZendeskAuth & { viewId: string },
@@ -266,6 +276,7 @@ export async function listZendeskViewTickets(
   for (const ticket of tickets) {
     // The id goes into the request path, so only a numeric id is read.
     if (!isZendeskId(ticket.id)) continue
+    let cut = false
     const pages = await readPages(
       input,
       apiUrl(input, `/tickets/${ticket.id}/comments`, {
@@ -274,6 +285,12 @@ export async function listZendeskViewTickets(
       }),
       commentPageSchema,
       "comment list",
+      {
+        pages: ZENDESK_COMMENT_PAGES_PER_TICKET,
+        onCap: () => {
+          cut = true
+        },
+      },
     )
     // A ticket deleted since the view read has no comments to show.
     if (typeof pages === "string") continue
@@ -296,19 +313,33 @@ export async function listZendeskViewTickets(
         : null,
       createdAt: ticket.created_at,
       updatedAt: ticket.updated_at,
-      comments: pages.flatMap((page) => {
-        return page.comments.map((comment) => ({
-          authorName: comment.author_id
-            ? (users.get(comment.author_id) ?? null)
-            : null,
-          createdAt: comment.created_at,
-          public: comment.public,
-          body: comment.plain_body ?? "",
-          attachments: (comment.attachments ?? []).map(
-            (attachment) => attachment.file_name,
-          ),
-        }))
-      }),
+      comments: [
+        ...pages.flatMap((page) => {
+          return page.comments.map((comment) => ({
+            authorName: comment.author_id
+              ? (users.get(comment.author_id) ?? null)
+              : null,
+            createdAt: comment.created_at,
+            public: comment.public,
+            body: comment.plain_body ?? "",
+            attachments: (comment.attachments ?? []).map(
+              (attachment) => attachment.file_name,
+            ),
+          }))
+        }),
+        // A cut list must never look complete.
+        ...(cut
+          ? [
+              {
+                authorName: null,
+                createdAt: null,
+                public: true,
+                body: "[More comments in Zendesk.]",
+                attachments: [],
+              },
+            ]
+          : []),
+      ],
     })
   }
   return result

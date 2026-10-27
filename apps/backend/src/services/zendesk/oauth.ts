@@ -24,8 +24,6 @@ const ZENDESK_OAUTH_SCOPES = [
   "webhooks:write",
 ] as const
 
-export { isZendeskSubdomain } from "../../lib/connection-config.js"
-
 export function zendeskRedirectUri(env: Env): string {
   return `${env.AUTH_BASE_URL.replace(/\/$/, "")}/api/v1/integrations/zendesk/callback`
 }

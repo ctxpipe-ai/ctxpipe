@@ -2,4 +2,4 @@
 "@ctxpipe/aws-cdk": minor
 ---
 
-Add the optional `zendeskClientId` and `zendeskClientSecret` fields to `connectorSecrets`. The hosted ctxpipe deployment uses them for its Zendesk global OAuth client. A self-hosted deployment usually leaves them empty and saves a local OAuth client in the ctxpipe setup; it can also set them to use one client for every connection. The stack passes both values to the backend and the worker.
+Add the optional `zendeskClientId` and `zendeskClientSecret` fields to `connectorSecrets`. Set them to let a self-hosted AWS deployment use one Zendesk OAuth client for every connection. Without them, an organization owner or admin saves a local OAuth client in the ctxpipe setup. The stack passes both values to the backend and the worker.

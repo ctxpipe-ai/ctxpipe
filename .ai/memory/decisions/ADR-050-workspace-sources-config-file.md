@@ -87,9 +87,11 @@ Common front matter keys of every source file:
 
 | Key | Type | Rule |
 | --- | --- | --- |
-| `provider` | `github` \| `confluence` \| `linear` \| `notion` \| `slack` \| `pagerduty` | Required. Equal to the provider folder of the path. |
+| `provider` | `github` \| `confluence` \| `linear` \| `notion` \| `slack` \| `pagerduty` \| `zendesk` | Required. Equal to the provider folder of the path. |
 | `connection` | string `con_…` | Required. A connection of the org, of the type of the provider. |
 | scope keys | see below | The other keys. The scope schema of the provider is strict: an unknown key makes the row `invalid`. |
+
+The scope of `zendesk` is in [ADR-058](ADR-058-zendesk-connector-sources-only.md).
 
 `id` and `kind` are not allowed: the path is the id, and the folder gives the kind. The whole file is at most 64 KiB. The body is free Markdown. The projection does not read it.
 
