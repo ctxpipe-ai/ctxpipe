@@ -46,6 +46,8 @@ const pl = {
   workspaceId: "w_1",
   /** A message to refuse the next webhook target with. */
   refuseTarget: null as string | null,
+  /** Plain refuses the key, as after an admin deletes it. */
+  rejectKey: false,
   createdTargets: [] as Array<{
     url: string
     headers: Array<{ name: string; value: string }>
@@ -60,7 +62,10 @@ const page = <T>(nodes: T[]) => ({
 
 const server = setupServer(
   http.post("https://core-api.uk.plain.com/graphql/v1", async ({ request }) => {
-    if (request.headers.get("authorization") !== `Bearer ${GOOD_KEY}`)
+    if (
+      pl.rejectKey ||
+      request.headers.get("authorization") !== `Bearer ${GOOD_KEY}`
+    )
       return new HttpResponse(null, { status: 401 })
     const { operationName, variables } = (await request.json()) as {
       operationName: string
@@ -206,6 +211,7 @@ describe("Plain connector routes (Postgres + msw)", () => {
     server.resetHandlers()
     pl.workspaceId = "w_1"
     pl.refuseTarget = null
+    pl.rejectKey = false
     pl.createdTargets.length = 0
     pl.deletedTargets.length = 0
   })
@@ -338,6 +344,20 @@ describe("Plain connector routes (Postgres + msw)", () => {
       helpCenters: [{ id: "hc_1", name: "Docs" }],
       labels: [{ id: "lt_1", name: "Bug" }],
     })
+  })
+
+  it("marks the connection revoked when Plain refuses the key for the catalog", async () => {
+    const { connectionId } = await connected()
+    pl.rejectKey = true
+
+    const res = await request(`/plain/catalog?connectionId=${connectionId}`)
+
+    expect(res.status).toBe(400)
+    expect(
+      (await request(`/plain/status?connectionId=${connectionId}`).then((r) =>
+        r.json(),
+      )) as { status: string },
+    ).toMatchObject({ status: "revoked" })
   })
 
   it("removes the webhook target, the connection, and its directory row", async () => {

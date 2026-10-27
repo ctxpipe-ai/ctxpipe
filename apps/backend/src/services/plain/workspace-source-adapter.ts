@@ -252,7 +252,14 @@ export const plainSourceAdapter: SourceAdapter<PlainSourceScope> = {
       }
       return problems.length ? problems.join("; ") : null
     } catch (error) {
-      if (error instanceof PlainUnauthorizedError) return RECONNECT_DETAIL
+      if (error instanceof PlainUnauthorizedError) {
+        await markPlainConnectionRevoked({
+          orgId,
+          connectionId,
+          apiKeyEnc: connection.apiKeyEnc,
+        })
+        return RECONNECT_DETAIL
+      }
       throw error
     }
   },

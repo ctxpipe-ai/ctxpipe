@@ -8,6 +8,7 @@ import { formatUnknownError } from "../../db/transientDbRetry.js"
 import {
   deletePlainConnection,
   getPlainConnection,
+  markPlainConnectionRevoked,
   type PlainConnection,
   savePlainConnection,
   savePlainWebhookTarget,
@@ -237,8 +238,14 @@ export const plainConnectorRoutes = new OpenAPIHono<AppEnv>()
       ])
       return c.json({ helpCenters, labels }, 200)
     } catch (caught) {
-      if (caught instanceof PlainUnauthorizedError)
+      if (caught instanceof PlainUnauthorizedError) {
+        await markPlainConnectionRevoked({
+          orgId,
+          connectionId,
+          apiKeyEnc: connection.apiKeyEnc,
+        })
         return c.json({ error: RECONNECT_MESSAGE }, 400)
+      }
       throw caught
     }
   })
