@@ -206,13 +206,26 @@ export const prerequisites = {
       required("MODEL_PROVIDER", workbenchFix)
       required("MODEL_PROVIDER_API_KEY", workbenchFix)
       const models = required("MCP_EVAL_MODELS", workbenchFix)
-      const { gateThresholds } = await import("../../apps/backend/evals/mcp/gate.ts")
+      const { gateThresholds } =
+        await import("../../apps/backend/evals/mcp/gate.ts")
       if (
         new Set(models.split(",").filter(Boolean)).size <
         gateThresholds.minModels
       )
         throw new Error(
           `MCP_EVAL_MODELS names fewer than ${gateThresholds.minModels} models. ${workbenchFix}`,
+        )
+    },
+  },
+  // The environment of terraform-plan-pr.yaml: the Terraform CLI and the
+  // keys of the remote state.
+  "terraform-plan": {
+    prepare: () => {
+      quiet("terraform", ["version"], "Install Terraform 1.14.7.")
+      for (const name of ["R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"])
+        required(
+          name,
+          "Set the state keys of the terraform-plan environment (GitHub Environment terraform-plan).",
         )
     },
   },

@@ -23,13 +23,10 @@ export const storybookBuildMinutes = 1.2
 
 // Where each check runs, by `<family>:<lane>` or else `<family>`: `job` is
 // the job of today's full run, `profile` the profile job of a gated run.
-// A check without an entry (an eval, the latency check), or with a `null`
-// entry, has its own workflow.
+// A check without an entry (an eval, the latency check) has its own workflow.
 const runsIn = {
   lint: { job: "lint", profile: "project" },
   policy: { job: "lint", profile: "project" },
-  // claude-plugin-test.yaml runs it, not the Lint and format job.
-  "policy:claude-plugin": null,
   typecheck: { job: "typecheck", profile: "project" },
   "storybook:golden": { job: "storybook-golden", profile: "storybook" },
   storybook: { job: "storybook-plays", profile: "storybook" },
@@ -48,15 +45,12 @@ const runsIn = {
 }
 
 // The jobs of today's full run that run a check.
-export const checkJobs = new Set(
-  Object.values(runsIn).flatMap((run) => (run ? [run.job] : [])),
-)
+export const checkJobs = new Set(Object.values(runsIn).map((run) => run.job))
 
 // The job and the profile of a check id, or undefined.
 export function runsInOf(id) {
   const [family, lane] = id.split(":")
-  const own = runsIn[`${family}:${lane}`]
-  return own === undefined ? runsIn[family] : (own ?? undefined)
+  return runsIn[`${family}:${lane}`] ?? runsIn[family]
 }
 
 // The seconds of each check of a trace: the sum of its case times, or its

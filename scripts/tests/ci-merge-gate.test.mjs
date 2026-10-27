@@ -793,10 +793,6 @@ test("the shards of each profile hold about five minutes, up to today's shard co
   assert.equal(shardMinutes({ node: [{ ids: [], seconds: 60 }] }), 1.3)
   assert.equal(runsInOf("eval:mcp:x"), undefined)
   assert.equal(runsInOf("vitest:latency:x"), undefined)
-  assert.equal(
-    runsInOf("policy:claude-plugin:scripts/ci/check-claude-plugin.mjs"),
-    undefined,
-  )
   assert.deepEqual(runsInOf("policy:runners:scripts/ci/check-runners.mjs"), {
     job: "lint",
     profile: "project",

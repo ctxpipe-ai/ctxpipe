@@ -56,7 +56,7 @@ jobs:
           src/auth/oauth-organization.test.ts
           src/auth/withAuth.test.ts
           src/routes/auth.test.ts
-          src/routes/mcp.test.ts
+          src/routes/mcp.integration.test.ts
           src/routes/mcp.conformance.test.ts
           src/mcp/transport.test.ts
 
@@ -78,17 +78,3 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: pnpm --filter @ctxpipe/ui test
-
-  package:
-    timeout-minutes: 15
-    name: Validate and install package
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-      # The check policy:claude-plugin of the check manifest runs the same
-      # script (scripts/checks/README.md).
-      - name: Validate and install the plugin
-        run: node scripts/ci/check-claude-plugin.mjs

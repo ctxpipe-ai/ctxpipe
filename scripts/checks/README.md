@@ -38,15 +38,14 @@ Some checks also run in a workflow other than `ci.yaml`. These workflows stay un
 | `cli-test.yaml` | `ctxpipe-cli` | the `vitest:cli` lane |
 | `claude-plugin-test.yaml` | `backend` | its files in the `vitest:backend` lane |
 | `claude-plugin-test.yaml` | `ui` | the `vitest:ui` lane |
-| `claude-plugin-test.yaml` | `package` | `policy:claude-plugin:scripts/ci/check-claude-plugin.mjs` |
 | `mcp-evals.yaml` | `evals` | the `eval:mcp` cases |
-| `terraform-plan-pr.yaml` | `terraform-plan` | none |
+| `terraform-plan-pr.yaml` | `terraform-plan` | `policy:terraform-plan:infra/main.tf` |
 | `ingestion-v2-proof.yaml` | `proof` | none |
 | `mcp-evals-reminder.yaml` | `remind` | none |
 
-- The `claude-plugin` check runs in `claude-plugin-test.yaml`, not in the Lint and format job. It needs the network: `npx` downloads the pinned Claude Code.
-- The Terraform plan has no check. Its result comes from the remote Terraform state, not only from the repo files, so a result cache cannot key it. It needs the `terraform-plan` environment and it writes a PR comment. The `ci.yaml` Terraform job, which runs on each pull request, validates the code.
-- The ingestion proof has no check. Only the CTO starts it by hand, and it spends model money on real repositories.
+- The `claude-plugin` check runs as a step of the Lint and format job of `ci.yaml`. It needs the network: `npx` downloads the pinned Claude Code. `claude-plugin-test.yaml` has no job for it.
+- The Terraform plan is a `stochastic` check: its result comes from the remote Terraform state, so a result cache never reuses it. Its inputs are `infra/**`, so a selector selects it when a Terraform file changes. It has the `terraform-plan` prerequisite: the Terraform CLI and the state keys (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`) of the `terraform-plan` environment. The check does not write the PR comment; the workflow does. The `ci.yaml` Terraform job, which runs on each pull request, validates the code.
+- The ingestion proof has no check. It needs a Compose `deploy` stack, a Workspace repository and the repository list from the workbench secrets, and the script `scripts/ci/ingestion-v2-proof.sh` reads them from the workflow. Listing it needs a runner that starts that stack, which is more than a command. Only the CTO starts it by hand, and it spends model money on real repositories.
 - The reminder has no check. It only writes a PR comment.
 
 ## Intent
@@ -73,6 +72,7 @@ A check lists its `prerequisites` by name. Before the checks run, the runner mak
 | `storybook-build` | builds Storybook; with `SKIP_STORYBOOK_BUILD=1` (CI downloads the build), verifies only that it exists |
 | `previous-release` | verifies `RELEASE_TREE`, a checkout of the previous release with its dependencies |
 | `workbench` | verifies `MODEL_PROVIDER`, `MODEL_PROVIDER_API_KEY` and `MCP_EVAL_MODELS` (at least the gate minimum of models): the evals spend money, so they run only with the `workbench` environment |
+| `terraform-plan` | verifies the Terraform CLI and the state keys of the `terraform-plan` environment |
 | `codesearch-server` | verifies that `CODESEARCH_URL` answers |
 | `mcp-server` | verifies that the backend of this checkout answers at `AUTH_BASE_URL` + `/mcp` |
 | `aws-cdk-image-tag`, `aws-cdk-build`, `docs-mdx` | makes the generated files that a typecheck needs |
