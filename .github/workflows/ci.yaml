@@ -1470,7 +1470,7 @@ jobs:
               {
                 echo
                 echo "Failed checks that the rerun skipped (limit of 50), so their keys are not confirmed:"
-                cat "$list"
+                cat -v "$list"
               } >> "$RUNNER_TEMP/store.txt"
             done
           if grep -q '^AUDIT FAILED' "$RUNNER_TEMP/store.txt"; then
