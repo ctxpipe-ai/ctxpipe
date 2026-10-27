@@ -217,9 +217,20 @@ export function gatedVerdict({
 
 // The failed checks of the full run that the gated run would not run, and why.
 // A failed check has a failed record, or a failed step of the Lint and format
-// job.
-export function escapes({ selection, records, gated, steps = new Map() }) {
+// job. A check that the gated run would run also fails with an error record or
+// without a record, as in the gated verdict. An omitted check or a hit with an
+// error record or without a record is `unverified`: the full run did not prove
+// it, and the gated run would not run it.
+export function escapes({
+  selection,
+  records,
+  gated,
+  result,
+  steps = new Map(),
+}) {
   const ran = new Set(gated.ran.map((item) => item.id))
+  const unproved = (status) =>
+    status === "error" || status.startsWith("missing result")
   const hits = new Map(gated.hits.map((item) => [item.id, item]))
   const omitted = new Map(selection.omitted.map((item) => [item.id, item]))
   const known = [...selection.selected, ...selection.omitted].map(
@@ -236,8 +247,17 @@ export function escapes({ selection, records, gated, steps = new Map() }) {
       ...known.filter((id) =>
         failedSteps.some((prefix) => id.startsWith(prefix)),
       ),
+      ...gated.ran
+        .filter((item) => unproved(item.result))
+        .map((item) => item.id),
     ]),
   ].sort()
+  const unverified = [
+    ...gated.hits.map((item) => ({ id: item.id, result: item.fullRun })),
+    ...selection.omitted.map(({ id }) => ({ id, result: result(id) })),
+  ]
+    .filter((item) => !failed.includes(item.id) && unproved(item.result))
+    .sort((a, b) => a.id.localeCompare(b.id))
   return {
     failed: failed.length,
     ran: failed.filter((id) => ran.has(id)).length,
@@ -251,6 +271,7 @@ export function escapes({ selection, records, gated, steps = new Map() }) {
             ? `omitted: ${omitted.get(id).reason}`
             : "not in the selection (stochastic or not in the manifest)",
       })),
+    unverified,
   }
 }
 
@@ -451,8 +472,7 @@ export function shadow({ config, inputs, records, needs, jobs, earlier, run }) {
       ? readFileSync(path, "utf8").trim().slice(0, 200)
       : ""
     fallback = `selector unavailable: ${cause || `select job ${select ?? "did not run"}`}`
-  }
-  else {
+  } else {
     const errors = schemaErrors(selection, "selection.v1", 1)
     if (errors.length)
       fallback = `selector unavailable: the record does not match the schema (${errors[0]})`
@@ -485,7 +505,7 @@ export function shadow({ config, inputs, records, needs, jobs, earlier, run }) {
   const hitClasses = {}
   for (const hit of selection.cache?.hits ?? [])
     hitClasses[hit.source] = (hitClasses[hit.source] ?? 0) + 1
-  const recall = escapes({ selection, records, gated, steps })
+  const recall = escapes({ selection, records, gated, result, steps })
   // Compares a full-run failure with a gated-run failure: `agree`, `escape`
   // (only the full run failed) or `false failure` (only the gated run failed).
   const agreement = (fullFailed, gatedFailed) =>
@@ -573,7 +593,7 @@ export function summary(decision, runUrl) {
       Object.entries(decision.hitClasses)
         .map(([k, v]) => `${k} ${v}`)
         .join(", ") || "none"
-    }). Agreement: selection ${m.selectionAgreement}, overall ${m.overallAgreement}${m.flakyJobs.length ? ` (flaky jobs: ${m.flakyJobs.map(code).join(", ")})` : ""}. Failed checks of the full run that the gated run would run: ${m.recall.ran} of ${m.recall.failed}. Hit contradictions: ${m.contradictions.length}.`,
+    }). Agreement: selection ${m.selectionAgreement}, overall ${m.overallAgreement}${m.flakyJobs.length ? ` (flaky jobs: ${m.flakyJobs.map(code).join(", ")})` : ""}. Failed checks of the full run that the gated run would run: ${m.recall.ran} of ${m.recall.failed}. Omitted or hit checks that the full run did not prove: ${m.recall.unverified.length}. Hit contradictions: ${m.contradictions.length}.`,
     "",
     `**Runner minutes:** gated about ${m.cost.gatedRunMinutes} (manifest and select ${m.cost.parts.manifestAndSelect}, always-run ${m.cost.parts.alwaysRun}, checks ${m.cost.parts.profiles}); full run ${m.cost.fullRunMinutes}. **Wall time:** gated about ${m.cost.gatedRunWallMinutes} min; full run ${m.cost.fullRunWallMinutes ?? "?"} min.`,
   )
@@ -625,6 +645,14 @@ export function summary(decision, runUrl) {
       m.recall.escaped.map(
         (item) => `| ${code(item.id)} | ${code(item.why)} |`,
       ),
+    )
+  if (m.recall.unverified.length)
+    table(
+      "Not proved by the full run (an error or no record), not run by the gated run",
+      "| Check | Full-run result |",
+      m.recall.unverified
+        .slice(0, 50)
+        .map((item) => `| ${code(item.id)} | ${code(item.result)} |`),
     )
   const notes = [
     ...s.notes,

@@ -300,6 +300,21 @@ test("the gated verdict needs one accepted result for each selected check", () =
         why: "omitted: not reached",
       },
     ],
+    // Hits and omitted checks without a record: reported, not counted.
+    unverified: [
+      {
+        id: "lint:oxlint:.oxlintrc.json",
+        result: "missing result (job lint: success)",
+      },
+      {
+        id: "storybook:golden:apps/ui/src/c.stories.tsx#c--one",
+        result: "missing result (job storybook-golden: success)",
+      },
+      {
+        id: "vitest:backend:apps/backend/src/g.test.ts",
+        result: "missing result (job test-shards: failure)",
+      },
+    ],
   })
   assert.deepEqual(decision.metrics.contradictions, [])
   assert.equal(decision.selection.traceAgeDays, 2)
@@ -363,6 +378,60 @@ test("a selected check without a result is a missing result, and the gated run f
   // The full run passed: only the gated run fails.
   assert.equal(decision.fullRun.verdict, "pass")
   assert.equal(decision.metrics.overallAgreement, "false failure")
+})
+
+test("a selected check with an error or no record counts as a full-run failure in the recall", () => {
+  const passed = records.map((record) => ({ ...record, status: "passed" }))
+  const decisionWith = (changed) =>
+    decide({
+      needs: { "test-shards": "success", test: "success" },
+      shadow: {
+        records: passed
+          .filter(
+            ({ id }) => changed !== "missing" || !id.startsWith("typecheck"),
+          )
+          .map((record) =>
+            changed === "error" && record.id.startsWith("typecheck")
+              ? { ...record, status: "error" }
+              : record,
+          )
+          .concat(
+            // The omitted check errored, and the hit has no record.
+            [
+              {
+                id: "vitest:backend:apps/backend/src/g.test.ts",
+                status: "error",
+              },
+            ],
+          ),
+      },
+    })
+  for (const changed of ["error", "missing"]) {
+    const decision = decisionWith(changed)
+    assert.equal(decision.gatedRun.verdict, "fail")
+    assert.equal(decision.metrics.recall.failed, 1)
+    assert.equal(decision.metrics.recall.ran, 1)
+    assert.deepEqual(decision.metrics.recall.escaped, [])
+    // The full run did not prove the check either: the selection agrees.
+    assert.equal(decision.metrics.selectionAgreement, "agree")
+    assert.deepEqual(
+      decision.metrics.recall.unverified.map(({ id, result }) => [id, result]),
+      [
+        ["lint:oxlint:.oxlintrc.json", "missing result (job lint: success)"],
+        [
+          "storybook:golden:apps/ui/src/c.stories.tsx#c--one",
+          "missing result (job storybook-golden: success)",
+        ],
+        ["vitest:backend:apps/backend/src/g.test.ts", "error"],
+      ],
+    )
+    const text = summary(decision)
+    assert.match(
+      text,
+      /Omitted or hit checks that the full run did not prove: 3\./,
+    )
+    assert.match(text, /Not proved by the full run/)
+  }
 })
 
 test("the agreement metrics count a cancelled run apart and name the flaky jobs", () => {
@@ -710,7 +779,7 @@ test("a lint or policy check takes the result of its step in the Lint and format
         "mode.json": { mode: "select", reason: "shadow" },
         "selection.json": selection(),
       }),
-      records: [],
+      records: records.map((record) => ({ ...record, status: "passed" })),
       needs: needs({
         "test-shards": "success",
         test: "success",
@@ -721,7 +790,8 @@ test("a lint or policy check takes the result of its step in the Lint and format
     })
   assert.equal(oxlint(run(true)).result, "failed")
   assert.equal(run(true).gatedRun.verdict, "fail")
-  assert.deepEqual(run(true).metrics.recall, { failed: 1, ran: 1, escaped: [] })
+  const { unverified: _, ...recall } = run(true).metrics.recall
+  assert.deepEqual(recall, { failed: 1, ran: 1, escaped: [] })
   assert.equal(oxlint(run(false)).result, "passed")
   assert.equal(decision(false).gatedRun.verdict, "pass")
 })

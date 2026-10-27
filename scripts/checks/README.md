@@ -182,11 +182,11 @@ The jobs in `.github/workflows/ci.yaml`. Each one continues on error, and no gat
 
 **Metrics** in `decision.json`, for each PR run:
 
-- `selectionAgreement`: only the checks count. `agree` when a check failed in both runs or in neither, `escape` when a check failed only in the full run, `false failure` when a check that the gated run would run failed only there (for example a missing result).
+- `selectionAgreement`: only the checks count. `agree` when a check failed in both runs or in neither, `escape` when a check failed only in the full run, `false failure` when a check that the gated run would run failed only there. A check that the gated run would run, with an `error` record or without a record, fails in both runs: the gated verdict and the recall count it the same way.
 - `overallAgreement`: the same for the two verdicts, with the always-run jobs.
 - Both are `cancelled` when a job of the full run was cancelled: the report counts these runs apart.
 - `flakyJobs`: the jobs that failed in an earlier attempt of the run and passed in this one. A rerun of the same head passed them, so they are flakes, not failures. The report counts the last attempt of each run.
-- `recall`: the checks that failed in the full run, how many of them the gated run would run, and why each other one would not run.
+- `recall`: the checks that failed in the full run, how many of them the gated run would run, and why each other one would not run. `unverified` lists each omitted check and each hit with an `error` record or without a record in the full run: the full run did not prove it, and the gated run would not run it.
 - `contradictions`: an accepted hit whose check failed in the full run of the same revision. This must not occur.
 - `cost`: the runner minutes and the wall time of the full run (measured from the jobs of the run) and of the gated run (estimated: the manifest and select jobs, the always-run jobs, and the shards of [`shard.mjs`](shard.mjs) with the measured setup time of each profile job).
 
