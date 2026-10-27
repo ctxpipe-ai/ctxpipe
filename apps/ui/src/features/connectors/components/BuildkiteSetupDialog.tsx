@@ -1,11 +1,11 @@
 "use client"
 
+import { IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
-import { Link } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { TextField } from "@/components/ui/TextField"
@@ -235,13 +235,15 @@ function ConnectStep(props: {
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
           Create an{" "}
-          <Link
+          <a
             href="https://buildkite.com/user/api-access-tokens/new"
+            className="font-medium text-teal-400 underline decoration-teal-400/50 underline-offset-4 hover:text-teal-300 hover:decoration-teal-300"
             target="_blank"
             rel="noreferrer"
           >
             API access token
-          </Link>{" "}
+            <IconExternalLink className="ml-1 inline size-3.5" aria-hidden />
+          </a>{" "}
           for your organization with only the{" "}
           <code className="font-mono text-xs text-foreground">
             read_pipelines
@@ -330,13 +332,15 @@ function WebhookStep(props: {
       <ol className="list-decimal space-y-3 pl-5 text-sm text-muted-foreground">
         <li>
           In Buildkite, open{" "}
-          <Link
+          <a
+            href={`https://buildkite.com/organizations/${encodeURIComponent(props.status.organizationSlug)}/services`}
+            className="font-medium text-teal-400 underline decoration-teal-400/50 underline-offset-4 hover:text-teal-300 hover:decoration-teal-300"
             target="_blank"
             rel="noreferrer"
-            href={`https://buildkite.com/organizations/${encodeURIComponent(props.status.organizationSlug)}/services`}
           >
             Notification Services
-          </Link>{" "}
+            <IconExternalLink className="ml-1 inline size-3.5" aria-hidden />
+          </a>{" "}
           and add a{" "}
           <strong className="font-medium text-foreground">Webhook</strong>.
         </li>
