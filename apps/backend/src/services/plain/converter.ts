@@ -1,7 +1,12 @@
 import slugify from "@sindresorhus/slugify"
 import { NodeHtmlMarkdown } from "node-html-markdown"
 
-import { isConnectorAssetCredentialUrl } from "../connectors/assets.js"
+import {
+  articleText,
+  customerLine,
+  customerText,
+  safeHref,
+} from "../connectors/customer-text.js"
 import { connectorPathSegment } from "../connectors/path-segment.js"
 import type { GitFileChange } from "../git/file-change.js"
 
@@ -66,7 +71,9 @@ function frontMatter(fields: Array<[string, string | null]>): string[] {
   return [
     "---",
     ...fields.flatMap(([name, value]) =>
-      value === null ? [] : [`${name}: ${JSON.stringify(oneLine(value))}`],
+      value === null
+        ? []
+        : [`${name}: ${JSON.stringify(value.replace(/\s+/g, " "))}`],
     ),
     "---",
     "",
@@ -74,195 +81,18 @@ function frontMatter(fields: Array<[string, string | null]>): string[] {
 }
 
 /**
- * A credential parameter in a query or a fragment, with its value. The name
- * has a bound, so the pattern is linear. The same list serves `isKeptUrl` and
- * the redaction of text that is not a URL.
- */
-const credentialParameter =
-  /([?&#][\w.-]{0,64}(?:token|key|secret|password|passwd|signature)|[?&#](?:code|pwd|sig|auth))=[^\s&#]*/i
-
-/**
- * A URL that may stay in a file: an absolute `https:` URL that carries no
- * credential (a signed URL, a token, a key, a code, or a password in the
- * query or the fragment). A relative, `http:`, `mailto:`, or other URL does
- * not stay: a relative link has no meaning in git, and the others are not
- * needed.
- */
-function isKeptUrl(url: string): boolean {
-  if (!/^https:\/\//i.test(url)) return false
-  return !(
-    isConnectorAssetCredentialUrl(url, {
-      includeGenericCredentials: true,
-    }) || credentialParameter.test(url)
-  )
-}
-
-/**
- * Text that has no Markdown link, image, autolink, reference definition, or
- * raw HTML: the characters `\`, `[`, `]`, `<`, and `>` become literal. A
- * backslash is escaped only when it comes before one of these characters.
- */
-const withoutMarkdownSyntax = (text: string) =>
-  text.replace(/\\(?=[\\[\]<>])|[[\]<>]/g, "\\$&")
-
-/**
- * Text without control and format characters, except tab and the line
- * ends. A format character (such as a bidi override or a zero-width mark)
- * can change how a reader or an agent sees the text. A default-ignorable
- * character (a variation selector, a Hangul filler, the combining grapheme
- * joiner) is not always a format character, but it also hides text.
- */
-const withoutControls = (text: string) =>
-  text
-    .replace(/(?![\t\n\r])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, "")
-    // Full-width digits and at signs, and the odd spaces, become ASCII.
-    // Hangul compatibility jamo and vulgar fractions stay as they are.
-    .replace(/[^ㄱ-ㆎ¼-¾⅐-⅟↉]+/g, (run) => run.normalize("NFKC"))
-
-/**
- * Input over the limit keeps its first characters, less the last partial
- * word and the digits and phone punctuation at the end: the cut cannot leave
- * a part of an address or a phone number. The loops are linear.
- */
-function head(text: string, limit = 100_000): string {
-  if (text.length <= limit) return text
-  const kept = text.slice(0, limit)
-  // Text with no space for 2,100 characters (such as Japanese) has no word
-  // to drop: cut at the limit.
-  const floor = Math.max(0, limit - 2_100)
-  let end = kept.length
-  while (end > floor && !/\s/.test(kept.charAt(end - 1))) end -= 1
-  if (end === floor) {
-    end = kept.length
-    // Drop the address characters at the cut too.
-    while (end > 0 && /[\w.%+@-]/.test(kept.charAt(end - 1))) end -= 1
-  }
-  // A cut inside a phone number that has spaces leaves its first digits.
-  while (end > 0 && "0123456789 ().+-".includes(kept.charAt(end - 1))) end -= 1
-  return kept.slice(0, end)
-}
-
-/**
- * Each Markdown link keeps only its text, unless its target is a URL that
- * may stay. The pattern is linear: the text and the target have no
- * bracket, so a match starts once for each bracket, and a target can hold
- * pairs of parentheses but not nested ones.
- */
-const withoutPrivateLinks = (text: string) =>
-  text.replace(
-    /\[([^[\]]*)\]\(([^\s()[\]]*(?:\([^\s()[\]]*\)[^\s()[\]]*)*)(?:\s+"[^"\n]*")?\)/g,
-    (link, label: string, url: string) =>
-      url.length <= 2_048 && isKeptUrl(url) ? link : label,
-  )
-
-/**
- * Text with only the URLs that may stay (see `isKeptUrl`). A bare URL that
- * does not stay becomes a stub. The pattern is linear: it has no length cap
- * and no nested quantifier. A URL over 2,048 characters does not stay, so a
- * credential at the end of a long URL cannot pass.
- */
-function withHttpsUrlsOnly(text: string): string {
-  return text.replace(
-    /(?:https?:\/\/|(?<![A-Za-z0-9])www\.)[^\s<>]+/gi,
-    (match) => {
-      // Punctuation after a URL is not part of the URL.
-      let end = match.length
-      while (end > 0 && ".,;:!?)]}\\'\"".includes(match.charAt(end - 1)))
-        end -= 1
-      const url = match.slice(0, end)
-      // A link that starts with `www.` is a link in GFM viewers: same filter.
-      const target = /^www\./i.test(url) ? `https://${url}` : url
-      return url.length <= 2_048 && isKeptUrl(target)
-        ? match
-        : `[link removed]${match.slice(end)}`
-    },
-  )
-}
-
-/**
- * Text without a credential in a link of any scheme, or in a parameter of a
- * link that the URL filter did not find (no scheme, a wrong prefix).
- */
-const withoutCredentials = (text: string) =>
-  text
-    .replace(
-      /\b([a-z][a-z0-9+.-]{0,31}):\/\/[^\s/?#@]{1,256}@/gi,
-      "$1://[credentials removed]@",
-    )
-    .replace(new RegExp(credentialParameter.source, "gi"), "$1=[removed]")
-
-/**
- * Thread text without contact details or private URLs (ADR-059). Messages
- * and titles are free text from customers: email signatures carry
- * addresses and phone numbers. Other personal data can remain.
- */
-function redactThreadText(text: string): string {
-  // The strip comes first: a format character inside an address or a
-  // parameter name must not hide it from the patterns.
-  return (
-    withoutCredentials(
-      withHttpsUrlsOnly(withoutPrivateLinks(withoutControls(text))),
-    )
-      .replace(
-        /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,24}/g,
-        "[email removed]",
-      )
-      .replace(
-        // A time zone such as UTC+10 is not a phone number.
-        /(?<!(?:UTC|GMT)\s?)\+\d[\d\s\p{Zs}\p{Pd}().]{7,30}\d|\(\d{3}\)[\s\p{Zs}]?\d{3}[\p{Zs}\p{Pd}.\s]\d{4}|\b\d{3}[\p{Zs}\p{Pd}.]\d{3}[\p{Zs}\p{Pd}.]\d{4}\b/gu,
-        "[phone removed]",
-      )
-      // A national number that starts with 0 (Australia, the UK): 9 to 11
-      // digits, in groups, in one run, or after an area code in brackets.
-      // The digit count keeps a spaced date out.
-      .replace(
-        /\(0\d{1,4}\)\s?\d{3,4}[\p{Zs}\p{Pd}]?\d{3,4}|\b0\d{1,4}(?:[\p{Zs}\p{Pd}]?\d{2,6}){1,4}\b/gu,
-        (match) => {
-          const digits = match.replace(/\D/g, "").length
-          return digits >= 9 && digits <= 11 ? "[phone removed]" : match
-        },
-      )
-      // An Australian 1300 or 1800 number.
-      .replace(
-        /\b1[38]00[\p{Zs}\p{Pd}]?\d{3}[\p{Zs}\p{Pd}]?\d{3}\b/gu,
-        "[phone removed]",
-      )
-  )
-}
-
-/** Text on one line, with no control character. */
-const oneLine = (text: string) => withoutControls(text.replace(/\s+/g, " "))
-
-/** Text from the Plain API as inline Markdown text on one line. */
-const inline = (text: string) => withoutMarkdownSyntax(oneLine(text))
-
-/** A title or a name from a customer: short, redacted, and on one line. */
-const field = (text: string) =>
-  inline(redactThreadText(head(withoutControls(text), 4_000)).slice(0, 1_000))
-
-/**
- * A message body as a quote, with no link, image, or HTML. Markdown also
- * breaks a line at a carriage return, so each line break counts. A line
+ * A message body as a quote. The shared redaction (`customerText`) leaves
+ * only line feeds as line ends and escapes the Markdown characters. A line
  * that would be a heading or a heading underline inside the quote is
  * escaped.
  */
-const quote = (text: string) =>
-  withoutMarkdownSyntax(withoutControls(text))
-    .split(/\r\n?|[\n\u2028\u2029]/)
+function quote(lines: string): string {
+  return lines
+    .split("\n")
     .map((line) => line.replace(/^(\s*)(#|[=-]+\s*$)/, "$1\\$2"))
     .map((line) => (line ? `> ${line}` : ">"))
     .join("\n")
-
-/**
- * A message keeps 20,000 characters; Plain has the rest. The redaction runs
- * first, on at most 100,000 characters. Redaction can make text shorter, so
- * the input cut (see `head`) drops the last partial word: a later cut that
- * does not reach the end cannot leave a part of an address.
- */
-const cut = (text: string) =>
-  text.length > 20_000
-    ? `${text.slice(0, 20_000)}\n\n[The rest of this message is in Plain.]`
-    : text
+}
 
 /**
  * Article HTML as Markdown. An image is a text stub in this version. A
@@ -274,25 +104,22 @@ function articleBodyMarkdown(html: string): string {
     { bulletMarker: "-", codeBlockStyle: "fenced" },
     {
       img: ({ node }) => ({
-        content: `[Image: ${node.getAttribute("alt")?.trim() || "image"}]`,
+        content: `[Image: ${customerLine(node.getAttribute("alt") ?? "", { maxChars: 1_000 }) || "image"}]`,
         recurse: false,
       }),
-      // A href with a space or a tab can pass the Markdown link filter.
       a: ({ node }) => {
-        const href = node.getAttribute("href") ?? ""
-        return isKeptUrl(href)
-          ? {
-              prefix: "[",
-              postfix: `](${href.replace(/[\s()<>]/g, (c) => `%${c.charCodeAt(0).toString(16).padStart(2, "0")}`)})`,
-            }
-          : {}
+        const href = safeHref(
+          node.getAttribute("href") ?? "",
+          "credential-links",
+        )
+        return href ? { prefix: "[", postfix: `](${href})` } : {}
       },
     },
   )
-  return withoutCredentials(
-    withHttpsUrlsOnly(withoutPrivateLinks(withoutControls(markdown))),
-  )
+  return articleText(markdown, "credential-links")
 }
+
+const line = (text: string) => customerLine(text, { maxChars: 1_000 })
 
 export function plainArticleFile(input: {
   helpCenterId: string
@@ -309,10 +136,10 @@ export function plainArticleFile(input: {
       ["created_at", article.createdAt],
       ["updated_at", article.updatedAt],
     ]),
-    `# ${field(article.title)}`,
+    `# ${line(article.title)}`,
     "",
   ]
-  if (article.groupName) lines.push(`- Group: ${field(article.groupName)}`, "")
+  if (article.groupName) lines.push(`- Group: ${line(article.groupName)}`, "")
   const body = articleBodyMarkdown(article.contentHtml).trim()
   if (body) lines.push(body, "")
   return {
@@ -338,36 +165,41 @@ export function plainThreadFile(input: {
       ["created_at", thread.createdAt],
       ["updated_at", thread.updatedAt],
     ]),
-    `# ${inline(thread.ref)}: ${field(thread.title)}`,
+    `# ${line(thread.ref)}: ${line(thread.title)}`,
     "",
-    `- Status: ${inline(thread.status)}`,
+    `- Status: ${line(thread.status)}`,
     `- Priority: ${priority}`,
   ]
   if (thread.labels.length)
-    lines.push(`- Labels: ${inline(thread.labels.join(", "))}`)
+    lines.push(`- Labels: ${line(thread.labels.join(", "))}`)
   if (thread.customerName)
-    lines.push(`- Customer: ${field(thread.customerName)}`)
+    lines.push(`- Customer: ${line(thread.customerName)}`)
   lines.push("", "## Messages", "")
   if (!thread.messages.length) lines.push("No messages.", "")
   for (const message of thread.messages) {
     // A fixed prefix gives the kind: a display name cannot change it.
     const kind = message.internal ? "Internal note" : "Message"
+    const body = customerText(message.text, { maxChars: 20_000 })
     const heading = [
-      message.authorName ? field(message.authorName) : "Unknown",
-      message.createdAt ? inline(message.createdAt) : null,
+      message.authorName ? line(message.authorName) : "Unknown",
+      message.createdAt ? line(message.createdAt) : null,
     ]
       .filter(Boolean)
       .join(", ")
     lines.push(
       `### ${kind}: ${heading}`,
       "",
-      quote(cut(redactThreadText(head(withoutControls(message.text).trim())))),
+      quote(
+        body.cut
+          ? `${body.text}\n\n\\[The rest of this message is in Plain.\\]`
+          : body.text,
+      ),
       "",
     )
   }
   if (thread.moreMessages)
     lines.push(
-      `Plain has more messages in this thread. Open ${inline(thread.ref)} in Plain to read them.`,
+      `Plain has more messages in this thread. Open ${line(thread.ref)} in Plain to read them.`,
       "",
     )
   return {

@@ -229,7 +229,8 @@ describe("thread text that looks like structure", () => {
     }).content
     expect(Date.now() - started).toBeLessThan(1_500)
     // A title is cut, and the cut drops the spaces at its end.
-    expect(content).toContain("# T-4501: Slow\n")
+    // The collapse of the spaces runs before the cut.
+    expect(content).toContain("# T-4501: Slow title\n")
     expect(content).toContain("The rest of this message is in Plain.")
     expect(content.length).toBeLessThan(25_000)
   })
@@ -322,10 +323,17 @@ describe("personal data and private links in thread text", () => {
     )
   })
 
-  it("keeps versions, dates, times, time zones, long ids, and plain links", () => {
+  it("keeps versions, dates, times, time zones, and plain links", () => {
     const body =
-      "v0.12.3 on 2026-10-14 at 09:00 UTC+10 2026-10-14 09:30 or GMT +11 2026-10-15 08:00, build 1700000000. Docs: https://help.example.com/reset"
+      "v0.12.3 on 2026-10-14 at 09:00 UTC+10 2026-10-14 09:30 or GMT +11 2026-10-15 08:00. Docs: https://help.example.com/reset"
     expect(text(body)).toContain(body)
+  })
+
+  it("removes a long number that looks like a phone number", () => {
+    // The shared phone rule counts 9 to 15 digits, so a Unix time goes too.
+    expect(text("build 1700000000 done")).toContain(
+      "build \\[phone removed\\] done",
+    )
   })
 
   it.each([
@@ -333,8 +341,6 @@ describe("personal data and private links in thread text", () => {
     ["a relative link with a token", "[log](/files/log?token=SECRET1)"],
     ["an api_key parameter", "[api](https://x.example.com/v1?api_key=SECRET1)"],
     ["a signed link", "[f](https://x.example.com/f?X-Amz-Signature=SECRET1)"],
-    ["a javascript link", "[click](javascript:alert(SECRET1))"],
-    ["a data link", "[img](data:text/html;base64,SECRET1)"],
     [
       "a token in the fragment",
       "https://x.example.com/cb#access_token=SECRET1",
@@ -345,6 +351,16 @@ describe("personal data and private links in thread text", () => {
     ["a password parameter", "https://x.example.com/f?password=SECRET1"],
   ])("removes %s", (_name, link) => {
     expect(text(`See ${link}.`)).not.toContain("SECRET1")
+  })
+
+  it.each([
+    ["a javascript link", "[click](javascript:alert(1))"],
+    ["a data link", "[img](data:text/html;base64,AAAA)"],
+  ])("leaves %s as text that is not a link", (_name, link) => {
+    const content = text(`See ${link}.`)
+    // The brackets are escaped, so a viewer shows no link.
+    expect(content).toContain(`See ${link.replace(/\[(\w+)\]/, "\\[$1\\]")}.`)
+    expect(content).not.toMatch(/(^|[^\\])\[\w+\]\(/m)
   })
 
   it("removes a scheme-less link with a token", () => {
@@ -370,6 +386,19 @@ describe("personal data and private links in thread text", () => {
 })
 
 describe("headings and links from the Plain API", () => {
+  it("leaves no live link in the alt text of an article image", () => {
+    const { content } = plainArticleFile({
+      helpCenterId: "hc_1",
+      article: {
+        ...article,
+        contentHtml:
+          '<p><img src="x.png" alt="x](javascript:alert(1)) [y"></p>',
+      },
+    })
+    expect(content).toContain("[Image: x\\](javascript:alert(1)) \\[y]")
+    expect(content).not.toMatch(/(^|[^\\])\]\(javascript/m)
+  })
+
   it("keeps the ref, the status, and a message time on one line", () => {
     const { content } = plainThreadFile({
       labelTypeId: "lt_1",
@@ -413,7 +442,7 @@ describe("headings and links from the Plain API", () => {
       },
     })
     expect(content).toContain(
-      "relative insecure mail protocol-relative [secure](https://help.example.com/ok) [link removed]",
+      "relative insecure mail protocol-relative [secure](https://help.example.com/ok) \\[link removed\\]",
     )
     expect(content).not.toMatch(/\]\((\/|http:|mailto:)/)
   })
@@ -433,7 +462,11 @@ describe("headings and links from the Plain API", () => {
         ],
       },
     })
-    expect(content).toContain("> See the page and the site.")
+    // The links stay as escaped text, with the host and the path.
+    expect(content).toContain(
+      "> See \\[the page\\](/internal) and \\[the site\\](http://x.example.com/a).",
+    )
+    expect(content).not.toMatch(/(^|[^\\])\[the/m)
   })
 
   it("adds no link, image, or HTML from thread text", () => {
@@ -647,10 +680,10 @@ describe("redaction gaps found in a security re-review, round two (CTX-869)", ()
       '"https://help.example.com/a"',
     )
     expect(body(`See "https://f.example.com/a?token=SECRET4" now`)).toContain(
-      '"\\[link removed\\]"',
+      '"https://f.example.com/a"',
     )
     expect(body("See 'https://f.example.com/a?token=SECRET4' now")).toContain(
-      "'\\[link removed\\]'",
+      "'https://f.example.com/a'",
     )
   })
 
@@ -721,7 +754,9 @@ describe("redaction gaps found in a security re-review, round three (CTX-869)", 
     const content = body(
       "See https://example.com/a?lang=en and a=b and k=v&x=1",
     )
-    expect(content).toContain("https://example.com/a?lang=en")
+    // The shared rule removes every query, so no name list is needed.
+    expect(content).toContain("https://example.com/a and")
+    expect(content).not.toContain("lang=en")
     expect(content).toContain("a=b and k=v&x=1")
   })
 
@@ -763,13 +798,10 @@ describe("redaction gaps found in a security re-review, round three (CTX-869)", 
   })
 
   it("leaves no digit of a phone number that a cut splits", () => {
-    // Two long links put the cut inside the number, after a space.
-    const link = (n: number) => `http://${"a".repeat(n - 7)}`
-    const title = `${link(2040)} ${link(1943)} call 0412 345 6${"78 now…"}`
-    const titled = render({ title })
+    // The 1,000-character cut falls inside the number, after a space.
+    const titled = render({ title: `${"a".repeat(985)} call 0412 345 678 now` })
     expect(titled).not.toMatch(/0412|345/)
-    expect(titled).toContain("call")
-    expect(titled).not.toContain("call 0")
+    expect(titled).toContain(" call…")
   })
 
   it.each([
