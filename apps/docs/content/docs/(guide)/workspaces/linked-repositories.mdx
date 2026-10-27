@@ -119,12 +119,16 @@ the **Status** group of **Settings**, shows the progress of each run.
 - **Extracted knowledge**: services, APIs, libraries, infrastructure, and
   instructions such as `AGENTS.md`, skills, and ADRs. ctxpipe commits them to
   the Workspace repository as knowledge files with claims.
-- **GitHub Actions workflows**: one knowledge file in `knowledge/workflows/`
-  for each workflow file in `.github/workflows/`. It lists the triggers and
-  the job ids, and it links to the services, apps, and libraries whose
-  folders the path filters and working directories name. It does not copy
-  commands, environment values, or secrets. A merged pull request that
-  changes a workflow file links to that knowledge file.
+- **GitHub Actions workflows**: a knowledge file in `knowledge/workflows/`
+  for a workflow file in `.github/workflows/`. ctxpipe reads at most 50
+  files. It reads only a file that is directly in that folder and has a name
+  that ends in `.yml` or `.yaml`. The name can hold only letters, digits, `_`,
+  `.`, and `-`. ctxpipe skips a file that has no jobs or that it cannot read.
+  The knowledge file lists the triggers and the job ids. It links to the
+  services, apps, and libraries whose folders the path filters and working
+  directories name. It does not copy commands, environment values, or
+  secrets. A merged pull request that changes a workflow file links to its
+  knowledge file.
 
 Extraction uses models on parts of the code. Treat extracted claims like other
 knowledge files: review them in git, and correct them when they are wrong.
