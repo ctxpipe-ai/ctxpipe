@@ -45,8 +45,9 @@
 //   oidcPublishJob (the npm publish jobs) are the exception.
 // - A job with `id-token: write` that checks out another commit (`ref:`)
 //   proves that the commit is on main (`git merge-base --is-ancestor HEAD
-//   origin/main`) before a later step runs. On main, its token has the
-//   subject of main, which a cloud role can trust.
+//   origin/main`) in the step directly after each such checkout, before any
+//   other command of that step. On main, its token has the subject of main,
+//   which a cloud role can trust.
 // - The merge gate selection job (ci.yaml merge-gate-select) does not use
 //   `workbench`: it reads only our own result store and the selector release
 //   through a read-only OIDC role of the factory account. It needs no secret
@@ -202,9 +203,10 @@ function parse(text) {
     if (/^ {4}\S/.test(line.text)) job.inEnv = /^ {4}env:\s*$/.test(line.text)
     else if (job.inEnv && line.text.trim() !== "") job.env.push(line)
     if (/^\s{4,6}-\s/.test(line.text))
-      job.steps.push({ uses: "", keys: [], inRestoreKeys: false })
+      job.steps.push({ uses: "", keys: [], inRestoreKeys: false, lines: [] })
     const step = job.steps.at(-1)
     if (!step) continue
+    step.lines.push(line)
     const uses = /^\s+(?:-\s+)?uses:\s*(\S+)/.exec(line.text)
     if (uses) step.uses = uses[1]
     const key = /^\s+(key|restore-keys):\s*(.*?)\s*$/.exec(line.text)
@@ -355,27 +357,29 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
         )
     }
 
-    // Another commit in a job with an OIDC token: the step that proves it is
-    // on main comes before any action or untrusted code after the checkout.
-    const ref = job.lines.find(({ text }) => /^\s+ref:\s*\S/.test(text))
-    if (ref && job.lines.some(({ text }) => oidcToken.test(text))) {
-      const proof = job.lines.find(
-        ({ text, number }) =>
-          number > ref.number &&
+    // Another commit in a job with an OIDC token: each checkout with `ref:`
+    // is followed directly by the step that proves the commit is on main. That
+    // step is a `run:` step, and nothing in it comes before the proof.
+    if (job.lines.some(({ text }) => oidcToken.test(text)))
+      job.steps.forEach((step, index) => {
+        const ref = step.lines.find(({ text }) => /^\s+ref:\s*\S/.test(text))
+        if (!ref) return
+        const next = job.steps[index + 1]?.lines ?? []
+        const proof = next.findIndex(({ text }) =>
           /\bgit merge-base --is-ancestor HEAD origin\/main\b/.test(text),
-      )
-      const early = job.lines.find(
-        ({ text, number }) =>
-          number > ref.number &&
-          (!proof || number < proof.number) &&
-          (/^\s+(?:-\s+)?uses:/.test(text) ||
-            untrusted.some(([pattern]) => pattern.test(text))),
-      )
-      if (!proof || early)
-        failures.push(
-          `${file}:${ref.number}: job ${job.name} has an OIDC token and checks out another commit. Directly after the checkout, stop unless \`git merge-base --is-ancestor HEAD origin/main\` passes: on main the token has the subject of main.`,
         )
-    }
+        const early = next
+          .slice(0, Math.max(proof, 0))
+          .some(
+            ({ text }) =>
+              /^\s+(?:-\s+)?uses:/.test(text) ||
+              untrusted.some(([pattern]) => pattern.test(text)),
+          )
+        if (proof === -1 || early)
+          failures.push(
+            `${file}:${ref.number}: job ${job.name} has an OIDC token and checks out another commit. In the step directly after the checkout, stop unless \`git merge-base --is-ancestor HEAD origin/main\` passes: on main the token has the subject of main.`,
+          )
+      })
 
     const productionJob = productionJobs.has(`${name}:${job.name}`)
     if (productionJob) {

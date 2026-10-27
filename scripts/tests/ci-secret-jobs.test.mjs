@@ -580,13 +580,47 @@ test("rejects an OIDC job that checks out another commit without the proof that 
     `on: workflow_dispatch\njobs:\n  prerelease:\n    permissions:\n      id-token: write\n    steps:\n      - uses: actions/checkout@v6\n        with:\n          ref: \${{ inputs.ref }}\n          fetch-depth: 0\n${steps}`
   const proof = `      - run: git merge-base --is-ancestor HEAD origin/main\n`
   const setup = "      - uses: pnpm/action-setup@v6\n"
-  for (const steps of [install, `${setup}${proof}${install}`, `${install}${proof}`])
+  for (const steps of [
+    install,
+    `${setup}${proof}${install}`,
+    `${install}${proof}`,
+  ])
     rejects(
       { ".github/workflows/deploy.yaml": job(steps) },
       /job prerelease has an OIDC token and checks out another commit/,
     )
   const result = check({
     ".github/workflows/deploy.yaml": job(`${proof}${setup}${install}`),
+  })
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+})
+
+test("requires the proof directly after each checkout of another commit", () => {
+  const checkout = (ref) =>
+    `      - uses: actions/checkout@v6\n        with:\n          ref: ${ref}\n`
+  const job = (steps) =>
+    `on: workflow_dispatch\njobs:\n  prerelease:\n    permissions:\n      id-token: write\n    steps:\n${steps}`
+  const proof = `      - run: git merge-base --is-ancestor HEAD origin/main\n`
+  const between = "      - run: echo between\n"
+  const proofLate = `      - run: |\n          npx something\n          git merge-base --is-ancestor HEAD origin/main\n`
+  const second = checkout(`\${{ inputs.other }}`)
+  for (const steps of [
+    // A second checkout without its own proof.
+    `${checkout(`\${{ inputs.ref }}`)}${proof}${second}${install}`,
+    // A step between the checkout and the proof.
+    `${checkout(`\${{ inputs.ref }}`)}${between}${proof}`,
+    // A command before the proof in the proof step.
+    `${checkout(`\${{ inputs.ref }}`)}${proofLate}`,
+  ])
+    rejects(
+      { ".github/workflows/deploy.yaml": job(steps) },
+      /job prerelease has an OIDC token and checks out another commit/,
+    )
+  const result = check({
+    ".github/workflows/deploy.yaml": job(
+      `${checkout(`\${{ inputs.ref }}`)}${proof}${second}${proof}`,
+    ),
   })
   assert.equal(result.stderr, "")
   assert.equal(result.status, 0)
