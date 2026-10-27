@@ -15,9 +15,14 @@ import { parseDocument, stringify, type YAMLSeq } from "yaml"
 import { z } from "zod"
 
 import {
+  codeSpans,
   DENIED_HEADINGS,
+  fileHasInstruction,
+  hasInstruction,
+  hasInstructionIn,
   INJECTION_PHRASES,
   WORKFLOW_FILE_PATTERN,
+  withoutCode,
 } from "../../../ingest-skills/bin/guard-patterns.mjs"
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { isHostOnlyPath } from "../workspaces/host-only.js"
@@ -1062,9 +1067,7 @@ async function checkFullWrite(
   const body = withoutHumanText(front.body, context.meter)
   const heading = deniedHeading(body)
   if (heading) return heading
-  const injection =
-    injectionProblem(front.yaml, { everywhere: true }) ?? injectionProblem(body)
-  if (injection) return injection
+  if (fileHasInstruction(front.yaml, body)) return SUSPECTED_INJECTION
   const quote = await unsourcedQuoteProblem(body, context)
   if (quote) return quote
 
@@ -1420,24 +1423,12 @@ function injectionProblem(
   text: string,
   options: { everywhere?: boolean; inlineCode?: boolean } = {},
 ): CheckFailure | null {
-  const outside = (
-    options.everywhere
-      ? text
-      : withoutCode(text, options.inlineCode ?? false)
-          .split("\n")
-          .filter((line) => !/^ {0,3}>/.test(line))
-          .join("\n")
-  ).replace(/\s+/g, " ")
-  if (hasInstruction(outside))
-    return {
-      rule: "suspected_injection",
-      reason: "The text looks like an instruction to an agent",
-    }
-  return null
+  return hasInstructionIn(text, options) ? SUSPECTED_INJECTION : null
 }
 
-function hasInstruction(text: string): boolean {
-  return INJECTION_PHRASES.some((pattern) => pattern.test(text))
+const SUSPECTED_INJECTION: CheckFailure = {
+  rule: "suspected_injection",
+  reason: "The text looks like an instruction to an agent",
 }
 
 /**
@@ -1670,82 +1661,6 @@ function secretProblem(
     rule: "suspected_secret",
     reason: finding.reason.replace(" on line", ` on ${where}line`),
   }
-}
-
-/**
- * Removes fenced code blocks and inline code spans. With `keepSpanText`, a
- * code span keeps its text and loses only its backticks. Without it, a
- * span becomes one space, so the words at its two sides stay apart.
- */
-function withoutCode(text: string, keepSpanText: boolean): string {
-  const out: string[] = []
-  let fence: string | null = null
-  for (const line of text.split("\n")) {
-    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
-    if (fence) {
-      if (
-        marker &&
-        marker[0] === fence[0] &&
-        marker.length >= fence.length &&
-        line.trim() === marker
-      )
-        fence = null
-      out.push("")
-      continue
-    }
-    if (marker) {
-      fence = marker
-      out.push("")
-      continue
-    }
-    let kept = ""
-    let at = 0
-    for (const span of codeSpans(line)) {
-      kept += line.slice(at, span.start) + (keepSpanText ? span.text : " ")
-      at = span.end
-    }
-    out.push(kept + line.slice(at))
-  }
-  return out.join("\n")
-}
-
-/**
- * The code spans of one line, in linear time: a run of n backticks opens a
- * span that the next run of exactly n backticks closes.
- */
-function codeSpans(
-  line: string,
-): Array<{ start: number; end: number; text: string }> {
-  const runs: Array<{ at: number; length: number }> = []
-  for (let i = line.indexOf("`"); i !== -1; i = line.indexOf("`", i)) {
-    let j = i
-    while (line[j] === "`") j++
-    runs.push({ at: i, length: j - i })
-    i = j
-  }
-  const next: number[] = []
-  const later = new Map<number, number>()
-  for (let k = runs.length - 1; k >= 0; k--) {
-    const length = runs[k]?.length ?? 0
-    next[k] = later.get(length) ?? -1
-    later.set(length, k)
-  }
-  const spans: Array<{ start: number; end: number; text: string }> = []
-  for (let k = 0; k < runs.length;) {
-    const open = runs[k]
-    const close = runs[next[k] ?? -1]
-    if (!open || !close) {
-      k++
-      continue
-    }
-    spans.push({
-      start: open.at,
-      end: close.at + close.length,
-      text: line.slice(open.at + open.length, close.at),
-    })
-    k = (next[k] ?? k) + 1
-  }
-  return spans
 }
 
 function markdownLinks(body: string): string[] {

@@ -13,6 +13,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { posix } from "node:path"
 
 import { MAX_ROOTS, safePath } from "../discover-roots/scripts/roots-lib.mjs"
+import { fileHasInstructionWithoutSource } from "./guard-patterns.mjs"
 import {
   baseBlob,
   blobContent,
@@ -290,6 +291,10 @@ function newFile({
   const lines = related.slice(0, MAX_RELATED_LINES)
   return `---\n${yaml.join("\n")}\n---\n\n# ${heading}\n\n${intro}\n\n## Related\n\n${lines.join("\n")}\n`
 }
+
+/** True when the validator would refuse the text for an instruction to an agent. */
+const refusedText = (text) =>
+  fileHasInstructionWithoutSource(frontMatter(text) ?? "", bodyOf(text) ?? "")
 
 /** The body of a file after its front matter, or null. */
 function bodyOf(text) {
@@ -650,6 +655,11 @@ function mergeFile(text, { claims, related }) {
  * source owns the existing file alone: the script then writes it again in
  * full from `create`, except when it has a human section.
  *
+ * `fallbacks` is a list of `create` values with plainer text. A file that
+ * the script writes in full uses the first one that the validator would not
+ * refuse as an instruction to an agent when it would refuse the text of
+ * `create`. The script skips the file when it would refuse each of them.
+ *
  * A step writes at most MAX_STEP_OPS files. `more` is true when a plan waits
  * for the next page: the host runs the skill again on the new base until
  * `more` is false. A file that already has a claim or a line does not
@@ -708,12 +718,36 @@ export function writeStep(step, plans, skipped = [], options = {}) {
       })
       continue
     }
-    const text =
+    const render = (create) =>
       before === null
-        ? newFile({ ...plan.create, claims, related })
-        : ((plan.replace && plan.create
-            ? replaceFile(before, plan, claims, related)
+        ? newFile({ ...create, claims, related })
+        : ((plan.replace && create
+            ? replaceFile(before, { ...plan, create }, claims, related)
             : null) ?? mergeFile(before, { claims, related }))
+    // The validator refuses the whole step for an instruction to an agent in
+    // the text of a file that the script writes in full. Test the final text
+    // as it does. When it would refuse, try each plain `fallbacks` create in
+    // order, and skip the file when the validator would refuse the last one
+    // too. A merge adds only claims and Related lines, which the validator
+    // scans by another rule.
+    let text = null
+    let refused = false
+    for (const create of [plan.create, ...(plan.fallbacks ?? [])]) {
+      text = render(create)
+      refused =
+        typeof text === "string" &&
+        text !== before &&
+        (before === null || plan.replace) &&
+        refusedText(text)
+      if (!refused) break
+    }
+    if (refused) {
+      skipped.push({
+        path: null,
+        reason: "The text of the file has an instruction to an agent",
+      })
+      continue
+    }
     if (typeof text !== "string") {
       skipped.push({ path: plan.path, reason: text.skip })
       continue

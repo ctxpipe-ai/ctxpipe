@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 // workflows: a repository-wide step on the assembled ref, after the other
-// steps. It writes one knowledge/workflows/<owner>-<repository>-<file>.md file of
-// kind Workflow for each GitHub Actions workflow file of the source
+// steps. It writes one knowledge/workflows/<owner>-<repository>-<file>.md
+// file of kind Workflow for each GitHub Actions workflow file of the source
 // (.github/workflows/*.yml and *.yaml). The file holds the triggers, the job
 // ids, and a MENTIONS claim to each Service, App, or Library file of a root
 // that an `on.<event>.paths` filter or a `working-directory` names. It never
 // copies a `run`, `env`, `with`, or `secrets` value. A hash suffix keeps two
-// names that collide apart. No model runs. A step
-// writes at most 30 files; the host runs it again while the result has
-// `more: true`.
+// names that collide apart. No model runs. A step writes at most 30 files;
+// the host runs it again while the result has `more: true`.
 //
 // node workflows.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
 //   --source-url <url> --source-path <path> --roots <root-to-file map>
@@ -69,10 +68,14 @@ const hash = (text) =>
   createHash("sha256").update(text).digest("hex").slice(0, 8)
 
 /**
- * True when the validator would refuse the text as an instruction to an
- * agent (ADR-052 section 5). It scans each text that the script writes, so
- * one such text would make it refuse the whole step. A hyphen in a job id
- * or a path can hold a phrase.
+ * True when one text, alone, looks like an instruction to an agent
+ * (ADR-052 section 5). The script tests the name, the path, each job id, each
+ * event name, and each root path with it, so that the file keeps its clean
+ * parts: a hyphen in a job id or a path can hold a phrase, and a name or a
+ * list item with a phrase would make the validator refuse the file. This is
+ * not enough alone: the summary joins clean parts with fixed words, and the
+ * join can form a phrase. `writeStep` tests the final text of each file as
+ * the validator does (see `fallbacks` below).
  */
 const looksLikeInstruction = (text) =>
   INJECTION_PHRASES.some((pattern) => pattern.test(text))
@@ -236,25 +239,30 @@ for (const file of files.slice(0, MAX_WORKFLOWS)) {
           .map((i) => `- \`${i}\``)
           .join("\n")}`
       : null
+  const lead = `A script wrote this file from the GitHub Actions workflow \`${file}\` of \`${repository}\`. It holds the triggers, the job ids, and the code roots that the workflow names. It does not copy the steps of the workflow.`
+  const plain = `GitHub Actions workflow ${file} of ${repository}.`
+  const create = {
+    kind: "Workflow",
+    name,
+    heading,
+    summary,
+    intro: [lead, section("Triggers", triggers), section("Jobs", jobs)]
+      .filter(Boolean)
+      .join("\n\n"),
+    fields: [["workflow_file", file]],
+  }
   plans.push({
     path,
     claims,
     related,
     replace: isSoleOwned(entry),
-    create: {
-      kind: "Workflow",
-      name,
-      heading,
-      summary,
-      intro: [
-        `A script wrote this file from the GitHub Actions workflow \`${file}\` of \`${repository}\`. It holds the triggers, the job ids, and the code roots that the workflow names. It does not copy the steps of the workflow.`,
-        section("Triggers", triggers),
-        section("Jobs", jobs),
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
-      fields: [["workflow_file", file]],
-    },
+    create,
+    // The summary and the lists join clean parts, and the join can form a
+    // phrase that the validator refuses. Try a plain summary, then no lists.
+    fallbacks: [
+      { ...create, summary: plain },
+      { ...create, summary: plain, intro: lead },
+    ],
   })
 }
 

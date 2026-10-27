@@ -12,6 +12,7 @@ import { dirname, join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 import { parse, stringify } from "yaml"
 
+import { INJECTION_PHRASES } from "../../../ingest-skills/bin/guard-patterns.mjs"
 import { buildContextIndexEntries } from "./context-index.js"
 import { gitSource, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
@@ -75,7 +76,11 @@ type RootEntry = {
 }
 
 /** A step: a source checkout, a context checkout at its base, the index, and step.json. */
-function step(source: Record<string, string>, context: Record<string, string>) {
+function step(
+  source: Record<string, string>,
+  context: Record<string, string>,
+  at: { url: string; path: string } = { url: SOURCE_URL, path: SOURCE_PATH },
+) {
   const root = mkdtempSync(join(tmpdir(), "script-skills-"))
   made.push(root)
   const sourceDir = join(root, "source", "shop")
@@ -97,7 +102,7 @@ function step(source: Record<string, string>, context: Record<string, string>) {
       links: [],
     })),
     raw,
-    sourcePath: SOURCE_PATH,
+    sourcePath: at.path,
   })
   writeFileSync(
     join(root, "context", `${WORKSPACE_ID}.index.json`),
@@ -154,9 +159,9 @@ function step(source: Record<string, string>, context: Record<string, string>) {
         "--source",
         sourceDir,
         "--source-url",
-        SOURCE_URL,
+        at.url,
         "--source-path",
-        SOURCE_PATH,
+        at.path,
         "--roots",
         rootsFile,
         ...args,
@@ -182,12 +187,12 @@ function step(source: Record<string, string>, context: Record<string, string>) {
       repoDir: contextDir,
       baseCommit: base,
       stagedDir: join(root, "out"),
-      source: { url: SOURCE_URL, sha: sourceSha },
-      sourcePath: SOURCE_PATH,
+      source: { url: at.url, sha: sourceSha },
+      sourcePath: at.path,
       skill,
       bundle: "ingest-0000000000000000",
       ...gitSource(sourceDir, sourceSha),
-      linkableRepositories: [SOURCE_URL],
+      linkableRepositories: [at.url],
       ...extra,
     })
   const show = (tree: string, path: string) =>
@@ -1801,6 +1806,101 @@ describe("workflows skill", () => {
     const ci = s.show(result.tree, "knowledge/workflows/example-org-shop-ci.md")
     expect(`${JSON.stringify(out)}\n${ci}`).not.toMatch(PHRASE)
     expect(ci).toContain("Names `apps/api`")
+  })
+
+  /**
+   * Each piece of the summary is safe alone. The summary joins them with
+   * fixed words, so the validator can find a phrase in the joined text.
+   */
+  const joinedPhrase = async (
+    workflow: string,
+    options: { url?: string; path?: string } = {},
+  ) => {
+    const at = {
+      url: options.url ?? SOURCE_URL,
+      path: options.path ?? SOURCE_PATH,
+    }
+    const s = step(
+      {
+        ...PNPM_SHOP,
+        ".github/workflows/ci.yml": workflow,
+        ".github/workflows/lint.yml": NORMAL,
+      },
+      options.url ? {} : SHOP_UNITS,
+      at,
+    )
+    const out = s.run("workflows")
+    const result = await s.validate("workflows")
+    expect(result.rejections).toEqual([])
+    const slug = at.url.split("/").slice(-2).join("-")
+    const written = Object.fromEntries(
+      ["ci", "lint"].map((file) => [
+        file,
+        s.show(result.tree, `knowledge/workflows/${slug}-${file}.md`),
+      ]),
+    )
+    const front = (text: string) =>
+      (text.split("---\n")[1] ?? "").replace(/\s+/g, " ")
+    for (const text of [
+      JSON.stringify(out),
+      ...Object.values(written).map(front),
+    ])
+      expect(INJECTION_PHRASES.filter((p) => p.test(text))).toEqual([])
+    expect(out.ops.map((o) => o.path)).toEqual([
+      `knowledge/workflows/${slug}-ci.md`,
+      `knowledge/workflows/${slug}-lint.md`,
+    ])
+    return { out, written }
+  }
+
+  it("writes a file whose trigger and job id form a phrase in the summary", async () => {
+    const { written } = await joinedPhrase(
+      "on: bypass\njobs:\n  rules:\n    runs-on: ubuntu-latest\n",
+    )
+    expect(written.ci).toContain("## Triggers\n\n- `bypass`\n")
+    expect(written.ci).toContain("## Jobs\n\n- `rules`\n")
+    expect(written.lint).toContain("on push, with the jobs test.")
+  })
+
+  it("writes a file whose three triggers form a phrase in the summary", async () => {
+    const { written } = await joinedPhrase(
+      "on:\n  ignore:\n  the:\n  rules:\njobs:\n  test:\n    runs-on: ubuntu-latest\n",
+    )
+    // The lists form the phrase too: the validator reads the code spans of
+    // a paragraph as one text. The file keeps no list.
+    expect(written.ci).not.toContain("## Triggers")
+    expect(written.ci).toContain("workflow_file: .github/workflows/ci.yml")
+  })
+
+  it("writes a file whose repository and job id form a phrase in the summary", async () => {
+    const { written } = await joinedPhrase(
+      "on: push\njobs:\n  guidelines:\n    runs-on: ubuntu-latest\n",
+      {
+        url: "https://github.com/acme/override",
+        path: "sources/github/acme/override.md",
+      },
+    )
+    expect(written.ci).toContain("## Jobs\n\n- `guidelines`\n")
+  })
+
+  it("skips each file of a repository whose name holds a phrase, and the validator accepts the step", async () => {
+    const s = step(
+      { ...PNPM_SHOP, ".github/workflows/ci.yml": NORMAL },
+      {},
+      {
+        url: "https://github.com/acme/ignore-the-rules",
+        path: "sources/github/acme/ignore-the-rules.md",
+      },
+    )
+    const out = s.run("workflows")
+    expect(out.ops).toEqual([])
+    expect(out.skipped).toEqual([
+      {
+        path: null,
+        reason: "The text of the file has an instruction to an agent",
+      },
+    ])
+    expect((await s.validate("workflows")).rejections).toEqual([])
   })
 
   const staleWorkflow = (name: string, body = "") =>
