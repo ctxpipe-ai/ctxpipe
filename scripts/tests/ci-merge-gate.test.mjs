@@ -1,8 +1,15 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 
@@ -29,13 +36,74 @@ const pinned = {
   acceptAgentResults: true,
 }
 
+// The files that list.mjs runs or imports at list time, from the static
+// import closure of list.mjs: a relative `from "x"` or `import("x")`, a script
+// that a `json("x")` call spawns, and a file that a `readFileSync(join(root, "x"))` read opens.
+function listTimeFiles() {
+  const seen = new Set()
+  const visit = (file) => {
+    if (seen.has(file)) return
+    seen.add(file)
+    if (!/\.(?:mjs|ts)$/.test(file)) return
+    const text = readFileSync(join(root, file), "utf8")
+    const found = [
+      ...[...text.matchAll(/(?:from\s+|import\()\s*["'](\.[^"']+)["']/g)].map(
+        (match) => relative(root, resolve(root, dirname(file), match[1])),
+      ),
+      ...[...text.matchAll(/(?:json\(|readFileSync\(\s*join\(root,\s*)"([^"]+\.(?:mjs|json))"/g)].map(
+        (match) => match[1],
+      ),
+    ]
+    for (const path of found)
+      for (const candidate of [path, `${path}.ts`, `${path}.mjs`])
+        if (existsSync(join(root, candidate))) {
+          visit(candidate)
+          break
+        }
+  }
+  visit("scripts/checks/list.mjs")
+  return [...seen]
+}
+
+test("a file that list.mjs runs outside scripts/checks forces a full run", () => {
+  const files = listTimeFiles()
+  // The walk finds the known files, so a broken walk cannot pass.
+  for (const known of [
+    "scripts/checks/families.mjs",
+    "apps/backend/evals/mcp/cases.ts",
+    "apps/ui/.storybook/check-modules.mjs",
+    "apps/codesearch/scripts/run-vitest-contracts.mjs",
+    "scripts/ci/projects.json",
+  ])
+    assert.ok(files.includes(known), `walk reaches ${known}`)
+  const outside = files.filter((file) => !file.startsWith("scripts/checks/"))
+  for (const file of [
+    ...outside,
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    ...readdirSync(join(root, "apps")).map((name) => `apps/${name}/package.json`),
+  ])
+    if (existsSync(join(root, file)))
+      assert.equal(
+        decideMode({
+          config: pinned,
+          event: "pull_request",
+          fork: false,
+          changed: [file],
+        }).mode,
+        "full",
+        file,
+      )
+})
+
 test("only a same-repo pull_request without gate input changes runs the selector", () => {
   const mode = (overrides) =>
     decideMode({
       config: pinned,
       event: "pull_request",
       fork: false,
-      changed: ["apps/ui/src/a.tsx", "apps/ui/package.json"],
+      changed: ["apps/ui/src/a.tsx", "apps/ui/README.md"],
       ...overrides,
     })
   assert.deepEqual(mode({}), { mode: "select", reason: "shadow" })
@@ -52,6 +120,11 @@ test("only a same-repo pull_request without gate input changes runs the selector
     ".github/actions/setup/action.yml",
     "scripts/ci/test-suite.mjs",
     "scripts/ci/vitest-launch.mjs",
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "apps/ui/package.json",
+    "packages/cli/package.json",
   ])
     assert.deepEqual(mode({ changed: ["apps/a.ts", path] }), {
       mode: "full",
@@ -63,9 +136,6 @@ test("only a same-repo pull_request without gate input changes runs the selector
     ".github/workflows/observability.yaml",
     ".github/workflows/terraform-plan-pr.yaml",
     "scripts/checks/README.md",
-    "pnpm-lock.yaml",
-    "pnpm-workspace.yaml",
-    "package.json",
     ".node-version",
     "scripts/ci/check-secret-jobs.mjs",
   ])

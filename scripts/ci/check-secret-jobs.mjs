@@ -140,7 +140,7 @@ const exceptions = new Map(
 // An OIDC token: `id-token: write`, `permissions: write-all`, or the flow
 // form `permissions: { id-token: write }`, at workflow or job level.
 const oidcToken =
-  /^\s+id-token:\s*write\b|^\s*permissions:\s*(?:write-all\b|\{[^}]*\bid-token:\s*write\b)/
+  /^\s+id-token:\s*["']?write["']?(?![\w-])|^\s*permissions:\s*(?:["']?write-all["']?(?![\w-])|\{[^}]*\bid-token:\s*["']?write["']?(?![\w-]))/
 
 // Jobs that run only for main, as deploy.yaml does. The check keeps their
 // `if:` limited to refs/heads/main.
@@ -400,7 +400,8 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
           )
         // The proof is the last non-empty line of the `run` of its step, a plain
         // command whose failure fails the step. The step has no `if:`, no
-        // `continue-on-error`, no `shell:`. No line of it has `set `, `trap`,
+        // `continue-on-error`, no `shell:`, no `env:`. The only other line it
+        // may have is an `echo` without command substitution. No line has `set `, `trap`,
         // `&&`, `||`, `;`, `|` or `&` on the proof line, or anything after it.
         const runIndex = next.findIndex(({ text }) =>
           /^\s*(?:-\s+)?run:/.test(text),
@@ -416,9 +417,15 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
           (runIndex === -1 ||
             runLines.at(-1)?.trim() !==
               "git merge-base --is-ancestor HEAD origin/main" ||
+            runLines
+              .slice(0, -1)
+              .some(
+                (text) =>
+                  !/^\s*echo\b/.test(text) || /\$\(|`/.test(text),
+              ) ||
             next.some(
               ({ text }) =>
-                /^\s+(?:-\s+)?(if|continue-on-error|shell):/.test(text) ||
+                /^\s+(?:-\s+)?(if|continue-on-error|shell|env):/.test(text) ||
                 /(?<![\w-])set\s/.test(text) ||
                 /(?<![\w-])trap\b/.test(text),
             ))

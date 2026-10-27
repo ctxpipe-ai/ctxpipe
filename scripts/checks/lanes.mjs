@@ -263,7 +263,10 @@ export async function listVitest() {
 }
 
 // A non-zero Vitest exit (an unhandled error, a teardown failure) fails every
-// record that has not failed already, even when each assertion passed.
+// record that has not failed already, even when each assertion passed. The
+// `origin` stays as suiteRecord set it: `runner` only for a record without a
+// suite (the run gave no result). A test that passes but leaves an unhandled
+// rejection has a suite, so its record gets no origin.
 export function markExitFailure(records, run) {
   if (run.status === 0 && !run.error && !run.signal) return records
   const cause = run.error?.message ?? run.signal ?? `exit ${run.status}`
@@ -273,7 +276,6 @@ export function markExitFailure(records, run) {
       : {
           ...record,
           status: "error",
-          origin: "runner",
           message: `Vitest failed (${cause}); see the log${record.message ? `. ${record.message}` : ""}`,
         },
   )

@@ -386,13 +386,10 @@ jobs:
 
       # A run on main gets an OIDC token with the subject of main, which a
       # cloud role can trust (scripts/ci/check-secret-jobs.mjs). Thus build
-      # only a commit that is on main.
+      # only a commit that is on main. If this step fails, merge the ref first,
+      # or publish from a commit of main.
       - name: Refuse a commit that is not on main
-        env:
-          REF: ${{ inputs.ref }}
-        run: |
-          echo "::notice::Check that the ref $REF is on main. If this step fails, merge it first, or publish from a commit of main."
-          git merge-base --is-ancestor HEAD origin/main
+        run: git merge-base --is-ancestor HEAD origin/main
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 

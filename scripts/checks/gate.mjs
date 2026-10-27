@@ -88,17 +88,29 @@ export function decideMode({ config, event, fork, changed }) {
   if (fork) return full("fork PR")
   // A change to one of these can change how the gate decides, so the run is
   // full: the workflow that runs the gate, its actions, its pin, and the code
-  // that the gate and the runner execute. Other workflows, Markdown files, the
-  // root package.json, the lockfile and .node-version are not here: the
-  // selector reads them as lane inputs (scripts/checks/lanes.mjs), and the
-  // toolchain is part of each key.
+  // that the gate and the runner execute. The manifest job runs the code of
+  // the PR (`pnpm install`, `pnpm -s checks:list`), so a file that changes
+  // how the manifest is made is here too: the package files, the lockfile,
+  // the patches, and each file that scripts/checks/list.mjs runs outside
+  // scripts/checks/ (a test keeps this list complete). Other workflows,
+  // Markdown files and .node-version are not here: the selector reads them as
+  // lane inputs (scripts/checks/lanes.mjs), and the toolchain is part of each
+  // key.
   const inputs = changed.filter((path) =>
     [
       /^\.github\/workflows\/ci\.yaml$/,
       /^\.github\/actions\//,
       /^\.github\/merge-gate\.json$/,
       /^scripts\/checks\/(?:schema\/[^/]+\.json|[^/]+\.mjs)$/,
-      /^scripts\/ci\/(?:vitest-launch|test-suite|graph-ready|prerequisites)\.mjs$/,
+      /^scripts\/ci\/(?:vitest-launch|test-suite|graph-ready|prerequisites|storybook-play)\.mjs$/,
+      /^scripts\/ci\/[^/]+\.json$/,
+      /^(?:package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc)$/,
+      /^patches\//,
+      /^(?:apps|packages|examples)\/[^/]+\/package\.json$/,
+      /^ops\/observability\/(?:railway-telemetry|cost-telemetry|hyperdx)\/package\.json$/,
+      /^apps\/backend\/evals\/mcp\/(?:cases|gate)\.ts$/,
+      /^apps\/ui\/\.storybook\/check-modules\.mjs$/,
+      /^apps\/codesearch\/scripts\/run-vitest-contracts\.mjs$/,
     ].some((input) => input.test(path)),
   )
   if (inputs.length)

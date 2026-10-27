@@ -676,6 +676,11 @@ test("rejects a proof step that can hide its failure", () => {
     `      - run: |\n          ${cmd}\n          echo after\n`,
     `      - run: |\n          set +o errexit\n          ${cmd}\n`,
     `      - run: |\n          trap 'exit 0' ERR\n          ${cmd}\n`,
+    // Another command, a command substitution, or a step-level env.
+    `      - run: |\n          npx something\n          ${cmd}\n`,
+    `      - run: |\n          echo "$(npx something)"\n          ${cmd}\n`,
+    `      - run: |\n          echo \`id\`\n          ${cmd}\n`,
+    `      - env:\n          GIT_DIR: /tmp/other\n        run: ${cmd}\n`,
   ])
     rejects(
       { ".github/workflows/deploy.yaml": job(proof) },
@@ -710,6 +715,10 @@ test("detects an OIDC token from write-all and from the flow form", () => {
     ["permissions: { id-token: write }\n", ""],
     ["", "    permissions: write-all\n"],
     ["", "    permissions: { contents: read, id-token: write }\n"],
+    ["permissions:\n  id-token: \"write\"\n", ""],
+    ["", "    permissions:\n      id-token: 'write'\n"],
+    ["permissions: { id-token: \"write\" }\n", ""],
+    ["permissions: \"write-all\"\n", ""],
   ])
     rejects(
       { ".github/workflows/deploy.yaml": jobs(workflow, job) },

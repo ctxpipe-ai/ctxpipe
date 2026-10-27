@@ -683,7 +683,7 @@ test("the browser trace maps page coverage to source lines through the build's s
 })
 
 test("a Vitest exit failure fails every record that has not failed", async () => {
-  const { markExitFailure } = await import("../checks/lanes.mjs")
+  const { markExitFailure, suiteRecord } = await import("../checks/lanes.mjs")
   const records = [
     { id: "a", status: "passed", durationMs: 1, cases: [] },
     { id: "b", status: "failed", durationMs: 1, cases: [] },
@@ -696,7 +696,11 @@ test("a Vitest exit failure fails every record that has not failed", async () =>
     ["error", "failed", "error"],
   )
   assert.match(marked[0].message, /Vitest failed \(exit 1\)/)
-  assert.equal(marked[0].origin, "runner")
+  // A suite that ran has results: its record gets no origin.
+  assert.equal(marked[0].origin, undefined)
+  // A record without a suite is a fault of the runner.
+  const missing = suiteRecord("m", undefined)
+  assert.equal(markExitFailure([missing], { status: 1 })[0].origin, "runner")
   // A load error of a test file is its own fault: no origin.
   const loadError = { id: "d", status: "error", durationMs: 1, cases: [] }
   assert.equal(markExitFailure([loadError], { status: 1 })[0].origin, undefined)
