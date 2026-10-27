@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  writeFileSync,
 } from "node:fs"
 import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -21,11 +22,19 @@ const root = fileURLToPath(new URL("../../", import.meta.url))
 // the rerun to <results dir>/rerun/rerun.ndjson, and the rerun logs to
 // <results dir>/rerun/checks. The logs of the first run stay in
 // .ci-results/checks. At most 50 checks run again; the others have no rerun
-// record, so the writer does not quarantine them. A failed rerun is data, so
+// record, so the writer does not quarantine them. The script prints the number
+// of failed checks and of reruns, and writes the ids that did not run again to
+// <results dir>/rerun/not-rerun.txt, which the Results writer shows. A failed rerun is data, so
 // the exit code is 0; it is 1 only when the rerun cannot start.
 
 // The ids of the failed records below `directory`, sorted, at most `limit`.
 export function failedIds(directory, limit = 50) {
+  return failedChecks(directory, limit).ids
+}
+
+// All failed ids, sorted: `ids` are the first `limit` (they run again) and
+// `notRerun` are the others.
+export function failedChecks(directory, limit = 50) {
   const ids = new Set()
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -41,17 +50,31 @@ export function failedIds(directory, limit = 50) {
     }
   }
   if (existsSync(directory)) walk(directory)
-  return [...ids].sort().slice(0, limit)
+  const sorted = [...ids].sort()
+  return {
+    total: sorted.length,
+    ids: sorted.slice(0, limit),
+    notRerun: sorted.slice(limit),
+  }
 }
 
 function main(directory) {
-  const ids = failedIds(directory)
+  const { total, ids, notRerun } = failedChecks(directory)
   if (!ids.length) {
     console.error("No failed check: nothing to run again.")
     return 0
   }
   const out = join(directory, "rerun")
   mkdirSync(out, { recursive: true })
+  console.error(
+    `${total} checks failed; ${ids.length} run again, ${notRerun.length} do not.`,
+  )
+  if (notRerun.length) {
+    writeFileSync(join(out, "not-rerun.txt"), `${notRerun.join("\n")}\n`)
+    console.error(
+      `Not run again (the Results writer does not quarantine their keys):\n${notRerun.join("\n")}`,
+    )
+  }
   const logs = join(root, ".ci-results", "checks")
   const first = join(root, ".ci-results", "checks-first-run")
   if (existsSync(logs)) renameSync(logs, first)

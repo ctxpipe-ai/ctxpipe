@@ -579,7 +579,8 @@ test("rejects an OIDC job that checks out another commit without the proof that 
   const job = (steps) =>
     `on: workflow_dispatch\njobs:\n  prerelease:\n    permissions:\n      id-token: write\n    steps:\n      - uses: actions/checkout@v6\n        with:\n          ref: \${{ inputs.ref }}\n          fetch-depth: 0\n${steps}`
   const proof = `      - run: git merge-base --is-ancestor HEAD origin/main\n`
-  const setup = "      - uses: pnpm/action-setup@v6\n"
+  const setup =
+    "      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6\n"
   for (const steps of [
     install,
     `${setup}${proof}${install}`,
@@ -624,4 +625,67 @@ test("requires the proof directly after each checkout of another commit", () => 
   })
   assert.equal(result.stderr, "")
   assert.equal(result.status, 0)
+})
+
+test("applies the pinned action rule to the npm publish jobs", () => {
+  const pin = "0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+  const job = (action) =>
+    `on: push\njobs:\n  release:\n    permissions:\n      id-token: write\n    steps:\n      - uses: ${action}\n`
+  rejects(
+    { ".github/workflows/deploy.yaml": job("pnpm/action-setup@v6") },
+    /job release holds a secret or an OIDC token and uses pnpm\/action-setup@v6, a third-party action that is not pinned/,
+  )
+  const result = check({
+    ".github/workflows/deploy.yaml": job(`pnpm/action-setup@${pin} # v6`),
+  })
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+})
+
+test("reads id-token: write at the workflow level for each job without permissions", () => {
+  const workflowJob = (permissions) =>
+    `on: push\npermissions:\n  id-token: write\njobs:\n  select:\n${permissions}    steps:\n${install}`
+  rejects(
+    { ".github/workflows/w.yaml": workflowJob("") },
+    /job select holds a secret or an OIDC token and runs a package manager/,
+  )
+  const result = check({
+    ".github/workflows/w.yaml": workflowJob(
+      "    permissions:\n      contents: read\n",
+    ),
+  })
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+})
+
+test("rejects a proof step that can hide its failure", () => {
+  const checkout = `      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6\n        with:\n          ref: \${{ inputs.ref }}\n`
+  const cmd = "git merge-base --is-ancestor HEAD origin/main"
+  const job = (proof, workflowLevel = false) =>
+    `on: workflow_dispatch\n${workflowLevel ? "permissions:\n  id-token: write\n" : ""}jobs:\n  prerelease:\n${workflowLevel ? "" : "    permissions:\n      id-token: write\n"}    steps:\n${checkout}${proof}`
+  for (const proof of [
+    `      - if: always()\n        run: ${cmd}\n`,
+    `      - continue-on-error: true\n        run: ${cmd}\n`,
+    `      - run: ${cmd} || true\n`,
+    `      - run: ${cmd}; echo done\n`,
+    `      - run: |\n          ${cmd}\n          || true\n`,
+    `      - run: |\n          set +e\n          ${cmd}\n`,
+    `      - run: if ${cmd}; then echo ok; fi\n`,
+  ])
+    rejects(
+      { ".github/workflows/deploy.yaml": job(proof) },
+      /job prerelease has an OIDC token and checks out another commit/,
+    )
+  rejects(
+    { ".github/workflows/deploy.yaml": job(`      - run: ${cmd} || true\n`, true) },
+    /job prerelease has an OIDC token and checks out another commit/,
+  )
+  for (const proof of [
+    `      - run: ${cmd}\n`,
+    `      - run: |\n          ${cmd}\n          echo ok\n`,
+  ]) {
+    const result = check({ ".github/workflows/deploy.yaml": job(proof) })
+    assert.equal(result.stderr, "")
+    assert.equal(result.status, 0)
+  }
 })

@@ -1465,6 +1465,14 @@ jobs:
             --records "${records[@]}" \
             "${rerun_args[@]}" > "$RUNNER_TEMP/store.txt" 2>&1 || code=$?
           cat "$RUNNER_TEMP/store.txt"
+          find "$RUNNER_TEMP/results" -name not-rerun.txt -print0 | sort -z |
+            while IFS= read -r -d '' list; do
+              {
+                echo
+                echo "Failed checks that the rerun skipped (limit of 50), so their keys are not confirmed:"
+                cat "$list"
+              } >> "$RUNNER_TEMP/store.txt"
+            done
           if grep -q '^AUDIT FAILED' "$RUNNER_TEMP/store.txt"; then
             echo "::error::The audit of the result store failed, so no key was quarantined. See the Results writer summary."
           fi

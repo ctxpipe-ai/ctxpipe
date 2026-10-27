@@ -14,7 +14,7 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
 
-import { failedIds } from "../checks/rerun-failed.mjs"
+import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
 import { requiredStories } from "../ci/storybook-golden-select.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -804,5 +804,9 @@ test("the rerun takes each failed record below the results once, and no rerun re
   ])
   assert.deepEqual(failedIds(directory, 1), ["vitest:backend:b.test.ts"])
   assert.deepEqual(failedIds(join(directory, "missing")), [])
+  const summary = failedChecks(directory, 1)
+  assert.equal(summary.total, failedIds(directory).length)
+  assert.deepEqual(summary.ids, ["vitest:backend:b.test.ts"])
+  assert.deepEqual(summary.notRerun, failedIds(directory).slice(1))
   rmSync(directory, { recursive: true })
 })

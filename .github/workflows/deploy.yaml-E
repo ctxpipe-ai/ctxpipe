@@ -1,0 +1,417 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to publish from
+        default: main
+        type: string
+      dist_tag:
+        description: npm dist-tag for snapshot prerelease
+        default: next
+        type: choice
+        options:
+          - next
+          - canary
+          - beta
+
+concurrency:
+  group: deploy-main
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+
+jobs:
+  build_images:
+    timeout-minutes: 45
+    name: Build and Publish GHCR Images
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: production
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            dockerfile: apps/backend/Dockerfile
+          - image: worker
+            dockerfile: apps/backend/Dockerfile.worker
+          - image: ui
+            dockerfile: apps/ui/Dockerfile
+          - image: codesearch
+            dockerfile: apps/codesearch/Dockerfile
+          # Workspace chat sandboxes. The AWS sandbox host is Graviton; Compose
+          # hosts are often amd64.
+          - image: chat-sandbox
+            dockerfile: scripts/chat-sandbox/Dockerfile
+            context: scripts/chat-sandbox
+            platforms: linux/amd64,linux/arm64
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@v1
+
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: ${{ matrix.context || '.' }}
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platforms }}
+          push: true
+          tags: |
+            ghcr.io/ctxpipe-ai/${{ matrix.image }}:${{ github.sha }}
+            ghcr.io/ctxpipe-ai/${{ matrix.image }}:latest
+
+  release:
+    timeout-minutes: 20
+    name: Release
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs:
+      - build_images
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # A self-hosted stack pulls the chat sandbox image with no credentials.
+      # A new GHCR package is private until an organization owner makes it
+      # public, so stop the release before it ships a stack that cannot chat.
+      - name: Check that the chat sandbox image pulls without credentials
+        run: bash scripts/ci/check-image-public.sh ctxpipe-ai/chat-sandbox "$GITHUB_SHA"
+
+      - uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          registry-url: "https://registry.npmjs.org"
+          cache: pnpm
+
+      - name: Ensure npm supports trusted publishing
+        run: npm install -g npm@11.5.1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Create Release Pull Request or Publish
+        uses: changesets/action@v1
+        with:
+          version: pnpm ci:version
+          publish: pnpm release
+          commit: "chore(release): version packages"
+          title: "chore(release): version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ github.sha }}
+
+  # A reviewed exception in scripts/ci/check-secret-jobs.mjs (productionJobs):
+  # this job runs `pnpm install` with the production secrets. Migrate
+  # (tsx src/db/migrate.ts) and the cleanup of preview sandboxes (Vercel SDK)
+  # need the packages. The job runs only on a push to main, with merged code
+  # and a frozen lockfile, and the production runtime trusts the same
+  # packages. The pin rule and the cache rule of the check still apply.
+  terraform:
+    timeout-minutes: 90
+    name: Terraform Init/Plan/Apply
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: production
+    needs:
+      - build_images
+    defaults:
+      run:
+        working-directory: infra
+
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_VAR_image_tag: ${{ github.sha }}
+      TF_VAR_model_provider: ${{ vars.MODEL_PROVIDER || 'openrouter' }}
+      TF_VAR_linear_redirect_uri: ${{ vars.LINEAR_REDIRECT_URI }}
+      TF_VAR_pagerduty_redirect_uri: ${{ vars.PAGERDUTY_REDIRECT_URI }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.14.7
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init -backend-config="access_key=$R2_ACCESS_KEY_ID" -backend-config="secret_key=$R2_SECRET_ACCESS_KEY" -backend-config="key=production/terraform.tfstate"
+
+      # Provider Update() never sends multiRegionConfig (issue #77). Pin via
+      # GraphQL and redeploy before plan so Read() sees the live region.
+      # Codesearch + FalkorDB 50GB volume copy happens here when the region
+      # actually changes.
+      - name: Pin Railway production region
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/railway-set-regions.sh
+
+      # Only the password goes into state here. Migrate creates the role in
+      # SQL with it (ADR-042 mode a), before the full apply gives the services
+      # the app URL.
+      - name: Ensure the ctxpipe_app password exists
+        run: terraform apply -auto-approve -target=module.ctxpipe.random_password.app_database
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - name: Mount pnpm store (sticky disk)
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1
+        with:
+          # Production only: no PR job mounts this key.
+          key: ${{ github.repository }}-pnpm-store-production
+          path: ~/.pnpm-store
+
+      - uses: useblacksmith/setup-node@65c6ca86fdeb0ab3d85e78f57e4f6a7e4780b391 # v5
+        with:
+          node-version-file: .node-version
+
+      - name: Ensure pnpm store path
+        run: pnpm config set store-dir ~/.pnpm-store
+
+      - name: Install dependencies
+        working-directory: ${{ github.workspace }}
+        run: pnpm install --frozen-lockfile
+
+      # The one migrate entry point (the same as Compose and CDK): app role,
+      # Drizzle, OpenWorkflow, every backfill, then grants. The step reads the
+      # password from Terraform state and masks it before use. No `env:` entry
+      # and no step output holds it, so GitHub never prints it. Migrate runs
+      # before the new images deploy.
+      - name: Migrate production database
+        timeout-minutes: 20
+        working-directory: ${{ github.workspace }}/apps/backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          DATABASE_APP_PASSWORD="$(terraform -chdir="$GITHUB_WORKSPACE/infra" output -raw ctxpipe_app_password)"
+          [[ -n "$DATABASE_APP_PASSWORD" ]] || { echo "Terraform state has no ctxpipe_app password"; exit 1; }
+          echo "::add-mask::$DATABASE_APP_PASSWORD"
+          export DATABASE_APP_PASSWORD
+          pnpm exec tsx src/db/migrate.ts
+
+      # Secret values go from this environment straight to Railway, never into
+      # Terraform inputs or state (scripts/railway-sync-variables.mjs). The app
+      # services do not redeploy here: the next step deploys them on the new
+      # image, and when a value changed it deploys them even when they already
+      # run that image, so a re-run applies a rotated secret. A re-run of a
+      # failed attempt forces it too: that attempt may have changed values
+      # that this one finds equal. FalkorDB is not in that step, so it
+      # redeploys here, last: a failure in the sync of an app service changes
+      # nothing on FalkorDB. If the image step fails after this, the re-run
+      # forces the deploy of every app service.
+      - name: Sync production secrets to Railway
+        id: sync
+        working-directory: ${{ github.workspace }}
+        env:
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          CONNECTION_SECRETS_ENCRYPTION_KEY: ${{ secrets.CONNECTION_SECRETS_ENCRYPTION_KEY }}
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          SMTP_CONNECTION_URL: ${{ secrets.SMTP_CONNECTION_URL }}
+          GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
+          GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
+          GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
+          ATLASSIAN_CLIENT_ID: ${{ secrets.ATLASSIAN_CLIENT_ID }}
+          ATLASSIAN_CLIENT_SECRET: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
+          NOTION_CLIENT_ID: ${{ secrets.NOTION_CLIENT_ID }}
+          NOTION_CLIENT_SECRET: ${{ secrets.NOTION_CLIENT_SECRET }}
+          NOTION_WEBHOOK_SECRET: ${{ secrets.NOTION_WEBHOOK_SECRET }}
+          SLACK_CLIENT_ID: ${{ secrets.SLACK_CLIENT_ID }}
+          SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}
+          SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
+          LINEAR_CLIENT_ID: ${{ secrets.LINEAR_CLIENT_ID }}
+          LINEAR_CLIENT_SECRET: ${{ secrets.LINEAR_CLIENT_SECRET }}
+          LINEAR_WEBHOOK_SECRET: ${{ secrets.LINEAR_WEBHOOK_SECRET }}
+          PAGERDUTY_CLIENT_ID: ${{ secrets.PAGERDUTY_CLIENT_ID }}
+          PAGERDUTY_CLIENT_SECRET: ${{ secrets.PAGERDUTY_CLIENT_SECRET }}
+          VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
+          FALKORDB_PASSWORD: ${{ secrets.FALKORDB_PASSWORD }}
+          BETTER_AUTH_API_KEY: ${{ secrets.BETTER_AUTH_API_KEY }}
+          CONFLUENCE_FORGE_INSTALL_URL: ${{ secrets.CONFLUENCE_FORGE_INSTALL_URL }}
+        run: |
+          set -euo pipefail
+          export PROJECT_ID="$RAILWAY_PROJECT_ID"
+          ENVIRONMENT_ID="$(terraform -chdir=infra output -raw railway_environment_id)"
+          export ENVIRONMENT_ID
+          ids="$(terraform -chdir=infra output -json railway_service_ids)"
+          changed="$RUNNER_TEMP/railway-sync-changed"
+          : > "$changed"
+          sync() {
+            SERVICE_ID="$(jq -er --arg key "$2" '.[$key]' <<<"$ids")"
+            export SERVICE_ID
+            node scripts/railway-sync-variables.mjs --service "$1" --changed-file "$changed" "${@:3}"
+          }
+          sync backend backend
+          sync openworkflow open_workflow
+          sync codesearch code_search
+          sync ui ui
+          # A re-run redeploys FalkorDB in any case: the failed attempt may
+          # have written its password and then failed to redeploy it.
+          if [[ "$GITHUB_RUN_ATTEMPT" != 1 ]]; then redeploy=--redeploy; else redeploy=--redeploy-on-change; fi
+          sync falkordb falkordb "$redeploy"
+          if [[ -s "$changed" || "$GITHUB_RUN_ATTEMPT" != 1 ]]; then
+            echo "force_deploy=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Provider Update() serviceConnects the image for every environment and
+      # redeploys previews. App image tags are ignore_changes; this step
+      # deploys production only (ADR-039).
+      - name: Deploy production images
+        working-directory: ${{ github.workspace }}
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          FORCE_DEPLOY: ${{ steps.sync.outputs.force_deploy }}
+        run: bash scripts/railway-set-images.sh
+
+      - name: Terraform Plan
+        run: terraform plan --out=terraform.plan
+
+      - name: Refuse plans that delete resources
+        run: |
+          umask 077
+          terraform show -json terraform.plan > plan.json
+          jq -e '[.resource_changes[] | select(.change.actions | index("delete"))] | length == 0' plan.json
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve terraform.plan
+
+      # PR previews ran in the production Vercel project before they got a
+      # project of their own, and the PR-close cleanup cannot reach it now.
+      # Delete what they left: only sandboxes tagged `pr-<number>`. The deploy
+      # is applied at this point and the next deploy tries again, so a failed
+      # cleanup does not fail the deploy (forge_deploy needs this job).
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Delete sandboxes that PR previews left in production
+        continue-on-error: true
+        working-directory: ${{ github.workspace }}/apps/backend
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          VERCEL_TEAM_ID: ctxpipe
+          VERCEL_PROJECT_ID: ctxpipe
+        run: bun src/scripts/deletePreviewSandboxes.ts 'pr-*'
+
+  # A reviewed exception in scripts/ci/check-secret-jobs.mjs (productionJobs):
+  # the Forge CLI is a package, and it runs with the Forge token. The job runs
+  # only on a push to main, with merged code and a frozen lockfile.
+  forge_deploy:
+    timeout-minutes: 20
+    name: Deploy Forge app (production)
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: production
+    needs: terraform
+
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - name: Mount pnpm store (sticky disk)
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1
+        with:
+          # Production only: no PR job mounts this key.
+          key: ${{ github.repository }}-pnpm-store-production
+          path: ~/.pnpm-store
+
+      - uses: useblacksmith/setup-node@65c6ca86fdeb0ab3d85e78f57e4f6a7e4780b391 # v5
+        with:
+          node-version-file: .node-version
+
+      - name: Ensure pnpm store path
+        run: pnpm config set store-dir ~/.pnpm-store
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `forge deploy` runs pre-deployment lint and is the command that accepts
+      # MAJOR_VERSION_RULE approvals for scope changes. The package script also
+      # configures the CLI for non-interactive use.
+      - name: Validate and deploy Forge production
+        env:
+          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
+          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+          FORGE_DISABLE_ANALYTICS: "1"
+        run: pnpm --filter @ctxpipe/forge-ctxpipe-agent run deploy:prod
+
+  prerelease:
+    timeout-minutes: 20
+    name: Prerelease
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      # A run on main gets an OIDC token with the subject of main, which a
+      # cloud role can trust (scripts/ci/check-secret-jobs.mjs). Thus build
+      # only a commit that is on main.
+      - name: Refuse a commit that is not on main
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::The ref $REF ($(git rev-parse HEAD)) is not on main. Merge it first, or publish from a commit of main."
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          registry-url: "https://registry.npmjs.org"
+          cache: pnpm
+
+      - name: Ensure npm supports trusted publishing
+        run: npm install -g npm@11.5.1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Publish snapshot prerelease
+        run: IMAGE_TAG="$(git rev-parse HEAD)" pnpm ci:prerelease
+        env:
+          SNAPSHOT_TAG: ${{ inputs.dist_tag }}

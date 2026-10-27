@@ -42,12 +42,17 @@
 // - A job with `id-token: write` can get a cloud credential through GitHub
 //   OIDC (for example the read-only merge gate role of the factory account).
 //   It follows every rule of a job that holds a secret. The jobs in
-//   oidcPublishJob (the npm publish jobs) are the exception.
+//   oidcPublishJob (the npm publish jobs) are the exception, except for the
+//   rule that a third-party action is pinned: they follow that rule. A
+//   top-level `permissions: id-token: write` applies to each job that has no
+//   `permissions:` of its own.
 // - A job with `id-token: write` that checks out another commit (`ref:`)
 //   proves that the commit is on main (`git merge-base --is-ancestor HEAD
 //   origin/main`) in the step directly after each such checkout, before any
 //   other command of that step. On main, its token has the subject of main,
-//   which a cloud role can trust.
+//   which a cloud role can trust. The proof is a plain command whose failure
+//   fails the step: the step has no `if:` and no `continue-on-error`, and
+//   nothing hides the exit status (`||`, `;`, `set +e`).
 // - The merge gate selection job (ci.yaml merge-gate-select) does not use
 //   `workbench`: it reads only our own result store and the selector release
 //   through a read-only OIDC role of the factory account. It needs no secret
@@ -182,6 +187,7 @@ function code(text) {
 
 function parse(text) {
   const workflowEnv = []
+  const workflowPermissions = []
   const jobs = []
   let section = ""
   for (const line of code(text)) {
@@ -190,6 +196,7 @@ function parse(text) {
       continue
     }
     if (section === "env") workflowEnv.push(line)
+    if (section === "permissions") workflowPermissions.push(line)
     if (section !== "jobs") continue
     const header = /^ {2}([\w-]+):\s*$/.exec(line.text)
     if (header) {
@@ -228,7 +235,7 @@ function parse(text) {
       })
     else step.inRestoreKeys = false
   }
-  return { workflowEnv, jobs }
+  return { workflowEnv, workflowPermissions, jobs }
 }
 
 // What a cache step does with its key: a sticky disk and actions/cache read
@@ -278,7 +285,7 @@ for (const script of reviewedScripts) {
 
 for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
   const file = join(".github", "workflows", name)
-  const { workflowEnv, jobs } = parse(readFileSync(join(root, file), "utf8"))
+  const { workflowEnv, workflowPermissions, jobs } = parse(readFileSync(join(root, file), "utf8"))
   const isProduction = file === production
 
   for (const { text, number } of workflowEnv)
@@ -287,7 +294,16 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
         `${file}:${number}: a secret in the workflow env reaches every job. Put it in the env of the one step or job that needs it.`,
       )
 
+  const workflowOidc = workflowPermissions.some(({ text }) =>
+    oidcToken.test(text),
+  )
   for (const job of jobs) {
+    // A job has an OIDC token when it asks for one, or when the workflow
+    // does and the job has no `permissions:` of its own.
+    const hasOidc =
+      job.lines.some(({ text }) => oidcToken.test(text)) ||
+      (workflowOidc &&
+        !job.lines.some(({ text }) => /^ {4}permissions:/.test(text)))
     // Jobs that ask for an OIDC token only for npm trusted publishing (the
     // token proves the workflow to npm), by a decision of the team. They run the
     // package manager to build and publish. On main their token has the subject
@@ -303,8 +319,8 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     ].includes(`${name}:${job.name}`)
     const holdsSecret = job.lines.some(
       ({ text }) =>
-        secretUse.test(text) || (oidcToken.test(text) && !oidcPublishJob),
-    )
+        secretUse.test(text),
+    ) || (hasOidc && !oidcPublishJob)
     const environment = job.lines
       .map(({ text }) => /^ {4}environment:\s*['"]?([\w-]+)/.exec(text)?.[1])
       .find(Boolean)
@@ -324,7 +340,7 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
       }
     }
 
-    if (holdsSecret)
+    if (holdsSecret || hasOidc)
       for (const { text, number } of job.lines) {
         const action = /^\s+(?:-\s+)?uses:\s*['"]?([^\s'"#]+)/.exec(text)?.[1]
         if (
@@ -360,7 +376,7 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     // Another commit in a job with an OIDC token: each checkout with `ref:`
     // is followed directly by the step that proves the commit is on main. That
     // step is a `run:` step, and nothing in it comes before the proof.
-    if (job.lines.some(({ text }) => oidcToken.test(text)))
+    if (hasOidc)
       job.steps.forEach((step, index) => {
         const ref = step.lines.find(({ text }) => /^\s+ref:\s*\S/.test(text))
         if (!ref) return
@@ -375,7 +391,22 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
               /^\s+(?:-\s+)?uses:/.test(text) ||
               untrusted.some(([pattern]) => pattern.test(text)),
           )
-        if (proof === -1 || early)
+        // The proof is a plain command whose failure fails the step: no `if:`,
+        // no `continue-on-error`, no `set +e`, nothing after it that hides
+        // its exit status (`||`, `;`, `|`, `&`).
+        const proofLine = next[proof]?.text ?? ""
+        const hidden =
+          proof !== -1 &&
+          (!/^\s*(?:-\s+)?(?:run:\s*(?:[|>][+-]?\s*)?)?git merge-base --is-ancestor HEAD origin\/main\s*(?:&&.*)?$/.test(
+            proofLine,
+          ) ||
+            next.some(
+              ({ text }, at) =>
+                /^\s+(?:-\s+)?(if|continue-on-error):/.test(text) ||
+                /\bset\s+\+e\b/.test(text) ||
+                (at > proof && /^\s*(\|\||;|\||&(?!&))/.test(text)),
+            ))
+        if (proof === -1 || early || hidden)
           failures.push(
             `${file}:${ref.number}: job ${job.name} has an OIDC token and checks out another commit. In the step directly after the checkout, stop unless \`git merge-base --is-ancestor HEAD origin/main\` passes: on main the token has the subject of main.`,
           )
