@@ -1,6 +1,13 @@
-import { readFileSync, realpathSync, writeFileSync } from "node:fs"
-import { dirname, relative, resolve } from "node:path"
+import {
+  existsSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
+import { dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import ts from "typescript"
 
 try {
@@ -53,40 +60,81 @@ try {
         .join("\n"),
     )
   }
-  const program = ts.createProgram({
-    rootNames: parsed.fileNames,
-    options: parsed.options,
-    projectReferences: parsed.projectReferences,
-  })
-  const diagnostics = ts
-    .getPreEmitDiagnostics(program)
-    .filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
   const repository = fileURLToPath(new URL("../../", import.meta.url)).replace(
     /\/$/,
     "",
   )
-  const observed = new Map()
-  const keys = new Map()
-  for (const diagnostic of diagnostics) {
-    const item = {
-      file: diagnostic.file
-        ? relative(dirname(configPath), diagnostic.file.fileName).replaceAll(
-            "\\",
-            "/",
-          )
-        : "<compiler>",
-      code: diagnostic.code,
-      message: ts
-        .flattenDiagnosticMessageText(diagnostic.messageText, "\n")
-        .replaceAll(repository, "<repo>")
-        .replaceAll(realpathSync(repository), "<repo>"),
-      count: 1,
+  // An incremental program checks again only the files that a change can
+  // affect, and reads the diagnostics of the other files from the build info
+  // of the last run. CI keeps the build info in its cache (the Typecheck
+  // job). TypeScript can write a union or a property list in a different
+  // order when it checks only some files, and the allowance compares the
+  // message text. Thus, when the result does not match the allowance, the
+  // check starts again without the build info. A run without the build info
+  // checks all files in the order of a full program, so a failure always
+  // comes from a full check.
+  const buildInfo = join(
+    repository,
+    "node_modules/.cache/typecheck",
+    `${relative(repository, configPath).replaceAll(/[\\/]/g, "_")}.tsbuildinfo`,
+  )
+  const check = () => {
+    const program = ts.createIncrementalProgram({
+      rootNames: parsed.fileNames,
+      options: {
+        ...parsed.options,
+        incremental: true,
+        tsBuildInfoFile: buildInfo,
+      },
+      projectReferences: parsed.projectReferences,
+    })
+    // getPreEmitDiagnostics accepts a builder program: it calls the same
+    // diagnostic methods, and the builder answers from the build info.
+    const diagnostics = ts
+      .getPreEmitDiagnostics(program)
+      .filter(
+        (diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error,
+      )
+    program.emitBuildInfo()
+    const observed = new Map()
+    const keys = new Map()
+    for (const diagnostic of diagnostics) {
+      const item = {
+        file: diagnostic.file
+          ? relative(dirname(configPath), diagnostic.file.fileName).replaceAll(
+              "\\",
+              "/",
+            )
+          : "<compiler>",
+        code: diagnostic.code,
+        message: ts
+          .flattenDiagnosticMessageText(diagnostic.messageText, "\n")
+          .replaceAll(repository, "<repo>")
+          .replaceAll(realpathSync(repository), "<repo>"),
+        count: 1,
+      }
+      keys.set(diagnostic, identity(item))
+      const previous = observed.get(identity(item))
+      if (previous) previous.count += 1
+      else observed.set(identity(item), item)
     }
-    keys.set(diagnostic, identity(item))
-    const previous = observed.get(identity(item))
-    if (previous) previous.count += 1
-    else observed.set(identity(item), item)
+    return { diagnostics, observed, keys }
   }
+  const matches = ({ observed }) =>
+    observed.size === allowed.size &&
+    [...observed].every(([key, item]) => allowed.get(key) === item.count)
+  let mode = "full"
+  let result
+  if (existsSync(buildInfo)) {
+    result = check()
+    mode = "incremental"
+    if (!matches(result)) {
+      rmSync(buildInfo)
+      mode = "full after an incremental mismatch"
+    }
+  }
+  if (mode !== "incremental") result = check()
+  const { diagnostics, observed, keys } = result
   if (reportPath) {
     writeFileSync(
       reportPath,
@@ -133,7 +181,7 @@ try {
     }
   }
   process.stdout.write(
-    `ACKNOWLEDGED ${acknowledged} existing diagnostic(s); ${diagnostics.length} total; full project ${project}\n`,
+    `ACKNOWLEDGED ${acknowledged} existing diagnostic(s); ${diagnostics.length} total; full project ${project} (${mode})\n`,
   )
   process.exitCode = failed ? 1 : 0
 } catch (error) {

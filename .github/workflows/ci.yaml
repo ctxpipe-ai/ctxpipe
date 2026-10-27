@@ -87,8 +87,11 @@ jobs:
   typecheck:
     timeout-minutes: 30
     name: Typecheck
+    # A push to main also runs this job, so that the cache has the build info
+    # of main for each pull request.
     if: |
       github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -102,6 +105,18 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The build info of the last typecheck (scripts/ci/typecheck.mjs). The
+      # newest one with the same lockfile and tsconfig files comes first. A
+      # pull request without its own entry gets the entry of main. A build
+      # info from a different TypeScript version is not used.
+      - name: Restore the typecheck build info
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules/.cache/typecheck
+          key: typecheck-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json', 'apps/*/tsconfig.json', 'packages/*/tsconfig.json', 'examples/*/tsconfig.json') }}-${{ github.sha }}
+          restore-keys: |
+            typecheck-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json', 'apps/*/tsconfig.json', 'packages/*/tsconfig.json', 'examples/*/tsconfig.json') }}-
+            typecheck-${{ runner.os }}-
       # The check runner runs each project with its diagnostic allowance and
       # writes one result record for each, for the merge gate. The output of
       # each project is in .ci-results/checks (the next step prints it).
@@ -113,6 +128,14 @@ jobs:
             jq -r '.checks[] | select(.family == "typecheck") | .id' > "$RUNNER_TEMP/typecheck.txt"
           node scripts/checks/run.mjs "$RUNNER_TEMP/typecheck.txt" |
             tee .ci-results/typecheck/records.ndjson
+      # A failed typecheck also writes the build info: it holds the result of
+      # each file, and the next run checks only the changed files again.
+      - name: Save the typecheck build info
+        if: always()
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules/.cache/typecheck
+          key: typecheck-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json', 'apps/*/tsconfig.json', 'packages/*/tsconfig.json', 'examples/*/tsconfig.json') }}-${{ github.sha }}
       - name: Typecheck output
         if: always()
         run: cat .ci-results/checks/*.log || true
