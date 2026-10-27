@@ -4,7 +4,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs"
@@ -50,9 +49,11 @@ function listTimeFiles() {
       ...[...text.matchAll(/(?:from\s+|import\()\s*["'](\.[^"']+)["']/g)].map(
         (match) => relative(root, resolve(root, dirname(file), match[1])),
       ),
-      ...[...text.matchAll(/(?:json\(|readFileSync\(\s*join\(root,\s*)"([^"]+\.(?:mjs|json))"/g)].map(
-        (match) => match[1],
-      ),
+      ...[
+        ...text.matchAll(
+          /(?:json\(|readFileSync\(\s*join\(root,\s*)"([^"]+\.(?:mjs|json))"/g,
+        ),
+      ].map((match) => match[1]),
     ]
     for (const path of found)
       for (const candidate of [path, `${path}.ts`, `${path}.mjs`])
@@ -77,10 +78,7 @@ test("a file that list.mjs runs outside scripts/checks forces a full run", () =>
   ])
     assert.ok(files.includes(known), `walk reaches ${known}`)
   const outside = files.filter((file) => !file.startsWith("scripts/checks/"))
-  for (const file of [
-    ...outside,
-    ".npmrc",
-  ])
+  for (const file of [...outside, ".npmrc"])
     if (existsSync(join(root, file)))
       assert.equal(
         decideMode({
@@ -116,7 +114,10 @@ test("only a same-repo pull_request without gate input changes runs the selector
     "apps/ui/package.json",
     "packages/cli/package.json",
   ])
-    assert.deepEqual(mode({ changed: [path] }), { mode: "select", reason: "shadow" })
+    assert.deepEqual(mode({ changed: [path] }), {
+      mode: "select",
+      reason: "shadow",
+    })
   for (const path of [
     ".github/workflows/ci.yaml",
     ".github/merge-gate.json",
