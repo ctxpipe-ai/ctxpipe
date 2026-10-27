@@ -51,8 +51,8 @@ local client step. A client saved on a connection takes priority over the
 deployment client. Hosted ctxpipe uses these variables for its global client.
 
 - **Docker Compose:** add the values to the root `.env`, then run `pnpm start`.
-- **Railway:** the Terraform inputs are `TF_VAR_zendesk_client_id` and
-  `TF_VAR_zendesk_client_secret`.
+- **Railway:** set `ZENDESK_CLIENT_ID` and `ZENDESK_CLIENT_SECRET` as service
+  variables on the backend and the worker.
 - **AWS CDK:** pass `zendeskClientId` and `zendeskClientSecret` in
   `connectorSecrets`.
 
