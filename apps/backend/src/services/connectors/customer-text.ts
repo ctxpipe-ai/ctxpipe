@@ -27,7 +27,8 @@
  *   but it holds no credential and a reader can need it. A path segment named
  *   `token` removes the URL (the Zendesk attachment rule, made generic).
  *   The userinfo goes before the query, so a `#` or `?` in a password does
- *   not keep part of it.
+ *   not keep part of it. Each policy removes each userinfo, also of a `www.`
+ *   URL, a URL with no scheme, and a URL inside another URL.
  * - Credential parameters: removed anywhere in the text, not only after
  *   `?`, `&`, or `#` (Plain had the list; Zendesk had none outside URLs).
  * - Emails: Unicode local parts and domains. Both converters matched ASCII
@@ -55,8 +56,10 @@
  *   shows as text (`&lt;b&gt;` in its HTML) is not HTML: it is written as
  *   `&lt;b&gt;` outside code. Slow shapes are rare in normal articles: a
  *   code block of more than about 25,000 characters with no blank line and
- *   a bracket that does not pair, or a table of more than about 10,000
- *   cells in all.
+ *   a bracket that does not pair, a table of more than about 10,000 cells
+ *   in all, or a line with more than 128 columns of indentation and
+ *   container marks (a list of depth 10 or more from node-html-markdown,
+ *   or deeply indented code).
  * - A body of more than 200,000 characters after the escape, with a `[`,
  *   `<`, `@`, `://`, or `www.`, also becomes inert text (the parser limit).
  * - The result can be longer than `maxChars`: the markers and the escapes
@@ -299,9 +302,44 @@ function endMarksOf(text: string): string {
 /** A path segment named `token` holds the token in the next segment. */
 const hasTokenPath = (path: string) => /\/token\/[^/]/i.test(path)
 
-/** The userinfo of a URL (`user:password@`) becomes a marker. */
-const withoutUserinfo = (base: string, mark: Marker) =>
-  base.replace(/^([^/]*\/\/)[^/]*@/, `$1${mark("credentials removed")}@`)
+/**
+ * Text in which each userinfo of a URL (`user:password@`) becomes a marker.
+ * A userinfo runs up to the last `@` before a `/`, a space, `<`, or `>`, and
+ * it starts at one of these:
+ * - `//`, also in a URL that starts inside another URL
+ *   (`https://a.example/x**https://user:pass@evil.example/**`);
+ * - `www.`: GFM links `www.user:pass@evil.example` to
+ *   `http://www.user:pass@evil.example`, where `www.user:pass` is the
+ *   userinfo;
+ * - the start of a run with no scheme (`user:pass@host.example/`). This
+ *   userinfo needs a `:` and a host with a `/`, `?`, or `#` after it, so that
+ *   an email address stays.
+ * A match starts only at the start of a run, so the cost is linear.
+ */
+function withoutUserinfos(text: string, to: Output): string {
+  const stop = `\\s/<>${to.stop}`
+  return text.replace(
+    new RegExp(`(?<![^${stop}])[^${stop}]+@`, "g"),
+    (match: string, offset: number) => {
+      const www = match.search(/(?<![a-z0-9])www\./i)
+      const lead = /^[^\w%]*/.exec(match)?.[0] ?? ""
+      const start = text.startsWith("//", offset - 2)
+        ? 0
+        : www >= 0
+          ? www
+          : match.includes(":", lead.length) &&
+              !/^mailto:/i.test(match.slice(lead.length)) &&
+              /^(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?[/?#]/i.test(
+                text.slice(offset + match.length, offset + match.length + 320),
+              )
+            ? lead.length
+            : -1
+      return start < 0
+        ? match
+        : `${match.slice(0, start)}${to.mark("credentials removed")}@`
+    },
+  )
+}
 
 /**
  * Whether a URL carries a credential: a userinfo, a path segment named
@@ -341,7 +379,7 @@ function hasCredential(url: string): boolean {
 function withoutUrlQueries(text: string, to: Output): string {
   const { mark } = to
   return replaceUrls(text, to, (url) => {
-    const kept = withoutUserinfo(url, mark)
+    const kept = withoutUserinfos(url, to)
     const query = kept.search(/[?#]/)
     const base = query < 0 ? kept : kept.slice(0, query)
     if (hasTokenPath(base)) return `${mark("link removed")}${endMarksOf(url)}`
@@ -364,7 +402,10 @@ function withoutCredentialUrls(text: string, to: Output): string {
     const lead = /^[^a-z/]*(?=[a-z][a-z0-9+.-]*:\/\/)/i.exec(match)?.[0] ?? ""
     const url = match.slice(lead.length, match.length - marks.length)
     const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(url)?.[1]?.toLowerCase()
-    return (scheme === undefined || scheme === "https") && !hasCredential(url)
+    // GFM reads a `www.` URL as `http://www.…`, so its userinfo is found.
+    const target = /^www\./i.test(url) ? `http://${url}` : url
+    return (scheme === undefined || scheme === "https") &&
+      !hasCredential(target)
       ? match
       : `${lead}${mark("link removed")}${marks}`
   })
@@ -415,14 +456,17 @@ export type ArticlePolicy = "credential-links" | "queries" | "full"
 
 /**
  * The redaction, in the order that the security rule needs: URLs first, so
- * that a userinfo is not an address; then credential parameters outside a
- * URL; then addresses and phone numbers.
+ * that a userinfo is not an address; then each userinfo that the URL pass
+ * kept (in a URL inside another URL, or with no scheme); then credential
+ * parameters outside a URL; then addresses and phone numbers.
  */
 function redacted(text: string, policy: ArticlePolicy, to: Output): string {
-  const linked =
+  const linked = withoutUserinfos(
     policy === "credential-links"
       ? withoutCredentialUrls(text, to)
-      : withoutUrlQueries(text, to)
+      : withoutUrlQueries(text, to),
+    to,
+  )
   const safe = withoutCredentialParameters(linked, to)
   return policy === "full"
     ? withoutPhones(withoutEmails(safe, to.mark), to.mark)
@@ -564,7 +608,7 @@ function hasAutolinkCredential(url: string): boolean {
  * the length alone is not a bound. A long normal article (headings,
  * paragraphs, lists, tables, code blocks, and links) of 200,000 characters
  * has an estimate of 0.4 to 0.6 seconds, and its parses take about 0.2
- * seconds. Each hostile shape that passes takes at most about 4 seconds
+ * seconds. Each hostile shape that passes takes at most about 3 seconds
  * (Node 26, slow JIT state).
  */
 function isParseable(markdown: string): boolean {
@@ -592,8 +636,16 @@ function isParseable(markdown: string): boolean {
  *   `<?` or `<!--`) scans the rest of its paragraph.
  * - Each line of a unit can be a lazy line of a list item or a quote.
  * - Each block costs about 30 microseconds.
- * - Each list mark at the start of a line (`-`, `1.`) nests the line one
- *   level deeper. A quote mark (`>`) costs much less.
+ * - The container marks at the start of a line (spaces, tabs, `>`, and list
+ *   marks such as `-` and `1.`) can nest the line one level deeper for each
+ *   mark or each indent, also with no mark on the same line. Each line costs
+ *   the square of the columns of these marks. This is also a hard cap that
+ *   needs no estimate: a line with more than 128 columns of container marks
+ *   makes the cost infinite. node-html-markdown writes a list of depth 8 with
+ *   at most 88 columns, and of depth 10 with 137.
+ * - The GFM search for a literal autolink reads the rest of a run with no
+ *   space again from each `http://`, `https://`, or `www.` in it, also when
+ *   it is not a link (`ahttp://`).
  * - Each table cell adds an edit to one list of the whole text.
  */
 function parseCost(text: string): number {
@@ -605,6 +657,17 @@ function parseCost(text: string): number {
     markdown.length
   for (const [run] of markdown.matchAll(/[-.\w+]{2,}/g))
     cost += 0.6 * run.length * count(run, /[-.+_]/g)
+  for (const [run] of markdown.matchAll(/[^ \t\n]+/g))
+    cost += 0.6 * run.length * count(run, /https?:\/\/|www\./gi)
+  for (const [lead] of markdown.matchAll(
+    /^(?:[ \t>]|(?:[*+-]|\d{1,9}[.)])(?=[ \t]|$))+/gm,
+  )) {
+    let columns = 0
+    for (const mark of lead)
+      columns = mark === "\t" ? columns + 4 - (columns % 4) : columns + 1
+    if (columns > 128) return Number.POSITIVE_INFINITY
+    cost += 300 * columns ** 2
+  }
   let cells = 0
   for (const unit of markdown.split(/\n[ \t]*\n/)) {
     let open = false
@@ -622,8 +685,6 @@ function parseCost(text: string): number {
       unit.length * (1.5 * count(unit, /[\\&`[\]]/g) + 12 * count(unit, /</g))
     if (unit.includes("|")) cells += count(unit, /\|/g) + lines
   }
-  for (const [lead] of markdown.matchAll(/^[ \t>*+\-\d.)]+/gm))
-    cost += 200 * count(lead, /[*+-]|\d[.)]/g) ** 2
   return cost + 10 * cells ** 2
 }
 

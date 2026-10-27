@@ -1445,17 +1445,83 @@ describe("parser check", () => {
     ).toBe(false)
   })
 
-  // The GFM parser overflows the stack on 8,000 nested quotes, so a deeper
-  // tree counts as unsafe.
-  it("reads a deep tree without a stack overflow", () => {
-    expect(
-      isUnsafeMarkdown(`${">".repeat(5_000)}[x](https://ok.example/)`),
-    ).toBe(false)
-    expect(isUnsafeMarkdown(`${">".repeat(5_000)}[x](/a)`)).toBe(true)
+  // Text over the limit is not parsed and not pre-scanned, so the slowest
+  // shapes take linear time at any length.
+  it.each([1_000_000, 5_000_000])(
+    "counts slow shapes of %i characters as unsafe in linear time",
+    (n) => {
+      const start = performance.now()
+      for (const text of [
+        "]".repeat(n),
+        "ahttp://".repeat(n / 8),
+        `${"\t".repeat(n / 2)}- a\n`.repeat(2),
+        "a|b\n".repeat(n / 4),
+      ])
+        expect(isUnsafeMarkdown(`[${text}`)).toBe(true)
+      expect(performance.now() - start).toBeLessThan(5_000)
+    },
+  )
+
+  // The parse cost grows with the nesting depth of each line, also when the
+  // depth comes from indentation only. A line with more than 128 columns of
+  // container marks (spaces, tabs, `>`, list marks) counts as unsafe with no
+  // parse. The GFM parser also overflows the stack on 8,000 nested quotes.
+  it.each([
+    ["spaces", " ".repeat(128), " ".repeat(129)],
+    [
+      "tabs and a list mark",
+      `${"\t".repeat(31)}-   `,
+      `${"\t".repeat(31)}-    `,
+    ],
+    ["quotes", `${">".repeat(127)} `, `${">".repeat(128)} `],
+    ["list marks", "- ".repeat(64), `${"- ".repeat(64)} `],
+  ])(
+    "counts a line with more than 128 columns of %s as unsafe",
+    (_name, deep, deeper) => {
+      const link = "[x](https://ok.example/)"
+      expect(isUnsafeMarkdown(`- a\n${deep}${link}`)).toBe(false)
+      expect(isUnsafeMarkdown(`- a\n${deeper}${link}`)).toBe(true)
+    },
+  )
+
+  it("counts a deep tree as unsafe without a stack overflow", () => {
     expect(
       isUnsafeMarkdown(`${">".repeat(11_000)}[x](https://ok.example/)`),
     ).toBe(true)
   })
+
+  // node-html-markdown 1.3.0 writes a list of depth 8 with up to 88 columns
+  // of indentation, and its quotes as `>>>>`.
+  it.each(["credential-links", "queries", "full"] as const)(
+    "keeps the formatting of a list of depth 8 and a quote of depth 4 (%s)",
+    (policy) => {
+      // <ol><li>Level 1<ul><li>Level 2<ol><li>Level 3 … (ol and ul in turn)
+      // <ul><li>Level 8 with <a href="https://ok.example/a">a link</a>
+      // </li></ul> … </li></ol>, then <blockquote><p>Quote 1</p>
+      // <blockquote><p>Quote 2</p> … <blockquote><p>Quote 4 with <a
+      // href="https://ok.example/b">a link</a></p></blockquote> …
+      // </blockquote>.
+      const markdown = [
+        "1. Level 1  ",
+        "   * Level 2  ",
+        "         1. Level 3  ",
+        "                  * Level 4  ",
+        "                              1. Level 5  ",
+        "                                             * Level 6  ",
+        "                                                               1. Level 7  ",
+        "                                                                                    * Level 8 with [a link](https://ok.example/a)",
+        "",
+        "> Quote 1",
+        "> ",
+        ">> Quote 2",
+        ">> ",
+        ">>> Quote 3",
+        ">>> ",
+        ">>>> Quote 4 with [a link](https://ok.example/b)",
+      ].join("\n")
+      expect(articleText(markdown, policy)).toBe(markdown)
+    },
+  )
 
   it.each(["credential-links", "queries", "full"] as const)(
     "writes an article with a live node as inert, redacted text (%s)",
@@ -1562,6 +1628,47 @@ describe("GFM", () => {
       true,
     )
   })
+
+  // GFM links `www.user:pass@evil.example` to
+  // `http://www.user:pass@evil.example`, also in the inert fallback (it reads
+  // literal autolinks in the decoded text). A URL that starts inside another
+  // URL kept its userinfo as text.
+  const userinfos = [
+    "See www.user:pass@evil.example now",
+    "See www.user:pass@evil.example/a?b=1 now",
+    "See (www.user:pass@evil.example) now",
+    "See WWW.user:pass@evil.example now",
+    "See user:pass@evil.example/a now",
+    "See https://a.example/x**https://user:pass@evil.example/** now",
+    "See https://a.example/x/https://user:pa#ss@evil.example/ now",
+    "See https://a.example/?u=https://user:pass@evil.example/ now",
+  ]
+
+  it.each(userinfos)(
+    "writes no userinfo for %s in any policy or field",
+    (text) => {
+      const outs = [
+        ...policies.map((policy) => articleText(text, policy)),
+        body(text),
+        line(text),
+      ]
+      for (const out of outs) {
+        expect(out).not.toMatch(/pass|ss@/)
+        for (const url of read(out).targets)
+          expect(url).not.toMatch(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i)
+      }
+    },
+  )
+
+  // `full` removes each address, so only the other policies keep it.
+  it.each(["credential-links", "queries"] as const)(
+    "keeps an email address next to a path or a query (%s)",
+    (policy) => {
+      const text =
+        "Write to jo@example.com/help or mailto:jo@example.com?subject=Hi"
+      expect(articleText(text, policy)).toBe(text)
+    },
+  )
 
   it("passes a literal autolink with http, https, or mailto", () => {
     expect(
@@ -1759,6 +1866,10 @@ describe("time", () => {
       "a@b\u3002".repeat(n / 4),
       `\`${"\u200b".repeat(n)}`,
       "a <b> ".repeat(n / 6),
+      "a:@ ".repeat(n / 4),
+      "-www.a:@".repeat(n / 8),
+      "//a@".repeat(n / 4),
+      "a:b@c.de/ ".repeat(n / 10),
     ]
     const start = performance.now()
     for (const text of shapes) {
@@ -1805,12 +1916,33 @@ describe("time", () => {
       expect(performance.now() - start).toBeLessThan(10_000)
       expect(out.replace(/\\[!-/:-@[-`{-~]/g, "")).not.toMatch(/[!-/:-@[-`{-~]/)
     }
+    // Shapes after a link, with no `[` that does not pair: a list nested by
+    // indentation only (with tabs and with spaces), and failed starts of a
+    // literal autolink (the GFM search reads the rest of the run again from
+    // each one). `credential-links` removes the http URL, so `queries` writes
+    // these.
+    const link = "[x](https://ok.example/)\n\n"
+    for (const text of [
+      Array.from({ length: 630 }, (_, i) => `${"\t".repeat(i)}- a\n`).join(""),
+      Array.from({ length: 445 }, (_, i) => `${"  ".repeat(i)}- a\n`).join(""),
+      "ahttp://".repeat(n / 8),
+      "aWWW.:".repeat(n / 6),
+    ]) {
+      const start = performance.now()
+      const out = articleText(
+        `${link}${text.slice(0, n - link.length)}`,
+        "queries",
+      )
+      expect(performance.now() - start).toBeLessThan(10_000)
+      expect(out.replace(/\\[!-/:-@[-`{-~]/g, "")).not.toMatch(/[!-/:-@[-`{-~]/)
+    }
   }, 120_000)
 
   // The slowest shapes that the pre-scan lets through to the parse, each just
   // below the bound of one term of the estimate: a `[` that does not pair, an
-  // email address run, unclosed HTML, character references, a deep list, a
-  // long list item with lazy lines, a long GFM table, and many small blocks.
+  // email address run, unclosed HTML, character references, lists nested to
+  // the cap again and again, lazy lines in a list at the cap, a long list
+  // item with lazy lines, a long GFM table, and many small blocks.
   // The result keeps its link, so the parser check read it.
   it("checks the slowest shapes that the pre-scan passes", () => {
     const link = "[x](https://ok.example/)"
@@ -1819,7 +1951,12 @@ describe("time", () => {
       `${link} ${"a-".repeat(35_000)}`,
       `${link} ${"<?".repeat(7_000)}`,
       `${link} ${"x &amp; y ".repeat(10_000)}`,
-      `${"- ".repeat(2_000)}${link}`,
+      Array.from({ length: 1_150 }, (_, i) => `${"1. ".repeat(i % 42)}a\n`)
+        .join("")
+        .concat(`\n${link}`),
+      Array.from({ length: 63 }, (_, i) => `${"  ".repeat(i)}- a\n`)
+        .join("")
+        .concat("a\n".repeat(8_000), `\n${link}`),
       `${link}\n\n- a\n${"b\n".repeat(8_000)}`,
       `${link}\n\na|b\n-|-\n${"a|b\n".repeat(4_500)}`,
       `${"x\n\n".repeat(30_000)}${link}`,
