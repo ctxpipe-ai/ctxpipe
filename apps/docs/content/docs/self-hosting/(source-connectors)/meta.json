@@ -6,6 +6,7 @@
     "notion",
     "confluence-atlassian",
     "slack",
-    "pagerduty"
+    "pagerduty",
+    "plain"
   ]
 }

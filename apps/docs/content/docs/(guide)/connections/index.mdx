@@ -27,6 +27,7 @@ and its own scope.
 | [Notion](/docs/connections/source-connectors/notion) | Scoped mirror | Pages and databases | Pages and databases |
 | [Confluence](/docs/connections/source-connectors/confluence) | Scoped mirror | Spaces and pages | Spaces, with all pages or a page list |
 | [PagerDuty](/docs/connections/source-connectors/pagerduty) | Scoped mirror | Incidents of the selected services | Services |
+| [Plain](/docs/connections/source-connectors/plain) | Scoped mirror | Help Center articles and the newest threads of selected labels | Help Centers and thread labels |
 | [Slack](/docs/connections/source-connectors/slack) | Capture on request | One thread at a time, when someone mentions the bot | Channels |
 | [Plain git](/docs/workspaces/linked-repositories#plain-git-repositories) | Git source | A public repository on any git host, with no connection | A URL |
 
@@ -98,14 +99,14 @@ To change what a Workspace reads, edit, rename, or remove its source. See
 
 ## How content stays current
 
-- **Webhooks.** Linear, Notion, Confluence, and PagerDuty tell ctxpipe when
+- **Webhooks.** Linear, Notion, Confluence, PagerDuty, and Plain tell ctxpipe when
   content changes. ctxpipe updates the files of the sources whose scope
   includes the change. Events that arrive before a source is live are skipped.
 - **Daily full sync.** Once a day, ctxpipe syncs each connection that has a
   source with the status **OK**. This sync finds content that the provider
   deleted, and content that a webhook missed.
 - **Sync now.** The menu of the connector on **Connectors** has **Sync now** for
-  Confluence, Linear, Notion, and PagerDuty. It starts the same full sync at
+  Confluence, Linear, Notion, PagerDuty, and Plain. It starts the same full sync at
   once. Only an owner or admin sees it.
 
 Do not edit mirrored files by hand. The next sync overwrites them. When you
@@ -145,6 +146,7 @@ same connection.
 | **Linear** | 50 teams and 100 projects |
 | **Notion** | 100 root pages and 100 databases |
 | **PagerDuty** | 100 services |
+| **Plain** | 50 Help Centers and 50 thread labels |
 
 A GitHub source holds one repository, so it has no limit.
 

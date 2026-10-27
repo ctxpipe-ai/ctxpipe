@@ -11,7 +11,15 @@ const ErrorResponseSchema = z
 const ConnectorListItemSchema = z
   .object({
     id: z.string(),
-    type: z.enum(["github", "forge", "slack", "linear", "notion", "pagerduty"]),
+    type: z.enum([
+      "github",
+      "forge",
+      "slack",
+      "linear",
+      "notion",
+      "pagerduty",
+      "plain",
+    ]),
     /** The account, site, or workspace name that the provider gives. */
     displayName: z.string().nullable(),
     createdAt: z.string().datetime(),

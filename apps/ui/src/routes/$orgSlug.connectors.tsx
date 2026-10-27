@@ -17,6 +17,7 @@ import {
   AddLinearConnectorButton,
   AddNotionConnectorButton,
   AddPagerdutyConnectorButton,
+  AddPlainConnectorButton,
   AddSlackConnectorButton,
   ConfluenceConnectionCard,
   ConnectorSetupDialog,
@@ -28,6 +29,8 @@ import {
   NotionSetupDialog,
   PagerdutyConnectionCard,
   PagerdutySetupDialog,
+  PlainConnectionCard,
+  PlainSetupDialog,
   SlackConnectionCard,
 } from "@/features/connectors"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
@@ -132,6 +135,11 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const [pagerdutyConnectionId, setPagerdutyConnectionId] = useState<
     string | null
   >(null)
+  const [plainSetupOpen, setPlainSetupOpen] = useState(false)
+  const [plainConnectionId, setPlainConnectionId] = useState<string | null>(
+    null,
+  )
+  const [plainReconnect, setPlainReconnect] = useState(false)
   const [githubSelfHostedWizardOpen, setGithubSelfHostedWizardOpen] =
     useState(false)
   const [slackSetupOpen, setSlackSetupOpen] = useState(false)
@@ -319,6 +327,20 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 />
               )
             }
+            if (row.type === "plain") {
+              return (
+                <PlainConnectionCard
+                  key={row.id}
+                  orgSlug={orgSlug}
+                  connectionId={row.id}
+                  onOpenSetup={(options) => {
+                    setPlainConnectionId(row.id)
+                    setPlainReconnect(Boolean(options?.reconnect))
+                    setPlainSetupOpen(true)
+                  }}
+                />
+              )
+            }
             if (row.type === "pagerduty") {
               return (
                 <PagerdutyConnectionCard
@@ -401,6 +423,16 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             onStart={({ connectionId }) => {
               setPagerdutyConnectionId(connectionId ?? null)
               setPagerdutySetupOpen(true)
+              setCatalogOpen(false)
+            }}
+          />
+        </li>
+        <li>
+          <AddPlainConnectorButton
+            onStart={() => {
+              setPlainConnectionId(null)
+              setPlainReconnect(false)
+              setPlainSetupOpen(true)
               setCatalogOpen(false)
             }}
           />
@@ -559,6 +591,19 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           if (!open) {
             setPagerdutyConnectionId(null)
           }
+        }}
+      />
+
+      <PlainSetupDialog
+        key={plainConnectionId ?? "plain-setup"}
+        orgSlug={orgSlug}
+        connectionId={plainConnectionId ?? undefined}
+        reconnect={plainReconnect}
+        isOpen={plainSetupOpen}
+        onConnectionIdChange={setPlainConnectionId}
+        onOpenChange={(open) => {
+          setPlainSetupOpen(open)
+          if (!open) setPlainConnectionId(null)
         }}
       />
     </main>

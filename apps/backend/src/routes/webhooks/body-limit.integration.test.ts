@@ -137,6 +137,11 @@ const routes: Array<{
     },
   },
   {
+    path: "/api/v1/webhook/plain/con_limit_test",
+    limit: 5 * MiB,
+    headers: { "x-ctxpipe-webhook-token": "00" },
+  },
+  {
     path: "/api/v1/webhook/atlassian/forge",
     limit: 1 * MiB,
     headers: { authorization: "Bearer not-a-token" },
