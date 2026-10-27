@@ -272,6 +272,17 @@ jobs:
           else
             bash .github/actions/falkordb/diagnose.sh
           fi
+      # The Results writer quarantines a key only when its check fails again
+      # in this one rerun through the public runner (scripts/checks/README.md).
+      - name: Run the failed checks again
+        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          GRAPH_DB_URI: redis://127.0.0.1:6379
+          AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
+          DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
+        run: node scripts/checks/rerun-failed.mjs .ci-results
       - name: Preserve shard results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -312,6 +323,13 @@ jobs:
         run: node scripts/ci/test-suite.mjs cli $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       - name: CDK tests
         run: node scripts/ci/test-suite.mjs aws-cdk $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
+      # The Results writer quarantines a key only when its check fails again
+      # in this one rerun through the public runner (scripts/checks/README.md).
+      - name: Run the failed checks again
+        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
+        timeout-minutes: 20
+        run: node scripts/checks/rerun-failed.mjs .ci-results
       - name: Preserve package test results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -686,6 +704,15 @@ jobs:
         run: |
           node scripts/ci/storybook-golden.mjs \
             $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
+      # The Results writer quarantines a key only when its check fails again
+      # in this one rerun through the public runner (scripts/checks/README.md).
+      - name: Run the failed checks again
+        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          SKIP_STORYBOOK_BUILD: "1"
+        run: node scripts/checks/rerun-failed.mjs .ci-results/storybook-plays
       - name: Preserve play results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -1022,6 +1049,19 @@ jobs:
       - name: Upgrade test output
         if: always()
         run: cat .ci-results/checks/upgrade.log || true
+      # The Results writer quarantines a key only when its check fails again
+      # in this one rerun through the public runner (scripts/checks/README.md).
+      - name: Run the failed checks again
+        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/postgres
+          DATABASE_APP_PASSWORD: ctxpipe
+          GRAPH_DB_URI: redis://127.0.0.1:6379
+          AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
+          RELEASE_TREE: ${{ runner.temp }}/previous-release
+        run: node scripts/checks/rerun-failed.mjs .ci-results
       - name: Preserve the upgrade results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -1328,10 +1368,13 @@ jobs:
   # nightly schedule, or a run by hand on main). It stores each pass as the CI
   # class, and audits each failed check against the passes that the store
   # holds for its key. A contradiction (a stored pass for a key that failed
-  # tonight) fails this job and quarantines the key (and the agent writer of
-  # the pass), so that no reader accepts it: a key misses an input, the check
-  # is flaky, or a writer stored a false pass. The output names the check and
-  # the key, never a writer. The job never fails the run.
+  # tonight) fails this job: a key misses an input, the check is flaky, or a
+  # writer stored a false pass. The test jobs run each failed check once more
+  # (rerun.ndjson); only a check that fails again quarantines its key, and
+  # each agent writer of a pass when the key has complete inputs, so that no
+  # reader accepts them. A flake is reported, not quarantined. The output
+  # names the check and the key, and a writer only by a hash. An S3 error in
+  # the audit is an error annotation. The job never fails the run.
   # Its role trusts only repo:ctxpipe-ai/ctxpipe:ref:refs/heads/main: a job on
   # main without a GitHub environment. The npm publish jobs of deploy.yaml
   # (release, prerelease) get the same subject, so they can also get this
@@ -1411,13 +1454,20 @@ jobs:
         if: steps.pin.outputs.pinned == 'true'
         run: |
           mapfile -d '' records < <(find "$RUNNER_TEMP/results" -name records.ndjson -print0 | sort -z)
+          mapfile -d '' reruns < <(find "$RUNNER_TEMP/results" -name rerun.ndjson -print0 | sort -z)
+          rerun_args=()
+          if [ "${#reruns[@]}" -gt 0 ]; then rerun_args=(--reruns "${reruns[@]}"); fi
           code=0
           "$RUNNER_TEMP/bin/factory" store --repo . \
             --manifest "$RUNNER_TEMP/inputs/manifest.json" \
             --toolchain "$RUNNER_TEMP/inputs/toolchain.json" \
             --trace "$RUNNER_TEMP/trace/trace.json.gz" \
-            --records "${records[@]}" > "$RUNNER_TEMP/store.txt" || code=$?
+            --records "${records[@]}" \
+            "${rerun_args[@]}" > "$RUNNER_TEMP/store.txt" 2>&1 || code=$?
           cat "$RUNNER_TEMP/store.txt"
+          if grep -q '^AUDIT FAILED' "$RUNNER_TEMP/store.txt"; then
+            echo "::error::The audit of the result store failed, so no key was quarantined. See the Results writer summary."
+          fi
           {
             echo "## Results writer"
             echo
