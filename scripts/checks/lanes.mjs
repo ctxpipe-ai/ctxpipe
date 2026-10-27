@@ -19,6 +19,7 @@ const shared = [
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
+  ".node-version",
   "scripts/checks/run.mjs",
   "scripts/ci/vitest-launch.mjs",
 ]
@@ -262,12 +263,15 @@ export async function listVitest() {
 }
 
 // A non-zero Vitest exit (an unhandled error, a teardown failure) fails every
-// record that has not failed already, even when each assertion passed.
+// record that has not failed already, even when each assertion passed. The
+// `origin` stays as suiteRecord set it: `runner` only for a record without a
+// suite (the run gave no result). A test that passes but leaves an unhandled
+// rejection has a suite, so its record gets no origin.
 export function markExitFailure(records, run) {
   if (run.status === 0 && !run.error && !run.signal) return records
   const cause = run.error?.message ?? run.signal ?? `exit ${run.status}`
   return records.map((record) =>
-    record.status === "failed"
+    record.status === "failed" || (record.status === "error" && !record.origin)
       ? record
       : {
           ...record,
@@ -326,16 +330,7 @@ export function runVitest(checks, trace) {
         timeout: 2_700_000,
       })
       try {
-        const parsed = JSON.parse(readFileSync(report, "utf8"))
-        suites = new Map(
-          parsed.testResults.map((suite) => [
-            relative(realpathSync(root), realpathSync(suite.name)).replaceAll(
-              "\\",
-              "/",
-            ),
-            suite,
-          ]),
-        )
+        suites = reportSuites(report)
       } catch {
         message = `Vitest wrote no report (${run.error?.message ?? run.signal ?? `exit ${run.status}`})`
       }
@@ -348,43 +343,62 @@ export function runVitest(checks, trace) {
         traceFailed = true
         process.stderr.write(`No trace for ${lane}: ${error.message}\n`)
       }
-    const laneRecords = []
-    for (const { id, file } of laneChecks) {
-      const suite = suites.get(file)
-      const cases = (suite?.assertionResults ?? []).map((assertion) => ({
-        name: assertion.fullName,
-        status:
-          assertion.status === "passed" || assertion.status === "failed"
-            ? assertion.status
-            : "skipped",
-        durationMs: Math.round(assertion.duration ?? 0),
-        ...(assertion.failureMessages?.length
-          ? { message: assertion.failureMessages.join("\n") }
-          : {}),
-      }))
-      const status = !suite
-        ? "error"
-        : suite.message || !cases.length
-          ? "error"
-          : cases.some((c) => c.status === "failed")
-            ? "failed"
-            : cases.every((c) => c.status === "skipped")
-              ? "skipped"
-              : "passed"
-      laneRecords.push({
-        id,
-        status,
-        durationMs: suite
-          ? Math.max(0, Math.round(suite.endTime - suite.startTime))
-          : 0,
-        cases,
-        log: log.relative,
-        ...(status === "error"
-          ? { message: suite?.message || message || "Suite did not run" }
-          : {}),
-      })
-    }
+    const laneRecords = laneChecks.map(({ id, file }) =>
+      suiteRecord(id, suites.get(file), log.relative, message),
+    )
     records.push(...(run ? markExitFailure(laneRecords, run) : laneRecords))
   }
   return { records, traced, traceFailed }
+}
+
+// The result record (schema/result.v1.schema.json, without schemaVersion) of
+// one test file from its suite in a Vitest JSON report. No suite, a suite
+// error or no case is an error: the file did not run.
+export function suiteRecord(id, suite, log, message) {
+  const cases = (suite?.assertionResults ?? []).map((assertion) => ({
+    name: assertion.fullName,
+    status:
+      assertion.status === "passed" || assertion.status === "failed"
+        ? assertion.status
+        : "skipped",
+    durationMs: Math.round(assertion.duration ?? 0),
+    ...(assertion.failureMessages?.length
+      ? { message: assertion.failureMessages.join("\n") }
+      : {}),
+  }))
+  const status = !suite
+    ? "error"
+    : suite.message || !cases.length
+      ? "error"
+      : cases.some((c) => c.status === "failed")
+        ? "failed"
+        : cases.every((c) => c.status === "skipped")
+          ? "skipped"
+          : "passed"
+  return {
+    id,
+    status,
+    durationMs: suite
+      ? Math.max(0, Math.round(suite.endTime - suite.startTime))
+      : 0,
+    cases,
+    ...(log && { log }),
+    // A suite that is in the report but did not run (a load error) is a
+    // fault of the test file. Only a missing suite is a fault of the runner.
+    ...(!suite && { origin: "runner" }),
+    ...(status === "error"
+      ? { message: suite?.message || message || "Suite did not run" }
+      : {}),
+  }
+}
+
+// The suites of a Vitest JSON report by repo-relative file path.
+export function reportSuites(report) {
+  const real = realpathSync(root)
+  return new Map(
+    JSON.parse(readFileSync(report, "utf8")).testResults.map((suite) => [
+      relative(real, realpathSync(suite.name)).replaceAll("\\", "/"),
+      suite,
+    ]),
+  )
 }

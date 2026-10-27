@@ -30,6 +30,7 @@ const inputs = [
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
+  ".node-version",
   "apps/ui/package.json",
   "apps/ui/tsconfig.json",
   "apps/ui/vite.config.ts",
@@ -70,9 +71,8 @@ function intents(file, loadCsf) {
 }
 
 export async function listStorybook() {
-  const { coreServer, csfTools } = await import(
-    "../../apps/ui/.storybook/check-modules.mjs"
-  )
+  const { coreServer, csfTools } =
+    await import("../../apps/ui/.storybook/check-modules.mjs")
   const { buildIndex } = await coreServer()
   const { loadCsf } = await csfTools()
   const index = await buildIndex({ configDir: join(ui, ".storybook") })
@@ -208,6 +208,7 @@ export async function runStorybook(checks, trace) {
           status: "error",
           durationMs: 0,
           cases: [],
+          origin: "runner",
           log: log.relative,
           message:
             "The story is not in the Storybook build. Rebuild Storybook (unset SKIP_STORYBOOK_BUILD).",

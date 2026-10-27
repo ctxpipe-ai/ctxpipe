@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ctxpipe.ai/schemas/checks/selection.v1.schema.json",
+  "title": "ctxpipe check selection",
+  "description": "The selection record of a check selector: the first line of `factory check --json`. The merge gate reads it and publishes it (scripts/checks/README.md, Merge gate). This repo owns the format; the selector writes to it. The gate uses only the properties below; a selector may add more, and a reader ignores them. A reader rejects an unknown schemaVersion.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "variant",
+    "base",
+    "counts",
+    "selected",
+    "omitted",
+    "notes"
+  ],
+  "additionalProperties": {},
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "variant": {
+      "description": "a: the import graph. b: the coverage of a trace, with k checks for each changed range. c: b, then a model step.",
+      "enum": ["a", "b", "c"]
+    },
+    "base": {
+      "description": "The base revision of the change.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "trace": {
+      "description": "The trace that variant b used. Absent for variant a.",
+      "type": "object",
+      "required": ["commit"],
+      "additionalProperties": {},
+      "properties": {
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "checks": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "required": ["selected", "total"],
+      "additionalProperties": {},
+      "properties": {
+        "selected": { "type": "integer", "minimum": 0 },
+        "variantA": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 },
+        "changed": { "type": "integer", "minimum": 0 },
+        "stochasticOmitted": {
+          "description": "The stochastic checks (evals, latency) that were never candidates.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "selected": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "lane", "reason"],
+        "additionalProperties": {},
+        "properties": {
+          "id": { "type": "string" },
+          "lane": { "type": "string" },
+          "file": { "type": "string" },
+          "reason": {
+            "description": "Why the check is selected. `kind` names the rule (for example changed, imports, input, uncovered, covers, untraced, touches, applies, reads); the other properties depend on it.",
+            "type": "object",
+            "required": ["kind"],
+            "additionalProperties": {},
+            "properties": { "kind": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "omitted": {
+      "description": "Each check of the manifest that is not selected and not stochastic, with why.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "lane", "reason"],
+        "additionalProperties": {},
+        "properties": {
+          "id": { "type": "string" },
+          "lane": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "degraded": { "type": "boolean" },
+    "untraced": { "type": "array", "items": { "type": "string" } },
+    "notes": { "type": "array", "items": { "type": "string" } },
+    "cache": {
+      "description": "The cache lookup of the selected checks. Absent on a dry run.",
+      "type": "object",
+      "required": ["shared", "hits", "misses", "unkeyed"],
+      "additionalProperties": {},
+      "properties": {
+        "shared": {
+          "description": "True when the shared store answered.",
+          "type": "boolean"
+        },
+        "hits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "key", "source", "provenance"],
+            "additionalProperties": {},
+            "properties": {
+              "id": { "type": "string" },
+              "key": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "source": {
+                "description": "ci: the nightly CI run on main wrote it. agent: a person or an agent with a factory session wrote it.",
+                "enum": ["ci", "agent"]
+              },
+              "provenance": {
+                "description": "What the writer states. The merge gate publishes hostKind and createdAt, and never a writer id.",
+                "type": "object",
+                "required": ["hostKind", "createdAt"],
+                "additionalProperties": {},
+                "properties": {
+                  "hostKind": { "enum": ["laptop", "sandbox", "ci"] },
+                  "createdAt": {
+                    "type": "string",
+                    "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "misses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "key"],
+            "additionalProperties": {},
+            "properties": {
+              "id": { "type": "string" },
+              "key": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "mode": { "enum": ["traced", "static"] }
+            }
+          }
+        },
+        "unkeyed": {
+          "description": "Selected checks without a key. They always run.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "reason"],
+            "additionalProperties": {},
+            "properties": {
+              "id": { "type": "string" },
+              "reason": { "type": "string" }
+            }
+          }
+        },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

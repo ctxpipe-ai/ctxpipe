@@ -1,9 +1,20 @@
 import { execFileSync, spawnSync } from "node:child_process"
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import {
+  appendFileSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import {
+  markExitFailure,
+  reportSuites,
+  suiteRecord,
+} from "../../../scripts/checks/lanes.mjs"
 import {
   freshParts,
   laneChecks,
@@ -18,16 +29,27 @@ try {
   // --trace <dir> --commit <sha> also writes <dir>/trace.json.gz for the Node
   // runtime (scripts/checks/README.md). The commit is an argument, because
   // the Docker test image has no .git directory.
+  // --records <dir> also writes <dir>/records.ndjson: one result record for
+  // each test file (scripts/checks/schema/result.v1.schema.json), for the
+  // merge gate and the result store.
   const args = process.argv.slice(2)
   const listOnly = args.includes("--list")
   const option = (name) =>
     args.includes(name) ? args[args.indexOf(name) + 1] : undefined
   const trace = option("--trace")
   const commit = option("--commit")
-  if ((trace === undefined) !== (commit === undefined) || (listOnly && trace))
+  const records = option("--records")
+  if (
+    (trace === undefined) !== (commit === undefined) ||
+    (listOnly && (trace || records))
+  )
     throw new Error(
-      "Usage: run-vitest-contracts.mjs [--list | --trace <dir> --commit <sha>]",
+      "Usage: run-vitest-contracts.mjs [--list | [--trace <dir> --commit <sha>] [--records <dir>]]",
     )
+  if (records) {
+    mkdirSync(records, { recursive: true })
+    writeFileSync(join(records, "records.ndjson"), "")
+  }
   if (!listOnly)
     for (const binary of ["node", "bun", "git"]) {
       process.stdout.write(
@@ -114,6 +136,36 @@ try {
       },
     )
     if (checked.status !== 0) failed = true
+    // The records are data only: an error here never changes the result. A
+    // file without a suite in the report gets an error record.
+    if (records)
+      try {
+        let suites = new Map()
+        try {
+          suites = reportSuites(report)
+        } catch {}
+        const lane = runtime === "bun" ? "codesearch-bun" : "codesearch"
+        const lines = markExitFailure(
+          selected.map((file) =>
+            suiteRecord(
+              `vitest:${lane}:apps/codesearch/${file}`,
+              suites.get(`apps/codesearch/${file}`),
+            ),
+          ),
+          checked.status === 0 ? result : { status: checked.status },
+        )
+        appendFileSync(
+          join(records, "records.ndjson"),
+          lines
+            .map(
+              (record) =>
+                `${JSON.stringify({ schemaVersion: 1, ...record })}\n`,
+            )
+            .join(""),
+        )
+      } catch (error) {
+        process.stderr.write(`No result records written: ${error.message}\n`)
+      }
     // The trace is data only: an error here never changes the result.
     if (parts)
       try {

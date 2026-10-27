@@ -42,13 +42,13 @@ jobs:
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
@@ -93,17 +93,37 @@ jobs:
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The check runner runs each project with its diagnostic allowance and
+      # writes one result record for each, for the merge gate. The output of
+      # each project is in .ci-results/checks (the next step prints it).
       - name: Full projects with shrinking diagnostic allowances
-        run: pnpm typecheck
+        run: |
+          set -o pipefail
+          mkdir -p .ci-results/typecheck
+          pnpm -s checks:list |
+            jq -r '.checks[] | select(.family == "typecheck") | .id' > "$RUNNER_TEMP/typecheck.txt"
+          node scripts/checks/run.mjs "$RUNNER_TEMP/typecheck.txt" |
+            tee .ci-results/typecheck/records.ndjson
+      - name: Typecheck output
+        if: always()
+        run: cat .ci-results/checks/*.log || true
+      - name: Preserve the typecheck results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-results-typecheck
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   test-shards:
     # The runner's own limit (scripts/ci/test-suite.mjs) is 30 min for backend
@@ -153,17 +173,17 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - uses: ./.github/actions/falkordb
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
       - name: Required chat engine binary
@@ -187,11 +207,11 @@ jobs:
           done
       - name: Restore native revision index tools
         id: zoekt
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/ctxpipe-zoekt
           key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: steps.zoekt.outputs.cache-hit != 'true'
         with:
           go-version: 1.25.12
@@ -225,7 +245,7 @@ jobs:
       # This job reads the layer cache without a login. The layer-cache job
       # writes it (see the comment there).
       - name: Required chat sandbox image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: scripts/chat-sandbox
           tags: ctxpipe-chat-sandbox:opencode-1.18.34-r4
@@ -252,9 +272,20 @@ jobs:
           else
             bash .github/actions/falkordb/diagnose.sh
           fi
+      # The Results writer quarantines a key only when its check fails again
+      # in this one rerun through the public runner (scripts/checks/README.md).
+      - name: Run the failed checks again
+        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          GRAPH_DB_URI: redis://127.0.0.1:6379
+          AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
+          DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
+        run: node scripts/checks/rerun-failed.mjs .ci-results
       - name: Preserve shard results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-results-${{ matrix.lane }}-${{ matrix.shard }}
           path: .ci-results/
@@ -274,32 +305,34 @@ jobs:
     env:
       EVENT: ${{ github.event_name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
       - name: UI tests
-        run: |
-          if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then
-            node scripts/ci/test-suite.mjs ui --trace
-          else
-            pnpm --filter @ctxpipe/ui test
-          fi
+        run: node scripts/ci/test-suite.mjs ui $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       - name: CLI tests
         run: node scripts/ci/test-suite.mjs cli $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       - name: CDK tests
         run: node scripts/ci/test-suite.mjs aws-cdk $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
+      # The Results writer quarantines a key only when its check fails again
+      # in this one rerun through the public runner (scripts/checks/README.md).
+      - name: Run the failed checks again
+        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
+        timeout-minutes: 20
+        run: node scripts/checks/rerun-failed.mjs .ci-results
       - name: Preserve package test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-results-packages
           path: .ci-results/
@@ -328,11 +361,11 @@ jobs:
             echo "Test shards: $SHARDS; package tests: $PACKAGES"
             exit 1
           }
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
-      - uses: actions/download-artifact@v4
+          node-version-file: .node-version
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: test-results-*
           path: .ci-results/
@@ -343,7 +376,7 @@ jobs:
         run: node scripts/ci/test-suite.mjs contracts --merge
       - name: Preserve executed test inventories and results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: required-test-results
           path: .ci-results/
@@ -371,16 +404,16 @@ jobs:
       (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 22
-      - uses: actions/download-artifact@v4
+          node-version-file: .node-version
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: test-results-*
           path: .ci-results/
           merge-multiple: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: lane-trace-*
           path: .ci-results/trace-parts/
@@ -389,7 +422,7 @@ jobs:
           find .ci-results -name trace.json.gz -print0 | sort -z |
             xargs -0 node scripts/checks/trace.mjs merge "$RUNNER_TEMP/trace.json.gz"
       - name: Preserve the trace
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: trace-${{ github.sha }}
           path: ${{ runner.temp }}/trace.json.gz
@@ -404,13 +437,13 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Project checks through the check runner
@@ -419,13 +452,18 @@ jobs:
           pnpm -s checks:list |
             jq -r '.checks[] | select(.family == "typecheck" or .family == "lint" or .family == "policy") | .id' \
             > "$RUNNER_TEMP/project-checks.txt"
-          node scripts/checks/run.mjs --trace "$RUNNER_TEMP/project-trace" "$RUNNER_TEMP/project-checks.txt"
-      - name: Preserve the project check trace
+          mkdir -p "$RUNNER_TEMP/project-trace"
+          # The result records also go to the Results writer.
+          node scripts/checks/run.mjs --trace "$RUNNER_TEMP/project-trace" "$RUNNER_TEMP/project-checks.txt" |
+            tee "$RUNNER_TEMP/project-trace/records.ndjson"
+      - name: Preserve the project check trace and results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lane-trace-projects
-          path: ${{ runner.temp }}/project-trace/trace.json.gz
+          path: |
+            ${{ runner.temp }}/project-trace/trace.json.gz
+            ${{ runner.temp }}/project-trace/records.ndjson
           if-no-files-found: ignore
 
   production-builds:
@@ -457,8 +495,8 @@ jobs:
             context: scripts/chat-sandbox
             platforms: linux/arm64
     steps:
-      - uses: actions/checkout@v6
-      - uses: docker/setup-qemu-action@v3
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
         if: matrix.platforms == 'linux/arm64'
         with:
           platforms: arm64
@@ -466,7 +504,7 @@ jobs:
       # Only codesearch reads a layer cache: its toolchain stages are the slow
       # part. This job reads it without a login. The layer-cache job writes it
       # (see the comment there).
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ${{ matrix.context || '.' }}
           file: ${{ matrix.dockerfile }}
@@ -539,13 +577,13 @@ jobs:
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
       - run: pnpm install --frozen-lockfile
@@ -566,18 +604,18 @@ jobs:
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @ctxpipe/ui build-storybook
       - name: Preserve the Storybook build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: storybook-static
           path: apps/ui/storybook-static
@@ -593,20 +631,20 @@ jobs:
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Install Chromium for Storybook Playwright
         working-directory: apps/ui
         run: pnpm exec playwright install --with-deps chromium
       - name: Download the Storybook build
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: storybook-static
           path: apps/ui/storybook-static
@@ -616,7 +654,7 @@ jobs:
         run: node scripts/ci/storybook-golden.mjs
       - name: Preserve golden play results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: storybook-golden-results
           path: .ci-results/storybook-golden/
@@ -639,20 +677,20 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Install Chromium for Storybook Playwright
         working-directory: apps/ui
         run: pnpm exec playwright install --with-deps chromium
       - name: Download the Storybook build
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: storybook-static
           path: apps/ui/storybook-static
@@ -666,9 +704,18 @@ jobs:
         run: |
           node scripts/ci/storybook-golden.mjs \
             $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
+      # The Results writer quarantines a key only when its check fails again
+      # in this one rerun through the public runner (scripts/checks/README.md).
+      - name: Run the failed checks again
+        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          SKIP_STORYBOOK_BUILD: "1"
+        run: node scripts/checks/rerun-failed.mjs .ci-results/storybook-plays
       - name: Preserve play results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: storybook-plays-results-${{ matrix.shard }}
           path: .ci-results/storybook-plays/
@@ -676,7 +723,7 @@ jobs:
           if-no-files-found: error
       - name: Preserve the Storybook trace
         if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lane-trace-storybook-${{ matrix.shard }}
           path: .ci-results/storybook-plays/trace.json.gz
@@ -693,16 +740,16 @@ jobs:
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
       # The download script must fail fast when its source stalls.
       - name: Download script timeout proof
         run: node --test apps/codesearch/scripts/fetch-releases.test.mjs
       - name: Restore pinned release files
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .release-cache
           key: codesearch-releases-${{ hashFiles('apps/codesearch/release-assets.txt') }}
@@ -712,19 +759,25 @@ jobs:
         timeout-minutes: 10
         run: bash apps/codesearch/scripts/fetch-releases.sh apps/codesearch/release-assets.txt "$RUNNER_TEMP/releases" .release-cache
       # The trace (scripts/checks/README.md) is data only; PR runs skip it.
+      # The result records go to the merge gate and the Results writer.
       - name: Required codesearch tests
         env:
           EVENT: ${{ github.event_name }}
         run: |
-          if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then
-            bash apps/codesearch/scripts/run-vitest-docker.sh --trace "$RUNNER_TEMP/codesearch-trace"
-          else
-            pnpm --filter @ctxpipe/codesearch test
-          fi
+          bash apps/codesearch/scripts/run-vitest-docker.sh --records .ci-results/codesearch \
+            $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace "$RUNNER_TEMP/codesearch-trace")
+      - name: Preserve the codesearch results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-results-codesearch
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: ignore
       - name: Preserve the codesearch trace
         if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lane-trace-codesearch
           path: ${{ runner.temp }}/codesearch-trace/trace.json.gz
@@ -762,13 +815,13 @@ jobs:
       VERCEL_TEAM: ctxpipe
       VERCEL_PROJECT: ctxpipe-previews
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Migrate backend schema
@@ -786,10 +839,21 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
           EVENT: ${{ github.event_name }}
         run: node scripts/ci/test-suite.mjs vercel $([ "$EVENT" = workflow_dispatch ] && echo --trace)
+      - name: Preserve the Vercel results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-results-vercel
+          # The Trace job reads the Vercel trace from lane-trace-vercel.
+          path: |
+            .ci-results/
+            !.ci-results/**/trace.json.gz
+          include-hidden-files: true
+          if-no-files-found: ignore
       - name: Preserve the Vercel trace
         if: always() && github.event_name == 'workflow_dispatch'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lane-trace-vercel
           path: .ci-results/vercel/trace.json.gz
@@ -804,13 +868,13 @@ jobs:
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: 1.14.7
       # Providers download from GitHub releases, which can answer 500. The
       # cache keeps the locked providers, so most runs do not download.
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ github.workspace }}/.terraform-plugin-cache
           key: terraform-providers-${{ hashFiles('infra/.terraform.lock.hcl') }}
@@ -854,13 +918,13 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Apply migrations to an empty database
@@ -908,17 +972,17 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - uses: ./.github/actions/falkordb
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
       - name: Checkout of the previous release with its dependencies
@@ -933,11 +997,11 @@ jobs:
           pnpm install --frozen-lockfile --filter "@ctxpipe/backend..."
       - name: Restore native revision index tools
         id: zoekt
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/ctxpipe-zoekt
           key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: steps.zoekt.outputs.cache-hit != 'true'
         with:
           go-version: 1.25.12
@@ -968,22 +1032,47 @@ jobs:
           EVENT: ${{ github.event_name }}
         # The check runner verifies the prerequisites, and writes the Vitest
         # output to .ci-results/checks/upgrade.log (the next step prints it).
+        # The result records go to the merge gate and the Results writer.
         run: |
+          set -o pipefail
           ids="$(node scripts/checks/list.mjs |
             jq -r '.checks[] | select(.family == "vitest" and .lane == "upgrade") | .id')"
           if [ -z "$ids" ]; then
             echo "::error::The check list has no check in the upgrade lane"
             exit 1
           fi
+          mkdir -p .ci-results/upgrade
           printf '%s\n' "$ids" |
             RELEASE_TREE="$RUNNER_TEMP/previous-release" node scripts/checks/run.mjs \
-              $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace "$RUNNER_TEMP/upgrade-trace")
+              $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace "$RUNNER_TEMP/upgrade-trace") |
+            tee .ci-results/upgrade/records.ndjson
       - name: Upgrade test output
         if: always()
         run: cat .ci-results/checks/upgrade.log || true
+      # The Results writer quarantines a key only when its check fails again
+      # in this one rerun through the public runner (scripts/checks/README.md).
+      - name: Run the failed checks again
+        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/postgres
+          DATABASE_APP_PASSWORD: ctxpipe
+          GRAPH_DB_URI: redis://127.0.0.1:6379
+          AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
+          RELEASE_TREE: ${{ runner.temp }}/previous-release
+        run: node scripts/checks/rerun-failed.mjs .ci-results
+      - name: Preserve the upgrade results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-results-upgrade
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: ignore
       - name: Preserve the upgrade trace
         if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lane-trace-upgrade
           path: ${{ runner.temp }}/upgrade-trace/trace.json.gz
@@ -999,3 +1088,403 @@ jobs:
           else
             bash .github/actions/falkordb/diagnose.sh
           fi
+
+  # The merge gate (scripts/checks/README.md, Merge gate) in shadow mode: the
+  # full run gates, and these jobs publish beside it what a gated run would
+  # decide. They never fail or hold up a gating job: each one continues on
+  # error, and no gating job needs them. .github/merge-gate.json pins the
+  # selector and the mode.
+  #
+  # The manifest job holds no credential. It decides the mode with the public
+  # rules (gate.mjs mode), and records the manifest and the toolchain for the
+  # select job and for the nightly Results writer. It has the setup of the
+  # test jobs (Node, pnpm, Bun) and sets none of the lane variables, so its
+  # toolchain record is theirs.
+  merge-gate-manifest:
+    timeout-minutes: 10
+    name: Merge gate manifest
+    if: |
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+      github.actor != 'cursor[bot]' && github.actor != 'cursoragent')
+    continue-on-error: true
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Mode
+        id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+          FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/merge-gate"
+          : > "$RUNNER_TEMP/changed.txt"
+          # A pull_request run checks out the merge revision; its first
+          # parent is main.
+          if [ "$EVENT" = pull_request ]; then
+            git diff-tree -r --no-commit-id --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          fi
+          node scripts/checks/gate.mjs mode --config .github/merge-gate.json \
+            --event "$EVENT" --fork "$FORK" --changed "$RUNNER_TEMP/changed.txt" \
+            > "$RUNNER_TEMP/merge-gate/mode.json"
+          cat "$RUNNER_TEMP/merge-gate/mode.json"
+          echo "mode=$(jq -r .mode "$RUNNER_TEMP/merge-gate/mode.json")" >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+        with:
+          bun-version: 1.4.4
+      - run: pnpm install --frozen-lockfile
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+      - name: Manifest and toolchain
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+        run: |
+          pnpm -s checks:list > "$RUNNER_TEMP/merge-gate/manifest.json"
+          node scripts/checks/toolchain.mjs "$RUNNER_TEMP/merge-gate/manifest.json" \
+            > "$RUNNER_TEMP/merge-gate/toolchain.json"
+      - name: Preserve the merge gate inputs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: merge-gate-inputs
+          path: ${{ runner.temp }}/merge-gate/
+          if-no-files-found: ignore
+
+  # Selects the checks of a same-repo PR and looks up their stored results.
+  # It holds a read-only OIDC role of the factory account, which trusts only
+  # the pull_request subject; a fork PR gets no OIDC token. It runs no package
+  # manager, no local action and no repository script, and each action is
+  # pinned by commit. It reads the manifest and the toolchain only as data.
+  # It downloads the release that .github/merge-gate.json pins, and stops when
+  # the SHA-256 differs.
+  merge-gate-select:
+    timeout-minutes: 5
+    name: Merge gate selection
+    needs: merge-gate-manifest
+    if: needs.merge-gate-manifest.outputs.mode == 'select'
+    continue-on-error: true
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # Each step writes out/select-cause.txt before a part that can fail, so
+      # a failed job tells the decision why: the inputs, the role, the
+      # download, the hash, the exit code of the selector, or a timeout.
+      - name: Start the cause record
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          echo "the inputs of the manifest job did not download" > "$RUNNER_TEMP/out/select-cause.txt"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: merge-gate-inputs
+          path: ${{ runner.temp }}/inputs
+      - name: Next cause
+        run: echo "the read-only role of the result store was not assumed" > "$RUNNER_TEMP/out/select-cause.txt"
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::134416647419:role/check-results-gate-reader
+          aws-region: us-west-2
+      - name: Selector release, checked against the pin
+        run: |
+          cause="$RUNNER_TEMP/out/select-cause.txt"
+          version="$(jq -er .factory.version .github/merge-gate.json)"
+          sha256="$(jq -er .factory.sha256 .github/merge-gate.json)"
+          echo "the download of the selector release $version failed" > "$cause"
+          aws s3api get-object --bucket ctxpipe-factory-check-results-134416647419 \
+            --expected-bucket-owner 134416647419 \
+            --key "releases/factory/$version/factory-linux-x64.tar.gz" \
+            "$RUNNER_TEMP/factory.tar.gz" > /dev/null
+          echo "the selector release does not match the pinned SHA-256" > "$cause"
+          echo "$sha256  $RUNNER_TEMP/factory.tar.gz" | sha256sum --check --strict
+          echo "the selector release did not unpack" > "$cause"
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
+      - name: Select (variant B, k = 3, no model step)
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+          XDG_CACHE_HOME: ${{ runner.temp }}/cache
+        run: |
+          out="$RUNNER_TEMP/out"
+          echo "the selector did not finish in 3 minutes" > "$out/select-cause.txt"
+          # The newest nightly trace of main. Without one, the selector uses
+          # variant A and says so in a note.
+          "$RUNNER_TEMP/bin/factory" trace fetch --repo . || echo "No trace: variant A"
+          code=0
+          "$RUNNER_TEMP/bin/factory" check --repo . --base HEAD^1 --k 3 \
+            --manifest "$RUNNER_TEMP/inputs/manifest.json" \
+            --toolchain "$RUNNER_TEMP/inputs/toolchain.json" \
+            --cache-only --json > "$RUNNER_TEMP/raw.json" || code=$?
+          # 0: every selected check is a hit. 1: a check must run. 2: the
+          # selection failed.
+          if [ "$code" -gt 1 ]; then
+            echo "the selector failed with exit code $code" > "$out/select-cause.txt"
+            exit 1
+          fi
+          # The record is public: it keeps no self-reported writer of a hit.
+          # The raw output stays outside the uploaded directory.
+          echo "the selection record did not parse" > "$out/select-cause.txt"
+          head -n 1 "$RUNNER_TEMP/raw.json" | jq -c 'del(.cache.hits[]?.provenance.who)' > "$RUNNER_TEMP/selection.json"
+          mv "$RUNNER_TEMP/selection.json" "$out/selection.json"
+          rm "$out/select-cause.txt"
+          find "$XDG_CACHE_HOME/factory/traces" -name '*.json.gz' -exec cp {} "$out/trace.json.gz" \; -quit || true
+      - name: Preserve the selection
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: merge-gate-selection
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: ignore
+
+  # Publishes the decision of each PR run: the job summary, the artifact
+  # merge-gate-decision, and one PR comment that it updates. In shadow mode
+  # the full run gates; this job computes what a gated run would decide from
+  # the same results, and the agreement record (scripts/checks/README.md).
+  # It runs only the public gate.mjs, with no package.
+  merge-gate:
+    timeout-minutes: 10
+    name: Merge gate (shadow)
+    needs:
+      [
+        merge-gate-manifest,
+        merge-gate-select,
+        lint,
+        typecheck,
+        test-shards,
+        package-tests,
+        test,
+        production-builds,
+        packages,
+        storybook-build,
+        storybook-golden,
+        storybook-plays,
+        codesearch,
+        vercel-sandbox,
+        terraform-validate,
+        migrate,
+        upgrade-from-previous-release,
+      ]
+    if: |
+      always() && github.event_name == 'pull_request' &&
+      github.actor != 'cursor[bot]' && github.actor != 'cursoragent'
+    continue-on-error: true
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          pattern: merge-gate-*
+          path: ${{ runner.temp }}/inputs
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          pattern: test-results-*
+          path: ${{ runner.temp }}/results
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          pattern: storybook-*-results*
+          path: ${{ runner.temp }}/results
+      - name: The jobs of this run
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.run_id }}
+          ATTEMPT: ${{ github.run_attempt }}
+        # The jobs of the earlier attempts show the flakes: a job that failed
+        # in an earlier attempt and passed in this one.
+        run: |
+          gh api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" --paginate \
+            --jq '.jobs[]' | jq -s '{jobs: .}' > "$RUNNER_TEMP/jobs.json"
+          for ((attempt = 1; attempt < ATTEMPT; attempt++)); do
+            gh api "repos/$REPO/actions/runs/$RUN/attempts/$attempt/jobs?per_page=100" --paginate \
+              --jq '.jobs[]'
+          done | jq -s '{jobs: .}' > "$RUNNER_TEMP/earlier.json"
+      - name: Decision
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
+          node scripts/checks/gate.mjs shadow --config .github/merge-gate.json \
+            --inputs "$RUNNER_TEMP/inputs" --results "$RUNNER_TEMP/results" \
+            --needs "$RUNNER_TEMP/needs.json" --jobs "$RUNNER_TEMP/jobs.json" \
+            --earlier "$RUNNER_TEMP/earlier.json" --out "$RUNNER_TEMP/decision"
+          cat "$RUNNER_TEMP/decision/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve the decision
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: merge-gate-decision
+          path: |
+            ${{ runner.temp }}/decision/decision.json
+            ${{ runner.temp }}/inputs/selection.json
+          if-no-files-found: warn
+      # A fork PR has a read-only token, so it gets only the summary.
+      - name: Post or update the PR comment
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          body="$(cat "$RUNNER_TEMP/decision/comment.md")"
+          existing=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- merge-gate -->"))) | .id' | head -1)
+          if [ -n "$existing" ]; then
+            gh api --method PATCH "repos/$REPO/issues/comments/$existing" -f body="$body" > /dev/null
+          else
+            gh api --method POST "repos/$REPO/issues/$PR/comments" -f body="$body" > /dev/null
+          fi
+
+  # The trusted writer of the result store, after a full run on main (the
+  # nightly schedule, or a run by hand on main). It stores each pass as the CI
+  # class, and audits each failed check against the passes that the store
+  # holds for its key. A contradiction (a stored pass for a key that failed
+  # tonight) fails this job: a key misses an input, the check is flaky, or a
+  # writer stored a false pass. The test jobs run each failed check once more
+  # (rerun.ndjson); only a check that fails again quarantines its key, and
+  # each agent writer of a pass when the key has complete inputs, so that no
+  # reader accepts them. A flake is reported, not quarantined. The output
+  # names the check and the key, and a writer only by a hash. An S3 error in
+  # the audit is an error annotation. The job never fails the run.
+  # Its role trusts only repo:ctxpipe-ai/ctxpipe:ref:refs/heads/main: a job on
+  # main without a GitHub environment. The npm publish jobs of deploy.yaml
+  # (release, prerelease) get the same subject, so they can also get this
+  # role. This is an accepted risk: each builds only code on main, and the
+  # risk is that code and its dependencies (scripts/ci/check-secret-jobs.mjs).
+  # This job runs no package manager and no repository script: the selector
+  # computes each key itself from the clean checkout of the traced commit,
+  # with the manifest, the toolchain and the trace of this run.
+  results-writer:
+    timeout-minutes: 15
+    name: Results writer
+    needs: [merge-gate-manifest, trace]
+    if: |
+      always() && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      needs.merge-gate-manifest.result == 'success' && needs.trace.result == 'success'
+    continue-on-error: true
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Pinned selector release
+        id: pin
+        run: |
+          if jq -e '.factory.version | test("^[0-9a-f]{40}$")' .github/merge-gate.json > /dev/null; then
+            echo "pinned=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::.github/merge-gate.json pins no factory release, so the Results writer stores nothing."
+          fi
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: steps.pin.outputs.pinned == 'true'
+        with:
+          name: merge-gate-inputs
+          path: ${{ runner.temp }}/inputs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: steps.pin.outputs.pinned == 'true'
+        with:
+          name: trace-${{ github.sha }}
+          path: ${{ runner.temp }}/trace
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: steps.pin.outputs.pinned == 'true'
+        with:
+          pattern: test-results-*
+          path: ${{ runner.temp }}/results
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: steps.pin.outputs.pinned == 'true'
+        with:
+          pattern: storybook-plays-results-*
+          path: ${{ runner.temp }}/results
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: steps.pin.outputs.pinned == 'true'
+        with:
+          name: lane-trace-projects
+          path: ${{ runner.temp }}/results/projects
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        if: steps.pin.outputs.pinned == 'true'
+        with:
+          role-to-assume: arn:aws:iam::134416647419:role/check-results-ci-writer
+          aws-region: us-west-2
+      - name: Selector release, checked against the pin
+        if: steps.pin.outputs.pinned == 'true'
+        run: |
+          version="$(jq -er .factory.version .github/merge-gate.json)"
+          sha256="$(jq -er .factory.sha256 .github/merge-gate.json)"
+          aws s3api get-object --bucket ctxpipe-factory-check-results-134416647419 \
+            --expected-bucket-owner 134416647419 \
+            --key "releases/factory/$version/factory-linux-x64.tar.gz" \
+            "$RUNNER_TEMP/factory.tar.gz" > /dev/null
+          echo "$sha256  $RUNNER_TEMP/factory.tar.gz" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
+      - name: Store the passes and audit the failures
+        if: steps.pin.outputs.pinned == 'true'
+        run: |
+          mapfile -d '' records < <(find "$RUNNER_TEMP/results" -name records.ndjson -print0 | sort -z)
+          mapfile -d '' reruns < <(find "$RUNNER_TEMP/results" -name rerun.ndjson -print0 | sort -z)
+          rerun_args=()
+          if [ "${#reruns[@]}" -gt 0 ]; then rerun_args=(--reruns "${reruns[@]}"); fi
+          code=0
+          "$RUNNER_TEMP/bin/factory" store --repo . \
+            --manifest "$RUNNER_TEMP/inputs/manifest.json" \
+            --toolchain "$RUNNER_TEMP/inputs/toolchain.json" \
+            --trace "$RUNNER_TEMP/trace/trace.json.gz" \
+            --records "${records[@]}" \
+            "${rerun_args[@]}" > "$RUNNER_TEMP/store.txt" 2>&1 || code=$?
+          cat "$RUNNER_TEMP/store.txt"
+          find "$RUNNER_TEMP/results" -name not-rerun.txt -print0 | sort -z |
+            while IFS= read -r -d '' list; do
+              {
+                echo
+                echo "Failed checks that the rerun skipped (limit of 50), so their keys are not confirmed:"
+                cat -v "$list"
+              } >> "$RUNNER_TEMP/store.txt"
+            done
+          if grep -q '^SUSPECT WRITER' "$RUNNER_TEMP/store.txt"; then
+            hashes="$(grep -o '^SUSPECT WRITER sha256 [0-9a-f]*' "$RUNNER_TEMP/store.txt" | awk '{print $4}' | tr '\n' ' ')"
+            echo "::error::Suspect agent writers (sha256 of the writer): ${hashes}. The run had an infrastructure fault or many confirmed failures, so no writer was quarantined. A person or the nightly agent reviews the markers under quarantine/suspect/."
+          fi
+          if grep -q '^AUDIT FAILED' "$RUNNER_TEMP/store.txt"; then
+            echo "::error::The audit of the result store failed, so no key was quarantined. See the Results writer summary."
+          fi
+          {
+            echo "## Results writer"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/store.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"

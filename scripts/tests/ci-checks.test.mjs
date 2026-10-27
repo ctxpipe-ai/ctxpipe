@@ -14,6 +14,7 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
 
+import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
 import { requiredStories } from "../ci/storybook-golden-select.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -559,6 +560,7 @@ test("an eval check refuses to run without the workbench variables", () => {
   const document = schema("result")
   validate(record, document, document)
   assert.equal(record.status, "error")
+  assert.equal(record.origin, "prerequisite")
   assert.match(record.message, /Prerequisite workbench failed/)
   assert.match(record.message, /MODEL_PROVIDER_API_KEY/)
   assert.match(record.message, /workbench environment/)
@@ -681,7 +683,7 @@ test("the browser trace maps page coverage to source lines through the build's s
 })
 
 test("a Vitest exit failure fails every record that has not failed", async () => {
-  const { markExitFailure } = await import("../checks/lanes.mjs")
+  const { markExitFailure, suiteRecord } = await import("../checks/lanes.mjs")
   const records = [
     { id: "a", status: "passed", durationMs: 1, cases: [] },
     { id: "b", status: "failed", durationMs: 1, cases: [] },
@@ -694,6 +696,14 @@ test("a Vitest exit failure fails every record that has not failed", async () =>
     ["error", "failed", "error"],
   )
   assert.match(marked[0].message, /Vitest failed \(exit 1\)/)
+  // A suite that ran has results: its record gets no origin.
+  assert.equal(marked[0].origin, undefined)
+  // A record without a suite is a fault of the runner.
+  const missing = suiteRecord("m", undefined)
+  assert.equal(markExitFailure([missing], { status: 1 })[0].origin, "runner")
+  // A load error of a test file is its own fault: no origin.
+  const loadError = { id: "d", status: "error", durationMs: 1, cases: [] }
+  assert.equal(markExitFailure([loadError], { status: 1 })[0].origin, undefined)
   assert.match(
     markExitFailure(records, { status: null, signal: "SIGKILL" })[0].message,
     /SIGKILL/,
@@ -702,7 +712,10 @@ test("a Vitest exit failure fails every record that has not failed", async () =>
 
 test("an eval case verdict is the eval gate for that case", async () => {
   const { caseVerdict } = await import("../checks/evals.mjs")
-  const run = (a, b) => ({ iterations: 3, passes: { m1: { x: a }, m2: { x: b } } })
+  const run = (a, b) => ({
+    iterations: 3,
+    passes: { m1: { x: a }, m2: { x: b } },
+  })
   const baseline = {
     recordedAt: "",
     models: {
@@ -710,22 +723,45 @@ test("an eval case verdict is the eval gate for that case", async () => {
       m2: { aggregate: 1, cases: { x: 1 } },
     },
   }
-  const verdict = async (...args) => (await caseVerdict(...args)).cases.map((c) => c.status)
-  assert.deepEqual(await verdict(run(3, 3), "x", baseline), ["passed", "passed"])
+  const verdict = async (...args) =>
+    (await caseVerdict(...args)).cases.map((c) => c.status)
+  assert.deepEqual(await verdict(run(3, 3), "x", baseline), [
+    "passed",
+    "passed",
+  ])
   // 2 of 3 is under the floor of the gate, and 3 of 3 is not required for 0.9.
-  assert.deepEqual(await verdict(run(2, 3), "x", baseline), ["failed", "passed"])
+  assert.deepEqual(await verdict(run(2, 3), "x", baseline), [
+    "failed",
+    "passed",
+  ])
   assert.deepEqual(await verdict(run(3, 3), "x", null), ["passed", "passed"])
   // One model is under the gate minimum of models.
-  const single = await caseVerdict({ iterations: 3, passes: { m1: { x: 3 } } }, "x", null)
+  const single = await caseVerdict(
+    { iterations: 3, passes: { m1: { x: 3 } } },
+    "x",
+    null,
+  )
   assert.match(single.general.join(), /at least 2 models/)
   // A model without a baseline entry for the case gets only the floor.
-  const partial = { recordedAt: "", models: { m1: { aggregate: 1, cases: { y: 1 } } } }
+  const partial = {
+    recordedAt: "",
+    models: { m1: { aggregate: 1, cases: { y: 1 } } },
+  }
   const floor = await caseVerdict(run(2, 3), "x", partial)
-  assert.deepEqual(floor.cases.map((c) => c.status), ["failed", "passed"])
+  assert.deepEqual(
+    floor.cases.map((c) => c.status),
+    ["failed", "passed"],
+  )
   assert.match(floor.cases[1].message, /no baseline/)
-  assert.doesNotMatch((await caseVerdict(run(3, 3), "x", baseline)).cases[0].message, /no baseline/)
+  assert.doesNotMatch(
+    (await caseVerdict(run(3, 3), "x", baseline)).cases[0].message,
+    /no baseline/,
+  )
   // A whole-run failure is not a case failure.
-  assert.deepEqual(single.cases.map((c) => c.status), ["passed"])
+  assert.deepEqual(
+    single.cases.map((c) => c.status),
+    ["passed"],
+  )
 })
 
 test("the files that the runner loads import only by literal specifiers", () => {
@@ -747,4 +783,54 @@ test("the files that the runner loads import only by literal specifiers", () => 
   visit(script("run.mjs"))
   assert.ok(seen.size > 5)
   assert.deepEqual(computed, [])
+})
+
+test("the rerun takes each failed record below the results once, and no rerun record", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-rerun-"))
+  const write = (path, records) => {
+    mkdirSync(join(directory, path, ".."), { recursive: true })
+    writeFileSync(
+      join(directory, path),
+      records.map((record) => JSON.stringify(record)).join("\n"),
+    )
+  }
+  write("backend/records.ndjson", [
+    { id: "vitest:backend:b.test.ts", status: "failed" },
+    { id: "vitest:backend:a.test.ts", status: "passed" },
+    { id: "vitest:backend:e.test.ts", status: "error" },
+  ])
+  write("ui/deep/records.ndjson", [
+    { id: "vitest:ui:a.test.tsx", status: "failed" },
+    { id: "vitest:backend:b.test.ts", status: "failed" },
+  ])
+  // An earlier rerun is not a source of failures.
+  write("rerun/rerun.ndjson", [
+    { id: "vitest:ui:z.test.tsx", status: "failed" },
+  ])
+  assert.deepEqual(failedIds(directory), [
+    "vitest:backend:b.test.ts",
+    "vitest:ui:a.test.tsx",
+  ])
+  assert.deepEqual(failedIds(directory, 1), ["vitest:backend:b.test.ts"])
+  assert.deepEqual(failedIds(join(directory, "missing")), [])
+  const summary = failedChecks(directory, 1)
+  assert.equal(summary.total, failedIds(directory).length)
+  assert.deepEqual(summary.ids, ["vitest:backend:b.test.ts"])
+  assert.deepEqual(summary.notRerun, failedIds(directory).slice(1))
+  rmSync(directory, { recursive: true })
+})
+
+test("every check has the root toolchain files among its inputs", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const { checks } = JSON.parse(result.stdout)
+  assert.ok(checks.length > 0)
+  for (const { id, inputs } of checks)
+    for (const file of [
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      ".node-version",
+    ])
+      assert.ok(inputs.includes(file), `${id} lacks input ${file}`)
 })
