@@ -87,7 +87,7 @@ export function AutomaticUpgradesSwitch(props: {
     : setting.mode === "automatic"
   const canChange = props.isAdmin === true
   return (
-    <div className="flex min-w-0 basis-[30rem] flex-col gap-1">
+    <div className="flex min-w-0 basis-120 flex-col gap-1">
       <Switch
         isSelected={on}
         isDisabled={!canChange || save.isPending}

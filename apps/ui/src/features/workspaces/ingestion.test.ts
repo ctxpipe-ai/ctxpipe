@@ -21,7 +21,7 @@ describe("groupSourceRuns", () => {
     ])
     expect(groups).toHaveLength(1)
     const [web] = groups
-    expect(web?.title).toBe("acme/web")
+    expect(web?.name).toBe("acme/web")
     expect(web?.runs.map((run) => run.id)).toEqual([
       "run_old",
       "run_mid",
@@ -31,7 +31,7 @@ describe("groupSourceRuns", () => {
     expect(web && sourceRunsWord(web)).toBe("Publishing")
   })
 
-  it("keeps each source apart, names a sync by its provider, and leaves out a hydrate", () => {
+  it("keeps each source apart, names a sync by its provider, and leaves out a hydrate and a re-ingestion", () => {
     const groups = groupSourceRuns([
       ingestionItemFixture({ id: "run_web" }),
       ingestionItemFixture({ id: "run_api", name: "acme/api" }),
@@ -43,11 +43,17 @@ describe("groupSourceRuns", () => {
         progress: null,
       }),
       ingestionItemFixture({ id: "run_hydrate", kind: "hydrate", name: null }),
+      ingestionItemFixture({
+        id: "run_reingest",
+        kind: "reingest",
+        name: null,
+        progress: { done: 1, total: 2, unit: "repositories" },
+      }),
     ])
-    expect(groups.map((group) => group.title)).toEqual([
+    expect(groups.map((group) => group.name)).toEqual([
       "acme/web",
       "acme/api",
-      "Linear sources",
+      "Linear",
     ])
     const linear = groups.find((group) => group.kind === "source_sync")
     expect(linear && sourceRunsWord(linear)).toBe("Syncing")

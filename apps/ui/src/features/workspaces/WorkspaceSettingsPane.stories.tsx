@@ -589,7 +589,9 @@ export const SourceProblemsNeedYou: Story = {
     await expect(sources.queryByText("Syncing")).toBeNull()
     await expect(sources.getByText("Awaiting merge")).toBeVisible()
     await expect(
-      sources.getByRole("link", { name: "Open the pull request" }),
+      sources.getByRole("link", {
+        name: "Open the pull request. It opens on GitHub in a new tab.",
+      }),
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/31")
     await waitFor(() =>
       expect(canvas.getByText(/1 part needs you:/)).toBeVisible(),

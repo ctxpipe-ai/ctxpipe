@@ -2,6 +2,10 @@ import { useQuery } from "@tanstack/react-query"
 
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import {
+  repositoryNeedsAttention,
+  repositoryRows,
+} from "@/features/workspace-sources/GithubSourceRepositories"
 import { workspaceSourcesOptions } from "@/features/workspace-sources/queries"
 import type {
   SourceLiveStatus,
@@ -40,17 +44,15 @@ export function useWorkspaceActivity(orgSlug: string, workspaceSlug: string) {
         ? ("loading" as const)
         : ("ready" as const),
     retry: () => void query.refetch(),
-    sources: groupSourceRuns(items).filter(
-      (source) => source.kind !== "reingest",
-    ),
+    sources: groupSourceRuns(items),
     hydrate: items.find((item) => item.kind === "hydrate") ?? null,
   }
 }
 
 /**
- * Do the sources need the user: a source with a problem, a repository
- * indexed with issues, or a source change that waits for its merge. The same
- * read as the sources list, from the same cache.
+ * Do the sources need the user: a source with a problem, a repository that
+ * needs attention (the rule of the GitHub rows), or a source change that waits
+ * for its merge. The same read as the sources list, from the same cache.
  */
 export function useSourcesNeedYou(
   orgSlug: string,
@@ -59,12 +61,14 @@ export function useSourcesNeedYou(
   const sources = useQuery(
     workspaceSourcesOptions(orgSlug, workspace.slug),
   ).data
+  const items = sources?.items ?? []
   return (
-    (sources?.items ?? []).some((item) => item.status !== "ok") ||
+    items.some((item) => item.status !== "ok") ||
     (sources?.pendingChanges.length ?? 0) > 0 ||
-    (workspace.linkedRepositories ?? []).some(
-      (repository) => repository.indexingStatus === "complete_with_issues",
-    )
+    repositoryRows(
+      workspace.linkedRepositories ?? [],
+      items.filter((item) => item.provider === "github"),
+    ).some(repositoryNeedsAttention)
   )
 }
 
@@ -101,8 +105,8 @@ export function SourcesCard(props: {
 }) {
   const { orgSlug, workspace, activity } = props
   // A repository run has the name of the repository; a connector sync has
-  // the name of its provider ("Linear sources"). While the work loads or
-  // cannot load, a row shows its state only, in the same layout.
+  // the name of its provider ("Linear"). While the work loads or cannot load,
+  // a row shows its state only, in the same layout.
   const ready = activity.status === "ready"
   const liveStatus: SourceLiveStatusLookup = {
     repository: (title) =>
@@ -111,7 +115,7 @@ export function SourcesCard(props: {
             activity.sources.find(
               (source) =>
                 source.kind === "repository" &&
-                source.title.toLowerCase() === title.toLowerCase(),
+                source.name.toLowerCase() === title.toLowerCase(),
             ),
           )
         : null,
@@ -120,15 +124,25 @@ export function SourcesCard(props: {
         ? liveStatusOf(
             activity.sources.find(
               (source) =>
-                source.kind === "source_sync" &&
-                source.title === `${label} sources`,
+                source.kind === "source_sync" && source.name === label,
             ),
           )
         : null,
   }
   return (
-    <SettingsCard part="sources" title="Sources" needsYou={props.needsYou}>
-      {activity.status === "error" ? (
+    <SettingsCard part="sources" needsYou={props.needsYou}>
+      {activity.status === "loading" ? (
+        <p
+          className="mb-3 flex items-center gap-2 text-xs text-muted-foreground"
+          aria-busy
+        >
+          <span
+            aria-hidden
+            className="ctx-status-pulse size-1.5 shrink-0 rounded-full bg-zinc-500"
+          />
+          Loading what each source does now…
+        </p>
+      ) : activity.status === "error" ? (
         <div className="mb-4">
           <InlineAlert
             variant="warning"

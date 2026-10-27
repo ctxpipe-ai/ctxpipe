@@ -7,7 +7,13 @@
  * status dots, the times, and the actions line up.
  */
 import { IconChevronRight, IconDots, IconPlus } from "@tabler/icons-react"
-import { type ComponentType, type ReactNode, useState } from "react"
+import {
+  type ComponentType,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
 import {
   Button as AriaButton,
   Disclosure as AriaDisclosure,
@@ -18,12 +24,20 @@ import {
 
 import { Button } from "@/components/ui/Button"
 import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
+import {
+  Tooltip as HintTooltip,
+  TooltipContent as HintTooltipContent,
+  TooltipProvider as HintTooltipProvider,
+  TooltipTrigger as HintTooltipTrigger,
+} from "@/components/ui/Tooltip"
 import { formatElapsed } from "@/features/workspace-upgrades/upgrade-progress"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useNow } from "@/lib/useNow"
 import { cn } from "@/lib/utils"
 
-/** One run of a source, with the detail of today's "Ingesting now" list. */
+import { scrollToLinkedSource } from "./source-provider-ui"
+
+/** One run of a source: its stage, how far it is, and why it waits. */
 export type SourceLiveRun = {
   key: string
   /** The stage as a sentence, for example "Reading the code". */
@@ -54,19 +68,22 @@ export type SourceLiveStatusLookup = {
 
 type SourceStateTone = "ok" | "attention" | "error" | "neutral"
 
+/** The state of a source when it has no live work, or has a problem. */
+type SourceState = {
+  label: string
+  tone: SourceStateTone
+  /** What the state means, for a tip on hover and focus. */
+  hint?: string
+  /** ctxpipe works on it (for example "Indexing"): the dot pulses. */
+  pulse?: boolean
+}
+
 /** One entry of the row menu, for example Edit, Rename, Remove, or Unlink. */
 type SourceRowAction = {
   id: string
   label: string
   onAction: () => void
   isDisabled?: boolean
-}
-
-const TONE: Record<SourceStateTone, { dot: string; text: string }> = {
-  ok: { dot: "bg-zinc-500", text: "text-muted-foreground" },
-  neutral: { dot: "bg-zinc-500", text: "text-muted-foreground" },
-  attention: { dot: "bg-amber-400", text: "text-amber-200" },
-  error: { dot: "bg-red-400", text: "text-red-300" },
 }
 
 /**
@@ -76,29 +93,54 @@ const TONE: Record<SourceStateTone, { dot: string; text: string }> = {
 const GRID =
   "grid grid-cols-[minmax(0,1fr)_auto_auto_auto_2rem] items-center gap-x-3 @3xl:grid-cols-[minmax(0,1fr)_8.5rem_4.5rem_4.5rem_2rem]"
 
-/** The status cell: the live work first; else the state, colored only for a problem. */
+/**
+ * The status cell: the live work first; else the state, colored only for a
+ * problem. A state with a hint opens it in a tip, as the table row does.
+ */
 function StatusCell(props: {
-  state: { label: string; tone: SourceStateTone }
+  state: SourceState
   live: SourceLiveStatus | null
 }) {
   const { live, state } = props
-  const tone = TONE[state.tone]
-  return (
-    <span
-      className={cn(
-        "inline-flex min-w-0 items-center gap-1.5 text-xs whitespace-nowrap",
-        live ? "text-foreground" : tone.text,
-      )}
-    >
+  // "ok" and "neutral" both stay quiet: only a problem has a color.
+  const tone = {
+    ok: { dot: "bg-zinc-500", text: "text-muted-foreground" },
+    neutral: { dot: "bg-zinc-500", text: "text-muted-foreground" },
+    attention: { dot: "bg-amber-400", text: "text-amber-200" },
+    error: { dot: "bg-red-400", text: "text-red-300" },
+  }[state.tone]
+  const className = cn(
+    "inline-flex min-w-0 items-center gap-1.5 text-xs whitespace-nowrap",
+    live ? "text-foreground" : tone.text,
+  )
+  const content = (
+    <>
       <span
         aria-hidden
         className={cn(
           "size-1.5 shrink-0 rounded-full",
           live ? "ctx-status-pulse bg-teal-400" : tone.dot,
+          !live && state.pulse && "ctx-status-pulse",
         )}
       />
       <span className="truncate">{live ? live.label : state.label}</span>
-    </span>
+    </>
+  )
+  if (live || !state.hint) return <span className={className}>{content}</span>
+  return (
+    <HintTooltipProvider delay={200}>
+      <HintTooltip>
+        {/* The trigger is a button, so keyboard focus opens the tip. */}
+        <HintTooltipTrigger
+          className={cn(className, "rounded-md", focusVisibleClassName)}
+        >
+          {content}
+          {/* Base UI sets no description, so the status carries it. */}
+          <span className="sr-only">{state.hint}</span>
+        </HintTooltipTrigger>
+        <HintTooltipContent side="top">{state.hint}</HintTooltipContent>
+      </HintTooltip>
+    </HintTooltipProvider>
   )
 }
 
@@ -121,7 +163,7 @@ export function CompactSourceRow(props: {
   /** A short string for the run list label. */
   name: string
   subtitle: ReactNode
-  state: { label: string; tone: SourceStateTone }
+  state: SourceState
   live: SourceLiveStatus | null
   actions: SourceRowAction[]
   /** Lines under the row: a status detail, a pending merge, a description. */
@@ -214,8 +256,8 @@ export function CompactSourceRow(props: {
 }
 
 /**
- * The runs under a row, as in today's "Ingesting now" list: the stage and
- * the count, a bar, why the run waits, and the time in the time column.
+ * The runs under a row: the stage and the count of each run, a bar, why it
+ * waits, and its time in the time column.
  */
 function RunList(props: { runs: SourceLiveRun[] }) {
   return (
@@ -311,23 +353,21 @@ export function SourceAccordionGroup(props: {
   children?: ReactNode
 }) {
   const { Icon } = props
-  const linked =
-    props.id !== undefined &&
-    typeof window !== "undefined" &&
-    window.location.hash === `#${props.id}`
-  const [expanded, setExpanded] = useState(props.wantsOpen || linked)
+  const groupRef = useRef<HTMLDivElement>(null)
+  const [expanded, setExpanded] = useState(props.wantsOpen)
   // Adjust the state when the prop changes, during render (no Effect).
   const [wanted, setWanted] = useState(props.wantsOpen)
   if (props.wantsOpen !== wanted) {
     setWanted(props.wantsOpen)
     if (props.wantsOpen) setExpanded(true)
   }
+  // A link to the connector (#source-github) opens it and scrolls to it. The
+  // server does not get the hash, so this reads it after the first render.
+  useEffect(() => {
+    if (scrollToLinkedSource(groupRef.current)) setExpanded(true)
+  }, [])
   return (
-    <div
-      id={props.id}
-      ref={linked ? scrollIntoViewWhenLinked : undefined}
-      className="scroll-mt-4"
-    >
+    <div ref={groupRef} id={props.id} className="scroll-mt-4">
       <AriaDisclosure isExpanded={expanded} onExpandedChange={setExpanded}>
         {({ isExpanded }) => (
           <>
@@ -395,9 +435,4 @@ export function SourceAccordionGroup(props: {
       </AriaDisclosure>
     </div>
   )
-}
-
-/** A link to a connector (#source-github) scrolls to it, as WorkspaceSources does. */
-function scrollIntoViewWhenLinked(element: HTMLElement | null) {
-  element?.scrollIntoView({ block: "start" })
 }

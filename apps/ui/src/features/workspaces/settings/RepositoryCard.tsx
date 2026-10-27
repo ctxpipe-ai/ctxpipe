@@ -56,7 +56,7 @@ export function useWriteAccess(workspace: WorkspaceDetail) {
 
 /**
  * The repository of the Workspace: which one, can ctxpipe push to it, and
- * the root folder. Today's relink dialog changes the repository.
+ * the root folder. The context repository dialog changes the repository.
  */
 export function RepositoryCard(props: {
   orgSlug: string
@@ -134,7 +134,6 @@ export function RepositoryCard(props: {
   return (
     <SettingsCard
       part="repository"
-      title="Repository"
       description="The GitHub repository where this Workspace keeps its files."
       needsYou={access.needsYou}
       footer={
@@ -360,13 +359,11 @@ function WriteAccessLine(props: {
             </span>
           ) : null}
           <span>{text}</span>
-          {access.tone === "read_only" ? (
+          {access.tone === "read_only" && props.writeStatus === "read_only" ? (
             <span className="text-amber-100/70">
-              {props.needsRelink
-                ? " After GitHub can see the repository, select it again."
-                : props.writeStatus === "read_only"
-                  ? " After you fix it, reload this page. ctxpipe checks again at most once a minute."
-                  : null}
+              {" "}
+              After you fix it, reload this page. ctxpipe checks again at most
+              once a minute.
             </span>
           ) : null}
         </p>

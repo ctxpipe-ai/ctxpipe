@@ -52,6 +52,7 @@ import {
 import { RenameSourceDialog } from "./RenameSourceDialog"
 import {
   SOURCE_PROVIDER_UI,
+  scrollToLinkedSource,
   sourceAnchorId,
   sourceProviderLabel,
 } from "./source-provider-ui"
@@ -232,8 +233,10 @@ function SourceRow(props: {
   onEdit: (() => void) | null
   onRename: (() => void) | null
   onRemove: (() => void) | null
-  /** The live work of the source: the compact row. Undefined keeps the table row. */
-  live?: SourceLiveStatus | null
+  /** The compact row of the live list, on its columns; else the table row. */
+  compact: boolean
+  /** The live work of the source, in the compact row. */
+  live: SourceLiveStatus | null
 }) {
   const { source, pending, showDetail, onEdit, onRename, onRemove } = props
   const tag = STATUS_TAG[source.status]
@@ -309,7 +312,7 @@ function SourceRow(props: {
     </>
   ) : null
 
-  if (props.live !== undefined)
+  if (props.compact)
     return (
       <CompactSourceRow
         name={source.scopeSummary}
@@ -379,9 +382,11 @@ function PendingAddRow(props: {
             href={props.change.pullRequestUrl}
             target="_blank"
             rel="noreferrer"
-            className="text-xs"
+            aria-label="Open the pull request. It opens on GitHub in a new tab."
+            className="inline-flex items-center gap-1 text-xs"
           >
             Open the pull request
+            <IconExternalLink className="size-3 shrink-0" aria-hidden />
           </TextLink>
         }
       />
@@ -489,8 +494,7 @@ function ConnectorGroup(props: {
 
 /** Scroll to the provider section that the URL hash names. */
 function scrollIntoViewWhenHashMatches(element: HTMLElement | null) {
-  if (element && window.location.hash === `#${element.id}`)
-    element.scrollIntoView({ block: "start" })
+  scrollToLinkedSource(element)
 }
 
 function SourcesSkeleton() {
@@ -787,7 +791,8 @@ export function WorkspaceSources(props: {
                         source={source}
                         pending={pendingOf(source.path)}
                         showDetail
-                        {...(liveStatus ? { live: null } : {})}
+                        compact={liveStatus !== undefined}
+                        live={null}
                         onEdit={null}
                         onRename={null}
                         onRemove={
@@ -840,45 +845,39 @@ export function WorkspaceSources(props: {
                     .join(" · ") || `No ${label} sources yet`
                 // The GitHub rows are repositories; its notes keep each detail.
                 const shared = repositories ? [] : sharedStatusDetails(sources)
-                const action =
-                  liveStatus &&
-                  provider === "github" &&
-                  connected &&
-                  canEdit &&
-                  !githubEmptyAction ? (
-                    <SourceGroupAddButton
-                      label="Add repositories"
-                      onPress={() => setGithubAddOpen(true)}
-                    />
-                  ) : liveStatus &&
-                    provider !== "github" &&
-                    connected &&
-                    canEdit ? (
-                    <SourceGroupAddButton
-                      label={`Add ${label} source`}
-                      onPress={() => setEditor({ kind: "add", provider })}
-                    />
-                  ) : provider === "github" &&
-                    connected &&
-                    canEdit &&
-                    !githubEmptyAction ? (
-                    <Button
-                      variant="quiet"
-                      onPress={() => setGithubAddOpen(true)}
-                    >
-                      <IconPlus className="size-4" aria-hidden />
-                      Add repositories
-                    </Button>
-                  ) : provider !== "github" && connected && canEdit ? (
-                    <Button
-                      variant="quiet"
-                      aria-label={`Add ${label} source`}
-                      onPress={() => setEditor({ kind: "add", provider })}
-                    >
-                      <IconPlus className="size-4" aria-hidden />
-                      Add
-                    </Button>
-                  ) : null
+                // An empty GitHub group shows its add button in its body.
+                const add =
+                  !connected || !canEdit
+                    ? null
+                    : provider === "github"
+                      ? githubEmptyAction
+                        ? null
+                        : {
+                            label: "Add repositories",
+                            text: "Add repositories",
+                            onPress: () => setGithubAddOpen(true),
+                          }
+                      : {
+                          label: `Add ${label} source`,
+                          text: "Add",
+                          onPress: () => setEditor({ kind: "add", provider }),
+                        }
+                // The live list has an icon in its action column.
+                const action = !add ? null : liveStatus ? (
+                  <SourceGroupAddButton
+                    label={add.label}
+                    onPress={add.onPress}
+                  />
+                ) : (
+                  <Button
+                    variant="quiet"
+                    aria-label={add.label}
+                    onPress={add.onPress}
+                  >
+                    <IconPlus className="size-4" aria-hidden />
+                    {add.text}
+                  </Button>
+                )
                 const body =
                   provider === "github" ? (
                     <>
@@ -908,7 +907,8 @@ export function WorkspaceSources(props: {
                           key={source.path}
                           source={source}
                           pending={pendingOf(source.path)}
-                          {...(liveStatus ? { live } : {})}
+                          compact={liveStatus !== undefined}
+                          live={live}
                           showDetail={
                             !shared.some(
                               ([detail]) => detail === source.statusDetail,

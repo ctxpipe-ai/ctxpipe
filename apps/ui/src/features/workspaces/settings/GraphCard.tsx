@@ -53,7 +53,6 @@ export function GraphCard(props: {
   return (
     <SettingsCard
       part="graph"
-      title="Knowledge graph"
       needsYou={graphStatus(workspace, hydrate).needsYou}
     >
       <div className="flex flex-col gap-3">

@@ -15,20 +15,17 @@ import { DangerCard } from "./settings/DangerCard"
 import { GeneralCard } from "./settings/GeneralCard"
 import { GraphCard, graphStatus } from "./settings/GraphCard"
 import { RepositoryCard, useWriteAccess } from "./settings/RepositoryCard"
-import { jumpToSettingsCard, type SettingsPart } from "./settings/SettingsCard"
+import {
+  jumpToSettingsCard,
+  type SettingsPart,
+  settingsPartTitle,
+} from "./settings/SettingsCard"
 import {
   SourcesCard,
   useSourcesNeedYou,
   useWorkspaceActivity,
 } from "./settings/SourcesCard"
 import type { WorkspaceDetail } from "./types"
-
-const PART_TITLE: Partial<Record<SettingsPart, string>> = {
-  upgrades: "Upgrades",
-  sources: "Sources",
-  graph: "Knowledge graph",
-  repository: "Repository",
-}
 
 /**
  * Workspace settings: one card for each part of the Workspace. Each card
@@ -179,7 +176,7 @@ function PartLinks(props: {
           focusVisibleClassName,
         )}
       >
-        {PART_TITLE[part]}
+        {settingsPartTitle[part]}
       </Link>
     </span>
   ))

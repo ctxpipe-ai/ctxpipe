@@ -51,7 +51,6 @@ export function GeneralCard(props: {
   return (
     <SettingsCard
       part="general"
-      title="Workspace"
       status={dirty ? "Not saved" : null}
       footer={
         <>

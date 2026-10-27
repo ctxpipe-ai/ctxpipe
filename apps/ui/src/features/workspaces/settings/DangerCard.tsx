@@ -75,7 +75,7 @@ export function DangerCard(props: {
   })
 
   return (
-    <SettingsCard part="danger" title="Danger zone" danger>
+    <SettingsCard part="danger" danger>
       <section className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h3 className="text-sm text-foreground">Delete this Workspace</h3>

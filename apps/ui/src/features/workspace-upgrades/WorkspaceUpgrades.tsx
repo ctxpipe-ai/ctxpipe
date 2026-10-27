@@ -11,8 +11,6 @@ import {
   Button as AriaButton,
   Disclosure as AriaDisclosure,
   DisclosurePanel as AriaDisclosurePanel,
-  Tooltip,
-  TooltipTrigger,
 } from "react-aria-components"
 import { toast } from "sonner"
 
@@ -25,6 +23,12 @@ import {
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Link as TextLink } from "@/components/ui/Link"
 import { SkeletonText, useSkeletonHold } from "@/components/ui/Skeleton"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/Tooltip"
 import { SettingsCard } from "@/features/workspaces/settings/SettingsCard"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
@@ -43,18 +47,18 @@ import {
   CHECKING_FORMAT_COPY,
   formatHealthLine,
   MEMBER_ASK_ADMIN,
-  UPGRADE_WAITS_TAG,
+  UPGRADE_WAITS_LABEL,
   upgradeBlockedCopy,
   upgradeCanCheck,
   upgradeCanStart,
   upgradeGroups,
-  upgradeHeadline,
   upgradeHistoryLine,
   upgradeIsCheckingFormat,
   upgradeNotices,
   upgradeSpendLine,
-  upgradeStatusTag,
+  upgradeStatusLabel,
   upgradeWaitingCopy,
+  upgradesState,
 } from "./upgrade-copy"
 import {
   type UpgradeFailure,
@@ -86,29 +90,32 @@ function useUpgradeGroups(orgSlug: string, workspaceSlug: string) {
   )
   const groups = upgradeGroups(items, formatVersion, expired)
   // Sources show their own work, so the ingestion does not count here.
-  const headline =
-    data &&
-    upgradeHeadline({
-      count: groups.count,
-      formatVersion,
-      codeFormat: data.codeFormat,
-      ingesting: null,
-    })
-  return { query, data, formatVersion, expired, headline, ...groups }
+  const state = data
+    ? upgradesState({
+        count: groups.count,
+        formatVersion,
+        codeFormat: data.codeFormat,
+      })
+    : null
+  return {
+    query,
+    data,
+    formatVersion,
+    expired,
+    state,
+    needsYou: query.isError || state === "needs_you",
+    working: state === "working" || state === "checking_format",
+    ...groups,
+  }
 }
 
 /**
  * The state of the upgrades for the summary of Workspace settings: do they
- * need the user, and does ctxpipe work on one now. The headline also counts
- * a format file that ctxpipe cannot read.
+ * need the user, and does ctxpipe work on them now.
  */
 export function useUpgradesStatus(orgSlug: string, workspaceSlug: string) {
-  const { query, headline, count } = useUpgradeGroups(orgSlug, workspaceSlug)
-  return {
-    loading: query.isPending,
-    needsYou: query.isError || headline?.label === "Needs you",
-    working: count.working > 0,
-  }
+  const { query, needsYou, working } = useUpgradeGroups(orgSlug, workspaceSlug)
+  return { loading: query.isPending, needsYou, working }
 }
 
 /** The dot of an upgrade row: the kind of attention that it wants. */
@@ -334,15 +341,15 @@ function UpgradeItemCard(props: {
         ? "This starts after ctxpipe reads the format upgrade above."
         : upgradeBlockedCopy(item).body
       : upgradeWaitingCopy(item)
-  const tag = blockedWaits
-    ? UPGRADE_WAITS_TAG
-    : upgradeStatusTag(item, formatVersion)
+  const status = blockedWaits
+    ? UPGRADE_WAITS_LABEL
+    : upgradeStatusLabel(item, formatVersion)
   const spend = upgradeSpendLine(item)
   const dot = upgradeDot(item, props.group)
   // One muted line of facts. A waiting item has its Start button (or "Ask an
   // admin"), so its tag does not repeat it.
   const meta = [
-    item.status === "awaiting_operator" ? null : tag.label,
+    item.status === "awaiting_operator" ? null : status,
     checkingFormat || blockedWaits || item.status === "blocked"
       ? null
       : item.note,
@@ -568,39 +575,29 @@ function FormatNote(props: {
       {formatVersion === codeFormat
         ? `Format ${formatVersion}, the latest`
         : `Format ${formatVersion}. The latest is format ${codeFormat}.`}
-      <TooltipTrigger delay={200}>
-        <AriaButton
-          aria-label="About the format"
-          className={cn(
-            "rounded-full p-0.5 text-muted-foreground hover:text-foreground",
-            focusVisibleClassName,
-          )}
-        >
-          <IconInfoCircle className="size-3.5" aria-hidden />
-        </AriaButton>
-        <Tooltip
-          placement="top end"
-          offset={6}
-          className="max-w-64 rounded-md bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-100 shadow-md"
-        >
-          The format is how ctxpipe arranges the files in the repository of this
-          Workspace. When a new format ships, an upgrade moves the files in a
-          pull request.
+      <TooltipProvider delay={200}>
+        <Tooltip>
+          <TooltipTrigger
+            aria-label="About the format"
+            className={cn(
+              "rounded-full p-0.5 text-muted-foreground hover:text-foreground",
+              focusVisibleClassName,
+            )}
+          >
+            <IconInfoCircle className="size-3.5" aria-hidden />
+          </TooltipTrigger>
+          <TooltipContent side="top" align="end">
+            The format is how ctxpipe arranges the files in the repository of
+            this Workspace. When a new format ships, an upgrade moves the files
+            in a pull request.
+          </TooltipContent>
         </Tooltip>
-      </TooltipTrigger>
+      </TooltipProvider>
     </p>
   )
 }
 
 const HISTORY_SHOWN = 5
-
-/** "Oct 21", in one zone, as the history line: the same day for each user. */
-const historyDate = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  })
 
 /**
  * An applied upgrade: the date, the title, and its pull request or spend. It
@@ -638,7 +635,12 @@ function HistoryRow(props: {
                   )}
                 />
                 <span className="text-muted-foreground tabular-nums">
-                  {historyDate(item.updatedAt)}
+                  {/* One zone, as the history line: the same day for each user. */}
+                  {new Date(item.updatedAt).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    timeZone: "UTC",
+                  })}
                 </span>
                 <span className="truncate text-foreground">{item.title}</span>
               </AriaButton>
@@ -652,7 +654,7 @@ function HistoryRow(props: {
               </span>
             </div>
             <AriaDisclosurePanel>
-              <div className="pb-3 pl-[1.625rem]">
+              <div className="pb-3 pl-6.5">
                 <p className="max-w-prose text-muted-foreground">
                   {upgradeDescription(item)}
                 </p>
@@ -739,24 +741,20 @@ export function WorkspaceUpgrades(props: {
   onFixWithAgent?: (prompt: string) => void
 }) {
   const { orgSlug, workspaceSlug } = props
-  const { query, data, formatVersion, expired, headline, lists, groupOf } =
-    useUpgradeGroups(orgSlug, workspaceSlug)
+  const upgrades = useUpgradeGroups(orgSlug, workspaceSlug)
+  const { query, data, formatVersion, expired, lists, groupOf } = upgrades
   const loading = useSkeletonHold(query.isPending)
   const isAdmin = useIsOrgAdmin(orgSlug)
-  const needsYou =
-    !loading && (query.isError || headline?.label === "Needs you")
-  const active = lists.needs_you.length + lists.working.length
-  const formatBehind =
-    data !== undefined &&
-    formatVersion !== null &&
-    formatVersion >= 0 &&
-    formatVersion < data.codeFormat
+  const needsYou = !loading && upgrades.needsYou
+  // The rows say "needs you" and "working". The header says what they do not.
   const status =
-    loading || query.isError || active > 0 || needsYou
+    loading || upgrades.state === null
       ? null
-      : formatBehind
+      : upgrades.state === "checking_format"
         ? "Checking the format"
-        : "Up to date"
+        : upgrades.state === "up_to_date"
+          ? "Up to date"
+          : null
   const row = (item: WorkspaceUpgradeItem) => (
     <UpgradeItemRow
       key={item.key}
@@ -774,7 +772,6 @@ export function WorkspaceUpgrades(props: {
   return (
     <SettingsCard
       part="upgrades"
-      title="Upgrades"
       description="ctxpipe keeps this Workspace current."
       status={status}
       needsYou={needsYou}
@@ -789,7 +786,7 @@ export function WorkspaceUpgrades(props: {
           aria-busy
         >
           <span className="sr-only">Loading upgrades</span>
-          <div className="flex min-w-0 basis-[30rem] flex-col gap-1">
+          <div className="flex min-w-0 basis-120 flex-col gap-1">
             <SkeletonText className="text-sm" boneClassName="w-44" />
             <SkeletonText className="text-xs" boneClassName="w-72" />
           </div>

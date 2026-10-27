@@ -109,6 +109,10 @@ type StatusTag = {
   label: string
   /** What the status means, for the tip on hover and focus. */
   hint: string
+  /** The tone of the compact row of Workspace settings. */
+  tone: "ok" | "attention" | "neutral"
+  /** ctxpipe works on it: the compact row pulses. */
+  pulse?: boolean
   className: string
   dotClassName: string
 }
@@ -116,6 +120,7 @@ type StatusTag = {
 const pendingTag: StatusTag = {
   label: "Pending",
   hint: "ctxpipe has not read this repository yet.",
+  tone: "neutral",
   className:
     "inline-flex items-center gap-1.5 rounded-md border border-border bg-zinc-800 px-2 py-0.5 text-xs text-muted-foreground",
   dotClassName: "size-1.5 rounded-full bg-zinc-500",
@@ -129,6 +134,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
     return {
       label: "Indexed with issues",
       hint: "ctxpipe indexed the latest commit that it knows, but some parts of the index are incomplete.",
+      tone: "attention",
       className:
         "inline-flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200",
       dotClassName: "size-1.5 rounded-full bg-amber-300",
@@ -138,6 +144,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
     return {
       label: "Indexed",
       hint: "ctxpipe indexed the latest commit of this repository that it knows.",
+      tone: "ok",
       className:
         "inline-flex items-center gap-1.5 rounded-md border border-teal-400/30 bg-teal-400/10 px-2 py-0.5 text-xs text-teal-200",
       dotClassName: "size-1.5 rounded-full bg-teal-300",
@@ -147,6 +154,8 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
     return {
       label: "Indexing",
       hint: "ctxpipe knows the latest commit of this repository. It has not indexed that commit yet.",
+      tone: "neutral",
+      pulse: true,
       className:
         "inline-flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200",
       dotClassName: "size-1.5 animate-pulse rounded-full bg-amber-300",
@@ -241,7 +250,13 @@ export function GithubSourceRepositories(props: {
   // all of them in a scroll area on request or while a filter is set.
   const filtering = query.trim() !== ""
   const expanded = showAll || filtering
-  const visible = expanded ? filtered : filtered.slice(0, 5)
+  // A repository with live work always shows: the live list has no other
+  // place that says what ctxpipe does with it.
+  const visible = expanded
+    ? filtered
+    : filtered.filter(
+        (row, index) => index < 5 || props.liveStatus?.(row.title) != null,
+      )
 
   const unlinkMutation = useMutation({
     mutationFn: async (row: RepositoryRow) => {
@@ -374,12 +389,9 @@ export function GithubSourceRepositories(props: {
                       }
                       state={{
                         label: status.label,
-                        tone:
-                          status.label === "Indexed"
-                            ? "ok"
-                            : status.label === "Indexed with issues"
-                              ? "attention"
-                              : "neutral",
+                        tone: status.tone,
+                        hint: status.hint,
+                        ...(status.pulse ? { pulse: true } : {}),
                       }}
                       live={props.liveStatus(row.title)}
                       actions={

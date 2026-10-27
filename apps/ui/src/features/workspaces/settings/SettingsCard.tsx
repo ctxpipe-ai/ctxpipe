@@ -1,5 +1,6 @@
 import { type ReactNode, type RefObject, useEffect, useRef } from "react"
 
+import { scrollToPaneTop } from "@/lib/scroll-pane"
 import { cn } from "@/lib/utils"
 
 /** The parts of Workspace settings, each one a card. */
@@ -11,25 +12,24 @@ export type SettingsPart =
   | "general"
   | "danger"
 
-const settingsCardId = (part: SettingsPart) => `workspace-settings-${part}`
-
-/**
- * Scrolls only the pane's own scroll area to an element. `scrollIntoView`
- * and a plain `focus` also scroll the outer boxes, which shifts the whole
- * pane.
- */
-function scrollPaneTo(element: HTMLElement) {
-  const scroller = element.closest<HTMLElement>("[data-settings-scroll]")
-  if (!scroller) return
-  scroller.scrollTop +=
-    element.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+/** The title of each card. The summary links to a card by its title. */
+export const settingsPartTitle: Record<SettingsPart, string> = {
+  upgrades: "Upgrades",
+  sources: "Sources",
+  graph: "Knowledge graph",
+  repository: "Repository",
+  general: "Workspace",
+  danger: "Danger zone",
 }
+
+const settingsCardId = (part: SettingsPart) => `workspace-settings-${part}`
 
 /** Moves the view and the focus to a card. */
 export function jumpToSettingsCard(part: SettingsPart) {
   const card = document.getElementById(settingsCardId(part))
   if (!card) return
-  scrollPaneTo(card)
+  scrollToPaneTop(card)
+  // A plain focus also scrolls the outer boxes.
   card.focus({ preventScroll: true })
 }
 
@@ -42,7 +42,7 @@ function useLanding(ref: RefObject<HTMLElement | null>, landing: boolean) {
   useEffect(() => {
     const card = ref.current
     if (!landing || !card) return
-    const toStart = () => scrollPaneTo(card)
+    const toStart = () => scrollToPaneTop(card)
     card.focus({ preventScroll: true })
     toStart()
     const keep = new ResizeObserver(toStart)
@@ -67,7 +67,6 @@ function useLanding(ref: RefObject<HTMLElement | null>, landing: boolean) {
  */
 export function SettingsCard(props: {
   part: SettingsPart
-  title: string
   description?: ReactNode
   /** A short muted word on the right of the title. */
   status?: ReactNode
@@ -99,7 +98,7 @@ export function SettingsCard(props: {
             id={`${id}-title`}
             className="text-sm font-medium text-foreground"
           >
-            {props.title}
+            {settingsPartTitle[props.part]}
           </h2>
           {props.description ? (
             <p className="mt-0.5 max-w-prose text-xs text-muted-foreground">
