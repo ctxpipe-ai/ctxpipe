@@ -424,7 +424,3 @@ export function upgradeHistoryLine(
   })
   return `History · ${applied.length} applied, last on ${date}`
 }
-
-/** The intro of the Status group. It shows only while an item is open. */
-export const STATUS_INTRO =
-  "ctxpipe keeps this Workspace current. Some upgrades open a pull request for you to merge. Others run here and use model calls."

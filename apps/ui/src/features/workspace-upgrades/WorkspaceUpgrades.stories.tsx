@@ -25,24 +25,40 @@ import {
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import type { WorkspaceUpgradeItem } from "./queries"
-import { STATUS_INTRO } from "./upgrade-copy"
 import { WorkspaceUpgrades } from "./WorkspaceUpgrades"
 
-const UP_TO_DATE_LINE =
-  "No action needed. Upgrades show here and on Home when one is ready."
+/**
+ * The card has no upgrade row, and its header says "Up to date" (CTX-980).
+ * Neither list shows.
+ */
+async function expectUpToDate(canvas: ReturnType<typeof within>) {
+  await waitFor(() => expect(canvas.getByText("Up to date")).toBeVisible())
+  expect(canvas.queryByRole("list", { name: "Needs you" })).toBeNull()
+  expect(canvas.queryByRole("list", { name: "Working now" })).toBeNull()
+}
 
-/** The first line of the group: the headline word and its line (CTX-980). */
-async function expectHeadline(
+/**
+ * One list of the card has `count` upgrade rows. A screen reader reads the
+ * kind of each row before its title. The header says no "Up to date" while a
+ * row shows.
+ */
+async function expectGroup(
   canvas: ReturnType<typeof within>,
-  label: string,
-  line: string | RegExp,
+  group: "Needs you" | "Working now",
+  count: number,
 ) {
-  // The Needs you list has a heading with the same word: look in the headline row.
-  await waitFor(async () => {
-    const row = (await canvas.findByText(line)).parentElement
-    if (!row) throw new Error("The headline row is missing")
-    expect(within(row).getByText(label)).toBeVisible()
-  })
+  const list = await canvas.findByRole("list", { name: group })
+  await waitFor(() =>
+    expect(within(list).getAllByRole("heading", { level: 3 })).toHaveLength(
+      count,
+    ),
+  )
+  for (const heading of within(list).getAllByRole("heading", { level: 3 }))
+    expect(heading).toHaveAccessibleName(
+      group === "Needs you" ? /^(Needs you|Failed): / : /^Working: /,
+    )
+  expect(canvas.queryByText("Up to date")).toBeNull()
+  return within(list)
 }
 
 const startRequests: string[] = []
@@ -136,7 +152,8 @@ export const Loading: Story = {
       expect(await canvas.findByText("Loading upgrades")).toBeVisible(),
     )
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
-    expect(canvas.queryByText(UP_TO_DATE_LINE)).toBeNull()
+    expect(canvas.queryByText("Up to date")).toBeNull()
+    expect(canvas.queryByRole("switch")).toBeNull()
   },
 }
 
@@ -146,31 +163,31 @@ export const UpToDate: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expectHeadline(canvas, "Up to date", UP_TO_DATE_LINE)
-    await waitFor(() => expect(canvas.getByText("Format 3")).toBeVisible())
-    // The intro shows only while an item is open.
-    expect(canvas.queryByText(STATUS_INTRO)).toBeNull()
+    await expectUpToDate(canvas)
+    await waitFor(() =>
+      expect(canvas.getByText("Format 3, the latest")).toBeVisible(),
+    )
+    expect(
+      canvas.getByRole("button", { name: "About the format" }),
+    ).toBeVisible()
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
   },
 }
 
-/** An open item: the group says that it needs you, and one intro line for both kinds. */
+/**
+ * An item that waits for a person is in the Needs you list. Its Start button
+ * says that it is ready: it has no "Ready to start" tag.
+ */
 export const PurposeLine: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expectHeadline(
-      canvas,
-      "Needs you",
-      "Action needed. 1 item needs you.",
-    )
-    await waitFor(() => expect(canvas.getByText(STATUS_INTRO)).toBeVisible())
+    const needsYou = await expectGroup(canvas, "Needs you", 1)
     await waitFor(() =>
       expect(
-        within(canvas.getByRole("list", { name: "Needs you" })).getByText(
-          "Ready to start",
-        ),
+        needsYou.getByRole("button", { name: "Start: Upgrade to format 3" }),
       ).toBeVisible(),
     )
+    expect(canvas.queryByText("Ready to start")).toBeNull()
   },
 }
 
@@ -200,9 +217,7 @@ export const AdminStartsUpgrade: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(async () =>
-      expect(await canvas.findByText("Ready to start")).toBeVisible(),
-    )
+    await expectGroup(canvas, "Needs you", 1)
     await waitFor(async () =>
       expect(canvas.getByText("Export and sources")).toBeVisible(),
     )
@@ -217,11 +232,8 @@ export const AdminStartsUpgrade: Story = {
     await waitFor(async () =>
       expect(await canvas.findByText("Queued")).toBeVisible(),
     )
-    await expectHeadline(
-      canvas,
-      "Working",
-      "No action needed. ctxpipe works on 1 item now.",
-    )
+    await expectGroup(canvas, "Working now", 1)
+    expect(canvas.queryByRole("list", { name: "Needs you" })).toBeNull()
     await waitFor(() =>
       expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull(),
     )
@@ -293,17 +305,8 @@ export const WaitingForSandbox: Story = {
       ).toBeVisible()
       expect(await canvas.findByText(/for 12 min\./)).toBeVisible()
     })
-    await expectHeadline(
-      canvas,
-      "Working",
-      "No action needed. ctxpipe works on 1 item now.",
-    )
-    // The headline says it. A working card does not say it again.
-    expect(
-      within(canvas.getByRole("list", { name: "Working now" })).queryByText(
-        "No action needed.",
-      ),
-    ).toBeNull()
+    await expectGroup(canvas, "Working now", 1)
+    expect(canvas.queryByRole("list", { name: "Needs you" })).toBeNull()
     await waitFor(() =>
       expect(canvas.queryByText("Preparing the pull request")).toBeNull(),
     )
@@ -350,18 +353,14 @@ export const ReingestWorkingWithSpend: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expectHeadline(
-      canvas,
-      "Working",
-      "No action needed. ctxpipe works on 1 item now.",
-    )
+    await expectGroup(canvas, "Working now", 1)
     await waitFor(() =>
-      expect(canvas.getByText("Spend so far: at least $1.75.")).toBeVisible(),
+      expect(canvas.getByText("Spend so far: at least $1.75")).toBeVisible(),
     )
     await waitFor(() =>
       expect(canvas.getByText(/1 of 2 repositories done/)).toBeVisible(),
     )
-    expect(canvas.queryByText("Action needed. 1 item needs you.")).toBeNull()
+    expect(canvas.queryByRole("list", { name: "Needs you" })).toBeNull()
   },
 }
 
@@ -446,11 +445,7 @@ export const WaitingForMerge: Story = {
     await waitFor(async () =>
       expect(await canvas.findByText("Waiting for merge")).toBeVisible(),
     )
-    await expectHeadline(
-      canvas,
-      "Needs you",
-      "Action needed. 1 item needs you.",
-    )
+    await expectGroup(canvas, "Needs you", 1)
     await waitFor(() =>
       expect(
         canvas.getByText(
@@ -509,11 +504,7 @@ export const CheckAgainAfterMerge: Story = {
     await waitFor(() => expect(checkRequests).toHaveLength(1))
     expect(checkRequests[0]).toMatch(/\/workspaces\/docs\/upgrades\/check$/)
     // The check waits for the scan, then the card shows the applied state.
-    await waitFor(
-      async () =>
-        expect(await canvas.findByText(UP_TO_DATE_LINE)).toBeVisible(),
-      { timeout: 10_000 },
-    )
+    await waitFor(() => expectUpToDate(canvas), { timeout: 10_000 })
   },
 }
 
@@ -619,11 +610,7 @@ export const Failed: Story = {
     await waitFor(async () =>
       expect(await canvas.findByText("The upgrade failed")).toBeVisible(),
     )
-    await expectHeadline(
-      canvas,
-      "Needs you",
-      "Action needed. 1 item needs you.",
-    )
+    await expectGroup(canvas, "Needs you", 1)
     await waitFor(async () =>
       expect(
         canvas.getByText("GitHub refused the push to the upgrade branch."),
@@ -889,11 +876,7 @@ export const Blocked: Story = {
         canvas.getByText("The GitHub App has read access only."),
       ).toBeVisible(),
     )
-    await expectHeadline(
-      canvas,
-      "Needs you",
-      "Action needed. 1 item needs you.",
-    )
+    await expectGroup(canvas, "Needs you", 1)
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
   },
 }
@@ -1076,9 +1059,10 @@ export const ReingestChecksNewFormat: Story = {
       expect(await canvas.findByText("Checking the new format")).toBeVisible(),
     )
     expect(canvas.getByText(/ctxpipe is checking the new format/)).toBeVisible()
-    expect(canvas.getByText("Format 3")).toBeVisible()
+    expect(canvas.getByText("Format 3, the latest")).toBeVisible()
     // ctxpipe checks by itself: nobody must act.
-    expect(canvas.getByText("Working")).toBeVisible()
+    await expectGroup(canvas, "Working now", 1)
+    expect(canvas.queryByRole("list", { name: "Needs you" })).toBeNull()
     expect(canvas.queryByText("Apply the format upgrade first")).toBeNull()
     expect(canvas.queryByText(/Merge the format upgrade/)).toBeNull()
     // The scan finishes. The page reads again, with no refresh.
@@ -1091,7 +1075,9 @@ export const ReingestChecksNewFormat: Story = {
       { timeout: 8_000 },
     )
     expect(canvas.queryByText("Checking the new format")).toBeNull()
-    expect(canvas.getByText("Ready to start")).toBeVisible()
+    // The item waits for a person now: the Start button says it.
+    await expectGroup(canvas, "Needs you", 1)
+    expect(canvas.queryByText("Ready to start")).toBeNull()
   },
 }
 
@@ -1116,12 +1102,7 @@ export const ReingestIngestionV2Off: Story = {
   parameters: blockedReingest("ingestion_v2_off"),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expectHeadline(
-      canvas,
-      "Working",
-      "No action needed. ctxpipe works on 1 item now.",
-    )
-    const working = within(canvas.getByRole("list", { name: "Working now" }))
+    const working = await expectGroup(canvas, "Working now", 1)
     expect(working.getByText("Waiting")).toBeVisible()
     expect(working.getByText(/valid format file/)).toBeVisible()
     expect(
@@ -1162,7 +1143,7 @@ export const ReadOnlyBelowFormat: Story = {
     await waitFor(() =>
       expect(canvas.getByText("Apply the format upgrade first")).toBeVisible(),
     )
-    expect(canvas.queryByText(UP_TO_DATE_LINE)).toBeNull()
+    await expectGroup(canvas, "Needs you", 2)
     // The format card names the cause. The re-ingestion says one action.
     expect(
       canvas.getByText(/needs write access through the GitHub App/),
@@ -1186,7 +1167,7 @@ export const HistoryWithAppliedUpgrade: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expectHeadline(canvas, "Up to date", UP_TO_DATE_LINE)
+    await expectUpToDate(canvas)
     const history = "History · 1 applied, last on Oct 16"
     await waitFor(() =>
       expect(canvas.getByRole("button", { name: history })).toHaveAttribute(
@@ -1194,18 +1175,34 @@ export const HistoryWithAppliedUpgrade: Story = {
         "false",
       ),
     )
-    await waitFor(() => expect(canvas.queryByText("Applied")).not.toBeVisible())
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("list", { name: "Applied upgrades" }),
+      ).toBeNull(),
+    )
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
 
     await userEvent.click(canvas.getByRole("button", { name: history }))
-    await waitFor(() => expect(canvas.getByText("Applied")).toBeVisible())
+    const applied = within(
+      await canvas.findByRole("list", { name: "Applied upgrades" }),
+    )
+    expect(applied.getAllByRole("listitem")).toHaveLength(1)
+    // The row is collapsed: the description and the steps wait for a press.
+    const row = applied.getByRole("button", { name: /Upgrade to format 3$/ })
+    expect(row).toHaveAttribute("aria-expanded", "false")
     await waitFor(() =>
       expect(
-        within(
-          canvas.getByRole("list", { name: "Applied upgrades" }),
-        ).getByRole("heading", { name: "Upgrade to format 3" }),
-      ).toBeVisible(),
+        canvas.queryByText(/Moves the repository links/),
+      ).not.toBeVisible(),
     )
+    await userEvent.click(row)
+    await waitFor(() => expect(row).toHaveAttribute("aria-expanded", "true"))
+    await waitFor(() =>
+      expect(canvas.getByText(/Moves the repository links/)).toBeVisible(),
+    )
+    expect(
+      canvas.getByRole("list", { name: "Steps of Upgrade to format 3" }),
+    ).toBeVisible()
   },
 }
 
@@ -1324,18 +1321,16 @@ export const RoleNeverAnswers: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(async () =>
-      expect(await canvas.findByText("Ready to start")).toBeVisible(),
-    )
+    await expectGroup(canvas, "Needs you", 1)
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
     expect(canvas.queryByText("Ask an admin")).toBeNull()
   },
 }
 
 /**
- * CTX-980. The checking state ends after a minute. The headline changes to
- * Needs you in the same render as the card: one clock drives both. The clock
- * of the page jumps a minute ahead, and the next tick shows the change.
+ * CTX-980. The checking state ends after a minute. The row moves from Working
+ * now to Needs you in one render: one clock drives both lists. The clock of
+ * the page jumps a minute ahead, and the next tick shows the change.
  */
 export const CheckingEndsAfterAMinute: Story = {
   // An own Workspace: the minute counts from the first sight of this item.
@@ -1359,20 +1354,14 @@ export const CheckingEndsAfterAMinute: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expectHeadline(
-      canvas,
-      "Working",
-      "No action needed. ctxpipe works on 1 item now.",
-    )
+    await expectGroup(canvas, "Working now", 1)
     expect(canvas.getByText("Checking the new format")).toBeVisible()
     const start = realDateNow()
     Date.now = () => realDateNow() - start + start + 61_000
     // The clock ticks each second: the next tick shows the change.
     await waitFor(
       () =>
-        expect(
-          canvas.getByText("Action needed. 1 item needs you."),
-        ).toBeVisible(),
+        expect(canvas.getByRole("list", { name: "Needs you" })).toBeVisible(),
       { timeout: 5_000 },
     )
     // No await between the two checks: the card changed in the same render.
@@ -1395,15 +1384,18 @@ export const InvalidFormatFile: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expectHeadline(
-      canvas,
-      "Needs you",
-      "Action needed. 1 item needs you.",
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/The format file in the repository is not valid\./),
+      ).toBeVisible(),
     )
-    expect(
-      canvas.getByText(/The format file in the repository is not valid\./),
-    ).toBeVisible()
-    expect(canvas.queryByText(UP_TO_DATE_LINE)).toBeNull()
+    // No row shows, and the header does not say "Up to date". The amber edge
+    // of the card says that it needs a person.
+    expect(canvas.queryByText("Up to date")).toBeNull()
+    expect(canvas.queryByRole("list", { name: "Needs you" })).toBeNull()
+    expect(canvas.getByRole("region", { name: "Upgrades" })).toHaveClass(
+      "border-l-amber-400/70",
+    )
     // ctxpipe cannot read the setting from a file that is not valid: the
     // line names the cause and the fix, and offers no button.
     await waitFor(() =>
@@ -1413,16 +1405,14 @@ export const InvalidFormatFile: Story = {
         ),
       ).toBeVisible(),
     )
-    expect(
-      canvas.queryByRole("button", { name: /automatic upgrades/ }),
-    ).toBeNull()
+    expect(canvas.queryByRole("switch")).toBeNull()
   },
 }
 
 /**
  * The format pull request is merged, and ctxpipe has not read the new format
  * yet. The re-ingestion waits for it: it is in Working now with the format
- * upgrade, and the headline counts one item.
+ * upgrade, and the Working now list has both rows.
  */
 export const MergedFormatWithReingestWaiting: Story = {
   parameters: withUpgrades(
@@ -1453,18 +1443,13 @@ export const MergedFormatWithReingestWaiting: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expectHeadline(
-      canvas,
-      "Working",
-      "No action needed. ctxpipe works on 1 item now.",
-    )
-    const working = within(canvas.getByRole("list", { name: "Working now" }))
+    const working = await expectGroup(canvas, "Working now", 2)
     expect(
-      working.getByRole("heading", { name: "Upgrade to format 3" }),
+      working.getByRole("heading", { name: "Working: Upgrade to format 3" }),
     ).toBeVisible()
     expect(
       working.getByRole("heading", {
-        name: "Fresh re-ingestion of the source repositories",
+        name: "Working: Fresh re-ingestion of the source repositories",
       }),
     ).toBeVisible()
     expect(working.getByText("Waiting")).toBeVisible()
@@ -1478,28 +1463,43 @@ export const MergedFormatWithReingestWaiting: Story = {
   },
 }
 
-/** An owner or admin turns automatic upgrades on, then off again (CTX-980). */
+/** An owner or admin turns automatic upgrades on with the switch, then off again (CTX-980). */
 export const AutomaticUpgradesOnAndOff: Story = {
   parameters: withUpgrades(
     workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() =>
-      expect(canvas.getByText("Automatic upgrades: Off")).toBeVisible(),
+    const automatic = () =>
+      canvas.getByRole("switch", { name: "Automatic upgrades" })
+    await waitFor(() => expect(automatic()).not.toBeChecked())
+    expect(automatic()).toBeEnabled()
+    expect(
+      canvas.getByText(
+        "You start each upgrade. Turn this on to let ctxpipe start them.",
+      ),
+    ).toBeVisible()
+    await userEvent.click(automatic())
+    await waitFor(() => expect(automatic()).toBeChecked())
+    expect(
+      await canvas.findByText(
+        "ctxpipe starts each upgrade by itself, paid re-ingestions too. A failed upgrade waits for you.",
+      ),
+    ).toBeVisible()
+    await waitFor(async () =>
+      expect(
+        await within(document.body).findByText(
+          "Automatic upgrades are on. ctxpipe starts each upgrade by itself.",
+        ),
+      ).toBeVisible(),
     )
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Turn on automatic upgrades" }),
-    )
-    await waitFor(() =>
-      expect(canvas.getByText("Automatic upgrades: On")).toBeVisible(),
-    )
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Turn off automatic upgrades" }),
-    )
-    await waitFor(() =>
-      expect(canvas.getByText("Automatic upgrades: Off")).toBeVisible(),
-    )
+    await userEvent.click(automatic())
+    await waitFor(() => expect(automatic()).not.toBeChecked())
+    expect(
+      await canvas.findByText(
+        "You start each upgrade. Turn this on to let ctxpipe start them.",
+      ),
+    ).toBeVisible()
     expect(automaticRequests.filter((line) => line.startsWith("POST"))).toEqual(
       [
         "POST /acme/api/v1/workspaces/docs/upgrades/automatic automatic",
@@ -1509,7 +1509,7 @@ export const AutomaticUpgradesOnAndOff: Story = {
   },
 }
 
-/** A member sees the setting and no button. */
+/** A member sees the setting and cannot change it: the switch is disabled. */
 export const MemberSeesAutomaticUpgrades: Story = {
   parameters: {
     msw: {
@@ -1525,11 +1525,18 @@ export const MemberSeesAutomaticUpgrades: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
-      expect(canvas.getByText("Automatic upgrades: Off")).toBeVisible(),
+      expect(
+        canvas.getByRole("switch", { name: "Automatic upgrades" }),
+      ).toBeDisabled(),
     )
     expect(
-      canvas.queryByRole("button", { name: /automatic upgrades/ }),
-    ).toBeNull()
+      canvas.getByRole("switch", { name: "Automatic upgrades" }),
+    ).not.toBeChecked()
+    expect(
+      canvas.getByText(
+        "An owner or admin starts each upgrade, and can turn this on.",
+      ),
+    ).toBeVisible()
   },
 }
 
@@ -1549,8 +1556,8 @@ export const SkeletonMatchesLoaded: Story = {
     const canvas = within(canvasElement)
     await waitFor(() =>
       expect(
-        within(canvas.getByTestId("loaded-box")).getByRole("button", {
-          name: "Turn on automatic upgrades",
+        within(canvas.getByTestId("loaded-box")).getByRole("switch", {
+          name: "Automatic upgrades",
         }),
       ).toBeVisible(),
     )
@@ -1559,7 +1566,7 @@ export const SkeletonMatchesLoaded: Story = {
   },
 }
 
-/** The Status group with ingestion work of the Workspace (CTX-980). */
+/** The Upgrades card of a Workspace that ingests sources (CTX-980). */
 function withIngestion(
   upgrades: ReturnType<typeof workspaceUpgradesHandler>,
   items: IngestionItem[],
@@ -1575,7 +1582,10 @@ function withIngestion(
   }
 }
 
-/** Ingestion runs and no upgrade is open: Working, and the run shows in Working now. */
+/**
+ * Ingestion runs and no upgrade is open: the card says "Up to date". Sources
+ * show their own runs in the Sources card, so the Upgrades card shows none.
+ */
 export const IngestionWorking: Story = {
   parameters: withIngestion(
     workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
@@ -1583,21 +1593,13 @@ export const IngestionWorking: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expectHeadline(
-      canvas,
-      "Working",
-      "No action needed. Ingesting 1 source now.",
-    )
-    const ingesting = within(
-      await canvas.findByRole("list", { name: "Ingesting now" }),
-    )
-    expect(ingesting.getByText("acme/web")).toBeVisible()
-    expect(canvas.getByText("Working now")).toBeVisible()
-    expect(canvas.queryByText(UP_TO_DATE_LINE)).toBeNull()
+    await expectUpToDate(canvas)
+    expect(canvas.queryByRole("list", { name: "Ingesting now" })).toBeNull()
+    expect(canvas.queryByText("acme/web")).toBeNull()
   },
 }
 
-/** An upgrade needs the user while ingestion runs: Needs you wins. */
+/** An upgrade needs the user while ingestion runs: the card shows the upgrade only. */
 export const IngestionWhileUpgradeNeedsYou: Story = {
   parameters: withIngestion(
     workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
@@ -1605,20 +1607,8 @@ export const IngestionWhileUpgradeNeedsYou: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expectHeadline(
-      canvas,
-      "Needs you",
-      "Action needed. 1 item needs you.",
-    )
-    expect(
-      within(canvas.getByRole("list", { name: "Needs you" })).getByText(
-        "Ready to start",
-      ),
-    ).toBeVisible()
-    expect(
-      within(
-        await canvas.findByRole("list", { name: "Ingesting now" }),
-      ).getByText("acme/web"),
-    ).toBeVisible()
+    await expectGroup(canvas, "Needs you", 1)
+    expect(canvas.queryByRole("list", { name: "Ingesting now" })).toBeNull()
+    expect(canvas.queryByText("acme/web")).toBeNull()
   },
 }

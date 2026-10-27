@@ -10,6 +10,10 @@ import {
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
 import {
+  ingestionItemFixture,
+  workspaceIngestionHandlers,
+} from "@/mocks/workspace-ingestion-handlers"
+import {
   activeMemberRoleHandler,
   orgConnectionsHandler,
   workspaceSourceFixture,
@@ -17,6 +21,7 @@ import {
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
 import {
+  upgradeItemFixture,
   upgradesFixture,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
@@ -84,8 +89,9 @@ type Story = StoryObj<typeof meta>
 export const Settings: Story = {}
 
 /**
- * Four groups in one column: General, Repositories, Connectors, and Danger
- * zone. The Connectors group shows three providers.
+ * One card for each part, in this order: Upgrades, Sources, Knowledge graph,
+ * Repository, Workspace, and Danger zone. Each card states its state in its
+ * body. The Sources card shows three providers.
  */
 export const Populated: Story = {
   parameters: {
@@ -133,19 +139,24 @@ export const Populated: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("acme/api")
-    const eyebrows = [
-      "Status",
-      "General",
-      "Repositories",
+    const cards = canvas
+      .getAllByRole("heading", { level: 2 })
+      .map((heading) => heading.textContent)
+    await expect(cards).toEqual([
+      "Upgrades",
       "Sources",
+      "Knowledge graph",
+      "Repository",
+      "Workspace",
       "Danger zone",
-    ]
-    const labels = [...canvasElement.querySelectorAll(".ctx-label")].map(
-      (element) => element.textContent,
-    )
-    await expect(labels).toEqual(eyebrows)
-    await expect(canvas.getByText("Can save changes")).toBeVisible()
-    await expect(canvas.getByText("Ready")).toBeVisible()
+    ])
+    await expect(
+      canvas.getByText("ctxpipe can push to this repository."),
+    ).toBeVisible()
+    await expect(
+      canvas.getByText("The knowledge graph is loaded."),
+    ).toBeVisible()
+    await expect(canvas.getByText("Everything is up to date.")).toBeVisible()
     await expect(canvas.getByRole("textbox", { name: "Name" })).toHaveValue(
       docsWorkspaceDetail.displayName,
     )
@@ -156,22 +167,23 @@ export const Populated: Story = {
       docsWorkspaceDetail.slug,
     )
     await expect(
-      canvas.getByRole("heading", { level: 2, name: "Context repository" }),
+      canvas.getByRole("region", { name: "Repository" }),
     ).toBeVisible()
     await expect(
       canvas.getByRole("region", { name: "Sources" }),
     ).toBeInTheDocument()
     await expect(
-      canvas.getByRole("link", { name: "Add another connection" }),
+      canvas.getByRole("link", { name: "Add connection" }),
     ).toHaveAttribute("href", "/acme/connectors")
     await expect(
-      canvas.getByRole("heading", { level: 2, name: "Delete this Workspace" }),
+      canvas.getByRole("heading", { level: 3, name: "Delete this Workspace" }),
     ).toBeVisible()
   },
 }
 
 /**
- * Hydrate lists every skipped file. A file that is only a legacy overlay
+ * The Knowledge graph card lists every file that hydrate skipped, and marks
+ * the card and the summary. A file that is only a legacy overlay
  * (knowledge from before Workspaces, built from the database) shows its
  * cause and no fix button, because no edit of the Workspace repository
  * changes it.
@@ -183,7 +195,11 @@ export const SkippedFiles: Story = {
   },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("Hydrate skipped 3 files")
+    await canvas.findByText("ctxpipe skipped 3 files")
+    // The summary names the card that needs the user.
+    await expect(
+      await canvas.findByRole("link", { name: "Knowledge graph" }),
+    ).toBeVisible()
     await canvas.findByText("Front matter is not valid")
     await canvas.findByText(
       "Repeats a linked repository or the Workspace's own repository",
@@ -222,7 +238,7 @@ export const SkippedFiles: Story = {
   },
 }
 
-/** A link with the upgrades hash lands on the Status group. */
+/** A link with the upgrades hash lands on the Upgrades card: it gets the focus. */
 export const LandsOnUpgrades: Story = {
   parameters: {
     storyRoute: {
@@ -234,7 +250,7 @@ export const LandsOnUpgrades: Story = {
   play: async ({ canvasElement }) => {
     await waitFor(() =>
       expect(
-        canvasElement.querySelector('[data-settings-group="Status"]'),
+        within(canvasElement).getByRole("region", { name: "Upgrades" }),
       ).toHaveFocus(),
     )
   },
@@ -367,7 +383,9 @@ export const AddRepositories: Story = {
     const canvas = within(canvasElement)
     const body = within(canvasElement.ownerDocument.body)
     await userEvent.click(
-      await canvas.findByRole("button", { name: /edit context repository/i }),
+      await canvas.findByRole("button", {
+        name: "Change the context repository",
+      }),
     )
     const picker = await body.findByRole("dialog")
     await within(picker).findByText("acme/handbook")
@@ -392,12 +410,246 @@ export const Hydrating: Story = {
   },
 }
 
+/** A hydrate that failed: the Knowledge graph card says it, with the reason. */
 export const HydrateFailed: Story = {
   args: {
     workspace: failedHydrateWorkspaceDetail,
   },
   play: async ({ canvasElement }) => {
-    await within(canvasElement).findByText("Loading failed")
+    const canvas = within(canvasElement)
+    await canvas.findByText("The knowledge graph did not load")
+    // The summary names the card that needs the user.
+    await expect(
+      await canvas.findByRole("link", { name: "Knowledge graph" }),
+    ).toBeVisible()
+  },
+}
+
+/** A GitHub source of acme/app and a Linear source. */
+const appAndLinearSources = (linearStatus: "ok" | "out_of_access") =>
+  workspaceSourceList({
+    items: [
+      workspaceSourceFixture({
+        path: "sources/github/acme/app.md",
+        provider: "github",
+        connectionId: "con_gh",
+        connectionName: "acme",
+        scope: { repository: "acme/app" },
+        scopeSummary: "acme/app",
+      }),
+      workspaceSourceFixture({
+        path: "sources/linear/eng.md",
+        provider: "linear",
+        connectionId: "con_li",
+        connectionName: "Acme Linear",
+        scope: { teams: ["ENG"] },
+        scopeSummary: "1 team",
+        ...(linearStatus === "out_of_access"
+          ? {
+              status: "out_of_access" as const,
+              statusDetail:
+                "The Linear connection cannot read the team ENG. Give it access in Linear, or remove the team.",
+            }
+          : {}),
+      }),
+    ],
+    ...(linearStatus === "out_of_access"
+      ? {
+          pendingChanges: [
+            {
+              path: "sources/linear/support.md",
+              provider: "linear" as const,
+              action: "add" as const,
+              pullRequestUrl: "https://github.com/acme/docs/pull/31",
+              createdAt: "2026-10-27T09:10:00.000Z",
+            },
+          ],
+        }
+      : {}),
+  })
+
+/** Three runs of acme/app (one for each push), a Linear sync, and a hydrate. */
+const busyIngestion = workspaceIngestionHandlers({
+  docs: [
+    ingestionItemFixture({
+      id: "run_publish",
+      name: "acme/app",
+      stage: "publishing",
+      progress: null,
+      minutesAgo: 80,
+    }),
+    ingestionItemFixture({ id: "run_read", name: "acme/app", minutesAgo: 30 }),
+    ingestionItemFixture({
+      id: "run_wait",
+      name: "acme/app",
+      stage: "waiting",
+      progress: null,
+      minutesAgo: 5,
+    }),
+    ingestionItemFixture({
+      id: "run_linear",
+      kind: "source_sync",
+      name: "Linear",
+      stage: null,
+      progress: null,
+      minutesAgo: 20,
+    }),
+    ingestionItemFixture({
+      id: "run_hydrate",
+      kind: "hydrate",
+      name: null,
+      stage: null,
+      progress: null,
+      minutesAgo: 3,
+    }),
+  ],
+})
+
+/**
+ * Each source shows its live work in its own row: the word of the run that
+ * is the furthest, and its time. "3 runs" opens each run with its stage, its
+ * count, and why it waits. The Knowledge graph card shows the hydrate. The
+ * summary names the parts at work and moves to a card.
+ */
+export const LiveWorkInSources: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        sources: [
+          workspaceSourcesHandler(appAndLinearSources("ok")),
+          orgConnectionsHandler([
+            { id: "con_gh", type: "github", displayName: "acme" },
+            { id: "con_li", type: "linear", displayName: "Acme Linear" },
+          ]),
+        ],
+        ingestion: busyIngestion,
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const sources = within(
+      await canvas.findByRole("region", { name: "Sources" }),
+    )
+    await sources.findByText("Publishing")
+    await sources.findByText("Syncing")
+    await userEvent.click(
+      sources.getByRole("button", { name: "Show the 3 runs of acme/app" }),
+    )
+    await expect(sources.getByText("3 of 8 parts done")).toBeVisible()
+    await expect(
+      sources.getByText(
+        "Two runs of one repository do not publish at the same time. This run starts when the earlier run ends.",
+      ),
+    ).toBeVisible()
+    await expect(
+      sources.getByText("You can leave this page. The work continues."),
+    ).toBeVisible()
+    await expect(canvas.getByText("Indexing the newest commit…")).toBeVisible()
+    await expect(canvas.getByText(/Nothing needs you\. Running:/)).toBeVisible()
+    await userEvent.click(canvas.getByRole("link", { name: "Knowledge graph" }))
+    await expect(
+      canvas.getByRole("region", { name: "Knowledge graph" }),
+    ).toHaveFocus()
+  },
+}
+
+/**
+ * A source with a problem shows the problem, also while its sync runs. The
+ * summary counts the sources: the problem and the source that waits for its
+ * merge.
+ */
+export const SourceProblemsNeedYou: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        sources: [
+          workspaceSourcesHandler(appAndLinearSources("out_of_access")),
+          orgConnectionsHandler([
+            { id: "con_gh", type: "github", displayName: "acme" },
+            { id: "con_li", type: "linear", displayName: "Acme Linear" },
+          ]),
+        ],
+        ingestion: busyIngestion,
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const sources = within(
+      await canvas.findByRole("region", { name: "Sources" }),
+    )
+    await sources.findByText("Out of access")
+    // The live work loads after the org read: it shows under the problem.
+    await expect(await sources.findByText("Syncing now")).toBeVisible()
+    await expect(sources.queryByText("Syncing")).toBeNull()
+    await expect(sources.getByText("Awaiting merge")).toBeVisible()
+    await expect(
+      sources.getByRole("link", { name: "Open the pull request" }),
+    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/31")
+    await waitFor(() =>
+      expect(canvas.getByText(/1 part needs you:/)).toBeVisible(),
+    )
+    await expect(canvas.getByRole("link", { name: "Sources" })).toBeVisible()
+  },
+}
+
+/** Twelve applied upgrades, one each 3 days back from Oct 21. */
+const longHistory = Array.from({ length: 12 }, (_, index) =>
+  upgradeItemFixture({
+    key: `reingest-${index}`,
+    kind: "reingest",
+    title: `Re-ingestion ${12 - index}`,
+    status: "completed",
+    fromFormat: 3,
+    targetFormat: 3,
+    steps: [],
+    updatedAt: new Date(
+      Date.UTC(2026, 9, 21, 6) - index * 3 * 86_400_000,
+    ).toISOString(),
+  }),
+)
+
+/**
+ * A long history keeps the card short: five rows show, "Show all" shows the
+ * rest. A row opens to what it showed when the upgrade ran.
+ */
+export const LongUpgradeHistory: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        upgrades: [
+          workspaceUpgradesHandler(
+            upgradesFixture(longHistory, { formatVersion: 3 }),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "History · 12 applied, last on Oct 21",
+      }),
+    )
+    const applied = canvas.getByRole("list", { name: "Applied upgrades" })
+    await waitFor(() =>
+      expect(within(applied).getAllByRole("listitem")).toHaveLength(5),
+    )
+    await userEvent.click(canvas.getByRole("button", { name: "Show all 12" }))
+    await waitFor(() =>
+      expect(within(applied).getAllByRole("listitem")).toHaveLength(12),
+    )
+    const newest = within(
+      within(applied).getByRole("listitem", { name: "Re-ingestion 12" }),
+    )
+    // A closed row keeps its detail hidden.
+    await expect(newest.getByText(/This uses model calls/)).not.toBeVisible()
+    await userEvent.click(newest.getByRole("button"))
+    await waitFor(() =>
+      expect(newest.getByText(/This uses model calls/)).toBeVisible(),
+    )
   },
 }
 
@@ -505,7 +757,9 @@ export const RelinkError: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
-      canvas.getByRole("button", { name: /edit context repository/i }),
+      await canvas.findByRole("button", {
+        name: "Change the context repository",
+      }),
     )
     const body = within(canvasElement.ownerDocument.body)
     const dialog = await body.findByRole("dialog")

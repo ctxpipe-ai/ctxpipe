@@ -1,217 +1,41 @@
-import { IconAlertCircle, IconGitBranch, IconPencil } from "@tabler/icons-react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useLocation, useNavigate } from "@tanstack/react-router"
-import { type ReactNode, useEffect, useRef, useState } from "react"
-import { Heading, Link } from "react-aria-components"
-import { toast } from "sonner"
+import { IconAlertTriangle, IconCircleCheck } from "@tabler/icons-react"
+import { useLocation } from "@tanstack/react-router"
+import { Link } from "react-aria-components"
 
-import { Button } from "@/components/ui/Button"
-import { Dialog } from "@/components/ui/Dialog"
-import { InlineAlert } from "@/components/ui/InlineAlert"
-import { Modal } from "@/components/ui/Modal"
-import { TextField } from "@/components/ui/TextField"
-import {
-  githubRepoFullNameFromGitUrl,
-  githubWebUrl,
-} from "@/features/repositories/github-web-url"
-import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
+import { SkeletonText, useSkeletonHold } from "@/components/ui/Skeleton"
 import { WORKSPACE_UPGRADES_HASH } from "@/features/workspace-upgrades/queries"
-import { WorkspaceUpgrades } from "@/features/workspace-upgrades/WorkspaceUpgrades"
+import {
+  useUpgradesStatus,
+  WorkspaceUpgrades,
+} from "@/features/workspace-upgrades/WorkspaceUpgrades"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 
-import { writeCheckInFlight } from "./projection"
+import { DangerCard } from "./settings/DangerCard"
+import { GeneralCard } from "./settings/GeneralCard"
+import { GraphCard, graphStatus } from "./settings/GraphCard"
+import { RepositoryCard, useWriteAccess } from "./settings/RepositoryCard"
+import { jumpToSettingsCard, type SettingsPart } from "./settings/SettingsCard"
 import {
-  checkWorkspaceWriteAccess,
-  deleteWorkspace,
-  forgetDeletedWorkspace,
-  updateWorkspace,
-  workspaceKeys,
-} from "./queries"
-import { normalizeRootFolder, rootFolderError } from "./rootFolder"
-import {
-  skippedFileCopy,
-  skippedFileFixable,
-  skippedFilesFixPrompt,
-} from "./skipped-files"
-import { StatusTag } from "./StatusTag"
-import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
-import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
-import {
-  type WorkspaceRepositoryChoice,
-  WorkspaceRepositoryPicker,
-} from "./WorkspaceRepositoryPicker"
-import { WorkspaceRootFolderField } from "./WorkspaceRootFolderField"
-import { useWriteCheckStall } from "./writeCheckStall"
-import { writeStatusLabel } from "./writeStatusLabel"
+  SourcesCard,
+  useSourcesNeedYou,
+  useWorkspaceActivity,
+} from "./settings/SourcesCard"
+import type { WorkspaceDetail } from "./types"
 
-function writeTag(tagged: ReturnType<typeof writeStatusLabel>): {
-  label: string
-  className: string
-} {
-  if (tagged.tone === "writable") {
-    return {
-      label: "Can save changes",
-      className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
-    }
-  }
-  if (tagged.tone === "pending" || tagged.tone === "pull_request") {
-    return {
-      label: tagged.label,
-      className: "border-border bg-zinc-800 text-muted-foreground",
-    }
-  }
-  return {
-    label: tagged.label,
-    className: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-  }
+const PART_TITLE: Partial<Record<SettingsPart, string>> = {
+  upgrades: "Upgrades",
+  sources: "Sources",
+  graph: "Knowledge graph",
+  repository: "Repository",
 }
 
-function hydrateTag(status: string): {
-  label: string
-  className: string
-  pulse?: boolean
-} {
-  if (status === "ready") {
-    return {
-      label: "Ready",
-      className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
-    }
-  }
-  if (status === "failed") {
-    return {
-      label: "Loading failed",
-      className: "border-rose-400/30 bg-rose-400/10 text-rose-200",
-    }
-  }
-  if (status === "running") {
-    return {
-      label: "Hydrating",
-      className: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-      pulse: true,
-    }
-  }
-  return {
-    label: "Hydrate pending",
-    className: "border-border bg-zinc-800 text-muted-foreground",
-    pulse: true,
-  }
-}
-
-/** One settings group: a hairline, a mono eyebrow, then the content. */
-function SettingsGroup(props: {
-  eyebrow: string
-  children: ReactNode
-  /** A link can land on the group: it gets the focus and scrolls into view. */
-  landing?: boolean
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const section = ref.current
-    if (!props.landing || !section) return
-    // Scroll only the pane's own scroll area. `scrollIntoView` and a plain
-    // `focus` also scroll the outer boxes, which shifts the whole pane.
-    const scroller = section.closest<HTMLElement>("[data-settings-scroll]")
-    const toStart = () => {
-      if (!scroller) return
-      scroller.scrollTop +=
-        section.getBoundingClientRect().top -
-        scroller.getBoundingClientRect().top
-    }
-    section.focus({ preventScroll: true })
-    toStart()
-    // The groups above grow when their data loads. Keep this group in view
-    // until the user scrolls, or for a few seconds.
-    const keep = new ResizeObserver(toStart)
-    if (section.parentElement) keep.observe(section.parentElement)
-    const stop = () => keep.disconnect()
-    const timer = setTimeout(stop, 3000)
-    const events = ["wheel", "touchstart", "keydown"] as const
-    for (const event of events) window.addEventListener(event, stop)
-    return () => {
-      stop()
-      clearTimeout(timer)
-      for (const event of events) window.removeEventListener(event, stop)
-    }
-  }, [props.landing])
-  return (
-    <div
-      ref={ref}
-      data-settings-group={props.eyebrow}
-      tabIndex={props.landing === undefined ? undefined : -1}
-      className="border-t border-white/[0.06] pt-4 outline-none"
-    >
-      <p className="ctx-label text-muted-foreground">{props.eyebrow}</p>
-      <div className="mt-6">{props.children}</div>
-    </div>
-  )
-}
-
-function SkippedFilesNotice(props: {
-  files: WorkspaceSkippedFile[]
-  onOpenFile: (path: string) => void
-  onFixWithAgent?: (prompt: string) => void
-}) {
-  const { onFixWithAgent } = props
-  const count = props.files.length
-  return (
-    <div className="mt-4 max-w-lg">
-      <InlineAlert
-        variant="warning"
-        title={`Hydrate skipped ${count} ${count === 1 ? "file" : "files"}`}
-      >
-        <p>
-          Chat, MCP, search, and the graph do not use these files.
-          {props.files.some((file) => file.source !== "legacy-overlay")
-            ? " Fix each file that is in Git and push the change to the default branch."
-            : ""}
-        </p>
-        <ul className="mt-3 flex flex-col gap-2">
-          {props.files.map((file) => (
-            <li
-              key={file.path}
-              className="flex min-w-0 items-center justify-between gap-3"
-            >
-              <div className="min-w-0">
-                {/* A legacy overlay path is not in Git, so the Files pane cannot open it. */}
-                {file.source === "legacy-overlay" ? (
-                  <span className="block truncate font-mono text-xs text-amber-50">
-                    {file.path}
-                  </span>
-                ) : (
-                  <Link
-                    onPress={() => props.onOpenFile(file.path)}
-                    className={cn(
-                      "block cursor-pointer truncate rounded-md font-mono text-xs text-amber-50 underline decoration-amber-200/40 underline-offset-2 hover:decoration-amber-50",
-                      focusVisibleClassName,
-                    )}
-                  >
-                    {file.path}
-                  </Link>
-                )}
-                <p className="text-xs text-amber-100/70">
-                  {skippedFileCopy(file)}
-                </p>
-              </div>
-              {/* Only front matter in a file of Git is for the agent to fix. */}
-              {onFixWithAgent && skippedFileFixable(file) ? (
-                <Button
-                  variant="secondary"
-                  className="shrink-0"
-                  aria-label={`Fix ${file.path} using agent`}
-                  onPress={() => onFixWithAgent(skippedFilesFixPrompt([file]))}
-                >
-                  Fix using agent
-                </Button>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      </InlineAlert>
-    </div>
-  )
-}
-
+/**
+ * Workspace settings: one card for each part of the Workspace. Each card
+ * states its state one time, in its body, and holds its own settings and
+ * actions. The line at the top names the parts that need the user and the
+ * parts at work, with a link to each card.
+ */
 export function WorkspaceSettingsPane(props: {
   orgSlug: string
   workspace: WorkspaceDetail
@@ -222,536 +46,141 @@ export function WorkspaceSettingsPane(props: {
 }) {
   const { orgSlug, workspace } = props
   const hash = useLocation({ select: (location) => location.hash })
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  const [displayName, setDisplayName] = useState(workspace.displayName)
-  const [slug, setSlug] = useState(workspace.slug)
-  const [relinkOpen, setRelinkOpen] = useState(false)
-  const [relinkError, setRelinkError] = useState<string | null>(null)
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [confirmName, setConfirmName] = useState("")
-  const [rootFolder, setRootFolder] = useState(workspace.rootPath ?? "")
-  const rootFolderChanged =
-    normalizeRootFolder(rootFolder) !== (workspace.rootPath ?? "")
+  const upgrades = useUpgradesStatus(orgSlug, workspace.slug)
+  const summaryLoading = useSkeletonHold(upgrades.loading)
+  const activity = useWorkspaceActivity(orgSlug, workspace.slug)
+  const sourcesNeedYou = useSourcesNeedYou(orgSlug, workspace)
+  const graph = graphStatus(workspace, activity.hydrate)
+  const access = useWriteAccess(workspace)
 
-  const dirty =
-    displayName.trim() !== workspace.displayName ||
-    slug.trim() !== workspace.slug
-
-  const invalidate = () => {
-    void queryClient.invalidateQueries({
-      queryKey: workspaceKeys.list(orgSlug),
-    })
-    void queryClient.invalidateQueries({
-      queryKey: workspaceKeys.detail(orgSlug, workspace.slug),
-    })
-  }
-
-  const saveMutation = useMutation({
-    mutationFn: () =>
-      updateWorkspace(orgSlug, workspace.slug, {
-        displayName,
-        slug,
-      }),
-    onSuccess: (updated) => {
-      invalidate()
-      toast.success("Workspace updated")
-      if (updated.slug !== workspace.slug) {
-        void navigate({
-          to: "/$orgSlug/ws/$workspaceSlug",
-          params: { orgSlug, workspaceSlug: updated.slug },
-          search: { pane: "settings" },
-        })
-      }
-    },
-    onError: (error: Error) => {
-      toast.error(error.message)
-    },
-  })
-
-  const relinkMutation = useMutation({
-    mutationFn: (choice: WorkspaceRepositoryChoice) =>
-      updateWorkspace(orgSlug, workspace.slug, {
-        workspaceRepositoryUrl: choice.gitUrl,
-        githubConnectionId: choice.githubConnectionId ?? null,
-        source: choice.source,
-        rootPath: choice.rootPath,
-      }),
-    onSuccess: () => {
-      setRelinkError(null)
-      setRelinkOpen(false)
-      invalidate()
-      toast.success("Workspace repository updated")
-    },
-    onError: (error: Error) => setRelinkError(error.message),
-  })
-
-  const rootFolderMutation = useMutation({
-    mutationFn: () =>
-      updateWorkspace(orgSlug, workspace.slug, {
-        rootPath: normalizeRootFolder(rootFolder),
-      }),
-    onSuccess: (updated) => {
-      setRootFolder(updated.rootPath)
-      invalidate()
-      toast.success("Root folder saved")
-    },
-    onError: (error: Error) => {
-      toast.error(error.message)
-    },
-  })
-
-  const checkWriteMutation = useMutation({
-    mutationFn: () => checkWorkspaceWriteAccess(orgSlug, workspace.slug),
-    onSuccess: invalidate,
-    onError: (error: Error) => {
-      toast.error(error.message)
-    },
-  })
-
-  // Remove the caches of a deleted Workspace only after this pane unmounts.
-  // While the Workspace is on screen, a removed query would read again, get a
-  // 404, and replace the page with an error.
-  const deletedRef = useRef(false)
-  useEffect(
-    () => () => {
-      if (!deletedRef.current) return
-      setTimeout(() => {
-        queryClient.removeQueries({
-          predicate: ({ queryKey: [, org, slug] }) =>
-            org === orgSlug && slug === workspace.slug,
-        })
-      })
-    },
-    [queryClient, orgSlug, workspace.slug],
-  )
-
-  const deleteMutation = useMutation({
-    mutationFn: (name: string) =>
-      deleteWorkspace(orgSlug, workspace.slug, name),
-    onSuccess: async () => {
-      toast.success("Workspace deleted")
-      deletedRef.current = true
-      setDeleteOpen(false)
-      await forgetDeletedWorkspace(queryClient, orgSlug, workspace.id)
-      void navigate({
-        to: "/$orgSlug",
-        params: { orgSlug },
-        replace: true,
-      }).then(() => {
-        void queryClient.invalidateQueries({
-          queryKey: workspaceKeys.list(orgSlug),
-        })
-      })
-    },
-    onError: (error: Error) => {
-      toast.error(error.message)
-    },
-  })
-
-  const projectionLag =
-    workspace.activeProjectionUrl &&
-    workspace.activeProjectionUrl !== workspace.workspaceRepositoryUrl
-      ? workspace.activeProjectionUrl
-      : null
-
-  const stall = useWriteCheckStall()
-  const writeLabel = writeStatusLabel(
-    workspace.writeStatus,
-    workspace.readOnlyReason,
-    workspace.conversationWritable,
-  )
-  const write = writeTag(writeLabel)
-  const hydrate = hydrateTag(workspace.hydrateStatus)
-  const repoTitle =
-    githubRepoFullNameFromGitUrl(workspace.workspaceRepositoryUrl) ??
-    workspace.workspaceRepositoryUrl
-  const repoWebUrl = githubWebUrl(workspace.workspaceRepositoryUrl)
+  const needs: SettingsPart[] = [
+    ...(upgrades.needsYou ? (["upgrades"] as const) : []),
+    ...(sourcesNeedYou ? (["sources"] as const) : []),
+    ...(graph.needsYou ? (["graph"] as const) : []),
+    ...(access.needsYou ? (["repository"] as const) : []),
+  ]
+  // A part that needs the user shows one time, in the first line.
+  const running: SettingsPart[] = [
+    ...(upgrades.working ? (["upgrades"] as const) : []),
+    ...(activity.sources.length ? (["sources"] as const) : []),
+    ...(graph.working ? (["graph"] as const) : []),
+  ].filter((part) => !needs.includes(part))
 
   return (
-    // The pane is a container: the groups take columns when it is wide.
+    // The pane is a container: the cards take columns when it is wide.
     <div
       data-settings-scroll
       className="@container min-h-0 flex-1 overflow-auto"
     >
-      <div className="mx-auto max-w-5xl px-6 py-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <h1 className="text-lg font-medium tracking-tight">
-              Workspace settings
-            </h1>
-            <StatusTag label={write.label} className={write.className} />
-            <StatusTag
-              label={hydrate.label}
-              className={hydrate.className}
-              pulse={hydrate.pulse}
-            />
-          </div>
-          <Button
-            type="submit"
-            form="workspace-settings"
-            variant="primary"
-            isDisabled={saveMutation.isPending || !dirty}
-          >
-            Save
-          </Button>
-        </div>
-
-        {workspace.skippedFiles?.length ? (
-          <SkippedFilesNotice
-            files={workspace.skippedFiles}
-            onOpenFile={props.onOpenFile}
-            {...(props.onFixWithAgent
-              ? { onFixWithAgent: props.onFixWithAgent }
-              : {})}
-          />
-        ) : null}
-        {writeLabel.tone === "pull_request" ? (
-          <p className="mt-4 max-w-lg text-sm text-muted-foreground">
-            {writeLabel.description}
-          </p>
-        ) : workspace.readOnlyReason ? (
-          <div className="mt-4 max-w-lg">
-            <InlineAlert
-              variant="warning"
-              title={
-                workspace.writeStatus === "unknown"
-                  ? "Could not check write access"
-                  : "Read-only"
-              }
-              actions={
-                workspace.writeStatus === "unknown" ? (
-                  <Button
-                    variant="secondary"
-                    isDisabled={checkWriteMutation.isPending}
-                    onPress={() => {
-                      stall.restart()
-                      checkWriteMutation.mutate()
-                    }}
-                  >
-                    Check again
-                  </Button>
-                ) : !workspace.githubConnectionId ? (
-                  // No connection reads the repository. Select it again
-                  // after GitHub can see it, and the Workspace binds.
-                  <Button
-                    variant="secondary"
-                    onPress={() => {
-                      setRelinkError(null)
-                      setRelinkOpen(true)
-                    }}
-                  >
-                    Select the repository again
-                  </Button>
-                ) : undefined
-              }
-            >
-              {workspace.readOnlyReason}
-              {workspace.writeStatus === "read_only"
-                ? " After you fix it, reload this page. ctxpipe checks again at most once a minute."
-                : null}
-            </InlineAlert>
-          </div>
-        ) : null}
-        {stall.stalled && writeCheckInFlight(workspace) ? (
-          <div className="mt-4 max-w-lg">
-            <InlineAlert
-              variant="warning"
-              title="Still checking write access"
-              actions={
-                <Button
-                  variant="secondary"
-                  isDisabled={checkWriteMutation.isPending}
-                  onPress={() => {
-                    stall.restart()
-                    checkWriteMutation.mutate()
-                  }}
-                >
-                  Check again
-                </Button>
-              }
-            >
-              The check takes longer than usual.
-            </InlineAlert>
-          </div>
-        ) : null}
-        {projectionLag ? (
-          <p className="mt-3 max-w-lg text-sm text-muted-foreground">
-            Answers still come from{" "}
-            <code className="font-mono text-xs">{projectionLag}</code> until the
-            new repository finishes loading.
-          </p>
-        ) : null}
-
-        <div className="mt-8 flex flex-col gap-12">
-          <SettingsGroup
-            eyebrow="Status"
-            landing={hash === WORKSPACE_UPGRADES_HASH}
-          >
-            <WorkspaceUpgrades
-              orgSlug={orgSlug}
-              workspaceSlug={workspace.slug}
-              {...(props.onFixWithAgent
-                ? { onFixWithAgent: props.onFixWithAgent }
-                : {})}
-            />
-          </SettingsGroup>
-
-          <SettingsGroup eyebrow="General">
-            <form
-              id="workspace-settings"
-              className="grid items-start gap-6 @2xl:grid-cols-2"
-              onSubmit={(event) => {
-                event.preventDefault()
-                saveMutation.mutate()
-              }}
-            >
-              <TextField
-                label="Name"
-                value={displayName}
-                onChange={setDisplayName}
-                description="Shown in the sidebar and to your team."
-              />
-              <TextField
-                label="URL name"
-                value={slug}
-                onChange={setSlug}
-                description="Used in this Workspace's web address. If you change it, old links stop working."
-              />
-            </form>
-          </SettingsGroup>
-
-          <SettingsGroup eyebrow="Repositories">
-            <section>
-              <h2 className="text-sm font-medium text-foreground">
-                Context repository
-              </h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                The GitHub repository where this Workspace keeps its files.
-              </p>
-              <div className="mt-3 grid gap-6 @2xl:grid-cols-2">
-                <div className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
-                  <span
-                    className="ctx-node size-8 shrink-0 rounded-md text-muted-foreground"
-                    aria-hidden
-                  >
-                    <IconGitBranch className="size-4" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-foreground">
-                      {repoTitle}
-                    </p>
-                    {repoWebUrl ? (
-                      <a
-                        href={repoWebUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="truncate text-xs text-muted-foreground hover:text-foreground"
-                      >
-                        {workspace.workspaceRepositoryUrl}
-                      </a>
-                    ) : (
-                      <p className="truncate font-mono text-xs text-muted-foreground">
-                        {workspace.workspaceRepositoryUrl}
-                      </p>
-                    )}
-                  </div>
-                  <Button
-                    variant="quiet"
-                    size="icon-sm"
-                    aria-label="Edit context repository"
-                    onPress={() => {
-                      setRelinkError(null)
-                      setRelinkOpen(true)
-                    }}
-                  >
-                    <IconPencil
-                      className="size-4 text-muted-foreground"
-                      aria-hidden
-                    />
-                  </Button>
-                </div>
-              </div>
-              <form
-                className="mt-4 flex flex-col gap-3"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  if (rootFolderChanged && rootFolderError(rootFolder) === null)
-                    rootFolderMutation.mutate()
-                }}
-              >
-                <WorkspaceRootFolderField
-                  value={rootFolder}
-                  onChange={setRootFolder}
-                  isDisabled={rootFolderMutation.isPending}
-                />
-                <div className="flex justify-end">
-                  <Button
-                    type="submit"
-                    variant="secondary"
-                    isPending={rootFolderMutation.isPending}
-                    isDisabled={
-                      !rootFolderChanged || rootFolderError(rootFolder) !== null
-                    }
-                  >
-                    Save root folder
-                  </Button>
-                </div>
-              </form>
-            </section>
-          </SettingsGroup>
-
-          <SettingsGroup eyebrow="Sources">
-            <WorkspaceSources
-              orgSlug={orgSlug}
-              workspaceSlug={workspace.slug}
-              linkedRepositories={workspace.linkedRepositories}
-            />
-          </SettingsGroup>
-
-          <SettingsGroup eyebrow="Danger zone">
-            <section className="flex flex-wrap items-center justify-between gap-4 rounded-md border border-white/[0.06] px-4 py-3">
-              <div>
-                <h2 className="text-sm font-medium text-foreground">
-                  Delete this Workspace
-                </h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Deletes this Workspace and its conversations. Your GitHub
-                  repository and its files stay.
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                className="shrink-0"
-                onPress={() => {
-                  setConfirmName("")
-                  setDeleteOpen(true)
-                }}
-              >
-                Delete Workspace
-              </Button>
-            </section>
-          </SettingsGroup>
-        </div>
-      </div>
-
-      <Modal
-        isOpen={relinkOpen}
-        onOpenChange={(open) => {
-          setRelinkOpen(open)
-          if (!open) setRelinkError(null)
-        }}
-        isDismissable={!relinkMutation.isPending}
-        size="medium"
-        placement="top"
-      >
-        <Dialog>
-          <Heading
-            slot="title"
-            className="my-0 text-lg font-medium leading-6 text-foreground"
-          >
-            Context repository
-          </Heading>
-          <p className="mt-1 text-sm text-muted-foreground">
-            You keep this Workspace and its conversations. Files in the old
-            repository stay where they are.
-          </p>
-          <div className="mt-5">
-            <WorkspaceRepositoryPicker
-              orgSlug={orgSlug}
-              currentUrl={workspace.workspaceRepositoryUrl}
-              currentRootPath={workspace.rootPath}
-              submitLabel="Save"
-              pending={relinkMutation.isPending}
-              error={relinkError}
-              onSubmit={(choice) => {
-                setRelinkError(null)
-                relinkMutation.mutate(choice)
-              }}
-            />
-          </div>
-        </Dialog>
-      </Modal>
-
-      <Modal
-        isOpen={deleteOpen}
-        onOpenChange={(open) => {
-          setDeleteOpen(open)
-          if (!open) setConfirmName("")
-        }}
-        isDismissable={!deleteMutation.isPending}
-      >
-        <Dialog role="alertdialog">
-          {({ close }) => (
-            <>
-              <Heading
-                slot="title"
-                className="my-0 text-lg font-medium leading-6 text-foreground"
-              >
-                Delete Workspace?
-              </Heading>
-              <div className="absolute right-6 top-6 size-6 text-destructive">
-                <IconAlertCircle aria-hidden className="size-6 stroke-2" />
-              </div>
-              <p className="mt-3 text-sm text-muted-foreground">
-                Type{" "}
-                <strong className="font-medium text-foreground">
-                  {workspace.displayName}
-                </strong>{" "}
-                to confirm. This deletes the Workspace and its conversations.
-                Your GitHub repository stays.
-              </p>
-              <form
-                className="mt-4"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  if (
-                    deleteMutation.isPending ||
-                    !workspaceDeleteNameMatches(
-                      confirmName,
-                      workspace.displayName,
-                    )
-                  ) {
-                    return
-                  }
-                  deleteMutation.mutate(confirmName.trim())
-                }}
-              >
-                <TextField
-                  label="Workspace name"
-                  placeholder={workspace.displayName}
-                  value={confirmName}
-                  onChange={setConfirmName}
-                  autoFocus
-                />
-                <div className="mt-6 flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="quiet"
-                    isDisabled={deleteMutation.isPending}
-                    onPress={close}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    variant="destructive"
-                    isPending={deleteMutation.isPending}
-                    isDisabled={
-                      !workspaceDeleteNameMatches(
-                        confirmName,
-                        workspace.displayName,
-                      )
-                    }
-                  >
-                    Delete Workspace
-                  </Button>
-                </div>
-              </form>
-            </>
+      <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-6">
+        <header className="flex flex-col gap-1.5">
+          <h1 className="text-lg font-medium tracking-tight">
+            Workspace settings
+          </h1>
+          {summaryLoading ? (
+            <SkeletonText className="text-sm" boneClassName="w-72" />
+          ) : (
+            <SettingsSummary needs={needs} running={running} />
           )}
-        </Dialog>
-      </Modal>
+        </header>
+
+        <WorkspaceUpgrades
+          orgSlug={orgSlug}
+          workspaceSlug={workspace.slug}
+          landing={hash === WORKSPACE_UPGRADES_HASH}
+          {...(props.onFixWithAgent
+            ? { onFixWithAgent: props.onFixWithAgent }
+            : {})}
+        />
+        <SourcesCard
+          orgSlug={orgSlug}
+          workspace={workspace}
+          activity={activity}
+          needsYou={sourcesNeedYou}
+        />
+        <GraphCard
+          workspace={workspace}
+          hydrate={activity.hydrate}
+          onOpenFile={props.onOpenFile}
+          onFixWithAgent={props.onFixWithAgent}
+        />
+        <RepositoryCard orgSlug={orgSlug} workspace={workspace} />
+        <GeneralCard orgSlug={orgSlug} workspace={workspace} />
+        <DangerCard orgSlug={orgSlug} workspace={workspace} />
+      </div>
     </div>
   )
+}
+
+/** The top line: the parts that need the user, then the parts at work. */
+function SettingsSummary(props: {
+  needs: SettingsPart[]
+  running: SettingsPart[]
+}) {
+  const { needs, running } = props
+  const runningLine = running.length ? (
+    <span className="text-muted-foreground">
+      {needs.length ? "Running: " : "Nothing needs you. Running: "}
+      <PartLinks parts={running} tone="muted" />
+    </span>
+  ) : null
+  if (needs.length === 0 && running.length === 0)
+    return (
+      <p className="flex items-center gap-2 text-sm text-muted-foreground">
+        <IconCircleCheck className="size-4 text-teal-300" aria-hidden />
+        Everything is up to date.
+      </p>
+    )
+  if (needs.length === 0)
+    return (
+      <p className="flex items-center gap-2 text-sm">
+        <span
+          aria-hidden
+          className="ctx-status-pulse size-1.5 shrink-0 rounded-full bg-teal-400"
+        />
+        {runningLine}
+      </p>
+    )
+  return (
+    <div className="flex flex-col gap-0.5 text-sm">
+      <p className="flex items-center gap-2 text-foreground">
+        <IconAlertTriangle
+          className="size-4 shrink-0 text-amber-300"
+          aria-hidden
+        />
+        <span>
+          {needs.length} {needs.length === 1 ? "part needs" : "parts need"} you:{" "}
+          <PartLinks parts={needs} tone="attention" />
+        </span>
+      </p>
+      {runningLine ? <p className="pl-6 text-xs">{runningLine}</p> : null}
+    </div>
+  )
+}
+
+function PartLinks(props: {
+  parts: SettingsPart[]
+  tone: "attention" | "muted"
+}) {
+  return props.parts.map((part, index) => (
+    <span key={part}>
+      {index > 0 ? (
+        <span aria-hidden className="text-muted-foreground">
+          {" · "}
+        </span>
+      ) : null}
+      <Link
+        onPress={() => jumpToSettingsCard(part)}
+        className={cn(
+          "cursor-pointer rounded-md underline underline-offset-2",
+          props.tone === "attention"
+            ? "text-amber-200 decoration-amber-200/40 hover:decoration-amber-200"
+            : "text-muted-foreground decoration-muted-foreground/40 hover:text-foreground",
+          focusVisibleClassName,
+        )}
+      >
+        {PART_TITLE[part]}
+      </Link>
+    </span>
+  ))
 }

@@ -1488,7 +1488,7 @@ export const SettingsPaneLandsOnUpgrades: Story = {
   play: async ({ canvasElement }) => {
     const group = await waitFor(() => {
       const found = canvasElement.querySelector<HTMLElement>(
-        '[data-settings-group="Status"]',
+        "#workspace-settings-upgrades",
       )
       expect(found).toHaveFocus()
       return found as HTMLElement
@@ -1645,9 +1645,9 @@ export const WriteCheckFailedStopsPolling: Story = {
     )
     await waitFor(
       () =>
-        expect(canvas.getAllByText("Can save changes").length).toBeGreaterThan(
-          0,
-        ),
+        expect(
+          canvas.getAllByText("ctxpipe can push to this repository.").length,
+        ).toBeGreaterThan(0),
       { timeout: 10_000 },
     )
     await expect(canvas.queryByText("Could not check write access")).toBeNull()

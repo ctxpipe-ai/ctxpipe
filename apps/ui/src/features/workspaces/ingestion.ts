@@ -122,7 +122,7 @@ const STAGE_LABELS: Record<NonNullable<IngestionItem["stage"]>, string> = {
  * The title of an item in the "Ingesting now" list. The list shows a hydrate
  * as its own line, so it has no title here.
  */
-export function ingestionItemTitle(item: IngestionItem): string {
+function ingestionItemTitle(item: IngestionItem): string {
   if (item.kind === "source_sync") return `${item.name} sources`
   if (item.kind === "reingest") return "Upgrade re-ingestion"
   return item.name ?? ""
@@ -161,5 +161,69 @@ export function ingestionProgress(item: IngestionItem): UpgradeProgress {
         ? "Two runs of one repository do not publish at the same time. This run starts when the earlier run ends."
         : null,
     since: item.startedAt,
+  }
+}
+
+/** The runs of one source: the run that is the furthest leads. */
+export type SourceRuns = {
+  /** The name of the source, as ingestionItemTitle gives it. */
+  title: string
+  kind: IngestionItem["kind"]
+  /** The runs, the oldest first. */
+  runs: IngestionItem[]
+  lead: IngestionItem
+}
+
+const STAGE_RANK: Record<NonNullable<IngestionItem["stage"]>, number> = {
+  publishing: 6,
+  ingesting: 5,
+  indexing: 4,
+  planning: 3,
+  waiting: 2,
+  queued: 1,
+}
+
+/**
+ * The ingestion work of each source, for the source list of Workspace
+ * settings. A push makes a run, so one repository can have several. A
+ * hydrate is not a source: the Knowledge graph card shows it.
+ */
+export function groupSourceRuns(items: IngestionItem[]): SourceRuns[] {
+  const groups = new Map<string, IngestionItem[]>()
+  for (const item of items) {
+    if (item.kind === "hydrate") continue
+    const title = ingestionItemTitle(item)
+    groups.set(title, [...(groups.get(title) ?? []), item])
+  }
+  return [...groups].flatMap(([title, runs]) => {
+    const sorted = [...runs].sort((a, b) =>
+      a.startedAt.localeCompare(b.startedAt),
+    )
+    const rank = (item: IngestionItem) =>
+      item.stage ? STAGE_RANK[item.stage] : 0
+    const lead = [...sorted].sort((a, b) => rank(b) - rank(a))[0]
+    return lead ? [{ title, kind: lead.kind, runs: sorted, lead }] : []
+  })
+}
+
+/** One word for the work of a source, for its status: "Publishing". */
+export function sourceRunsWord(source: SourceRuns): string {
+  if (source.kind === "source_sync") return "Syncing"
+  if (source.kind === "reingest") return "Re-ingesting"
+  switch (source.lead.stage) {
+    case "publishing":
+      return "Publishing"
+    case "ingesting":
+      return "Reading the code"
+    case "indexing":
+      return "Indexing for search"
+    case "planning":
+      return "Planning"
+    case "waiting":
+      return "Waiting for a turn"
+    case "queued":
+      return "Queued"
+    default:
+      return "Working"
   }
 }

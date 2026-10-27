@@ -67,6 +67,7 @@ import {
   sourceRowStatusClassName,
   sourceRowsClassName,
 } from "./source-table"
+import { CompactSourceRow, type SourceLiveStatus } from "./SourceActivityRows"
 
 /** One item of a GitHub scope: `owner/name`, or a map with a branch or tag. */
 type ScopeItem = string | { name: string; ref?: string }
@@ -225,6 +226,8 @@ export function GithubSourceRepositories(props: {
   showEmptyAction: boolean
   /** Opens the Add repositories dialog, which the caller renders. */
   onAdd: () => void
+  /** The live work of a repository, by its title: the compact rows. */
+  liveStatus?: (title: string) => SourceLiveStatus | null
 }) {
   const { orgSlug, workspaceSlug, rows, canEdit } = props
   const queryClient = useQueryClient()
@@ -323,6 +326,78 @@ export function GithubSourceRepositories(props: {
                 const canUnlink = row.source
                   ? canEdit && row.source.removable
                   : true
+                // The live list: a two-line row with one status.
+                if (props.liveStatus) {
+                  const notes = [
+                    row.source?.description ? (
+                      <p
+                        key="description"
+                        className="line-clamp-2 text-muted-foreground"
+                      >
+                        {row.source.description}
+                      </p>
+                    ) : null,
+                    row.source && !row.source.removable ? (
+                      <p key="yaml" className="text-muted-foreground">
+                        Defined in .ctxpipe/sources.yaml. Edit that file to
+                        unlink it.
+                      </p>
+                    ) : null,
+                    row.linked?.indexingStatus === "complete_with_issues" &&
+                    row.linked.indexingError ? (
+                      <p key="issues" className="text-amber-200/80">
+                        {row.linked.indexingError}
+                      </p>
+                    ) : null,
+                  ].filter(Boolean)
+                  return (
+                    <CompactSourceRow
+                      key={row.key}
+                      name={row.title}
+                      title={
+                        webUrl ? (
+                          <Link
+                            href={webUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            variant="secondary"
+                            className="text-sm text-foreground no-underline hover:text-teal-300"
+                          >
+                            {row.title}
+                          </Link>
+                        ) : (
+                          row.title
+                        )
+                      }
+                      subtitle={
+                        row.source?.path ?? "Linked by a repositories file"
+                      }
+                      state={{
+                        label: status.label,
+                        tone:
+                          status.label === "Indexed"
+                            ? "ok"
+                            : status.label === "Indexed with issues"
+                              ? "attention"
+                              : "neutral",
+                      }}
+                      live={props.liveStatus(row.title)}
+                      actions={
+                        canUnlink
+                          ? [
+                              {
+                                id: "unlink",
+                                label: "Unlink",
+                                onAction: () => unlinkMutation.mutate(row),
+                                isDisabled: unlinkMutation.isPending,
+                              },
+                            ]
+                          : []
+                      }
+                      {...(notes.length ? { note: <>{notes}</> } : {})}
+                    />
+                  )
+                }
                 return (
                   <li key={row.key} className={sourceRowClassName}>
                     {webUrl ? (

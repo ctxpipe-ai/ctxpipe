@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useId } from "react"
 import { toast } from "sonner"
 
-import { Button } from "@/components/ui/Button"
+import { Switch } from "@/components/ui/Switch"
 
 import {
   saveWorkspaceUpgradeModeAndWait,
@@ -10,19 +11,20 @@ import {
 } from "./queries"
 
 /**
- * The automatic-upgrades setting of the Status group: "Automatic upgrades:
- * Off" with Turn on, or "On" with Turn off (CTX-980). Git holds the setting:
- * the server reads it on each request, and a save is a commit. The button
- * waits for the commit, then shows the new setting. Only an owner or admin
- * sees the button. When ctxpipe cannot read the setting, the line shows the
- * cause and the fix.
+ * The automatic-upgrades setting of the Upgrades card (CTX-980), as a switch
+ * with one line of help under it. Git holds the setting: the server reads it
+ * on each request, and a save is a commit. The switch shows the new position
+ * while the commit runs, then the saved setting. Only an owner or admin can
+ * change it. When ctxpipe cannot read the setting, the line shows the cause
+ * and the fix.
  */
-export function AutomaticUpgradesToggle(props: {
+export function AutomaticUpgradesSwitch(props: {
   orgSlug: string
   workspaceSlug: string
   isAdmin: boolean | null
 }) {
   const { orgSlug, workspaceSlug } = props
+  const helpId = useId()
   const queryClient = useQueryClient()
   const modeOptions = workspaceUpgradeModeOptions(orgSlug, workspaceSlug)
   const setting = useQuery(modeOptions).data
@@ -53,11 +55,11 @@ export function AutomaticUpgradesToggle(props: {
     },
     onError: (error: Error, next) => {
       toast.error(
-        `${error.message.replace(/\.$/, "")}. Press ${next === "automatic" ? "Turn on" : "Turn off"} to try again.`,
+        `${error.message.replace(/\.$/, "")}. Turn automatic upgrades ${next === "automatic" ? "on" : "off"} again to try again.`,
       )
     },
     // With the setting on, the server starts the waiting upgrades. The
-    // button does not wait for this read.
+    // switch does not wait for this read.
     onSettled: (_result, _error, next) => {
       if (next === "automatic")
         void queryClient.invalidateQueries({
@@ -75,30 +77,35 @@ export function AutomaticUpgradesToggle(props: {
         "ctxpipe could not read the repository. Check the GitHub connection on the Connectors page, then reload this page.",
     }[setting.reason ?? "unreadable"]
     return (
-      <>
-        <span aria-hidden>·</span>
-        <span>Automatic upgrades: {problem}</span>
-      </>
+      <p className="max-w-prose text-xs text-muted-foreground">
+        Automatic upgrades: {problem}
+      </p>
     )
   }
-  const on = setting.mode === "automatic"
+  const on = save.isPending
+    ? save.variables === "automatic"
+    : setting.mode === "automatic"
+  const canChange = props.isAdmin === true
   return (
-    <>
-      <span aria-hidden>·</span>
-      <span>Automatic upgrades: {on ? "On" : "Off"}</span>
-      {props.isAdmin === true ? (
-        <Button
-          variant="ghost"
-          size="sm"
-          isPending={save.isPending}
-          onPress={() => save.mutate(on ? "manual" : "automatic")}
-          aria-label={
-            on ? "Turn off automatic upgrades" : "Turn on automatic upgrades"
-          }
-        >
-          {on ? "Turn off" : "Turn on"}
-        </Button>
-      ) : null}
-    </>
+    <div className="flex min-w-0 basis-[30rem] flex-col gap-1">
+      <Switch
+        isSelected={on}
+        isDisabled={!canChange || save.isPending}
+        onChange={(next) => save.mutate(next ? "automatic" : "manual")}
+        aria-describedby={helpId}
+      >
+        Automatic upgrades
+        {save.isPending ? (
+          <span className="text-xs text-muted-foreground">Saving…</span>
+        ) : null}
+      </Switch>
+      <p id={helpId} className="pl-9.5 text-xs text-muted-foreground">
+        {on
+          ? "ctxpipe starts each upgrade by itself, paid re-ingestions too. A failed upgrade waits for you."
+          : canChange
+            ? "You start each upgrade. Turn this on to let ctxpipe start them."
+            : "An owner or admin starts each upgrade, and can turn this on."}
+      </p>
+    </div>
   )
 }
