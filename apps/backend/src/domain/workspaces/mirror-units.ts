@@ -40,7 +40,8 @@ const LINEAR_KINDS: Record<string, string> = {
  * `confluence/<KEY>/…`, `linear/teams/<KEY>/<dir>/…`,
  * `linear/projects/<id>/<dir>/…`, `slack/channels/<channel>/…`,
  * `pagerduty/incidents/…`, `github/pulls/<owner>/<repo>/<file>.md`,
- * `github/issues/<owner>/<repo>/<number>.md`.
+ * `github/issues/<owner>/<repo>/<number>.md`,
+ * `zendesk/help-center/categories/<id>/…`, `zendesk/tickets/views/<id>/…`.
  */
 export function mirrorUnitKind(path: string): string | null {
   const parts = path.split("/")
@@ -69,6 +70,11 @@ export function mirrorUnitKind(path: string): string | null {
       if (parts.length !== 5) return null
       if (parts[1] === "pulls") return "PullRequest"
       return parts[1] === "issues" ? "Issue" : null
+    case "zendesk":
+      if (parts.length !== 5) return null
+      if (parts[1] === "help-center" && parts[2] === "categories")
+        return "Article"
+      return parts[1] === "tickets" && parts[2] === "views" ? "Ticket" : null
     default:
       return null
   }

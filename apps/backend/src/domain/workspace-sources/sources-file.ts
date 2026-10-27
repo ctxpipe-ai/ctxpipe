@@ -11,6 +11,7 @@ import { notionSourceScope } from "./providers/notion.js"
 import { pagerdutySourceScope } from "./providers/pagerduty.js"
 import type { SourceScopeDefinition } from "./providers/scope.js"
 import { slackSourceScope } from "./providers/slack.js"
+import { zendeskSourceScope } from "./providers/zendesk.js"
 
 /**
  * The shared schema of `.ctxpipe/sources.yaml`, the source of truth for the
@@ -27,6 +28,7 @@ export const SOURCE_PROVIDERS = [
   "notion",
   "slack",
   "pagerduty",
+  "zendesk",
   "git",
 ] as const
 
@@ -41,6 +43,7 @@ export const SOURCE_SCOPES: Record<SourceProvider, SourceScopeDefinition> = {
   notion: notionSourceScope,
   slack: slackSourceScope,
   pagerduty: pagerdutySourceScope,
+  zendesk: zendeskSourceScope,
   git: gitSourceScope,
 }
 

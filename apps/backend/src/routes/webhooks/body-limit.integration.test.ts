@@ -137,6 +137,14 @@ const routes: Array<{
     },
   },
   {
+    path: "/api/v1/webhook/zendesk/con_limit_test",
+    limit: 1 * MiB,
+    headers: {
+      "x-zendesk-webhook-signature": "00",
+      "x-zendesk-webhook-signature-timestamp": "1",
+    },
+  },
+  {
     path: "/api/v1/webhook/atlassian/forge",
     limit: 1 * MiB,
     headers: { authorization: "Bearer not-a-token" },

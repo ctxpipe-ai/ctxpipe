@@ -12,6 +12,10 @@ import {
   pendingWorkspaceUpgradesHandler,
   upgradeItemFixture,
 } from "@/mocks/workspace-upgrades-handlers"
+import {
+  zendeskStatusHandler,
+  zendeskStoryStatus,
+} from "@/mocks/zendesk-handlers"
 
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
@@ -652,5 +656,50 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
         ],
       },
     },
+  },
+}
+
+/** A Zendesk row shows its own card, and the catalog opens its setup. */
+export const ZendeskFromCatalog: Story = {
+  render: pageRender,
+  parameters: pageHandlers([
+    http.get(
+      ({ request }) =>
+        new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+      () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "conn_zendesk_1",
+              type: "zendesk",
+              displayName: "acme",
+              createdAt: "2025-01-01T00:00:00.000Z",
+              updatedAt: "2025-01-02T00:00:00.000Z",
+            },
+          ],
+        }),
+    ),
+    zendeskStatusHandler(zendeskStoryStatus()),
+    // The org shell lists the Workspaces.
+    workspaceListHandler([]),
+  ]),
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await waitFor(() =>
+      expect(
+        body.getByRole("button", { name: "Zendesk connector actions" }),
+      ).toBeVisible(),
+    )
+    await expect(body.queryByText("GitHub")).toBeNull()
+    await userEvent.click(body.getByRole("button", { name: "Add connection" }))
+    await userEvent.click(
+      await body.findByRole("button", { name: /^Zendesk Sync Help Center/ }),
+    )
+    const setup = await body.findByRole("heading", {
+      name: "Set up Zendesk connector",
+    })
+    // The modal fades in; wait until the setup is visible.
+    await waitFor(() => expect(setup).toBeVisible())
+    await expect(body.getByLabelText("Zendesk subdomain")).toHaveValue("")
   },
 }

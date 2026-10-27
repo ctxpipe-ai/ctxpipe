@@ -120,7 +120,7 @@ PR deploys are driven by `.github/workflows/pr-deploy.yaml`:
 
 ## Secrets
 
-Terraform holds no app secret. The GitHub Environment `production` holds each one, and the deploy step "Sync production secrets to Railway" writes it straight to the Railway service variables with [`scripts/railway-sync-variables.mjs`](../scripts/railway-sync-variables.mjs), before the images start. That script lists which GitHub secret goes to which variable of which service. An empty optional secret (Slack, Linear, PagerDuty) is deleted from the services. When a value changes, FalkorDB redeploys first, and the next step deploys every app service, also when it already runs the image of that commit.
+Terraform holds no app secret. The GitHub Environment `production` holds each one, and the deploy step "Sync production secrets to Railway" writes it straight to the Railway service variables with [`scripts/railway-sync-variables.mjs`](../scripts/railway-sync-variables.mjs), before the images start. That script lists which GitHub secret goes to which variable of which service. An empty optional secret (Slack, Linear, PagerDuty, Zendesk) is deleted from the services. When a value changes, FalkorDB redeploys first, and the next step deploys every app service, also when it already runs the image of that commit.
 
 To rotate a secret, set the new value in GitHub, then push to `main` or run again the latest push run of Deploy. "Run workflow" (`workflow_dispatch`) skips this job.
 

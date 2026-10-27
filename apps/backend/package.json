@@ -84,6 +84,7 @@
     "jose": "^6.2.3",
     "mdast-util-from-markdown": "2.0.3",
     "neo4j-driver": "^6.0.1",
+    "node-html-markdown": "^1.3.0",
     "nodemailer": "^6.10.1",
     "octokit": "^4.0.2",
     "openworkflow": "^0.10.1",
