@@ -565,3 +565,113 @@ describe("redaction gaps found in re-review (CTX-869)", () => {
     expect(content).not.toContain("jo.smith")
   })
 })
+
+describe("redaction gaps found in a security re-review, round two (CTX-869)", () => {
+  const render = (over: Partial<PlainThreadForMirror>) =>
+    plainThreadFile({ labelTypeId: "lt_1", thread: { ...thread, ...over } })
+      .content
+  const body = (text: string) =>
+    render({
+      messages: [{ authorName: null, createdAt: null, internal: false, text }],
+    })
+  const articleContent = (over: Partial<PlainArticleForMirror>) =>
+    plainArticleFile({
+      helpCenterId: "hc_1",
+      article: { ...article, ...over },
+    }).content
+
+  it.each([
+    ["U+FE0F", "️"],
+    ["U+E0100", "\u{E0100}"],
+    ["U+180B", "᠋"],
+    ["U+115F", "ᅟ"],
+    ["U+1160", "ᅠ"],
+    ["U+3164", "ㅤ"],
+    ["U+FFA0", "ﾠ"],
+    ["U+17B4", "឴"],
+  ])("strips %s inside an address and a phone number", (_name, mark) => {
+    const email = `jo.smith${mark}@example.com`
+    const phone = `+61${mark} 412 345 678`
+    const content = body(`Mail ${email} or call ${phone} now`)
+    expect(content).not.toContain("jo.smith")
+    expect(content).not.toContain("412")
+    const titled = render({ title: email, customerName: phone })
+    expect(titled).not.toContain("jo.smith")
+    expect(titled).not.toContain("412")
+  })
+
+  it("keeps a combining accent", () => {
+    expect(body("café open")).toContain("café open")
+  })
+
+  describe("a cut at 100,000 characters", () => {
+    // Credential links of 2,000 characters become short stubs, so the later
+    // cuts do not reach the tail. The address starts 9 characters before
+    // character 100,000.
+    const links = (total: number) => {
+      let out = ""
+      while (out.length < total - 2_100)
+        out += `https://f.example.com/a?token=${"x".repeat(1_970)} `
+      const rest = total - out.length
+      return `${out}https://f.example.com/a?token=${"x".repeat(rest - 31)} `
+    }
+    const straddle = `${links(99_991)}jo.smith@example.com tail`
+
+    it("does not leave a part of an address in a message body", () => {
+      expect(body(straddle)).not.toContain("jo.smith")
+    })
+
+    it("does not leave a part of an address in a title or a name", () => {
+      const content = render({ title: straddle, customerName: straddle })
+      expect(content).not.toContain("jo.smith")
+    })
+  })
+
+  it.each([
+    ["an apostrophe", "https://f.example.com/a'?token=SECRET4"],
+    ["a double quote", 'https://f.example.com/a"?token=SECRET4'],
+  ])("removes a link that has %s before its token", (_name, link) => {
+    expect(body(`See ${link} now`)).not.toContain("SECRET4")
+  })
+
+  it("keeps a link in quotes, apart from the redaction", () => {
+    expect(body('See "https://help.example.com/a" now')).toContain(
+      '"https://help.example.com/a"',
+    )
+    expect(body(`See "https://f.example.com/a?token=SECRET4" now`)).toContain(
+      '"\\[link removed\\]"',
+    )
+    expect(body("See 'https://f.example.com/a?token=SECRET4' now")).toContain(
+      "'\\[link removed\\]'",
+    )
+  })
+
+  it.each(["_", "*", "~", "("])("removes a www link after %s", (lead) => {
+    const content = body(`See ${lead}www.f.example.com/l?token=SECRET3_ now`)
+    expect(content).not.toContain("SECRET3")
+  })
+
+  it("removes a hidden token in an article body", () => {
+    const content = articleContent({
+      contentHtml: "<p>https://f.example.com/a?to​ken=SECRET7</p>",
+    })
+    expect(content).not.toContain("SECRET7")
+  })
+
+  it("removes a credential link in an article title and group", () => {
+    const content = articleContent({
+      title: "See https://f.example.com/a?token=SECRET8",
+      groupName: "Group https://f.example.com/a?token=SECRET9",
+    })
+    expect(content).not.toContain("SECRET8")
+    expect(content).not.toContain("SECRET9")
+  })
+
+  it("redacts in linear time", () => {
+    const start = performance.now()
+    body(`${"a".repeat(5_000_000)}`)
+    body("https://".repeat(600_000))
+    body(`${"️".repeat(5_000_000)}`)
+    expect(performance.now() - start).toBeLessThan(5_000)
+  })
+})

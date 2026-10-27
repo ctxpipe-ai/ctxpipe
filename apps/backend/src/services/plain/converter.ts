@@ -103,11 +103,28 @@ const withoutMarkdownSyntax = (text: string) =>
 /**
  * Text without control and format characters, except tab and the line
  * ends. A format character (such as a bidi override or a zero-width mark)
- * can change how a reader or an agent sees the text. The combining grapheme
- * joiner (U+034F) is not a format character, but it also hides text.
+ * can change how a reader or an agent sees the text. A default-ignorable
+ * character (a variation selector, a Hangul filler, the combining grapheme
+ * joiner) is not always a format character, but it also hides text.
  */
 const withoutControls = (text: string) =>
-  text.replace(/(?![\t\n\r])[\p{Cc}\p{Cf}\u034F]/gu, "")
+  text.replace(
+    /(?![\t\n\r])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu,
+    "",
+  )
+
+/**
+ * Input over 100,000 characters keeps its first 100,000 characters, less the
+ * last partial word: the cut cannot leave a part of an address. The loop is
+ * linear.
+ */
+function head(text: string): string {
+  if (text.length <= 100_000) return text
+  const kept = text.slice(0, 100_000)
+  let end = kept.length
+  while (end > 0 && !/\s/.test(kept.charAt(end - 1))) end -= 1
+  return kept.slice(0, end)
+}
 
 /**
  * Each Markdown link keeps only its text, unless its target is a URL that
@@ -129,17 +146,21 @@ const withoutPrivateLinks = (text: string) =>
  * credential at the end of a long URL cannot pass.
  */
 function withHttpsUrlsOnly(text: string): string {
-  return text.replace(/(?:https?:\/\/|\bwww\.)[^\s<>"']+/gi, (match) => {
-    // Punctuation after a URL is not part of the URL.
-    let end = match.length
-    while (end > 0 && ".,;:!?)]}\\".includes(match.charAt(end - 1))) end -= 1
-    const url = match.slice(0, end)
-    // A link that starts with `www.` is a link in GFM viewers: same filter.
-    const target = /^www\./i.test(url) ? `https://${url}` : url
-    return url.length <= 2_048 && isKeptUrl(target)
-      ? match
-      : `[link removed]${match.slice(end)}`
-  })
+  return text.replace(
+    /(?:https?:\/\/|(?<![A-Za-z0-9])www\.)[^\s<>]+/gi,
+    (match) => {
+      // Punctuation after a URL is not part of the URL.
+      let end = match.length
+      while (end > 0 && ".,;:!?)]}\\'\"".includes(match.charAt(end - 1)))
+        end -= 1
+      const url = match.slice(0, end)
+      // A link that starts with `www.` is a link in GFM viewers: same filter.
+      const target = /^www\./i.test(url) ? `https://${url}` : url
+      return url.length <= 2_048 && isKeptUrl(target)
+        ? match
+        : `[link removed]${match.slice(end)}`
+    },
+  )
 }
 
 /**
@@ -184,9 +205,7 @@ const inline = (text: string) => withoutMarkdownSyntax(oneLine(text))
 
 /** A title or a name from a customer: short, redacted, and on one line. */
 const field = (text: string) =>
-  inline(
-    redactThreadText(withoutControls(text).slice(0, 100_000)).slice(0, 1_000),
-  )
+  inline(redactThreadText(head(withoutControls(text))).slice(0, 1_000))
 
 /**
  * A message body as a quote, with no link, image, or HTML. Markdown also
@@ -203,8 +222,9 @@ const quote = (text: string) =>
 
 /**
  * A message keeps 20,000 characters; Plain has the rest. The redaction runs
- * first (on at most 100,000 characters), so the cut cannot split an
- * address or a number.
+ * first, on at most 100,000 characters. Redaction can make text shorter, so
+ * the input cut (see `head`) drops the last partial word: a later cut that
+ * does not reach the end cannot leave a part of an address.
  */
 const cut = (text: string) =>
   text.length > 20_000
@@ -226,7 +246,7 @@ function articleBodyMarkdown(html: string): string {
       }),
     },
   )
-  return withHttpsUrlsOnly(withoutPrivateLinks(markdown))
+  return withHttpsUrlsOnly(withoutPrivateLinks(withoutControls(markdown)))
 }
 
 export function plainArticleFile(input: {
@@ -244,10 +264,10 @@ export function plainArticleFile(input: {
       ["created_at", article.createdAt],
       ["updated_at", article.updatedAt],
     ]),
-    `# ${inline(article.title)}`,
+    `# ${field(article.title)}`,
     "",
   ]
-  if (article.groupName) lines.push(`- Group: ${inline(article.groupName)}`, "")
+  if (article.groupName) lines.push(`- Group: ${field(article.groupName)}`, "")
   const body = articleBodyMarkdown(article.contentHtml).trim()
   if (body) lines.push(body, "")
   return {
@@ -296,13 +316,7 @@ export function plainThreadFile(input: {
     lines.push(
       `### ${kind}: ${heading}`,
       "",
-      quote(
-        cut(
-          redactThreadText(
-            withoutControls(message.text).trim().slice(0, 100_000),
-          ),
-        ),
-      ),
+      quote(cut(redactThreadText(head(withoutControls(message.text).trim())))),
       "",
     )
   }
