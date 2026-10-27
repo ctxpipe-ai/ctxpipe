@@ -5,6 +5,7 @@ import { zendeskIdPattern } from "../../domain/workspace-sources/providers/zende
 import {
   articleText,
   customerLine,
+  customerPlainLine,
   customerText,
   safeHref,
 } from "../connectors/customer-text.js"
@@ -147,8 +148,10 @@ export function zendeskArticleFile(input: {
     throw new Error("A Zendesk article id must be a number")
   const title = line(article.title)
   const slug =
-    slugify(customerLine(article.title, { maxChars: 2_048 })).slice(0, 80) ||
-    "untitled"
+    slugify(customerPlainLine(article.title, { maxChars: 2_048 })).slice(
+      0,
+      80,
+    ) || "untitled"
   const url = articleUrl(article.url, input.subdomain)
   const lines = [
     ...frontMatter([

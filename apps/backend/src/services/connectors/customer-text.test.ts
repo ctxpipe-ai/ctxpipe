@@ -5,7 +5,9 @@ import {
   type ArticlePolicy,
   articleText,
   customerLine,
+  customerPlainLine,
   customerText,
+  isUnsafeMarkdown,
   safeHref,
 } from "./customer-text.js"
 
@@ -136,6 +138,28 @@ describe("one-line fields", () => {
   })
 })
 
+describe("plain one-line fields (not Markdown)", () => {
+  const plain = (text: string) => customerPlainLine(text, { maxChars: 2_000 })
+
+  it("keeps a bracket and an angle bracket as they are", () => {
+    expect(plain("A < B [draft] `x`")).toBe("A < B [draft] `x`")
+  })
+
+  it("redacts as a Markdown field does, with no escape", () => {
+    expect(plain("Ask it@example.com\nor +61 412 345 678")).toBe(
+      "Ask [email removed] or [phone removed]",
+    )
+    expect(plain("See https://x.example.com/a?token=SECRET")).not.toContain(
+      "SECRET",
+    )
+  })
+
+  it("strips invisible characters and cuts a long field", () => {
+    expect(plain("jo​@example.com")).toBe("[email removed]")
+    expect(customerPlainLine("one two three", { maxChars: 9 })).toBe("one two…")
+  })
+})
+
 describe("no live Markdown from customer text", () => {
   it("escapes link, image, and HTML marks", () => {
     expect(
@@ -143,10 +167,10 @@ describe("no live Markdown from customer text", () => {
         "Help [me](https://evil.example.com/x) ![p](https://evil.example.com/p.png) <b>now</b>",
       ),
     ).toBe(
-      "Help \\[me\\](https://evil.example.com/x) !\\[p\\](https://evil.example.com/p.png) \\<b\\>now\\</b\\>",
+      "Help \\[me\\](https://evil.example.com/x) !\\[p\\](https://evil.example.com/p.png) &lt;b&gt;now&lt;/b&gt;",
     )
     expect(body("[ref]: https://evil.example.com\n<script>x</script>")).toBe(
-      "\\[ref\\]: https://evil.example.com\n\\<script\\>x\\</script\\>",
+      "\\[ref\\]: https://evil.example.com\n&lt;script&gt;x&lt;/script&gt;",
     )
   })
 
@@ -165,6 +189,32 @@ describe("no live Markdown from customer text", () => {
     const markdown = `[a\\[Image: ${line("x\\")}\\](javascript:alert(1)) b](https://ok.example/)`
     expect(targets(markdown)).toEqual(["https://ok.example/"])
   })
+
+  it("writes an angle bracket as a character reference", () => {
+    // In GFM, a literal autolink takes the `\\` of `\\<`, so `<javascript:…\\>`
+    // became a live autolink.
+    for (const out of [
+      body("See https://x.com/a<javascript:alert(1)> now"),
+      line("See https://x.com/a<javascript:alert(1)> now"),
+    ])
+      expect(out).toBe("See https://x.com/a&lt;javascript:alert(1)&gt; now")
+    expect(line("a\\<b")).toBe("a\\\\&lt;b")
+  })
+
+  it("escapes a backtick in a field", () => {
+    expect(line("a `b` c\\`")).toBe("a \\`b\\` c\\\\\\`")
+  })
+
+  // The `img` translator writes `\[Image: <alt>\]`. This is the Markdown for
+  // `<p>See <img alt="`"> then <code>[x](javascript:alert(1))</code> there.</p>`.
+  it.each(["credential-links", "queries", "full"] as const)(
+    "keeps a backtick in an image alt literal (%s)",
+    (policy) => {
+      const markdown = `See \\[Image: ${line("`")}\\] then \`[x](javascript:alert(1))\` there.`
+      expect(targets(markdown)).toEqual([])
+      expect(targets(articleText(markdown, policy))).toEqual([])
+    },
+  )
 
   it("leaves no unescaped bracket or angle bracket", () => {
     const out = body(
@@ -473,7 +523,7 @@ describe("URLs", () => {
     [
       "a link in angle brackets",
       "<https://f.example.com/a?token=SECRET>",
-      "\\<https://f.example.com/a\\>",
+      "&lt;https://f.example.com/a&gt;",
     ],
     [
       "an http link",
@@ -662,7 +712,8 @@ describe("credentials", () => {
     ["https://x.com/a?k=SEC`RET", "https://x.com/a"],
   ])("removes all of a secret with a backtick: %s", (text, kept) => {
     expect(body(`Use ${text} now`)).toBe(`Use ${kept} now`)
-    expect(line(text)).toBe(kept)
+    // A field escapes a backtick.
+    expect(line(text)).toBe(kept.replace(/`/g, "\\`"))
   })
 
   it("keeps normal text with an equals sign", () => {
@@ -933,6 +984,21 @@ describe("article links", () => {
     },
   )
 
+  it.each(policies)(
+    "drops a link longer than 8,192 characters (%s)",
+    (policy) => {
+      // `&` becomes `&amp;` and `\\` becomes `%5C`, so a long link grows.
+      for (const href of [
+        `https://x.example.com/a?${"&".repeat(8_200)}`,
+        `https://x.example.com/a${"\\".repeat(8_200)}`,
+      ])
+        expect(safeHref(href, policy)).toBeNull()
+      expect(
+        safeHref(`https://x.example.com/${"a".repeat(8_000)}`, policy),
+      ).toBe(`https://x.example.com/${"a".repeat(8_000)}`)
+    },
+  )
+
   it("keeps a link with a normal query for credential-links", () => {
     expect(
       safeHref("https://help.example.com/a?lang=en", "credential-links"),
@@ -1043,6 +1109,29 @@ describe("article bodies", () => {
         expect(targets(markdown)).toEqual([])
         expect(targets(articleText(markdown, policy))).toEqual([])
       }
+    },
+  )
+
+  // The `img` translator writes `\\[Image: <alt>\\]` in an `a` label. This is
+  // the Markdown for `<a href="https://ok.example/"><img alt="…">: javascript:alert(1)</a>`
+  // and for `<a href="https://ok.example/">a <img alt="…">(javascript:alert(1)) b</a>`.
+  it.each(["credential-links", "queries", "full"] as const)(
+    "keeps the escape of a bracket after a query that an image alt ends with (%s)",
+    (policy) => {
+      for (const alt of [
+        "https://x.com/a?q](b\\?c",
+        "https://x.com/a#q](b\\#c",
+        "https://x.com/a?q\\](b\\?c",
+      ])
+        for (const markdown of [
+          `[\\[Image: ${line(alt)}\\]: javascript:alert(1)](https://ok.example/)`,
+          `[a \\[Image: ${line(alt)}\\](javascript:alert(1)) b](https://ok.example/)`,
+        ]) {
+          expect(targets(markdown)).toEqual(["https://ok.example/"])
+          expect(targets(articleText(markdown, policy))).toEqual([
+            "https://ok.example/",
+          ])
+        }
     },
   )
 
@@ -1203,6 +1292,190 @@ describe("article bodies", () => {
   })
 })
 
+// node-html-markdown 1.3.0 does not escape `&lt;` in text: it writes a raw
+// `<div>` into the Markdown. Each case is its output for the HTML above it.
+describe("text tags in articles", () => {
+  const policies = ["credential-links", "queries", "full"] as const
+
+  // The node types of the Markdown, as a CommonMark parser reads it.
+  const types = (markdown: string) => {
+    const found: string[] = []
+    const visit = (node: object) => {
+      if ("type" in node && typeof node.type === "string") found.push(node.type)
+      if ("children" in node && Array.isArray(node.children))
+        node.children.forEach(visit)
+    }
+    visit(fromMarkdown(markdown))
+    return found
+  }
+
+  // <h2>Tags</h2><p>Use the &lt;div&gt; tag, and <a
+  // href="https://docs.example.com/a">read more</a>.</p><ul><li>one</li></ul>
+  it.each(policies)(
+    "keeps the heading, the list, and the link of an article (%s)",
+    (policy) => {
+      const out = articleText(
+        "## Tags\n\nUse the <div> tag, and [read more](https://docs.example.com/a).\n\n* one",
+        policy,
+      )
+      expect(out).toBe(
+        "## Tags\n\nUse the &lt;div&gt; tag, and [read more](https://docs.example.com/a).\n\n* one",
+      )
+      expect(types(out)).toEqual(
+        expect.arrayContaining(["heading", "list", "link"]),
+      )
+      expect(types(out)).not.toContain("html")
+      expect(isUnsafeMarkdown(out)).toBe(false)
+    },
+  )
+
+  // <p>&gt; not a quote</p><blockquote><p>Use &lt;br&gt; here</p>
+  // </blockquote><ul><li><p>a</p><pre><code>&lt;div&gt;</code></pre></li></ul>
+  it.each(policies)(
+    "keeps a quote mark and a code block in a list (%s)",
+    (policy) => {
+      const out = articleText(
+        "\\> not a quote\n\n> Use <br> here\n\n* a  \n```  \n<div>  \n```",
+        policy,
+      )
+      expect(out).toBe(
+        "&gt; not a quote\n\n> Use &lt;br&gt; here\n\n* a  \n```  \n<div>  \n```",
+      )
+      expect(types(out)).toEqual(
+        expect.arrayContaining(["blockquote", "list", "code"]),
+      )
+      expect(types(out)).not.toContain("html")
+    },
+  )
+
+  it.each(policies)(
+    "keeps a tag in a code span and a code block literal (%s)",
+    (policy) => {
+      const code =
+        "Code `<div>` and ``a <b> ` c``\n\n```\n<div>\n```\n\n~~~\n<p>\n~~~\n\nText\n\n    <div>\n\n\t<span>"
+      expect(articleText(code, policy)).toBe(code)
+      expect(articleText(`${code}\n\nThe <div> tag`, policy)).toBe(
+        `${code}\n\nThe &lt;div&gt; tag`,
+      )
+      expect(types(articleText(`${code}\n\nThe <div> tag`, policy))).toEqual(
+        expect.arrayContaining(["inlineCode", "code"]),
+      )
+    },
+  )
+
+  // `a \<b\> c` is the Markdown of `a <b> c` with the tag escaped, and
+  // node-html-markdown gives `a \\<b\\> c` for `<p>a \&lt;b\&gt; c</p>`.
+  it.each(policies)("keeps the escape of an angle bracket (%s)", (policy) => {
+    for (const [markdown, out, shown] of [
+      ["a \\<b\\> c", "a &lt;b&gt; c", "a <b> c"],
+      ["a \\\\<b\\\\> c", "a \\\\&lt;b\\\\&gt; c", "a \\<b\\> c"],
+      ["a \\\\\\<b> c", "a \\\\&lt;b&gt; c", "a \\<b> c"],
+    ] as const) {
+      const result = articleText(markdown, policy)
+      expect(result).toBe(out)
+      expect(types(result)).toEqual(["root", "paragraph", "text"])
+      expect(fromMarkdown(result).children).toMatchObject([
+        { children: [{ value: shown }] },
+      ])
+    }
+  })
+
+  it.each(policies)("writes an autolink in text as text (%s)", (policy) => {
+    const out = articleText("See <https://x.example.com/a> now", policy)
+    expect(out).toBe("See &lt;https://x.example.com/a&gt; now")
+    expect(targets(out)).toEqual([])
+  })
+})
+
+describe("parser check", () => {
+  it.each([
+    ["HTML", "a <b>c</b>"],
+    // oxlint-disable-next-line no-script-url -- the case is a hostile link
+    ["a script link", "[x](javascript:alert(1))"],
+    ["an http link", "[x](http://x.example.com/)"],
+    ["a relative link", "[x](/a)"],
+    // oxlint-disable-next-line no-script-url -- the case is a hostile link
+    ["a definition", "[x]: javascript:alert(1)"],
+    // oxlint-disable-next-line no-script-url -- the case is a hostile link
+    ["an autolink", "<javascript:alert(1)>"],
+    ["an image with a userinfo", "![x](https://u:p@x.example.com/a.png)"],
+    ["an encoded userinfo", "[x](https://SECRET&commat;x.example.com/a)"],
+    ["a credential parameter", "[x](https://x.example.com/a?token=s1)"],
+  ])("finds %s", (_name, markdown) => {
+    expect(isUnsafeMarkdown(markdown)).toBe(true)
+  })
+
+  it("passes text, escaped marks, code, and safe https links", () => {
+    for (const markdown of [
+      "Plain text",
+      "\\[x\\](javascript:alert(1)) &lt;b&gt;",
+      "`[x](javascript:alert(1))`",
+      "[x](https://help.example.com/a?lang=en)",
+    ])
+      expect(isUnsafeMarkdown(markdown)).toBe(false)
+  })
+
+  // The live outputs of round 3 (23ca2069c) that the security re-review found.
+  // The parser check alone finds each of them.
+  it.each([
+    [
+      "N1, a definition after an image alt",
+      "[\\[Image: https://x.com/a\\](b\\\\]: javascript:alert(1)](https://ok.example/)",
+    ],
+    [
+      "N1, a link after an image alt",
+      "[a \\[Image: https://x.com/a\\](b\\\\](javascript:alert(1)) b](https://ok.example/)",
+    ],
+    [
+      "P1, a backtick in an image alt",
+      "See \\[Image: `\\] then `[x](javascript:alert(1))` there.",
+    ],
+  ])("finds the round 3 output: %s", (_name, markdown) => {
+    expect(isUnsafeMarkdown(markdown)).toBe(true)
+  })
+
+  it("counts text over 50,000 characters as unsafe", () => {
+    expect(
+      isUnsafeMarkdown(`[x](https://ok.example/) ${"a".repeat(50_000)}`),
+    ).toBe(true)
+  })
+
+  it("reads a deep tree without a stack overflow", () => {
+    expect(
+      isUnsafeMarkdown(`${"> ".repeat(20_000)}[x](https://ok.example/)`),
+    ).toBe(false)
+    expect(isUnsafeMarkdown(`${"> ".repeat(20_000)}[x](/a)`)).toBe(true)
+  })
+
+  it.each(["credential-links", "queries", "full"] as const)(
+    "writes an article with a live node as inert, redacted text (%s)",
+    (policy) => {
+      expect(
+        articleText("Use [a](/b) and [x](https://ok.example/a) now", policy),
+      ).toBe(
+        "Use \\[a\\]\\(\\/b\\) and \\[x\\]\\(https\\:\\/\\/ok\\.example\\/a\\) now",
+      )
+      expect(articleText("See [x](/a) and token=SECRET now", policy)).toBe(
+        "See \\[x\\]\\(\\/a\\) and token\\=\\[removed\\] now",
+      )
+    },
+  )
+
+  it.each(["credential-links", "queries", "full"] as const)(
+    "writes a long article as inert, redacted text (%s)",
+    (policy) => {
+      const out = articleText(
+        `See token=SECRET and [x](https://ok.example/) ${"a ".repeat(25_000)}`,
+        policy,
+      )
+      expect(out).toMatch(
+        /^See token\\=\\\[removed\\\] and \\\[x\\\]\\\(https\\:\\\/\\\/ok\\\.example\\\/\\\) a a/,
+      )
+      expect(targets(out)).toEqual([])
+    },
+  )
+})
+
 describe("time", () => {
   // The worst shapes from the security reviews, at 5,000,000 characters,
   // through the whole redaction (no cut) and the article link rule. A
@@ -1245,12 +1518,42 @@ describe("time", () => {
       `https://x.co/${"%25".repeat(n / 3)}`,
       "a@b\u3002".repeat(n / 4),
       `\`${"\u200b".repeat(n)}`,
+      "a <b> ".repeat(n / 6),
     ]
     const start = performance.now()
     for (const text of shapes) {
       customerText(text, { maxChars: text.length })
       articleText(text, "credential-links")
     }
+    expect(performance.now() - start).toBeLessThan(60_000)
+  }, 120_000)
+
+  // A link query of `&amp;` (the article link of `?` and 2,000,000 `&`)
+  // overflowed the V8 stack when the query pattern had a lookahead in a
+  // repeated group.
+  it("redacts a query of 10,000,000 characters", () => {
+    const text = `https://x.com/a?${"&amp;".repeat(2_000_000)}`
+    for (const policy of ["credential-links", "queries", "full"] as const)
+      expect(articleText(`[x](${text})`, policy)).not.toContain("&amp;&amp;")
+    expect(
+      customerText(`[x](${text})`, { maxChars: Number.POSITIVE_INFINITY }).text,
+    ).toBe("\\[x\\](https://x.com/a;)")
+  })
+
+  // The parse costs quadratic time on a run of `]` (the slowest shape that
+  // was found), so the length limit of the parser check bounds it. `*a*a…`
+  // is quadratic too, unless the parser skips emphasis. Each shape starts
+  // with `[`, so that the check parses it.
+  it("checks the slowest parser shapes at the length limit", () => {
+    const n = 49_999
+    const shapes = [
+      "]".repeat(n),
+      "*a".repeat(n / 2),
+      `<${"]".repeat(n - 1)}`,
+      `<${"\\".repeat(n - 1)}`,
+    ]
+    const start = performance.now()
+    for (const text of shapes) articleText(`[${text}`, "credential-links")
     expect(performance.now() - start).toBeLessThan(60_000)
   }, 120_000)
 })

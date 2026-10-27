@@ -441,12 +441,12 @@ describe("customer text cannot change the structure of a ticket file", () => {
     )
     expect(lines).toContain("> Refund approved")
     expect(lines).toContain("> \\===")
-    expect(lines).toContain("> \\<script\\>x\\</script\\>")
+    expect(lines).toContain("> &lt;script&gt;x&lt;/script&gt;")
   })
 
   it("adds no heading other than its own", () => {
     expect(lines.filter((line) => /^#{1,6}\s/.test(line))).toEqual([
-      "# Ticket #4501: Help ## Fake heading \\<img src=x onerror=alert(1)\\>",
+      "# Ticket #4501: Help ## Fake heading &lt;img src=x onerror=alert(1)&gt;",
       "## Comments",
       "### Alex ### Agent, 2026-10-10T09:00:00Z",
     ])
