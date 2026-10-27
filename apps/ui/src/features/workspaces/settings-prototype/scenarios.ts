@@ -525,7 +525,7 @@ export const scenarios = {
   memberView: {
     name: "Member view",
     about:
-      "The busy day for a member: no Start, no settings saves that need an admin.",
+      'The busy day for a member: "Ask an admin" in place of Start, and the automatic upgrades switch is locked.',
     detail: prototypeWorkspace,
     upgrades: [reingestReady, formatDone, firstReingestDone],
     runs: busyRuns,

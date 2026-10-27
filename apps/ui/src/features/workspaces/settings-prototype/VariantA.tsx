@@ -385,8 +385,8 @@ function UpgradeDetails(props: { view: UpgradeView }) {
                     Format {step.format}: {step.title}
                   </p>
                   <ul className="mt-1 flex flex-col gap-1 break-words">
-                    {step.report.map((line, index) => (
-                      <li key={`${step.format}-${index}`}>{line}</li>
+                    {step.report.map((line) => (
+                      <li key={`${step.format}-${line}`}>{line}</li>
                     ))}
                   </ul>
                 </div>

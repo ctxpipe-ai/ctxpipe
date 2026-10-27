@@ -1,9 +1,10 @@
 /**
  * PROTOTYPE, throwaway (see prototype-variant.ts). Variant D: variant C, one
- * card for each part, made wide (the pane opens maximized), with the live
- * work of each source in the Status column of the sources list. No separate
- * "running" block: a source shows its connection, what ctxpipe does with it
- * now, and for how long, in its own row.
+ * card for each part, made wide (the pane opens maximized). Each card states
+ * its state one time, in its body. The live work of each source shows in its
+ * row of the sources list, so there is no separate "running" block. The
+ * header of a card shows only what its body does not: "Up to date" or
+ * "Not saved".
  */
 import {
   IconAlertTriangle,
@@ -1089,7 +1090,7 @@ function RepositoryCard(props: { model: SettingsModel }) {
       footer={
         <Button
           type="submit"
-          form="settings-c-root-folder"
+          form="settings-d-root-folder"
           variant="primary"
           isPending={repository.savingRootFolder}
           isDisabled={!canSave}
@@ -1141,7 +1142,7 @@ function RepositoryCard(props: { model: SettingsModel }) {
         <WriteAccessLine model={props.model} />
 
         <form
-          id="settings-c-root-folder"
+          id="settings-d-root-folder"
           className="max-w-md"
           onSubmit={(event) => {
             event.preventDefault()

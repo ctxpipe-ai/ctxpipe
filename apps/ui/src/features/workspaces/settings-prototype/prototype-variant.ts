@@ -4,9 +4,9 @@
  *
  * Question: what should Workspace settings look like, so that a user sees at
  * once what needs them and what runs, and finds each setting with one save
- * model? Three structurally different variants of the settings pane, on the
- * real Workspace page, switchable from a floating bar in Storybook
- * ("Pages/Prototype/Workspace settings"). "current" is today's pane.
+ * model? Four variants of the settings pane, on the real Workspace page,
+ * switchable from a floating bar in Storybook ("Pages/Prototype/Workspace
+ * settings"). "current" is today's pane.
  */
 import { createContext, useContext, useEffect } from "react"
 

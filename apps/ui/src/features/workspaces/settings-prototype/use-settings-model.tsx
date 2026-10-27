@@ -646,6 +646,7 @@ export function useSettingsModel(props: {
                   placeholder={workspace.displayName}
                   value={confirmName}
                   onChange={setConfirmName}
+                  // oxlint-disable-next-line jsx-a11y/no-autofocus -- the dialog opens on its one field, as in WorkspaceSettingsPane
                   autoFocus
                 />
                 <div className="mt-6 flex justify-end gap-2">

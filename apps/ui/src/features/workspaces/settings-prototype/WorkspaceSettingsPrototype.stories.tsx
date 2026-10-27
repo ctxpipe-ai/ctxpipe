@@ -37,7 +37,7 @@ type PrototypeArgs = {
   variant: SettingsVariantKey
 }
 
-const withVariant: Decorator = (Story, context) => {
+const withVariant: Decorator = function WithVariant(Story, context) {
   const [args, updateArgs] = useArgs<PrototypeArgs>()
   const scenario = (context.parameters.scenario as Scenario | undefined) ?? {
     name: "",

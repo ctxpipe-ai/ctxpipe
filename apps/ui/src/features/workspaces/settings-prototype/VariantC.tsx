@@ -431,8 +431,8 @@ function UpgradeEntry(props: { view: UpgradeView; model: SettingsModel }) {
                     Format {step.format}: {step.title}
                   </p>
                   <ul className="mt-1 flex flex-col gap-1 text-xs break-words text-muted-foreground">
-                    {step.report.map((line, index) => (
-                      <li key={`${step.format}-${index}`}>{line}</li>
+                    {step.report.map((line) => (
+                      <li key={`${step.format}-${line}`}>{line}</li>
                     ))}
                   </ul>
                 </div>
