@@ -14,6 +14,7 @@
 
 import { createHash } from "node:crypto"
 import { posix } from "node:path"
+
 import { DENIED_HEADINGS } from "../../bin/guard-patterns.mjs"
 import {
   findExisting,

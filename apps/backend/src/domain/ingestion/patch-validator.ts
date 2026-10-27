@@ -13,11 +13,11 @@ import { isDeepStrictEqual } from "node:util"
 import { fromMarkdown } from "mdast-util-from-markdown"
 import { parseDocument, stringify, type YAMLSeq } from "yaml"
 import { z } from "zod"
+
 import {
   DENIED_HEADINGS,
   INJECTION_PHRASES,
 } from "../../../ingest-skills/bin/guard-patterns.mjs"
-
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { isHostOnlyPath } from "../workspaces/host-only.js"
 import {

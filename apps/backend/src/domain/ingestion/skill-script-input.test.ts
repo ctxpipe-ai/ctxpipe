@@ -279,10 +279,9 @@ describe("hostile workflow files", () => {
     ["a complex key", `? jobs\n: leak\non: push\n${JOB}`],
     [
       "a key at the wrong depth",
-      STEP(
+      `${STEP(
         "      - uses: x\n        with:\n          working-directory: leak\n        env:\n          working-directory: leak\n",
-      ) +
-        "    env:\n      defaults:\n        run:\n          working-directory: leak\n",
+      )}    env:\n      defaults:\n        run:\n          working-directory: leak\n`,
     ],
     ["a nested list", STEP("      - - working-directory: leak\n")],
     ["a long line", `${JOB}on: push\nname: ${"leak ".repeat(1000)}\n`],
