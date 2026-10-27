@@ -9,7 +9,7 @@ import {
   markBuildkiteConnectionRevoked,
 } from "../../models/buildkite-connector.js"
 import { saveConnectionSourceSync } from "../../models/connection-source-sync.js"
-import { log } from "../../observability/logger.js"
+import { getLogger } from "../../observability/logger.js"
 import { connectorCommitFileUnchanged } from "../connectors/assets.js"
 import type { GitFileChange } from "../git/file-change.js"
 import {
@@ -37,7 +37,7 @@ function missingDetail(
 ) {
   return reason === "not_found"
     ? `Buildkite pipeline ${pipelineSlug} does not exist. Remove it from the source.`
-    : `ctx| cannot read Buildkite pipeline ${pipelineSlug}. Give the API access token access to it, or remove it from the source.`
+    : `ctxpipe cannot read Buildkite pipeline ${pipelineSlug}. Give the API access token access to it, or remove it from the source.`
 }
 
 async function loadConnection(
@@ -150,11 +150,11 @@ export const buildkiteSourceAdapter: SourceAdapter<BuildkiteSourceScope> = {
           continue
         }
         // A provider outage: keep the last copy, and do not count it.
-        log.warn({
+        getLogger().warn("Buildkite source pipeline capture failed", {
           step: "buildkite.sources.capture",
           connectionId,
           pipelineSlug,
-          message: error instanceof Error ? error.message : String(error),
+          error: error instanceof Error ? error.message : String(error),
         })
       }
     }
@@ -171,10 +171,7 @@ export const buildkiteSourceAdapter: SourceAdapter<BuildkiteSourceScope> = {
         ),
       },
     })
-    const kept = keepPaths.filter(
-      (path) => !unreachable.some((lost) => lost.path === path),
-    )
-    return { files, deletePaths, keepPaths: kept, unreachable }
+    return { files, deletePaths, keepPaths, unreachable }
   },
   async checkAccess({ orgId, connectionId, scope, env }) {
     const connection = await loadConnection(orgId, connectionId, env)

@@ -1,11 +1,11 @@
 "use client"
 
-import { IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { Link } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { TextField } from "@/components/ui/TextField"
@@ -29,21 +29,6 @@ import { orgConnectionsKeys } from "../queries/org-connections"
 import { BuildkiteMark } from "./BuildkiteMark"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { CopyableUrl } from "./notion-setup/CopyableUrl"
-
-/** A link out of the product: teal, as the other setup dialogs show it. */
-function ExternalLink(props: { href: string; children: string }) {
-  return (
-    <a
-      href={props.href}
-      target="_blank"
-      rel="noreferrer"
-      className="inline-flex items-center gap-1 font-medium text-teal-400 hover:text-teal-300"
-    >
-      {props.children}
-      <IconExternalLink className="size-3.5" aria-hidden />
-    </a>
-  )
-}
 
 type BuildkiteSetupDialogProps = {
   orgSlug: string
@@ -250,16 +235,20 @@ function ConnectStep(props: {
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
           Create an{" "}
-          <ExternalLink href="https://buildkite.com/user/api-access-tokens/new">
+          <Link
+            href="https://buildkite.com/user/api-access-tokens/new"
+            target="_blank"
+            rel="noreferrer"
+          >
             API access token
-          </ExternalLink>{" "}
+          </Link>{" "}
           for your organization with only the{" "}
           <code className="font-mono text-xs text-foreground">
             read_pipelines
           </code>{" "}
           and{" "}
           <code className="font-mono text-xs text-foreground">read_builds</code>{" "}
-          scopes, and do not select GraphQL API access. ctx| refuses a token
+          scopes, and do not select GraphQL API access. ctxpipe refuses a token
           with more scopes or with GraphQL API access. It only reads with the
           token, and keeps it encrypted.
         </p>
@@ -341,11 +330,13 @@ function WebhookStep(props: {
       <ol className="list-decimal space-y-3 pl-5 text-sm text-muted-foreground">
         <li>
           In Buildkite, open{" "}
-          <ExternalLink
+          <Link
+            target="_blank"
+            rel="noreferrer"
             href={`https://buildkite.com/organizations/${encodeURIComponent(props.status.organizationSlug)}/services`}
           >
             Notification Services
-          </ExternalLink>{" "}
+          </Link>{" "}
           and add a{" "}
           <strong className="font-medium text-foreground">Webhook</strong>.
         </li>
@@ -360,7 +351,7 @@ function WebhookStep(props: {
           <code className="font-mono text-xs text-foreground">
             X-Buildkite-Signature
           </code>
-          ). ctx| refuses a plain token.
+          ). ctxpipe refuses a plain token.
         </li>
         <li>
           <strong className="font-medium text-foreground">Events</strong>: Clear
@@ -368,7 +359,7 @@ function WebhookStep(props: {
           <code className="font-mono text-xs text-foreground">
             build.finished
           </code>
-          . ctx| uses only that event.
+          . ctxpipe uses only that event.
         </li>
         <li>
           <strong className="font-medium text-foreground">Pipelines</strong>:

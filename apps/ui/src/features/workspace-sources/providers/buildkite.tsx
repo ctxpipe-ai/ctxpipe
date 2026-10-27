@@ -25,7 +25,7 @@ import type {
 import { ScopeLimitAlert } from "./ScopeLimitAlert"
 
 /**
- * Select the Buildkite pipelines of a source. ctx| syncs each pipeline with
+ * Select the Buildkite pipelines of a source. ctxpipe syncs each pipeline with
  * its latest finished builds.
  */
 export function BuildkiteScopeEditor(props: SourceScopeEditorProps) {
@@ -69,8 +69,8 @@ export function BuildkiteScopeEditor(props: SourceScopeEditorProps) {
     <section aria-label={heading} className="flex flex-col gap-3">
       <h3 className="text-sm font-medium text-foreground">{heading}</h3>
       <p className="text-sm text-muted-foreground">
-        ctx| syncs each pipeline with its latest 25 finished builds and the jobs
-        that failed.
+        ctxpipe syncs each pipeline with its latest 25 finished builds and the
+        jobs that failed.
       </p>
       <SearchField
         aria-label={`Filter Buildkite pipelines for ${label ?? "this source"}`}

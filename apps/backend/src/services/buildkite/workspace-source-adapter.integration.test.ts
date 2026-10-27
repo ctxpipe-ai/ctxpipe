@@ -295,7 +295,7 @@ describe("Buildkite source adapter (Postgres + msw)", () => {
         env,
       }),
     ).toBe(
-      "Buildkite pipeline gone does not exist. Remove it from the source.; ctx| cannot read Buildkite pipeline private. Give the API access token access to it, or remove it from the source.",
+      "Buildkite pipeline gone does not exist. Remove it from the source.; ctxpipe cannot read Buildkite pipeline private. Give the API access token access to it, or remove it from the source.",
     )
   })
 

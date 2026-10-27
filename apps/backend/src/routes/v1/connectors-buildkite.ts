@@ -15,7 +15,7 @@ import {
 
 const ErrorResponseSchema = z.object({ error: z.string() })
 const ConnectionIdQuerySchema = z.object({ connectionId: z.string().min(1) })
-const error = (description: string) => ({
+const errorResponse = (description: string) => ({
   content: { "application/json": { schema: ErrorResponseSchema } },
   description,
 })
@@ -55,10 +55,10 @@ const connectRoute = createRoute({
       },
       description: "The connection is created, or its token is replaced",
     },
-    400: error("Buildkite refused the token or the organization"),
-    401: error("Unauthorized"),
-    404: error(UNKNOWN_CONNECTION),
-    409: error("The connection is for another Buildkite organization"),
+    400: errorResponse("Buildkite refused the token or the organization"),
+    401: errorResponse("Unauthorized"),
+    404: errorResponse(UNKNOWN_CONNECTION),
+    409: errorResponse("The connection is for another Buildkite organization"),
   },
 })
 
@@ -81,8 +81,8 @@ const statusRoute = createRoute({
       },
       description: "The Buildkite connection, without secrets",
     },
-    401: error("Unauthorized"),
-    404: error(UNKNOWN_CONNECTION),
+    401: errorResponse("Unauthorized"),
+    404: errorResponse(UNKNOWN_CONNECTION),
   },
 })
 
@@ -103,8 +103,8 @@ const webhookTokenRoute = createRoute({
   },
   responses: {
     204: { description: "The webhook token is saved" },
-    401: error("Unauthorized"),
-    404: error(UNKNOWN_CONNECTION),
+    401: errorResponse("Unauthorized"),
+    404: errorResponse(UNKNOWN_CONNECTION),
   },
 })
 
@@ -118,16 +118,16 @@ const pipelinesRoute = createRoute({
         "application/json": {
           schema: z.object({
             items: z.array(z.object({ slug: z.string(), name: z.string() })),
-            /** True when the organization has more pipelines than ctx| reads. */
+            /** True when the organization has more pipelines than ctxpipe reads. */
             truncated: z.boolean(),
           }),
         },
       },
       description: "The pipelines of the organization, for the scope picker",
     },
-    400: error(RECONNECT_MESSAGE),
-    401: error("Unauthorized"),
-    404: error(UNKNOWN_CONNECTION),
+    400: errorResponse(RECONNECT_MESSAGE),
+    401: errorResponse("Unauthorized"),
+    404: errorResponse(UNKNOWN_CONNECTION),
   },
 })
 
@@ -137,8 +137,8 @@ const deleteRoute = createRoute({
   request: { query: ConnectionIdQuerySchema },
   responses: {
     204: { description: "The connection is removed" },
-    401: error("Unauthorized"),
-    404: error(UNKNOWN_CONNECTION),
+    401: errorResponse("Unauthorized"),
+    404: errorResponse(UNKNOWN_CONNECTION),
   },
 })
 
@@ -239,10 +239,10 @@ export const buildkiteConnectorRoutes = new OpenAPIHono<AppEnv>()
         { items: listed.pipelines, truncated: listed.truncated },
         200,
       )
-    } catch (caught) {
-      if (caught instanceof BuildkiteUnauthorizedError)
+    } catch (error) {
+      if (error instanceof BuildkiteUnauthorizedError)
         return c.json({ error: RECONNECT_MESSAGE }, 400)
-      throw caught
+      throw error
     }
   })
   .openapi(deleteRoute, async (c) => {

@@ -853,18 +853,13 @@ export type BuildkiteSourceSync = z.infer<typeof buildkiteSourceSyncSchema>
  * API access token. The webhook token is the one that Buildkite shows for
  * the webhook that the admin adds. Both are connection-specific secrets.
  */
-export const buildkiteConnectionConfigStoredSchema = z
-  .object({
-    organizationSlug: z.string().min(1),
-    apiTokenEnc: z.string().min(1),
-    webhookTokenEnc: z.string().min(1).optional(),
-    status: z.enum(["installed", "revoked"]).optional(),
-    sourceSync: buildkiteSourceSyncSchema.optional(),
-  })
-  .transform((config) => ({
-    ...config,
-    status: config.status ?? ("installed" as const),
-  }))
+export const buildkiteConnectionConfigStoredSchema = z.object({
+  organizationSlug: z.string().min(1),
+  apiTokenEnc: z.string().min(1),
+  webhookTokenEnc: z.string().min(1).optional(),
+  status: z.enum(["installed", "revoked"]),
+  sourceSync: buildkiteSourceSyncSchema.optional(),
+})
 
 export type BuildkiteConnectionConfigStored = z.infer<
   typeof buildkiteConnectionConfigStoredSchema

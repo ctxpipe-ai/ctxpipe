@@ -24,6 +24,14 @@ const BUILDKITE_MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 /** The pipeline picker reads at most this many pages of 100 pipelines. */
 const BUILDKITE_MAX_PIPELINE_PAGES = 10
 
+/** The API path of the pipelines of an organization, or of one pipeline. */
+function pipelinesPath(organizationSlug: string, pipelineSlug?: string) {
+  const base = `/organizations/${encodeURIComponent(organizationSlug)}/pipelines`
+  return pipelineSlug === undefined
+    ? base
+    : `${base}/${encodeURIComponent(pipelineSlug)}`
+}
+
 /** Buildkite does not accept the API access token any more (401). */
 export class BuildkiteUnauthorizedError extends Error {
   constructor(message = "Buildkite does not accept the API access token") {
@@ -277,11 +285,11 @@ export async function verifyBuildkiteAccess(input: {
     return {
       ok: false,
       error:
-        "ctx| cannot make sure that the token has no GraphQL API access. Try again later.",
+        "ctxpipe cannot make sure that the token has no GraphQL API access. Try again later.",
     }
   const response = await buildkiteGet({
     apiToken: input.apiToken,
-    path: `/organizations/${encodeURIComponent(input.organizationSlug)}/pipelines`,
+    path: pipelinesPath(input.organizationSlug),
     timeoutMs: input.timeoutMs,
     search: { per_page: "1" },
     maxWaitMs: BUILDKITE_INTERACTIVE_MAX_WAIT_MS,
@@ -309,7 +317,7 @@ export async function listBuildkitePipelines(input: {
   for (let page = 1; page <= BUILDKITE_MAX_PIPELINE_PAGES; page += 1) {
     const response = await buildkiteGet({
       apiToken: input.apiToken,
-      path: `/organizations/${encodeURIComponent(input.organizationSlug)}/pipelines`,
+      path: pipelinesPath(input.organizationSlug),
       timeoutMs: input.timeoutMs,
       search: { page: String(page), per_page: "100" },
       maxWaitMs: BUILDKITE_INTERACTIVE_MAX_WAIT_MS,
@@ -339,7 +347,7 @@ export async function getBuildkitePipeline(input: {
 }): Promise<BuildkitePipelineForMirror | "not_found" | "forbidden"> {
   const response = await buildkiteGet({
     apiToken: input.apiToken,
-    path: `/organizations/${encodeURIComponent(input.organizationSlug)}/pipelines/${encodeURIComponent(input.pipelineSlug)}`,
+    path: pipelinesPath(input.organizationSlug, input.pipelineSlug),
     timeoutMs: input.timeoutMs,
   })
   if (response.status === 404) return "not_found"
@@ -364,7 +372,7 @@ export async function listBuildkiteBuilds(input: {
 }): Promise<BuildkiteBuildForMirror[]> {
   const response = await buildkiteGet({
     apiToken: input.apiToken,
-    path: `/organizations/${encodeURIComponent(input.organizationSlug)}/pipelines/${encodeURIComponent(input.pipelineSlug)}/builds`,
+    path: `${pipelinesPath(input.organizationSlug, input.pipelineSlug)}/builds`,
     timeoutMs: input.timeoutMs,
     search: {
       state: "finished",

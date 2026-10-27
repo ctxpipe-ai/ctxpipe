@@ -216,7 +216,7 @@ describe("verifyBuildkiteAccess", () => {
       expect(await verify()).toEqual({
         ok: false,
         error:
-          "ctx| cannot make sure that the token has no GraphQL API access. Try again later.",
+          "ctxpipe cannot make sure that the token has no GraphQL API access. Try again later.",
       })
       expect(requests).toEqual([])
     },
@@ -267,7 +267,7 @@ describe("verifyBuildkiteAccess", () => {
       expect(await verify()).toEqual({
         ok: false,
         error:
-          "ctx| cannot make sure that the token has no GraphQL API access. Try again later.",
+          "ctxpipe cannot make sure that the token has no GraphQL API access. Try again later.",
       })
       expect(requests).toEqual([])
     },
