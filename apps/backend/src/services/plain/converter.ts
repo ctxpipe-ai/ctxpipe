@@ -103,10 +103,11 @@ const withoutMarkdownSyntax = (text: string) =>
 /**
  * Text without control and format characters, except tab and the line
  * ends. A format character (such as a bidi override or a zero-width mark)
- * can change how a reader or an agent sees the text.
+ * can change how a reader or an agent sees the text. The combining grapheme
+ * joiner (U+034F) is not a format character, but it also hides text.
  */
 const withoutControls = (text: string) =>
-  text.replace(/(?![\t\n\r])[\p{Cc}\p{Cf}]/gu, "")
+  text.replace(/(?![\t\n\r])[\p{Cc}\p{Cf}\u034F]/gu, "")
 
 /**
  * Each Markdown link keeps only its text, unless its target is a URL that
@@ -128,13 +129,13 @@ const withoutPrivateLinks = (text: string) =>
  * credential at the end of a long URL cannot pass.
  */
 function withHttpsUrlsOnly(text: string): string {
-  return text.replace(/(?:https?:\/\/|\bwww\.)[^\s<>"']+/g, (match) => {
+  return text.replace(/(?:https?:\/\/|\bwww\.)[^\s<>"']+/gi, (match) => {
     // Punctuation after a URL is not part of the URL.
     let end = match.length
     while (end > 0 && ".,;:!?)]}\\".includes(match.charAt(end - 1))) end -= 1
     const url = match.slice(0, end)
     // A link that starts with `www.` is a link in GFM viewers: same filter.
-    const target = url.startsWith("www.") ? `https://${url}` : url
+    const target = /^www\./i.test(url) ? `https://${url}` : url
     return url.length <= 2_048 && isKeptUrl(target)
       ? match
       : `[link removed]${match.slice(end)}`
@@ -182,7 +183,10 @@ const oneLine = (text: string) => withoutControls(text.replace(/\s+/g, " "))
 const inline = (text: string) => withoutMarkdownSyntax(oneLine(text))
 
 /** A title or a name from a customer: short, redacted, and on one line. */
-const field = (text: string) => inline(redactThreadText(text.slice(0, 1_000)))
+const field = (text: string) =>
+  inline(
+    redactThreadText(withoutControls(text).slice(0, 100_000)).slice(0, 1_000),
+  )
 
 /**
  * A message body as a quote, with no link, image, or HTML. Markdown also
@@ -292,7 +296,13 @@ export function plainThreadFile(input: {
     lines.push(
       `### ${kind}: ${heading}`,
       "",
-      quote(cut(redactThreadText(message.text.trim().slice(0, 100_000)))),
+      quote(
+        cut(
+          redactThreadText(
+            withoutControls(message.text).trim().slice(0, 100_000),
+          ),
+        ),
+      ),
       "",
     )
   }

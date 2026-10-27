@@ -507,3 +507,61 @@ describe("headings and links from the Plain API", () => {
     expect(content).toContain("> \\---")
   })
 })
+
+describe("redaction gaps found in re-review (CTX-869)", () => {
+  const render = (over: Partial<PlainThreadForMirror>) =>
+    plainThreadFile({ labelTypeId: "lt_1", thread: { ...thread, ...over } })
+      .content
+
+  it("strips invisible characters before the message length cut", () => {
+    // 100,000 characters of format marks, then an address: the strip must
+    // run before the 100,000-character slice.
+    const content = render({
+      messages: [
+        {
+          authorName: null,
+          createdAt: null,
+          internal: false,
+          text: `${"​".repeat(99_990)}jo.smith@example.com ${"x".repeat(30)}`,
+        },
+      ],
+    })
+    expect(content).not.toContain("jo.smith")
+  })
+
+  it("redacts a title before its 1,000-character cut", () => {
+    const content = render({
+      title: `${"x".repeat(985)} jo.smith@example.com`,
+    })
+    expect(content).not.toContain("jo.smith")
+    expect(content).not.toContain("example.c")
+  })
+
+  it("filters an upper-case HTTPS link that has a token", () => {
+    const content = render({
+      messages: [
+        {
+          authorName: null,
+          createdAt: null,
+          internal: false,
+          text: "Open HTTPS://files.example.com/log?token=abc123secret now",
+        },
+      ],
+    })
+    expect(content).not.toContain("abc123secret")
+  })
+
+  it("strips the combining grapheme joiner inside an address", () => {
+    const content = render({
+      messages: [
+        {
+          authorName: null,
+          createdAt: null,
+          internal: false,
+          text: "Write to jo.smith͏@example.com please",
+        },
+      ],
+    })
+    expect(content).not.toContain("jo.smith")
+  })
+})
