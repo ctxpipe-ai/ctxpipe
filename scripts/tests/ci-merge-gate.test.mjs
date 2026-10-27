@@ -558,7 +558,7 @@ test("no dependency bin can run in the manifest step", () => {
   const bin = join(directory, "node_modules/.bin")
   const marker = join(directory, "ran")
   mkdirSync(bin, { recursive: true })
-  for (const name of ["node", "git"])
+  for (const name of ["node", "git", "pnpm", "bun"])
     writeFileSync(
       join(bin, name),
       `#!/bin/sh\necho ${name} >> "${marker}"\nexit 1\n`,
@@ -576,6 +576,20 @@ test("no dependency bin can run in the manifest step", () => {
   )
   assert.equal(listed.status, 0, listed.stderr)
   assert.ok(JSON.parse(listed.stdout).checks.length > 0)
+  assert.equal(existsSync(marker), false, "a dependency bin ran")
+  // toolchain.mjs probes pnpm and bun: neither may come from a dependency.
+  const manifest = join(directory, "manifest.json")
+  writeFileSync(manifest, JSON.stringify({ checks: [] }))
+  const probed = spawnSync(
+    process.execPath,
+    [join(root, "scripts/checks/toolchain.mjs"), manifest],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${bin}:.:${process.env.PATH}` },
+    },
+  )
+  assert.equal(probed.status, 0, probed.stderr)
   assert.equal(existsSync(marker), false, "a dependency bin ran")
 })
 
