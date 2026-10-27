@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import {
   existsSync,
   mkdirSync,
@@ -10,6 +11,7 @@ import { pathToFileURL } from "node:url"
 
 import { schemaErrors } from "./schema.mjs"
 import {
+  checkJobs,
   profiles,
   readTrace,
   runsInOf,
@@ -26,6 +28,8 @@ import {
 //                 --changed <file>
 //     Prints {"mode", "reason"}: `select` when the selector runs for this
 //     run, else `full` and why. <file> lists the changed paths of the PR.
+//     With `select`, "jobs" names the jobs of a ci.yaml change whose checks
+//     all run. It runs git on the checkout (HEAD^1 and HEAD).
 //
 //   gate.mjs shadow --config <merge-gate.json> --inputs <dir> --results <dir>
 //                   --needs <file> [--jobs <file>] [--earlier <file>]
@@ -82,7 +86,54 @@ export function stepResults(jobs) {
   return results
 }
 
-export function decideMode({ config, event, fork, changed }) {
+// The job of line i of ci.yaml when the line is in the `steps` of a job that
+// a manifest check runs in (or in the Storybook build job, which they need);
+// null for a blank or comment line; else undefined. It reads the indents of
+// the workflow, not its YAML.
+function jobOf(lines, i) {
+  if (/^\s*(?:#|$)/.test(lines[i])) return null
+  let key
+  let job
+  for (let j = i; j >= 0; j--) {
+    const [, indent, name] = /^( *)([\w-]+):/.exec(lines[j]) ?? []
+    if (name === undefined) continue
+    if (indent.length === 4 && !job) key ??= name
+    else if (indent.length === 2) job ??= name
+    else if (indent.length === 0)
+      return name === "jobs" &&
+        job &&
+        key === "steps" &&
+        (checkJobs.has(job) || job === "storybook-build")
+        ? job
+        : undefined
+  }
+  return undefined
+}
+
+// The jobs that a change to ci.yaml touches, from the line ranges of its
+// `git diff -U0` hunks on both sides, or undefined when one changed line is
+// not in the `steps` of such a job.
+function changedJobs(path, read, diff) {
+  const sides = [read(path, "base"), read(path, "head")].map((text) =>
+    text.split("\n"),
+  )
+  const jobs = new Set()
+  for (const [, ...range] of diff(path).matchAll(
+    /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm,
+  ))
+    for (const [side, lines] of sides.entries()) {
+      const start = Number(range[side * 2])
+      const count = Number(range[side * 2 + 1] ?? 1)
+      for (let n = start; n < start + count; n++) {
+        const job = jobOf(lines, n - 1)
+        if (job === undefined) return undefined
+        if (job) jobs.add(job)
+      }
+    }
+  return [...jobs].sort()
+}
+
+export function decideMode({ config, event, fork, changed, read, diff }) {
   const full = (reason) => ({ mode: "full", reason })
   if (event !== "pull_request") return full(`event ${event}`)
   if (fork) return full("fork PR")
@@ -95,7 +146,7 @@ export function decideMode({ config, event, fork, changed }) {
   // this list complete). Package files and the lockfile are lane inputs that
   // the selector reads, not gate inputs. Other workflows, Markdown files and
   // .node-version are lane inputs too, and the toolchain is part of each key.
-  const inputs = changed.filter((path) =>
+  let inputs = changed.filter((path) =>
     [
       /^\.github\/workflows\/ci\.yaml$/,
       /^\.github\/actions\//,
@@ -110,6 +161,16 @@ export function decideMode({ config, event, fork, changed }) {
       /^apps\/codesearch\/scripts\/run-vitest-contracts\.mjs$/,
     ].some((input) => input.test(path)),
   )
+  // A change to ci.yaml only in the `steps` of check jobs runs
+  // the selector; the shadow job then runs each check of those jobs.
+  let jobs = []
+  const scoped =
+    inputs.join() === ".github/workflows/ci.yaml" &&
+    changedJobs(inputs[0], read, diff)
+  if (scoped) {
+    jobs = scoped
+    inputs = []
+  }
   if (inputs.length)
     return full(
       `gate inputs changed: ${inputs.slice(0, 5).join(", ")}${inputs.length > 5 ? ` and ${inputs.length - 5} more` : ""}`,
@@ -122,7 +183,7 @@ export function decideMode({ config, event, fork, changed }) {
     !/^[0-9a-f]{64}$/.test(config.factory?.sha256 ?? "")
   )
     return full("selector unavailable: no pinned factory release")
-  return { mode: "select", reason: config.mode }
+  return { mode: "select", reason: config.mode, ...(jobs.length && { jobs }) }
 }
 
 // The result of each check id in the full run: its own record, else its
@@ -413,6 +474,8 @@ export function describe(reason) {
       return `migration ${reason.path} applies${reason.table ? ` (new table ${reason.table})` : ""}${share(reason)}`
     case "reads":
       return `reads ${reason.path}${share(reason)}`
+    case "jobs":
+      return `ci.yaml changed in job ${reason.jobs?.join(", ")}`
     default:
       return String(reason?.kind ?? "unknown")
   }
@@ -464,9 +527,40 @@ export function flakyJobs(jobs, earlier) {
   ].sort()
 }
 
+// The selection with each check of the jobs of a job-scoped ci.yaml change
+// (decideMode) selected and without a hit: no cache key holds ci.yaml. A
+// Storybook job runs on the Storybook build.
+function withJobChecks(selection, jobs) {
+  const reached = new Set(
+    jobs.flatMap((job) =>
+      job === "storybook-build"
+        ? ["storybook-golden", "storybook-plays"]
+        : [job],
+    ),
+  )
+  const runs = (check) => reached.has(runsInOf(check.id)?.job)
+  const reason = { kind: "jobs", jobs }
+  const added = selection.omitted
+    .filter(runs)
+    .map((check) => ({ ...check, reason }))
+  return {
+    ...selection,
+    selected: [...selection.selected, ...added],
+    omitted: selection.omitted.filter((check) => !runs(check)),
+    counts: {
+      ...selection.counts,
+      selected: selection.counts.selected + added.length,
+    },
+    cache: selection.cache && {
+      ...selection.cache,
+      hits: (selection.cache.hits ?? []).filter((hit) => !runs(hit)),
+    },
+  }
+}
+
 export function shadow({ config, inputs, records, needs, jobs, earlier, run }) {
   const mode = readJson(join(inputs, "mode.json"))
-  const selection = readJson(join(inputs, "selection.json"))
+  let selection = readJson(join(inputs, "selection.json"))
   const select = needs["merge-gate-select"]?.result
   const full = fullVerdict(needs)
   const steps = stepResults(jobs)
@@ -503,6 +597,7 @@ export function shadow({ config, inputs, records, needs, jobs, earlier, run }) {
     decision.gatedRun = { verdict: full.verdict }
     return decision
   }
+  if (mode.jobs?.length) selection = withJobChecks(selection, mode.jobs)
   const gated = gatedVerdict({ selection, config, result, needs, steps })
   const trace = existsSync(join(inputs, "trace.json.gz"))
     ? readTrace(join(inputs, "trace.json.gz"))
@@ -715,6 +810,10 @@ export function comment(decision, runUrl) {
   return `${lines.join("\n")}\n`
 }
 
+function git(args) {
+  return execFileSync("git", args, { encoding: "utf8" })
+}
+
 function args(list) {
   const out = {}
   for (let i = 0; i < list.length; i += 2) {
@@ -741,6 +840,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
             event: options.event,
             fork: options.fork === "true",
             changed,
+            // A pull_request run checks out the merge revision; its first
+            // parent is main.
+            read: (path, side) =>
+              side === "base"
+                ? git(["show", `HEAD^1:${path}`])
+                : readFileSync(path, "utf8"),
+            diff: (path) => git(["diff", "-U0", "HEAD^1", "HEAD", "--", path]),
           }),
         )}\n`,
       )

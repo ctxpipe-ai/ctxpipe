@@ -45,6 +45,9 @@ const runsIn = {
   "vitest:vercel": { job: "vercel-sandbox", profile: "vercel" },
 }
 
+// The jobs of today's full run that run a check.
+export const checkJobs = new Set(Object.values(runsIn).map((run) => run.job))
+
 // The job and the profile of a check id, or undefined.
 export function runsInOf(id) {
   const [family, lane] = id.split(":")

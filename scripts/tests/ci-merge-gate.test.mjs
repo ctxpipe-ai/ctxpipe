@@ -119,7 +119,6 @@ test("only a same-repo pull_request without gate input changes runs the selector
       reason: "shadow",
     })
   for (const path of [
-    ".github/workflows/ci.yaml",
     ".github/merge-gate.json",
     "scripts/checks/gate.mjs",
     "scripts/checks/schema/result.v1.schema.json",
@@ -156,6 +155,105 @@ test("only a same-repo pull_request without gate input changes runs the selector
   assert.equal(mode({ config: { ...pinned, mode: "off" } }).mode, "full")
   // Phase 1 has no gate mode: only shadow selects.
   assert.equal(mode({ config: { ...pinned, mode: "gate" } }).mode, "full")
+})
+
+test("a ci.yaml change only in the steps of check jobs runs the selector with those jobs", () => {
+  const path = ".github/workflows/ci.yaml"
+  const base = readFileSync(join(root, path), "utf8")
+  // The hunks come from git, as in CI: `git diff -U0` of the two sides.
+  const mode = (head, changed = [path]) => {
+    const directory = mkdtempSync(join(tmpdir(), "ctxpipe-ci-yaml-"))
+    writeFileSync(join(directory, "base"), base)
+    writeFileSync(join(directory, "head"), head)
+    return decideMode({
+      config: pinned,
+      event: "pull_request",
+      fork: false,
+      changed,
+      read: (_, side) => (side === "base" ? base : head),
+      diff: () =>
+        spawnSync("git", ["diff", "--no-index", "-U0", "base", "head"], {
+          cwd: directory,
+          encoding: "utf8",
+        }).stdout,
+    })
+  }
+  const lintStep = base.replace(
+    "      - run: pnpm lint\n",
+    "      - run: pnpm lint\n      - run: pnpm lint:extra\n",
+  )
+  assert.deepEqual(mode(lintStep), {
+    mode: "select",
+    reason: "shadow",
+    jobs: ["lint"],
+  })
+  assert.deepEqual(
+    mode(
+      lintStep.replace(
+        "run: node --test apps/codesearch/scripts/fetch-releases.test.mjs",
+        "run: node --test apps/codesearch/scripts/*.test.mjs",
+      ),
+    ).jobs,
+    ["codesearch", "lint"],
+  )
+  const full = { mode: "full", reason: `gate inputs changed: ${path}` }
+  // A hunk before `jobs:`.
+  assert.deepEqual(mode(base.replace("name: CI\n", "name: CI checks\n")), full)
+  // A merge gate job.
+  assert.deepEqual(
+    mode(base.replace("did not finish in 3 minutes", "did not finish")),
+    full,
+  )
+  // A job that runs no check, and a job `name`.
+  assert.deepEqual(
+    mode(base.replace('echo "Test shards:', 'echo "Shards:')),
+    full,
+  )
+  assert.deepEqual(
+    mode(base.replace("name: Lint and format\n", "name: Lint\n")),
+    full,
+  )
+  // A `needs` line of a check job.
+  assert.deepEqual(
+    mode(
+      base.replace(
+        "    needs: storybook-build\n",
+        "    needs: [storybook-build, lint]\n",
+      ),
+    ),
+    full,
+  )
+  // A changed action is a gate input of its own.
+  assert.deepEqual(mode(lintStep, [path, ".github/actions/a/action.yml"]), {
+    mode: "full",
+    reason: `gate inputs changed: ${path}, .github/actions/a/action.yml`,
+  })
+})
+
+test("the checks of the jobs of a job-scoped ci.yaml change run, without their hits", () => {
+  const decision = decide({
+    files: {
+      "mode.json": {
+        mode: "select",
+        reason: "shadow",
+        jobs: ["lint", "test-shards"],
+      },
+    },
+  })
+  const ran = Object.fromEntries(
+    decision.ran.map((item) => [item.id, item.reason]),
+  )
+  assert.equal(ran["lint:oxlint:.oxlintrc.json"], "lane input apps/**")
+  assert.equal(
+    ran["vitest:backend:apps/backend/src/f.test.ts"],
+    "ci.yaml changed in job lint, test-shards",
+  )
+  assert.ok("vitest:backend:apps/backend/src/g.test.ts" in ran)
+  assert.deepEqual(
+    decision.hits.map((item) => item.id),
+    ["storybook:golden:apps/ui/src/c.stories.tsx#c--one"],
+  )
+  assert.equal(decision.selection.counts.selected, 8)
 })
 
 test("the committed merge gate config is valid and in shadow mode", () => {
