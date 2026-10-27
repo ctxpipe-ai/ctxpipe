@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import {
   existsSync,
   mkdirSync,
@@ -26,6 +27,7 @@ import {
 //                 --changed <file>
 //     Prints {"mode", "reason"}: `select` when the selector runs for this
 //     run, else `full` and why. <file> lists the changed paths of the PR.
+//     It reads the changed package files from HEAD and HEAD^1 with git.
 //
 //   gate.mjs shadow --config <merge-gate.json> --inputs <dir> --results <dir>
 //                   --needs <file> [--jobs <file>] [--earlier <file>]
@@ -82,7 +84,216 @@ export function stepResults(jobs) {
   return results
 }
 
-export function decideMode({ config, event, fork, changed }) {
+// The packages that `pnpm -s checks:list` loads, by importer path in
+// pnpm-lock.yaml. A test keeps this list complete: it walks the files that
+// list.mjs loads, with apps/ui/.storybook/main.ts.
+export const manifestPackages = {
+  ".": ["@jridgewell/sourcemap-codec"],
+  "apps/ui": [
+    "storybook",
+    "@storybook/react-vite",
+    "@storybook/addon-a11y",
+    "@storybook/addon-docs",
+    "@storybook/addon-mcp",
+    "@tailwindcss/vite",
+    "storybook-addon-tanstack-start",
+    "vite",
+    "vite-tsconfig-paths",
+  ],
+}
+
+// The package files: a change to one of them forces a full run only when it
+// can change how the manifest is made. pnpm 10 runs no build script of a
+// dependency unless a setting (`onlyBuiltDependencies` or a like setting)
+// allows it. Those settings are in the `pnpm` field of a package.json and in
+// pnpm-workspace.yaml, and a change to them forces a full run. Thus a
+// dependency change can run code in the manifest job only through a package
+// that checks:list loads (manifestPackages) or a lifecycle script of a
+// workspace package.
+const packageJsonKeys = new Set([
+  "dependencies",
+  "devDependencies",
+  "optionalDependencies",
+  "peerDependencies",
+  "peerDependenciesMeta",
+  "scripts",
+  "name",
+  "version",
+  "description",
+  "keywords",
+  "license",
+  "author",
+  "contributors",
+  "homepage",
+  "repository",
+  "bugs",
+  "funding",
+  "private",
+  "files",
+  "publishConfig",
+])
+const installScripts = new Set([
+  "preinstall",
+  "install",
+  "postinstall",
+  "preprepare",
+  "prepare",
+  "postprepare",
+  "prepublish",
+  "dependencies",
+  "pnpm:devPreinstall",
+])
+
+const changedKeys = (base, head) =>
+  [...new Set([...Object.keys(base), ...Object.keys(head)])].filter(
+    (key) => JSON.stringify(base[key]) !== JSON.stringify(head[key]),
+  )
+
+const isObject = (value) =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+// The cause of a full run for a changed package.json, else undefined.
+function packageJsonCause(base, head) {
+  const [a, b] = [base, head].map((text) => JSON.parse(text ?? "{}"))
+  if (!isObject(a) || !isObject(b)) return "not a JSON object"
+  for (const key of changedKeys(a, b)) {
+    if (!packageJsonKeys.has(key)) return `field "${key}" changed`
+    if (key !== "scripts") continue
+    const [x, y] = [a.scripts ?? {}, b.scripts ?? {}]
+    if (!isObject(x) || !isObject(y)) return "scripts is not an object"
+    const script = changedKeys(x, y).find(
+      (name) => installScripts.has(name) || /^(?:pre|post)?checks:/.test(name),
+    )
+    if (script) return `script "${script}" changed`
+  }
+}
+
+// The text of each top-level block of a YAML file: a line at column 0
+// starts a block. Comment and blank lines are not part of a block.
+function yamlBlocks(text) {
+  const blocks = new Map()
+  let key = ""
+  for (const line of text.split("\n")) {
+    if (!line.trim() || line.trim().startsWith("#")) continue
+    if (!/^\s/.test(line)) key = /^([^:]*):/.exec(line)?.[1] ?? line
+    blocks.set(key, `${blocks.get(key) ?? ""}${line}\n`)
+  }
+  return blocks
+}
+
+function workspaceCause(base, head) {
+  const [a, b] = [base ?? "", head ?? ""].map(yamlBlocks)
+  const key = [...new Set([...a.keys(), ...b.keys()])].find(
+    (name) =>
+      a.get(name) !== b.get(name) &&
+      !["packages", "catalog", "catalogs", "overrides"].includes(name),
+  )
+  if (key !== undefined) return `setting "${key}" changed`
+}
+
+const unquote = (value) =>
+  /^'.*'$/.test(value) ? value.slice(1, -1).replace(/''/g, "'") : value
+
+// A parser for the subset of the pnpm lockfile v9 that the gate reads:
+// the text of each section, the entries of `importers`, `packages` and
+// `snapshots` (their text and their dependencies).
+function parseLockfile(text) {
+  const sections = yamlBlocks(text)
+  if (sections.get("lockfileVersion") !== "lockfileVersion: '9.0'\n")
+    throw new Error("the lockfile is not version 9.0")
+  const entries = (name) => {
+    const map = new Map()
+    let entry
+    let group
+    for (const line of (sections.get(name) ?? "").split("\n").slice(1)) {
+      if (!line) continue
+      let match
+      if ((match = /^ {2}(\S.*?):(?: \{\})?$/.exec(line))) {
+        entry = { text: "", deps: new Map() }
+        map.set(unquote(match[1]), entry)
+        group = undefined
+      } else if (!entry) throw new Error(`unexpected line in ${name}: ${line}`)
+      else if (/^ {4}\S/.test(line)) group = /^ {4}(\S+):$/.exec(line)?.[1]
+      else if (
+        ["dependencies", "devDependencies", "optionalDependencies"].includes(
+          group,
+        )
+      ) {
+        if ((match = /^ {6}(\S.*?):(?: (.+))?$/.exec(line))) {
+          entry.dep = unquote(match[1])
+          if (match[2] !== undefined)
+            entry.deps.set(entry.dep, unquote(match[2]))
+        } else if ((match = /^ {8}version: (.+)$/.exec(line)))
+          entry.deps.set(entry.dep, unquote(match[1]))
+      }
+      entry.text += `${line}\n`
+    }
+    return map
+  }
+  return {
+    sections,
+    importers: entries("importers"),
+    packages: entries("packages"),
+    snapshots: entries("snapshots"),
+  }
+}
+
+// The snapshot keys in the dependency closure of each manifest package.
+function manifestClosure(lock) {
+  const keys = new Set()
+  const snapshot = (name, value) => {
+    if (value.startsWith("link:")) return
+    const key = lock.snapshots.has(`${name}@${value}`)
+      ? `${name}@${value}`
+      : value
+    if (!lock.snapshots.has(key))
+      throw new Error(`no snapshot for ${name} ${value}`)
+    if (keys.has(key)) return
+    keys.add(key)
+    for (const [dep, version] of lock.snapshots.get(key).deps)
+      snapshot(dep, version)
+  }
+  for (const [importer, names] of Object.entries(manifestPackages))
+    for (const name of names) {
+      const version = lock.importers.get(importer)?.deps.get(name)
+      if (version === undefined)
+        throw new Error(`importer ${importer} has no ${name}`)
+      snapshot(name, version)
+    }
+  return keys
+}
+
+function lockfileCause(base, head) {
+  if (base === null || head === null) return "added or removed"
+  const [a, b] = [base, head].map(parseLockfile)
+  const section = [...new Set([...a.sections.keys(), ...b.sections.keys()])].find(
+    (name) =>
+      a.sections.get(name) !== b.sections.get(name) &&
+      !["importers", "packages", "snapshots", "overrides", "catalogs"].includes(
+        name,
+      ),
+  )
+  if (section !== undefined) return `section "${section}" changed`
+  for (const [importer, names] of Object.entries(manifestPackages))
+    for (const name of names)
+      if (
+        a.importers.get(importer)?.deps.get(name) !==
+        b.importers.get(importer)?.deps.get(name)
+      )
+        return `manifest package ${name} of ${importer} changed`
+  for (const key of new Set([...manifestClosure(a), ...manifestClosure(b)])) {
+    const plain = key.replace(/\(.*$/, "")
+    if (
+      a.snapshots.get(key)?.text !== b.snapshots.get(key)?.text ||
+      a.packages.get(plain)?.text !== b.packages.get(plain)?.text
+    )
+      return `${plain} changed in the closure of a manifest package`
+  }
+}
+
+// `read(path, side)` gives the text of `path` at "base" or "head", or null
+// when it does not exist there.
+export function decideMode({ config, event, fork, changed, read }) {
   const full = (reason) => ({ mode: "full", reason })
   if (event !== "pull_request") return full(`event ${event}`)
   if (fork) return full("fork PR")
@@ -90,9 +301,10 @@ export function decideMode({ config, event, fork, changed }) {
   // full: the workflow that runs the gate, its actions, its pin, and the code
   // that the gate and the runner execute. The manifest job runs the code of
   // the PR (`pnpm install`, `pnpm -s checks:list`), so a file that changes
-  // how the manifest is made is here too: the package files, the lockfile,
-  // the patches, and each file that scripts/checks/list.mjs runs outside
-  // scripts/checks/ (a test keeps this list complete). Other workflows,
+  // how the manifest is made is here too: the pnpm configuration, the
+  // patches, the Storybook config that the index build loads, and each file
+  // that scripts/checks/list.mjs runs outside scripts/checks/ (a test keeps
+  // this list complete). The package files follow below. Other workflows,
   // Markdown files and .node-version are not here: the selector reads them as
   // lane inputs (scripts/checks/lanes.mjs), and the toolchain is part of each
   // key.
@@ -104,12 +316,10 @@ export function decideMode({ config, event, fork, changed }) {
       /^scripts\/checks\/(?:schema\/[^/]+\.json|[^/]+\.mjs)$/,
       /^scripts\/ci\/(?:vitest-launch|test-suite|graph-ready|prerequisites|storybook-play)\.mjs$/,
       /^scripts\/ci\/[^/]+\.json$/,
-      /^(?:package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc)$/,
+      /^(?:\.npmrc|\.pnpmfile\.cjs)$/,
       /^patches\//,
-      /^(?:apps|packages|examples)\/[^/]+\/package\.json$/,
-      /^ops\/observability\/(?:railway-telemetry|cost-telemetry|hyperdx)\/package\.json$/,
       /^apps\/backend\/evals\/mcp\/(?:cases|gate)\.ts$/,
-      /^apps\/ui\/\.storybook\/check-modules\.mjs$/,
+      /^apps\/ui\/\.storybook\/(?:check-modules\.mjs|main\.ts)$/,
       /^apps\/codesearch\/scripts\/run-vitest-contracts\.mjs$/,
     ].some((input) => input.test(path)),
   )
@@ -117,6 +327,26 @@ export function decideMode({ config, event, fork, changed }) {
     return full(
       `gate inputs changed: ${inputs.slice(0, 5).join(", ")}${inputs.length > 5 ? ` and ${inputs.length - 5} more` : ""}`,
     )
+  const rules = (path) =>
+    path === "pnpm-lock.yaml"
+      ? lockfileCause
+      : path === "pnpm-workspace.yaml"
+        ? workspaceCause
+        : /(?:^|\/)package\.json$/.test(path)
+          ? packageJsonCause
+          : undefined
+  for (const path of changed) {
+    const rule = rules(path)
+    if (!rule) continue
+    if (!read) return full(`package file ${path} changed and cannot be read`)
+    let cause
+    try {
+      cause = rule(read(path, "base"), read(path, "head"))
+    } catch (error) {
+      cause = `cannot parse: ${error.message}`
+    }
+    if (cause) return full(`package file ${path}: ${cause}`)
+  }
   // Phase 1 has only the shadow mode: the full run gates.
   if (config.mode !== "shadow")
     return full("selector unavailable: merge-gate.json has no valid mode")
@@ -718,6 +948,27 @@ export function comment(decision, runUrl) {
   return `${lines.join("\n")}\n`
 }
 
+// The text of `path` in the merge revision ("head") or its first parent
+// ("base"), or null when the file does not exist there. Any other git error
+// throws, and the gate gives the full run.
+function gitRead(path, side) {
+  try {
+    return execFileSync(
+      "git",
+      ["show", `${side === "base" ? "HEAD^1" : "HEAD"}:${path}`],
+      {
+        encoding: "utf8",
+        maxBuffer: 256 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    )
+  } catch (error) {
+    if (/does not exist in|exists on disk, but not in/.test(error.stderr ?? ""))
+      return null
+    throw error
+  }
+}
+
 function args(list) {
   const out = {}
   for (let i = 0; i < list.length; i += 2) {
@@ -744,6 +995,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
             event: options.event,
             fork: options.fork === "true",
             changed,
+            read: gitRead,
           }),
         )}\n`,
       )

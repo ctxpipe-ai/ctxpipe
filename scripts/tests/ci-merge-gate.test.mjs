@@ -18,6 +18,7 @@ import {
   comment,
   decideMode,
   describe,
+  manifestPackages,
   marker,
   shadow,
   summary,
@@ -38,21 +39,47 @@ const pinned = {
 
 // The files that list.mjs runs or imports at list time, from the static
 // import closure of list.mjs: a relative `from "x"` or `import("x")`, a script
-// that a `json("x")` call spawns, and a file that a `readFileSync(join(root, "x"))` read opens.
+// that a `json("x")` call spawns, a file that a `readFileSync(join(root, "x"))`
+// read opens, and apps/ui/.storybook/main.ts, which the Storybook index build
+// (`buildIndex({ configDir: join(ui, ".storybook") })`) loads. It also gives
+// the bare package names that these files import, by file.
 function listTimeFiles() {
   const seen = new Set()
+  const packages = new Map()
   const visit = (file) => {
     if (seen.has(file)) return
     seen.add(file)
     if (!/\.(?:mjs|ts)$/.test(file)) return
     const text = readFileSync(join(root, file), "utf8")
+    const specifiers = [
+      ...text.matchAll(/(?:from\s+|import\()\s*["']([^"']+)["']/g),
+    ].map((match) => match[1])
+    packages.set(
+      file,
+      [
+        ...specifiers
+          .filter((name) => !name.startsWith(".") && !name.startsWith("node:"))
+          .map((name) =>
+            name
+              .split("/")
+              .slice(0, name.startsWith("@") ? 2 : 1)
+              .join("/"),
+          ),
+        ...[...text.matchAll(/getAbsolutePath\("([^"]+)"\)/g)].map(
+          (match) => match[1],
+        ),
+      ].filter((name, i, all) => all.indexOf(name) === i),
+    )
     const found = [
-      ...[...text.matchAll(/(?:from\s+|import\()\s*["'](\.[^"']+)["']/g)].map(
-        (match) => relative(root, resolve(root, dirname(file), match[1])),
-      ),
+      ...specifiers
+        .filter((name) => name.startsWith("."))
+        .map((name) => relative(root, resolve(root, dirname(file), name))),
       ...[...text.matchAll(/(?:json\(|readFileSync\(\s*join\(root,\s*)"([^"]+\.(?:mjs|json))"/g)].map(
         (match) => match[1],
       ),
+      ...(/buildIndex\(\{\s*configDir:\s*join\(ui,\s*"\.storybook"\)/.test(text)
+        ? ["apps/ui/.storybook/main.ts"]
+        : []),
     ]
     for (const path of found)
       for (const candidate of [path, `${path}.ts`, `${path}.mjs`])
@@ -62,38 +89,51 @@ function listTimeFiles() {
         }
   }
   visit("scripts/checks/list.mjs")
-  return [...seen]
+  return { files: [...seen], packages }
 }
 
+// The importer of a file in pnpm-lock.yaml: the nearest directory with a
+// package.json that is a workspace project, else ".".
+function importerOf(file) {
+  const projects = /^(?:apps|packages|examples)\/[^/]+$|^ops\/observability\/[^/]+$/
+  for (let dir = dirname(file); dir !== "."; dir = dirname(dir))
+    if (projects.test(dir) && existsSync(join(root, dir, "package.json")))
+      return dir
+  return "."
+}
+
+const pinnedMode = (changed, read) =>
+  decideMode({
+    config: pinned,
+    event: "pull_request",
+    fork: false,
+    changed,
+    read,
+  })
+
 test("a file that list.mjs runs outside scripts/checks forces a full run", () => {
-  const files = listTimeFiles()
+  const { files, packages } = listTimeFiles()
   // The walk finds the known files, so a broken walk cannot pass.
   for (const known of [
     "scripts/checks/families.mjs",
     "apps/backend/evals/mcp/cases.ts",
     "apps/ui/.storybook/check-modules.mjs",
+    "apps/ui/.storybook/main.ts",
     "apps/codesearch/scripts/run-vitest-contracts.mjs",
     "scripts/ci/projects.json",
   ])
     assert.ok(files.includes(known), `walk reaches ${known}`)
   const outside = files.filter((file) => !file.startsWith("scripts/checks/"))
-  for (const file of [
-    ...outside,
-    "package.json",
-    "pnpm-lock.yaml",
-    "pnpm-workspace.yaml",
-    ...readdirSync(join(root, "apps")).map((name) => `apps/${name}/package.json`),
-  ])
-    if (existsSync(join(root, file)))
-      assert.equal(
-        decideMode({
-          config: pinned,
-          event: "pull_request",
-          fork: false,
-          changed: [file],
-        }).mode,
-        "full",
-        file,
+  for (const file of [...outside, ".npmrc", ".pnpmfile.cjs"])
+    assert.equal(pinnedMode([file]).mode, "full", file)
+  // Each package that these files load is a manifest package of its
+  // importer, so a lockfile change in its closure forces a full run.
+  assert.ok(packages.get("apps/ui/.storybook/main.ts").includes("vite"))
+  for (const [file, names] of packages)
+    for (const name of names)
+      assert.ok(
+        manifestPackages[importerOf(file)]?.includes(name),
+        `${name} (imported by ${file}) is a manifest package`,
       )
 })
 
@@ -120,11 +160,10 @@ test("only a same-repo pull_request without gate input changes runs the selector
     ".github/actions/setup/action.yml",
     "scripts/ci/test-suite.mjs",
     "scripts/ci/vitest-launch.mjs",
-    "package.json",
-    "pnpm-lock.yaml",
-    "pnpm-workspace.yaml",
-    "apps/ui/package.json",
-    "packages/cli/package.json",
+    ".npmrc",
+    ".pnpmfile.cjs",
+    "patches/a.patch",
+    "apps/ui/.storybook/main.ts",
   ])
     assert.deepEqual(mode({ changed: ["apps/a.ts", path] }), {
       mode: "full",
@@ -153,6 +192,194 @@ test("only a same-repo pull_request without gate input changes runs the selector
   assert.equal(mode({ config: { ...pinned, mode: "off" } }).mode, "full")
   // Phase 1 has no gate mode: only shadow selects.
   assert.equal(mode({ config: { ...pinned, mode: "gate" } }).mode, "full")
+})
+
+// A small v9 lockfile: each manifest package at 1.0.0, `vite` depends on
+// `esbuild`, and apps/ui also has `left-pad` outside the closure.
+function lockfile({
+  version = "'9.0'",
+  esbuild = "sha512-esbuild",
+  leftPad = "1.0.0",
+  settings = "autoInstallPeers: true",
+} = {}) {
+  const importer = (path, names) => [
+    `  ${path}:`,
+    "    dependencies:",
+    ...names.flatMap((name) => [
+      `      '${name}':`,
+      "        specifier: ^1.0.0",
+      `        version: ${name === "left-pad" ? leftPad : "1.0.0"}`,
+    ]),
+    "",
+  ]
+  const names = [...new Set(Object.values(manifestPackages).flat())]
+  return [
+    `lockfileVersion: ${version}`,
+    "",
+    "settings:",
+    `  ${settings}`,
+    "",
+    "importers:",
+    "",
+    ...importer(".", manifestPackages["."]),
+    ...importer("apps/ui", [...manifestPackages["apps/ui"], "left-pad"]),
+    "packages:",
+    "",
+    ...[...names.map((name) => `${name}@1.0.0`), `left-pad@${leftPad}`]
+      .flatMap((key) => [`  '${key}':`, "    resolution: {integrity: x}", ""]),
+    "  esbuild@0.1.0:",
+    `    resolution: {integrity: ${esbuild}}`,
+    "",
+    "snapshots:",
+    "",
+    ...names.flatMap((name) =>
+      name === "vite"
+        ? ["  vite@1.0.0:", "    dependencies:", "      esbuild: 0.1.0", ""]
+        : [`  '${name}@1.0.0': {}`, ""],
+    ),
+    "  esbuild@0.1.0: {}",
+    "",
+    `  left-pad@${leftPad}: {}`,
+    "",
+  ].join("\n")
+}
+
+// decideMode with the base and head texts of each changed package file.
+const packageMode = (base, head) =>
+  pinnedMode(
+    [...new Set([...Object.keys(base), ...Object.keys(head)])],
+    (path, side) => (side === "base" ? base : head)[path] ?? null,
+  )
+
+const uiPackage = (overrides = {}) =>
+  JSON.stringify({
+    name: "@ctxpipe/ui",
+    scripts: { dev: "vite dev" },
+    dependencies: { "left-pad": "^1.0.0" },
+    ...overrides,
+  })
+
+test("a dependency bump outside the manifest closure runs the selector", () => {
+  assert.deepEqual(
+    packageMode(
+      { "apps/ui/package.json": uiPackage(), "pnpm-lock.yaml": lockfile() },
+      {
+        "apps/ui/package.json": uiPackage({
+          dependencies: { "left-pad": "^1.1.0" },
+        }),
+        "pnpm-lock.yaml": lockfile({ leftPad: "1.1.0" }),
+      },
+    ),
+    { mode: "select", reason: "shadow" },
+  )
+  // A new script that does not run at install or at list time.
+  assert.equal(
+    packageMode(
+      { "apps/ui/package.json": uiPackage() },
+      {
+        "apps/ui/package.json": uiPackage({
+          scripts: { dev: "vite dev", lint: "oxlint" },
+        }),
+      },
+    ).mode,
+    "select",
+  )
+})
+
+test("a package.json change that can run code in the manifest job forces a full run", () => {
+  const full = (head, cause) =>
+    assert.deepEqual(
+      packageMode(
+        { "apps/ui/package.json": uiPackage() },
+        { "apps/ui/package.json": head },
+      ),
+      { mode: "full", reason: `package file apps/ui/package.json: ${cause}` },
+    )
+  full(
+    uiPackage({ scripts: { dev: "vite dev", postinstall: "node x.js" } }),
+    'script "postinstall" changed',
+  )
+  full(
+    uiPackage({ scripts: { dev: "vite dev", "checks:list": "node x.mjs" } }),
+    'script "checks:list" changed',
+  )
+  full(
+    uiPackage({ packageManager: "pnpm@10.0.0" }),
+    'field "packageManager" changed',
+  )
+  full(
+    uiPackage({ pnpm: { onlyBuiltDependencies: ["esbuild"] } }),
+    'field "pnpm" changed',
+  )
+  assert.match(
+    packageMode(
+      { "package.json": "{}" },
+      { "package.json": '{"name": "x",' },
+    ).reason,
+    /^package file package\.json: cannot parse: /,
+  )
+  // Without a reader the gate cannot see the change.
+  assert.deepEqual(pinnedMode(["apps/ui/package.json"]), {
+    mode: "full",
+    reason: "package file apps/ui/package.json changed and cannot be read",
+  })
+})
+
+test("pnpm-workspace.yaml forces a full run only for a setting outside the package lists", () => {
+  const base = "packages:\n  - apps/*\n\ncatalog:\n  vite: ^1.0.0\n"
+  assert.equal(
+    packageMode(
+      { "pnpm-workspace.yaml": base },
+      {
+        "pnpm-workspace.yaml": `${base.replace("^1.0.0", "^1.1.0")}# note\n`,
+      },
+    ).mode,
+    "select",
+  )
+  assert.deepEqual(
+    packageMode(
+      { "pnpm-workspace.yaml": base },
+      {
+        "pnpm-workspace.yaml": `${base}onlyBuiltDependencies:\n  - esbuild\n`,
+      },
+    ),
+    {
+      mode: "full",
+      reason:
+        'package file pnpm-workspace.yaml: setting "onlyBuiltDependencies" changed',
+    },
+  )
+})
+
+test("a lockfile change in the closure of a manifest package forces a full run", () => {
+  const lockMode = (head) =>
+    packageMode(
+      { "pnpm-lock.yaml": lockfile() },
+      { "pnpm-lock.yaml": lockfile(head) },
+    )
+  assert.equal(lockMode({}).mode, "select")
+  // esbuild is a dependency of vite, which the Storybook index build loads.
+  assert.deepEqual(lockMode({ esbuild: "sha512-other" }), {
+    mode: "full",
+    reason:
+      "package file pnpm-lock.yaml: esbuild@0.1.0 changed in the closure of a manifest package",
+  })
+  assert.match(
+    lockMode({ version: "'6.0'" }).reason,
+    /^package file pnpm-lock\.yaml: cannot parse: the lockfile is not version 9\.0$/,
+  )
+  assert.deepEqual(lockMode({ settings: "autoInstallPeers: false" }), {
+    mode: "full",
+    reason: 'package file pnpm-lock.yaml: section "settings" changed',
+  })
+})
+
+test("the gate parses the lockfile of the repo", () => {
+  const text = readFileSync(join(root, "pnpm-lock.yaml"), "utf8")
+  assert.deepEqual(
+    packageMode({ "pnpm-lock.yaml": text }, { "pnpm-lock.yaml": text }),
+    { mode: "select", reason: "shadow" },
+  )
 })
 
 test("the committed merge gate config is valid and in shadow mode", () => {
