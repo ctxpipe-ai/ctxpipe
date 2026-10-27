@@ -12,6 +12,19 @@ import {
 const body = (text: string) => customerText(text, { maxChars: 20_000 }).text
 const line = (text: string) => customerLine(text, { maxChars: 2_000 })
 
+// The link and definition targets of the Markdown, as a CommonMark parser
+// (micromark) reads them.
+const targets = (markdown: string) => {
+  const found: string[] = []
+  const visit = (node: object) => {
+    if ("url" in node && typeof node.url === "string") found.push(node.url)
+    if ("children" in node && Array.isArray(node.children))
+      node.children.forEach(visit)
+  }
+  visit(fromMarkdown(markdown))
+  return found
+}
+
 describe("strip at entry", () => {
   it.each([
     ["U+200B", "\u200b"],
@@ -139,6 +152,18 @@ describe("no live Markdown from customer text", () => {
 
   it("escapes a backslash only before a mark it could cancel", () => {
     expect(line("C:\\Users\\jo \\[x]")).toBe("C:\\Users\\jo \\\\\\[x\\]")
+  })
+
+  it("escapes a backslash at the end of a field", () => {
+    expect(line("x\\")).toBe("x\\\\")
+    expect(body("x\\")).toBe("x\\\\")
+  })
+
+  it("keeps the image stub of the article converter literal", () => {
+    // The `img` translator writes `\[Image: <alt>\]` in an `a` label. The
+    // alt `x\` must not cancel the escape of the `]`.
+    const markdown = `[a\\[Image: ${line("x\\")}\\](javascript:alert(1)) b](https://ok.example/)`
+    expect(targets(markdown)).toEqual(["https://ok.example/"])
   })
 
   it("leaves no unescaped bracket or angle bracket", () => {
@@ -625,6 +650,21 @@ describe("credentials", () => {
     expect(body(text)).toBe(kept)
   })
 
+  // `[` and `<` are escaped in a body and a line, so no link can form there,
+  // and a backtick does not stop the redaction.
+  it.each([
+    [
+      "postgres://admin:pa`ss@db.example.com/prod",
+      "postgres://\\[credentials removed\\]@db.example.com/prod",
+    ],
+    ["token=abc`def", "token=\\[removed\\]"],
+    ["https://x.com/a`?k=SECRET", "https://x.com/a`"],
+    ["https://x.com/a?k=SEC`RET", "https://x.com/a"],
+  ])("removes all of a secret with a backtick: %s", (text, kept) => {
+    expect(body(`Use ${text} now`)).toBe(`Use ${kept} now`)
+    expect(line(text)).toBe(kept)
+  })
+
   it("keeps normal text with an equals sign", () => {
     const text = "a=b and k=v&x=1, barcode=123 and zipcode=4000"
     expect(body(text)).toBe(text)
@@ -864,6 +904,35 @@ describe("article links", () => {
     expect(safeHref(href, "credential-links")).toBeNull()
   })
 
+  // node-html-parser decodes `&amp;commat;` in the attribute to `&commat;`.
+  // The Markdown renderer decodes the character reference again.
+  it.each(policies)(
+    "gives a link that renders as the checked URL (%s)",
+    (policy) => {
+      for (const href of [
+        "https://SECRET&commat;x.example.com/a",
+        "https://x.example.com/a&quest;k=SECRET",
+        "https://SECRET&#64;x.example.com/a",
+        "https://u&#58;SECRET&#64;x.example.com/a",
+        "https://x.example.com/a?tok&#101;n=SECRET",
+      ]) {
+        const link = safeHref(href, policy)
+        if (link === null) continue
+        const [rendered = ""] = targets(`[doc](${link})`)
+        const url = new URL(rendered)
+        expect(`${url.username}${url.password}`).toBe("")
+        expect(rendered).not.toMatch(/token=/i)
+        if (policy !== "credential-links")
+          expect(`${url.search}${url.hash}`).toBe("")
+      }
+      const query = "https://x.example.com/a?a=1&b=2"
+      const link = safeHref(query, policy)
+      expect(link && targets(`[doc](${link})`)).toEqual([
+        policy === "credential-links" ? query : "https://x.example.com/a",
+      ])
+    },
+  )
+
   it("keeps a link with a normal query for credential-links", () => {
     expect(
       safeHref("https://help.example.com/a?lang=en", "credential-links"),
@@ -905,18 +974,59 @@ describe("article links", () => {
 })
 
 describe("article bodies", () => {
-  // The link targets of the Markdown, as a CommonMark parser (micromark)
-  // reads them.
-  const targets = (markdown: string) => {
-    const found: string[] = []
-    const visit = (node: object) => {
-      if ("url" in node && typeof node.url === "string") found.push(node.url)
-      if ("children" in node && Array.isArray(node.children))
-        node.children.forEach(visit)
-    }
-    visit(fromMarkdown(markdown))
-    return found
-  }
+  // node-html-markdown 1.3.0 writes a backtick in text as `\``. This is the
+  // Markdown that it gives for the HTML
+  // `<p>See <url>` then <code>[x](javascript:alert(1))</code> there.</p>`.
+  it.each(["credential-links", "queries", "full"] as const)(
+    "keeps the escape of a backtick after a URL or a value (%s)",
+    (policy) => {
+      for (const text of [
+        "token=abc",
+        "https://x.com/a?q",
+        "x.com?q",
+        "http://x.com/a",
+        "https://u:p@x.com/a",
+      ]) {
+        const markdown = `See ${text}\\\` then \`[x](javascript:alert(1))\` there.`
+        expect(targets(markdown)).toEqual([])
+        expect(targets(articleText(markdown, policy))).toEqual([])
+      }
+      // An escaped backslash before a live backtick goes as a pair
+      // (`<p>See https://x.com/a?q\<code>[x](javascript:alert(1))</code>`).
+      const pair = "See https://x.com/a?q\\\\`[x](javascript:alert(1))` there."
+      expect(targets(articleText(pair, policy))).toEqual([])
+    },
+  )
+
+  it.each(["credential-links", "queries", "full"] as const)(
+    "removes the whole userinfo before an escaped backtick (%s)",
+    (policy) => {
+      const out = articleText("See https://u:p@x.com/a\\` now", policy)
+      expect(out).not.toMatch(/u:p/)
+      expect(out).toMatch(/\\` now$/)
+    },
+  )
+
+  // node-html-markdown 1.3.0 gives this Markdown for the text in
+  // `<a href="https://ok.example/">…</a>` (`<br>` becomes two spaces and a
+  // line feed).
+  it.each(["credential-links", "queries", "full"] as const)(
+    "keeps the escape of a bracket after a URL, so that no definition forms (%s)",
+    (policy) => {
+      for (const label of [
+        "x.com?\\]: javascript:alert(1)//",
+        "x.com?\\] z",
+        "https://x.com/a?b\\]: javascript:alert(1)  \n",
+        "http://x.com/a\\]: javascript:alert(1)  \n",
+      ]) {
+        const markdown = `[${label}](https://ok.example/)`
+        expect(targets(markdown)).toEqual(["https://ok.example/"])
+        expect(targets(articleText(markdown, policy))).toEqual([
+          "https://ok.example/",
+        ])
+      }
+    },
+  )
 
   it.each(["credential-links", "queries", "full"] as const)(
     "keeps code spans paired, so that no script link comes alive (%s)",
@@ -1134,6 +1244,7 @@ describe("time", () => {
       "//a".repeat(n / 3),
       `https://x.co/${"%25".repeat(n / 3)}`,
       "a@b\u3002".repeat(n / 4),
+      `\`${"\u200b".repeat(n)}`,
     ]
     const start = performance.now()
     for (const text of shapes) {

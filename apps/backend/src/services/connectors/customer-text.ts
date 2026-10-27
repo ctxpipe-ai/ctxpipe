@@ -59,14 +59,23 @@
  * `[ ] < > \` or a backtick, so that NFKC cannot make a live Markdown mark.
  * A removed run between two backticks becomes one space, so that the strip
  * cannot join two backtick runs into one longer code span mark.
+ *
+ * Each class is plain (no lookahead in a repeated group), because V8 needs
+ * one backtrack frame for each repeat of a group, and 5,000,000 frames
+ * overflow its stack.
  */
 function stripped(text: string): string {
   return text
     .replace(
-      /(?<=`)(?:(?![\t\n\r])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}])+(?=`)/gu,
+      // oxlint-disable-next-line no-control-regex -- the strip removes controls
+      /(?<=`)[\p{Cf}\p{Default_Ignorable_Code_Point}\0-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]+(?=`)/gu,
       " ",
     )
-    .replace(/(?![\t\n\r])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, "")
+    .replace(
+      // oxlint-disable-next-line no-control-regex -- the strip removes controls
+      /[\p{Cf}\p{Default_Ignorable_Code_Point}\0-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]+/gu,
+      "",
+    )
     .replace(
       /[^ㄱ-ㆎ¼-¾⅐-⅟↉\u1FEF\uFE47\uFE48\uFE64\uFE65\uFE68\uFF1C\uFF1E\uFF3B-\uFF3D\uFF40]+/g,
       (run) => run.normalize("NFKC"),
@@ -76,12 +85,14 @@ function stripped(text: string): string {
 /**
  * Text in which `\ [ ] < >` are literal, so that no link, image, reference,
  * autolink, or HTML can form. A backslash is escaped only before one of these
- * marks. The escape runs once, after the redaction, so it also escapes each
- * marker: a marker that the customer typed and a marker that the redaction
- * wrote look the same, and neither can become a link.
+ * marks or at the end of the text: the caller can write a mark after the text
+ * (the converter's `\]` after an image alt). The escape runs once, after the
+ * redaction, so it also escapes each marker: a marker that the customer typed
+ * and a marker that the redaction wrote look the same, and neither can become
+ * a link.
  */
 function escaped(text: string): string {
-  return text.replace(/\\(?=[\\[\]<>])|[[\]<>]/g, "\\$&")
+  return text.replace(/\\(?=[\\[\]<>]|$)|[[\]<>]/g, "\\$&")
 }
 
 /** Dates and times stay: `2026-10-14`, `14.10.2026`, `14/10/2026 09:00`. */
@@ -174,13 +185,14 @@ const credentialName =
 /**
  * Text without the value of a credential parameter (`token=`, `api_key=`,
  * `sig=`), also outside a URL. A name does not start inside a word, so
- * `barcode=` stays. The value ends at a backtick, so that it cannot remove
- * the end of a code span.
+ * `barcode=` stays. In Markdown, the value ends at a backtick, so that it
+ * cannot remove the end of a code span.
  */
-function withoutCredentialParameters(text: string, mark: Marker): string {
+function withoutCredentialParameters(text: string, to: Output): string {
   return text.replace(
-    new RegExp(`(?<![\\w.-])(${credentialName})=[^\\s&#\`]*`, "gi"),
-    (_match, name: string) => `${name}=${mark("removed")}`,
+    new RegExp(`(?<![\\w.-])(${credentialName})=([^\\s&#${to.stop}]*)`, "gi"),
+    (_match, name: string, value: string) =>
+      `${name}=${to.mark("removed")}${escapeAt(value, value.length)}`,
   )
 }
 
@@ -190,23 +202,40 @@ function withoutCredentialParameters(text: string, mark: Marker): string {
  * `/`, `?`, or `#` after it (`app.example.com/`, `example.com:8443?`), at `//`
  * before a word character (`//intranet/`), or at a path that starts with `/`
  * after a space or an opening mark (a relative link). The base ends at a
- * space, `<`, `>`, `?`, `#`, or a backtick. The query and the fragment end at
- * a space, `<`, `>`, a backtick, or the `](` or `\](` of a link, so that a URL
- * in a link label does not take the link target or its escape. A backtick
- * ends a URL, so that the redaction cannot remove the end of a code span. A scheme match starts once for each run of scheme
- * characters, so a long run costs linear time; the run can start with a
- * digit or a mark (`1https://`, `...https://`), and these stay before the
- * scheme.
+ * space, `<`, `>`, `?`, or `#`. The query and the fragment end at a space,
+ * `<`, `>`, or the `](` or `\](` of a link, so that a URL in a link label does
+ * not take the link target or its escape. In Markdown, a backtick also ends
+ * a URL, so that the redaction cannot remove the end of a code span. A scheme
+ * match starts once for each run of scheme characters, so a long run costs
+ * linear time; the run can start with a digit or a mark (`1https://`,
+ * `...https://`), and these stay before the scheme.
  */
-const urlPattern =
-  /((?:(?<![a-z0-9+.-])[a-z0-9+.-]+:\/\/|(?<![a-z0-9])www\.|(?<![\w.@/-])(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?=[/?#])|(?<![\w:/])\/\/(?=[\w-])|(?<![^\s(["'<>=])\/(?=[\w%-]))[^\s<>?#`]*)((?:[?#](?:(?!\\?\]\()[^\s<>`])*)?)/gi
+const urlPattern = (stop: string) =>
+  new RegExp(
+    String.raw`((?:(?<![a-z0-9+.-])[a-z0-9+.-]+:\/\/|(?<![a-z0-9])www\.|(?<![\w.@/-])(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?=[/?#])|(?<![\w:/])\/\/(?=[\w-])|(?<![^\s(["'<>=])\/(?=[\w%-]))[^\s<>?#${stop}]*)((?:[?#](?:(?!\\?\]\()[^\s<>${stop}])*)?)`,
+    "gi",
+  )
 
-/** The marks at the end of a URL that belong to the text around it. */
+/**
+ * The `\` before `end` when it escapes the character at `end`: the last of a
+ * run of backslashes with an odd length. The redaction keeps it, so that a
+ * removed URL or value does not make the next mark live (`\``, `\]`).
+ */
+function escapeAt(text: string, end: number): string {
+  let start = end
+  while (start > 0 && text.charAt(start - 1) === "\\") start -= 1
+  return (end - start) % 2 === 1 ? "\\" : ""
+}
+
+/**
+ * The marks at the end of a URL that belong to the text around it, with the
+ * `\` that escapes the first of them.
+ */
 function endMarksOf(text: string): string {
   let start = text.length
   while (start > 0 && `)]}.,;:!?'"*_`.includes(text.charAt(start - 1)))
     start -= 1
-  return text.slice(start)
+  return `${escapeAt(text, start)}${text.slice(start)}`
 }
 
 /** A path segment named `token` holds the token in the next segment. */
@@ -251,8 +280,9 @@ function hasCredential(url: string): boolean {
  * scheme than https keeps its scheme, host, and path: they hold no
  * credential, and a reader can need them (`http://localhost:3000/app`).
  */
-function withoutUrlQueries(text: string, mark: Marker): string {
-  return text.replace(urlPattern, (url: string) => {
+function withoutUrlQueries(text: string, to: Output): string {
+  const { mark } = to
+  return text.replace(to.url, (url: string) => {
     const kept = withoutUserinfo(url, mark)
     const query = kept.search(/[?#]/)
     const base = query < 0 ? kept : kept.slice(0, query)
@@ -265,8 +295,9 @@ function withoutUrlQueries(text: string, mark: Marker): string {
  * Text in which each URL that carries a credential, or that has another
  * scheme than https, becomes a marker. Other URLs stay as they are.
  */
-function withoutCredentialUrls(text: string, mark: Marker): string {
-  return text.replace(urlPattern, (match) => {
+function withoutCredentialUrls(text: string, to: Output): string {
+  const { mark } = to
+  return text.replace(to.url, (match) => {
     const marks = endMarksOf(match)
     const lead = /^[^a-z/]*(?=[a-z][a-z0-9+.-]*:\/\/)/i.exec(match)?.[0] ?? ""
     const url = match.slice(lead.length, match.length - marks.length)
@@ -280,11 +311,32 @@ function withoutCredentialUrls(text: string, mark: Marker): string {
 /** Writes a redaction marker, such as `[email removed]`. */
 type Marker = (name: string) => string
 
-/** A marker for text that is escaped later. */
-const plainMarker: Marker = (name) => `[${name}]`
+/**
+ * How the redaction writes into the text: its marker, the stop characters of
+ * a URL and a credential value, and the URL pattern with those stops.
+ */
+type Output = { mark: Marker; stop: string; url: RegExp }
 
-/** A marker for Markdown that is not escaped later. */
-const escapedMarker: Marker = (name) => `\\[${name}\\]`
+/**
+ * Text that is escaped later (a body, a line). A backtick does not stop the
+ * redaction: no link can form, because `[` and `<` are escaped.
+ */
+const plainText: Output = {
+  mark: (name) => `[${name}]`,
+  stop: "",
+  url: urlPattern(""),
+}
+
+/**
+ * Markdown that stays live (an article). The markers are escaped as they are
+ * written, and a backtick stops the redaction, so that code spans stay
+ * paired.
+ */
+const liveMarkdown: Output = {
+  mark: (name) => `\\[${name}\\]`,
+  stop: "`",
+  url: urlPattern("`"),
+}
 
 /**
  * The rules for a Help Center article body. The support team writes an
@@ -304,14 +356,14 @@ export type ArticlePolicy = "credential-links" | "queries" | "full"
  * that a userinfo is not an address; then credential parameters outside a
  * URL; then addresses and phone numbers.
  */
-function redacted(text: string, policy: ArticlePolicy, mark: Marker): string {
+function redacted(text: string, policy: ArticlePolicy, to: Output): string {
   const linked =
     policy === "credential-links"
-      ? withoutCredentialUrls(text, mark)
-      : withoutUrlQueries(text, mark)
-  const safe = withoutCredentialParameters(linked, mark)
+      ? withoutCredentialUrls(text, to)
+      : withoutUrlQueries(text, to)
+  const safe = withoutCredentialParameters(linked, to)
   return policy === "full"
-    ? withoutPhones(withoutEmails(safe, mark), mark)
+    ? withoutPhones(withoutEmails(safe, to.mark), to.mark)
     : safe
 }
 
@@ -365,7 +417,7 @@ export function customerText(
     opts.maxChars,
   )
   return {
-    text: escaped(redacted(head.text, "full", plainMarker)).replace(
+    text: escaped(redacted(head.text, "full", plainText)).replace(
       /^([ \t]*)(#|[=-]+[ \t]*$)/gm,
       "$1\\$2",
     ),
@@ -382,7 +434,7 @@ export function customerText(
  */
 export function customerLine(text: string, opts: { maxChars: number }): string {
   const head = cutAt(stripped(text).replace(/\s+/g, " ").trim(), opts.maxChars)
-  return `${escaped(redacted(head.text, "full", plainMarker))}${head.cut ? "…" : ""}`
+  return `${escaped(redacted(head.text, "full", plainText))}${head.cut ? "…" : ""}`
 }
 
 /**
@@ -394,15 +446,22 @@ export function customerLine(text: string, opts: { maxChars: number }): string {
  * the fragment. A space, a bracket, an angle bracket, or a backslash is
  * percent-encoded, so that it cannot end the link. The check runs again on
  * the encoded link: the URL parser reads `\` as `/`, but `%5C` can be part
- * of a userinfo.
+ * of a userinfo. `&` becomes `&amp;`, because the Markdown renderer decodes
+ * character references: `&commat;` would become `@` after the check.
  */
 export function safeHref(href: string, policy: ArticlePolicy): string | null {
   const url = stripped(href).trim()
   const query = url.search(/[?#]/)
   const kept =
     policy === "credential-links" || query < 0 ? url : url.slice(0, query)
-  const encoded = kept.replace(/[\s()<>\\]/g, (mark) =>
-    mark === "(" ? "%28" : mark === ")" ? "%29" : encodeURIComponent(mark),
+  const encoded = kept.replace(/[\s()<>\\&]/g, (mark) =>
+    mark === "&"
+      ? "&amp;"
+      : mark === "("
+        ? "%28"
+        : mark === ")"
+          ? "%29"
+          : encodeURIComponent(mark),
   )
   return /^https:\/\//i.test(kept) &&
     !hasCredential(kept) &&
@@ -417,5 +476,5 @@ export function safeHref(href: string, policy: ArticlePolicy): string | null {
  * Markdown stays live, so each marker is escaped as it is written.
  */
 export function articleText(markdown: string, policy: ArticlePolicy): string {
-  return redacted(stripped(markdown), policy, escapedMarker)
+  return redacted(stripped(markdown), policy, liveMarkdown)
 }
