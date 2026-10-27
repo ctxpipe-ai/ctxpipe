@@ -23,7 +23,7 @@ You select pipelines for each Workspace. For each pipeline, ctxpipe writes:
   it is not listed.
 
 A finished build is passed, failed, canceled, or blocked. A blocked build
-waits at a block step. When someone unblocks it, the build runs again and is no
+waits at a block step. When someone unblocks it, the build continues and is no
 longer finished. The next sync deletes its file. The file comes back when the
 build finishes.
 
@@ -170,8 +170,8 @@ no longer among the latest 25, ctxpipe deletes its file in the same commit.
   more syncs, so a busy pipeline gives at most one commit for each Workspace in
   each window.
 - **Daily sync:** ctxpipe syncs each connection once a day.
-- **Sync now:** an organization owner or admin can select **Sync now** in the menu of the
-  connector card.
+- **Sync now:** an organization owner or admin can select **Sync now** in the
+  menu of the connector card.
 
 ## Verify the complete flow
 
@@ -197,7 +197,9 @@ the Buildkite webhook delivery.
 
 The setup shows the reason. Make sure that the token has the two read
 scopes and no GraphQL API access. Make sure that the organization of the token
-is the organization slug that you typed.
+is the organization slug that you typed. If the setup says that ctxpipe cannot
+make sure that the token has no GraphQL API access, ask the operator to check
+that the backend can reach `graphql.buildkite.com`.
 
 ### Add to a Workspace shows an error
 
@@ -218,7 +220,7 @@ Read the status and the reason of the row in **Settings**. See
 
 Choose **Sync now** in the menu of the connector card. If it fails again, ask
 the operator to check the worker logs, GitHub write access, and outbound access
-to `api.buildkite.com` and `graphql.buildkite.com`.
+to `api.buildkite.com`.
 
 ### The card shows “Needs reconnect”
 

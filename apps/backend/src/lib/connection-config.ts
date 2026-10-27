@@ -849,9 +849,10 @@ export type BuildkiteSourceSync = z.infer<typeof buildkiteSourceSyncSchema>
 
 /**
  * Stored in `connections.config` for `type === "buildkite"` (ADR-057).
- * Buildkite has no OAuth app for other products, so an org admin pastes an
- * API access token. The webhook token is the one that Buildkite shows for
- * the webhook that the admin adds. Both are connection-specific secrets.
+ * Buildkite has no OAuth app for other products, so an organization owner or
+ * admin pastes an API access token. The webhook token is the one that
+ * Buildkite shows for the webhook that the admin adds. Both are
+ * connection-specific secrets.
  */
 export const buildkiteConnectionConfigStoredSchema = z.object({
   organizationSlug: z.string().min(1),

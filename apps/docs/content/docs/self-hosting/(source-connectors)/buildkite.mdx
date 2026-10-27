@@ -7,7 +7,8 @@ description: Use the Buildkite connector on a self-hosted ctxpipe. It needs no e
 
 A self-hosted ctxpipe uses the same Buildkite connector flow as hosted ctxpipe.
 Buildkite has no OAuth application for other products, so an organization owner
-or admin pastes a Buildkite API access token in the setup. The webhook token is also connection-specific.
+or admin pastes a Buildkite API access token in the setup. The webhook token is
+also connection-specific.
 ctxpipe encrypts both tokens on the connection with the connection secret key
 of the deployment.
 
@@ -39,8 +40,9 @@ and refuses a signature older than five minutes. A webhook that sends the plain
 in the window or the daily sync then gets the build.
 
 All traffic stays on your deployment. Buildkite sends the webhook to your
-`AUTH_BASE_URL`, and your backend and worker call `api.buildkite.com`. Your backend also calls
-`graphql.buildkite.com` on connect.
+`AUTH_BASE_URL`, and your backend and worker call `api.buildkite.com`. When
+someone connects Buildkite, your backend also calls `graphql.buildkite.com`
+once.
 
 ## Verify the connector
 
