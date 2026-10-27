@@ -845,7 +845,11 @@ test("every check has the root toolchain files among its inputs", () => {
   assert.equal(result.status, 0, result.stderr)
   const { checks } = JSON.parse(result.stdout)
   assert.ok(checks.length > 0)
-  for (const { id, inputs } of checks)
+  // The deploy checks read only their own files: a dependency change selects
+  // the image builds, not a preview deploy.
+  for (const { id, inputs } of checks.filter(
+    (check) => check.family !== "deploy",
+  ))
     for (const file of [
       "package.json",
       "pnpm-lock.yaml",
@@ -1076,7 +1080,6 @@ test("the manifest lists the preview deployment and its UI smoke test, and the g
     ...images,
     "apps/backend/migrations/**",
     "infra/module/ctxpipe/railway.tf",
-    "pnpm-lock.yaml",
   ])
     assert.ok(deploy.inputs.includes(input), `deploy lacks input ${input}`)
   for (const check of deploys.values()) {
@@ -1088,13 +1091,13 @@ test("the manifest lists the preview deployment and its UI smoke test, and the g
     assert.deepEqual(runsInOf(check.id), { job: "pr-deploy" })
   }
   // The smoke test needs the deployed preview, which needs the pull request.
-  assert.deepEqual(smoke.prerequisites, ["preview-deployment"])
-  assert.deepEqual(prerequisites["preview-deployment"].needs, ["preview-pr"])
+  assert.deepEqual(smoke.prerequisites, ["preview-pr"])
+  assert.equal(prerequisites["preview-deployment"], undefined)
   assert.deepEqual(deploy.prerequisites, ["preview-pr"])
   // A plain app code change does not select the deployment: no input is a
   // whole app directory, and no app source input imports a repo module (a
   // selector follows the imports of a source input).
-  for (const input of deploy.inputs) {
+  for (const input of [...deploy.inputs, ...smoke.inputs]) {
     assert.ok(!/^apps\/[^/]+\/(src\/)?\*\*$/.test(input), input)
     if (/^apps\/.*\.(ts|tsx|mjs)$/.test(input))
       assert.doesNotMatch(
@@ -1102,6 +1105,8 @@ test("the manifest lists the preview deployment and its UI smoke test, and the g
         /from "\.{1,2}\//,
         input,
       )
+    // A dependency change selects the image builds, not a preview deploy.
+    assert.ok(!/(^|\/)(pnpm-lock\.yaml|package\.json)$/.test(input), input)
   }
   // Each deploy check is one step of the deploy job of pr-deploy.yaml.
   const job = workflow.slice(workflow.indexOf("\n  deploy_pr_environment:\n"))
@@ -1139,4 +1144,22 @@ test("the manifest lists the preview deployment and its UI smoke test, and the g
     /^missing result \(job pr-deploy/,
   )
   assert.match(read(undefined)(deploy.id), /^missing result/)
+  // A failed job before the deploy job skips it: the deployment failed.
+  const skipped = {
+    status: "completed",
+    jobs: [
+      { name: "Migrate PR Neon branch", conclusion: "failure" },
+      {
+        name: "Deploy PR environment (Railway + Neon)",
+        conclusion: "skipped",
+        steps: [],
+      },
+    ],
+  }
+  assert.equal(read(skipped)(deploy.id), "failed")
+  assert.match(read(skipped)(smoke.id), /^missing result/)
+  // A run that has not ended gives pending, outside the failed checks.
+  const pending = { status: "in_progress", jobs: [] }
+  assert.equal(read(pending)(deploy.id), "pending")
+  assert.equal(read(pending)(smoke.id), "pending")
 })

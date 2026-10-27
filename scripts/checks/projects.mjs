@@ -284,8 +284,10 @@ const definitions = () => [
     lane: "preview",
     file: ".github/workflows/pr-deploy.yaml",
     root: "",
+    // Only what the deploy workflow reads. A dependency change selects the
+    // image build checks, not a full preview deploy.
     inputs: [
-      ...shared,
+      "scripts/checks/projects.mjs",
       ".github/workflows/pr-deploy.yaml",
       // The scripts that the workflow sources: Railway, Neon, the service
       // variables and the secret names that the deploy sets.
@@ -307,7 +309,6 @@ const definitions = () => [
       "apps/ui/Dockerfile",
       "apps/codesearch/Dockerfile",
       "apps/codesearch/start.sh",
-      "apps/backend/package.json",
       "apps/backend/src/config/env.ts",
       "apps/backend/migrations/**",
       // The connector asset job, which the deploy needs.
@@ -324,7 +325,9 @@ const definitions = () => [
       [
         "sh",
         "-c",
-        'set -e; branch="$(git branch --show-current)"; gh workflow run pr-deploy.yaml --ref "$branch" -f pr_number="$PR_NUMBER"; sleep 10; gh run watch --exit-status "$(gh run list --workflow pr-deploy.yaml --branch "$branch" --event workflow_dispatch --limit 1 --json databaseId --jq ".[0].databaseId")"',
+        // Waits for a run id above the newest dispatch run of this commit: an
+        // older run is never the one that this check started.
+        'set -e; branch="$(git branch --show-current)"; head="$(git rev-parse HEAD)"; list() { gh run list --workflow pr-deploy.yaml --branch "$branch" --event workflow_dispatch --commit "$head" --json databaseId --jq "map(.databaseId) | max // 0"; }; before="$(list)"; gh workflow run pr-deploy.yaml --ref "$branch" -f pr_number="$PR_NUMBER"; id=0; for _ in $(seq 24); do sleep 5; id="$(list)"; [ "$id" -gt "$before" ] && break; done; [ "$id" -gt "$before" ] || { echo "No new PR Deploy run for $head" >&2; exit 1; }; gh run watch --exit-status "$id"',
       ],
     ],
   },
@@ -334,14 +337,13 @@ const definitions = () => [
     file: "scripts/ci/smoke-preview-ui.sh",
     root: "",
     inputs: [
-      ...shared,
+      "scripts/checks/projects.mjs",
       "scripts/ci/smoke-preview-ui.sh",
       "scripts/preview-ui-private.sh",
       "apps/ui/Dockerfile",
-      "apps/backend/src/routes/ui.ts",
     ],
     cacheable: false,
-    prerequisites: ["preview-deployment"],
+    prerequisites: ["preview-pr"],
     intent:
       "Catches a preview whose backend does not serve the UI of its own build (the private UI proxy). Run it when the UI proxy or the UI image changes; never for a change inside UI pages.",
     commands: [

@@ -251,15 +251,6 @@ export const prerequisites = {
         )
     },
   },
-  // The deployed preview of that pull request answers.
-  "preview-deployment": {
-    needs: ["preview-pr"],
-    prepare: () =>
-      answers(
-        `https://backend-pr-${process.env.PR_NUMBER}.up.railway.app/`,
-        "Deploy the preview first: run the check deploy:preview, or PR Deploy on the PR branch.",
-      ),
-  },
   "codesearch-server": {
     prepare: () =>
       answers(

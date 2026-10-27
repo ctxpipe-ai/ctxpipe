@@ -82,15 +82,28 @@ const conclusion = (value) =>
 // (<name>)` of ci.yaml is a plain Docker build of the check
 // `build:image-<name>:`, so the job result is the check result. And the
 // result of each deploy check, from the steps of the PR Deploy run (`deploy`).
-// A deploy job that has not ended, or that a failed job before it skipped,
-// gives no result.
+// A PR Deploy run that has not ended gives `pending` (no verdict yet). A
+// deploy job that a failed job before it skipped gives `failed` for the
+// deployment: it never came up. A run without a deploy run gives no result.
 export function stepResults(jobs, deploy) {
   const results = new Map()
-  for (const job of deploy?.jobs ?? []) {
-    if (job.name !== "Deploy PR environment (Railway + Neon)") continue
-    for (const step of job.steps ?? [])
-      if (deploySteps[step.name])
-        results.set(deploySteps[step.name], conclusion(step.conclusion))
+  if (deploy && deploy.status && deploy.status !== "completed")
+    for (const prefix of Object.values(deploySteps))
+      results.set(prefix, "pending")
+  else if (deploy) {
+    const list = deploy.jobs ?? []
+    const job = list.find(
+      (item) => item.name === "Deploy PR environment (Railway + Neon)",
+    )
+    if (job?.steps?.length) {
+      for (const step of job.steps)
+        if (deploySteps[step.name])
+          results.set(deploySteps[step.name], conclusion(step.conclusion))
+    } else if (
+      list.some((item) => item.conclusion === "failure") &&
+      (!job || job.conclusion === "skipped")
+    )
+      results.set("deploy:preview:", "failed")
   }
   for (const job of jobs?.jobs ?? []) {
     const image = /^Production build \((.+)\)$/.exec(job.name)?.[1]
@@ -222,7 +235,7 @@ export function fullRunResults(records, needs, steps = new Map()) {
     if (results.has(id)) return results.get(id)
     const [family, lane] = id.split(":")
     const step = steps.get(`${family}:${lane}:`)
-    if (step === "passed" || step === "failed") return step
+    if (["passed", "failed", "pending"].includes(step)) return step
     const job = runsInOf(id)?.job
     return `missing result (job ${job ?? "none"}: ${needs[job]?.result ?? "did not run"})`
   }
