@@ -14,7 +14,7 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
 
-import { lintSteps } from "../checks/gate.mjs"
+import { fullRunResults, lintSteps, stepResults } from "../checks/gate.mjs"
 import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
 import { runsInOf } from "../checks/shard.mjs"
 import { requiredStories } from "../ci/storybook-golden-select.mjs"
@@ -169,14 +169,16 @@ test("the manifest matches its schema and lists each check of each family", asyn
   // so the golden lane holds at least them.
   assert.ok(count("storybook", "golden") >= requiredStories.length)
   assert.ok(count("storybook", "plays") > 0)
-  // An expensive check states its intent in under about 40 words, and a
-  // check that calls a model, a wall clock or remote state is stochastic.
+  // An expensive check states its intent in under about 40 words. A check
+  // that calls a model or a wall clock is stochastic; a check that reads
+  // remote state or base images by tag is not cacheable.
   for (const check of manifest.checks) {
     const expensive =
       check.family === "eval" ||
       check.lane === "golden" ||
       check.lane === "latency" ||
-      check.lane === "upgrade"
+      check.lane === "upgrade" ||
+      check.family === "build"
     if (expensive) {
       assert.ok(check.intent, `${check.id} has no intent`)
       assert.ok(
@@ -186,9 +188,12 @@ test("the manifest matches its schema and lists each check of each family", asyn
     }
     assert.equal(
       check.stochastic ?? false,
-      check.family === "eval" ||
-        check.lane === "latency" ||
-        check.lane === "terraform-plan",
+      check.family === "eval" || check.lane === "latency",
+      check.id,
+    )
+    assert.equal(
+      check.cacheable ?? true,
+      !(check.lane === "terraform-plan" || check.lane.startsWith("image-")),
       check.id,
     )
   }
@@ -889,18 +894,18 @@ test("the manifest lists a check for each job of the other pull request workflow
       "run: node scripts/ci/check-claude-plugin.mjs",
     ),
   )
-  // The Terraform plan: stochastic, selected by the files of infra.
+  // The Terraform plan: not cacheable, selected by the files of infra.
   const plan = checks.get("policy:terraform-plan:infra/main.tf")
   assert.ok(plan)
-  assert.equal(plan.stochastic, true)
+  assert.equal(plan.cacheable, false)
   assert.ok(plan.inputs.includes("infra/**"))
   assert.deepEqual(plan.prerequisites, ["terraform-plan"])
   assert.ok(plan.intent)
   // Each check that is not stochastic has a result in a full run: a lint or
   // policy check has a step of the Lint and format job, any other check has
-  // a job.
+  // a job. The Terraform plan has its own workflow.
   for (const check of checks.values()) {
-    if (check.stochastic) continue
+    if (check.stochastic || check === plan) continue
     assert.ok(
       check.family === "lint" || check.family === "policy"
         ? Object.values(lintSteps).some((key) => check.id.startsWith(key))
@@ -912,4 +917,107 @@ test("the manifest lists a check for each job of the other pull request workflow
   assert.ok(lane("eval", "mcp").length > 0)
   for (const check of lane("eval", "mcp"))
     assert.equal(check.stochastic, true, check.id)
+})
+
+test("the manifest lists a build check for each production image and package of CI", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const builds = new Map(
+    JSON.parse(result.stdout)
+      .checks.filter((check) => check.family === "build")
+      .map((check) => [check.id, check]),
+  )
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const job = (name) =>
+    workflow.slice(
+      workflow.indexOf(`\n  ${name}:\n`),
+      workflow.indexOf("\n\n  ", workflow.indexOf(`\n  ${name}:\n`) + 1),
+    )
+  // The Production build job has one matrix entry for each image check: the
+  // merge gate takes the job `Production build (<name>)` as the result of
+  // `build:image-<name>:`. Each entry builds the Dockerfile of its check.
+  const images = [
+    ...job("production-builds").matchAll(
+      /- name: (\S+)\n\s+dockerfile: (\S+)/g,
+    ),
+  ].map(([, name, file]) => `build:image-${name}:${file}`)
+  assert.deepEqual(
+    images.sort(),
+    [...builds.keys()].filter((id) => id.startsWith("build:image-")),
+  )
+  assert.ok(!job("production-builds").includes("pnpm install"))
+  assert.equal(
+    fullRunResults(
+      [],
+      {},
+      stepResults({
+        jobs: [{ name: "Production build (ui)", conclusion: "failure" }],
+      }),
+    )("build:image-ui:apps/ui/Dockerfile"),
+    "failed",
+  )
+  assert.ok(job("packages").includes("pnpm -s checks:run"))
+  const expected = {
+    "build:image-backend:apps/backend/Dockerfile": [
+      "apps/backend/**",
+      "shared/**",
+      "patches/**",
+      ".dockerignore",
+    ],
+    "build:image-worker:apps/backend/Dockerfile.worker": [
+      "apps/backend/**",
+      "shared/**",
+    ],
+    "build:image-ui:apps/ui/Dockerfile": ["apps/ui/**", "apps/backend/src/**"],
+    "build:image-codesearch:apps/codesearch/Dockerfile": [
+      "apps/codesearch/**",
+      "shared/**",
+    ],
+    "build:image-docs:apps/docs/Dockerfile": ["apps/docs/**"],
+    "build:image-chat-sandbox:scripts/chat-sandbox/Dockerfile": [
+      "scripts/chat-sandbox/**",
+    ],
+    "build:package-backend:apps/backend/package.json": [
+      "apps/backend/**",
+      "shared/**",
+    ],
+    "build:package-codesearch:apps/codesearch/package.json": [
+      "apps/codesearch/**",
+      "shared/**",
+    ],
+    "build:package-aws-cdk:packages/aws-cdk/package.json": [
+      "packages/aws-cdk/**",
+    ],
+    "build:package-cli:packages/cli/package.json": ["packages/cli/**"],
+  }
+  assert.deepEqual([...builds.keys()].sort(), Object.keys(expected).sort())
+  for (const [id, inputs] of Object.entries(expected)) {
+    const check = builds.get(id)
+    assert.ok(existsSync(join(root, check.file)), `${check.file} is missing`)
+    for (const input of [...inputs, "pnpm-lock.yaml"])
+      assert.ok(check.inputs.includes(input), `${id} lacks input ${input}`)
+    assert.ok(check.intent, id)
+    const image = check.lane.startsWith("image-")
+    // An image pulls base images by tag, so a result cache never reuses it;
+    // a package build is a function of its inputs.
+    assert.equal(check.cacheable ?? true, !image, id)
+    assert.deepEqual(runsInOf(id), {
+      job: image ? "production-builds" : "packages",
+    })
+  }
+  assert.deepEqual(
+    builds.get("build:image-codesearch:apps/codesearch/Dockerfile")
+      .prerequisites,
+    ["docker"],
+  )
+  // The backend and codesearch builds run Bun: a cache key holds its version.
+  for (const name of ["backend", "codesearch"]) {
+    const check = builds.get(`build:package-${name}:apps/${name}/package.json`)
+    assert.equal(check.runtime, "bun")
+    assert.deepEqual(check.prerequisites, ["bun"])
+  }
+  assert.equal(
+    builds.get("build:package-cli:packages/cli/package.json").runtime,
+    "node",
+  )
 })

@@ -506,6 +506,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Each entry is the check `build:image-<name>:` of the manifest
+        # (scripts/checks/projects.mjs). The merge gate takes the result of
+        # the job `Production build (<name>)` as the check result, so this
+        # job needs no workspace install.
         include:
           - name: backend
             dockerfile: apps/backend/Dockerfile
@@ -616,11 +620,27 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @ctxpipe/backend build
-      - run: pnpm --filter @ctxpipe/codesearch build
-      - run: pnpm --filter @ctxpipe/aws-cdk build
-      - run: pnpm --filter ctxpipe build
+      # Each package build is one check of the manifest. The record goes to
+      # the merge gate.
+      - name: Build the packages through the check runner
+        run: |
+          set -o pipefail
+          mkdir -p .ci-results/build-packages
+          pnpm -s checks:list |
+            jq -r '.checks[] | select(.family == "build" and (.lane | startswith("package-"))) | .id' |
+            pnpm -s checks:run | tee .ci-results/build-packages/records.ndjson
+      - name: Show the build log
+        if: failure()
+        run: cat .ci-results/checks/*.log
       - run: pnpm --filter @ctxpipe/aws-cdk-self-host typecheck
+      - name: Preserve the build results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-results-build-packages
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   storybook-build:
     timeout-minutes: 20

@@ -29,8 +29,16 @@
           "pattern": "^[a-z]+:[a-z0-9-]+:[^#]+(#.+)?$"
         },
         "family": {
-          "description": "`vitest`: a Vitest test file. `storybook`: a Storybook story with a play function, played in Chromium. `eval`: an eval case that calls paid models. `typecheck`: one TypeScript project. `lint`: oxlint, oxfmt or knip over the repo. `policy`: a policy script of the CI lint job, or the Terraform plan.",
-          "enum": ["vitest", "storybook", "eval", "typecheck", "lint", "policy"]
+          "description": "`vitest`: a Vitest test file. `storybook`: a Storybook story with a play function, played in Chromium. `eval`: an eval case that calls paid models. `typecheck`: one TypeScript project. `lint`: oxlint, oxfmt or knip over the repo. `policy`: a policy script of the CI lint job, or the Terraform plan. `build`: one production image or one package build of the CI build jobs.",
+          "enum": [
+            "vitest",
+            "storybook",
+            "eval",
+            "typecheck",
+            "lint",
+            "policy",
+            "build"
+          ]
         },
         "lane": {
           "description": "One group of checks that run together: for Vitest one runner invocation (package directory, config and runtime); for other families the kind of check.",
@@ -90,7 +98,11 @@
           "uniqueItems": true
         },
         "stochastic": {
-          "description": "true: the result can differ between runs on the same inputs (a model call, a wall-clock bound). A result cache must not reuse such a result. Optional; without it, false.",
+          "description": "true: the result can differ between runs on the same inputs (a model call, a wall-clock bound). A result cache must not reuse such a result, and a reader selects the check only when asked to (it costs model spend or has a wall-clock bound). Optional; without it, false.",
+          "type": "boolean"
+        },
+        "cacheable": {
+          "description": "false: a result cache must not reuse the result (the check reads outside state: a base image by tag, a remote state), but a reader selects the check by the normal rules. Optional; without it, true.",
           "type": "boolean"
         },
         "intent": {

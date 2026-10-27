@@ -64,24 +64,25 @@ export const lintSteps = {
 // The step of the Lint and format job that the gated run always runs.
 const ciScriptTests = "CI command regression tests"
 
+// The result of a job or step conclusion.
+const conclusion = (value) =>
+  value === "success" ? "passed" : value === "failure" ? "failed" : "unknown"
+
 // The result of each step above in this run, and of the CI script tests.
+// Also the result of each image build: the matrix job `Production build
+// (<name>)` of ci.yaml is a plain Docker build of the check
+// `build:image-<name>:`, so the job result is the check result.
 export function stepResults(jobs) {
   const results = new Map()
   for (const job of jobs?.jobs ?? []) {
+    const image = /^Production build \((.+)\)$/.exec(job.name)?.[1]
+    if (image) results.set(`build:image-${image}:`, conclusion(job.conclusion))
     if (job.name !== "Lint and format") continue
     for (const step of job.steps ?? []) {
       const key =
         lintSteps[step.name] ??
         (step.name === ciScriptTests ? ciScriptTests : undefined)
-      if (key)
-        results.set(
-          key,
-          step.conclusion === "success"
-            ? "passed"
-            : step.conclusion === "failure"
-              ? "failed"
-              : "unknown",
-        )
+      if (key) results.set(key, conclusion(step.conclusion))
     }
   }
   return results
