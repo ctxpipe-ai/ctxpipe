@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { activeHint } from "./hint-state"
 
 describe("activeHint", () => {

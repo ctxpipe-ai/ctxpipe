@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { inLanguage } from "./languages.js"
 
 describe("inLanguage", () => {

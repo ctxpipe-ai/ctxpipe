@@ -36,8 +36,8 @@ export function shouldShowNotionRegisterStep(
 ): boolean {
   return Boolean(
     oauthMeta &&
-      !oauthMeta.globalNotionOAuthConfigured &&
-      !oauthMeta.oauthAppSaved,
+    !oauthMeta.globalNotionOAuthConfigured &&
+    !oauthMeta.oauthAppSaved,
   )
 }
 
@@ -46,8 +46,8 @@ export function shouldShowNotionWebhookStep(
 ): boolean {
   return Boolean(
     oauthMeta &&
-      !oauthMeta.globalNotionOAuthConfigured &&
-      oauthMeta.oauthAppSaved,
+    !oauthMeta.globalNotionOAuthConfigured &&
+    oauthMeta.oauthAppSaved,
   )
 }
 

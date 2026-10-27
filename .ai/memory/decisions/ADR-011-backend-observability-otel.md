@@ -18,7 +18,7 @@ The backend needs traces, structured logs, and LLM spans. Hosted ingest is Click
 
 5. **Bun.** `@opentelemetry/sdk-node` does not patch `Bun.serve` or Bun's `fetch`. The server span is `@hono/otel` in `backendOtelMiddleware` (UI proxy paths skip the span and still return `x-request-id`). Outgoing `fetch` is wrapped so the client span exists and carries `traceparent`. The backend registers HTTP instrumentation (incoming ignored, outgoing requires a parent, OTLP URLs skipped), Redis with `requireParentSpan`, and Node runtime metrics only when the process is not Bun. Postgres spans come from `dbTrace`. Parentless client and internal auto-instrumentation spans are dropped unless status is ERROR. `better-auth` spans are dropped the same way. Codesearch uses `NodeTracerProvider` and `@hono/otel`, and copies inbound baggage because only our backend calls it.
 
-6. **Names.** Ids from auth only; OTel semconv plus `ctxpipe.*`; `deployment.environment` (not `.name`); URLs without query strings; no backfill. Keys: [observability skill](../../../.cursor/skills/observability/SKILL.md).
+6. **Names.** Ids from auth only; OTel semconv plus `ctxpipe.*`; `deployment.environment` (not `.name`); URLs without query strings; no backfill. Keys: [observability skill](../../../.agents/skills/observability/SKILL.md).
 
 7. **Preview metrics.** `RAILWAY_ENVIRONMENT_NAME` matching `pr-<digits>` selects `FlushOnDemandMetricReader` on the backend (no interval); `withLogger` and the HTTP middleware flush after the job or response. Production uses `PeriodicExportingMetricReader` at 60s. Codesearch exports no metrics on preview, so it has no periodic reader there.
 

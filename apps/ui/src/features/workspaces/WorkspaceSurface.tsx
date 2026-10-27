@@ -5,6 +5,7 @@ import {
 } from "@tanstack/react-query"
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
 import { useCallback, useEffect, useRef, useState } from "react"
+
 import { useSideNavLocation } from "@/components/ShellLayoutContext"
 import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Button } from "@/components/ui/Button"
@@ -13,6 +14,7 @@ import { SkeletonRegion, SkeletonSuspense } from "@/components/ui/Skeleton"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import { pollWhileOk } from "@/lib/api-result"
 import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
+
 import { conversationErrorReason } from "./conversationPublish"
 import {
   closeFileTab,
@@ -25,6 +27,7 @@ import {
 import {
   landingPane,
   type ParsedPane,
+  paneSearchForOtherConversation,
   serializePane,
   visiblePane,
 } from "./pane"
@@ -44,13 +47,13 @@ import type { WorkspaceDetail } from "./types"
 import { useWorkspaceConversationPublish } from "./useWorkspaceConversationPublish"
 import { WorkspaceChat } from "./WorkspaceChat"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
+import { workspaceChatColumnClassName } from "./workspaceChrome"
 import {
   WorkspaceHydrateFailedBody,
   WorkspaceHydrateProgress,
 } from "./WorkspaceHydrateProgress"
 import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
 import { WorkspaceQueryErrorBoundary } from "./WorkspaceQueryErrorBoundary"
-import { workspaceChatColumnClassName } from "./workspaceChrome"
 import { WorkspaceSurfaceSkeleton } from "./workspaceSkeletons"
 import { WriteCheckStallContext } from "./writeCheckStall"
 
@@ -250,7 +253,7 @@ function WorkspaceSurfaceReady(props: {
     restart: useCallback(() => setCheckEpoch((n) => n + 1), []),
   }
   const writeChecking = writeCheckInFlight(workspace ?? {})
-  // biome-ignore lint/correctness/useExhaustiveDependencies: checkEpoch restarts the timer
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- checkEpoch restarts the timer
   useEffect(() => {
     setWriteCheckStalled(false)
     if (!writeChecking) return
@@ -490,7 +493,7 @@ function WorkspaceSurfaceColumns(props: {
     void navigate({
       to: "/$orgSlug/ws/$workspaceSlug",
       params: { orgSlug, workspaceSlug: workspace.slug },
-      search: {},
+      search: (prev) => paneSearchForOtherConversation(prev),
     })
   }
   const publish = useWorkspaceConversationPublish({

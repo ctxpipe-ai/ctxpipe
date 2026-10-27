@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { delay, HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import { Button } from "@/components/ui/Button"
 import { CHOOSE_WORKSPACES_HINT } from "@/features/workspace-sources/ChooseWorkspacesStep"
 import { workspaceSourcesOptions } from "@/features/workspace-sources/queries"
@@ -17,6 +18,7 @@ import {
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
+
 import { entryPageInnerDecorators } from "../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
 import type { LinearConnectorStatus } from "../../queries/linear-connector"

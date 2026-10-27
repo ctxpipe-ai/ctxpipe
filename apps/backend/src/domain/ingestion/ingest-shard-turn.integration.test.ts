@@ -1,6 +1,7 @@
 import { Sandbox } from "@vercel/sandbox"
 import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import { openIngestEgressScope } from "../workspaces/ingest-egress-proxy.js"
 import { vercelIngestSandboxProvider } from "../workspaces/ingest-sandbox-egress.js"
@@ -48,7 +49,6 @@ const sandbox = {
   status: "running",
 }
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
   http.get(`https://vercel.com/api/v2/sandboxes/${name}`, () =>
     HttpResponse.json({ sandbox, session, routes: [] }),

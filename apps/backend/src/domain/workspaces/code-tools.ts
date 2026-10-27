@@ -1,4 +1,5 @@
 import { z } from "zod"
+
 import { toToon } from "../../lib/agentToolRuntime.js"
 import { assertStructuralGraphAnchor } from "../../lib/repoExplorerPlanner.js"
 import {
@@ -30,12 +31,13 @@ import { withRepositorySourceRevision } from "../codeIngestion/source-revision-c
 
 export type ExplorerTool = { name: string; description: string }
 
-/** One codesearch checkout: `rev:<sha>` of a source, or `ws:<workspaceId>[:<sha>]`. */
+/**
+ * One codesearch checkout: `rev:<sha>` of a source, or a Workspace read,
+ * which codesearch serves from the published checkout of the repository.
+ */
 export type CodeCheckout = { repositoryId: string } & (
   | { source: { sha: string } }
-  | {
-      workspace: { workspaceId: string } & ({ sha: string } | { legacy: true })
-    }
+  | { workspace: { workspaceId: string } }
 )
 
 /** Runs a Zoekt query on the checkout and gives the raw response. */

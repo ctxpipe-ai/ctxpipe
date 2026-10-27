@@ -1,25 +1,23 @@
 import {
   chat,
   chatParamsFromRequestBody,
-  defineChatMiddleware,
+  convertMessagesToModelMessages,
   type ModelMessage,
   type StreamChunk,
   type UIMessage,
   uiMessagesToWire,
 } from "@tanstack/ai"
-import { BaseTextAdapter } from "@tanstack/ai/adapters"
-import { InMemoryLockStore } from "@tanstack/ai/locks"
 import { ChatClient, stream } from "@tanstack/ai-client"
 import { memoryPersistence, withPersistence } from "@tanstack/ai-persistence"
-import { expect, it } from "vitest"
+import { BaseTextAdapter } from "@tanstack/ai/adapters"
+import { InMemoryLockStore } from "@tanstack/ai/locks"
+import { afterEach, expect, it, vi } from "vitest"
+
 import {
   openCodeExtractableUserText,
   openCodeTrailingUserMiddleware,
 } from "./workspace-chat-opencode-messages.js"
-import {
-  workspaceChatPendingTurn,
-  workspaceChatThreadLock,
-} from "./workspace-chat-thread-lock.js"
+import { holdWorkspaceChatTurn } from "./workspace-chat-thread-lock.js"
 
 const STALE = "Conversation changed during another send; reload before retrying"
 
@@ -143,11 +141,19 @@ function conversation(model: ScriptedModel) {
       history.findLast((message) => message.role === "user") ?? {},
     )
     try {
+      const turn = await holdWorkspaceChatTurn({
+        locks,
+        stores: persistence.stores,
+        threadId: "thread",
+        runId: params.runId ?? "",
+        messages: convertMessagesToModelMessages(history),
+        onLost: () => undefined,
+      })
       for await (const chunk of chat({
         adapter: model,
         threadId: "thread",
         runId: params.runId,
-        messages: history,
+        messages: turn.messages,
         tools: [
           {
             name: "lookup",
@@ -157,11 +163,8 @@ function conversation(model: ScriptedModel) {
           },
         ],
         middleware: [
-          workspaceChatThreadLock({
-            locks,
-            loadThread: (id) => persistence.stores.messages.loadThread(id),
-          }),
           withPersistence(persistence, { snapshotStreaming: true }),
+          turn.middleware,
           openCodeTrailingUserMiddleware(prompt),
         ],
       }) as AsyncIterable<StreamChunk>) {
@@ -250,58 +253,138 @@ it("rejects a send whose history does not hold the stored questions", async () =
   ).toEqual([])
 })
 
-// This test uses the real `withPersistence`, so it also fails when the
-// private `getPendingTurn` export moves or changes shape.
-it("stores the question and a running run before the sandbox setup, and keeps the question when a stop ends the setup", async () => {
+// A stored thread with a tool result, which has no id.
+const storedThread: ModelMessage[] = [
+  { id: "u1", role: "user", content: "First question" },
+  {
+    id: "a1",
+    role: "assistant",
+    content: null,
+    toolCalls: [
+      {
+        id: "c1",
+        type: "function",
+        function: { name: "lookup", arguments: "{}" },
+      },
+    ],
+  },
+  { role: "tool", content: "found", toolCallId: "c1" },
+  { id: "a2", role: "assistant", content: "Found it" },
+]
+// A reload sends the stored thread again, as new objects, and a question.
+const reloadHistory = (): ModelMessage[] => [
+  ...structuredClone(storedThread),
+  { id: "u2", role: "user", content: "Second question" },
+]
+
+async function storedWith(thread: ModelMessage[]) {
   const persistence = memoryPersistence()
-  const stop = new AbortController()
-  let setupStarted!: () => void
-  const inSetup = new Promise<void>((resolve) => {
-    setupStarted = resolve
+  await persistence.stores.messages.saveThread("thread", thread)
+  return persistence
+}
+
+const hold = (
+  persistence: ReturnType<typeof memoryPersistence>,
+  messages: ModelMessage[],
+) =>
+  holdWorkspaceChatTurn({
+    locks: new InMemoryLockStore(),
+    stores: persistence.stores,
+    threadId: "thread",
+    runId: "r2",
+    messages,
+    onLost: () => undefined,
   })
-  // The sandbox setup is the slow step; a stop during it fails the setup.
-  const sandboxSetup = defineChatMiddleware({
-    name: "sandbox-setup",
-    setup: () =>
-      new Promise<void>((_, reject) => {
-        setupStarted()
-        stop.signal.addEventListener("abort", () =>
-          reject(new DOMException("The operation was aborted", "AbortError")),
-        )
-      }),
-  })
-  const run = (async () => {
-    for await (const _ of chat({
-      adapter: new ScriptedModel([]),
+
+const drain = async (stream: unknown) => {
+  for await (const _ of stream as AsyncIterable<StreamChunk>);
+}
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+it("stores the same thread as chat persistence alone for a reload", async () => {
+  // The stored answer has a `createdAt`: both runs get the same clock.
+  vi.useFakeTimers({ toFake: ["Date"], now: 0 })
+  const plain = await storedWith(storedThread)
+  await drain(
+    chat({
+      adapter: new ScriptedModel([text("p9", "Answer")]),
       threadId: "thread",
-      runId: "run-1",
-      messages: [{ id: "user-1", role: "user", content: "First question" }],
-      abortController: stop,
-      middleware: [
-        workspaceChatThreadLock({
-          locks: new InMemoryLockStore(),
-          loadThread: (id) => persistence.stores.messages.loadThread(id),
-        }),
-        withPersistence(persistence),
-        workspaceChatPendingTurn(persistence.stores.runs),
-        sandboxSetup,
-      ],
-    }) as AsyncIterable<StreamChunk>);
-  })()
-  await Promise.race([inSetup, run])
-
-  // A reload during the setup shows the question and attaches to the run.
-  const questions = async () =>
-    (await persistence.stores.messages.loadThread("thread")).map(
-      (message) => message.id,
-    )
-  expect(await questions()).toEqual(["user-1"])
-  expect((await persistence.stores.runs.findActiveRun("thread"))?.runId).toBe(
-    "run-1",
+      runId: "r2",
+      messages: reloadHistory(),
+      middleware: [withPersistence(plain)],
+    }),
   )
+  const held = await storedWith(storedThread)
+  const turn = await hold(held, reloadHistory())
+  await drain(
+    chat({
+      adapter: new ScriptedModel([text("p9", "Answer")]),
+      threadId: "thread",
+      runId: "r2",
+      messages: turn.messages,
+      middleware: [withPersistence(held), turn.middleware],
+    }),
+  )
+  expect(await held.stores.messages.loadThread("thread")).toEqual(
+    await plain.stores.messages.loadThread("thread"),
+  )
+})
 
-  stop.abort()
-  await run.catch(() => undefined)
-  expect(await questions()).toEqual(["user-1"])
-  expect(await persistence.stores.runs.findActiveRun("thread")).toBeNull()
+it("does not add a resent tool result with content parts twice", async () => {
+  const thread = storedThread.map((message) =>
+    message.role === "tool"
+      ? { ...message, content: [{ type: "text" as const, content: "found" }] }
+      : message,
+  )
+  const persistence = await storedWith(thread)
+  const turn = await hold(persistence, [
+    ...structuredClone(thread),
+    { id: "u2", role: "user", content: "Second question" },
+  ])
+  expect(turn.messages.filter((message) => message.role === "tool")).toEqual([
+    thread[2],
+  ])
+})
+
+it("stores the question of an MCP call, which sends no history", async () => {
+  const persistence = await storedWith(storedThread)
+  const question: ModelMessage = { role: "user", content: "From MCP" }
+  const turn = await hold(persistence, [question])
+  expect(await persistence.stores.messages.loadThread("thread")).toEqual([
+    ...storedThread,
+    question,
+  ])
+  expect(turn.messages).toEqual([...storedThread, question])
+})
+
+it("fails the run when the chat throws before its end hooks run", async () => {
+  const persistence = await storedWith([])
+  const turn = await hold(persistence, [
+    { id: "u1", role: "user", content: "First question" },
+  ])
+  const broken = {
+    get model(): string {
+      throw new Error("No model")
+    },
+  }
+  await expect(
+    drain(
+      chat({
+        adapter: broken as never,
+        threadId: "thread",
+        runId: "r2",
+        messages: turn.messages,
+        middleware: [withPersistence(persistence), turn.middleware],
+      }),
+    ),
+  ).rejects.toThrow("No model")
+  // The lock middleware did not run, so `fail` still ends the run.
+  await turn.failRun(new Error("No model"))
+  expect(await persistence.stores.runs.get("r2")).toMatchObject({
+    status: "failed",
+    error: { message: "No model" },
+  })
 })

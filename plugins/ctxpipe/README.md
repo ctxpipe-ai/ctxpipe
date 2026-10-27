@@ -118,4 +118,5 @@ ignores the parameter.
 - Not a Claude Desktop MCPB extension. Hosted ctxpipe is a remote MCP.
 - Not a replacement for `npx ctxpipe init` on machines that already use repo or user MCP config.
 
-See [Claude plugin](https://docs.ctxpipe.ai/docs/mcp/claude-plugin).
+To connect other agent clients, see
+[Connect your agent](https://docs.ctxpipe.ai/docs/mcp/mcp-docs).

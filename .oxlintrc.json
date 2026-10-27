@@ -1,0 +1,439 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "oxc",
+    "react",
+    "jsx-a11y",
+    "import",
+    "unicorn",
+    "promise"
+  ],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "approx-constant": "error",
+    "array-callback-return": "error",
+    "default-case-last": "error",
+    "eqeqeq": [
+      "error",
+      "always",
+      {
+        "null": "ignore"
+      }
+    ],
+    "jsx-a11y/alt-text": "error",
+    "jsx-a11y/anchor-has-content": "error",
+    "jsx-a11y/anchor-is-valid": "error",
+    "jsx-a11y/aria-activedescendant-has-tabindex": "error",
+    "jsx-a11y/aria-props": "error",
+    "jsx-a11y/aria-proptypes": "error",
+    "jsx-a11y/aria-role": "error",
+    "jsx-a11y/aria-unsupported-elements": "error",
+    "jsx-a11y/autocomplete-valid": "error",
+    "jsx-a11y/click-events-have-key-events": "error",
+    "jsx-a11y/heading-has-content": "error",
+    "jsx-a11y/html-has-lang": "error",
+    "jsx-a11y/iframe-has-title": "error",
+    "jsx-a11y/img-redundant-alt": "error",
+    "jsx-a11y/interactive-supports-focus": "error",
+    "jsx-a11y/label-has-associated-control": "error",
+    "jsx-a11y/lang": "error",
+    "jsx-a11y/media-has-caption": "error",
+    "jsx-a11y/mouse-events-have-key-events": "error",
+    "jsx-a11y/no-access-key": "error",
+    "jsx-a11y/no-aria-hidden-on-focusable": "error",
+    "jsx-a11y/no-autofocus": "error",
+    "jsx-a11y/no-distracting-elements": "error",
+    "jsx-a11y/no-interactive-element-to-noninteractive-role": "error",
+    "jsx-a11y/no-noninteractive-element-to-interactive-role": "error",
+    "jsx-a11y/no-noninteractive-tabindex": "error",
+    "jsx-a11y/no-redundant-roles": "error",
+    "jsx-a11y/no-static-element-interactions": "error",
+    "jsx-a11y/prefer-tag-over-role": "error",
+    "jsx-a11y/role-has-required-aria-props": "error",
+    "jsx-a11y/role-supports-aria-props": "error",
+    "jsx-a11y/scope": "error",
+    "jsx-a11y/tabindex-no-positive": "error",
+    "no-array-constructor": "error",
+    "no-async-promise-executor": "error",
+    "no-case-declarations": "error",
+    "no-cond-assign": ["error", "always"],
+    "no-constant-condition": "error",
+    "no-control-regex": "error",
+    "no-debugger": "error",
+    "no-dupe-class-members": "error",
+    "no-dupe-else-if": "error",
+    "no-eval": "error",
+    "no-extra-boolean-cast": "error",
+    "no-extra-label": "error",
+    "no-inner-declarations": "error",
+    "no-irregular-whitespace": "error",
+    "no-labels": [
+      "error",
+      {
+        "allowLoop": true,
+        "allowSwitch": true
+      }
+    ],
+    "no-lone-blocks": "error",
+    "no-new-native-nonconstructor": "error",
+    "no-proto": "error",
+    "no-prototype-builtins": "error",
+    "no-regex-spaces": "error",
+    "no-script-url": "error",
+    "no-self-compare": "error",
+    "no-sequences": "error",
+    "no-template-curly-in-string": "error",
+    "no-unneeded-ternary": "error",
+    "no-unused-private-class-members": "error",
+    "no-useless-backreference": "error",
+    "no-useless-catch": "error",
+    "no-useless-constructor": "error",
+    "no-useless-escape": "error",
+    "no-useless-rename": "error",
+    "oxc/misrefactored-assign-op": "error",
+    "oxc/no-accumulating-spread": "error",
+    "prefer-arrow-callback": "error",
+    "prefer-const": "error",
+    "prefer-exponentiation-operator": "error",
+    "prefer-numeric-literals": "error",
+    "prefer-regex-literals": "error",
+    "prefer-rest-params": "error",
+    "prefer-spread": "error",
+    "prefer-template": "error",
+    "promise/no-nesting": "error",
+    "radix": "error",
+    "react/button-has-type": "error",
+    "react/jsx-key": "error",
+    "react/jsx-no-comment-textnodes": "error",
+    "react/jsx-no-duplicate-props": "error",
+    "react/jsx-no-target-blank": "error",
+    "react/jsx-no-useless-fragment": "error",
+    "react/no-array-index-key": "error",
+    "react/no-children-prop": "error",
+    "react/no-danger": "error",
+    "react/no-danger-with-children": "error",
+    "react/no-render-return-value": "error",
+    "react/void-dom-elements-no-children": "error",
+    "typescript/adjacent-overload-signatures": "error",
+    "typescript/ban-ts-comment": "error",
+    "typescript/consistent-type-imports": [
+      "error",
+      {
+        "disallowTypeAnnotations": false
+      }
+    ],
+    "typescript/no-empty-object-type": "error",
+    "typescript/no-extra-non-null-assertion": "error",
+    "typescript/no-invalid-void-type": "error",
+    "typescript/no-non-null-asserted-optional-chain": "error",
+    "typescript/no-non-null-assertion": "error",
+    "typescript/no-this-alias": "error",
+    "typescript/no-unnecessary-type-constraint": "error",
+    "typescript/no-unsafe-declaration-merging": "error",
+    "typescript/no-useless-empty-export": "error",
+    "typescript/no-wrapper-object-types": "error",
+    "typescript/prefer-function-type": "error",
+    "typescript/prefer-literal-enum-member": "error",
+    "typescript/prefer-namespace-keyword": "error",
+    "unicorn/no-instanceof-array": "error",
+    "unicorn/no-static-only-class": "error",
+    "unicorn/no-thenable": "error",
+    "unicorn/no-useless-switch-case": "error",
+    "unicorn/prefer-array-flat-map": "error",
+    "unicorn/prefer-array-index-of": "error",
+    "unicorn/prefer-date-now": "error",
+    "unicorn/prefer-node-protocol": "error",
+    "unicorn/prefer-number-properties": "error",
+    "typescript/no-explicit-any": "warn",
+    "unicorn/no-invalid-fetch-options": "off",
+    "unicorn/no-new-array": "off",
+    "unicorn/no-useless-fallback-in-spread": "off",
+    "unicorn/no-useless-spread": "off",
+    "unicorn/prefer-string-starts-ends-with": "off",
+    "react/globals": "off",
+    "react/immutability": "off",
+    "react/incompatible-library": "off",
+    "react/purity": "off",
+    "react/refs": "off",
+    "react/set-state-in-effect": "off"
+  },
+  "env": {
+    "builtin": true,
+    "browser": true,
+    "node": true
+  },
+  "ignorePatterns": [
+    ".nitro",
+    "storybook-static",
+    ".next",
+    ".output",
+    ".data",
+    "schema.graphql",
+    "**/routeTree.gen.ts",
+    "apps/backend/src/services/linear/documents.generated.ts"
+  ],
+  "overrides": [
+    {
+      "files": ["apps/ui/**", "**/*.tsx", "**/*.jsx"],
+      "rules": {
+        "react-hooks/rules-of-hooks": "error",
+        "react-hooks/exhaustive-deps": "error"
+      }
+    },
+    {
+      "files": ["apps/docs/**"],
+      "plugins": ["nextjs"],
+      "rules": {
+        "nextjs/no-img-element": "warn",
+        "nextjs/no-head-element": "error",
+        "nextjs/no-document-import-in-page": "error",
+        "nextjs/no-head-import-in-document": "error",
+        "nextjs/no-unwanted-polyfillio": "error",
+        "nextjs/google-font-preconnect": "error",
+        "nextjs/inline-script-id": "error"
+      }
+    },
+    {
+      "files": ["apps/backend/src/**"],
+      "excludeFiles": [
+        "apps/backend/src/openworkflow/defineObservedWorkflow.ts",
+        "**/*.test.ts"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "openworkflow",
+                "importNames": ["defineWorkflow"],
+                "message": "Import defineWorkflow from openworkflow/defineObservedWorkflow.js. It sets the workflow logger."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    // The same rules that Biome relaxed in the UI component library.
+    {
+      "files": ["apps/ui/src/components/ui/**"],
+      "rules": {
+        "jsx-a11y/prefer-tag-over-role": "off",
+        "jsx-a11y/click-events-have-key-events": "off",
+        "react/no-array-index-key": "off"
+      }
+    },
+    // Per-file entries for code that passes in Biome and fails in the stricter Oxc rule.
+    // Remove a file from its entry when you fix the code.
+    {
+      "files": [
+        "apps/ui/src/components/ai-elements/message.test.tsx",
+        "apps/ui/src/lib/auth-continuation.test.ts",
+        "apps/ui/src/lib/popup.test.ts",
+        "apps/ui/src/lib/safe-auth-redirect.test.ts"
+      ],
+      "rules": {
+        "no-script-url": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/backend/src/domain/workspaces/write-ops-native.contract.test.ts",
+        "apps/backend/src/mcp/tools/code-tools.integration.test.ts",
+        "apps/backend/src/mcp/tools/get-related.integration.test.ts",
+        "apps/backend/src/mcp/tools/get-related.latency.ts",
+        "apps/backend/src/mcp/tools/legacy-knowledge.integration.test.ts",
+        "apps/backend/src/mcp/tools/list-workspaces.integration.test.ts",
+        "apps/backend/src/mcp/tools/search-knowledge.integration.test.ts",
+        "apps/backend/src/routes/v1/connector-sync-now.http.integration.test.ts",
+        "apps/backend/src/services/notion/sync.test.ts",
+        "apps/backend/src/services/slack/source-migration.integration.test.ts",
+        "apps/ui/src/features/workspace-sources/WorkspaceSources.stories.tsx",
+        "apps/ui/src/features/workspaces/WorkspaceChatSession.stories.tsx",
+        "apps/ui/src/lib/hyperdxBrowser.test.ts",
+        "apps/ui/src/providers/AuthProvider.test.tsx",
+        "packages/aws-cdk/src/efs-mount.test.ts",
+        "packages/aws-cdk/src/sandbox-host.test.ts",
+        "packages/aws-cdk/src/secrets-construct.test.ts"
+      ],
+      "rules": {
+        "no-unsafe-optional-chaining": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/ui/src/features/knowledge-graph/KnowledgeGraphCosmographCanvas.tsx"
+      ],
+      "rules": {
+        "prefer-arrow-callback": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/backend/src/platform/graph/client.ts",
+        "apps/ui/src/components/ui/FieldButton.tsx"
+      ],
+      "rules": {
+        "prefer-const": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/backend/src/retrieval/services/code-search-projection.contract.test.ts",
+        "apps/backend/src/routes/sandbox-egress.test.ts",
+        "apps/backend/src/services/confluence/converter.ts"
+      ],
+      "rules": {
+        "prefer-template": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/backend/src/domain/workspaces/conversation-branch-push-native.contract.test.ts"
+      ],
+      "rules": {
+        "radix": "off"
+      }
+    },
+    {
+      "files": ["apps/ui/src/providers/AuthProvider.tsx"],
+      "rules": {
+        "jsx-a11y/anchor-has-content": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/ui/src/components/SideNav/SideNavOrganizationSwitcher.tsx",
+        "apps/ui/src/components/SideNav/SideNavUserButton.tsx"
+      ],
+      "rules": {
+        "jsx-a11y/control-has-associated-label": "off"
+      }
+    },
+    {
+      "files": ["apps/ui/src/components/ui/Dialog.tsx"],
+      "rules": {
+        "jsx-a11y/heading-has-content": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/ui/src/components/ui/AlertDialog.tsx",
+        "apps/ui/src/features/chat/MessageInputBox.tsx",
+        "apps/ui/src/features/organization/OrganizationApiKeysCard.tsx",
+        "apps/ui/src/features/workspace-sources/RenameSourceDialog.tsx",
+        "apps/ui/src/features/workspace-sources/WorkspaceSources.tsx",
+        "apps/ui/src/features/workspaces/ConversationNameInput.tsx",
+        "apps/ui/src/features/workspaces/WorkspaceCommandPalette.tsx",
+        "apps/ui/src/features/workspaces/WorkspaceFilesPane.tsx",
+        "apps/ui/src/features/workspaces/WorkspaceSettingsPane.tsx"
+      ],
+      "rules": {
+        "jsx-a11y/no-autofocus": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/ui/src/components/ui/input-group.tsx",
+        "apps/ui/src/features/workspaces/WorkspaceFileTree.tsx"
+      ],
+      "rules": {
+        "jsx-a11y/no-noninteractive-element-interactions": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/ui/src/components/SideNav/SideNav.tsx",
+        "apps/ui/src/features/connectors/components/ConfluenceMark.tsx",
+        "apps/ui/src/features/hints/OnboardingHint.tsx",
+        "apps/ui/src/features/knowledge-graph/KnowledgeGraphIntroCallout.tsx",
+        "apps/ui/src/features/knowledge-graph/NodeDetailDrawer.tsx",
+        "apps/ui/src/features/workspaces/WorkspaceFilesPane.tsx"
+      ],
+      "rules": {
+        "jsx-a11y/prefer-tag-over-role": "off"
+      }
+    },
+    {
+      "files": ["apps/ui/src/components/ui/ToastStack.tsx"],
+      "rules": {
+        "oxc/no-accumulating-spread": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/backend/src/domain/workspaces/vercel-sandbox-provider.ts"
+      ],
+      "rules": {
+        "promise/no-nesting": "off"
+      }
+    },
+    {
+      "files": ["apps/ui/src/components/ui/Button.test.tsx"],
+      "rules": {
+        "react/button-has-type": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/ui/src/features/workspace-sources/GithubSourceRepositories.tsx"
+      ],
+      "rules": {
+        "react/jsx-no-useless-fragment": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/ui/src/features/chat/ConversationThread.tsx",
+        "apps/ui/src/features/workspace-upgrades/WorkspaceUpgrades.tsx"
+      ],
+      "rules": {
+        "react/no-array-index-key": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/backend/src/domain/workspaces/workspace-chat-opencode-native.contract.test.ts"
+      ],
+      "rules": {
+        "typescript/no-invalid-void-type": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/backend/src/domain/workspaces/hydration.contract.test.ts",
+        "apps/backend/src/domain/workspaces/sandbox-lifecycle-timing.ts",
+        "apps/backend/src/models/atlassian-connector.ts",
+        "apps/backend/src/routes/webhooks/github/github-tip.contract.test.ts",
+        "apps/codesearch/src/domain/indexing/heartbeat.test.ts",
+        "apps/codesearch/src/domain/indexingSteps.test.ts"
+      ],
+      "rules": {
+        "typescript/no-non-null-assertion": "off"
+      }
+    },
+    {
+      "files": ["apps/backend/src/domain/workspaces/conversation-diff.ts"],
+      "rules": {
+        "unicorn/prefer-array-flat-map": "off"
+      }
+    },
+    {
+      "files": ["apps/backend/src/domain/ingestion/area-file.ts"],
+      "rules": {
+        "unicorn/prefer-array-index-of": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/ui/src/features/knowledge-graph/KnowledgeGraphExplorer.tsx"
+      ],
+      "rules": {
+        "unicorn/prefer-number-properties": "off"
+      }
+    }
+  ]
+}

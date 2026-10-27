@@ -8,6 +8,7 @@ import { evlog } from "evlog/hono"
 import { contextStorage, getContext } from "hono/context-storage"
 import { cors } from "hono/cors"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
+
 import { requestSession } from "../auth/withAuth.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
@@ -16,8 +17,8 @@ import { httpWideEventMessage } from "../domain/workspaces/opencode-chat-stream.
 import { backendOtelMiddleware } from "../observability/http.js"
 import { log } from "../observability/logger.js"
 import { registerAuthRoutes } from "../routes/auth.js"
-import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerMcpBrandAssetRoute } from "../routes/mcp-brand-asset.js"
+import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
 import {
   registerSandboxEgressRoute,

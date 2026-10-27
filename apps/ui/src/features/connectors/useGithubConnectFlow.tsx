@@ -3,6 +3,7 @@
 import HyperDX from "@hyperdx/browser"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useState } from "react"
+
 import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
 import { getGithubConnectStartBranch } from "@/features/connectors/githubConnectFlow"
 import {

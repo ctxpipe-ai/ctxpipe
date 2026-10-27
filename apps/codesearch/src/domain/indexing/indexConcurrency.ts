@@ -207,3 +207,23 @@ export async function withRepositoryPurgeOperation<T>(
 ): Promise<T> {
   return withRepositoryOperation(repoId, "purge", fn)
 }
+
+/**
+ * Runs `fn` as a purge operation only when the repository has no index
+ * operation and no purge now. Otherwise it does not wait and gives
+ * `{ acquired: false }`, so a caller can try again later.
+ */
+export async function tryWithRepositoryPurgeOperation<T>(
+  repoId: string,
+  fn: () => Promise<T>,
+): Promise<{ acquired: true; value: T } | { acquired: false }> {
+  const state = getRepositoryOperationState(repoId)
+  if (!canAcquireRepositoryOperation(state, "purge") || state.waiters.length)
+    return { acquired: false }
+  acquireRepositoryOperationNow(state, "purge")
+  try {
+    return { acquired: true, value: await fn() }
+  } finally {
+    releaseRepositoryOperation(repoId, "purge")
+  }
+}

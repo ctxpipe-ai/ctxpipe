@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readlink, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import {
   InMemorySpanExporter,
@@ -20,6 +21,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import type { AppEnv } from "../app/env.js"
 import type { VerifiedToken } from "../auth/jwt.js"
 import {
@@ -40,9 +42,9 @@ let tmpDir = ""
 let indexDir = ""
 let hotDir = ""
 
-let useObservability: typeof import("../app/app.js")["useObservability"]
-let registerSearchRoutes: typeof import("./search.js")["registerSearchRoutes"]
-let resetPinManagerForTests: typeof import("../domain/zoekt/pinManager.js")["resetPinManagerForTests"]
+let useObservability: (typeof import("../app/app.js"))["useObservability"]
+let registerSearchRoutes: (typeof import("./search.js"))["registerSearchRoutes"]
+let resetPinManagerForTests: (typeof import("../domain/zoekt/pinManager.js"))["resetPinManagerForTests"]
 
 const server = setupServer()
 const exporter = new InMemorySpanExporter()

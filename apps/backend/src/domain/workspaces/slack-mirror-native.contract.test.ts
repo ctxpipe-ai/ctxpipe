@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm"
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -300,7 +301,7 @@ it.each([
             ).toMatchObject([
               {
                 body: {
-                  text: "I can capture this thread into your context repo. Ask me to capture it, or mention me with no extra text.",
+                  text: "I can capture this thread into your context repo. Ask me to capture it, or mention me with no extra text. For other questions about ctxpipe, see the <https://docs.ctxpipe.ai|ctxpipe docs>.",
                 },
               },
             ])

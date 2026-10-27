@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs"
 import { basename } from "node:path"
+
 import { afterEach, describe, expect, it } from "vitest"
+
 import { modelCallSettings } from "../../retrieval/services/modelProvider.js"
 import {
   WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,

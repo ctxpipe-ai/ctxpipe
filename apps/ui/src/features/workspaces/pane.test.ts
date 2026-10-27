@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { landingPane, parsePane, serializePane, visiblePane } from "./pane"
+
+import {
+  landingPane,
+  paneSearchForOtherConversation,
+  parsePane,
+  serializePane,
+  visiblePane,
+} from "./pane"
 
 describe("parsePane", () => {
   it("maps built-in ids", () => {
@@ -65,5 +72,32 @@ describe("serializePane", () => {
   it("round-trips file paths", () => {
     const pane = parsePane(serializePane({ kind: "file", path: "a/b.md" }))
     expect(pane).toEqual({ kind: "file", path: "a/b.md" })
+  })
+})
+
+describe("paneSearchForOtherConversation", () => {
+  it("turns a file pane into the Files pane", () => {
+    expect(paneSearchForOtherConversation({ pane: "file:a.md" })).toEqual({
+      pane: "files",
+    })
+  })
+
+  it("drops a diff pane", () => {
+    expect(paneSearchForOtherConversation({ pane: "diff:turn=t1" })).toEqual({
+      pane: undefined,
+    })
+    expect(paneSearchForOtherConversation({ pane: "diff" })).toEqual({
+      pane: undefined,
+    })
+  })
+
+  it("keeps panes that do not depend on the conversation", () => {
+    for (const pane of ["files", "graph", "settings"]) {
+      expect(paneSearchForOtherConversation({ pane })).toEqual({ pane })
+    }
+  })
+
+  it("keeps no pane as no pane", () => {
+    expect(paneSearchForOtherConversation({})).toEqual({ pane: undefined })
   })
 })

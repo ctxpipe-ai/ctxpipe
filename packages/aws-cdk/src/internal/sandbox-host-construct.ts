@@ -8,6 +8,7 @@ import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
 import * as servicediscovery from "aws-cdk-lib/aws-servicediscovery"
 import * as cr from "aws-cdk-lib/custom-resources"
 import { Construct } from "constructs"
+
 import type {
   SandboxHostConstructProps,
   SandboxHostResources,
@@ -593,8 +594,8 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
       agent: { metrics_collection_interval: 60, omit_hostname: true },
       metrics: {
         namespace: "CWAgent",
-        // biome-ignore lint/suspicious/noTemplateCurlyInString: the CloudWatch agent's own placeholder.
         append_dimensions: {
+          // oxlint-disable-next-line no-template-curly-in-string -- the CloudWatch agent's own placeholder
           AutoScalingGroupName: "${aws:AutoScalingGroupName}",
         },
         aggregation_dimensions: [["AutoScalingGroupName", "path"]],

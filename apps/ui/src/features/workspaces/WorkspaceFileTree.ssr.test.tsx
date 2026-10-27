@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
+
 import { WorkspaceFileTree } from "./WorkspaceFileTree"
 
 describe("WorkspaceFileTree SSR", () => {

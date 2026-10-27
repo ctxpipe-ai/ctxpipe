@@ -1,102 +1,105 @@
 ---
 title: Terraform
-description: Manage self-hosted ctxpipe infrastructure with Terraform.
+description: Start from the Terraform stack of hosted ctxpipe, on Railway and Neon.
 ---
 
-The repo includes a Terraform stack in `infra/` for managed infrastructure. It
-currently models the ctxpipe Railway and Neon deployment path, with app services
-pulling versioned images from GitHub Container Registry.
+The repository has a Terraform stack in `infra/`. It is the deployment of
+hosted ctxpipe: Railway for the services, Neon for Postgres, and Vercel Sandbox
+for chat. It is not a reusable module yet. Use it as a starting point, and fork
+it.
 
-## What the included stack manages
+<Callout type="warn" title="Change the hosted values before you apply">
+  The stack names the accounts and settings of hosted ctxpipe: the Railway
+  workspace and project, the Neon organization and region, the GitHub App, the
+  email sender, the custom domains, the Vercel team and project, and the
+  telemetry endpoint. Replace each of them with your own values in `infra/` and
+  `infra/module/ctxpipe/` before you run `terraform apply`.
+</Callout>
+
+## What the stack manages
 
 | Area | Terraform shape |
 |---|---|
-| App platform | Railway project, environment, services, variables, and volumes |
-| Database | Neon Postgres 17 project, branch, endpoint, database, owner role, and the `ctxpipe_app` password |
-| App images | `ghcr.io/ctxpipe-ai/backend`, `worker`, `ui`, and `codesearch` tagged by commit SHA |
-| Graph database | Railway service for FalkorDB |
-| Secrets | Terraform variables passed into provider-managed service variables |
+| App platform | The Railway project, the `production` environment, the services, their variables, and the codesearch and FalkorDB volumes |
+| Database | A Neon PostgreSQL 17 project, its branch, endpoint, database, and owner role, and the `ctxpipe_app` password |
+| App images | `ghcr.io/ctxpipe-ai/backend`, `worker`, `ui`, and `codesearch`, tagged with the commit SHA |
+| Graph database | A FalkorDB service on Railway, pinned to one version |
+| Secrets | Not in Terraform. Your CI writes them to the Railway service variables. |
 
-## Initialize state
+## Initialize the state
 
-`infra/backend.tf` expects an S3-compatible backend. The checked-in README shows
-Cloudflare R2 as the reference backend. Initialize from the repo root:
+`infra/backend.tf` uses an S3-compatible state backend. Give the backend
+settings when you initialize, and keep the credentials out of the repository.
+`infra/README.md` shows an example for Cloudflare R2:
 
 ```bash
-terraform -chdir=infra init
+terraform -chdir=infra init \
+  -backend-config="bucket=<bucket>" \
+  -backend-config="key=ctxpipe/production/terraform.tfstate" \
+  -backend-config="endpoints={s3=https://<account-id>.r2.cloudflarestorage.com}" \
+  -backend-config="access_key=<access-key-id>" \
+  -backend-config="secret_key=<secret-access-key>"
 ```
-
-For production state, pass backend settings at init time and keep credentials out
-of the repo.
 
 ## Plan and apply
 
-Set the required Terraform variables through your CI secret store or local
-environment, then review the plan:
+The stack has no secret input, so its state holds no app secret.
 
 ```bash
 terraform -chdir=infra plan
-```
-
-Apply only after the plan matches the intended environment:
-
-```bash
 terraform -chdir=infra apply
 ```
 
-Optional provider connectors are enabled when their complete credential set is
-supplied. Keep GitHub, Slack, Linear, Notion, and Atlassian values in the CI
-secret store used for Terraform inputs; each provider still requires its
-operator-side App, OAuth, callback, and webhook configuration.
+Apply only when the plan matches the environment that you expect.
 
-## Image rollout
+## Secrets
 
-The deployment path expects CI to build and push app images, then pass the image
-tag into Terraform:
+Keep each app secret in the secret store of your CI. Before the images start,
+the deploy writes the secrets to the Railway service variables with
+`scripts/railway-sync-variables.mjs`. That script lists each secret and the
+services that get it. A connector such as Slack, Linear, or PagerDuty is on when
+you set its secrets. Each provider also needs its own app, callback, and
+webhook. See the source connector pages.
 
-```bash
-terraform -chdir=infra apply -var="image_tag=<commit-sha>"
-```
+## Roll out a new version
 
-This keeps infrastructure changes and application rollouts reviewable in the
-same workflow.
+Terraform sets the first image of each service. After that, it ignores image
+and region changes, because of limits in the Railway provider. Roll out a new
+version with the scripts:
 
-Terraform generates the `ctxpipe_app` password, and migrate creates the role in
-SQL with it. A role from the Neon API is a member of `neon_superuser`, which has
-`BYPASSRLS`, so migrate refuses it. Railway `DATABASE_URL` on backend, worker, and
-codesearch is the app-role pooler URL. Migrate / `PRODUCTION_DATABASE_URL` stays
-the owner. Do not collapse those two identities.
+- `scripts/railway-set-images.sh`, with `IMAGE_TAG=<commit-sha>`, deploys that
+  tag to the backend, worker, UI, and codesearch services;
+- `scripts/railway-set-regions.sh` changes the region. Railway copies the
+  codesearch and FalkorDB volumes, and those services stop during the copy.
 
-## Chat sandboxes
+Change the project settings of Railway, such as its name, in the Railway UI.
+Terraform ignores them. The `production` environment must be the oldest
+environment of the project, or the plan stops.
 
-The module runs Workspace chat in Vercel Sandbox (`SANDBOX_PROVIDER=vercel`).
-It takes the Vercel token from `vercel_access_token`. The Vercel team and
-project are set to ctxpipe's own values, so a fork must change them. See
-[Configuration](/docs/self-hosting/configuration#chat-sandboxes).
+## Database roles
 
-## Observability
+Terraform generates the `ctxpipe_app` password, and `migrate` creates the role
+in SQL with it. Do not use a role that the Neon API creates for the app: it is a
+member of `neon_superuser`, which bypasses row-level security, so `migrate`
+refuses it.
 
-This stack is the hosted Railway layout. It does not deploy Langfuse or
-ClickStack. The module always sets `OTEL_EXPORTER_OTLP_*` from
-`otel_otlp_endpoint`, which defaults to ctxpipe's hosted collector
-`https://telemetry.ctxpipe.ai`, and requires `otel_otlp_headers`. If you reuse
-the module, override both; to disable export, remove `otel_shared_env` from
-the module. See [Configuration](/docs/self-hosting/configuration).
+The backend, worker, and codesearch use the pooler URL of `ctxpipe_app` as
+`DATABASE_URL`. `migrate` uses the owner URL. Keep these two identities
+separate.
 
-## When to customize
+## Chat sandboxes and observability
 
-Fork or extend the Terraform module when you need:
-
-- A different container platform.
-- A different Postgres provider.
-- Externalized graph database infrastructure.
-- Separate environments for staging, preview, and production.
-- Provider-specific secrets, logging, or networking controls.
-
-## Related pages
+- Workspace chat runs in Vercel Sandbox (`SANDBOX_PROVIDER=vercel`). The deploy
+  writes `VERCEL_TOKEN` from your CI secrets. Set your own Vercel team and
+  project. See
+  [Chat sandboxes](/docs/self-hosting/configuration#chat-sandboxes).
+- The module sets `OTEL_EXPORTER_OTLP_*` from `otel_otlp_endpoint`, which points
+  to the collector of hosted ctxpipe by default. Set your own endpoint and
+  headers, or remove `otel_shared_env` from the module to turn export off. See
+  [Observability](/docs/self-hosting/configuration#observability).
 
 <Cards>
-  <Card title="Configuration" href="/docs/self-hosting/configuration" description="Required app variables and connector secrets." />
-  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Checks before exposing production." />
-  <Card title="Upgrades" href="/docs/self-hosting/upgrades" description="Plan, migrate, validate, and roll back." />
+  <Card title="Configuration" href="/docs/self-hosting/configuration" description="App variables and connector secrets." />
+  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Checks before people depend on the deployment." />
+  <Card title="Upgrades" href="/docs/self-hosting/upgrades" description="Plan, migrate, check, and roll back." />
 </Cards>

@@ -3,14 +3,17 @@
  * Writes src/generated/default-service-image-tag.ts before `tsc`.
  * Uses git HEAD when inside a clone; otherwise `latest`.
  */
-import { execSync } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { execSync } from "node:child_process"
+import fs from "node:fs"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const packageRoot = path.join(__dirname, "..");
-const outPath = path.join(packageRoot, "src/generated/default-service-image-tag.ts");
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const packageRoot = path.join(__dirname, "..")
+const outPath = path.join(
+  packageRoot,
+  "src/generated/default-service-image-tag.ts",
+)
 
 function resolveGitHeadTag() {
   try {
@@ -18,24 +21,24 @@ function resolveGitHeadTag() {
       cwd: packageRoot,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
-    });
+    })
   } catch {
-    return null;
+    return null
   }
   try {
     return execSync("git rev-parse HEAD", {
       cwd: packageRoot,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
+    }).trim()
   } catch {
-    return null;
+    return null
   }
 }
 
-const tag = resolveGitHeadTag() ?? "latest";
+const tag = resolveGitHeadTag() ?? "latest"
 
-fs.mkdirSync(path.dirname(outPath), { recursive: true });
+fs.mkdirSync(path.dirname(outPath), { recursive: true })
 fs.writeFileSync(
   outPath,
   [
@@ -43,4 +46,4 @@ fs.writeFileSync(
     `export const BUILT_IN_DEFAULT_SERVICE_IMAGE_TAG = ${JSON.stringify(tag)};`,
     "",
   ].join("\n"),
-);
+)

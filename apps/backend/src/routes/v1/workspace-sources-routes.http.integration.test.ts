@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import type { AppEnv } from "../../app/env.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -10,7 +11,6 @@ import { encodeSlackBotTokenForDb } from "../../lib/connection-config.js"
 import { contextStorage } from "../../test/hono-test-logger.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 
 // The routes import the OpenWorkflow client, which reads DATABASE_URL on import.

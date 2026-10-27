@@ -1,10 +1,12 @@
 import { z } from "zod"
+
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import {
   connectorMirrorContentSchema,
   connectorMirrorSourceSchema,
 } from "../../domain/workspaces/connector-mirror-input.js"
+import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -117,6 +119,12 @@ export const workspaceSemanticMerge = defineWorkflow(
       "workspace-write-semantic-merge",
       async () => {
         const env = parseEnv(process.env)
+        // Read access to the bound repository, from the workflow input (CTX-955).
+        const read = workspaceGitRead({
+          orgId: input.orgId,
+          env,
+          remote: input.revision.remote,
+        })
         let revision = input.revision
         const repositoryName = githubRepoFullNameFromWorkspaceUrl(
           revision.remote.url,
@@ -198,7 +206,12 @@ export const workspaceSemanticMerge = defineWorkflow(
                 const paths = new Set(input.files.map((file) => file.path))
                 const current = new Map(
                   (
-                    await readGitFiles(acquired.pack, (path) => paths.has(path))
+                    await readGitFiles(
+                      acquired.pack,
+                      (path) => paths.has(path),
+                      undefined,
+                      read,
+                    )
                   ).map((file) => [file.path, file.content] as const),
                 )
                 assertWriteOriginAllowed({
@@ -217,6 +230,7 @@ export const workspaceSemanticMerge = defineWorkflow(
                 previousSha: input.previousSha,
                 files: input.files,
                 deletePaths: input.deletePaths,
+                read,
               }),
           )
           if (!merged) {
@@ -272,10 +286,17 @@ export const workspaceSemanticMerge = defineWorkflow(
               )
             : null
           const staged = await step.run({ name: "stage" }, () =>
-            resolved ? resolveGitMergeTree(merged, resolved) : merged.staged,
+            resolved
+              ? resolveGitMergeTree(merged, resolved, read)
+              : merged.staged,
           )
           const changed = await step.run({ name: "validate" }, () =>
-            validateGitTree(staged, merged.paths, { allowNoChanges: true }),
+            validateGitTree(
+              staged,
+              merged.paths,
+              { allowNoChanges: true },
+              read,
+            ),
           )
           if (!changed.length) {
             const refreshed = await step.run(
@@ -311,10 +332,14 @@ export const workspaceSemanticMerge = defineWorkflow(
             }),
           )
           const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(staged, {
-              subject,
-              createdAt: run.createdAt,
-            })
+            const pack = await commitGitTree(
+              staged,
+              {
+                subject,
+                createdAt: run.createdAt,
+              },
+              read,
+            )
             if (input.handoff)
               await validateSemanticHandoff(
                 { ...input, handoff: input.handoff },

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { isGithubInstallationTokenError } from "./github-installation.js"
 
 describe("isGithubInstallationTokenError", () => {

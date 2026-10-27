@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto"
 import { gunzipSync } from "node:zlib"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { APIError, Sandbox, Snapshot } from "@vercel/sandbox"
 import { eq } from "drizzle-orm"
@@ -7,6 +8,7 @@ import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import {
@@ -813,7 +815,9 @@ describe("hosted ingest shard", { timeout: 1_200_000 }, () => {
     expect(dns.stdout).toContain("none")
     // No credential is in the sandbox: not in a file, a config, or a
     // process environment. The search runs here, in the test process.
-    const tree = await (await shardRoot())(
+    const tree = await (
+      await shardRoot()
+    )(
       // The tool installs and caches of the snapshot build are left out.
       "cat /proc/[0-9]*/environ 2>/dev/null | base64 -w0; echo; tar -czf - --ignore-failed-read --exclude=/home/vercel-sandbox/.local --exclude=/home/vercel-sandbox/.npm --exclude=/root/.npm --exclude=/root/.cache /ctxpipe /etc /tmp /home /root 2>/dev/null | base64 -w0",
     )

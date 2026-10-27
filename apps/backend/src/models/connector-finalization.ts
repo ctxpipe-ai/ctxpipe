@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm"
+
 import type { Db } from "../db/client.js"
 import { connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
@@ -72,11 +73,11 @@ export async function lockConnectorFinalizationBinding(
     return false
   return Boolean(
     row.workspace.desiredGeneration === revision.generation &&
-      row.workspace.workspaceRepositoryUrl === revision.remote.url &&
-      row.workspace.githubConnectionId === revision.remote.connectionId &&
-      row.workspace.desiredDefaultBranch === revision.defaultBranch &&
-      row.repository.githubConnectionId === revision.remote.connectionId &&
-      normalizeWorkspaceRepositoryUrl(row.repository.gitUrl) ===
-        normalizeWorkspaceRepositoryUrl(revision.remote.url),
+    row.workspace.workspaceRepositoryUrl === revision.remote.url &&
+    row.workspace.githubConnectionId === revision.remote.connectionId &&
+    row.workspace.desiredDefaultBranch === revision.defaultBranch &&
+    row.repository.githubConnectionId === revision.remote.connectionId &&
+    normalizeWorkspaceRepositoryUrl(row.repository.gitUrl) ===
+      normalizeWorkspaceRepositoryUrl(revision.remote.url),
   )
 }

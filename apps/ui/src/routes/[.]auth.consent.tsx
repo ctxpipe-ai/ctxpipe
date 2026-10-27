@@ -1,5 +1,6 @@
 import { createFileRoute, useLocation } from "@tanstack/react-router"
 import { useState } from "react"
+
 import { OAuthConsent } from "@/features/auth/OAuthConsent"
 import { authClient, useListOrganizations, useSession } from "@/lib/auth-client"
 import { getOAuthRedirectUri } from "@/lib/auth-continuation"

@@ -21,26 +21,17 @@ export const WORKSPACE_CHAT_RUNTIME = {
 /** Port `opencode serve` binds inside the sandbox. Docker must publish it. */
 export const WORKSPACE_CHAT_OPENCODE_PORT = 4096
 
-export const WORKSPACE_CHAT_DOCKER_SANDBOX: {
-  image: string
-  publishPorts: number[]
-} = {
-  image:
-    "node@sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d",
-  publishPorts: [WORKSPACE_CHAT_OPENCODE_PORT],
-}
-
 /** The prebuilt agent image selected for this deployment. */
 export function workspaceChatDockerImage(): string {
   return (
     process.env.SANDBOX_CHAT_IMAGE?.trim() ||
-    "ctxpipe-chat-sandbox:opencode-1.18.34-r3"
+    "ctxpipe-chat-sandbox:opencode-1.18.34-r4"
   )
 }
 
 /**
  * Bootstrap must leave `opencode` on PATH. TanStack's adapter spawns
- * `opencode serve` inside the sandbox; `node:22` and a host without the CLI
+ * `opencode serve` inside the sandbox; `node:24` and a host without the CLI
  * both miss that binary.
  */
 export const WORKSPACE_CHAT_SANDBOX_SETUP = [

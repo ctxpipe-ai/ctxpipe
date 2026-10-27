@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
+
 import {
   type FormatUpgradeContext,
   formatUpgradeCopy,
@@ -16,7 +17,7 @@ import { useStartWorkspaceUpgrade } from "./use-start-upgrade"
 /**
  * The notice of a Workspace that needs the format upgrade (CTX-932, CTX-934,
  * CTX-935). It says what is missing, where the upgrade stands, and the next
- * step: an owner or admin starts the upgrade or opens Upgrades, a member asks
+ * step: an owner or admin starts the upgrade or reviews it, a member asks
  * an admin. A failed upgrade shows its cause. One component, so the Workspace
  * page, Sources and the connect flows say the same thing.
  */
@@ -72,7 +73,7 @@ export function FormatUpgradeNotice(props: {
             size="sm"
             href={workspaceUpgradesHref(orgSlug, workspaceSlug)}
           >
-            Open Upgrades
+            Review upgrade
           </Button>
           {isAdmin === false && (canStart || failed) ? (
             <span className="self-center text-xs">{MEMBER_ASK_ADMIN}</span>
@@ -82,8 +83,8 @@ export function FormatUpgradeNotice(props: {
     >
       {failed ? (
         <p>
-          {cause} Open Upgrades to see the step that failed and the fix. Sources
-          and chat stay limited until the upgrade is merged.
+          {cause} Press Review upgrade to see the step that failed and the fix.
+          Sources and chat stay limited until the upgrade is merged.
         </p>
       ) : (
         <>

@@ -3,6 +3,7 @@ import { useLocation } from "@tanstack/react-router"
 import { delay, HttpResponse, http, type RequestHandler } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import { onboardingHandOffFlag } from "@/lib/session-flags"
 import {
@@ -13,6 +14,7 @@ import {
   sessionSignedInOnboardingHandler,
 } from "@/mocks/handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
+
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { IndexRoutePage } from "./index"
@@ -144,6 +146,8 @@ export const JoinerFinishLandsInApp: Story = {
   render: () => <OnboardingJourney />,
   beforeEach: joinerSession.reset,
   parameters: {
+    intent:
+      "Catches a joiner who finishes onboarding and does not reach the app. The finish step completes onboarding and opens the organization. Not for the create-organization flow.",
     storyRoute: onboardingJourneyRoute,
     msw: {
       handlers: {
@@ -268,6 +272,8 @@ export const AdminFlowCreateOrgLandsOnHome: Story = {
     creatorState.orgCompleted = false
   },
   parameters: {
+    intent:
+      "Catches an admin onboarding that does not create the organization or open its home. Two steps, with the name and slug taken from the session email. Not for the joiner flow.",
     storyRoute: onboardingJourneyRoute,
     msw: {
       handlers: {
@@ -395,6 +401,8 @@ export const DoubleClickMovesOneSlide: Story = {
     doubleClickCreate.mockClear()
   },
   parameters: {
+    intent:
+      "Catches a fast double click on Next that skips a slide or creates an organization. One double click moves one slide and sends no create request. Not for the slide content.",
     msw: {
       handlers: {
         defaults: [

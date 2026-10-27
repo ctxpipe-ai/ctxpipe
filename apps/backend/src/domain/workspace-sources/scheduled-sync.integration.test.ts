@@ -3,6 +3,7 @@ import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { encryptConnectionSecret } from "../../lib/connection-secrets.js"
@@ -139,9 +140,8 @@ describe("Scheduled full sync of Workspace sources (Postgres)", () => {
   afterAll(async () => {
     vi.useRealTimers()
     server.close()
-    const { closeOpenWorkflowClient } = await import(
-      "../../openworkflow/client.js"
-    )
+    const { closeOpenWorkflowClient } =
+      await import("../../openworkflow/client.js")
     await closeOpenWorkflowClient()
     await backend?.stop()
     await seed.cleanup()
@@ -275,9 +275,8 @@ describe("Scheduled full sync of Workspace sources (Postgres)", () => {
   })
 
   it("queues one scheduler run for each day, also after a worker restart more than one day after that run was queued", async () => {
-    const { scheduleDailySourcesSync } = await import(
-      "../../openworkflow/workflows/workspace-sources-daily-sync.js"
-    )
+    const { scheduleDailySourcesSync } =
+      await import("../../openworkflow/workflows/workspace-sources-daily-sync.js")
     const day = new Date(Date.now() + 40 * DAY_MS)
     const dayKey = day.toISOString().slice(0, 10)
     const schedulerRuns = async () =>

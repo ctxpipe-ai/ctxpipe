@@ -7,9 +7,11 @@ import {
   writeFileSync,
 } from "node:fs"
 import { join } from "node:path"
+
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -29,10 +31,10 @@ import { workspaceBootstrap } from "../../openworkflow/workflows/workspace-boots
 import { workspaceFileEdit } from "../../openworkflow/workflows/workspace-file-edit.js"
 import { workspaceSemanticMerge } from "../../openworkflow/workflows/workspace-semantic-merge.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 import { enqueueInputFromPausedJob } from "./write-job-intent.js"
 import { WRITE_STATUS_REASONS } from "./write-status.js"
-import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
 
 async function cancelUnlessAlreadyTerminal(
   runner: Pick<OpenWorkflow, "cancelWorkflowRun">,
@@ -324,9 +326,8 @@ it.each(["bootstrap", "ui_file_edit"] as const)(
   "%s keeps its native owner while waiting for write access before acquisition",
   { timeout: 100_000 },
   async (kind) => {
-    const { getWorkspaceById, persistWriteStatus } = await import(
-      "../../models/workspaces.js"
-    )
+    const { getWorkspaceById, persistWriteStatus } =
+      await import("../../models/workspaces.js")
     await withNativeHydrationFixture(
       {
         github: true,
@@ -452,9 +453,8 @@ it(
   "does not apply a permission probe from before a relink to the new binding",
   { timeout: 30_000 },
   async () => {
-    const { getWorkspaceById, updateWorkspace } = await import(
-      "../../models/workspaces.js"
-    )
+    const { getWorkspaceById, updateWorkspace } =
+      await import("../../models/workspaces.js")
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {

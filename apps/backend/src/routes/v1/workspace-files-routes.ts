@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
+
 import type { AppEnv } from "../../app/env.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
 import { CodesearchCheckoutError } from "../../domain/codeIngestion/codesearchClient.js"

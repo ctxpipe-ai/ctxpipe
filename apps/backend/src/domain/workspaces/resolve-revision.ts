@@ -1,4 +1,5 @@
 import { RequestError } from "octokit"
+
 import type { Env } from "../../config/env.js"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
@@ -13,9 +14,27 @@ import {
   GitRemoteAccessError,
   resolveGitRemoteTip,
 } from "../../services/git/clone-tree.js"
+import type { GitRemoteRead } from "../../services/git/pack.js"
 import { readUnbornRemoteBranch } from "../../services/git/unborn-tree.js"
 import { linkedRevisionSchema, type WorkspaceRevision } from "./revision.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
+
+/**
+ * Transient read access to the bound repository of a Workspace, for a Git
+ * operation on a stored pack with a base (CTX-955). The caller takes the org
+ * and the remote from the workflow input or from the database binding, never
+ * from a step output.
+ */
+export function workspaceGitRead(input: {
+  orgId: string
+  env: Env
+  remote: WorkspaceRevision["remote"]
+}): GitRemoteRead {
+  return {
+    url: input.remote.url,
+    token: () => resolveRepositoryReadCredential(input),
+  }
+}
 
 /** Scope a transient read credential to the remote's explicit connection. */
 export async function resolveRepositoryReadCredential(input: {

@@ -1,9 +1,11 @@
 "use client"
 
-import type { ReactNode } from "react"
-import type * as PageTree from "fumadocs-core/page-tree"
 import { usePathname } from "fumadocs-core/framework"
+import type * as PageTree from "fumadocs-core/page-tree"
 import { DocsLayout } from "fumadocs-ui/layouts/docs"
+import Link from "next/link"
+import type { ReactNode } from "react"
+
 import { DocsCustomNav } from "./docs-custom-nav"
 import { DocsSidebarModeLinks } from "./docs-sidebar-mode-links"
 
@@ -53,6 +55,15 @@ export function DocsModeLayout({
         collapsible: false,
         /* keep folders expanded by default so all pages are visible initially */
         defaultOpenLevel: 99,
+        footer: (
+          <Link
+            href="/llms.txt"
+            prefetch={false}
+            className="px-2 py-1.5 text-xs text-fd-muted-foreground transition-colors hover:text-fd-accent-foreground"
+          >
+            llms.txt for your agent
+          </Link>
+        ),
         /*
          * SidebarHeader is still rendered (title link + hidden search slot) but
          * adds nothing visible when nav.title is unset. Remove its padding here

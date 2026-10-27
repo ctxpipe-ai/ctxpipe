@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
 import { githubInstallationLinkedHandler } from "@/mocks/handlers"
 import {
@@ -9,10 +10,11 @@ import {
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
 import { docsWorkspace } from "./workspace-fixtures"
+import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
 
 const meta = {
   title: "Components/Workspaces/RepositoryPicker",

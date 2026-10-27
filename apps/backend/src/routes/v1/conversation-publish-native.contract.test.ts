@@ -1,9 +1,11 @@
 import { existsSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
+
 import type { AppEnv } from "../../app/env.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -102,9 +104,8 @@ it.each([
           )
           if (scenario === "pr_collision") {
             const { withUserIdContext } = await import("../../auth/context.js")
-            const { persistConversationPublication } = await import(
-              "../../models/conversations.js"
-            )
+            const { persistConversationPublication } =
+              await import("../../models/conversations.js")
             await withOrgIdContext(f.org, () =>
               withUserIdContext(userId, () =>
                 persistConversationPublication({
@@ -497,9 +498,8 @@ done
                   title: "Chat changes",
                 }),
               ])
-              const { withUserIdContext } = await import(
-                "../../auth/context.js"
-              )
+              const { withUserIdContext } =
+                await import("../../auth/context.js")
               expect(
                 await withOrgIdContext(f.org, () =>
                   withUserIdContext(userId, () =>

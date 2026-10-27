@@ -1,8 +1,15 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { describe, expect, it } from "vitest"
 
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
@@ -37,7 +44,7 @@ describe("init --memory (end-to-end)", () => {
     const cursor = JSON.parse(
       readFileSync(join(cwd, ".cursor", "mcp.json"), "utf8"),
     ) as { mcpServers: Record<string, { command?: string; url?: string }> }
-    expect(cursor.mcpServers.ctxpipe?.url).toMatch(/orgSlug=acme/)
+    expect(cursor.mcpServers.ctxpipe?.url).toBe("https://app.ctxpipe.ai/mcp")
     expect(cursor.mcpServers["ctxpipe-memory"]).toBeUndefined()
     expect(existsSync(join(cwd, ".cursor", "hooks.json"))).toBe(true)
     expect(existsSync(join(cwd, ".ai", "memory", "index.md"))).toBe(true)
@@ -103,7 +110,11 @@ describe("init --memory (end-to-end)", () => {
   it("preserves an existing .ai/memory/README.md", () => {
     const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-init-existing-"))
     mkdirSync(join(cwd, ".ai", "memory"), { recursive: true })
-    writeFileSync(join(cwd, ".ai", "memory", "README.md"), "# pre-existing\n", "utf8")
+    writeFileSync(
+      join(cwd, ".ai", "memory", "README.md"),
+      "# pre-existing\n",
+      "utf8",
+    )
     runInit(cwd, [
       "--org",
       "acme",

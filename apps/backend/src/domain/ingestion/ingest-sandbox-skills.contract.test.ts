@@ -2,9 +2,11 @@ import { execFileSync } from "node:child_process"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import { workspaceChatDockerImage } from "../workspaces/chat-runtime.js"
 import {
   assertIngestOpenCodeVersion,
@@ -182,8 +184,10 @@ async function withBox(
             )
             return {
               exitCode: r.exitCode,
-              output: async (stream) =>
-                stream === "stderr" ? r.stderr : r.stdout,
+              logs: async function* () {
+                yield { stream: "stdout" as const, data: r.stdout }
+                yield { stream: "stderr" as const, data: r.stderr }
+              },
             }
           },
         })

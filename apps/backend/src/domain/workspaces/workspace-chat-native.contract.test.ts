@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
+
 import {
   modelMessagesToUIMessages,
   RUN_CANCEL_REASON,
@@ -12,6 +13,7 @@ import { eq } from "drizzle-orm"
 import { HttpResponse, http, passthrough } from "msw"
 import { setupServer } from "msw/node"
 import { expect, it, vi } from "vitest"
+
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
@@ -140,6 +142,11 @@ it(
         "kept through chat",
       )
       expect(f.modelRequests.length).toBeGreaterThanOrEqual(2)
+      expect(
+        f.modelRequests.some((request) =>
+          JSON.stringify(request).includes("https://docs.ctxpipe.ai/llms.txt"),
+        ),
+      ).toBe(true)
       const reconstructed = await reconstructChat(
         persistence,
         new Request(

@@ -1,106 +1,93 @@
 ---
 title: Quickstart
-description: Choose a deployment path, establish the public origin, and prove the source-to-agent loop.
+description: Deploy ctxpipe, set the public origin, and prove the loop from a source to an agent.
 ---
 
-This quickstart is the common path across Docker, Terraform, and AWS. Choose the
-runtime first, then validate the same product workflow: sign in, connect GitHub,
-index one repository, and search it from an agent with the MCP tools.
+This quickstart is the same for each deployment path. Deploy, then test the
+product loop: sign in, connect GitHub, index one repository, and search it from
+an agent with the MCP tools.
 
-## 1. Choose how you will run ctxpipe
+## 1. Deploy
 
-<Cards>
-  <Card title="Docker Compose" href="/docs/self-hosting/deployment/docker" description="Fastest evaluation and small internal deployment path." />
-  <Card title="Terraform" href="/docs/self-hosting/deployment/terraform" description="Provision the repository's Railway and Neon stack as code." />
-  <Card title="AWS CDK" href="/docs/self-hosting/deployment/aws" description="Deploy the single-tenant CtxPipe construct inside your AWS account." />
-</Cards>
-
-For a local Compose evaluation, copy the environment template and set at least a
-stable auth secret, public URL, and model credentials:
+For a Docker Compose evaluation, clone the repository and set the minimum
+values:
 
 ```bash
+git clone https://github.com/ctxpipe-ai/ctxpipe.git
+cd ctxpipe
 cp docker-compose.env.example .env
-# edit AUTH_SECRET, AUTH_BASE_URL, CTXPIPE_PUBLIC_APP_URL,
-# MODEL_PROVIDER, and the matching model credentials
+# Set AUTH_SECRET, AUTH_BASE_URL, CTXPIPE_PUBLIC_APP_URL,
+# MODEL_PROVIDER, and MODEL_PROVIDER_API_KEY.
 pnpm start
 ```
 
-`pnpm start` runs the Compose **`deploy`** profile, including migrations,
-backend, UI, worker, codesearch, Postgres, and FalkorDB. Telemetry stays off
-until you set `OTEL_EXPORTER_OTLP_*` to your own collector.
+`pnpm start` runs the Compose `deploy` profile. See
+[Docker](/docs/self-hosting/deployment/docker) for what it starts and what to
+set before people depend on it.
 
-<Callout type="warn" title="Production needs one stable HTTPS origin">
-  Browser traffic, auth, API, connector callbacks, and MCP should all use the
-  public backend `AUTH_BASE_URL`. Keep internal services private.
+For AWS, see [AWS CDK](/docs/self-hosting/deployment/aws). For Railway and Neon,
+see [Terraform](/docs/self-hosting/deployment/terraform).
+
+<Callout type="warn" title="Use one stable HTTPS origin">
+  The browser, auth, the API, connector callbacks, and MCP all use the public
+  backend origin, `AUTH_BASE_URL`. Keep the other services private.
 </Callout>
 
-## 2. Verify the deployment boundary
+## 2. Check the deployment
 
-Before adding a source:
+Before you add a source, make sure that:
 
-- `GET {AUTH_BASE_URL}/.status` returns an OK status.
-- The app opens through `AUTH_BASE_URL`, not the private UI service.
-- Sign-in works with at least one configured method.
-- Backend and worker can use the configured model provider.
+- `GET {AUTH_BASE_URL}/.status` returns `ok`;
+- the app opens through `AUTH_BASE_URL`;
+- you can sign in with at least one method. See
+  [Authentication](/docs/self-hosting/authentication);
+- the backend and the worker can reach the model provider;
 - Postgres and the graph database are healthy.
-
-See [Authentication](/docs/self-hosting/authentication) for the auth secret,
-origin, SMTP, and optional social providers.
 
 ## 3. Create your GitHub App and a Workspace
 
-Open **Connectors → Add connection → GitHub**. The self-hosted wizard guides an
-operator through creating a deployment-owned GitHub App with connection-specific
-callback and webhook URLs.
+Open **Connectors → Add connection → GitHub**. The wizard helps you create a
+GitHub App that your deployment owns. Follow
+[Self-host GitHub](/docs/self-hosting/github), and install the App on a few
+repositories.
 
-Follow [Self-host GitHub](/docs/self-hosting/github) and install the App on a
-narrow repository scope. Then [create a Workspace](/docs/workspaces/create-workspace)
-and [link one code repository](/docs/workspaces/linked-repositories) from its
-**Settings**. Wait until it reaches **Indexed**.
+Then [create a Workspace](/docs/workspaces/create-workspace), and
+[link one code repository](/docs/workspaces/linked-repositories) in its
+**Settings**. Wait until the repository shows **Indexed**.
 
-## 4. Connect an MCP client
+## 4. Connect an agent
 
-Use the CLI with your deployment URL:
+Run the CLI with the URL of your deployment:
 
 ```bash
 npx ctxpipe init --base-url https://ctx.example.com
 ```
 
-Or configure the remote endpoint manually:
+Or configure your client by hand with `https://ctx.example.com/mcp`. See
+[Connect your agent](/docs/mcp/mcp-docs). The client authorizes against your
+deployment. The signed-in user must be a member of each organization that the
+client reads.
+
+## 5. Prove the loop
+
+Ask the agent:
 
 ```text
-https://ctx.example.com/mcp
-```
-
-The client should complete OAuth against **your deployment**. During
-authorization, you choose the organizations that the client can read. The URL alone
-gives no access: the signed-in user must be a member
-of each organization. Each tool call names one organization in the `org`
-argument.
-
-## 5. Prove the complete loop
-
-Ask the agent explicitly to use ctxpipe:
-
-```text
-Use ctxpipe before planning. Call list_workspaces, then search_knowledge and
+Use ctxpipe before you plan. Call list_workspaces, then search_knowledge and
 search_code. Name the relevant architecture, standards, and source files, and
-say what still needs code verification.
+say what still needs a check in the code.
 ```
 
-You are ready to invite a team when:
+You are ready to invite your team when:
 
-- `list_workspaces` lists your organization and its Workspaces,
-- `search_knowledge` and `search_code` return useful refs and source paths,
-- a repository retry succeeds,
-- backups and logs are configured,
-- and your rollback procedure matches the deployment path.
-
-## Related setup
+- `list_workspaces` lists your organization and its Workspaces;
+- `search_knowledge` and `search_code` return useful refs;
+- a repository that you index again finishes;
+- backups and logs are in place;
+- you have a rollback procedure for your deployment path.
 
 <Cards>
-  <Card title="Architecture" href="/docs/self-hosting/architecture" description="Services, state, and request flow." />
-  <Card title="Configuration" href="/docs/self-hosting/configuration" description="Required variables and connector secrets." />
-  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Origins, callbacks, persistence, and preflight checks." />
-  <Card title="MCP diagnostics" href="/docs/self-hosting/mcp" description="Verify discovery, OAuth, and the MCP tools." />
+  <Card title="Configuration" href="/docs/self-hosting/configuration" description="Variables, secrets, and connector setup." />
+  <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Checks before people depend on the deployment." />
+  <Card title="MCP diagnostics" href="/docs/self-hosting/mcp" description="Check discovery, OAuth, and the MCP tools." />
 </Cards>

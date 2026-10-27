@@ -1,6 +1,7 @@
 import { like } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import { useMswServer } from "../../test/msw.js"
 import { closeDb, getSystemDb } from "../db/client.js"
 import { users } from "../db/schema/auth.js"
@@ -14,7 +15,6 @@ import { withTestLogger } from "../test/with-test-logger.js"
 const kvIdentifyCalls: string[] = []
 const runId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
   http.get("https://kv.better-auth.com/identify/:id", ({ params }) => {
     kvIdentifyCalls.push(String(params.id))
@@ -32,7 +32,7 @@ function cookiePairs(response: Response): string[] {
 }
 
 describe("auth requests and the Better Auth infra request id", () => {
-  let app: Awaited<ReturnType<typeof import("../app/app.js")["createApp"]>>
+  let app: Awaited<ReturnType<(typeof import("../app/app.js"))["createApp"]>>
 
   beforeAll(async () => {
     const { config } = await import("dotenv")
@@ -93,22 +93,22 @@ describe("auth requests and the Better Auth infra request id", () => {
     expect(kvIdentifyCalls.slice(before)).toEqual([])
   })
 
-  it.each([
-    "GET",
-    "POST",
-  ])("does not set the infra cookie on a %s to the Atlassian callback", async (method) => {
-    const res = await app.request(
-      "/.auth/api/v1/auth/callback/atlassian?code=bad",
-      {
-        method,
-        headers: {
-          origin: process.env.AUTH_BASE_URL ?? "http://localhost:3000",
-          "x-request-id": `rid-callback-${method}`,
+  it.each(["GET", "POST"])(
+    "does not set the infra cookie on a %s to the Atlassian callback",
+    async (method) => {
+      const res = await app.request(
+        "/.auth/api/v1/auth/callback/atlassian?code=bad",
+        {
+          method,
+          headers: {
+            origin: process.env.AUTH_BASE_URL ?? "http://localhost:3000",
+            "x-request-id": `rid-callback-${method}`,
+          },
         },
-      },
-    )
-    expect(
-      cookiePairs(res).some((pair) => pair.startsWith("__infra-rid=")),
-    ).toBe(false)
-  })
+      )
+      expect(
+        cookiePairs(res).some((pair) => pair.startsWith("__infra-rid=")),
+      ).toBe(false)
+    },
+  )
 })

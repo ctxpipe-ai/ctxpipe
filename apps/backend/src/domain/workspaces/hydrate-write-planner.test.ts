@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { bootstrapWorkspaceFiles } from "./bootstrap.js"
 import { planHydrateWrites } from "./hydrate-write-planner.js"
 import type { WorkspaceRevision } from "./revision.js"
@@ -158,14 +159,15 @@ async function mainEraPlan(format: number) {
 }
 
 describe("hydrate direct writes and the Workspace format (ADR-053 section 7)", () => {
-  it.each([
-    0, 1, 2, -1,
-  ])("plans no direct write to the default branch at format %i, also when AGENTS.md is not the template", async (format) => {
-    expect(await mainEraPlan(format)).toEqual({
-      kinds: [],
-      historyRead: false,
-    })
-  })
+  it.each([0, 1, 2, -1])(
+    "plans no direct write to the default branch at format %i, also when AGENTS.md is not the template",
+    async (format) => {
+      expect(await mainEraPlan(format)).toEqual({
+        kinds: [],
+        historyRead: false,
+      })
+    },
+  )
 
   it("keeps each direct write of ctxpipe-managed files at format 3", async () => {
     expect(await mainEraPlan(3)).toEqual({

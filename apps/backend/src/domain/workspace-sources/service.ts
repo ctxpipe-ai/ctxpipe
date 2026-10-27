@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto"
+
 import { requireCurrentOrgId } from "../../auth/context.js"
 import { parseEnv } from "../../config/env.js"
 import { listOrgConnections } from "../../models/org-connections.js"
@@ -58,12 +59,12 @@ import {
   WORKSPACE_REPOSITORY_SOURCE_DETAIL,
 } from "./projection-plan.js"
 import { workspaceGithubRepository } from "./repository.js"
+import { parseSourceFile } from "./source-file-text.js"
 import {
   checkSourcePath,
   githubSourcePath,
   SOURCE_FILES_FOLDER,
 } from "./source-file.js"
-import { parseSourceFile } from "./source-file-text.js"
 import { SOURCES_FOLDER_PREFIX } from "./source-tree.js"
 import {
   SOURCE_SCOPES,

@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import {
   expectBoxUnchanged,
   responseGate,
@@ -11,10 +12,11 @@ import {
   conversationsListHandler,
   conversationsListLoadingHandler,
 } from "@/mocks/workspace-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceConversationList } from "./WorkspaceConversationList"
 import { docsConversations, docsWorkspace } from "./workspace-fixtures"
+import { WorkspaceConversationList } from "./WorkspaceConversationList"
 
 const meta = {
   title: "Components/Workspaces/ConversationList",
@@ -54,6 +56,32 @@ export const WithConversations: Story = {
         page: [conversationsListHandler(docsConversations)],
       },
     },
+  },
+}
+
+export const SwitchFromOpenFile: Story = {
+  parameters: {
+    storyRoute: {
+      pattern: "orgIndex",
+      orgSlug: "acme",
+      search: "?pane=file%3Aa.md",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [conversationsListHandler(docsConversations)],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const link = await canvas.findByRole("link", { name: "Auth claims" })
+    const href = link.getAttribute("href") ?? ""
+    await expect(href).toContain("pane=files")
+    await expect(href).not.toContain("a.md")
+    const current = await canvas.findByRole("link", { name: "Repo layout" })
+    await expect(current.getAttribute("href") ?? "").toContain(
+      "pane=file%3Aa.md",
+    )
   },
 }
 
@@ -125,6 +153,8 @@ const threeConversations = [0, 1, 2].map((row) => ({
 export const ConversationListSkeletonMatches: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a conversation list skeleton whose box differs from the loaded list. This causes layout shift when the data arrives. Not for conversation titles or order.",
     msw: {
       handlers: {
         page: [

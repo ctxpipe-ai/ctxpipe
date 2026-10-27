@@ -2,8 +2,10 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { afterEach, describe, expect, it } from "vitest"
 import { parse, stringify } from "yaml"
+
 import { captureGitPack } from "../../services/git/pack.js"
 import { planUnlinkRetraction } from "./unlink-retraction.js"
 
@@ -79,7 +81,7 @@ async function workspace(files: Record<string, string>) {
   }
   git("add", "-A")
   git("commit", "--quiet", "-m", "fixture")
-  return captureGitPack(dir, git("rev-parse", "HEAD"))
+  return captureGitPack(dir, git("rev-parse", "HEAD"), null)
 }
 
 function plan(pack: Awaited<ReturnType<typeof workspace>>) {
@@ -88,6 +90,7 @@ function plan(pack: Awaited<ReturnType<typeof workspace>>) {
     sourceUrl: `${UNLINKED}.git`,
     sourcePath: UNLINKED_PATH,
     workspaceRepositoryUrl: WORKSPACE,
+    read: null,
     observedAt: OBSERVED,
   })
 }

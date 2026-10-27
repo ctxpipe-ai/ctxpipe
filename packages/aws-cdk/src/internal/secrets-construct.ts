@@ -7,6 +7,7 @@ import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
 import * as ses from "aws-cdk-lib/aws-ses"
 import * as cr from "aws-cdk-lib/custom-resources"
 import { Construct } from "constructs"
+
 import type { SecretsConstructProps, SecretsResources } from "./contracts"
 
 export class SecretsConstruct extends Construct {
@@ -65,7 +66,7 @@ export class SecretsConstruct extends Construct {
       this,
       "DatabaseUrlWriterFunction",
       {
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         handler: "index.handler",
         timeout: cdk.Duration.seconds(30),
         code: lambda.Code.fromInline(`
@@ -223,7 +224,7 @@ export class SecretsConstruct extends Construct {
       this,
       "SesSmtpPasswordFunction",
       {
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         handler: "index.handler",
         timeout: cdk.Duration.seconds(15),
         code: lambda.Code.fromInline(`

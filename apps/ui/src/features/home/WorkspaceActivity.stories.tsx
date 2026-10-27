@@ -3,11 +3,13 @@ import { useRouterState } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { I18nProvider } from "react-aria-components"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import type { WorkspaceActivityCommit } from "@/features/workspaces/types"
 import {
   docsWorkspaceActivity,
   docsWorkspaceActivityRecent,
 } from "@/features/workspaces/workspace-fixtures"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { utcDayBefore } from "./activity-search"
@@ -275,6 +277,10 @@ export const KeyboardSelectsEmptyDay: Story = {
  * pick reads only the commits of that author and goes into the URL.
  */
 export const AuthorFiltersRecent: Story = {
+  parameters: {
+    intent:
+      "Catches an author filter that does not narrow the recent commits. Choosing an author must update the button and send the author to the activity request. Not for the date filter or commit rows.",
+  },
   tags: ["workspace-golden"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -367,6 +373,10 @@ export const DateRangeFiltersRecent: Story = {
  * list reads `since` and `until`, and both go into the URL.
  */
 export const CustomDateRange: Story = {
+  parameters: {
+    intent:
+      "Catches a custom date range that does not reach the activity request. Typed start and end dates must send since and until values. Not for the author filter or commit rows.",
+  },
   tags: ["workspace-golden"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -576,6 +586,8 @@ export const GermanLocale: Story = {
 export const ResetClearsEveryFilter: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a reset that leaves a filter active. Author, day, and date range from the URL must all clear and the list must load again. Not for the filter menus.",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",
@@ -649,6 +661,8 @@ function beadTops(canvasElement: HTMLElement): number[] {
 export const LoadMorePages: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches Load more that replaces or moves earlier commits. New commits append after the first ten and the button goes away at the end. Not for filters or row content.",
     msw: { handlers: { page: activityHandlers(twelveCommits) } },
   },
   play: async ({ canvasElement }) => {

@@ -4,6 +4,7 @@ import { IconBrandGithub } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
+
 import {
   fetchGithubInstallationSummary,
   githubConnectorKeys,
@@ -12,6 +13,7 @@ import {
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
 import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
+
 import { resolveConnectorHealth } from "../connectorHealth"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import { ConnectorListItem, connectorDash } from "./ConnectorListItem"

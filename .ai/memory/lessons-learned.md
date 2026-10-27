@@ -19,6 +19,7 @@ These lessons moved to the instructions that agents always read. Do not add them
 | `rounded-md`, React Aria first, CSS-first responsive layout, selected chrome on the click, no shell remount | [apps/ui/AGENTS.md](../../apps/ui/AGENTS.md) |
 | Pierre for the Files pane | [ADR-040](decisions/ADR-040-pierre-files-pane-chrome.md) |
 | RLS with the `ctxpipe_app` role | [ADR-042](decisions/ADR-042-postgres-rls-app-role.md) |
+| Harness-agnostic agent setup: shared content in `.agents/` and `AGENTS.md`, thin per-harness adapters; an orchestrator app starts Claude and Codex agents; Cursor stays dormant | [ADR-055](decisions/ADR-055-harness-agnostic-agent-setup.md) and root [AGENTS.md](../../AGENTS.md) |
 
 ## Entries
 
@@ -37,8 +38,8 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md (two entries)
 
-### Biome
-- **Rule:** Biome lints and formats the whole monorepo from the root `biome.jsonc` (no nested `apps/ui/biome.json`), with `css.parser.tailwindDirectives` on for Tailwind at-rules. The workspace `.vscode/settings.json` sets `"css.lint.unknownAtRules": "ignore"` only to silence the VS Code warning; Biome lint stays on.
+### Oxlint and Oxfmt
+- **Rule:** Oxlint lints and Oxfmt formats the whole monorepo from the root `.oxlintrc.json` and `.oxfmtrc.json` (no nested configs). Run `pnpm lint`, `pnpm format:check`, and `pnpm format` from the root. Suppress a lint finding with `// oxlint-disable-next-line <rule> -- <reason>`. Oxfmt skips Markdown and YAML on purpose.
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md (three entries)
@@ -164,10 +165,10 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Source:** production Linear stall after ctxpipe-context recreate; copied to sibling scoped mirrors
 
 ### Connector product vs self-host docs
-- **Rule:** scoped-mirror connectors (Linear, Notion) need a **hosted product page** under `apps/docs/content/docs/(guide)/connections/source-connectors/<slug>.mdx` and a **self-host operator page** under `apps/docs/content/docs/self-hosting/<slug>.mdx`. Use Linear's hosted page as the structural template (managed-app callout, **Where the scope lives**, setup steps, layout, webhooks, troubleshooting). Copy Linear's headings, not Linear's provider-specific content. The hosted page describes user setup; it does not document creating the provider OAuth app — that stays on the self-host page, with a User guide pointer back. Add the slug to `source-connectors/meta.json` link it from the Connections overview (`connections/index.mdx`), and add a row for the provider to the table in `workspaces/settings.mdx#source-file-format` (path and scope keys).
+- **Rule:** each scoped-mirror connector (Linear, Notion, Confluence, PagerDuty) has a **hosted product page** at `apps/docs/content/docs/(guide)/connections/source-connectors/<slug>.mdx` and a **self-host operator page** at `apps/docs/content/docs/self-hosting/<slug>.mdx`. The shared setup flow (connect, add to Workspaces, merge the pull request), the sync model (webhooks, the daily full sync, **Sync now**), and the troubleshooting for all tools are on the Connections page (`connections/index.mdx`). Do not repeat them on a connector page. A hosted scoped-mirror page uses these headings in this order, for each one that has content: **What is mirrored**, **Connect <tool>** (only the steps that differ from the shared flow), **Source file**, **Files in the repository**, **Check the setup**, and **Troubleshooting**. A page can add a section that only its tool needs, for example the data-flow diagram and the prerequisites of Confluence, or how PagerDuty updates arrive. GitHub (a git source) and Slack (capture on request) use their own layouts. Add **Troubleshooting** only for problems that are specific to the tool; otherwise end the page with a link to `/docs/connections#troubleshooting`. The hosted page describes user setup. It does not tell how to create the provider OAuth app: that is on the self-host page, which links back to the hosted page. For a new connector, add the slug to `source-connectors/meta.json`, add a row to the connectors table in `connections/index.mdx`, and add a row to the table in `workspaces/settings.mdx#source-file-format` (path and scope keys).
 - **Category:** convention
-- **Date:** 2026-08-20
-- **Source:** notion-docs branch; Linear hosted guide as template
+- **Date:** 2026-08-20, changed 2026-10-25 (CTX-1024: the shared content moved to the Connections page)
+- **Source:** notion-docs branch; docs pass in PR #492
 
 ### Agent tools
 - **Rule:** Put only agent-callable tools in `src/tools`; shared helpers go in `src/lib` (or similar), and graph-specific instructions and nodes in `src/graphs/<graphName>/`. Each tool file exports only its single `*Tool` entry point (inline handler and schema). Serialize structured tool output to TOON before it goes to the LLM, to use fewer tokens.
@@ -578,7 +579,7 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Source:** team lead, after a failed PR deploy deleted a live preview and re-created it with the production GitHub App
 
 ### New test files cannot spy on owned code
-- **Rule:** CI (`scripts/ci/check-test-policy.mjs`, in the Biome job) treats each new test file as proof. A proof must not call `vi.mock`, `vi.doMock` or `vi.spyOn` on code of this repository, and that includes a spy on a request logger. `vi.spyOn` is permitted only on `Date`, `Math`, `globalThis` and `console`. Under the backend Vitest setup, the context of an evlog `createLogger()` stays empty, so a log event is not a usable end point either. Assert a real result: a database row, a git commit, or an HTTP call that msw records. Before you push a new test, run `git fetch origin 7dfa6b93a5baedc3eb2c86dd1056662e89cace00 --no-tags && node scripts/ci/check-test-policy.mjs`.
+- **Rule:** CI (`scripts/ci/check-test-policy.mjs`, in the lint job) treats each new test file as proof. A proof must not call `vi.mock`, `vi.doMock` or `vi.spyOn` on code of this repository, and that includes a spy on a request logger. `vi.spyOn` is permitted only on `Date`, `Math`, `globalThis` and `console`. Under the backend Vitest setup, the context of an evlog `createLogger()` stays empty, so a log event is not a usable end point either. Assert a real result: a database row, a git commit, or an HTTP call that msw records. Before you push a new test, run `git fetch origin 7dfa6b93a5baedc3eb2c86dd1056662e89cace00 --no-tags && node scripts/ci/check-test-policy.mjs`.
 - **Category:** testing
 - **Date:** 2026-10-13
 - **Source:** PR 280 Slack webhook fix (#415): a log spy in a new integration test made the PR 280 CI fail

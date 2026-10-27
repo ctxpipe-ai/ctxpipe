@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto"
+
 import { FalkorDB } from "falkordb"
 import { afterAll, beforeAll, expect, it } from "vitest"
+
 import {
   closeGraphDb,
   getGraphClient,

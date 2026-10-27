@@ -11,12 +11,26 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { dirname, join, relative, resolve, sep } from "node:path"
+
 import { REPO_CACHE_DIR } from "../../config/paths.js"
 
 /** Matches backend `DEFAULT_CHECKOUT_KEY` for the primary branch checkout. */
 export const DEFAULT_CHECKOUT_KEY = "default"
 
-export { workspaceCheckoutKey } from "../../../../../shared/workspace-checkout.js"
+/**
+ * Each repository has one shared bare clone. Each checkout key is a git
+ * worktree of that clone at `checkouts/<key>`, so the readers (Zoekt, SCIP,
+ * file reads) keep their paths. Only the shared clone fetches, deepens, or
+ * unshallows.
+ */
+export function repoSharedClonePath(orgId: string, repoId: string): string {
+  return `${REPO_CACHE_DIR}/${orgId}/${repoId}/shared.git`
+}
+
+/** The directory of a repository that holds its checkouts and `.scip` files. */
+export function repoCheckoutsDir(orgId: string, repoId: string): string {
+  return `${REPO_CACHE_DIR}/${orgId}/${repoId}/checkouts`
+}
 
 /** Git working tree for a given ref checkout. */
 export function repoCheckoutPath(
@@ -24,7 +38,7 @@ export function repoCheckoutPath(
   repoId: string,
   checkoutKey: string = DEFAULT_CHECKOUT_KEY,
 ): string {
-  return `${REPO_CACHE_DIR}/${orgId}/${repoId}/checkouts/${checkoutKey}`
+  return `${repoCheckoutsDir(orgId, repoId)}/${checkoutKey}`
 }
 
 /** Merged SCIP index beside the checkout directory (sibling `.scip` file). */

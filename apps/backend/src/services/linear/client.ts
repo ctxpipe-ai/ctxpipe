@@ -1,5 +1,6 @@
 import { LinearClient } from "@linear/sdk"
 import { z } from "zod"
+
 import type { Env } from "../../config/env.js"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
@@ -21,9 +22,7 @@ const LinearOAuthTokenResponseSchema = z.object({
   scope: z.union([z.string(), z.array(z.string())]),
 })
 
-type LinearOAuthTokenResponse = z.infer<
-  typeof LinearOAuthTokenResponseSchema
->
+type LinearOAuthTokenResponse = z.infer<typeof LinearOAuthTokenResponseSchema>
 
 export type LinearTokenRefreshHandler = (
   expectedRefreshToken: string,
@@ -341,19 +340,17 @@ export async function discoverLinearScopes(input: {
     })
 
     return [
-      ...teams.map(
-        (team): LinearDiscoveredScope => ({
-          externalId: team.id,
-          type: "team",
-          title: team.name,
-          url: input.connection.workspaceUrlKey
-            ? `https://linear.app/${input.connection.workspaceUrlKey}/team/${team.key}`
-            : null,
-          parentExternalId: null,
-          teamId: team.id,
-          teamKey: team.key,
-        }),
-      ),
+      ...teams.map((team): LinearDiscoveredScope => ({
+        externalId: team.id,
+        type: "team",
+        title: team.name,
+        url: input.connection.workspaceUrlKey
+          ? `https://linear.app/${input.connection.workspaceUrlKey}/team/${team.key}`
+          : null,
+        parentExternalId: null,
+        teamId: team.id,
+        teamKey: team.key,
+      })),
       ...projectScopes,
       ...documents.map((document): LinearDiscoveredScope => {
         const projectId = document.project?.id ?? null
@@ -374,17 +371,15 @@ export async function discoverLinearScopes(input: {
           teamKey: team?.key ?? null,
         }
       }),
-      ...initiatives.map(
-        (initiative): LinearDiscoveredScope => ({
-          externalId: initiative.id,
-          type: "initiative",
-          title: initiative.name,
-          url: initiative.url,
-          parentExternalId: null,
-          teamId: null,
-          teamKey: null,
-        }),
-      ),
+      ...initiatives.map((initiative): LinearDiscoveredScope => ({
+        externalId: initiative.id,
+        type: "initiative",
+        title: initiative.name,
+        url: initiative.url,
+        parentExternalId: null,
+        teamId: null,
+        teamKey: null,
+      })),
     ]
   })
 }

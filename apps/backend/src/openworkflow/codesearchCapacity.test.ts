@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import {
   CODESEARCH_SIZE_CAPACITY,
   codesearchCapacityForMemoryMiB,

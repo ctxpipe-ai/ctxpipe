@@ -1,4 +1,6 @@
 import { BackendPostgres } from "openworkflow/postgres"
+
+import { getLogger } from "../observability/logger.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
 
 /**
@@ -7,7 +9,7 @@ import { openWorkflowNamespaceId } from "./namespace.js"
  * in values. The JSON round trip keeps the form that Postgres stores (for
  * example, a Date becomes its ISO string).
  */
-function storable<T>(value: T): T {
+function storable<T>(value: T, text = JSON.stringify(value)): T {
   if (value === undefined) return value
   // The UI project also compiles this file, and its lib has no
   // `String.prototype.toWellFormed`.
@@ -18,7 +20,7 @@ function storable<T>(value: T): T {
         /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g,
         "\ufffd",
       )
-  return JSON.parse(JSON.stringify(value), (_key, item: unknown) => {
+  return JSON.parse(text, (_key, item: unknown) => {
     if (typeof item === "string") return clean(item)
     if (item && typeof item === "object" && !Array.isArray(item))
       return Object.fromEntries(
@@ -47,8 +49,29 @@ export async function connectOpenWorkflowBackend(
   const failRun = backend.failWorkflowRun.bind(backend)
   const rescheduleRun =
     backend.rescheduleWorkflowRunAfterFailedStepAttempt.bind(backend)
-  backend.completeStepAttempt = (params) =>
-    completeStep({ ...params, output: storable(params.output) })
+  backend.completeStepAttempt = async (params) => {
+    const text = JSON.stringify(params.output)
+    const attempt = await completeStep({
+      ...params,
+      output: storable(params.output, text),
+    })
+    // OpenWorkflow reads each step output of a run again from Postgres on
+    // each claim. A large output costs memory and Postgres traffic on each
+    // replay (CTX-955), so name each one. The warning never changes the
+    // step result.
+    try {
+      const bytes = text === undefined ? 0 : Buffer.byteLength(text)
+      if (bytes > 2 ** 20)
+        getLogger().warn("openworkflow.step_output_large", {
+          workflowRunId: params.workflowRunId,
+          stepName: attempt.stepName,
+          bytes,
+        })
+    } catch {
+      // A failed warning is not a failed step.
+    }
+    return attempt
+  }
   backend.failStepAttempt = (params) =>
     failStep({ ...params, error: storable(params.error) })
   backend.completeWorkflowRun = (params) =>

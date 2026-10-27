@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm"
 import { expect, it, vi } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositoryIngestionRequests } from "../../db/schema/repositories.js"
@@ -274,12 +275,10 @@ it(
         )
         await legacy.cancel()
         const { Pool } = await import("pg")
-        const { ownerUrlForMigrate } = await import(
-          "../../db/owner-migrate-url.js"
-        )
-        const { backfillRepositoryIngestionRequests } = await import(
-          "../../db/backfill-repository-ingestion-requests.js"
-        )
+        const { ownerUrlForMigrate } =
+          await import("../../db/owner-migrate-url.js")
+        const { backfillRepositoryIngestionRequests } =
+          await import("../../db/backfill-repository-ingestion-requests.js")
         const pool = new Pool({
           connectionString: ownerUrlForMigrate(f.databaseUrl),
         })
@@ -322,12 +321,10 @@ it(
           }),
         )
         if (!repository) throw new Error("Fixture repository missing")
-        const { activateRepositoryIngestionRequest } = await import(
-          "../../models/repository-ingestion-requests.js"
-        )
-        const { markRepositoryIndexingIssues } = await import(
-          "../../models/repositories.js"
-        )
+        const { activateRepositoryIngestionRequest } =
+          await import("../../models/repository-ingestion-requests.js")
+        const { markRepositoryIndexingIssues } =
+          await import("../../models/repositories.js")
         // Historical successful native execution with a degraded search result.
         f.runner.implementWorkflow(
           repositoryIngestionOrchestrator.spec,

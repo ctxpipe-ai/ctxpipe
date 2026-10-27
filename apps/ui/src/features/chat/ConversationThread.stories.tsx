@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import type { ChatMessage } from "@/features/chat/types"
 import { ConversationSyncEntry } from "@/features/workspaces/ConversationSyncEntry"
 import { ConversationTurnChangesCard } from "@/features/workspaces/ConversationTurnChangesCard"
@@ -15,6 +16,8 @@ import {
   streamingToolMessages,
   thoughtsBetweenToolsMessages,
 } from "@/features/workspaces/workspace-fixtures"
+import { createTreeFileResolver } from "@/lib/workspace-file-path"
+
 import { ConversationThread } from "./ConversationThread"
 
 const meta = {
@@ -208,6 +211,10 @@ export const NextTurnShowsStatus: Story = {
 
 /** After the reply, the current thought hides. The counters and the log stay. */
 export const ChatProgressDone: Story = {
+  parameters: {
+    intent:
+      "Catches a finished chat turn that shows a live status or an open activity log. The log stays closed with counts and the answer is visible. Not for log entries.",
+  },
   tags: ["workspace-golden"],
   args: {
     messages: progressDoneMessages,
@@ -229,6 +236,10 @@ export const ChatProgressDone: Story = {
 
 /** The open log lists each thought and each tool call with its details. */
 export const ChatProgressLogExpanded: Story = {
+  parameters: {
+    intent:
+      "Catches an open activity log that misses a thought or tool call, or shows raw markdown. Each entry shows its details. Not for spacing or the closed state.",
+  },
   tags: ["workspace-golden"],
   args: {
     messages: progressDoneMessages,
@@ -270,6 +281,10 @@ function gapBetween(upper: Element, lower: Element) {
  * name is more prominent than its detail.
  */
 export const ChatProgressSpacing: Story = {
+  parameters: {
+    intent:
+      "Catches uneven gaps between the activity log button, its rows, and the live status. Tool names must stay bolder than their details. Not for log content.",
+  },
   tags: ["workspace-golden"],
   args: {
     messages: progressWorkingMessages,
@@ -323,6 +338,10 @@ const earlierTurns: ChatMessage[] = Array.from({ length: 4 }, (_, index) => [
  * the log does not scroll the thread: the counters stay in place.
  */
 export const OpeningLogKeepsScroll: Story = {
+  parameters: {
+    intent:
+      "Catches an activity log that moves the chat when the user opens it. The thread stays at the bottom and the log button keeps its place. Not for log content.",
+  },
   // The runner turns on reduced motion for this tag, so the thread jumps to
   // the bottom at once and no spring scroll runs.
   tags: ["workspace-golden", "reduced-motion"],
@@ -447,6 +466,8 @@ const answerLinkMessages: ChatMessage[] = [
           "",
           "Streamdown renders the Markdown. Read the [Streamdown docs](https://streamdown.ai) for the options.",
           "",
+          "Line anchors: [`knowledge/x.md`](knowledge/x.md#L12), [`knowledge/y.md`](knowledge/y.md#L12-L20), [`knowledge/z.md`](knowledge/z.md:12) and [`knowledge/w.md`](file:///workspace/knowledge/w.md).",
+          "",
           "These stay as code: `useState`, `process.env`, `Node.js`, `application/json`, `/etc/hosts`, `../outside.ts` and `pnpm dev`.",
         ].join("\n"),
       },
@@ -458,20 +479,31 @@ const answerLinkMessages: ChatMessage[] = [
 export const AnswerLinksInWorkspace: Story = {
   args: {
     messages: answerLinkMessages,
-    onOpenFile: fn(),
+    fileLinks: {
+      resolve: createTreeFileResolver([
+        "apps/ui/src/styles.css",
+        "apps/ui/src/components/ai-elements/message.tsx",
+        "package.json",
+        "knowledge/x.md",
+        "knowledge/y.md",
+        "knowledge/z.md",
+        "knowledge/w.md",
+      ]),
+      open: fn(),
+    },
   },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
       canvas.getByRole("button", { name: "apps/ui/src/styles.css" }),
     )
-    await expect(args.onOpenFile).toHaveBeenLastCalledWith(
+    await expect(args.fileLinks?.open).toHaveBeenLastCalledWith(
       "apps/ui/src/styles.css",
     )
     await userEvent.click(
       canvas.getByRole("button", { name: "the message component" }),
     )
-    await expect(args.onOpenFile).toHaveBeenLastCalledWith(
+    await expect(args.fileLinks?.open).toHaveBeenLastCalledWith(
       "apps/ui/src/components/ai-elements/message.tsx",
     )
     await expect(
@@ -495,7 +527,17 @@ export const AnswerLinksInWorkspace: Story = {
       await expect(canvas.queryByRole("button", { name: text })).toBeNull()
       await expect(canvas.getByText(text)).toBeVisible()
     }
-    await expect(args.onOpenFile).toHaveBeenCalledTimes(2)
+    for (const path of [
+      "knowledge/x.md",
+      "knowledge/y.md",
+      "knowledge/z.md",
+      "knowledge/w.md",
+    ]) {
+      await userEvent.click(canvas.getByRole("button", { name: path }))
+      await expect(args.fileLinks?.open).toHaveBeenLastCalledWith(path)
+    }
+    await expect(canvas.queryByText(/blocked/)).toBeNull()
+    await expect(args.fileLinks?.open).toHaveBeenCalledTimes(6)
   },
 }
 
@@ -543,6 +585,10 @@ export const UserBubbleShowsTypedText: Story = {
 
 /** A turn ends with the changed-files card, then a push entry. The entry sits under the card and its long branch truncates. */
 export const PushEntryUnderCard: Story = {
+  parameters: {
+    intent:
+      "Catches a push entry that sits beside or outside the changes card, or whose long branch name does not truncate. Not for card content or push data.",
+  },
   tags: ["workspace-golden"],
   decorators: [
     (Story) => (
@@ -621,5 +667,43 @@ export const PushEntryUnderCard: Story = {
     await waitFor(() =>
       expect(branch.scrollWidth).toBeGreaterThan(branch.clientWidth),
     )
+  },
+}
+
+/** With the git tree, a bare file name opens the one tree file; a name not in the tree stays text. */
+export const AnswerLinksWithTree: Story = {
+  args: {
+    messages: [
+      {
+        id: "msg_links_tree",
+        role: "assistant",
+        parts: [
+          {
+            type: "text",
+            content: "Read `anthropic-2.md`, then `missing.md`.",
+          },
+        ],
+      },
+    ],
+    fileLinks: {
+      resolve: createTreeFileResolver([
+        "knowledge/apis/anthropic.md",
+        "knowledge/apis/anthropic-2.md",
+      ]),
+      open: fn(),
+    },
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      canvas.getByRole("button", { name: "anthropic-2.md" }),
+    )
+    await expect(args.fileLinks?.open).toHaveBeenLastCalledWith(
+      "knowledge/apis/anthropic-2.md",
+    )
+    await expect(
+      canvas.queryByRole("button", { name: "missing.md" }),
+    ).toBeNull()
+    await expect(canvas.getByText("missing.md")).toBeVisible()
   },
 }

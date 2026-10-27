@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { SpanKind } from "@opentelemetry/api"
 import { resourceFromAttributes } from "@opentelemetry/resources"
@@ -10,6 +11,7 @@ import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from "vitest"
+
 import { describeWithDatabase } from "../../../test/db.js"
 import { useMswServer } from "../../../test/msw.js"
 import type { AppEnv } from "../../app/env.js"
@@ -54,7 +56,6 @@ const provider = new NodeTracerProvider({
   ],
 })
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer(
   http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () =>
     HttpResponse.json({

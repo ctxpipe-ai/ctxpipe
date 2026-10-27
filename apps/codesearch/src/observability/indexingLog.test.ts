@@ -1,5 +1,6 @@
 import { initLogger } from "evlog"
 import { describe, expect, it, vi } from "vitest"
+
 import { tryEmitIndexEvent } from "./indexingLog.js"
 import { createLogger, withLogger } from "./logger.js"
 

@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
+
 import { Modal } from "@/components/ui/Modal"
+
 import { AtlassianAccountClaimModalContent } from "./AtlassianAccountClaimModalContent"
 
 const meta = {

@@ -1,9 +1,11 @@
 import { createHmac } from "node:crypto"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { eq, sql } from "drizzle-orm"
 import { createLogger } from "evlog"
 import { contextStorage } from "hono/context-storage"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../../db/client.js"
@@ -146,9 +148,8 @@ describe("Linear webhook routes to Workspace sources (Postgres)", () => {
         db.delete(repositories).where(eq(repositories.id, id)),
       )
     await seed.cleanup()
-    const { closeOpenWorkflowClient } = await import(
-      "../../../openworkflow/client.js"
-    )
+    const { closeOpenWorkflowClient } =
+      await import("../../../openworkflow/client.js")
     await closeOpenWorkflowClient()
   })
 

@@ -16,6 +16,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
 import { generateEmbeddings } from "./modelProvider.js"
@@ -31,7 +32,6 @@ const provider = new NodeTracerProvider({
   ],
 })
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 
 function generationUsageDetails(): unknown {

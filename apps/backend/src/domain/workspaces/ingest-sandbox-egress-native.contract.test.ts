@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { promisify } from "node:util"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
@@ -17,6 +18,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import {
@@ -45,13 +47,13 @@ import {
   stubGithubApp,
 } from "../../test/ingest-github.js"
 import {
-  ingestAgentCommand,
-  ingestOpenCodeConfig,
-} from "../ingestion/ingest-opencode.js"
-import {
   ingestModelRunCommand,
   parseOpenCodeUsage,
 } from "../ingestion/ingest-opencode-usage.js"
+import {
+  ingestAgentCommand,
+  ingestOpenCodeConfig,
+} from "../ingestion/ingest-opencode.js"
 import { prepareIngestSandbox } from "../ingestion/ingest-prepare.js"
 import { dockerRootExec } from "../ingestion/ingest-root.js"
 import {

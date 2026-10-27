@@ -1,10 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
   connectionUsageHandler,
   connectionUsageItem,
 } from "@/mocks/workspace-sources-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
@@ -216,6 +218,8 @@ export const UsedInManyWorkspaces: Story = {
 export const UsedInLinksToSourceSection: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a connector usage row that links to the wrong place. The link must open the workspace settings pane at the source section of that connector. Not for usage counts.",
     msw: {
       handlers: {
         page: [

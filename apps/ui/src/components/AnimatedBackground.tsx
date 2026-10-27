@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
 } from "react"
+
 import { loadUnicornStudio } from "@/lib/unicorn-studio"
 
 type AnimatedBackgroundProps = {
@@ -128,7 +129,8 @@ export function AnimatedBackground({
         sceneRef.current = scene
         const onResize = () => sceneRef.current?.resize?.()
         window.addEventListener("resize", onResize)
-        removeResizeListener = () => window.removeEventListener("resize", onResize)
+        removeResizeListener = () =>
+          window.removeEventListener("resize", onResize)
         onLoadRef.current?.()
       } catch {
         onErrorRef.current?.()
@@ -166,5 +168,12 @@ export function AnimatedBackground({
     startDelayMs,
   ])
 
-  return <div ref={containerRef} id={elementId} className={className} style={style} />
+  return (
+    <div
+      ref={containerRef}
+      id={elementId}
+      className={className}
+      style={style}
+    />
+  )
 }

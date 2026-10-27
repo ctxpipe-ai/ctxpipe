@@ -4,6 +4,7 @@ import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import {
   afterAll,
   afterEach,
@@ -13,6 +14,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import type { CheckedPlainGitRemote } from "../../../../../shared/plain-git.js"
 import type { Db } from "../../db/client.js"
 import {
@@ -112,6 +114,7 @@ function context(
     repoId: "repo_test",
     checkoutKey: "main",
     clonePath: join(root, "clones", name),
+    sharedClonePath: join(root, "shared", name),
     scipIndexPath: join(root, "scip"),
     zoektRepoId: 1,
     zoektName: "plain-git.invalid/team/app",
@@ -173,15 +176,26 @@ describe("phaseCloneCheckout of a plain git repository", () => {
     ["ssh", () => "ssh://git@127.0.0.1:1/team/app.git"],
     ["git://", () => "git://127.0.0.1:1/team/app.git"],
     ["an http URL with no checked remote", () => "http://127.0.0.1:1/x.git"],
-  ])("does not read a stored %s URL that has no token and no checked remote", async (_name, url) => {
-    const clonePath = join(root, "clones", `stored-${_name.replace(/\W/g, "")}`)
-    await expect(
-      phaseCloneCheckout(
-        { ...context("unused", { repoGitUrl: url(root) }), clonePath },
-        {},
-      ),
-    ).rejects.toThrow(/only with a GitHub token or with a plain git remote/)
-  })
+  ])(
+    "does not read a stored %s URL that has no token and no checked remote",
+    async (_name, url) => {
+      const clonePath = join(
+        root,
+        "clones",
+        `stored-${_name.replace(/\W/g, "")}`,
+      )
+      await expect(
+        phaseCloneCheckout(
+          {
+            ...context("unused", { repoGitUrl: url(root) }),
+            clonePath,
+            sharedClonePath: `${clonePath}-shared.git`,
+          },
+          {},
+        ),
+      ).rejects.toThrow(/only with a GitHub token or with a plain git remote/)
+    },
+  )
 
   it.each([
     ["file://", (dir: string) => `file://${dir}/repos/team/app.git`],

@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm"
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaceWriteJobs } from "../../db/schema/workspaces.js"
@@ -94,12 +95,10 @@ it.each(["extract-ingest", "semantic-merge"] as const)(
       async (f) => {
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { workspaceExtractIngest } = await import(
-          "../../openworkflow/workflows/workspace-extract-ingest.js"
-        )
-        const { workspaceSemanticMerge } = await import(
-          "../../openworkflow/workflows/workspace-semantic-merge.js"
-        )
+        const { workspaceExtractIngest } =
+          await import("../../openworkflow/workflows/workspace-extract-ingest.js")
+        const { workspaceSemanticMerge } =
+          await import("../../openworkflow/workflows/workspace-semantic-merge.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,

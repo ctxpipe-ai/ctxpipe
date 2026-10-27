@@ -7,6 +7,7 @@ import {
   timestamp,
   vector,
 } from "drizzle-orm/pg-core"
+
 import { orgIsolationPolicy } from "./org-rls.js"
 
 /** Qwen3 Embedding 8B with MRL: 2000 dims for pgvector HNSW index compatibility */

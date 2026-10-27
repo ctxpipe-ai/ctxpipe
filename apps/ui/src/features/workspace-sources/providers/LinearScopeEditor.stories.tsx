@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { type ComponentProps, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
+
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { LinearScopeEditor } from "./linear"

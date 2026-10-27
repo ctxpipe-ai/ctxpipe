@@ -1,7 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import { FalkorDB } from "falkordb"
 import neo4j, { type Driver } from "neo4j-driver"
+
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import {
   serverAddressFromUrl,
@@ -227,6 +229,7 @@ function scopedBoltDriver(
 let databasePerTenantBoltClient: Driver | null = null
 let databasePerTenantFalkorDb: Promise<FalkorDBInstance> | null = null
 const instancePerTenantBoltClients = new Map<string, Driver>()
+let lastConnectFailureLog = Number.NEGATIVE_INFINITY
 
 /**
  * FalkorDB extends EventEmitter and re-emits socket errors. Without a listener
@@ -276,11 +279,21 @@ async function resolveFalkorDbClient(orgId: string): Promise<GraphClient> {
               socket,
             })
           } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error)
             if (error instanceof Error) span.recordException(error)
-            span.setStatus({
-              code: SpanStatusCode.ERROR,
-              message: error instanceof Error ? error.message : String(error),
-            })
+            span.setStatus({ code: SpanStatusCode.ERROR, message })
+            // A graph store that stays down fails each connect. Log one
+            // line a minute, so that the connection error search and its
+            // alert see the outage without a line for each read.
+            if (Date.now() - lastConnectFailureLog >= 60_000) {
+              lastConnectFailureLog = Date.now()
+              log.error({
+                step: "graph.falkordb.connection",
+                message: "FalkorDB connect failed",
+                error: message,
+              })
+            }
             throw error
           } finally {
             span.end()

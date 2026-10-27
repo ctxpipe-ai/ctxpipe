@@ -1,4 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { SpanKind } from "@opentelemetry/api"
 import {
@@ -10,6 +11,7 @@ import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
@@ -62,7 +64,6 @@ function databaseUrl(): string {
   return url
 }
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer(
   http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () =>
     HttpResponse.json({
@@ -244,42 +245,41 @@ describe("workspace-ingest-model capability", () => {
     await tracer.shutdown()
   })
 
-  it.each([
-    429,
-    502,
-    "unreachable",
-  ] as const)("ends the ingestion generation on upstream %s", async (status) => {
-    const runId = await startRun(orgId)
-    const lockOwner = await holdShard(runId, 0)
-    const capability = await mintWorkspaceIngestRunCapability({
-      authSecret: AUTH_SECRET,
-      orgId,
-      orgSlug,
-      runId,
-      shard: 0,
-      step: "skill:root:docs",
-      lockOwner,
-    })
-    server.use(
-      http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () =>
-        status === "unreachable"
-          ? HttpResponse.error()
-          : HttpResponse.json({ error: "fixture failure" }, { status }),
-      ),
-    )
-    exporter.reset()
-    expect(await complete(capability)).toBe(
-      status === "unreachable" ? 502 : status,
-    )
-    const calls = exporter
-      .getFinishedSpans()
-      .filter((span) => span.name === "ingestion.model_call")
-    expect(calls).toHaveLength(1)
-    expect(calls[0]?.attributes["http.response.status_code"]).toBe(
-      status === "unreachable" ? 502 : status,
-    )
-    expect(calls[0]?.status.code).toBe(2)
-  })
+  it.each([429, 502, "unreachable"] as const)(
+    "ends the ingestion generation on upstream %s",
+    async (status) => {
+      const runId = await startRun(orgId)
+      const lockOwner = await holdShard(runId, 0)
+      const capability = await mintWorkspaceIngestRunCapability({
+        authSecret: AUTH_SECRET,
+        orgId,
+        orgSlug,
+        runId,
+        shard: 0,
+        step: "skill:root:docs",
+        lockOwner,
+      })
+      server.use(
+        http.post(`${MODEL_PROVIDER_URL}/chat/completions`, () =>
+          status === "unreachable"
+            ? HttpResponse.error()
+            : HttpResponse.json({ error: "fixture failure" }, { status }),
+        ),
+      )
+      exporter.reset()
+      expect(await complete(capability)).toBe(
+        status === "unreachable" ? 502 : status,
+      )
+      const calls = exporter
+        .getFinishedSpans()
+        .filter((span) => span.name === "ingestion.model_call")
+      expect(calls).toHaveLength(1)
+      expect(calls[0]?.attributes["http.response.status_code"]).toBe(
+        status === "unreachable" ? 502 : status,
+      )
+      expect(calls[0]?.status.code).toBe(2)
+    },
+  )
 
   it("calls the model proxy while the step holds the shard lock of an unfinished run", async () => {
     const runId = await startRun(orgId)

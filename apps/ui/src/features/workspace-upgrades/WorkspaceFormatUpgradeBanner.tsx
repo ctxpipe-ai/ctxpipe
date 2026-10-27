@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
-import { FormatUpgradeNotice } from "./FormatUpgradeNotice"
+
 import { workspaceNeedsFormatUpgrade } from "./format-gate"
+import { FormatUpgradeNotice } from "./FormatUpgradeNotice"
 import { workspaceUpgradesOptions } from "./queries"
 
 /**

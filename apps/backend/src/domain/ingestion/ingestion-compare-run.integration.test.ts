@@ -1,9 +1,11 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { eq, sql } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import {
   closeDb,
   getSystemDb,
@@ -16,11 +18,11 @@ import { generateObjectId } from "../../lib/id.js"
 import { finishedShadowRunPairs } from "../../models/ingestion-shadow-runs.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { ingestRefName } from "./ingest-refs.js"
+import { compareShadowRun } from "./ingestion-compare-run.js"
 import {
   buildComparisonReport,
   renderComparisonMarkdown,
 } from "./ingestion-compare.js"
-import { compareShadowRun } from "./ingestion-compare-run.js"
 import {
   INGESTION_V2_WORKFLOW_NAME,
   type IngestionV2Input,

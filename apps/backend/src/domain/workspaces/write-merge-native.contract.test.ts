@@ -1,6 +1,8 @@
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
+
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
@@ -94,9 +96,7 @@ it(
             },
           })
           const { workspaceSemanticMerge, workspaceSemanticMergeInputSchema } =
-            await import(
-              "../../openworkflow/workflows/workspace-semantic-merge.js"
-            )
+            await import("../../openworkflow/workflows/workspace-semantic-merge.js")
           runner.implementWorkflow(
             workspaceSemanticMerge.spec,
             workspaceSemanticMerge.fn,
@@ -224,9 +224,8 @@ it.each(["valid", "out-of-scope", "empty"] as const)(
             refresh: true,
           }),
         )
-        const { workspaceSemanticMerge } = await import(
-          "../../openworkflow/workflows/workspace-semantic-merge.js"
-        )
+        const { workspaceSemanticMerge } =
+          await import("../../openworkflow/workflows/workspace-semantic-merge.js")
         const spec = {
           ...workspaceSemanticMerge.spec,
           retryPolicy: { maximumAttempts: 1 },
@@ -323,9 +322,8 @@ it.each(["paused", "running"] as const)(
         }
         const errors: Error[] = []
         if (status === "running") {
-          const { persistBoundWriteJob } = await import(
-            "../../models/workspace-write-jobs.js"
-          )
+          const { persistBoundWriteJob } =
+            await import("../../models/workspace-write-jobs.js")
           await withOrgIdContext(f.org, () =>
             persistBoundWriteJob({
               id: jobId,
@@ -451,12 +449,10 @@ it.each([
         files: [{ path, body: original }],
       },
       async (f) => {
-        const { workspaceFileEdit } = await import(
-          "../../openworkflow/workflows/workspace-file-edit.js"
-        )
-        const { workspaceSemanticMerge } = await import(
-          "../../openworkflow/workflows/workspace-semantic-merge.js"
-        )
+        const { workspaceFileEdit } =
+          await import("../../openworkflow/workflows/workspace-file-edit.js")
+        const { workspaceSemanticMerge } =
+          await import("../../openworkflow/workflows/workspace-semantic-merge.js")
         f.runner.implementWorkflow(workspaceFileEdit.spec, workspaceFileEdit.fn)
         f.runner.implementWorkflow(
           workspaceSemanticMerge.spec,
@@ -648,9 +644,8 @@ it.each([
             refresh: true,
           }),
         )
-        const { workspaceSemanticMerge } = await import(
-          "../../openworkflow/workflows/workspace-semantic-merge.js"
-        )
+        const { workspaceSemanticMerge } =
+          await import("../../openworkflow/workflows/workspace-semantic-merge.js")
         f.runner.implementWorkflow(
           workspaceSemanticMerge.spec,
           workspaceSemanticMerge.fn,
@@ -783,9 +778,8 @@ it.each([
       async (f) => {
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { workspaceSemanticMerge } = await import(
-          "../../openworkflow/workflows/workspace-semantic-merge.js"
-        )
+        const { workspaceSemanticMerge } =
+          await import("../../openworkflow/workflows/workspace-semantic-merge.js")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,

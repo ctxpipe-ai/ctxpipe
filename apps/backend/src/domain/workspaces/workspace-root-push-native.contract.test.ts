@@ -1,8 +1,10 @@
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
+
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
+
 import { withUserIdContext } from "../../auth/context.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
@@ -52,6 +54,7 @@ it(
         const committed = await captureGitPack(
           f.directory,
           f.git("rev-parse", "HEAD"),
+          null,
         )
         expect(f.revision.rootPath).toBe(ROOT)
         await expect(

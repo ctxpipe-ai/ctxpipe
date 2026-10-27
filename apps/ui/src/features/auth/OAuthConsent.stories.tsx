@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { OAuthConsent } from "./OAuthConsent"
@@ -35,6 +36,10 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const ConsentOrgPicker: Story = {
+  parameters: {
+    intent:
+      "Catches an OAuth consent screen that does not tick the current organization, or does not send the chosen organizations on Allow. Not for scope text or sign-in.",
+  },
   tags: ["workspace-golden"],
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
@@ -53,6 +58,10 @@ export const ConsentOrgPicker: Story = {
 }
 
 export const ConsentNeedsOneOrg: Story = {
+  parameters: {
+    intent:
+      "Catches consent that allows access with no organization selected. Allow stays disabled and shows a message. Not for scope choice or the organization list.",
+  },
   tags: ["workspace-golden"],
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
@@ -70,6 +79,10 @@ export const ConsentNeedsOneOrg: Story = {
 }
 
 export const ConsentWriteOffByDefault: Story = {
+  parameters: {
+    intent:
+      "Catches consent that grants write access by default. Write stays off until the user ticks it, then it joins the scopes. Not for organization choice.",
+  },
   tags: ["workspace-golden"],
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)

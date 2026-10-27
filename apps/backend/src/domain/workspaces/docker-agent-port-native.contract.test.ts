@@ -1,8 +1,10 @@
 import { type AddressInfo, connect, createServer, type Socket } from "node:net"
+
 import { startOpencodeServerInSandbox } from "@tanstack/ai-opencode"
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { expect, it } from "vitest"
+
 import {
   WORKSPACE_CHAT_OPENCODE_PORT,
   workspaceChatDockerImage,

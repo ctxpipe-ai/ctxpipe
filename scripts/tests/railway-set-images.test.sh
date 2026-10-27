@@ -71,11 +71,16 @@ deploy "$tmp/failed" new "$deployed" "" FAILED >"$tmp/failed.out" 2>&1 || fail "
 [[ "$(grep -c '^serviceInstanceDeployV2 ' "$tmp/failed/calls")" -eq 4 ]] \
   || fail "should deploy every service whose latest deployment is not SUCCESS or SLEEPING"
 
+# The synced variables changed. A service that already runs the new image deploys again.
+FORCE_DEPLOY=1 deploy "$tmp/forced" new "$deployed" >"$tmp/forced.out" 2>&1 || fail "a forced deploy should succeed: $(cat "$tmp/forced.out")"
+[[ "$(grep -c '^serviceInstanceDeployV2 ' "$tmp/forced/calls")" -eq 4 ]] \
+  || fail "FORCE_DEPLOY=1 should deploy every service, also one that already runs the new image"
+
 refused='{"errors":[{"message":"Problem processing request","traceId":"1"}]}'
 if deploy "$tmp/refused" old "$refused" >"$tmp/refused.out" 2>&1; then
   fail "a refused deploy must fail"
 fi
-grep -q "did not start a deployment of backend (svc_backend) in production (env_prod) at new" "$tmp/refused.out" \
+grep -q "did not start a deployment of codesearch (svc_codesearch) in production (env_prod) at new" "$tmp/refused.out" \
   || fail "the failure should name the service and the environment: $(cat "$tmp/refused.out")"
 grep -q "status.railway.com" "$tmp/refused.out" || fail "the failure should name the cause"
 grep -q "re-run the failed jobs" "$tmp/refused.out" || fail "the failure should name the fix"

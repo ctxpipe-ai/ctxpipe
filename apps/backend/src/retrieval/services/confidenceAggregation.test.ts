@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { aggregateConfidence } from "./confidenceAggregation.js"
 
 describe("aggregateConfidence", () => {

@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
+
 import { expect, it } from "vitest"
 
 it("logs CLI failures through evlog and leaves stdout for the report", async () => {

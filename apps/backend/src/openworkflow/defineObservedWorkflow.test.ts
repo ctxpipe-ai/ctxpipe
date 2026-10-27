@@ -4,6 +4,7 @@ import { OpenWorkflow } from "openworkflow"
 import { BackendSqlite } from "openworkflow/sqlite"
 import { describe, expect, it, vi } from "vitest"
 import { z } from "zod"
+
 import { recordSpans } from "../../test/spans.js"
 import { readAttribution } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"

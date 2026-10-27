@@ -135,6 +135,30 @@
           }
         ]
       }
+    },
+    {
+      "name": "Codesearch disk usage (production)",
+      "x": 0,
+      "y": 16,
+      "w": 24,
+      "h": 8,
+      "config": {
+        "displayType": "line",
+        "sourceName": "Metrics",
+        "fillNulls": true,
+        "seriesLimit": 20,
+        "numberFormat": { "output": "byte", "numericUnit": "bytes_iec" },
+        "select": [
+          {
+            "aggFn": "max",
+            "alias": "disk",
+            "metricName": "railway.disk.usage",
+            "metricType": "gauge",
+            "where": "ServiceName = 'codesearch' AND ResourceAttributes['deployment.environment'] = 'production'",
+            "whereLanguage": "sql"
+          }
+        ]
+      }
     }
   ]
 }

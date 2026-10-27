@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { emptyWorkspaceActivity } from "@/features/workspaces/workspace-fixtures"
 import {
   authConfigHandler,
@@ -13,6 +14,7 @@ import {
   workspaceListHandler,
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
+
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { OrgHomePageContent } from "./$orgSlug.index"
@@ -54,6 +56,8 @@ export const Loading: Story = {
     ).not.toBeInTheDocument()
   },
   parameters: {
+    intent:
+      "Catches an org home that shows content or a Create button while the session loads. The shell shows the selector and the activity loading text. Not for loaded data.",
     storyRoute: homeRoute,
     msw: {
       handlers: {
@@ -95,6 +99,8 @@ export const WorkspacesLoading: Story = {
     ).not.toBeInTheDocument()
   },
   parameters: {
+    intent:
+      "Catches an org home that shows a Create button while workspaces load. It shows the selector and the activity loading text. Not for loaded workspaces or errors.",
     storyRoute: homeRoute,
     msw: {
       handlers: {
@@ -155,6 +161,8 @@ export const Empty: Story = {
     )
   },
   parameters: {
+    intent:
+      "Catches an org home with no workspace that shows no way to start. It shows Create Workspace and the empty activity. Not for populated homes or the guide.",
     storyRoute: homeRoute,
     msw: {
       handlers: {
@@ -199,6 +207,8 @@ export const WorkspacesLoadFails: Story = {
     await waitFor(() => expect(canvas.queryByRole("alert")).toBeNull())
   },
   parameters: {
+    intent:
+      "Catches a failed workspace list that shows the guide or a Create button. It shows an alert with Retry, and Retry loads the home again. Not for loaded lists.",
     storyRoute: homeRoute,
     msw: {
       handlers: {
@@ -247,6 +257,8 @@ export const EmptyRecentWhileActivityLoads: Story = {
     )
   },
   parameters: {
+    intent:
+      "Catches a recent commits area that shows a loading state when the workspace list is empty. The empty text shows while activity still loads. Not for populated homes.",
     storyRoute: homeRoute,
     msw: {
       handlers: {
@@ -290,6 +302,8 @@ export const Populated: Story = {
     )
   },
   parameters: {
+    intent:
+      "Catches an org home that shows wrong headings or no commits. It shows the selector, Activity and Recent headings in the plain style, and recent commits. Not for loading states.",
     storyRoute: homeRoute,
     msw: {
       handlers: {
@@ -346,6 +360,8 @@ export const ActivityLoading: Story = {
     expect(canvas.queryByText("Loading…")).not.toBeInTheDocument()
   },
   parameters: {
+    intent:
+      "Catches an activity area that shows a bare Loading text. It shows the activity loading text while the selector is already visible. Not for loaded activity.",
     storyRoute: homeRoute,
     msw: {
       handlers: {
@@ -360,6 +376,8 @@ export const FirstMessageOpensConversation: Story = {
   tags: ["workspace-golden"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   parameters: {
+    intent:
+      "Catches a first message in the home composer that does not open a new conversation. Sending opens the conversation with the message. Not for the composer layout.",
     storyRoute: homeRoute,
     msw: {
       handlers: {
@@ -424,6 +442,8 @@ export const NoHistory: Story = {
     )
   },
   parameters: {
+    intent:
+      "Catches an org home with no commit history that waits on a hanging list read. The empty commits text shows at once. Not for populated commits.",
     storyRoute: homeRoute,
     msw: {
       handlers: {

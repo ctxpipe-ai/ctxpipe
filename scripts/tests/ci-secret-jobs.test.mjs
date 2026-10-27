@@ -36,7 +36,7 @@ function rejects(files, message) {
 
 const tokenStep = `      - name: Railway
         env:
-          RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
         run: |
           source "\${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
 `
@@ -79,7 +79,7 @@ for (const [name, steps] of [
 test("rejects a secret in the workflow env", () => {
   rejects(
     {
-      ".github/workflows/w.yaml": `on: pull_request\nenv:\n  RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_API_TOKEN }}\njobs:\n  build:\n    steps:\n${install}`,
+      ".github/workflows/w.yaml": `on: pull_request\nenv:\n  RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\njobs:\n  build:\n    steps:\n${install}`,
     },
     /w\.yaml:3: a secret in the workflow env/,
   )
@@ -154,7 +154,7 @@ test("rejects any secret in a job that installs dependencies", () => {
     workflow(
       `  test:\n    env:\n      VERCEL_TOKEN: \${{ secrets.VERCEL_ACCESS_TOKEN }}\n    steps:\n      - uses: actions/checkout@v6\n${install}`,
     ),
-    /job test holds a secret and runs a package manager/,
+    /job test holds a secret or an OIDC token and runs a package manager/,
   )
 })
 
@@ -194,7 +194,7 @@ const pinnedSticky = (key) =>
 test("rejects a sticky disk that a production job and a PR job share", () => {
   rejects(
     {
-      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    env:\n      TOKEN: \${{ secrets.RAILWAY_API_TOKEN }}\n    steps:\n${sticky("store")}${install}`,
+      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    env:\n      TOKEN: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n    steps:\n${sticky("store")}${install}`,
       ".github/workflows/w.yaml": `on: pull_request\njobs:\n  migrate:\n    steps:\n${sticky("store")}${install}`,
     },
     /cache key store is read by a job with a secret \(.*deploy\.yaml:9 \(job terraform\)\), and a job that runs untrusted code writes store \(.*w\.yaml:7 \(job migrate\)\)/,
@@ -304,9 +304,9 @@ test("accepts apt-get install from the runner image sources and terraform init -
 test("rejects a secret in the job env", () => {
   rejects(
     workflow(
-      `  deploy:\n    env:\n      PR_ENV: pr-1\n      RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_API_TOKEN }}\n    steps:\n      - run: echo\n`,
+      `  deploy:\n    env:\n      PR_ENV: pr-1\n      RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n    steps:\n      - run: echo\n`,
     ),
-    /w\.yaml:6: job deploy holds a secret and puts a secret in the job env/,
+    /w\.yaml:6: job deploy holds a secret or an OIDC token and puts a secret in the job env/,
   )
 })
 
@@ -328,21 +328,23 @@ test("rejects an account token in a job that runs any untrusted code, even in a 
   ])
     rejects(
       {
-        ".github/workflows/ingestion-v2-proof.yaml": `on: push\njobs:\n  proof:\n    steps:\n      - env:\n          RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_API_TOKEN }}\n        run: ${command}\n`,
+        ".github/workflows/ingestion-v2-proof.yaml": `on: push\njobs:\n  proof:\n    steps:\n      - env:\n          RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: ${command}\n`,
       },
-      /gives RAILWAY_API_TOKEN to a job that runs untrusted code/,
+      /gives RAILWAY_WORKSPACE_TOKEN to a job that runs untrusted code/,
     )
 })
 
-const secretJob = (secret, environment, file = "mcp-evals.yaml", job = "evals") => ({
+const secretJob = (
+  secret,
+  environment,
+  file = "mcp-evals.yaml",
+  job = "evals",
+) => ({
   [`.github/workflows/${file}`]: `on: pull_request\njobs:\n  ${job}:\n${environment}    steps:\n${install}      - env:\n          ${secret}: \${{ secrets.${secret} }}\n        run: bun evals/run.ts\n`,
 })
 
 test("rejects an outside-service secret in a job with untrusted code outside workbench", () => {
-  for (const secret of [
-    "MODEL_PROVIDER_API_KEY",
-    "VERCEL_ACCESS_TOKEN",
-  ]) {
+  for (const secret of ["MODEL_PROVIDER_API_KEY", "VERCEL_ACCESS_TOKEN"]) {
     for (const environment of [
       "",
       "    environment: Production\n",
@@ -374,7 +376,7 @@ test("keeps the preview sandbox cleanup in Preview", () => {
 })
 
 test("rejects the Railway and Neon keys in the workbench environment", () => {
-  for (const secret of ["RAILWAY_API_TOKEN", "NEON_API_KEY"])
+  for (const secret of ["RAILWAY_WORKSPACE_TOKEN", "NEON_API_KEY"])
     rejects(
       {
         ".github/workflows/w.yaml": `on: pull_request\njobs:\n  check:\n    environment: workbench\n    steps:\n      - env:\n          ${secret}: \${{ secrets.${secret} }}\n        run: echo ok\n`,
@@ -415,7 +417,7 @@ test("rejects a restore-keys prefix that a branch-code job writes", () => {
 
 test("accepts a production sticky disk and a PR sticky disk with a longer key", () => {
   const result = check({
-    ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: github.event_name != 'workflow_dispatch'\n    steps:\n${pinnedSticky(`\${{ github.repository }}-pnpm-store`)}      - env:\n          T: \${{ secrets.RAILWAY_API_TOKEN }}\n        run: echo\n`,
+    ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: github.event_name != 'workflow_dispatch'\n    steps:\n${pinnedSticky(`\${{ github.repository }}-pnpm-store`)}      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
     ".github/workflows/w.yaml": `on: pull_request\njobs:\n  migrate:\n    steps:\n${sticky(`\${{ github.repository }}-pnpm-store-pr`)}${install}`,
   })
   assert.equal(result.stderr, "")
@@ -425,7 +427,7 @@ test("accepts a production sticky disk and a PR sticky disk with a longer key", 
 test("rejects a main-only job whose if: does not name main", () => {
   rejects(
     {
-      ".github/workflows/observability.yaml": `on: push\njobs:\n  apply:\n    if: github.event_name == 'push'\n    env:\n      T: \${{ secrets.RAILWAY_TOKEN }}\n    steps:\n${install}`,
+      ".github/workflows/observability.yaml": `on: push\njobs:\n  apply:\n    if: github.event_name == 'push'\n    env:\n      T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n    steps:\n${install}`,
     },
     /job apply is a main-only job/,
   )
@@ -434,7 +436,7 @@ test("rejects a main-only job whose if: does not name main", () => {
 test("rejects a third-party action by tag in a job with a secret", () => {
   rejects(
     workflow(deployJob(`      - uses: nick-fields/retry@v4\n${tokenStep}`)),
-    /job deploy holds a secret and uses nick-fields\/retry@v4, a third-party action that is not pinned/,
+    /job deploy holds a secret or an OIDC token and uses nick-fields\/retry@v4, a third-party action that is not pinned/,
   )
   rejects(
     workflow(
@@ -464,9 +466,9 @@ ${tokenStep}  build:
 test("rejects an unpinned third-party action in a production job", () => {
   rejects(
     {
-      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: github.event_name != 'workflow_dispatch'\n    steps:\n      - uses: hashicorp/setup-terraform@v3\n      - env:\n          T: \${{ secrets.RAILWAY_API_TOKEN }}\n        run: echo\n`,
+      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: github.event_name != 'workflow_dispatch'\n    steps:\n      - uses: hashicorp/setup-terraform@v3\n      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
     },
-    /deploy\.yaml:6: job terraform holds a secret and uses hashicorp\/setup-terraform@v3/,
+    /deploy\.yaml:6: job terraform holds a secret or an OIDC token and uses hashicorp\/setup-terraform@v3/,
   )
 })
 
@@ -475,14 +477,14 @@ test("applies every rule to a deploy.yaml job that is not a named production job
     {
       ".github/workflows/deploy.yaml": `on: push\njobs:\n  release:\n    if: github.event_name != 'workflow_dispatch'\n    steps:\n${install}      - env:\n          NPM_TOKEN: \${{ secrets.NPM_TOKEN }}\n        run: echo\n`,
     },
-    /job release holds a secret and runs a package manager/,
+    /job release holds a secret or an OIDC token and runs a package manager/,
   )
 })
 
 test("rejects a production job whose if: does not limit it to the push to main", () => {
   rejects(
     {
-      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    steps:\n${install}      - env:\n          T: \${{ secrets.RAILWAY_API_TOKEN }}\n        run: echo\n`,
+      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    steps:\n${install}      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
     },
     /job terraform is a production job, but its if: does not limit it to the push to main/,
   )
@@ -526,4 +528,200 @@ test("rejects a step that echoes the handoff key", () => {
     ),
     /can show HANDOFF_KEY in the log/,
   )
+})
+
+const oidcJob = (steps) =>
+  `  select:\n    permissions:\n      contents: read\n      id-token: write\n    steps:\n${steps}`
+const awsStep =
+  "      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0\n"
+
+test("treats a job with an OIDC token as a job with a secret", () => {
+  rejects(
+    workflow(oidcJob(`${awsStep}${install}`)),
+    /job select holds a secret or an OIDC token and runs a package manager/,
+  )
+  rejects(
+    workflow(
+      oidcJob("      - uses: aws-actions/configure-aws-credentials@v6\n"),
+    ),
+    /job select holds a secret or an OIDC token and uses aws-actions\/configure-aws-credentials@v6, a third-party action that is not pinned/,
+  )
+  rejects(
+    workflow(oidcJob(`${awsStep}      - run: node scripts/checks/gate.mjs\n`)),
+    /runs scripts\/checks\/gate\.mjs, which is not a reviewed script/,
+  )
+})
+
+test("accepts an OIDC job that runs only pinned actions and a downloaded binary", () => {
+  const result = check(
+    workflow(
+      oidcJob(
+        `      - uses: actions/checkout@v6\n${awsStep}      - run: "$RUNNER_TEMP/bin/factory" check --json\n`,
+      ),
+    ),
+  )
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+})
+
+test("accepts only the npm publish jobs of deploy.yaml as OIDC jobs with a package manager", () => {
+  const publish = `on: push\njobs:\n  release:\n    permissions:\n      id-token: write\n    steps:\n${install}`
+  const result = check({ ".github/workflows/deploy.yaml": publish })
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+  rejects(
+    { ".github/workflows/w.yaml": publish },
+    /job release holds a secret or an OIDC token and runs a package manager/,
+  )
+})
+
+test("rejects an OIDC job that checks out another commit without the proof that it is on main", () => {
+  const job = (steps) =>
+    `on: workflow_dispatch\njobs:\n  prerelease:\n    permissions:\n      id-token: write\n    steps:\n      - uses: actions/checkout@v6\n        with:\n          ref: \${{ inputs.ref }}\n          fetch-depth: 0\n${steps}`
+  const proof = `      - run: git merge-base --is-ancestor HEAD origin/main\n`
+  const setup =
+    "      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6\n"
+  for (const steps of [
+    install,
+    `${setup}${proof}${install}`,
+    `${install}${proof}`,
+  ])
+    rejects(
+      { ".github/workflows/deploy.yaml": job(steps) },
+      /job prerelease has an OIDC token and checks out another commit/,
+    )
+  const result = check({
+    ".github/workflows/deploy.yaml": job(`${proof}${setup}${install}`),
+  })
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+})
+
+test("requires the proof directly after each checkout of another commit", () => {
+  const checkout = (ref) =>
+    `      - uses: actions/checkout@v6\n        with:\n          ref: ${ref}\n`
+  const job = (steps) =>
+    `on: workflow_dispatch\njobs:\n  prerelease:\n    permissions:\n      id-token: write\n    steps:\n${steps}`
+  const proof = `      - run: git merge-base --is-ancestor HEAD origin/main\n`
+  const between = "      - run: echo between\n"
+  const proofLate = `      - run: |\n          npx something\n          git merge-base --is-ancestor HEAD origin/main\n`
+  const second = checkout(`\${{ inputs.other }}`)
+  for (const steps of [
+    // A second checkout without its own proof.
+    `${checkout(`\${{ inputs.ref }}`)}${proof}${second}${install}`,
+    // A step between the checkout and the proof.
+    `${checkout(`\${{ inputs.ref }}`)}${between}${proof}`,
+    // A command before the proof in the proof step.
+    `${checkout(`\${{ inputs.ref }}`)}${proofLate}`,
+  ])
+    rejects(
+      { ".github/workflows/deploy.yaml": job(steps) },
+      /job prerelease has an OIDC token and checks out another commit/,
+    )
+  const result = check({
+    ".github/workflows/deploy.yaml": job(
+      `${checkout(`\${{ inputs.ref }}`)}${proof}${second}${proof}`,
+    ),
+  })
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+})
+
+test("applies the pinned action rule to the npm publish jobs", () => {
+  const pin = "0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+  const job = (action) =>
+    `on: push\njobs:\n  release:\n    permissions:\n      id-token: write\n    steps:\n      - uses: ${action}\n`
+  rejects(
+    { ".github/workflows/deploy.yaml": job("pnpm/action-setup@v6") },
+    /job release holds a secret or an OIDC token and uses pnpm\/action-setup@v6, a third-party action that is not pinned/,
+  )
+  const result = check({
+    ".github/workflows/deploy.yaml": job(`pnpm/action-setup@${pin} # v6`),
+  })
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+})
+
+test("reads id-token: write at the workflow level for each job without permissions", () => {
+  const workflowJob = (permissions) =>
+    `on: push\npermissions:\n  id-token: write\njobs:\n  select:\n${permissions}    steps:\n${install}`
+  rejects(
+    { ".github/workflows/w.yaml": workflowJob("") },
+    /job select holds a secret or an OIDC token and runs a package manager/,
+  )
+  const result = check({
+    ".github/workflows/w.yaml": workflowJob(
+      "    permissions:\n      contents: read\n",
+    ),
+  })
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+})
+
+test("rejects a proof step that can hide its failure", () => {
+  const checkout = `      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6\n        with:\n          ref: \${{ inputs.ref }}\n`
+  const cmd = "git merge-base --is-ancestor HEAD origin/main"
+  const job = (proof, workflowLevel = false) =>
+    `on: workflow_dispatch\n${workflowLevel ? "permissions:\n  id-token: write\n" : ""}jobs:\n  prerelease:\n${workflowLevel ? "" : "    permissions:\n      id-token: write\n"}    steps:\n${checkout}${proof}`
+  for (const proof of [
+    `      - if: always()\n        run: ${cmd}\n`,
+    `      - continue-on-error: true\n        run: ${cmd}\n`,
+    `      - run: ${cmd} || true\n`,
+    `      - run: ${cmd}; echo done\n`,
+    `      - run: |\n          ${cmd}\n          || true\n`,
+    `      - run: |\n          set +e\n          ${cmd}\n`,
+    `      - run: if ${cmd}; then echo ok; fi\n`,
+    `      - shell: bash {0}\n        run: ${cmd}\n`,
+    `      - run: ${cmd} && echo ok\n`,
+    `      - run: |\n          ${cmd}\n          echo after\n`,
+    `      - run: |\n          set +o errexit\n          ${cmd}\n`,
+    `      - run: |\n          trap 'exit 0' ERR\n          ${cmd}\n`,
+    // Another command, a command substitution, or a step-level env.
+    `      - run: |\n          npx something\n          ${cmd}\n`,
+    `      - run: |\n          echo "$(npx something)"\n          ${cmd}\n`,
+    `      - run: |\n          echo \`id\`\n          ${cmd}\n`,
+    `      - env:\n          GIT_DIR: /tmp/other\n        run: ${cmd}\n`,
+  ])
+    rejects(
+      { ".github/workflows/deploy.yaml": job(proof) },
+      /job prerelease has an OIDC token and checks out another commit/,
+    )
+  rejects(
+    {
+      ".github/workflows/deploy.yaml": job(
+        `      - run: ${cmd} || true\n`,
+        true,
+      ),
+    },
+    /job prerelease has an OIDC token and checks out another commit/,
+  )
+  for (const proof of [
+    `      - run: ${cmd}\n`,
+    `      - run: |\n          echo before\n          ${cmd}\n`,
+  ]) {
+    const result = check({ ".github/workflows/deploy.yaml": job(proof) })
+    assert.equal(result.stderr, "")
+    assert.equal(result.status, 0)
+  }
+})
+
+test("detects an OIDC token from write-all and from the flow form", () => {
+  const checkout = `      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6\n        with:\n          ref: \${{ inputs.ref }}\n`
+  const noProof = "      - run: echo hi\n"
+  const jobs = (workflow, job) =>
+    `on: workflow_dispatch\n${workflow}jobs:\n  prerelease:\n${job}    steps:\n${checkout}${noProof}`
+  for (const [workflow, job] of [
+    ["permissions: write-all\n", ""],
+    ["permissions: { id-token: write }\n", ""],
+    ["", "    permissions: write-all\n"],
+    ["", "    permissions: { contents: read, id-token: write }\n"],
+    ["permissions:\n  id-token: \"write\"\n", ""],
+    ["", "    permissions:\n      id-token: 'write'\n"],
+    ["permissions: { id-token: \"write\" }\n", ""],
+    ["permissions: \"write-all\"\n", ""],
+  ])
+    rejects(
+      { ".github/workflows/deploy.yaml": jobs(workflow, job) },
+      /job prerelease has an OIDC token and checks out another commit/,
+    )
 })

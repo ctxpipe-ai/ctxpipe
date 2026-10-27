@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import {
   KnowledgeGraphCosmographCanvas,
   type KnowledgeGraphSelectionEvent,
@@ -202,6 +203,10 @@ export const TimelinePlaysWithoutRange: Story = {
 
 /** A browser with WebGL 2 turned off gets a clear message, not a blank canvas. */
 export const NoWebGL: Story = {
+  parameters: {
+    intent:
+      "Catches a graph canvas that fails with no message when the browser has no WebGL 2. It must show that the browser cannot show the graph. Not for graph data or layout.",
+  },
   tags: ["workspace-golden"],
   beforeEach: () => {
     const getContext = HTMLCanvasElement.prototype.getContext

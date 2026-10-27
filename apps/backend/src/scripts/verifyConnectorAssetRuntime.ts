@@ -1,5 +1,6 @@
 import { lookup } from "node:dns/promises"
 import { request } from "node:https"
+
 import { initEvlog, log } from "../observability/logger.js"
 import {
   CONNECTOR_ENTITY_MAX_BYTES,

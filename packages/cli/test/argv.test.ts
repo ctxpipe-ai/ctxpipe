@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { describe, expect, it } from "vitest"
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..")
@@ -27,7 +28,7 @@ describe("CLI help and argv", () => {
     const out = help(["mcp", "add", "--help"])
     expect(out).toContain("--base-url")
     expect(out).toContain("--scope")
-    expect(out).toContain("--org")
+    expect(out).not.toContain("--org")
   })
 
   it("auth login --help documents --base-url", () => {
@@ -201,10 +202,31 @@ describe("CLI help and argv", () => {
       }
     }
     expect(repoConfig.mcpServers.ctxpipe?.url).toBe(
-      "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+      "https://app.ctxpipe.ai/mcp",
     )
     expect(repoConfig.mcpServers.ctxpipe?.headers).toBeUndefined()
     expect(JSON.stringify(repoConfig)).not.toContain("ctxp_must_not_be_written")
+  })
+
+  it("mcp add without --org succeeds and does not mention an organization", () => {
+    const home = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-noorg-home-"))
+    const cwd = mkdtempSync(join(tmpdir(), "ctxpipe-mcp-noorg-cwd-"))
+    const out = execFileSync(
+      process.execPath,
+      [
+        bin,
+        "mcp",
+        "add",
+        "--client",
+        "cursor",
+        "--scope",
+        "repo",
+        "--dry-run",
+        "--non-interactive",
+      ],
+      { encoding: "utf8", cwd, env: { ...process.env, HOME: home } },
+    )
+    expect(out).not.toContain("Organization")
   })
 
   it("mcp add --auth bearer is rejected", () => {

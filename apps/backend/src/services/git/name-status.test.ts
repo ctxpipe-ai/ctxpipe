@@ -1,4 +1,5 @@
 import { expect, it } from "vitest"
+
 import { parseNameStatus } from "./name-status.js"
 
 it("reads one path for most changes and two paths for a rename or a copy", () => {

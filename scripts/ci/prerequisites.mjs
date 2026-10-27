@@ -4,8 +4,24 @@ import { createRequire } from "node:module"
 import { graphReady } from "./graph-ready.mjs"
 
 try {
-  if (Number(process.versions.node.split(".")[0]) !== 22)
-    throw new Error("CI requires Node.js 22")
+  const { engines } = JSON.parse(
+    readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+  )
+  // A caret range: the same major, and at least the stated version.
+  const satisfies = (found, range) => {
+    const want = range.replace(/^\^/, "").split(".").map(Number)
+    const have = found.replace(/^v/, "").split(".").map(Number)
+    if (have.length !== 3 || have.some(Number.isNaN)) return false
+    if (have[0] !== want[0]) return false
+    for (let i = 1; i < 3; i++)
+      if ((have[i] ?? 0) !== (want[i] ?? 0))
+        return (have[i] ?? 0) > (want[i] ?? 0)
+    return true
+  }
+  if (!satisfies(process.versions.node, engines.node))
+    throw new Error(
+      `Node.js must satisfy package.json ${engines.node}; found ${process.versions.node}`,
+    )
   const version = (binary) => {
     try {
       return execFileSync(binary, ["--version"], {
@@ -22,16 +38,8 @@ try {
   process.stdout.write(`${version("git")}\n`)
   process.stdout.write(`${version("ast-grep")}\n`)
   const bun = version("bun")
-  const parts = bun.split(".").map(Number)
-  if (
-    parts.length !== 3 ||
-    parts.some(Number.isNaN) ||
-    parts[0] !== 1 ||
-    parts[1] < 4 ||
-    (parts[1] === 4 && parts[2] < 2)
-  ) {
-    throw new Error(`Bun must satisfy package.json ^1.4.2; found ${bun}`)
-  }
+  if (!satisfies(bun, engines.bun))
+    throw new Error(`Bun must satisfy package.json ${engines.bun}; found ${bun}`)
   const expected = readFileSync(
     new URL(
       "../../apps/backend/src/domain/workspaces/workspace-chat-opencode-contract.ts",

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { SourceChangeError } from "./edit.js"
 import {
   linkGithubRepositories,

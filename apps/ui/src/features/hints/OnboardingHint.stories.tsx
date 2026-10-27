@@ -2,12 +2,10 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Modal } from "@/components/ui/Modal"
-import { ConversationCtaActions } from "@/features/workspaces/WorkspaceChatChrome"
-import { WorkspaceNavList } from "@/features/workspaces/WorkspaceNavList"
-import { WorkspacePaneTriggers } from "@/features/workspaces/WorkspacePane"
 import {
   createdWorkspace,
   createdWritableWorkspaceDetail,
@@ -15,6 +13,9 @@ import {
   docsWorkspace,
   docsWorkspaceDetail,
 } from "@/features/workspaces/workspace-fixtures"
+import { ConversationCtaActions } from "@/features/workspaces/WorkspaceChatChrome"
+import { WorkspaceNavList } from "@/features/workspaces/WorkspaceNavList"
+import { WorkspacePaneTriggers } from "@/features/workspaces/WorkspacePane"
 import { workspaceCreatedFlag } from "@/lib/session-flags"
 import {
   authConfigHandler,
@@ -37,6 +38,7 @@ import {
   upgradesFixture,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 

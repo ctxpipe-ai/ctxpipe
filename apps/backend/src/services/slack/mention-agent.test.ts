@@ -1,5 +1,6 @@
 import { HttpResponse, http } from "msw"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
 import { SlackApiError } from "./client.js"
@@ -11,7 +12,6 @@ import {
 } from "./mention-agent.js"
 import { classifySlackCaptureError } from "./sync.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: Vitest owns this MSW lifecycle.
 const server = useMswServer()
 afterEach(() => vi.unstubAllEnvs())
 

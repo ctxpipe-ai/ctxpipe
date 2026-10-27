@@ -1,4 +1,5 @@
 import { z } from "zod"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
@@ -15,13 +16,13 @@ import {
 } from "../../domain/workspace-sources/source-tree.js"
 import { nativeFolderSetChanged } from "../../domain/workspaces/folder-list.js"
 import { projectWorkspaceGraph } from "../../domain/workspaces/graph-projection.js"
+import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
 import {
   applyEffectiveValidFromToUnits,
   displayNameFromAgentsMarkdown,
   hydrateKnowledgeTree,
   LEGACY_UNIT_SOURCE,
 } from "../../domain/workspaces/hydrate.js"
-import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
 import {
   legacyKnowledgeOverlay,
   legacyKnowledgeOverlayScope,
@@ -172,16 +173,20 @@ export function defineWorkspaceHydrateWorkflow() {
       return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
         const orgSql = <T>(fn: () => Promise<T>) =>
           withOrgDbContext(input.orgId, fn)
+        // The step keeps its first name; it also starts the issue backfills.
         const enqueueBackfills = (gitUrls: readonly string[]) =>
           step.run({ name: "enqueue-github-pr-backfills" }, async () => {
-            const { enqueueGithubPrBackfills } = await import(
-              "./github-sync-pull-request.js"
-            )
-            await enqueueGithubPrBackfills({
+            const { enqueueGithubPrBackfills } =
+              await import("./github-sync-pull-request.js")
+            const { enqueueGithubIssueBackfills } =
+              await import("./github-sync-issue.js")
+            const links = {
               orgId: input.orgId,
               workspaceId: input.workspaceId,
               gitUrls,
-            })
+            }
+            await enqueueGithubPrBackfills(links)
+            await enqueueGithubIssueBackfills(links)
           })
         // A retry can end early after the projection wrote a source row
         // and before the enqueue was recorded. A later hydrate sees that
@@ -340,6 +345,8 @@ export function defineWorkspaceHydrateWorkflow() {
                     const [previousFormatFile] = await readGitFiles(
                       { ...pack, sha: previousSha },
                       (path) => path === WORKSPACE_FORMAT_PATH,
+                      undefined,
+                      null,
                     )
                     return {
                       previousSha,
@@ -349,7 +356,7 @@ export function defineWorkspaceHydrateWorkflow() {
                         ),
                       ),
                       renameRewrites: (
-                        await nativeRenameRewriteFiles(pack, previousSha)
+                        await nativeRenameRewriteFiles(pack, previousSha, null)
                       ).length,
                       folderSetChanged: await nativeFolderSetChanged(
                         pack,
@@ -361,9 +368,8 @@ export function defineWorkspaceHydrateWorkflow() {
               },
             )
             // Import at the admission boundary: typed writers themselves enqueue hydrate.
-            const { enqueueWriteJob } = await import(
-              "../enqueue-workspace-write-commit.js"
-            )
+            const { enqueueWriteJob } =
+              await import("../enqueue-workspace-write-commit.js")
             const reserved = await step.run(
               { name: "reserve-remaining-writes" },
               () => reserveHydrateWrites({ revision, remaining: plan }),
@@ -565,9 +571,8 @@ export function defineWorkspaceHydrateWorkflow() {
           const newGithubLinks = planning.needed
             ? await step.run({ name: "find-new-github-pr-links" }, async () => {
                 // Import at the admission boundary: the mirror enqueues hydrate.
-                const { findNewGithubPrBackfillLinks } = await import(
-                  "./github-sync-pull-request.js"
-                )
+                const { findNewGithubPrBackfillLinks } =
+                  await import("./github-sync-pull-request.js")
                 return findNewGithubPrBackfillLinks({
                   orgId: input.orgId,
                   workspaceId: workspace.id,
@@ -621,9 +626,8 @@ export function defineWorkspaceHydrateWorkflow() {
             if (formatChangeNeedsScan(workspace.formatVersion, formatVersion))
               await step.run({ name: "enqueue-upgrade-scan" }, async () => {
                 // Import at the admission boundary, like the other enqueue steps.
-                const { enqueueWorkspaceUpgradeScan } = await import(
-                  "./workspace-upgrade-scan.js"
-                )
+                const { enqueueWorkspaceUpgradeScan } =
+                  await import("./workspace-upgrade-scan.js")
                 await enqueueWorkspaceUpgradeScan({
                   orgId: input.orgId,
                   trigger: `format:${workspace.id}:${revision.sha}`,
@@ -666,9 +670,8 @@ export function defineWorkspaceHydrateWorkflow() {
             await step.run({ name: "enqueue-source-follow-ups" }, async () => {
               const { formatFile } = await readTree()
               // Import at the admission boundary, like the other enqueue steps.
-              const { enqueueSourceProjectionFollowUps } = await import(
-                "../../domain/workspace-sources/enqueue.js"
-              )
+              const { enqueueSourceProjectionFollowUps } =
+                await import("../../domain/workspace-sources/enqueue.js")
               await enqueueSourceProjectionFollowUps({
                 orgId: input.orgId,
                 workspaceId: workspace.id,
@@ -687,6 +690,19 @@ export function defineWorkspaceHydrateWorkflow() {
           if (newGithubLinks.length) await enqueueBackfills(newGithubLinks)
 
           if (activated && pending.graph) {
+            // A retry of a failed graph sets the phase back to pending, so
+            // that readers show the graph as building, not as failed. The
+            // phase keeps its first failure, so a crash in the retry loses
+            // neither its message nor its time, and the tip check spaces out
+            // the next retries from that time. The next tip check retries a
+            // phase that stays pending.
+            if (active?.stores.graph.kind === "failed")
+              await step.run({ name: "persist-graph-retry" }, () =>
+                persistWorkspaceGraphResult({
+                  revision,
+                  result: { kind: "pending" },
+                }),
+              )
             try {
               await projectWorkspaceGraph(revision)
             } catch (error) {

@@ -61,18 +61,12 @@ try {
   const diagnostics = ts
     .getPreEmitDiagnostics(program)
     .filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
-  process.stdout.write(
-    ts.formatDiagnostics(diagnostics, {
-      getCanonicalFileName: (file) => file,
-      getCurrentDirectory: () => dirname(configPath),
-      getNewLine: () => "\n",
-    }),
-  )
   const repository = fileURLToPath(new URL("../../", import.meta.url)).replace(
     /\/$/,
     "",
   )
   const observed = new Map()
+  const keys = new Map()
   for (const diagnostic of diagnostics) {
     const item = {
       file: diagnostic.file
@@ -88,6 +82,7 @@ try {
         .replaceAll(realpathSync(repository), "<repo>"),
       count: 1,
     }
+    keys.set(diagnostic, identity(item))
     const previous = observed.get(identity(item))
     if (previous) previous.count += 1
     else observed.set(identity(item), item)
@@ -102,6 +97,23 @@ try {
       ) + "\n",
     )
   }
+  // Print only the diagnostics that do not match the allowance. The CI
+  // problem matcher makes each printed diagnostic an error annotation, so
+  // acknowledged diagnostics in the output hide the true cause of a failure.
+  process.stdout.write(
+    ts.formatDiagnostics(
+      diagnostics.filter(
+        (diagnostic) =>
+          allowed.get(keys.get(diagnostic)) !==
+          observed.get(keys.get(diagnostic)).count,
+      ),
+      {
+        getCanonicalFileName: (file) => file,
+        getCurrentDirectory: () => dirname(configPath),
+        getNewLine: () => "\n",
+      },
+    ),
+  )
   let failed = false
   let acknowledged = 0
   for (const [key, item] of observed) {

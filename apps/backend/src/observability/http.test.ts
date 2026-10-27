@@ -9,6 +9,7 @@ import { type EvlogVariables, evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+
 import { applyAttribution } from "./attribution.js"
 import { backendOtelMiddleware } from "./http.js"
 import { AttributionUrlSpanProcessor } from "./otel.js"

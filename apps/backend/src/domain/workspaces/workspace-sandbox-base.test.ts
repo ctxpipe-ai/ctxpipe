@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import type { WorkspaceRevision } from "./revision.js"
 import {
   BASE_STALE_AGE_MS,

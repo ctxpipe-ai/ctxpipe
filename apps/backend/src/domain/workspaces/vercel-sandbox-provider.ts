@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto"
+
 import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
 import { VERCEL_CAPS, VercelHandle } from "@tanstack/ai-sandbox-vercel"
 import {
@@ -8,6 +9,7 @@ import {
   Sandbox,
   Snapshot,
 } from "@vercel/sandbox"
+
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { SandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import { log } from "../../observability/logger.js"
@@ -104,8 +106,8 @@ export function vercelOidcIssuer(teamId: string): string {
 export function vercelConfigured(env: NodeJS.ProcessEnv = process.env) {
   return Boolean(
     env.VERCEL_TOKEN?.trim() &&
-      env.VERCEL_TEAM_ID?.trim() &&
-      env.VERCEL_PROJECT_ID?.trim(),
+    env.VERCEL_TEAM_ID?.trim() &&
+    env.VERCEL_PROJECT_ID?.trim(),
   )
 }
 

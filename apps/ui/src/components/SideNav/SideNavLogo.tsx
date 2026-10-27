@@ -1,6 +1,8 @@
 import { Link } from "react-aria-components"
 import { twMerge } from "tailwind-merge"
+
 import { focusVisibleClassName } from "@/lib/focus-styles"
+
 import { Logo } from "../Logo/Logo"
 
 export function SideNavLogo({ className }: { className?: string }) {

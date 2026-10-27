@@ -1,4 +1,5 @@
 import { expect, it } from "vitest"
+
 import { ingestUsageUsd } from "./ingest-spend.js"
 
 it("uses the provider cost, else prices cache reads at the cache rate", () => {

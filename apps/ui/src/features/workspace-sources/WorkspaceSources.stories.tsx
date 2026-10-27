@@ -8,6 +8,7 @@ import { HttpResponse, http } from "msw"
 import { useState } from "react"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { emptyLinkedWorkspaceDetail } from "@/features/workspaces/workspace-fixtures"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import {
@@ -28,6 +29,7 @@ import {
   workspaceUpgradeStartHandler,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceSources } from "./WorkspaceSources"
@@ -182,6 +184,8 @@ export const ConnectedWithoutSources: Story = {
 export const SeveralProviders: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a source list that drops a provider or misstates the totals. It must show every source with its path and description and the connector count. Not for edits or empty states.",
     msw: {
       handlers: {
         page: [
@@ -576,6 +580,8 @@ export const ScrollsToSourceAnchor: Story = {
     return () => window.history.replaceState(null, "", "#")
   },
   parameters: {
+    intent:
+      "Catches a source list that ignores the URL hash. The page must scroll the matching provider section into view. Not for the list content or edits.",
     msw: {
       handlers: {
         page: [
@@ -622,6 +628,8 @@ export const ScrollsToSourceAnchor: Story = {
 export const EditSendsChange: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a source edit that sends the wrong change. The edit dialog must start from the saved scope and send a PUT with the new scope. Not for adding sources.",
     msw: {
       handlers: {
         page: [
@@ -939,6 +947,8 @@ export const AddSendsChange: Story = {
 export const AddSeveralSendsOneBatch: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches an add of several repositories that sends one request per repository. It must send one batch request, so one pull request. Not for the repository list.",
     msw: {
       handlers: {
         page: [
@@ -1254,6 +1264,8 @@ export const UpgradesLoadFailed: Story = {
 export const ReadOnlyHidesChanges: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a read-only workspace that shows source actions. Add, unlink, and remove buttons must not appear when the user cannot edit. Not for the source list content.",
     msw: {
       handlers: {
         page: [
@@ -1313,6 +1325,8 @@ const reposPerConnection = http.get(
 export const PickerShowsConnectionNames: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a repository picker that mixes several GitHub connections. It lists the repositories of each connection and sends each repository with its own connection id. Not for the source list.",
     msw: {
       handlers: {
         page: [
@@ -1768,7 +1782,7 @@ export const BeforeFormatUpgrade: Story = {
       canvas.getByText(/The format upgrade moves them/),
     ).toBeVisible()
     await expect(
-      canvas.getByRole("link", { name: "Open Upgrades" }),
+      canvas.getByRole("link", { name: "Review upgrade" }),
     ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
     await expect(canvas.queryByText(/No sources yet/)).toBeNull()
     await expect(canvas.queryByRole("button", { name: /Add/ })).toBeNull()

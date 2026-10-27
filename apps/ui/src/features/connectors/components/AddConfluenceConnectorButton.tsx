@@ -2,7 +2,9 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
+
 import { Spinner } from "@/components/ui/spinner"
+
 import { registerAtlassianInstallIntent } from "../queries/atlassian-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import { ConfluenceMark } from "./ConfluenceMark"

@@ -3,6 +3,7 @@ import type {
   SandboxProvider as TanstackSandboxProvider,
 } from "@tanstack/ai-sandbox"
 import Docker from "dockerode"
+
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { RunningSandboxProvider } from "../../models/workspace-sandboxes.js"
 import { log } from "../../observability/logger.js"
@@ -193,7 +194,7 @@ export async function destroyDetachedProviderSandbox(input: {
     const docker = await import("@tanstack/ai-sandbox-docker").catch(() => null)
     await assertDockerDaemonReachable()
     await destroyWithProviderFactory({
-      factory: docker?.dockerSandbox?.({ image: "node:22" }),
+      factory: docker?.dockerSandbox?.({ image: "node:24" }),
       provider: "docker",
       providerSandboxId: input.providerSandboxId,
       snapshotId: input.snapshotId,
@@ -304,9 +305,8 @@ export async function stopDetachedProviderSandbox(input: {
 /** A Vercel sandbox by name, with the org's record of its GitHub token. */
 async function vercelSandboxTarget(orgId: string, name: string) {
   const { vercelCredentials } = await import("./vercel-sandbox-provider.js")
-  const { sandboxGitTokenStore } = await import(
-    "../../models/sandbox-git-tokens.js"
-  )
+  const { sandboxGitTokenStore } =
+    await import("../../models/sandbox-git-tokens.js")
   const { parseEnv } = await import("../../config/env.js")
   return {
     credentials: await vercelCredentials(),

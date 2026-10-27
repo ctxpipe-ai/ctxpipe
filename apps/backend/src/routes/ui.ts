@@ -1,6 +1,7 @@
 import { context, propagation } from "@opentelemetry/api"
 import type { Context, Hono } from "hono"
 import { proxy } from "hono/proxy"
+
 import type { AppEnv } from "../app/env.js"
 import type { Env } from "../config/env.js"
 import { getLogger, log } from "../observability/logger.js"

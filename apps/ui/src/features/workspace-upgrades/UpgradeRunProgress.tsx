@@ -1,5 +1,7 @@
 import { ProgressBar } from "react-aria-components"
+
 import { useNow } from "@/lib/useNow"
+
 import { formatElapsed, type UpgradeProgress } from "./upgrade-progress"
 
 /**
@@ -10,6 +12,8 @@ import { formatElapsed, type UpgradeProgress } from "./upgrade-progress"
 export function UpgradeRunProgress(props: {
   title: string
   progress: UpgradeProgress
+  /** A list of several runs says this one time, not on each run. */
+  hideLeaveHint?: boolean
 }) {
   const { progress } = props
   const now = useNow(progress.since !== null)
@@ -55,8 +59,9 @@ export function UpgradeRunProgress(props: {
             .{" "}
           </>
         ) : null}
-        You can leave this page. The work continues, and this card shows its
-        state when you come back.
+        {props.hideLeaveHint
+          ? null
+          : "You can leave this page. The work continues, and this card shows its state when you come back."}
       </p>
     </section>
   )

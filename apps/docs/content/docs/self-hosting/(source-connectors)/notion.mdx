@@ -34,8 +34,10 @@ URL derived from `AUTH_BASE_URL`.
 4. Paste the **Client ID** and **Client secret** and save. The secret is stored
    encrypted on that connection and is never shown again.
 5. On **Add webhook**, open the same app's **Webhooks** tab, add a webhook, and
-   paste the wizard event URL into **Webhook URL**. It is query-scoped to this
-   connection:
+   paste the wizard event URL into **Webhook URL**. Select the page, data
+   source, and database event types (`page.*`, `data_source.*`, and
+   `database.*`). ctxpipe ignores other events, and a missing type means
+   missing updates. The URL is query-scoped to this connection:
 
 ```text
 {AUTH_BASE_URL}/api/v1/webhook/notion?connectionId={id}&provisioningToken={hmac}
@@ -180,4 +182,4 @@ repository layout, review workflow, and user-facing recovery steps.
 
 - [Workspaces](/docs/workspaces)
 - [GitHub connector](/docs/connections/source-connectors/github)
-- [Indexing](/docs/connections/ingestion)
+- [Indexing](/docs/workspaces/indexing)

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { toConfluenceMarkdownFile } from "../../services/confluence/converter.js"
 import {
   type LinearIssueForMirror,
@@ -11,12 +12,12 @@ import {
   toSlackChannelIndexFile,
   toSlackThreadMarkdownFile,
 } from "../../services/slack/converter.js"
+import { claimsUpgradeRemainder } from "./hydrate-write-jobs.js"
 import {
   hydrateKnowledgeTree,
   hydrateUnitsToProjectionClaims,
   resolveHydrateLink,
 } from "./hydrate.js"
-import { claimsUpgradeRemainder } from "./hydrate-write-jobs.js"
 import { computeWorkspaceGraphQuality } from "./workspace-graph.js"
 
 const WORKSPACE_URL = "https://github.com/acme/context"

@@ -1,11 +1,13 @@
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { config } from "dotenv"
 import { eq } from "drizzle-orm"
 import { initLogger } from "evlog"
 import { evlog } from "evlog/hono"
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest"
+
 import { describeWithDatabase } from "../../../test/db.js"
 import { recordSpans } from "../../../test/spans.js"
 import type { AppEnv } from "../../app/env.js"
@@ -261,15 +263,18 @@ describeWithDatabase("repository HTTP attribution (Postgres)", () => {
     ["http", "http://github.com/acme/app.git"],
     ["an IP host", "https://10.0.0.5/team/app.git"],
     ["a metadata address", "https://metadata.example.org/team/app.git"],
-  ])("hosted: refuses a %s URL with the protocol rule and stores no row", async (_kind, gitUrl) => {
-    const res = await create(gitUrl)
-    const text = await res.text()
-    expect(res.status, text).toBe(400)
-    expect(JSON.parse(text).error).toContain(
-      "ssh (git@… or ssh://), git:// and file:// are not supported",
-    )
-    expect(await rowsWithUrl(gitUrl)).toEqual([])
-  })
+  ])(
+    "hosted: refuses a %s URL with the protocol rule and stores no row",
+    async (_kind, gitUrl) => {
+      const res = await create(gitUrl)
+      const text = await res.text()
+      expect(res.status, text).toBe(400)
+      expect(JSON.parse(text).error).toContain(
+        "ssh (git@… or ssh://), git:// and file:// are not supported",
+      )
+      expect(await rowsWithUrl(gitUrl)).toEqual([])
+    },
+  )
 
   it("hosted: gives one message for a host with no address and a host with a private address", async () => {
     const refusal = async (host: string) => {

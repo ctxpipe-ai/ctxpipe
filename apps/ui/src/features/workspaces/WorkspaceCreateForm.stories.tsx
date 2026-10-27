@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { Button } from "@/components/ui/Button"
 import {
   githubInstallationReposHandler,
@@ -20,13 +21,14 @@ import {
   upgradesFixture,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceCreateForm } from "./WorkspaceCreateForm"
 import {
   createdWorkspace,
   createdWritableWorkspaceDetail,
 } from "./workspace-fixtures"
+import { WorkspaceCreateForm } from "./WorkspaceCreateForm"
 
 const meta = {
   title: "Components/Workspaces/CreateForm",

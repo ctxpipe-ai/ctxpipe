@@ -1,7 +1,9 @@
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
@@ -231,9 +233,8 @@ it(
       },
       async (f) => {
         await f.publish()
-        const { enqueueWriteJob } = await import(
-          "../../openworkflow/enqueue-workspace-write-commit.js"
-        )
+        const { enqueueWriteJob } =
+          await import("../../openworkflow/enqueue-workspace-write-commit.js")
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
@@ -242,9 +243,8 @@ it(
         })
         const runner = new OpenWorkflow({ backend })
         runner.implementWorkflow(workspaceBootstrap.spec, workspaceBootstrap.fn)
-        const { workspaceSemanticMerge } = await import(
-          "../../openworkflow/workflows/workspace-semantic-merge.js"
-        )
+        const { workspaceSemanticMerge } =
+          await import("../../openworkflow/workflows/workspace-semantic-merge.js")
         runner.implementWorkflow(
           workspaceSemanticMerge.spec,
           workspaceSemanticMerge.fn,
@@ -318,9 +318,8 @@ it(
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {
-        const { enqueueWriteJob } = await import(
-          "../../openworkflow/enqueue-workspace-write-commit.js"
-        )
+        const { enqueueWriteJob } =
+          await import("../../openworkflow/enqueue-workspace-write-commit.js")
         const { BackendPostgres } = await import("openworkflow/postgres")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
@@ -618,12 +617,10 @@ it(
       },
       async (f) => {
         await f.publish()
-        const { enqueueWriteJob } = await import(
-          "../../openworkflow/enqueue-workspace-write-commit.js"
-        )
-        const { workspaceFileEdit } = await import(
-          "../../openworkflow/workflows/workspace-file-edit.js"
-        )
+        const { enqueueWriteJob } =
+          await import("../../openworkflow/enqueue-workspace-write-commit.js")
+        const { workspaceFileEdit } =
+          await import("../../openworkflow/workflows/workspace-file-edit.js")
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
         const backend = await BackendPostgres.connect(f.databaseUrl, {
@@ -874,9 +871,8 @@ it(
         ],
       },
       async (f) => {
-        const { workspaceFileEdit } = await import(
-          "../../openworkflow/workflows/workspace-file-edit.js"
-        )
+        const { workspaceFileEdit } =
+          await import("../../openworkflow/workflows/workspace-file-edit.js")
         const spec = {
           ...workspaceFileEdit.spec,
           retryPolicy: { maximumAttempts: 1 },
@@ -929,9 +925,8 @@ it(
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {
-        const { workspaceFileEdit } = await import(
-          "../../openworkflow/workflows/workspace-file-edit.js"
-        )
+        const { workspaceFileEdit } =
+          await import("../../openworkflow/workflows/workspace-file-edit.js")
         // The default retry policy stays: the refusal must not need an override.
         const spec = workspaceFileEdit.spec
         f.runner.implementWorkflow(spec, workspaceFileEdit.fn)
@@ -961,9 +956,8 @@ it(
           )
           expect(run?.attempts).toBe(1)
           // Read the row without reconcile, which would fail it later by itself.
-          const { workspaceWriteJobs } = await import(
-            "../../db/schema/workspaces.js"
-          )
+          const { workspaceWriteJobs } =
+            await import("../../db/schema/workspaces.js")
           const { withOrgDbContext } = await import("../../db/client.js")
           const { eq } = await import("drizzle-orm")
           const [row] = await withOrgDbContext(f.org.id, (db) =>
@@ -1002,9 +996,8 @@ it(
     await withNativeHydrationFixture(
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {
-        const { workspaceFileEdit } = await import(
-          "../../openworkflow/workflows/workspace-file-edit.js"
-        )
+        const { workspaceFileEdit } =
+          await import("../../openworkflow/workflows/workspace-file-edit.js")
         const spec = {
           ...workspaceFileEdit.spec,
           retryPolicy: { maximumAttempts: 1 },
@@ -1086,9 +1079,8 @@ it(
         const { default: postgres } = await import("postgres")
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { enqueueWriteJob } = await import(
-          "../../openworkflow/enqueue-workspace-write-commit.js"
-        )
+        const { enqueueWriteJob } =
+          await import("../../openworkflow/enqueue-workspace-write-commit.js")
         const ownerUrl = new URL(f.databaseUrl)
         ownerUrl.username = "ctxpipe"
         const owner = postgres(ownerUrl.toString(), { max: 1 })
@@ -1201,12 +1193,10 @@ it(
       },
       async (f) => {
         await f.publish()
-        const { enqueueWriteJob } = await import(
-          "../../openworkflow/enqueue-workspace-write-commit.js"
-        )
-        const { workspaceFileEdit } = await import(
-          "../../openworkflow/workflows/workspace-file-edit.js"
-        )
+        const { enqueueWriteJob } =
+          await import("../../openworkflow/enqueue-workspace-write-commit.js")
+        const { workspaceFileEdit } =
+          await import("../../openworkflow/workflows/workspace-file-edit.js")
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
         const backend = await BackendPostgres.connect(f.databaseUrl, {

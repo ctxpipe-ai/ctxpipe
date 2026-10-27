@@ -1,6 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
+
 import { z } from "zod"
+
 import { closeDb, getSystemDb, initDb } from "../../src/db/client.js"
 import { users } from "../../src/db/schema/auth.js"
 import { initEvlog, log } from "../../src/observability/logger.js"
@@ -40,9 +42,9 @@ async function main(argv: string[]) {
     .parse(JSON.parse(await readFile(remoteFile, "utf8")))
   initDb(process.env.DATABASE_URL)
   try {
-    const result = await (command === "seed"
-      ? seedMcpEval
-      : advanceMcpEvalWorkspace)({
+    const result = await (
+      command === "seed" ? seedMcpEval : advanceMcpEvalWorkspace
+    )({
       run,
       userId,
       remotes,

@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "@tanstack/react-router"
 import { useId, useState } from "react"
+
 import { Button } from "@/components/ui/Button"
 import {
   Dialog,
@@ -14,6 +15,7 @@ import { Modal } from "@/components/ui/Modal"
 import { authClient } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { cn } from "@/lib/utils"
+
 import { orgSlugError, orgSlugFromName } from "../onboarding/org-name"
 
 type SideNavOrganizationCreateDialogProps = {

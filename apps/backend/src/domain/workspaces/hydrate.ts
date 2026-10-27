@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto"
+
 import { base32nopad } from "@scure/base"
+
 import { connectorMirrorRoot } from "../codeIngestion/connectorMirrorPaths.js"
 import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
 import type {

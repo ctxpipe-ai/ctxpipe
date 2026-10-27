@@ -12,7 +12,7 @@ One CloudFormation stack whose resources are defined entirely by `CtxPipe`. See 
 
 1. **AWS credentials** for a sandbox account with permissions to create the resources listed in the package README.
 2. **Region**: use one that supports Neptune and SES (for example `us-east-1`).
-3. **Tooling**: Node.js 20+, pnpm 10, AWS CLI for the same account.
+3. **Tooling**: Node.js 24+, pnpm 10, AWS CLI for the same account.
 4. From the repo root:
 
    ```bash

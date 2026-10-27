@@ -14,11 +14,13 @@ import {
 import type { Metadata } from "next"
 import { notFound, redirect } from "next/navigation"
 import type { ComponentProps, ComponentType } from "react"
+
 import { source } from "@/lib/source"
+
 import { ConfluenceDataFlowDiagram } from "../components/confluence-data-flow-diagram"
 import { ConfluenceDataModelDiagram } from "../components/confluence-data-model-diagram"
 import { Card, Cards } from "../components/docs-card"
-import { ConnectorKindsDiagram } from "../components/docs-diagrams"
+import { DocsCopyMarkdown } from "../components/docs-copy-markdown"
 import { ImageSlot } from "../components/docs-image-slot"
 import { Step, Steps } from "../components/docs-steps"
 
@@ -65,6 +67,9 @@ export default async function Page({ params }: Props) {
     <DocsPage toc={data.toc} full={data.full}>
       <DocsTitle>{data.title}</DocsTitle>
       <DocsDescription>{data.description}</DocsDescription>
+      <div className="-mt-4 mb-6 flex">
+        <DocsCopyMarkdown markdownUrl={`${page.url}.mdx`} />
+      </div>
       <DocsBody>
         <MDX
           components={
@@ -75,7 +80,6 @@ export default async function Page({ params }: Props) {
               Callout,
               ConfluenceDataFlowDiagram,
               ConfluenceDataModelDiagram,
-              ConnectorKindsDiagram,
               Step,
               Steps,
               ImageSlot,
@@ -101,8 +105,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!page) notFound()
 
   const data = page.data as DocPageData
+  const title = `${data.title} - ctxpipe docs`
   return {
-    title: `${data.title} - ctxpipe docs`,
+    title,
     description: data.description,
+    alternates: {
+      canonical: page.url,
+      types: { "text/markdown": `${page.url}.mdx` },
+    },
+    openGraph: {
+      type: "article",
+      url: page.url,
+      siteName: "ctxpipe docs",
+      title,
+      description: data.description,
+    },
+    twitter: { card: "summary", title, description: data.description },
   }
 }

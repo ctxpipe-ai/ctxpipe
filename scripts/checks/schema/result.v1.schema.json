@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ctxpipe.ai/schemas/checks/result.v1.schema.json",
+  "title": "ctxpipe check result",
+  "description": "One NDJSON line of `pnpm checks:run` output, for each requested check id.",
+  "type": "object",
+  "required": ["schemaVersion", "id", "status", "durationMs", "cases"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "type": "string"
+    },
+    "status": {
+      "description": "error: the check did not run (unknown id, setup failure, load error).",
+      "enum": ["passed", "failed", "skipped", "error"]
+    },
+    "durationMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "durationMs"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "enum": ["passed", "failed", "skipped"]
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "origin": {
+      "description": "Optional. Set only on an error record of a check that did not run because of a fault outside the check: prerequisite (a prerequisite failed) or runner (the runner failed, or the check is unknown). Set by the runner only; a test file cannot set it. A consumer detects an infrastructure fault from this field, never from the message text.",
+      "enum": ["prerequisite", "runner"]
+    },
+    "log": {
+      "description": "Repo-relative path of the runner log for the group of checks.",
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "usage": {
+      "description": "The model use of an eval run, for each model. It never holds prompt or answer text. Optional; only eval checks have it.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["model", "inputTokens", "outputTokens"],
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "inputTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "outputTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "costUsd": {
+            "description": "The cost from the price list of the model provider. Absent when the price is not known.",
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

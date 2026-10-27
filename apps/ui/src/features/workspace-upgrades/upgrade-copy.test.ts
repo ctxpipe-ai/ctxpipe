@@ -1,14 +1,20 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+
 import { upgradeItemFixture } from "@/mocks/workspace-upgrades-handlers"
+
 import type { WorkspaceUpgradeItem } from "./queries"
 import {
   formatHealthLine,
   upgradeBlockedCopy,
   upgradeCanCheck,
   upgradeCanStart,
+  upgradeGroup,
+  upgradeGroups,
+  upgradeHeadline,
+  upgradeHistoryLine,
   upgradeIsCheckingFormat,
-  upgradeIsPending,
   upgradeNotices,
+  upgradeSpendLine,
   upgradeStartedMessage,
   upgradeStatusTag,
   upgradeWaitingCopy,
@@ -18,13 +24,6 @@ const item = (status: WorkspaceUpgradeItem["status"]) =>
   ({ status }) as WorkspaceUpgradeItem
 
 describe("upgrade copy", () => {
-  it("counts every status except completed as pending", () => {
-    expect(upgradeIsPending(item("completed"))).toBe(false)
-    expect(upgradeIsPending(item("awaiting_operator"))).toBe(true)
-    expect(upgradeIsPending(item("pr_open"))).toBe(true)
-    expect(upgradeIsPending(item("blocked"))).toBe(true)
-  })
-
   it("shows each notice one time, actions first, and keeps report lines out", () => {
     const risk = { kind: "risk" as const, text: "Some links are removed." }
     const action = { kind: "action" as const, text: "Fix the sources file." }
@@ -67,13 +66,15 @@ describe("upgrade copy", () => {
 
   it("words the health line for each format state", () => {
     expect(formatHealthLine(null, 3)).toMatch(/has not read/)
-    expect(formatHealthLine(-1, 3)).toMatch(/not valid/)
+    expect(formatHealthLine(-1, 3)).toBe(
+      "The format file in the repository is not valid. Fix .ctxpipe/workspace.yaml: it must hold format, an integer of 0 or more.",
+    )
     expect(formatHealthLine(1, 3)).toBe(
       "The repository uses format 1. ctxpipe reads format 3.",
     )
-    expect(formatHealthLine(3, 3)).toMatch(/up to date/)
+    expect(formatHealthLine(3, 3)).toBe("Format 3")
     expect(formatHealthLine(4, 3)).toBe(
-      "The repository uses format 4. ctxpipe reads format 3. This Workspace needs a newer ctxpipe version.",
+      "The repository uses format 4. ctxpipe reads format 3. This Workspace needs a newer ctxpipe version. Ask the operator of ctxpipe to update it.",
     )
   })
 
@@ -224,5 +225,255 @@ describe("a re-ingestion that waits for the scan after the format changed (CTX-9
       })
     expect(blocked(3).body).toContain("needs format 3.")
     expect(blocked(4).body).toContain("needs format 4.")
+  })
+})
+
+describe("the Status group says if the user must act (CTX-980)", () => {
+  const fixture = upgradeItemFixture
+
+  it("puts each item that waits for a person in Needs you", () => {
+    expect(upgradeGroup(fixture({ status: "awaiting_operator" }), 3)).toBe(
+      "needs_you",
+    )
+    expect(upgradeGroup(fixture({ status: "failed" }), 3)).toBe("needs_you")
+    expect(upgradeGroup(fixture({ status: "blocked" }), 3)).toBe("needs_you")
+    expect(
+      upgradeGroup(
+        fixture({
+          status: "pr_open",
+          pullRequest: { number: 5, url: "https://github.com/a/b/pull/5" },
+        }),
+        3,
+      ),
+    ).toBe("needs_you")
+  })
+
+  it("puts each item that ctxpipe works on in Working now", () => {
+    expect(upgradeGroup(fixture({ status: "queued" }), 3)).toBe("working")
+    expect(upgradeGroup(fixture({ status: "running" }), 3)).toBe("working")
+    expect(
+      upgradeGroup(
+        fixture({
+          status: "running",
+          waitingForSlot: { reason: "Full.", since: "2026-10-16T10:00:00Z" },
+        }),
+        3,
+      ),
+    ).toBe("working")
+    expect(
+      upgradeGroup(
+        fixture({ status: "pr_open", mergedAt: "2026-10-16T10:00:00Z" }),
+        3,
+      ),
+    ).toBe("working")
+    // A re-ingestion that waits for the scan after the format changed.
+    expect(
+      upgradeGroup(
+        fixture({
+          kind: "reingest",
+          status: "blocked",
+          blockedReason: "needs_format",
+          targetFormat: 3,
+        }),
+        3,
+      ),
+    ).toBe("working")
+    // ctxpipe has not read the format of the tip yet: a wait on ctxpipe.
+    expect(
+      upgradeGroup(
+        fixture({
+          kind: "reingest",
+          status: "blocked",
+          blockedReason: "ingestion_v2_off",
+        }),
+        3,
+      ),
+    ).toBe("working")
+    expect(upgradeGroup(fixture({ status: "completed" }), 3)).toBe("done")
+  })
+
+  const needsFormat = fixture({
+    key: "reingest-bundle",
+    kind: "reingest",
+    status: "blocked",
+    blockedReason: "needs_format",
+    targetFormat: 3,
+    steps: [],
+  })
+
+  it("puts a re-ingestion that waits for an open format upgrade in the group of that upgrade, and counts it one time", () => {
+    // Merged, not read yet: ctxpipe works, and nobody must act.
+    const merged = upgradeGroups(
+      [
+        fixture({ status: "pr_open", mergedAt: "2026-10-16T10:00:00Z" }),
+        needsFormat,
+      ],
+      2,
+      new Set(),
+    )
+    expect(merged.lists.working.map((item) => item.key)).toEqual([
+      "format-3",
+      "reingest-bundle",
+    ])
+    expect(merged.lists.needs_you).toEqual([])
+    expect(merged.count).toEqual({ needs_you: 0, working: 1 })
+    // Not merged yet: one thing needs you, the merge.
+    const open = upgradeGroups(
+      [
+        fixture({
+          status: "pr_open",
+          pullRequest: { number: 5, url: "https://github.com/a/b/pull/5" },
+        }),
+        needsFormat,
+      ],
+      2,
+      new Set(),
+    )
+    expect(open.lists.needs_you).toHaveLength(2)
+    expect(open.count).toEqual({ needs_you: 1, working: 0 })
+    // With no open format item, the re-ingestion counts for itself.
+    expect(upgradeGroups([needsFormat], 2, new Set()).count).toEqual({
+      needs_you: 1,
+      working: 0,
+    })
+  })
+
+  it("moves a checking state older than a minute back to Needs you", () => {
+    const groups = upgradeGroups([needsFormat], 3, new Set(["reingest-bundle"]))
+    expect(groups.groupOf.get("reingest-bundle")).toBe("needs_you")
+    expect(groups.count).toEqual({ needs_you: 1, working: 0 })
+    expect(
+      upgradeGroups([needsFormat], 3, new Set()).groupOf.get("reingest-bundle"),
+    ).toBe("working")
+  })
+
+  it("gives the headline of the most urgent group", () => {
+    const headline = (needs_you: number, working: number, formatVersion = 3) =>
+      upgradeHeadline({
+        count: { needs_you, working },
+        formatVersion,
+        codeFormat: 3,
+      })
+    const needs = headline(1, 1)
+    expect(needs.label).toBe("Needs you")
+    expect(needs.line).toBe("Action needed. 1 item needs you.")
+    expect(headline(2, 0).line).toBe("Action needed. 2 items need you.")
+    const working = headline(0, 1)
+    expect(working.label).toBe("Working")
+    expect(working.pulse).toBe(true)
+    expect(working.line).toBe("No action needed. ctxpipe works on 1 item now.")
+    const done = headline(0, 0)
+    expect(done.label).toBe("Up to date")
+    expect(done.line).toBe(
+      "No action needed. Upgrades show here and on Home when one is ready.",
+    )
+  })
+
+  it("counts ingestion work as Working, and Needs you still wins", () => {
+    const headline = (needs_you: number, ingesting: string | null) =>
+      upgradeHeadline({
+        count: { needs_you, working: 0 },
+        formatVersion: 3,
+        codeFormat: 3,
+        ingesting,
+      })
+    expect(headline(0, "Ingesting 2 sources")).toMatchObject({
+      label: "Working",
+      pulse: true,
+      line: "No action needed. Ingesting 2 sources now.",
+    })
+    expect(headline(0, "Indexing the newest commit").line).toBe(
+      "No action needed. Indexing the newest commit now.",
+    )
+    expect(headline(1, "Ingesting 1 source").label).toBe("Needs you")
+    expect(headline(0, null).label).toBe("Up to date")
+  })
+
+  it("counts the format health in the headline", () => {
+    const headline = (formatVersion: number | null) =>
+      upgradeHeadline({
+        count: { needs_you: 0, working: 0 },
+        formatVersion,
+        codeFormat: 3,
+      })
+    // ctxpipe cannot read the format file: a person must fix it.
+    expect(headline(-1)).toMatchObject({
+      label: "Needs you",
+      line: "Action needed. 1 item needs you.",
+    })
+    expect(headline(4).label).toBe("Needs you")
+    // Below the newest format with no item yet: the scan finds the upgrade.
+    expect(headline(1)).toMatchObject({
+      label: "Working",
+      line: "No action needed. ctxpipe checks the format of the repository now.",
+    })
+    expect(headline(null).label).toBe("Up to date")
+    expect(headline(3).label).toBe("Up to date")
+  })
+
+  it("says the spend of a re-ingestion so far, and 'at least' when a part is unknown", () => {
+    const repository = (
+      spendUsd: number | null,
+      spendUnknown = false,
+    ): WorkspaceUpgradeItem["repositories"][number] => ({
+      repository: "acme/api",
+      sha: null,
+      runId: null,
+      status: "done",
+      report: [],
+      spendUsd,
+      spendUnknown,
+    })
+    expect(
+      upgradeSpendLine(
+        fixture({
+          kind: "reingest",
+          repositories: [repository(1.2), repository(0.05)],
+        }),
+      ),
+    ).toBe("Spend so far: $1.25")
+    expect(
+      upgradeSpendLine(
+        fixture({
+          kind: "reingest",
+          repositories: [repository(1.2), repository(null, true)],
+        }),
+      ),
+    ).toBe("Spend so far: at least $1.20")
+    expect(
+      upgradeSpendLine(
+        fixture({ kind: "reingest", repositories: [repository(null)] }),
+      ),
+    ).toBeNull()
+    // An applied re-ingestion spends no more.
+    expect(
+      upgradeSpendLine(
+        fixture({
+          kind: "reingest",
+          status: "completed",
+          repositories: [repository(1.2)],
+        }),
+      ),
+    ).toBe("Spend: $1.20")
+    expect(upgradeSpendLine(fixture({ kind: "format" }))).toBeNull()
+  })
+
+  it("gives History a count and the date of the last applied item", () => {
+    expect(
+      upgradeHistoryLine([
+        fixture({ updatedAt: "2026-10-12T10:00:00.000Z" }),
+        fixture({ updatedAt: "2026-10-21T10:00:00.000Z" }),
+      ]),
+    ).toBe("History · 2 applied, last on Oct 21")
+    expect(upgradeHistoryLine([fixture()])).toBe(
+      "History · 1 applied, last on Oct 16",
+    )
+    // The date is the UTC day in each time zone of the user. Auckland is
+    // already on the next day at this time.
+    vi.stubEnv("TZ", "Pacific/Auckland")
+    expect(
+      upgradeHistoryLine([fixture({ updatedAt: "2026-10-21T23:30:00.000Z" })]),
+    ).toBe("History · 1 applied, last on Oct 21")
+    vi.unstubAllEnvs()
   })
 })

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import type { SourceProvider } from "backend/domain/workspace-sources/sources-file"
+
 import { Button } from "@/components/ui/Button"
 import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
@@ -11,10 +12,11 @@ import {
   SkeletonText,
   useSkeletonHold,
 } from "@/components/ui/Skeleton"
-import { FormatUpgradeWorkspacesNotice } from "@/features/workspace-upgrades/FormatUpgradeWorkspacesNotice"
 import { workspaceUpgradesHref } from "@/features/workspace-upgrades/format-gate"
+import { FormatUpgradeWorkspacesNotice } from "@/features/workspace-upgrades/FormatUpgradeWorkspacesNotice"
 import { useWorkspaceFormatGate } from "@/features/workspace-upgrades/use-workspace-format-gate"
 import { workspaceListOptions } from "@/features/workspaces/queries"
+
 import {
   type ChooseWorkspacesValue,
   selectWorkspaces,
@@ -138,7 +140,7 @@ export function ChooseWorkspacesStep(props: {
                       href={workspaceUpgradesHref(orgSlug, workspace.slug)}
                       variant="secondary"
                     >
-                      Open Upgrades
+                      Review upgrade
                     </TextLink>
                   </span>
                 </div>

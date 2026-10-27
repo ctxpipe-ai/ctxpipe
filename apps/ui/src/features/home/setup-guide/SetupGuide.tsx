@@ -17,6 +17,7 @@ import {
   ProgressBar as RACProgressBar,
 } from "react-aria-components"
 import { toast } from "sonner"
+
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
 import { Disclosure, DisclosurePanel } from "@/components/ui/Disclosure"
@@ -27,8 +28,10 @@ import { sectionHeadingClassName } from "@/features/home/WorkspaceActivity"
 import { WorkspaceAddRepositoriesDialog } from "@/features/workspace-sources/GithubSourceRepositories"
 import { AwaitingMergeLink } from "@/features/workspace-sources/WorkspaceSources"
 import type { WorkspaceHydrateView } from "@/features/workspaces/projection"
+import { DOCS_URL } from "@/lib/docs-url"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+
 import {
   editorSetupCommand,
   recordMcpConfigCopied,
@@ -388,7 +391,7 @@ export function EditorSetupStep() {
         <p className="text-sm text-muted-foreground">
           Works with Cursor, Claude Code, Codex, and any MCP client.{" "}
           <TextLink
-            href="https://docs.ctxpipe.ai/docs/mcp/mcp-docs"
+            href={`${DOCS_URL}/docs/mcp/mcp-docs`}
             target="_blank"
             rel="noopener noreferrer"
             variant="secondary"

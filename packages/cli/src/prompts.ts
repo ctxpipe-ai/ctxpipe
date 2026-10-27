@@ -1,4 +1,5 @@
 import { resolve } from "node:path"
+
 import {
   confirm as confirmPrompt,
   isCancel,
@@ -8,6 +9,7 @@ import {
   spinner,
   text,
 } from "@clack/prompts"
+
 import type { Organization } from "./auth.js"
 import {
   fetchOrganizations,
@@ -55,14 +57,12 @@ type InitPromptAnswers = {
 }
 
 type McpPromptState = {
-  org: string | null
   clients: string[]
   scope: string | null
   auth: string | null
 }
 
 type McpPromptAnswers = {
-  org?: string
   scope?: "repo" | "user" | "both"
   clients?: Client[]
   auth?: McpAuthMode
@@ -388,12 +388,6 @@ export async function promptMcpWizard(
   )
 
   const answers: McpPromptAnswers = {}
-  if (!current.org) {
-    answers.org = await promptText({
-      message: "Which ctxpipe organization should this MCP server use?",
-      initial: detectDefaultOrgSlug(),
-    })
-  }
   if (current.clients.length === 0) {
     answers.clients = await promptAgents()
   }

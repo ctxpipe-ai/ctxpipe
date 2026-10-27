@@ -4,6 +4,7 @@ import { delay, HttpResponse, http } from "msw"
 import { useEffect, useState } from "react"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { responseGate } from "@/components/ui/skeletonMatchStory"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import {
@@ -16,6 +17,10 @@ import {
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
 import {
+  ingestionItemFixture,
+  workspaceIngestionHandlers,
+} from "@/mocks/workspace-ingestion-handlers"
+import {
   activeMemberRoleHandler,
   orgConnectionsHandler,
   workspaceSourceList,
@@ -26,9 +31,10 @@ import {
   upgradesFixture,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
+
 import { orgPageDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceSurface } from "./WorkspaceSurface"
+import type { IngestionItem } from "./ingestion"
 import {
   docsConversationDetail,
   docsWorkspace,
@@ -41,6 +47,7 @@ import {
   skippedFilesWorkspaceDetail,
   waitingForTipWorkspaceDetail,
 } from "./workspace-fixtures"
+import { WorkspaceSurface } from "./WorkspaceSurface"
 
 const orgSlug = "acme"
 const workspaceSlug = "docs"
@@ -120,6 +127,8 @@ export const SurfaceSkeletonMatches: Story = {
   tags: ["workspace-golden"],
   args: { paneParam: "files" },
   parameters: {
+    intent:
+      "Catches a workspace loading skeleton whose chat and pane columns differ from the loaded layout. This causes layout shift. Not for workspace data.",
     storyRoute: workspaceRoute({ pane: "files" }),
     msw: {
       handlers: {
@@ -179,6 +188,8 @@ const failedTouch = { count: 0, rejections: [] as unknown[] }
 export const FailedTouchIsCaught: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a failed workspace touch request that raises an unhandled promise rejection. The page must catch the 404. Not for visible errors or touch success.",
     storyRoute: workspaceRoute(),
     msw: {
       handlers: {
@@ -325,7 +336,7 @@ export const ComposeNeedsFormatUpgrade: Story = {
     await canvas.findByText("This Workspace needs the format upgrade")
     await canvas.findByRole("button", { name: "Start the upgrade" })
     await expect(
-      canvas.getByRole("link", { name: "Open Upgrades" }),
+      canvas.getByRole("link", { name: "Review upgrade" }),
     ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
     // The chat stays usable below the banner.
     await expect(
@@ -605,6 +616,8 @@ export const PublishErrorsToast: Story = {
     ),
   ],
   parameters: {
+    intent:
+      "Catches a failed push that shows no error to the user. A rejected push must show a toast with the cause. Not for a successful push or PR creation.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -662,6 +675,8 @@ export const PublishPrErrorToast: Story = {
   args: { conversationId: "conv_1", paneParam: "files" },
   decorators: PublishErrorsToast.decorators,
   parameters: {
+    intent:
+      "Catches a failed pull request creation that shows no error to the user. A rejected request must show a toast with the cause. Not for push errors.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -716,6 +731,8 @@ export const SyncAddsThreadEntry: Story = {
     ),
   ],
   parameters: {
+    intent:
+      "Catches a successful sync that adds no entry to the conversation. The thread shows a push entry that links the branch. Not for failed syncs or PRs.",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -816,6 +833,8 @@ export const SharedPublishPending: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
+    intent:
+      "Catches two publish buttons that do not share one pending state. While a push runs, every Sync button is pending and disabled. Not for push results.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -897,6 +916,8 @@ export const SingleCreatePr: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
+    intent:
+      "Catches a second Create PR button when the pane is open. Only the conversation header has the button. Not for a closed pane or PR creation.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -947,6 +968,8 @@ export const SingleCreatePrPaneClosed: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1" },
   parameters: {
+    intent:
+      "Catches a closed pane that hides Create PR or shows it twice. One button shows with a PR icon, and pane triggers have no border. Not for an open pane.",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -983,6 +1006,8 @@ export const CreatePrMatchesPaneTriggers: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1" },
   parameters: {
+    intent:
+      "Catches a Create PR button that sits in another row from the pane triggers, or has the wrong size. It shares the header row and is smaller. Not for PR creation.",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -1029,6 +1054,8 @@ export const DiffTriggerPaneClosed: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1" },
   parameters: {
+    intent:
+      "Catches a Diff trigger that is missing from a closed pane, or styled unlike the Files trigger. Both share one parent and class. Not for the diff content.",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -1078,6 +1105,8 @@ export const DiffTriggerNoChanges: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
+    intent:
+      "Catches a Diff tab on a branch with no changes that shows a blank pane. It shows that there are no changes on the branch. Not for diffs with files.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -1107,6 +1136,8 @@ export const PaneTabsStayInPlace: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
+    intent:
+      "Catches a tab switch that moves other tabs. Each trigger keeps its box and the new active tab keeps its x and width. Not for tab content.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -1155,6 +1186,8 @@ export const DiffTabRoundedCorner: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "diff" },
   parameters: {
+    intent:
+      "Catches a wrong joined corner on the pane card. The Diff and Graph tabs give the same rounded corner, and the first tab, Files, keeps it square. Not for tab content.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "diff" }),
     msw: {
       handlers: {
@@ -1200,6 +1233,8 @@ export const MaximizedPaneMatchesHeader: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
+    intent:
+      "Catches a maximized pane whose header differs from the conversation header. The Create PR call to action shows in the pane header with the same layout. Not for PR creation.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -1260,6 +1295,8 @@ export const StableRequestBudget: Story = {
     ),
   ],
   parameters: {
+    intent:
+      "Catches an idle workspace page that keeps sending requests. Conversation, tree, and status reads must stay at a fixed count. Not for response content.",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -1433,7 +1470,7 @@ export const SettingsPane: Story = {
 }
 
 /**
- * A link from Home lands on the Upgrades group. Only the pane's own scroll
+ * A link from Home lands on the Status group. Only the pane's own scroll
  * area moves: no outer box scrolls, so the pane keeps filling the panel.
  */
 export const SettingsPaneLandsOnUpgrades: Story = {
@@ -1451,7 +1488,7 @@ export const SettingsPaneLandsOnUpgrades: Story = {
   play: async ({ canvasElement }) => {
     const group = await waitFor(() => {
       const found = canvasElement.querySelector<HTMLElement>(
-        '[data-settings-group="Upgrades"]',
+        '[data-settings-group="Status"]',
       )
       expect(found).toHaveFocus()
       return found as HTMLElement
@@ -1477,7 +1514,7 @@ export const SettingsPaneLandsOnUpgrades: Story = {
   },
 }
 
-/** Fix using agent closes the pane and fills the composer of a new conversation. */
+/** Fix using agent fills the composer of a new conversation and keeps the settings pane open. */
 export const FixUsingAgentOpensChat: Story = {
   parameters: {
     storyRoute: workspaceRoute({ pane: "settings" }),
@@ -1508,7 +1545,7 @@ export const FixUsingAgentOpensChat: Story = {
         "Hydrate skipped knowledge/billing/tax.md: Front matter is not valid. Fix the front matter of this file so that it is valid, then open the change.",
       ),
     )
-    expect(canvas.queryByText("Workspace settings")).toBeNull()
+    await expect(canvas.getByText("Workspace settings")).toBeVisible()
   },
 }
 
@@ -1536,6 +1573,8 @@ export const WriteCheckFailedStopsPolling: Story = {
     writeCheck.readsWhileChecking = 0
   },
   parameters: {
+    intent:
+      "Catches a failed write access check that polls the workspace forever. Polling stops and the failure reason shows. Not for a stalled check.",
     storyRoute: workspaceRoute({ pane: "settings" }),
     msw: {
       handlers: {
@@ -1625,6 +1664,8 @@ export const WriteCheckStallStopsPolling: Story = {
     writeCheck.detailReads = 0
   },
   parameters: {
+    intent:
+      "Catches a write access check that never ends and polls forever. Polling stops at the cap and the page stops showing a check in progress. Not for failed checks.",
     storyRoute: workspaceRoute({ pane: "settings" }),
     msw: {
       handlers: {
@@ -1829,6 +1870,8 @@ export const DeleteWorkspaceShowsNoError: Story = {
   render: (args) => <DeleteFlowStage {...args} />,
   decorators: deleteFlowDecorators,
   parameters: {
+    intent:
+      "Catches a workspace delete that flashes an error screen. After delete, the page leaves the deleted workspace with no error. Not for the last workspace or conversation URLs.",
     storyRoute: {
       pattern: "flat",
       path: `/${orgSlug}/ws/${workspaceSlug}`,
@@ -1845,6 +1888,8 @@ export const DeleteLastWorkspaceShowsNoError: Story = {
   tags: ["workspace-golden"],
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
   parameters: {
+    intent:
+      "Catches a delete of the last workspace that flashes an error screen. The page leaves with no error. Not for other workspaces.",
     ...DeleteWorkspaceShowsNoError.parameters,
     msw: { handlers: { page: deleteFlowHandlers([]) } },
   },
@@ -1857,11 +1902,100 @@ export const DeleteFromConversationShowsNoError: Story = {
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
   args: { paneParam: "settings", conversationId: "conv_1" },
   parameters: {
+    intent:
+      "Catches a workspace delete from a conversation URL that flashes an error screen. The page leaves with no error. Not for workspace-level URLs.",
     ...DeleteWorkspaceShowsNoError.parameters,
     storyRoute: {
       pattern: "flat",
       path: `/${orgSlug}/ws/${workspaceSlug}/conv_1`,
       alsoAt: [`/${orgSlug}`],
     } satisfies StoryRouteParams,
+  },
+}
+
+let demoStart = 0
+
+/**
+ * The ingestion state of the demo at `seconds` after the story starts: a
+ * repository run in its shards, a Linear sync, a second run that waits for
+ * the first one and a slow hydrate, then idle. The demo starts with work,
+ * because the sidebar reads an idle org only once a minute.
+ */
+function ingestionDemoState(seconds: number): Record<string, IngestionItem[]> {
+  if (seconds >= 30) return {}
+  const startedAt = (ago: number) =>
+    new Date(demoStart + (4 - ago) * 1000).toISOString()
+  const shards = Math.max(0, Math.min(8, Math.floor((seconds - 7) / 2)))
+  return {
+    docs: [
+      ingestionItemFixture({
+        stage:
+          seconds < 7 ? "planning" : shards < 8 ? "ingesting" : "publishing",
+        progress:
+          seconds < 7 || shards === 8
+            ? null
+            : { done: shards, total: 8, unit: "shards" },
+        startedAt: startedAt(95),
+      }),
+      ingestionItemFixture({
+        id: "run_web_2",
+        stage: "waiting",
+        progress: null,
+        startedAt: startedAt(40),
+      }),
+      ...(seconds < 14
+        ? [
+            ingestionItemFixture({
+              id: "run_linear",
+              kind: "source_sync",
+              name: "Linear",
+              stage: null,
+              progress: null,
+              startedAt: startedAt(12),
+            }),
+          ]
+        : []),
+      ...(seconds >= 14 && seconds < 22
+        ? [
+            ingestionItemFixture({
+              id: "run_hydrate",
+              kind: "hydrate",
+              name: null,
+              stage: null,
+              progress: null,
+              startedAt: startedAt(34),
+            }),
+          ]
+        : []),
+    ],
+  }
+}
+
+/**
+ * The demo of CTX-959 for a video: the sidebar shows the ingesting dot,
+ * Workspace settings shows the progress move, and the list empties when the
+ * work ends (about 30 s). The state changes with time, on each read.
+ */
+export const IngestingDemo: Story = {
+  beforeEach: () => {
+    demoStart = Date.now()
+  },
+  parameters: {
+    storyRoute: workspaceRoute(),
+    msw: {
+      handlers: {
+        page: [
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+          workspaceSourcesHandler(workspaceSourceList()),
+          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+          activeMemberRoleHandler("owner"),
+          githubInstallationReposHandler(),
+          ...workspaceShellHandlers(),
+        ],
+        ingestion: workspaceIngestionHandlers(() =>
+          ingestionDemoState((Date.now() - demoStart) / 1000),
+        ),
+      },
+    },
   },
 }

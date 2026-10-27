@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process"
 import { writeFile } from "node:fs/promises"
 import { join } from "node:path"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
+
 import type { AppEnv } from "../../app/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
@@ -118,9 +120,8 @@ it(
       })
       if (!instance?.providerSandboxId)
         throw new Error("Renamed native sandbox was not persisted")
-      const { localProcessSandbox } = await import(
-        "@tanstack/ai-sandbox-local-process"
-      )
+      const { localProcessSandbox } =
+        await import("@tanstack/ai-sandbox-local-process")
       const raw = await localProcessSandbox().resume({
         id: instance.providerSandboxId,
       })

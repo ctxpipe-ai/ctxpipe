@@ -11,6 +11,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { openIngestEgressScope } from "./ingest-egress-proxy.js"
 import { ingestNetworkPolicy } from "./ingest-sandbox-egress.js"
 import {

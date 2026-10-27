@@ -1,5 +1,6 @@
 import { trace } from "@opentelemetry/api"
 import { z } from "zod"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
@@ -15,6 +16,7 @@ import {
   resolveWorkspaceReadRevision,
 } from "../../domain/workspaces/resolve-revision.js"
 import {
+  type ProjectionState,
   publishedProjection,
   type WorkspaceRevision,
 } from "../../domain/workspaces/revision.js"
@@ -42,11 +44,13 @@ import { failStoppedUpgradeRun } from "../../models/workspace-upgrades.js"
 import {
   claimPausedWriteJob,
   ensureOrgFirstWorkspace,
+  getWorkspaceById,
   getWorkspaceProjection,
   listOrgLinkedRepositories,
   listOrgWorkspaces,
   listPausedWriteJobs,
   persistWriteStatus,
+  projectionFromWorkspace,
   reconcileStaleWriteJobs,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
@@ -96,9 +100,11 @@ function tipJobKey(revision: WorkspaceRevision, hour: string): string {
 const workspaceTipCheckInputSchema = z.object({
   orgId: z.string().min(1),
   /**
-   * The UTC hour (`YYYY-MM-DDTHH`) that the retry keys hold. The cron does not
-   * give it, so the check uses the current hour. A test gives it, so that its
-   * keys do not depend on the clock.
+   * The UTC hour (`YYYY-MM-DDTHH`) that the retry keys hold. The hourly
+   * schedule (`workspace-tip-check-schedule`) gives the hour of its run. A
+   * webhook or a lifecycle event does not give it, so the check uses the
+   * current hour. A test gives it, so that its keys do not depend on the
+   * clock.
    */
   hour: z
     .string()
@@ -191,9 +197,8 @@ export const workspaceTipCheck = defineWorkflow(
       if (writeAccessChanges.length) {
         // Import at the admission boundary: the scan module queues this
         // workflow.
-        const { enqueueWorkspaceUpgradeScan } = await import(
-          "./workspace-upgrade-scan.js"
-        )
+        const { enqueueWorkspaceUpgradeScan } =
+          await import("./workspace-upgrade-scan.js")
         // The hour and the changes make the key: the same change in the
         // same hour queues no second scan, so the tip check of that scan
         // cannot loop.
@@ -259,19 +264,32 @@ export const workspaceTipCheck = defineWorkflow(
       // (ADR-053), so the tip check never writes it to the default branch.
       for (const workspace of workspaces) {
         if (noAccess.has(workspace.id)) continue
-        const projection = await getWorkspaceProjection(workspace.id)
+        const row = await getWorkspaceById(workspace.id)
+        const projection: ProjectionState = row
+          ? projectionFromWorkspace(row)
+          : { kind: "absent" }
         const desired = desiredProjectionRevision(projection)
         // An earlier run can store the tip in `desired_sha` and then fail
         // before it queues the hydrate. Thus compare `desired_sha` with the
         // served SHA, not the tip with `desired_sha`. A hydrate of the same
         // SHA that is not finished blocks a second one. The key names the
         // served SHA, the desired SHA and the UTC hour, so a failed or stale
-        // pair is queued again at most once an hour.
+        // pair is queued again at most once an hour. A failed graph or index
+        // waits longer after each check (`failedPhaseRetryDue`).
         if (
           desired &&
           !unfinishedHydrates.has(`${workspace.id}:${desired.sha}`) &&
           (servedSha(projection, desired) !== desired.sha ||
-            shouldEnqueueCronHydrate({ projection }))
+            shouldEnqueueCronHydrate({
+              projection,
+              retry: {
+                hour,
+                failedAt: {
+                  graph: row?.hydratePhases?.graph?.failure?.at,
+                  index: row?.hydratePhases?.index?.failure?.at,
+                },
+              },
+            }))
         ) {
           // A run can also fail after it stores the tip and before it queues
           // the index job below. Queue it again with the same rule and hour

@@ -10,6 +10,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { authClient } from "./auth-client"
 
 const server = setupServer()

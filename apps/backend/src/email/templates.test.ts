@@ -1,5 +1,6 @@
 import { render } from "@react-email/render"
 import { expect, it } from "vitest"
+
 import { AccountExistsEmail } from "./templates/account-exists.js"
 import { InvitationEmail } from "./templates/invitation.js"
 import { ResetPasswordEmail } from "./templates/reset-password.js"

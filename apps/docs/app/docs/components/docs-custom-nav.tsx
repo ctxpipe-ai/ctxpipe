@@ -1,10 +1,10 @@
 import Link from "fumadocs-core/link"
 import { LargeSearchToggle } from "fumadocs-ui/components/layout/search-toggle"
-import { SidebarTrigger } from "fumadocs-ui/layouts/docs"
 import { SidebarCollapseTrigger } from "fumadocs-ui/components/layout/sidebar"
 import { buttonVariants } from "fumadocs-ui/components/ui/button"
-import { cn } from "fumadocs-ui/utils/cn"
 import { Sidebar as SidebarIcon } from "fumadocs-ui/internal/icons"
+import { SidebarTrigger } from "fumadocs-ui/layouts/docs"
+import { cn } from "fumadocs-ui/utils/cn"
 
 const GITHUB_ORG_URL = "https://github.com/ctxpipe-ai"
 const X_URL = "https://x.com/ctxpipe"
@@ -68,7 +68,8 @@ export function DocsCustomNav() {
               buttonVariants({
                 color: "ghost",
                 size: "icon-sm",
-                className: "rounded-none p-2 text-fd-muted-foreground hover:text-fd-foreground",
+                className:
+                  "rounded-none p-2 text-fd-muted-foreground hover:text-fd-foreground",
               }),
             )}
           >

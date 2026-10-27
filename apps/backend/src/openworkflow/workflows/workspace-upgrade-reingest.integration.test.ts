@@ -2,12 +2,14 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { eq, sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import {
@@ -19,6 +21,7 @@ import {
 import { organizations } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
 import { objects } from "../../db/schema/objects.js"
+import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import {
   orgFirstWorkspaces,
   workspaces,
@@ -41,6 +44,7 @@ import { bootstrapWorkspaceFiles } from "../../domain/workspaces/bootstrap.js"
 import { ensureOrgRepositoryForGitUrl } from "../../domain/workspaces/ensure-org-repository.js"
 import { resolveWorkspaceReadRevision } from "../../domain/workspaces/resolve-revision.js"
 import { workspaceFormatFile } from "../../domain/workspaces/workspace-format.js"
+import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { generateObjectId } from "../../lib/id.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import {
@@ -1035,6 +1039,43 @@ it(
         )
       }
     })
+    // An old checkout of the source repository: the v2 run collects it
+    // after its index step (CTX-973).
+    const oldCheckout = `rev:${"d".repeat(40)}`
+    const collected: string[][] = []
+    await withOrgIdContext(org, async () => {
+      const row = await ensureOrgRepositoryForGitUrl({
+        orgId: org.id,
+        gitUrl: `https://github.com/${sourceName}.git`,
+      })
+      if (!row) throw new Error("No org repository was created")
+      const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000)
+      await withOrgDbContext(org.id, (db) =>
+        db.insert(repositoryCheckouts).values({
+          id: generateObjectId("co"),
+          orgId: org.id,
+          repositoryId: row.id,
+          checkoutKey: oldCheckout,
+          createdAt: twoHoursAgo,
+          updatedAt: twoHoursAgo,
+        }),
+      )
+      server.use(
+        http.post(
+          `${codesearchBaseUrl()}/${row.id}/checkouts/delete`,
+          async ({ request }) => {
+            const { checkoutKeys } = (await request.json()) as {
+              checkoutKeys: string[]
+            }
+            collected.push(checkoutKeys)
+            return HttpResponse.json({
+              deleted: checkoutKeys.map((checkoutKey) => ({ checkoutKey })),
+              skipped: [],
+            })
+          },
+        ),
+      )
+    })
     const legacyPaths = () =>
       withOrgIdContext(org, async () =>
         (await listWorkspaceKnowledgeUnits(overlay)).units
@@ -1079,6 +1120,16 @@ it(
           ],
         },
       })
+      // The v2 run of the source repository deleted its old checkout.
+      expect(collected).toEqual([[oldCheckout]])
+      expect(
+        await withOrgDbContext(org.id, (db) =>
+          db
+            .select({ key: repositoryCheckouts.checkoutKey })
+            .from(repositoryCheckouts)
+            .where(eq(repositoryCheckouts.checkoutKey, oldCheckout)),
+        ),
+      ).toEqual([])
       // The run queued a hydrate that drops the overlay of the done
       // repository. The overlay of the other repository stays.
       await expect

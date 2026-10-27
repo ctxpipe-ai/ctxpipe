@@ -4,6 +4,7 @@ import {
   useEffect,
   useSyncExternalStore,
 } from "react"
+
 import { Button } from "@/components/ui/Button"
 import { useIsModalOpen } from "@/components/ui/Modal"
 import { Popover } from "@/components/ui/Popover"
@@ -12,6 +13,7 @@ import { useSession } from "@/lib/auth-client"
 import { workspaceCreatedFlag } from "@/lib/session-flags"
 import { sessionUser } from "@/lib/session-user"
 import { useOrgGuide } from "@/lib/useOrgGuide"
+
 import { activeHint, type HintId } from "./hint-state"
 
 /** The hints whose anchor is on the page, so only one shows at a time. */

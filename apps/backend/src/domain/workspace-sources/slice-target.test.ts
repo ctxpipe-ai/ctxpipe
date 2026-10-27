@@ -3,7 +3,9 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { promisify } from "node:util"
+
 import { afterEach, describe, expect, it } from "vitest"
+
 import { readSliceTarget } from "./slice-target.js"
 
 const git = promisify(execFile)

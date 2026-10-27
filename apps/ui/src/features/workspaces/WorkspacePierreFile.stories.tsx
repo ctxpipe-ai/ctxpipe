@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
-import { WorkspacePierreFile } from "./WorkspacePierreFile"
+
 import { docsWorkspaceGitBlobs } from "./workspace-fixtures"
+import { WorkspacePierreFile } from "./WorkspacePierreFile"
 
 function findInShadows(root: ParentNode, selector: string): Element | null {
   const direct = root.querySelector(selector)
@@ -139,6 +140,10 @@ async function expectView(canvasElement: HTMLElement, view: "diff" | "file") {
 
 /** A draft opens as a diff; with no change left, it is a plain file again. */
 export const DraftSavedShowsFile: Story = {
+  parameters: {
+    intent:
+      "Catches a saved draft that stays in the diff view. After Save draft, the file view must show. Not for reverted drafts.",
+  },
   tags: ["workspace-golden"],
   render: () => <DraftThenNoChange />,
   play: async ({ canvasElement }) => {
@@ -151,6 +156,10 @@ export const DraftSavedShowsFile: Story = {
 }
 
 export const DraftRevertedShowsFile: Story = {
+  parameters: {
+    intent:
+      "Catches a reverted draft that stays in the diff view. After Revert draft, the file view must show. Not for saved drafts.",
+  },
   tags: ["workspace-golden"],
   render: () => <DraftThenNoChange />,
   play: async ({ canvasElement }) => {

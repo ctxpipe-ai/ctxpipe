@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import {
   githubInstallationReposHandler,
   workspaceActivityHandler,
@@ -20,9 +21,9 @@ import {
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 import { OrgHomePageContent } from "@/routes/$orgSlug.index"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
 import {
   docsWorkspace,
   docsWorkspaceDetail,
@@ -34,6 +35,7 @@ import {
   rootFolderWorkspaceDetail,
   skippedFilesWorkspaceDetail,
 } from "./workspace-fixtures"
+import { WorkspaceSettingsPane } from "./WorkspaceSettingsPane"
 
 const meta = {
   title: "Components/Workspaces/SettingsPane",
@@ -132,10 +134,10 @@ export const Populated: Story = {
     const canvas = within(canvasElement)
     await canvas.findByText("acme/api")
     const eyebrows = [
+      "Status",
       "General",
       "Repositories",
       "Sources",
-      "Upgrades",
       "Danger zone",
     ]
     const labels = [...canvasElement.querySelectorAll(".ctx-label")].map(
@@ -220,7 +222,7 @@ export const SkippedFiles: Story = {
   },
 }
 
-/** A link with the upgrades hash lands on the Upgrades group. */
+/** A link with the upgrades hash lands on the Status group. */
 export const LandsOnUpgrades: Story = {
   parameters: {
     storyRoute: {
@@ -232,7 +234,7 @@ export const LandsOnUpgrades: Story = {
   play: async ({ canvasElement }) => {
     await waitFor(() =>
       expect(
-        canvasElement.querySelector('[data-settings-group="Upgrades"]'),
+        canvasElement.querySelector('[data-settings-group="Status"]'),
       ).toHaveFocus(),
     )
   },

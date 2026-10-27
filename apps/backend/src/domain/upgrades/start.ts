@@ -4,8 +4,8 @@ import {
   transitionWorkspaceUpgradeRow,
   type WorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
-import { enqueueWorkspaceUpgrade } from "../../openworkflow/workflows/workspace-upgrade.js"
 import { enqueueWorkspaceUpgradeReingest } from "../../openworkflow/workflows/workspace-upgrade-reingest.js"
+import { enqueueWorkspaceUpgrade } from "../../openworkflow/workflows/workspace-upgrade.js"
 import { UPGRADE_STATUSES } from "./registry.js"
 import { isReingestUpgradeKey } from "./reingest.js"
 

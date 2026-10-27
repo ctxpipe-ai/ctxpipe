@@ -3,6 +3,7 @@ import { initLogger } from "evlog"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
 import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"

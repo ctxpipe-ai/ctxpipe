@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process"
 import { writeFile } from "node:fs/promises"
 import { join } from "node:path"
+
 import Docker from "dockerode"
 import { eq } from "drizzle-orm"
 import { expect, it, vi } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
@@ -446,7 +448,7 @@ it(
         {
           baseImage:
             process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() ||
-            "ctxpipe-chat-sandbox:opencode-1.18.34-r3",
+            "ctxpipe-chat-sandbox:opencode-1.18.34-r4",
           docker,
         },
         async (gitFixture) =>
@@ -608,7 +610,7 @@ it(
         {
           baseImage:
             process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() ||
-            "ctxpipe-chat-sandbox:opencode-1.18.34-r3",
+            "ctxpipe-chat-sandbox:opencode-1.18.34-r4",
           docker,
         },
         async (gitFixture) =>

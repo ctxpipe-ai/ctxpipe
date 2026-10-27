@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { describeMigrateError } from "./describe-migrate-error.js"
 
 describe("describeMigrateError", () => {

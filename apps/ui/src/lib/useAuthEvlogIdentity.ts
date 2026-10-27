@@ -1,5 +1,6 @@
-import { useEffect } from "react"
 import { clearIdentity, setIdentity } from "evlog/client"
+import { useEffect } from "react"
+
 import { useSession } from "@/lib/auth-client"
 
 /**

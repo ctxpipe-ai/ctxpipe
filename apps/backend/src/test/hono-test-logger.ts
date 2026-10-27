@@ -1,5 +1,6 @@
 import type { MiddlewareHandler } from "hono"
 import { contextStorage } from "hono/context-storage"
+
 import type { AppEnv } from "../app/env.js"
 import { createLogger } from "../observability/logger.js"
 

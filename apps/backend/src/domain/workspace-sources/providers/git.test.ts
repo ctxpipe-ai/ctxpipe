@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { gitSourcePath } from "../source-file.js"
+
 import { parseSourceFile } from "../source-file-text.js"
+import { gitSourcePath } from "../source-file.js"
 import {
   checkPlainGitUrl,
   gitSourceScopeUrl,

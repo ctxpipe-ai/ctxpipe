@@ -12,13 +12,19 @@
  * `run-seed.ts advance`, so the backend environment (DATABASE_URL and the
  * other store settings) must be set too. Run each seed once.
  *
+ * `--out` also records, for each model and case, the time, the input and
+ * output tokens, and the cost in USD (from the OpenRouter price list) of the
+ * iterations. It records no prompt or answer text.
+ *
  * Exit code 0: the gate passed. 1: the gate failed. 2: bad setup.
  */
 import { spawnSync } from "node:child_process"
 import { readFile, writeFile } from "node:fs/promises"
 import { parseArgs } from "node:util"
+
 import { EvalTest, HostRunner, MCPClientManager } from "@mcpjam/sdk"
 import { z } from "zod"
+
 import { type EvalCase, evalCases } from "./cases.js"
 import {
   casePrompt,
@@ -34,7 +40,12 @@ import {
   gateThresholds,
   type RunResult,
 } from "./gate.js"
-import { openRouterClient } from "./models.js"
+import {
+  openRouterClient,
+  openRouterModelId,
+  openRouterPrices,
+  usageCost,
+} from "./models.js"
 
 const baselinePath = new URL("./baseline.json", import.meta.url)
 
@@ -127,6 +138,7 @@ async function main() {
       passes: Object.fromEntries(models.map((model) => [model, {}])),
     }
     const details: Record<string, Record<string, string[]>> = {}
+    const usage: Record<string, Record<string, CaseUsage>> = {}
     let advanced = false
     for (const evalCase of active) {
       if (evalCase.cursorFrom && !advanced) {
@@ -137,6 +149,12 @@ async function main() {
       for (const { model, apiKey, sdkModel, customProviders } of clients) {
         const passes = result.passes[model] ?? {}
         passes[evalCase.id] = 0
+        const used: CaseUsage = {
+          durationMs: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+        }
+        usage[model] = { ...usage[model], [evalCase.id]: used }
         const failures: string[] = []
         const runner = new HostRunner({
           tools: await manager.getToolsForAiSdk(["ctxpipe"]),
@@ -153,6 +171,8 @@ async function main() {
             const run = await executor.run(prompt, {
               timeout: { totalMs: 120_000 },
             })
+            used.inputTokens += run.inputTokens()
+            used.outputTokens += run.outputTokens()
             const outcome = checkCase(
               evalCase,
               transcriptFromMessages(run.getMessages()),
@@ -164,6 +184,7 @@ async function main() {
             return outcome.passed
           },
         })
+        const started = performance.now()
         try {
           await test.run(runner, {
             iterations,
@@ -175,6 +196,7 @@ async function main() {
           // by the requested iterations).
           failures.push(`run failed: ${String(error)}`)
         }
+        used.durationMs = Math.round(performance.now() - started)
         const unique = [...new Set(failures)]
         details[model] = { ...details[model], [evalCase.id]: unique }
         console.log(
@@ -189,6 +211,15 @@ async function main() {
       await readFile(baselinePath, "utf8"),
     ) as Baseline
     const report = evaluateGate(result, baseline, ids)
+    const prices = await openRouterPrices(
+      process.env.MODEL_PROVIDER_URL || "https://openrouter.ai/api/v1",
+      models.map(openRouterModelId),
+    )
+    for (const model of models)
+      for (const used of Object.values(usage[model] ?? {})) {
+        const cost = usageCost(used, prices.get(openRouterModelId(model)))
+        if (cost !== undefined) used.costUsd = cost
+      }
     for (const note of report.notes) console.log(`note: ${note}`)
     for (const failure of report.failures) console.error(`FAIL: ${failure}`)
     if (values.out)
@@ -199,6 +230,7 @@ async function main() {
             result,
             rates: baselineFromRun(result, ids, new Date().toISOString()),
             details,
+            usage,
             report,
           },
           null,
@@ -214,6 +246,14 @@ async function main() {
   } finally {
     await manager.disconnectServer("ctxpipe")
   }
+}
+
+/** The time, tokens and cost of the iterations of one case for one model. */
+type CaseUsage = {
+  durationMs: number
+  inputTokens: number
+  outputTokens: number
+  costUsd?: number
 }
 
 /** Move the Harbor `payments` Workspace to its second projection (P4-1). */

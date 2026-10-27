@@ -98,7 +98,7 @@ deploy_service() {
 railway_deploy_failed() {
   echo "Railway did not start a deployment of $1 ($2) in $ENVIRONMENT_NAME ($ENV_ID) at $IMAGE_TAG." >&2
   echo "Cause: Railway refused serviceInstanceDeployV2 (see the error above). \"Problem processing request\" is usually a Railway incident, for example paused builds or deploys: https://status.railway.com" >&2
-  echo "Fix: when Railway is healthy, re-run the failed jobs of this Deploy run. The re-run deploys each service whose running deployment is not $IMAGE_TAG." >&2
+  echo "Fix: when Railway is healthy, re-run the failed jobs of this Deploy run. The re-run deploys each service again (FORCE_DEPLOY), also one that already runs $IMAGE_TAG." >&2
 }
 
 wait_deploy() {
@@ -148,7 +148,9 @@ deploy_image() {
   meta="$(echo "$state" | jq -c '.data.serviceInstance.latestDeployment.meta // {}')"
   deployed="$(echo "$state" | jq -r '.data.serviceInstance.latestDeployment.meta.image // empty')"
   status="$(echo "$state" | jq -r '.data.serviceInstance.latestDeployment.status // empty')"
-  if [[ "$meta" == *"$desired"* && ( "$status" == "SUCCESS" || "$status" == "SLEEPING" ) ]]; then
+  # FORCE_DEPLOY=1: the variables changed (railway-sync-variables.mjs), so a
+  # deployment that already runs $desired still has the old values.
+  if [[ "${FORCE_DEPLOY:-}" != "1" && "$meta" == *"$desired"* && ( "$status" == "SUCCESS" || "$status" == "SLEEPING" ) ]]; then
     echo "Skipping $name ($service_id): latest deployment already runs $desired ($status)"
     return 0
   fi
@@ -167,9 +169,9 @@ load_project
 
 echo "Deploying Railway $ENVIRONMENT_NAME ($ENV_ID) images at $IMAGE_TAG"
 
-# Stateless services first. Codesearch has a volume; an image change does not
-# copy it, but it still restarts the single replica.
-for name in backend ui openworkflow codesearch; do
+# Codesearch first: the server deploys before its clients.
+# It has a volume; an image change does not copy it, but it restarts the replica.
+for name in codesearch backend openworkflow ui; do
   deploy_image "$name"
 done
 

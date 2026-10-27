@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { getLinearBindingWithRepoByConnectionId } from "../../models/linear-connector.js"
@@ -46,9 +47,8 @@ describe("Linear legacy sync after the move to Workspace sources (Postgres)", ()
       db.delete(repositories).where(eq(repositories.id, repositoryId)),
     )
     await seed.cleanup()
-    const { closeOpenWorkflowClient } = await import(
-      "../../openworkflow/client.js"
-    )
+    const { closeOpenWorkflowClient } =
+      await import("../../openworkflow/client.js")
     await closeOpenWorkflowClient()
   })
 
@@ -102,9 +102,8 @@ describe("Linear legacy sync after the move to Workspace sources (Postgres)", ()
 
   it("turns off the migrated legacy binding, so a merge of an old config PR starts no legacy sync", async () => {
     // Loaded after DATABASE_URL is checked: the OpenWorkflow client connects on import.
-    const { enqueueConnectorContentSync } = await import(
-      "../../openworkflow/enqueue-connector-content-sync.js"
-    )
+    const { enqueueConnectorContentSync } =
+      await import("../../openworkflow/enqueue-connector-content-sync.js")
     const merge = (connectionId: string) =>
       enqueueConnectorContentSync({
         orgId: seed.orgId,

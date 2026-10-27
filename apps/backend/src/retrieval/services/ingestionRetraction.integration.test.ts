@@ -7,18 +7,20 @@
  */
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { config } from "dotenv"
 import { eq, sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+
 import type { Db } from "../../db/client.js"
+import { relations, schema } from "../../db/schema.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
 import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
-import { relations, schema } from "../../db/schema.js"
 import { generateObjectId } from "../../lib/id.js"
 import { purgeRepositoryEvidencePg } from "./ingestionRetraction.js"
 

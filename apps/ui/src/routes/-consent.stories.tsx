@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { authConfigHandler, organizationListHandler } from "../mocks/handlers"
@@ -66,6 +67,10 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const ConsentSendsTickedOrgs: Story = {
+  parameters: {
+    intent:
+      "Catches a consent route that sends the wrong organizations or scope. The consent request carries the ticked organizations and the read scope. Not for the consent screen layout.",
+  },
   tags: ["workspace-golden"],
   beforeEach: () => {
     consentRequests.length = 0

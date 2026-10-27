@@ -11,6 +11,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { recordSpans } from "../../../test/spans.js"
 import type { WorkspaceProjectionSnapshot } from "../../models/workspaces.js"
 import {
@@ -112,7 +113,7 @@ function snapshot(
         gitUrl: "https://example.test/bound.git",
         zoektRepoId: 7,
         sha: SHA,
-        checkoutKey: `ws:ws_chat:${SHA}`,
+        checkoutKey: `rev:${SHA}`,
       },
     ],
   }
@@ -131,8 +132,10 @@ async function tool(name: string, kind: "active" | "legacy" = "active") {
 }
 
 describe("workspace chat explorer tools (msw codesearch)", () => {
-  it("reads a bound repository at its Workspace revision", async () => {
-    const result = await (await tool("get_file")).execute({
+  it("reads a bound repository, named by its Workspace link", async () => {
+    const result = await (
+      await tool("get_file")
+    ).execute({
       repositoryId: "repo_bound",
       path: "OWNERS",
     })
@@ -141,25 +144,30 @@ describe("workspace chat explorer tools (msw codesearch)", () => {
     expect(seen[0]?.path).toBe("/repo_bound/files-query")
     expect(seen[0]?.claims).toMatchObject({
       workspaceId: "ws_chat",
-      workspaceRevisions: [{ repositoryId: "repo_bound", sha: SHA }],
+      workspaceRepositoryIds: ["repo_bound"],
     })
+    expect(seen[0]?.claims).not.toHaveProperty("workspaceRevisions")
   })
 
-  it("reads the legacy Workspace checkout of a legacy projection", async () => {
-    await (await tool("get_file", "legacy")).execute({
+  it("lists the linked repository for a legacy projection too", async () => {
+    await (
+      await tool("get_file", "legacy")
+    ).execute({
       repositoryId: "repo_bound",
       path: "OWNERS",
     })
     expect(seen[0]?.claims).toMatchObject({
       workspaceId: "ws_chat",
-      legacyWorkspace: true,
+      workspaceRepositoryIds: ["repo_bound"],
     })
-    expect(seen[0]?.claims).not.toHaveProperty("workspaceRevisions")
+    expect(seen[0]?.claims).not.toHaveProperty("legacyWorkspace")
   })
 
   it("searches the bound Zoekt repository and keeps compact output", async () => {
     const result = String(
-      await (await tool("search")).execute({
+      await (
+        await tool("search")
+      ).execute({
         repositoryId: "repo_bound",
         query: "billing",
       }),
@@ -169,7 +177,7 @@ describe("workspace chat explorer tools (msw codesearch)", () => {
     expect(seen[0]?.path).toBe("/search")
     expect(seen[0]?.body).toMatchObject({ RepoIDs: [7] })
     expect(seen[0]?.claims).toMatchObject({
-      workspaceRevisions: [{ repositoryId: "repo_bound", sha: SHA }],
+      workspaceRepositoryIds: ["repo_bound"],
     })
   })
 
@@ -184,7 +192,9 @@ describe("workspace chat explorer tools (msw codesearch)", () => {
 
   it("refuses a repository outside the Workspace and calls no codesearch", async () => {
     const result = String(
-      await (await tool("get_file")).execute({
+      await (
+        await tool("get_file")
+      ).execute({
         repositoryId: "repo_unrelated",
         path: "OWNERS",
       }),

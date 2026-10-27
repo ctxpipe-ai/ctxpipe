@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http, type RequestHandler } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import { responseGate } from "@/components/ui/skeletonMatchStory"
 import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
 import type { Workspace, WorkspaceDetail } from "@/features/workspaces/types"
@@ -39,6 +40,7 @@ import {
   upgradesFixture,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
+
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { OrgHomePageContent } from "./$orgSlug.index"
@@ -216,6 +218,8 @@ async function findGuide(canvasElement: HTMLElement) {
 export const GuideAdminNewOrg: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a setup guide for a new organization that shows the wrong progress or action. It shows zero of six done and one Connect GitHub action. Not for later steps.",
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
@@ -465,6 +469,8 @@ export const GuideAdminCreatesWorkspaceOnHome: Story = {
     createState.created = false
   },
   parameters: {
+    intent:
+      "Catches a first workspace creation on the home page that does not update the guide and home. Create must add the workspace and move the guide forward. Not for the guide copy.",
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
@@ -872,6 +878,8 @@ export const GuideRepositoriesConnectionsFailedShowsRetry: Story = {
 export const GuideAdminAfterFirstQuestion: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a guide after the first question that shows the wrong progress or ignores the user's collapse choice. It starts collapsed and keeps the choice. Not for new organizations.",
     msw: {
       handlers: {
         defaults: sessionDefaults(2),
@@ -912,6 +920,8 @@ export const GuideAdminAfterFirstQuestion: Story = {
 export const GuideMemberView: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a member guide that shows admin steps. A member sees only the two member steps, and Ask fills and focuses the composer each time. Not for admin guides.",
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
@@ -986,6 +996,8 @@ export const GuideAllDone: Story = {
 export const GuideDismissRemovesIt: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a dismissed guide that stays on the home page. Dismiss removes the guide and shows the workspace selector. Not for guide progress.",
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
@@ -1010,6 +1022,8 @@ export const GuideDismissRemovesIt: Story = {
 export const GuideSignalFailureKeepsHome: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a failed guide signal query that breaks the home page. A failed signal counts as not done and home still works. Not for loaded signals.",
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
@@ -1235,6 +1249,8 @@ export const GuideRoleFailureHidesIt: Story = {
 export const GuideEstablishedUserHidden: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a guide that shows for an established user in an old organization. It stays hidden with no skeleton. Not for new organizations or empty ones.",
     msw: {
       handlers: {
         defaults: sessionDefaults(30),
@@ -1262,6 +1278,8 @@ export const GuideEstablishedUserHidden: Story = {
 export const GuideEstablishedUserNewOrg: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a guide that hides for an established user in a new organization. It shows for the first 14 days, also after the first workspace. Not for old organizations.",
     msw: {
       handlers: {
         defaults: sessionDefaults(30, 2),
@@ -1288,6 +1306,8 @@ export const GuideEstablishedUserNewOrg: Story = {
 export const GuideEstablishedUserEmptyOrg: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a guide that hides in an old organization with no workspace. The guide shows with the empty activity below it. Not for organizations with workspaces.",
     msw: {
       handlers: {
         defaults: sessionDefaults(30),
@@ -1314,6 +1334,8 @@ export const GuideEstablishedUserEmptyOrg: Story = {
 export const GuideStaysAfterFirstWorkspace: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches a guide that disappears when an old organization makes its first workspace in the last 14 days. It stays during the setup. Not for older workspaces.",
     msw: {
       handlers: {
         defaults: sessionDefaults(30),

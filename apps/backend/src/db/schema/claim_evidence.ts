@@ -7,6 +7,7 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core"
+
 import { claims } from "./claims.js"
 import { orgIsolationPolicy } from "./org-rls.js"
 

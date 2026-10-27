@@ -1,4 +1,5 @@
 import { config } from "dotenv"
+
 import { ownerUrlForMigrate } from "./owner-migrate-url.js"
 
 config({ path: ".env.local", quiet: true })

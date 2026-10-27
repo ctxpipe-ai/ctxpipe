@@ -1,6 +1,7 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import { z } from "zod"
+
 import type { AppEnv } from "../../../app/env.js"
 import { enqueueConnectionSourcesSync } from "../../../domain/workspace-sources/enqueue.js"
 import { parseNotionConnectionConfig } from "../../../lib/connection-config.js"

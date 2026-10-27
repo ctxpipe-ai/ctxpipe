@@ -8,12 +8,14 @@ import {
 } from "react"
 import { Button as AriaButton } from "react-aria-components"
 import { useStickToBottomContext } from "use-stick-to-bottom"
+
 import {
   Conversation,
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation"
 import {
+  type AnswerFileLinks,
   Message,
   MessageContent,
   MessageResponse,
@@ -31,6 +33,7 @@ import {
 import type { ChatMessage, ChatStatus } from "@/features/chat/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+
 import { chatColumnClassName, chatUserBubbleClassName } from "./chat-column"
 
 const HIDDEN_DATA_PARTS = new Set(["data-rename-conversation", "data-kg-focus"])
@@ -82,9 +85,9 @@ const reasoningResponseClassName =
  */
 function StatusLine(props: { label: string }) {
   return (
-    // biome-ignore lint/a11y/useSemanticElements: div + role="status" is a live status, not a form output
     <div
       className="flex w-full min-w-0 items-start gap-2"
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- div + role="status" is a live status, not a form output
       role="status"
       aria-label={props.label}
     >
@@ -218,7 +221,7 @@ function renderAssistantParts(
   options: {
     working: boolean
     systemStatus: string | null
-    onOpenFile?: (path: string) => void
+    fileLinks?: AnswerFileLinks
   },
 ): ReactElement[] {
   const entries = activityLog(message.parts)
@@ -256,7 +259,7 @@ function renderAssistantParts(
         <MessageResponse
           key={key}
           isAnimating={options.working}
-          onOpenFile={options.onOpenFile}
+          fileLinks={options.fileLinks}
         >
           {partText(part)}
         </MessageResponse>,
@@ -299,8 +302,11 @@ export function ConversationThread(props: {
    * live (for example, the files a turn changed).
    */
   renderAfterMessage?: (messageId: string) => ReactNode
-  /** Opens a workspace file from a file path in an answer. */
-  onOpenFile?: (path: string) => void
+  /**
+   * Turns file paths in an answer into buttons that open the file. Only a path
+   * that `resolve` finds in the git tree becomes a button. Keep it stable.
+   */
+  fileLinks?: AnswerFileLinks
   /**
    * Set when the last turn stopped before its first answer. The thread then
    * shows that the turn stopped, with a Retry action.
@@ -338,7 +344,7 @@ export function ConversationThread(props: {
                   ? renderAssistantParts(message, {
                       working,
                       systemStatus: waitLabel ?? null,
-                      onOpenFile: props.onOpenFile,
+                      fileLinks: props.fileLinks,
                     })
                   : renderUserParts(message)
 

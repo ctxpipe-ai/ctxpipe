@@ -1,7 +1,7 @@
 import type { GitFileMode } from "../../services/git/file-change.js"
 import { CODE_FORMAT } from "../workspaces/workspace-format.js"
-import { exportAndSourcesStep } from "./steps/export-and-sources.js"
 import { ownershipMigrationStep, sourcesConversionStep } from "./steps.js"
+import { exportAndSourcesStep } from "./steps/export-and-sources.js"
 
 /**
  * The upgrades of a Workspace repository, in code (ADR-053 section 4).

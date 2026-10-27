@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { isHostOnlyPath } from "./host-only.js"
 import {
   CODE_FORMAT,

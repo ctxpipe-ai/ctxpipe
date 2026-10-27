@@ -1,5 +1,6 @@
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { afterEach, describe, expect, it, vi } from "vitest"
+
 import { workspaceChatDockerImage } from "../workspaces/chat-runtime.js"
 import {
   INGEST_AGENT_USER,

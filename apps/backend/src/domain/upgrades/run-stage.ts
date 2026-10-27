@@ -1,4 +1,5 @@
 import { trace } from "@opentelemetry/api"
+
 import { transitionWorkspaceUpgradeRow } from "../../models/workspace-upgrades.js"
 import { getLogger } from "../../observability/logger.js"
 import { UPGRADE_STATUSES, type UpgradeRunStage } from "./registry.js"

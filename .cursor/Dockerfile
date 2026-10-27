@@ -1,6 +1,6 @@
 # Cursor Cloud Agent: Docker + Compose for `pnpm dev:infra` (see
 # https://cursor.com/docs/cloud-agent/setup — "Running Docker" / recommended Dockerfile).
-# Paths in environment.json `build` are relative to `.cursor` (this repo: `.agents` symlink).
+# Paths in environment.json `build` are relative to `.cursor`.
 
 FROM ubuntu:24.04
 
@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # NODE + PNPM (repo uses packageManager pnpm@10.12.1)
 ########################################################
 
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
   && apt-get update && apt-get install -y --no-install-recommends nodejs \
   && rm -rf /var/lib/apt/lists/*
 

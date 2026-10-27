@@ -1,5 +1,6 @@
 import type { ToolExecutionContext } from "@tanstack/ai"
 import { z } from "zod"
+
 import { withOrgDbContext } from "../../db/client.js"
 import { toToon } from "../../lib/agentToolRuntime.js"
 import { runBridgeToolCall } from "../../mcp/correlation.js"
@@ -200,10 +201,7 @@ function wrapExplorerTool(input: {
         orgId: input.orgId,
         checkout: {
           repositoryId: repository.id,
-          workspace:
-            input.projection.kind === "active"
-              ? { workspaceId: input.workspaceId, sha: repository.sha }
-              : { workspaceId: input.workspaceId, legacy: true },
+          workspace: { workspaceId: input.workspaceId },
         },
         search: async (query) => {
           const matches = await codeSearch(input.orgId, {

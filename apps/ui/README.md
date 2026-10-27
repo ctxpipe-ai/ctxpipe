@@ -44,15 +44,13 @@ If you prefer not to use Tailwind CSS:
 
 ## Linting & Formatting
 
-This project uses [Biome](https://biomejs.dev/) for linting and formatting. The following scripts are available:
-
+This repository uses [Oxlint](https://oxc.rs/docs/guide/usage/linter) and [Oxfmt](https://oxc.rs/docs/guide/usage/formatter). Run these scripts from the repository root:
 
 ```bash
 pnpm lint
+pnpm format:check
 pnpm format
-pnpm check
 ```
-
 
 
 ## Routing

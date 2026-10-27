@@ -1,13 +1,14 @@
 import { useRouter } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 import { Link } from "react-aria-components"
-import { SideNavTooltip } from "./SideNavTooltip"
+
 import {
   sideNavActiveBarClassName,
   sideNavIconGutterClassName,
   sideNavLabelClassName,
   sideNavRowClassName,
 } from "./sideNavStyles"
+import { SideNavTooltip } from "./SideNavTooltip"
 
 type SideNavItemProps = {
   to: "/$orgSlug" | "/$orgSlug/connectors"

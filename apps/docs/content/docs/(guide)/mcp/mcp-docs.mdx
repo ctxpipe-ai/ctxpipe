@@ -1,296 +1,85 @@
 ---
-title: Remote MCP
-description: Choose the right remote ctxpipe MCP install path for individuals, teams, and clients that need manual configuration.
+title: Connect your agent
+description: Install the ctxpipe MCP in Claude Code, Cursor, Codex, OpenCode, or VS Code, with the CLI or by hand.
 ---
 
-ctxpipe exposes a remote MCP server at:
+ctxpipe has one remote MCP server for every organization:
 
 ```text
 https://app.ctxpipe.ai/mcp
 ```
 
-During authorization you choose which organizations the client may read. Each
-tool call names one organization. You can change the set later in
-[Connected apps](/docs/mcp/connected-apps). The server ignores the old
-`?orgSlug=your-org` URL parameter, so existing client configurations keep
-working. For self-hosted deployments, keep the same `/mcp` path and swap in
-your own base URL.
+A self-hosted deployment uses the same `/mcp` path on its own origin. The
+server uses Streamable HTTP. It gives your agent
+[seven read-only tools](/docs/mcp/use-from-your-agent).
 
-## What the MCP gives an agent
+## Install with the CLI
 
-The MCP gives your coding agent seven read-only tools. The agent does the
-reasoning. ctxpipe returns facts with stable refs and runs no model for each call.
-See [Use ctxpipe from your agent](/docs/mcp/use-from-your-agent) for the
-tools, the arguments, and how to work with them.
-
-## Choose Your Install Path
-
-There are two practical ways to install ctxpipe MCP:
-
-- **The CLI** - best for a developer who sets up the agent clients on one machine. For a team, commit the repository config that the CLI writes.
-- **Manual config** - useful when you need to paste JSON yourself or use a client the CLI does not fully automate.
-
-The CLI writes configuration. They do **not** remove the need for MCP authorization. When a client first uses ctxpipe MCP, it should still redirect you to ctxpipe so you can sign in and authorize access. If the client cannot complete OAuth, use [API-key auth](#api-key-auth).
-
-## CLI installer (`npx ctxpipe`)
-
-The CLI is the recommended path for an individual developer. It detects common agent clients, writes the right config shape for each one, and lets you choose whether the config belongs to the current repo, your user profile, or both.
-
-From any repo:
+Run this in a repository:
 
 ```bash
 npx ctxpipe init
 ```
 
-<ImageSlot
-  title="ctxpipe CLI setup"
-  src="/mcp-cli.png"
-  alt="ctxpipe CLI setup flow showing sign-in, organization selection, and MCP config scope"
-  aspect="standard"
-/>
+The wizard signs you in, asks which organization and agent clients to
+configure, and shows the planned file changes before it writes them. Write the
+configuration to the repository, to your user profile, or to both. To share the
+setup with your team, commit the repository configuration that the CLI writes.
+It holds no secret.
 
-That runs an interactive wizard for:
+The wizard can also set up [local memory](/docs/mcp/local-memory). To configure
+the MCP only, run `npx ctxpipe mcp add`.
 
-- signing in for setup,
-- selecting your organization,
-- choosing repo, user, or both scopes,
-- selecting agent clients,
-- optionally enabling Markdown local memory under `.ai/memory/` (hooks + skills, not an MCP server),
-- reviewing the planned file changes before writing.
+| Client | Repository configuration | User configuration |
+| --- | --- | --- |
+| **Claude Code** | `.mcp.json` | Runs `claude mcp add` when the Claude CLI is installed. Without the Claude CLI, the CLI writes the repository `.mcp.json`, or prints the command for an API key. |
+| **Cursor** | `.cursor/mcp.json` | `~/.cursor/mcp.json` |
+| **Codex** | No repository file. Prints a `codex mcp add` command, which writes your user configuration. For an API key, it prints the `.codex/config.toml` lines. | Runs `codex mcp add` when the Codex CLI is installed. Without the Codex CLI, the CLI prints the command. For an API key, it prints the `config.toml` lines. |
+| **OpenCode** | `opencode.json` | `~/.config/opencode/opencode.json` |
+| **VS Code / Copilot** | `.vscode/mcp.json` | Prints a VS Code install link |
 
-For MCP-only setup, use:
+The CLI sign-in is only for setup. The CLI keeps it in the OS keychain, or in
+`~/.config/ctxpipe/` when no keychain is available. Your agent client asks you
+to authorize ctxpipe separately the first time it connects.
 
-```bash
-npx ctxpipe mcp add
-```
+### Scripts and CI
 
-For scripts and CI, use explicit flags:
+Use flags to run the CLI without prompts:
 
 ```bash
 npx ctxpipe init --org acme --agents cursor,claude --scope repo --non-interactive
-npx ctxpipe mcp add --org acme --client opencode --scope user --non-interactive
-npx ctxpipe mcp add --org acme --client cursor --scope both --auth api-key --non-interactive
+npx ctxpipe mcp add --client opencode --scope user --non-interactive
 npx ctxpipe doctor --json
 ```
 
-Use `npx ctxpipe init --help` and `npx ctxpipe mcp add --help` for the full flag list, including `--base-url`, `--org`, `--scope`, `--agents`, `--client`, `--auth`, `--non-interactive`, `--json`, and `--dry-run`.
+Run `npx ctxpipe init --help` for all flags. Examples are `--base-url`,
+`--dry-run`, `--json`, `--no-mcp`, and `--auth api-key`. For an agent that
+cannot sign in through a browser, see [API keys](/docs/mcp/api-keys).
 
-Setup sign-in is separate from MCP authorization. The CLI signs you in so it can list organizations and write correct config. It stores setup credentials in the OS keychain when available, with a file fallback under `~/.config/ctxpipe/` when keyring access is not possible.
+## Authorize the client
 
-Supported CLI clients:
+The first time your client connects, it opens ctxpipe in the browser:
 
-- **Cursor** - repo config in `.cursor/mcp.json`, user config in `~/.cursor/mcp.json`.
-- **Claude Code** - repo config in `.mcp.json`; user setup uses `claude mcp add` when the Claude CLI is available.
-- **OpenCode** - repo config in `opencode.json`, user config in `~/.config/opencode/opencode.json`.
-- **VS Code / Copilot** - repo config in `.vscode/mcp.json`; user setup provides the VS Code install link.
-- **Codex** - repo config in `.codex/config.toml`, user config in `~/.codex/config.toml`. Without an API-key header, user setup uses `codex mcp add` when available; otherwise the CLI prints the command to run.
+1. Sign in to ctxpipe.
+2. Select the organizations that the client can read. The organization of your
+   current session is selected. Select at least one.
+3. Leave **Also allow changes** clear. It shows only when a client asks for
+   write access, and the MCP tools never need it.
+4. Approve. The client returns to your agent, ready to use.
 
-## Local memory (Markdown)
+Each tool call names one of the organizations that you selected. To change the
+set later, or to revoke the client, open
+[Connected apps](/docs/mcp/connected-apps).
 
-The CLI can also set up **local memory**: Markdown under `.ai/memory/` that
-coding agents read and add to as they learn how your team works. It is **not** a
-second MCP server. Hooks only save candidates to a gitignored inbox; agents keep
-what matters, you commit it with the work, and merged lessons reach ctxpipe.
+## Configure a client by hand
 
-```bash
-npx ctxpipe init
-npx ctxpipe memory init
-npx ctxpipe init --org acme --agents cursor --scope repo --memory --non-interactive
-```
-
-The interactive `npx ctxpipe init` wizard includes local memory setup, so you do
-not need to run `memory init` separately for the normal first-time setup flow.
-Use `npx ctxpipe memory init` when you want local memory only, or when remote
-ctxpipe MCP is already configured and you are adding memory later.
-
-Read the full guide: [Local memory](/docs/mcp/local-memory).
-
-## API-key auth
-
-OAuth remains the default for a developer on a laptop — the CLI without `--auth`. Use an API key only when a client cannot complete the browser OAuth flow (CI, headless agents, a shared GUI environment, or a host that accepts a static custom header).
-
-Keys authenticate MCP with the **`x-api-key`** header, or as **`Authorization: Bearer <api-key>`** on `/mcp` when a host cannot set custom headers (for example CodeRabbit). Prefer `x-api-key` when the client supports it. OAuth access tokens continue to use Bearer as well; the server resolves OAuth first and tries API-key verification only when an opaque MCP Bearer is not an OAuth token. Bearer API keys do not authenticate REST routes.
-
-The CLI never mints keys. Create them in the product, then interpolate `CTXPIPE_API_KEY` in client config.
-
-### User keys and organization keys
-
-| | Personal keys | Organization keys |
-| --- | --- | --- |
-| Where to mint | **User account → API Keys** | **Organization settings → API Keys** |
-| Who can mint | You, for yourself | Organization admin or owner |
-| Authenticates | You as a member | The organization — not the person who minted the key |
-| MCP URL | Generic `/mcp` | Generic `/mcp` |
-| Organizations | Every organization that you are a member of. Your membership is checked on each call | The one organization of the key. The `org` argument must match it |
-| REST (`/:orgSlug/api/v1`) | Yes, as that user | No. Organization keys are MCP `/mcp` only |
-
-One organization key binds one organization. A tool call with another `org` gets the same `org_not_found` error as an unknown organization. The minter leaving the organization does not revoke the key. Members never see the plaintext after create; the secret is shown once.
-
-User keys and organization keys share the env name `CTXPIPE_API_KEY`. One process holds one active key.
-
-New keys inherit a **30-day** default expiry and a limit of **1,000 requests per hour**. Never-expiring keys are allowed; the UI warns that they are long-lived secrets. Recreate a key after it expires; existing keys keep the limit stored when they were minted. Name each key. Rotate by minting a new key, swapping `CTXPIPE_API_KEY`, then revoking the old one.
-
-`--auth api-key` writes a client-specific interpolation of `CTXPIPE_API_KEY`, never the secret. That placeholder is safe in repo or user config (`--scope repo`, `user`, or `both`). `init` and `mcp add` do **not** read `CTXPIPE_API_KEY`. Set the variable in the **MCP client** environment so the client can send `x-api-key`. GUI apps often do not inherit the shell that ran the CLI. See [Set CTXPIPE_API_KEY](#set-ctxpipe_api_key).
-
-The CLI still writes `?orgSlug=`. The server ignores it. All keys work on the generic `/mcp` URL with no query:
-
-```json
-{
-  "mcpServers": {
-    "ctxpipe": {
-      "type": "streamable-http",
-      "url": "https://app.ctxpipe.ai/mcp",
-      "headers": {
-        "x-api-key": "${env:CTXPIPE_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-```bash
-npx ctxpipe mcp add --org acme --client cursor --scope both --auth api-key --non-interactive
-```
-
-Setting `CTXPIPE_API_KEY` in the environment is **not enough** on its own. ctxpipe MCP is a remote Streamable HTTP server, so the client must send the key on HTTP requests (`x-api-key`, or `Authorization: Bearer` when that is all the host supports). Cursor and Claude do not invent that mapping from a well-known env name. The interpolation in MCP config (or `claude mcp add --header`) is what tells the client to send the header.
-
-If a host lets you attach a custom request header, send **`x-api-key`** interpolating `CTXPIPE_API_KEY`. If the host only supports Bearer credentials, send `Authorization: Bearer` with the same key value to `/mcp`. Do not put the secret in client or repository files.
-
-### Cursor
-
-Repo `.cursor/mcp.json` or user `~/.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "ctxpipe": {
-      "type": "streamable-http",
-      "url": "https://app.ctxpipe.ai/mcp",
-      "headers": {
-        "x-api-key": "${env:CTXPIPE_API_KEY}"
-      }
-    }
-  }
-}
-```
+Use manual configuration when the CLI does not support your client, or when
+another tool manages the configuration. The client opens the browser to
+authorize, so the configuration holds no token.
 
 ### Claude Code
 
-Project `.mcp.json` (or the same `${CTXPIPE_API_KEY}` form in a user header):
-
-```json
-{
-  "mcpServers": {
-    "ctxpipe": {
-      "type": "http",
-      "url": "https://app.ctxpipe.ai/mcp",
-      "headers": {
-        "x-api-key": "${CTXPIPE_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-### OpenCode
-
-`opencode.json` in the repo, or user `~/.config/opencode/opencode.json`:
-
-```json
-{
-  "mcp": {
-    "ctxpipe": {
-      "type": "remote",
-      "url": "https://app.ctxpipe.ai/mcp",
-      "enabled": true,
-      "headers": {
-        "x-api-key": "{env:CTXPIPE_API_KEY}"
-      },
-      "oauth": false
-    }
-  }
-}
-```
-
-`oauth: false` stops OpenCode from starting a browser flow after a 401.
-
-### VS Code / Copilot
-
-Repo `.vscode/mcp.json` or the equivalent user-scope install payload:
-
-```json
-{
-  "servers": {
-    "ctxpipe": {
-      "type": "http",
-      "url": "https://app.ctxpipe.ai/mcp",
-      "headers": {
-        "x-api-key": "${env:CTXPIPE_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-### Codex (`.codex/config.toml` and `~/.codex/config.toml`)
-
-Codex loads MCP servers from both files in trusted projects: project `.codex/config.toml` overrides user `~/.codex/config.toml`. Interpolation is safe in either file. Codex wants the **variable name**, not `$VAR` or the secret:
-
-```toml
-[mcp_servers.ctxpipe]
-url = "https://app.ctxpipe.ai/mcp"
-env_http_headers = { "x-api-key" = "CTXPIPE_API_KEY" }
-```
-
-## Set `CTXPIPE_API_KEY`
-
-`init` and `mcp add` do not consume `CTXPIPE_API_KEY`. `npx ctxpipe doctor mcp` does, when the variable is set in that process: it sends `x-api-key` and expects HTTP 2xx initialize (`ready-for-api-key`). If the variable is unset or blank, doctor keeps OAuth-discovery checks.
-
-For MCP clients, the **client process** must see `CTXPIPE_API_KEY` so it can interpolate the header. `export` in a terminal that only ran `npx ctxpipe init` is not enough if the agent is a GUI app.
-
-To probe API-key initialize from the CLI:
-
-```bash
-CTXPIPE_API_KEY=ctxp_... npx ctxpipe doctor mcp --url "https://app.ctxpipe.ai/mcp"
-```
-
-**CLI agents** (inherit the shell you start them from):
-
-- Cursor CLI (`agent` / `cursor-agent`): `export CTXPIPE_API_KEY=ctxp_...` in that terminal, then run `agent`. Persist with `~/.zshenv` or `~/.bash_profile` if you want it on every CLI session. Do not rely on `.zshrc` / direnv alone — Cursor CLI can start a non-interactive shell and skip them.
-- Claude Code: same pattern — export, then `claude` ([Claude env vars](https://code.claude.com/docs/en/env-vars)). Unset vars in `.mcp.json` stay as literal `${CTXPIPE_API_KEY}`.
-- Codex / OpenCode: export in the same terminal before starting the CLI.
-
-Example:
-
-```bash
-export CTXPIPE_API_KEY=ctxp_...
-agent
-# or: claude / codex / opencode
-```
-
-**GUI apps** (Dock, Finder, Start Menu, desktop entry do **not** load `.zshrc`):
-
-- Cursor desktop: either (1) macOS `launchctl setenv CTXPIPE_API_KEY 'ctxp_...'` then fully quit and reopen Cursor, (2) Linux user/session environment (`/etc/environment` or systemd `environment.d`), (3) Windows user environment variables, then restart, or (4) launch Cursor from a terminal that already has the export (`cursor .`).
-- VS Code / Copilot: same GUI rule as Cursor desktop.
-
-After changing GUI env, restart the app. Then reconnect the ctxpipe MCP server.
-
-## Manual Configuration
-
-Manual config is the fallback when you do not want to use the CLI, the client is managed elsewhere, or you need to inspect exactly what will be written.
-
-Your MCP client should redirect you to ctxpipe to sign in and authorize access.
-After approval, it returns to the client and the server is ready to use.
-
-No bearer token setup is required when your client supports OAuth redirect for MCP. If it cannot complete OAuth, use [API-key auth](#api-key-auth).
-
-## Client-Specific Configuration
-
-Different clients do not use exactly the same JSON shape. That is the main reason the CLI exists.
-
-### Cursor
-
-Config file: `.cursor/mcp.json` at the root of your project, or `~/.cursor/mcp.json` for user-level config.
+`.mcp.json` in the repository:
 
 ```json
 {
@@ -303,9 +92,12 @@ Config file: `.cursor/mcp.json` at the root of your project, or `~/.cursor/mcp.j
 }
 ```
 
-### Claude Code
+For your user profile, run
+`claude mcp add --transport http ctxpipe --scope user https://app.ctxpipe.ai/mcp`.
 
-Project config file: `.mcp.json`.
+### Cursor
+
+`.cursor/mcp.json` in the repository, or `~/.cursor/mcp.json`:
 
 ```json
 {
@@ -318,11 +110,15 @@ Project config file: `.mcp.json`.
 }
 ```
 
-For user-level setup, prefer `npx ctxpipe mcp add --client claude --scope user` or the Claude CLI's `claude mcp add` command.
+### Codex
+
+```bash
+codex mcp add ctxpipe --url "https://app.ctxpipe.ai/mcp"
+```
 
 ### OpenCode
 
-Config file: `opencode.json` at the repo root, or `~/.config/opencode/opencode.json` for user-level config.
+`opencode.json` in the repository, or `~/.config/opencode/opencode.json`:
 
 ```json
 {
@@ -338,7 +134,7 @@ Config file: `opencode.json` at the repo root, or `~/.config/opencode/opencode.j
 
 ### VS Code / Copilot
 
-Repo config file: `.vscode/mcp.json`.
+`.vscode/mcp.json` in the repository:
 
 ```json
 {
@@ -351,41 +147,46 @@ Repo config file: `.vscode/mcp.json`.
 }
 ```
 
-For user-level setup, use the install link printed by `npx ctxpipe mcp add --client vscode --scope user`.
-
-### Codex
-
-Use the Codex MCP command:
-
-```bash
-codex mcp add ctxpipe --url "https://app.ctxpipe.ai/mcp"
-```
-
-The CLI prints this for you when it cannot run it directly.
+For your user profile, use the install link that
+`npx ctxpipe mcp add --client vscode --scope user` prints.
 
 ### Other clients
 
-If your client's docs only mention `http` or SSE, check the current client documentation. New remote MCP integrations generally use Streamable HTTP, but client config keys still vary.
+Use the endpoint URL with the Streamable HTTP transport. The name of the
+transport key changes between clients. Read the documentation of your client.
+
+## Check the connection
+
+Ask your agent:
+
+```text
+Call the ctxpipe list_workspaces tool, then search_knowledge for our
+standards on authentication.
+```
+
+A finished browser sign-in does not prove tool access. The tools must return
+your Workspaces.
 
 ## Troubleshooting
 
-- **CLI sign-in worked, but the MCP client still asks for authorization** - expected. CLI setup auth and MCP client OAuth are separate flows.
-- **Connection fails after pasting URL only** - add the client-specific `type` field. Most clients do not infer the transport reliably.
-- **OpenCode shows the server but it never connects** - use the top-level `mcp.ctxpipe` shape with `type: "remote"` and `enabled: true`.
-- **Cursor or Claude rejects the server type** - use `"type": "http"`. The protocol is still Streamable HTTP; `http` is the client config key.
-- **Your client cannot complete OAuth** - use [API-key auth](#api-key-auth). `--auth api-key` writes interpolation, not the secret. Set `CTXPIPE_API_KEY` in the MCP client environment; see [Set CTXPIPE_API_KEY](#set-ctxpipe_api_key).
-- **Organization key on REST returns 401** - expected. Organization keys authenticate `/mcp` only. Use a personal key or a signed-in session for `/:orgSlug/api/v1`.
-- **A tool says `org_not_found`** - the organization is not in the connection, or you are not a member. For an OAuth connection, add it on [Connected apps](/docs/mcp/connected-apps). An organization key reads only its own organization.
+- **The client asks for authorization after the CLI signed you in.** This is
+  correct. The CLI sign-in and the client authorization are separate.
+- **The connection fails with only a URL.** Add the `type` field for your
+  client. Most clients do not detect the transport.
+- **Cursor or Claude Code refuses the server type.** Use `"type": "http"`.
+- **OpenCode shows the server, but it does not connect.** Use the top-level
+  `mcp.ctxpipe` shape with `type: "remote"` and `enabled: true`.
+- **The client cannot finish the browser sign-in.** Use an
+  [API key](/docs/mcp/api-keys).
+- **A tool returns `org_not_found`.** See
+  [Connected apps](/docs/mcp/connected-apps#when-a-tool-says-org_not_found).
 
-## Notes
-
-- The `orgSlug` URL parameter is ignored. You can leave it in old configurations or remove it.
-- Do not commit secrets into repository MCP config. Environment-variable references are safe to commit; the secret stays in the client process environment.
-- For team-wide repo config, run the CLI once in the repository and commit the config it writes. Then each developer does not have to copy JSON by hand.
+Old configurations can have `?orgSlug=` in the URL. The server ignores it, so
+you can keep it or remove it. The current CLI writes the URL without it.
 
 ## Related
 
-- [Managing your organization](/docs/managing-organization) - org slug and membership
-- [Use ctxpipe from your agent](/docs/mcp/use-from-your-agent) - the MCP tools
-- [Connected apps](/docs/mcp/connected-apps) - change organizations or revoke a client
-- [Local memory](/docs/mcp/local-memory) - repo-local Markdown memory with capture hooks
+- [Use ctxpipe from your agent](/docs/mcp/use-from-your-agent): the tools and how to use them
+- [API keys](/docs/mcp/api-keys): CI, review bots, and headless agents
+- [Connected apps](/docs/mcp/connected-apps): change organizations or revoke a client
+- [Local memory](/docs/mcp/local-memory): Markdown memory that agents keep in the repository

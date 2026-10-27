@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
+
 import { describe, expect, it } from "vitest"
+
 import { UI_PROXY_TIMEOUT_MS } from "./ui.js"
 
 // The UI image runs the Nitro `bun` preset. That entry passes

@@ -1,6 +1,8 @@
-import type { ReactNode } from "react"
 import type * as PageTree from "fumadocs-core/page-tree"
+import type { ReactNode } from "react"
+
 import { source } from "@/lib/source"
+
 import { DocsModeLayout } from "./components/docs-mode-layout"
 
 function findRootFolder(tree: PageTree.Root, name: string) {
@@ -28,10 +30,7 @@ const selfHostingTree = rootOnlyTree(source.pageTree, "Self hosting")
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
-    <DocsModeLayout
-      docsTree={docsTree}
-      selfHostingTree={selfHostingTree}
-    >
+    <DocsModeLayout docsTree={docsTree} selfHostingTree={selfHostingTree}>
       {children}
     </DocsModeLayout>
   )

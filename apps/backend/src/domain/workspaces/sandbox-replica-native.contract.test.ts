@@ -1,8 +1,10 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process"
 import { fileURLToPath } from "node:url"
+
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
+
 import {
   closeDb,
   getSystemDb,
@@ -84,7 +86,7 @@ it(
       if (!line) throw new Error(`Missing native result: ${client.output()}`)
       return JSON.parse(line) as { id: string; contents?: string }
     }
-    const provider = dockerSandbox({ image: "node:22" })
+    const provider = dockerSandbox({ image: "node:24" })
     try {
       await getSystemDb().insert(organizations).values({
         id: orgId,

@@ -1,4 +1,5 @@
 import { isMap, isSeq, type YAMLMap, type YAMLSeq } from "yaml"
+
 import { SourceChangeError } from "./edit.js"
 import {
   parseSourceEntry,

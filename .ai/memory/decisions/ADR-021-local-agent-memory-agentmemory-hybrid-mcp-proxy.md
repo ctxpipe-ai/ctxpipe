@@ -39,7 +39,7 @@ Implement local agent memory as a ctxpipe-owned integration where `.ai/memory/` 
   "mcpServers": {
     "ctxpipe": {
       "type": "streamable-http",
-      "url": "https://app.ctxpipe.ai/mcp?orgSlug=acme"
+      "url": "https://app.ctxpipe.ai/mcp"
     },
     "ctxpipe-memory": {
       "command": "npx",

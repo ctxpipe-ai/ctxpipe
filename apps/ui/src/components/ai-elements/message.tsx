@@ -4,23 +4,21 @@ import { cjk } from "@streamdown/cjk"
 import { code } from "@streamdown/code"
 import { math } from "@streamdown/math"
 import { mermaid } from "@streamdown/mermaid"
+
 type ChatMessageRole = "system" | "user" | "assistant"
 
 import { IconExternalLink } from "@tabler/icons-react"
-import type {
-  ComponentProps,
-  HTMLAttributes,
-  ReactNode,
-} from "react"
-import {
-  memo,
-  useMemo,
-} from "react"
+import type { ComponentProps, HTMLAttributes, ReactNode } from "react"
+import { memo, useMemo } from "react"
 import { Button as AriaButton } from "react-aria-components"
 import { defaultRehypePlugins, Streamdown } from "streamdown"
+
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
-import { workspaceFilePath } from "@/lib/workspace-file-path"
+import {
+  workspaceFilePath,
+  workspaceFilePathFromHref,
+} from "@/lib/workspace-file-path"
 
 type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: ChatMessageRole
@@ -63,9 +61,18 @@ export const MessageContent = ({
   </div>
 )
 
+export type AnswerFileLinks = {
+  resolve: (path: string) => string | null
+  open: (path: string) => void
+}
+
 type MessageResponseProps = ComponentProps<typeof Streamdown> & {
-  /** Opens a workspace file. When set, file paths in the answer become buttons. */
-  onOpenFile?: (path: string) => void
+  /**
+   * When set, file paths in the answer become buttons. `resolve` gives the
+   * tree path for a path in the answer, or null (the text stays text).
+   * Keep this value stable: it keys the memoized plugins.
+   */
+  fileLinks?: AnswerFileLinks
 }
 
 const streamdownPlugins = { cjk, code, math, mermaid }
@@ -96,18 +103,47 @@ function fileLinkNode(path: string, children: HastNode[]): HastNode {
 }
 
 /**
+ * Rehype plugin. It runs before sanitize, which removes every `file:` href.
+ * It rewrites a `file:///workspace/…` href into the repository-relative path,
+ * so the file-link logic handles it. It removes every other `file:` href.
+ */
+function rewriteFileHrefs() {
+  const visit = (node: HastNode) => {
+    if (node.type === "element" && node.tagName === "a") {
+      const href = String(node.properties?.href ?? "").trim()
+      if (/^file:/i.test(href) && node.properties) {
+        const sandboxRoot = /^file:\/\/\/workspace\//i
+        if (sandboxRoot.test(href)) {
+          node.properties.href = href.replace(sandboxRoot, "")
+        } else {
+          delete node.properties.href
+        }
+      }
+    }
+    for (const child of node.children ?? []) visit(child)
+  }
+  return visit
+}
+
+/**
  * Rehype plugin. It adds an icon to off-site links. With `files`, it changes
  * file paths in inline code and relative links into `ctx-file-link` elements.
  * It runs after sanitize, so model HTML cannot make these elements, and
  * before harden, which blocks relative links.
  */
-function markAnswerLinks(options: { files: boolean }) {
+function markAnswerLinks(options: {
+  resolve?: (path: string) => string | null
+  id?: number
+}) {
+  const files = options.resolve !== undefined
+  const resolve = (path: string | null) =>
+    path && options.resolve ? options.resolve(path) : null
   const visit = (parent: HastNode) => {
     parent.children = parent.children?.map((node) => {
       if (node.type !== "element") return node
       if (node.tagName === "a") {
         const href = String(node.properties?.href ?? "")
-        if (/^https?:\/\//.test(href)) {
+        if (/^https?:\/\//i.test(href)) {
           node.children = [
             ...(node.children ?? []),
             {
@@ -119,15 +155,24 @@ function markAnswerLinks(options: { files: boolean }) {
           ]
           return node
         }
-        const path = options.files ? workspaceFilePath(href) : null
+        const path = files ? resolve(workspaceFilePathFromHref(href)) : null
         if (path) return fileLinkNode(path, node.children ?? [])
+        if (files && !href.startsWith("#")) {
+          // Harden would show "[blocked]" after a link it cannot keep, so
+          // keep only the content of a link that is not a file, http(s) or an
+          // in-page anchor.
+          const content: HastNode = {
+            type: "element",
+            tagName: "span",
+            properties: {},
+            children: node.children ?? [],
+          }
+          visit(content)
+          return content
+        }
       }
-      if (
-        node.tagName === "code" &&
-        parent.tagName !== "pre" &&
-        options.files
-      ) {
-        const path = workspaceFilePath(hastText(node))
+      if (node.tagName === "code" && parent.tagName !== "pre" && files) {
+        const path = resolve(workspaceFilePath(hastText(node)))
         if (path) return fileLinkNode(path, [node])
       }
       visit(node)
@@ -137,22 +182,36 @@ function markAnswerLinks(options: { files: boolean }) {
   return visit
 }
 
+// Streamdown caches its processor by plugin name and JSON.stringify(options),
+// which drops a function. Without a distinct `id` per resolver, every resolver
+// would reuse the processor (and the tree) of the first one.
+const resolverIds = new WeakMap<object, number>()
+const resolverId = (resolve: object) => {
+  let id = resolverIds.get(resolve)
+  if (id === undefined) {
+    id = nextResolverId++
+    resolverIds.set(resolve, id)
+  }
+  return id
+}
+let nextResolverId = 0
+
 const answerRehypePlugins = (
-  files: boolean,
+  resolve?: (path: string) => string | null,
 ): ComponentProps<typeof Streamdown>["rehypePlugins"] => [
   defaultRehypePlugins.raw,
+  ...(resolve ? [rewriteFileHrefs] : []),
   defaultRehypePlugins.sanitize,
-  [markAnswerLinks, { files }],
+  [markAnswerLinks, { resolve, id: resolve && resolverId(resolve) }],
   defaultRehypePlugins.harden,
 ]
-const chatRehypePlugins = answerRehypePlugins(false)
-const workspaceRehypePlugins = answerRehypePlugins(true)
+const chatRehypePlugins = answerRehypePlugins()
 
 export const MessageResponse = memo(
   ({
     className,
     isAnimating = false,
-    onOpenFile,
+    fileLinks,
     ...props
   }: MessageResponseProps) => {
     const components = useMemo(
@@ -172,7 +231,7 @@ export const MessageResponse = memo(
         }) => (
           <AriaButton
             data-ctx-file-link=""
-            onPress={() => onOpenFile?.(String(path))}
+            onPress={() => fileLinks?.open(String(path))}
             className={cn(
               "inline cursor-pointer rounded-md text-left text-teal-400 underline decoration-teal-400/40 underline-offset-2 transition-colors hover:decoration-teal-400",
               focusVisibleClassName,
@@ -182,7 +241,12 @@ export const MessageResponse = memo(
           </AriaButton>
         ),
       }),
-      [onOpenFile],
+      [fileLinks],
+    )
+    const rehypePlugins = useMemo(
+      () =>
+        fileLinks ? answerRehypePlugins(fileLinks.resolve) : chatRehypePlugins,
+      [fileLinks],
     )
     return (
       <Streamdown
@@ -204,7 +268,7 @@ export const MessageResponse = memo(
         controls={{ code: true, mermaid: true, table: true }}
         isAnimating={isAnimating}
         plugins={streamdownPlugins}
-        rehypePlugins={onOpenFile ? workspaceRehypePlugins : chatRehypePlugins}
+        rehypePlugins={rehypePlugins}
         shikiTheme={streamdownShikiTheme}
       />
     )
@@ -213,4 +277,3 @@ export const MessageResponse = memo(
 )
 
 MessageResponse.displayName = "MessageResponse"
-

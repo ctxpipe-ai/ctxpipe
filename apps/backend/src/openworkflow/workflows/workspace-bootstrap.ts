@@ -1,15 +1,17 @@
 import { z } from "zod"
+
 import { parseEnv } from "../../config/env.js"
-import {
-  BOOTSTRAP_SKILL_PATH,
-  bootstrapWorkspaceFiles,
-} from "../../domain/workspaces/bootstrap.js"
 import { unbornBootstrapBindingSchema } from "../../domain/workspaces/bootstrap-input.js"
 import {
   getUnbornBootstrapWorkspace,
   revisionHasCtxpipeContent,
 } from "../../domain/workspaces/bootstrap-unborn.js"
+import {
+  BOOTSTRAP_SKILL_PATH,
+  bootstrapWorkspaceFiles,
+} from "../../domain/workspaces/bootstrap.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
+import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
@@ -286,6 +288,12 @@ export const workspaceBootstrap = defineWorkflow(
       "workspace-write-bootstrap",
       async () => {
         const env = parseEnv(process.env)
+        // Read access to the bound repository, from the workflow input (CTX-955).
+        const read = workspaceGitRead({
+          orgId: input.orgId,
+          env,
+          remote: input.revision.remote,
+        })
         let revision = input.revision
         const repositoryName = githubRepoFullNameFromWorkspaceUrl(
           revision.remote.url,
@@ -334,8 +342,12 @@ export const workspaceBootstrap = defineWorkflow(
             async () => {
               const existing = new Map(
                 (
-                  await readGitFiles(acquired.pack, (path) =>
-                    ["AGENTS.md", BOOTSTRAP_SKILL_PATH].includes(path),
+                  await readGitFiles(
+                    acquired.pack,
+                    (path) =>
+                      ["AGENTS.md", BOOTSTRAP_SKILL_PATH].includes(path),
+                    undefined,
+                    read,
                   )
                 ).map((file) => [file.path, file.content]),
               )
@@ -357,6 +369,7 @@ export const workspaceBootstrap = defineWorkflow(
                         : []
                     },
                     acquired.pack,
+                    read,
                   )
                 ).map((blob) => blob.path),
               )
@@ -394,12 +407,14 @@ export const workspaceBootstrap = defineWorkflow(
               )
             )
               throw new Error("Bootstrap path is outside its allowed files")
-            return stageGitFiles(acquired.pack, files)
+            return stageGitFiles(acquired.pack, files, [], read)
           })
           await step.run({ name: "validate" }, () =>
             validateGitTree(
               staged,
               files.map((file) => file.path),
+              {},
+              read,
             ),
           )
           const subject = await step.run({ name: "commit-subject" }, () =>
@@ -410,10 +425,14 @@ export const workspaceBootstrap = defineWorkflow(
             }),
           )
           const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(staged, {
-              subject,
-              createdAt: run.createdAt,
-            })
+            const pack = await commitGitTree(
+              staged,
+              {
+                subject,
+                createdAt: run.createdAt,
+              },
+              read,
+            )
             await persistWriteJobPreparedCommit(input.jobId, pack.sha)
             return pack
           })

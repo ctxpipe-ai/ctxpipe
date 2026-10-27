@@ -1,9 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+
 import { AppShell } from "@/components/AppShell"
 import {
   expectSkeletonMatchesLoaded,
   SkeletonMatchFrame,
 } from "@/components/ui/skeletonMatchStory"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { GithubWorkspaceDestination } from "./GithubWorkspaceDestination"
@@ -83,6 +85,10 @@ export const OnboardingEmpty: Story = {
  * the button, the cards and the close button.
  */
 export const LoadingSkeletonMatches: Story = {
+  parameters: {
+    intent:
+      "Catches a workspace destination skeleton whose size differs from the loaded list. This causes layout shift. Not for workspace data or selection.",
+  },
   tags: ["workspace-golden"],
   args: {
     status: "loading",

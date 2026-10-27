@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createHash } from "node:crypto"
+
 import { defaultKeyHasher } from "@better-auth/api-key"
 import { desc, eq } from "drizzle-orm"
 import type { Context, MiddlewareHandler, Next } from "hono"
@@ -9,6 +10,7 @@ import {
   type JSONWebKeySet,
   jwtVerify,
 } from "jose"
+
 import type { AppEnv } from "../app/env.js"
 import { getSystemDb } from "../db/client.js"
 import {

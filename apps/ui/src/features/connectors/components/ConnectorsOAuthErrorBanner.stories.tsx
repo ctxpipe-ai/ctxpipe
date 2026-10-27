@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+
 import { oauthErrorMessage } from "@/lib/atlassian-oauth-messages"
+
 import { ConnectorsOAuthErrorBanner } from "./ConnectorsOAuthErrorBanner"
 
 const meta = {

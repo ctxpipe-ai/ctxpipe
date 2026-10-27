@@ -1,9 +1,11 @@
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { config } from "dotenv"
 import { eq } from "drizzle-orm"
 import pg from "pg"
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest"
+
 import { describeWithDatabase } from "../../test/db.js"
 import type { Env } from "../config/env.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
@@ -237,37 +239,35 @@ describeWithDatabase("PagerDuty connector lifecycle (Postgres)", () => {
     })
   }
 
-  it.each([
-    "awaiting_merge",
-    "sync_failed",
-    "live",
-  ] as const)("claims initial sync from %s", async (setupPhase) => {
-    await replaceConnection(setupPhase)
-    await expect(
-      claimPagerdutyBindingInitialSync({
-        orgId: lifecycleOrgId,
-        connectionId,
-        repositoryId: "repo_1",
-        branch: "main",
-      }),
-    ).resolves.toBe(true)
-  })
+  it.each(["awaiting_merge", "sync_failed", "live"] as const)(
+    "claims initial sync from %s",
+    async (setupPhase) => {
+      await replaceConnection(setupPhase)
+      await expect(
+        claimPagerdutyBindingInitialSync({
+          orgId: lifecycleOrgId,
+          connectionId,
+          repositoryId: "repo_1",
+          branch: "main",
+        }),
+      ).resolves.toBe(true)
+    },
+  )
 
-  it.each([
-    "draft",
-    "config_failed",
-    "initial_sync",
-  ] as const)("does not claim initial sync from %s", async (setupPhase) => {
-    await replaceConnection(setupPhase)
-    await expect(
-      claimPagerdutyBindingInitialSync({
-        orgId: lifecycleOrgId,
-        connectionId,
-        repositoryId: "repo_1",
-        branch: "main",
-      }),
-    ).resolves.toBe(false)
-  })
+  it.each(["draft", "config_failed", "initial_sync"] as const)(
+    "does not claim initial sync from %s",
+    async (setupPhase) => {
+      await replaceConnection(setupPhase)
+      await expect(
+        claimPagerdutyBindingInitialSync({
+          orgId: lifecycleOrgId,
+          connectionId,
+          repositoryId: "repo_1",
+          branch: "main",
+        }),
+      ).resolves.toBe(false)
+    },
+  )
 
   it("does not claim initial sync for a revoked connection", async () => {
     await replaceConnection("live", "revoked")

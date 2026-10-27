@@ -1,13 +1,19 @@
+import { getHeapStatistics } from "node:v8"
+
 import "./src/observability/register.js"
 import { defineConfig } from "@openworkflow/cli"
+
 import { initDb } from "./src/db/client.js"
 import { createLogger, flushEvlog, log } from "./src/observability/logger.js"
 import { shutdownOtel } from "./src/observability/otel.js"
 import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
+import { stopGuardedStepAttempts } from "./src/openworkflow/crash-loop.js"
 import { connectOpenWorkflowBackend } from "./src/openworkflow/storable-backend.js"
 import { wakeParkedParents } from "./src/openworkflow/wake-parked-parents.js"
+import { scheduleCodesearchCheckoutGc } from "./src/openworkflow/workflows/codesearch-checkout-gc.js"
 import { scheduleSweepsForOrgsNeedingIt } from "./src/openworkflow/workflows/conversation-sandbox-sweep.js"
 import { scheduleDailySourcesSync } from "./src/openworkflow/workflows/workspace-sources-daily-sync.js"
+import { scheduleWorkspaceTipChecks } from "./src/openworkflow/workflows/workspace-tip-check-schedule.js"
 import { scheduleUpgradeScansForAllOrgs } from "./src/openworkflow/workflows/workspace-upgrade-scan.js"
 
 const databaseUrl = process.env.DATABASE_URL
@@ -27,6 +33,15 @@ void scheduleDailySourcesSync(new Date()).catch((error: unknown) =>
   log.error({
     step: "workspace-sources-daily-sync-start",
     message: `Scheduling the daily sources sync failed: ${String(error)}`,
+  }),
+)
+// Start the hourly chain that deletes old codesearch checkouts. The key is
+// per hour, so a restart in the same hour queues nothing new. The first run
+// after a deploy collects every repository at once.
+void scheduleCodesearchCheckoutGc(new Date()).catch((error: unknown) =>
+  log.error({
+    step: "codesearch-checkout-gc-start",
+    message: `Scheduling the checkout collection failed: ${String(error)}`,
   }),
 )
 // Find the pending Workspace upgrades of each org after a deploy (ADR-053).
@@ -58,21 +73,52 @@ const wakeParents = () =>
         message: `Waking the parked parent runs failed: ${String(error)}`,
       }),
     )
+// Start the hourly chain that queues the tip check of each org with a
+// Workspace (ADR-046), at start and every 5 minutes, so a lost run of the
+// chain stops it for 5 minutes at most. The key is per hour, so a second
+// call in the same hour queues nothing new.
+const armTipChecks = () =>
+  void scheduleWorkspaceTipChecks(new Date()).catch((error: unknown) =>
+    log.error({
+      step: "workspace-tip-check-schedule-start",
+      message: `Scheduling the hourly tip checks failed: ${String(error)}`,
+    }),
+  )
 wakeParents()
-setInterval(wakeParents, 5 * 60_000).unref()
+armTipChecks()
+setInterval(() => {
+  wakeParents()
+  armTipChecks()
+}, 5 * 60_000).unref()
 
+/**
+ * On SIGTERM or SIGINT, mark the guarded step attempts of this process
+ * `failed`, so the crash-loop guard does not count the stop as a crash, then
+ * flush the logs and traces and stop at once. From the mark on, a guarded
+ * step does not end, and a guarded step that starts marks itself `failed`
+ * and does not run; the next worker runs these steps again. The process does
+ * not wait for the other active runs: a new step could start in that time.
+ */
 let shuttingDown = false
-async function shutdownWorkerObservability() {
+async function stopWorker() {
   if (shuttingDown) return
   shuttingDown = true
+  await stopGuardedStepAttempts().catch((error: unknown) => {
+    log.error({
+      step: "openworkflow.step-attempts-stopped",
+      message: `Marking the step attempts of the stopped worker failed: ${String(error)}`,
+    })
+  })
   await Promise.all([flushEvlog(), shutdownOtel()])
+    .catch(() => {})
+    .finally(() => process.exit(0))
 }
 
 process.on("SIGINT", () => {
-  void shutdownWorkerObservability()
+  void stopWorker()
 })
 process.on("SIGTERM", () => {
-  void shutdownWorkerObservability()
+  void stopWorker()
 })
 
 const workerConcurrency = parseOpenWorkflowConcurrency(
@@ -86,6 +132,8 @@ const bootstrapLog = createLogger({
   cwd: process.cwd(),
   nodeEnv: process.env.NODE_ENV,
   concurrency: workerConcurrency,
+  heapLimitMib: Math.round(getHeapStatistics().heap_size_limit / 1024 / 1024),
+  nodeOptions: process.env.NODE_OPTIONS,
 })
 bootstrapLog.info("openworkflow worker config loaded")
 bootstrapLog.emit()

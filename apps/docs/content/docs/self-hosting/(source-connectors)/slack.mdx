@@ -9,23 +9,15 @@ Self-hosted Slack uses the same connector flow as hosted ctxpipe, but your
 deployment owns **one** Slack app. Organizations authorize that app into their
 workspace; they do not create their own Slack apps or webhook URLs.
 
-Capture is **intent-based**: mentioning the bot starts a small in-thread agent.
-Bare mention or “capture this” snapshots that thread as Markdown under `slack/`
-in the chosen Workspace's repository, then the Workspace re-indexes like after
-any other commit. Other mention text gets a capability reply — v1 does not
-answer questions in Slack. There is no continuous channel mirror. Uninstalling
-the Slack app **does not purge git**.
-
-For general workspace search and read from developer agents, point operators at
-Slack’s own [MCP server](https://docs.slack.dev/ai/slack-mcp-server) — that is
-separate from this connector. See the
-[product Slack connector guide](/docs/connections/source-connectors/slack).
+This page covers only the operator setup: the Slack app, its scopes and
+events, and the secrets. For how people capture threads, see the
+[Slack connector guide](/docs/connections/source-connectors/slack).
 
 ## What you need
 
 - A public HTTPS `AUTH_BASE_URL` reachable by Slack.
 - A Slack app with OAuth and Event Subscriptions enabled.
-- A GitHub connector and a repository that will receive captured threads.
+- A GitHub connection, and a Workspace that the GitHub App can write to.
 - Backend env: `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`.
 - Model env (`MODEL_PROVIDER*` / Bedrock) so the mention agent can interpret
   extra text after `@mention`. A bare mention still captures without the model.
@@ -82,7 +74,9 @@ Slack verifies the URL with a signed `url_verification` challenge. ctxpipe check
 
 Subscribe the bot to:
 
-- **`app_mention`**
+- **`app_mention`**: the capture requests;
+- **`app_uninstalled`** and **`tokens_revoked`**: ctxpipe marks the connection
+  revoked when a workspace removes the app.
 
 Do **not** subscribe to `message.channels` / `message.groups` for the connector
 ingest path. Continuous message fan-out is not used.
@@ -113,11 +107,12 @@ SLACK_SIGNING_SECRET=...
 docker compose --profile deploy up -d --force-recreate backend worker
 ```
 
-### Railway Terraform
+### Terraform (Railway)
 
-Set `slack_client_id`, `slack_client_secret`, and `slack_signing_secret` in the
-Terraform input or CI secrets used for the environment. Apply Terraform, then
-confirm both backend and worker are running the intended environment.
+Store `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_SIGNING_SECRET` in
+the secret store of your CI. The deploy writes them to the Railway services
+with `scripts/railway-sync-variables.mjs`. See
+[Terraform](/docs/self-hosting/deployment/terraform#secrets).
 
 ### AWS CDK
 
@@ -137,42 +132,17 @@ new CtxPipe(stack, "CtxPipe", {
 Use your normal secret-management convention; do not put plaintext credentials
 in source control.
 
-## 3. Complete connector setup in the UI
+## 3. Check the connector
 
-After the deployment Slack app is configured, each organization can:
+After the Slack app is configured, an organization admin connects Slack on
+**Connectors**, adds the channels to a Workspace, and merges the source pull
+request. See the [Slack connector guide](/docs/connections/source-connectors/slack).
 
-1. Authorize the Slack workspace (popup OAuth).
-2. Bind a sync-target (context) repository.
-3. Invite the bot into channels where capture is needed (`/invite` the bot's
-   **@handle**, which may differ from its display name).
-4. Mention that handle **in an existing thread**. Say **capture this** or mention with no extra
-   text to snapshot it. A mention at the top of the channel is refused. Later mentions on the
-   same thread update the same file.
-   Other intents receive a short capability reply.
-
-Direct messages are not supported in v1. Captures are auditable snapshots
-committed to the bound default branch. Uninstall does not delete git.
-
-One Slack workspace can be connected to one ctxpipe organization. Reinstalling or
-rotating the Slack app **drops channel membership**. Invite the bot again in
-every channel where capture should work. Hosted and self-host deployments share
-the Slack app’s rate quota across organizations.
-
-## 4. Layout
-
-Threads are written under:
-
-```text
-slack/channels/<slug>--<channelId>/threads/<yyyy>/<mm>/<threadTs>/thread.md
-slack/channels/<slug>--<channelId>/threads/<yyyy>/<mm>/<threadTs>/assets/…
-```
-
-Slack files and explicit embedded media are downloaded through the connector and
-committed with relative links. The worker never writes Slack private/download
-URLs into Markdown. Each asset is capped at 25 MiB and each captured thread has
-a 100 MiB asset budget; unavailable, unsafe, or oversized files leave a
-permalink or textual stub. Use a Workspace with a private repository whenever Slack
-captures may contain sensitive material.
+- One Slack workspace connects to one ctxpipe organization.
+- When you reinstall or rotate the Slack app, the bot leaves its channels.
+  Invite it again in each channel.
+- All organizations of the deployment share the rate limits of the one Slack
+  app.
 
 ## Operator troubleshooting
 
@@ -209,7 +179,9 @@ callback. Its value must exactly match a redirect URL registered in Slack.
 
 - Confirm Socket Mode is **off** and the bot Event Subscription includes
   **`app_mention`**.
-- Confirm the connector is **live** (repository bound) for that workspace.
+- Confirm that a Slack source with the status **OK** lists the channel. If no
+  Workspace has the channel, the bot replies "Nothing captured: no Workspace
+  has this channel."
 - Confirm the bot is a member of the channel. After an app reinstall, invite it
   again.
 - Mention the bot's **@handle** (Slack autocomplete), not only a display name
@@ -217,7 +189,7 @@ callback. Its value must exactly match a redirect URL registered in Slack.
 - Inspect worker logs for the Slack mention capture job. Backend and worker
   must use the same database and stable encryption material
   (`AUTH_SECRET` and, when set, `CONNECTION_SECRETS_ENCRYPTION_KEY`). The
-  selected repository's GitHub connection must still have contents write access.
+  GitHub App must still have contents write access to the Workspace repository.
   Extra text after a mention requires `MODEL_PROVIDER*` (or Bedrock). A second
   org cannot OAuth-install a workspace that is already connected.
 

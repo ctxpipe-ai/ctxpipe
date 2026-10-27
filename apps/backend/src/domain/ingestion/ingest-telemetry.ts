@@ -5,6 +5,7 @@ import {
   SpanStatusCode,
   trace,
 } from "@opentelemetry/api"
+
 import { langfusePropagation } from "../../observability/langfuse.js"
 import { log } from "../../observability/logger.js"
 import { isWorkflowControlSignal } from "../../openworkflow/isSleepSignal.js"

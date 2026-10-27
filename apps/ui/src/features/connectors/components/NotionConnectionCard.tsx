@@ -3,8 +3,10 @@
 import { IconBrandNotion } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
+
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
 import { useConnectorSync } from "@/features/workspace-sources/useConnectorSync"
+
 import { resolveConnectorHealth } from "../connectorHealth"
 import { getNotionCardCtaLabel } from "../notion-setup-model"
 import {

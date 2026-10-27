@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs"
+
 import { trace } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
@@ -7,6 +8,7 @@ import {
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { initLogger } from "evlog"
 import { afterAll, beforeAll, expect, it } from "vitest"
+
 import { EvlogSpanExporter, LLM_CONTENT_KEY } from "./evlog-span-exporter.js"
 
 const memory = new InMemorySpanExporter()

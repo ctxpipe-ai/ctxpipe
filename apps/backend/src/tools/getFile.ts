@@ -1,4 +1,5 @@
 import { z } from "zod/v3"
+
 import { requireCurrentOrgId } from "../auth/context.js"
 import { fetchCheckoutFileBytes } from "../domain/codeIngestion/codesearchClient.js"
 import { repositoryIdSchema, toToon } from "../lib/agentToolRuntime.js"
@@ -22,7 +23,6 @@ export const getFileTool = tool(
     endLine,
     maxChars,
     mode = "preview",
-    workspaceId,
   }) => {
     const repository = await getRepositoryForOrg(
       requireCurrentOrgId(),
@@ -34,7 +34,6 @@ export const getFileTool = tool(
     return readCheckoutFile({
       repositoryId,
       orgId: repository.orgId,
-      workspaceId,
       path,
       startLine,
       endLine,
@@ -57,7 +56,6 @@ export const getFileTool = tool(
       endLine: z.number().int().positive().optional(),
       maxChars: z.number().int().positive().max(MAX_GET_FILE_CHARS).optional(),
       mode: z.enum(["preview", "full"]).optional().default("preview"),
-      workspaceId: z.string().min(1).optional(),
     }),
   },
 )
@@ -76,7 +74,6 @@ export async function readCheckoutFile({
   orgId,
   workspaceId,
   sha,
-  legacy,
   path,
   startLine,
   endLine,
@@ -87,14 +84,12 @@ export async function readCheckoutFile({
   orgId: string
   workspaceId?: string
   sha?: string
-  legacy?: true
 }) {
   const bytes = await fetchCheckoutFileBytes({
     repositoryId,
     orgId,
     workspaceId,
     sha,
-    legacy,
     path,
   })
   if (!bytes) {

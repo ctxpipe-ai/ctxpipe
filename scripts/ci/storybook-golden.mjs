@@ -1,36 +1,24 @@
 import { spawnSync } from "node:child_process"
-import {
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs"
-import { createServer } from "node:http"
-import { createRequire } from "node:module"
-import { extname, join, relative, resolve } from "node:path"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
+import { browserTrace, storyCheck } from "../checks/storybook.mjs"
+import { writeTrace } from "../checks/trace.mjs"
 import {
   selectGoldenStories,
   selectPlayStories,
   shardStories,
 } from "./storybook-golden-select.mjs"
+import {
+  playStories,
+  serveStatic,
+  staticDir,
+  waitFor,
+} from "./storybook-play.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const ui = join(root, "apps/ui")
-const staticDir = join(ui, "storybook-static")
-const mime = {
-  ".html": "text/html",
-  ".js": "text/javascript",
-  ".mjs": "text/javascript",
-  ".css": "text/css",
-  ".json": "application/json",
-  ".map": "application/json",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".ico": "image/x-icon",
-  ".woff2": "font/woff2",
-}
 
 const fail = (message) => {
   throw new Error(message)
@@ -43,56 +31,14 @@ const run = (command, args, cwd = ui) => {
   if (result.status !== 0) fail(`${command} ${args.join(" ")} failed`)
 }
 
-const serveStatic = async (directory, port) => {
-  const server = createServer((request, response) => {
-    const url = new URL(request.url ?? "/", "http://127.0.0.1")
-    const relative = decodeURIComponent(url.pathname).replace(/^\/+/, "")
-    const candidates = [
-      join(directory, relative),
-      join(directory, relative, "index.html"),
-    ]
-    const file = candidates.find((path) => {
-      try {
-        return statSync(path).isFile()
-      } catch {
-        return false
-      }
-    })
-    if (!file) {
-      response.writeHead(404)
-      response.end()
-      return
-    }
-    response.writeHead(200, {
-      "content-type": mime[extname(file)] ?? "application/octet-stream",
-    })
-    response.end(readFileSync(file))
-  })
-  await new Promise((resolveListen, reject) => {
-    server.once("error", reject)
-    server.listen(port, "127.0.0.1", resolveListen)
-  })
-  return server
-}
-
-const waitFor = async (url) => {
-  const deadline = Date.now() + 60_000
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url)
-      if (response.ok) return
-    } catch {
-      /* retry */
-    }
-    await new Promise((resolveWait) => setTimeout(resolveWait, 250))
-  }
-  fail(`Storybook did not become ready at ${url}`)
-}
-
 // STORYBOOK_PLAYS=all runs every story that has a play function. The default
 // runs the required golden set. STORYBOOK_SHARD=i/n keeps every n-th story.
 // STORYBOOK_ONLY=a,b keeps stories whose id or file path contains a, or b.
+// --trace also writes trace.json.gz next to results.json: the browser lines
+// and the MSW handlers of each story (scripts/checks/README.md). It is data
+// only and does not change a result.
 const mode = process.env.STORYBOOK_PLAYS === "all" ? "all" : "golden"
+const trace = process.argv.slice(2).includes("--trace")
 
 const chosenStories = (index) => {
   try {
@@ -111,82 +57,6 @@ const chosenStories = (index) => {
   } catch (error) {
     fail(error.message)
   }
-}
-
-const playInitScript = () => {
-  window.__CTXPIPE_GOLDEN__ = { result: null, waiters: [] }
-  // Storybook ends a play in the "errored" phase, with no error event, when the
-  // page had an unhandled error during the play. Keep the errors to name them.
-  const unhandled = []
-  window.addEventListener("unhandledrejection", (event) =>
-    unhandled.push(String(event.reason?.stack ?? event.reason)),
-  )
-  window.addEventListener("error", (event) =>
-    unhandled.push(String(event.error?.stack ?? event.message)),
-  )
-  // The headless browser keeps a real cursor over the page. After a layout
-  // change it sends real pointer-move events, which end a hover that a play set
-  // with synthetic events. Plays use synthetic events only, so drop real ones.
-  for (const type of [
-    "pointerover",
-    "pointerout",
-    "pointerenter",
-    "pointerleave",
-    "pointermove",
-    "mouseover",
-    "mouseout",
-    "mouseenter",
-    "mouseleave",
-    "mousemove",
-  ])
-    window.addEventListener(
-      type,
-      (event) => {
-        if (event.isTrusted) event.stopImmediatePropagation()
-      },
-      true,
-    )
-  const record = (result) => {
-    if (window.__CTXPIPE_GOLDEN__.result) return
-    window.__CTXPIPE_GOLDEN__.result = result
-    for (const wait of window.__CTXPIPE_GOLDEN__.waiters) wait(result)
-  }
-  const hook = () => {
-    const channel = globalThis.__STORYBOOK_ADDONS_CHANNEL__
-    if (!channel || channel.__ctxpipeGolden) return
-    channel.__ctxpipeGolden = true
-    const serialize = (error) => {
-      if (error && typeof error === "object") {
-        return String(error.stack ?? error.message ?? JSON.stringify(error))
-      }
-      return String(error)
-    }
-    channel.on("playFunctionThrewException", (error) => {
-      record({ ok: false, error: serialize(error) })
-    })
-    // A render error never reaches the play phase, so it must fail here.
-    for (const name of ["storyThrewException", "storyErrored"])
-      channel.on(name, (error) => {
-        record({ ok: false, error: serialize(error) })
-      })
-    channel.on("storyRenderPhaseChanged", (info) => {
-      const phase = info?.newPhase ?? info?.phase
-      if (phase === "played") record({ ok: true, phase })
-      // Storybook names the phase before it emits the error of a play that
-      // threw. Wait a moment, so that error comes first.
-      if (phase === "errored")
-        setTimeout(
-          () =>
-            record({
-              ok: false,
-              error: `The story ended in the errored phase. Unhandled errors: ${unhandled.join(" | ") || "none seen"}`,
-            }),
-          50,
-        )
-    })
-  }
-  hook()
-  setInterval(hook, 20)
 }
 
 try {
@@ -222,64 +92,64 @@ try {
   const stories = chosenStories(
     await (await fetch(`${storybookUrl}/index.json`)).json(),
   )
-  const { chromium } = createRequire(join(ui, "package.json"))("playwright")
-  const browser = await chromium.launch({ headless: true })
-  const context = await browser.newContext({
-    viewport: { width: 1440, height: 900 },
-  })
   const suites = new Map()
+  // One result record for each story (scripts/checks/schema/result.v1.schema.json).
+  const records = []
+  const durations = {}
+  const traced = []
+  const tracer = trace ? browserTrace(staticDir) : undefined
   let passed = 0
   let failed = 0
-  for (const story of stories) {
-    const file = resolve(ui, story.importPath.replace(/^\.\//, ""))
-    const suite = suites.get(file) ?? {
-      name: file,
-      status: "passed",
-      assertionResults: [],
-    }
-    suites.set(file, suite)
-    const page = await context.newPage()
-    const pageErrors = []
-    page.on("pageerror", (error) => pageErrors.push(String(error)))
-    await page.addInitScript(playInitScript)
-    if ((story.tags ?? []).includes("reduced-motion"))
-      await page.emulateMedia({ reducedMotion: "reduce" })
-    await page.goto(
-      `${storybookUrl}/iframe.html?id=${encodeURIComponent(story.id)}&viewMode=story`,
-      { waitUntil: "domcontentloaded", timeout: 120_000 },
-    )
-    const result = await page
-      .waitForFunction(() => window.__CTXPIPE_GOLDEN__?.result, null, {
-        timeout: 120_000,
-      })
-      .then((handle) => handle.jsonValue())
-      .catch((error) => ({ ok: false, error: String(error.message) }))
-    const error =
-      result.ok === false
-        ? result.error
-        : pageErrors[0]
-          ? pageErrors[0]
-          : undefined
-    await page.close()
-    if (error) {
-      failed += 1
-      suite.status = "failed"
-      suite.assertionResults.push({
-        status: "failed",
-        fullName: story.exportName,
-        failureMessages: [error],
-      })
-      process.stderr.write(`FAIL ${story.exportName}\n${error}\n`)
-    } else {
-      passed += 1
-      suite.assertionResults.push({
+  await playStories(
+    storybookUrl,
+    stories,
+    (story, { error, durationMs, coverage, mocks }) => {
+      const file = resolve(ui, story.importPath.replace(/^\.\//, ""))
+      const suite = suites.get(file) ?? {
+        name: file,
         status: "passed",
-        fullName: story.exportName,
+        assertionResults: [],
+      }
+      suites.set(file, suite)
+      if (tracer) {
+        const record = tracer.check(story, durationMs, coverage, mocks)
+        if (record) traced.push(record)
+        else durations[storyCheck(story).id] = durationMs
+      }
+      const status = error ? "failed" : "passed"
+      records.push({
+        schemaVersion: 1,
+        id: storyCheck(story).id,
+        status,
+        durationMs: Math.round(durationMs),
+        cases: [
+          {
+            name: story.exportName,
+            status,
+            durationMs: Math.round(durationMs),
+          },
+        ],
       })
-      process.stdout.write(`PASS ${story.exportName}\n`)
-    }
-  }
-  await browser.close()
+      if (error) {
+        failed += 1
+        suite.status = "failed"
+        suite.assertionResults.push({
+          status: "failed",
+          fullName: story.exportName,
+          failureMessages: [error],
+        })
+        process.stderr.write(`FAIL ${story.exportName}\n${error}\n`)
+      } else {
+        passed += 1
+        suite.assertionResults.push({
+          status: "passed",
+          fullName: story.exportName,
+        })
+        process.stdout.write(`PASS ${story.exportName}\n`)
+      }
+    },
+    trace,
+  )
   await new Promise((resolveClose) => {
     if (!server) {
       resolveClose()
@@ -287,6 +157,14 @@ try {
     }
     server.close(resolveClose)
   })
+  // A trace is data only: an error here never changes a result.
+  if (tracer)
+    try {
+      tracer.report()
+      writeTrace(join(output, "trace.json.gz"), traced, undefined, durations)
+    } catch (error) {
+      process.stderr.write(`No trace written: ${error.message}\n`)
+    }
   const results = {
     numTotalTests: stories.length,
     numPassedTests: passed,
@@ -296,6 +174,15 @@ try {
     testResults: [...suites.values()],
   }
   writeFileSync(report, `${JSON.stringify(results, null, 2)}\n`)
+  // For the merge gate and the result store. Data only, as the trace.
+  try {
+    writeFileSync(
+      join(output, "records.ndjson"),
+      records.map((record) => `${JSON.stringify(record)}\n`).join(""),
+    )
+  } catch (error) {
+    process.stderr.write(`No result records written: ${error.message}\n`)
+  }
   writeFileSync(
     join(output, "inventory.json"),
     `${JSON.stringify(

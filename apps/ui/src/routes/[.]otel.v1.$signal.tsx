@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
+
 import { drainRequestBody, proxyBrowserOtlp } from "@/lib/otelBrowserProxy"
 
 export const Route = createFileRoute("/.otel/v1/$signal")({

@@ -11,9 +11,10 @@ import {
   useRef,
   useState,
 } from "react"
+
 import { InlineAlert } from "@/components/ui/InlineAlert"
-import { ConversationThread } from "@/features/chat/ConversationThread"
 import { chatDraftKey } from "@/features/chat/chat-draft"
+import { ConversationThread } from "@/features/chat/ConversationThread"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import { reviveChatMessages } from "@/features/chat/reviveChatMessageCreatedAt"
 import type {
@@ -22,17 +23,20 @@ import type {
   ConversationListInfiniteData,
   ConversationListItem,
 } from "@/features/chat/types"
-import { ConversationSyncEntry } from "./ConversationSyncEntry"
-import { ConversationTitleButton } from "./ConversationTitleButton"
-import { ConversationTurnChangesCard } from "./ConversationTurnChangesCard"
+import { createTreeFileResolver } from "@/lib/workspace-file-path"
+
 import { placeThreadRecords } from "./conversationDiff"
 import {
   conversationAllowsEdits,
   conversationBranchShortName,
   conversationGithubTreeHref,
 } from "./conversationPublish"
+import { ConversationSyncEntry } from "./ConversationSyncEntry"
+import { ConversationTitleButton } from "./ConversationTitleButton"
+import { ConversationTurnChangesCard } from "./ConversationTurnChangesCard"
 import type { ParsedPane } from "./pane"
 import {
+  conversationGitTreeOptions,
   conversationTurnChangesOptions,
   isDefaultConversationName,
   refreshConversationAfterTurn,
@@ -115,6 +119,22 @@ export function WorkspaceChatSession(props: {
   const [started, setStarted] = useState((initialMessages?.length ?? 0) > 0)
   const turnChanges = useQuery(
     conversationTurnChangesOptions(orgSlug, conversationId, started),
+  )
+  const treeQuery = useQuery(
+    conversationGitTreeOptions(orgSlug, conversationId),
+  )
+  const treePaths = treeQuery.data?.paths
+  const onOpenPane = props.onOpenPane
+  // Without a known tree there is no file to link, so file links stay off.
+  const fileLinks = useMemo(
+    () =>
+      treePaths && onOpenPane
+        ? {
+            resolve: createTreeFileResolver(treePaths),
+            open: (path: string) => onOpenPane({ kind: "file", path }),
+          }
+        : undefined,
+    [treePaths, onOpenPane],
   )
   const queryClient = useQueryClient()
   const [headerTitle, setHeaderTitle] = useState(title)
@@ -449,11 +469,7 @@ export function WorkspaceChatSession(props: {
           ]
           return after.length > 0 ? after : null
         }}
-        onOpenFile={
-          props.onOpenPane
-            ? (path) => props.onOpenPane?.({ kind: "file", path })
-            : undefined
-        }
+        fileLinks={fileLinks}
       />
       <MessageInputBox
         layout="thread"

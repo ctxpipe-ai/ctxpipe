@@ -1,8 +1,10 @@
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
+
 import { log, spinner } from "@clack/prompts"
 import { AsyncEntry } from "@napi-rs/keyring"
+
 import {
   AUTH_CLIENT_ID,
   DEFAULT_BASE_URL,

@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
 import type { hc } from "hono/client"
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest"
+
 import { describeWithDatabase } from "../../test/db.js"
 import type { AppEnv } from "../app/env.js"
 import { closeDb, initDb } from "../db/client.js"
@@ -8,7 +9,6 @@ import {
   contextStorage,
   withTestRequestLogger,
 } from "../test/hono-test-logger.js"
-
 import { registerOpenapiRoutes } from "./openapi.js"
 
 let registerV1Routes: typeof import("./v1/index.js").registerV1Routes

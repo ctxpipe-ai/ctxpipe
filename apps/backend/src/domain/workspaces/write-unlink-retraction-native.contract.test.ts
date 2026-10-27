@@ -2,9 +2,11 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { parse, stringify } from "yaml"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -324,14 +326,12 @@ async function mergeThenRetract(
           )
           .map((run) => run.output)
       try {
-        const { defineWorkspaceUnlinkRetractionWorkflow } = await import(
-          "../../openworkflow/workflows/workspace-unlink-retraction.js"
-        )
+        const { defineWorkspaceUnlinkRetractionWorkflow } =
+          await import("../../openworkflow/workflows/workspace-unlink-retraction.js")
         const workflow = defineWorkspaceUnlinkRetractionWorkflow()
         runner.implementWorkflow(workflow.spec, workflow.fn)
-        const { defineWorkspaceHydrateWorkflow } = await import(
-          "../../openworkflow/workflows/workspace-hydrate.js"
-        )
+        const { defineWorkspaceHydrateWorkflow } =
+          await import("../../openworkflow/workflows/workspace-hydrate.js")
         const hydrate = defineWorkspaceHydrateWorkflow()
         runner.implementWorkflow(hydrate.spec, hydrate.fn)
 
@@ -597,9 +597,8 @@ it(
       async ({ f, git, merged, jobs }) => {
         expect(git("rev-parse", "refs/heads/main")).toBe(merged)
         // A job that a person or an older projection queued also keeps it.
-        const { enqueueWriteJob } = await import(
-          "../../openworkflow/enqueue-workspace-write-commit.js"
-        )
+        const { enqueueWriteJob } =
+          await import("../../openworkflow/enqueue-workspace-write-commit.js")
         const started = await withOrgIdContext(f.org, () =>
           enqueueWriteJob(
             {

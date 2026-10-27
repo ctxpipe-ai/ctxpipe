@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
+
 import { generateGithubWebhookSecret } from "@/lib/github-webhook-secret"
+
 import { GithubSelfHostedCredentialsStep } from "./GithubSelfHostedCredentialsStep"
 
 const meta = {

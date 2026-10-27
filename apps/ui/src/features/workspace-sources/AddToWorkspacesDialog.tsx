@@ -1,8 +1,10 @@
 import type { SourceProvider } from "backend/domain/workspace-sources/sources-file"
 import { Heading } from "react-aria-components"
+
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { Modal } from "@/components/ui/Modal"
+
 import { ChooseWorkspacesStep } from "./ChooseWorkspacesStep"
 import { sourceProviderLabel } from "./source-provider-ui"
 import { useAddToWorkspaces } from "./useAddToWorkspaces"

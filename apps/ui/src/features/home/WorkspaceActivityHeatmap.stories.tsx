@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, within } from "storybook/test"
+
 import {
   expectSkeletonMatchesLoaded,
   SkeletonMatchFrame,
@@ -8,6 +9,7 @@ import {
   docsWorkspaceActivity,
   emptyWorkspaceActivity,
 } from "@/features/workspaces/workspace-fixtures"
+
 import { CALENDAR_WEEKDAYS } from "./calendar-days"
 import {
   WorkspaceActivityHeatmap,
@@ -60,6 +62,10 @@ export const Loading: Story = {
 }
 
 export const HeatmapSkeletonMatches: Story = {
+  parameters: {
+    intent:
+      "Catches an activity heatmap skeleton whose size differs from the loaded heatmap. This causes layout shift. Not for activity counts or colors.",
+  },
   tags: ["workspace-golden"],
   args: {
     days: docsWorkspaceActivity.days,

@@ -11,7 +11,7 @@ import {
 } from "drizzle-orm"
 import type { AnyPgColumn } from "drizzle-orm/pg-core"
 import { createError } from "evlog"
-import { workspaceCheckoutPrefix } from "../../../../shared/workspace-checkout.js"
+
 import { requireCurrentOrgId, requireCurrentUserId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { conversations } from "../db/schema/conversations.js"
@@ -24,14 +24,13 @@ import {
   workspaceKnowledgeUnits,
   workspaces,
 } from "../db/schema/workspaces.js"
-import { workspaceCheckoutKey } from "../domain/workspaces/derived-stores.js"
 import { firstConnectorTarget } from "../domain/workspaces/dest-workspace-first.js"
+import { initialHydratePhases } from "../domain/workspaces/hydrate-phases.js"
 import {
   type HydrateSkip,
   type HydrateUnit,
   LEGACY_UNIT_SOURCE,
 } from "../domain/workspaces/hydrate.js"
-import { initialHydratePhases } from "../domain/workspaces/hydrate-phases.js"
 import {
   type KnowledgeChunkRow,
   knowledgeChunkRows,
@@ -67,6 +66,7 @@ import {
   writeStatusFromClassification,
 } from "../domain/workspaces/write-status.js"
 import { generateObjectId } from "../lib/id.js"
+import { publishedRepositoryCheckoutKey } from "./repositories.js"
 import {
   clearLinkedRepositoryShas,
   getLinkedRepositoryPin,
@@ -459,11 +459,12 @@ async function readWorkspaceProjectionSnapshot(
         >`coalesce((
           select jsonb_agg(jsonb_build_object(
             'repository', jsonb_build_object('id', ${qualified(repositories.id)}, 'name', ${qualified(repositories.name)}, 'gitUrl', ${qualified(repositories.gitUrl)}),
-            'checkout', jsonb_build_object('zoektRepoId', ${qualified(repositoryCheckouts.zoektRepoId)}, 'sha', ${qualified(repositoryCheckouts.commitSha)}, 'checkoutKey', ${qualified(repositoryCheckouts.checkoutKey)})
+            'checkout', jsonb_build_object('zoektRepoId', ${qualified(repositoryCheckouts.zoektRepoId)}, 'sha', coalesce(${qualified(repositoryCheckouts.commitSha)}, ${qualified(repositories.lastIngestedHash)}), 'checkoutKey', ${qualified(repositoryCheckouts.checkoutKey)})
           ))
           from ${repositories} join ${repositoryCheckouts} on ${qualified(repositoryCheckouts.repositoryId)} = ${qualified(repositories.id)}
           where ${qualified(repositories.orgId)} = ${qualified(workspaces.orgId)}
-          and (${qualified(repositoryCheckouts.checkoutKey)} = ${workspaceCheckoutKey(workspaceId)} or ${qualified(repositoryCheckouts.checkoutKey)} = ${workspaceCheckoutPrefix(workspaceId)} || ${qualified(repositoryCheckouts.commitSha)})
+          and ${qualified(repositoryCheckouts.orgId)} = ${qualified(repositories.orgId)}
+          and ${qualified(repositoryCheckouts.checkoutKey)} = ${publishedRepositoryCheckoutKey()}
         ), '[]'::jsonb)`,
       })
       .from(workspaces)
@@ -473,22 +474,19 @@ async function readWorkspaceProjectionSnapshot(
       ? projectionFromWorkspace(first.workspace)
       : { kind: "absent" }
     const active = publishedProjection(projection)
-    const allowed = new Map<string, Set<string>>()
-    const allow = (url: string, sha: string) => {
-      const key = normalizeWorkspaceRepositoryUrl(url)
-      const revisions = allowed.get(key) ?? new Set<string>()
-      revisions.add(sha)
-      allowed.set(key, revisions)
-    }
+    // The repositories that the Workspace links: its own repository once
+    // its index is published, and each linked source once it is indexed.
+    const allowed = new Set<string>()
+    const allow = (url: string) =>
+      allowed.add(normalizeWorkspaceRepositoryUrl(url))
     if (active?.kind === "active" && active.stores.index.published) {
-      const indexed = active.stores.index.published
-      allow(indexed.remote.url, indexed.sha)
+      allow(active.stores.index.published.remote.url)
     } else if (active?.kind === "legacy" && active.url) {
-      allow(active.url, active.sha)
+      allow(active.url)
     }
     if (active)
       for (const linked of linkedSourcePins(first?.linkedSources ?? [])) {
-        if (linked.indexedSha) allow(linked.gitUrl, linked.indexedSha)
+        if (linked.indexedSha) allow(linked.gitUrl)
       }
     return {
       projection,
@@ -497,19 +495,15 @@ async function readWorkspaceProjectionSnapshot(
       repositories: (first?.indexedRepositories ?? []).flatMap(
         ({ repository, checkout }) => {
           if (!repository || !checkout) return []
+          // Workspace code reads use the published checkout of each
+          // linked repository: the newest commit of its default branch.
           const sha = checkout.sha
           if (
             !sha ||
-            !allowed
-              .get(normalizeWorkspaceRepositoryUrl(repository.gitUrl))
-              ?.has(sha)
+            !allowed.has(normalizeWorkspaceRepositoryUrl(repository.gitUrl))
           )
             return []
-          const checkoutKey = workspaceCheckoutKey(
-            workspaceId,
-            active?.kind === "active" ? sha : undefined,
-          )
-          if (checkout.checkoutKey !== checkoutKey) return []
+          const checkoutKey = checkout.checkoutKey
           return [
             {
               ...repository,
@@ -1017,6 +1011,53 @@ export async function listOrgWorkspaceProjections(
     getOrgDb().select().from(workspaces).where(eq(workspaces.orgId, orgId)),
   )
   return rows.map(projectionFromWorkspace)
+}
+
+/**
+ * The index jobs that read `repositoryId`: the desired revision of each
+ * Workspace whose own repository it is, and the read binding of each link to
+ * it. Call it inside the org context.
+ */
+export async function listWorkspaceIndexTargets(input: {
+  orgId: string
+  repositoryId: string
+}): Promise<{ owners: WorkspaceRevision[]; linked: LinkedRevision[] }> {
+  const [repository] = await orgSql(() =>
+    getOrgDb()
+      .select({ gitUrl: repositories.gitUrl })
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.orgId, input.orgId),
+          eq(repositories.id, input.repositoryId),
+        ),
+      ),
+  )
+  const url = repository
+    ? normalizeWorkspaceRepositoryUrl(repository.gitUrl)
+    : null
+  if (!url) return { owners: [], linked: [] }
+  const owners = (
+    await orgSql(() =>
+      getOrgDb()
+        .select()
+        .from(workspaces)
+        .where(
+          and(
+            eq(workspaces.orgId, input.orgId),
+            eq(workspaces.workspaceRepositoryUrl, url),
+          ),
+        ),
+    )
+  ).flatMap((row) => desiredWorkspaceRevision(row) ?? [])
+  const linked: LinkedRevision[] = []
+  for (const row of await listOrgLinkedRepositories(input.orgId)) {
+    if (normalizeWorkspaceRepositoryUrl(row.gitUrl) !== url) continue
+    const binding = await getLinkedReadBinding(row.id)
+    if (binding?.sha && binding.repositoryId === input.repositoryId)
+      linked.push(linkedRevisionSchema.parse(binding))
+  }
+  return { owners, linked }
 }
 
 export async function listOrgLinkedRepositories(orgId: string): Promise<
@@ -1803,6 +1844,27 @@ export async function persistWriteStatus(
   })
 }
 
+/**
+ * The new record of a derived phase. A failure keeps the time of the first
+ * failure of the same revision, and a retry (`pending`) keeps the whole
+ * failure, so that a crash in the retry loses neither. A success clears it.
+ */
+function derivedPhaseSql(
+  key: "graph" | "index",
+  input: { revision: WorkspaceRevision; result: DerivedStoreResult },
+) {
+  const revision = JSON.stringify(input.revision)
+  const record = sql`jsonb_build_object('revision', ${revision}::jsonb, 'result', ${JSON.stringify(input.result)}::jsonb)`
+  if (input.result.kind === "ready") return record
+  const phase = sql`${workspaces.hydratePhases}->${sql.raw(`'${key}'`)}`
+  const prior = sql`case when ${phase}->'revision' = ${revision}::jsonb then ${phase}->'failure' end`
+  const failure =
+    input.result.kind === "failed"
+      ? sql`jsonb_build_object('message', ${input.result.message}::text, 'at', coalesce(${prior}->>'at', ${new Date().toISOString()}::text))`
+      : prior
+  return sql`${record} || case when ${failure} is null then '{}'::jsonb else jsonb_build_object('failure', ${failure}) end`
+}
+
 /** Record derived index freshness without changing the published PostgreSQL content. */
 export async function persistWorkspaceIndexResult(input: {
   revision: WorkspaceRevision
@@ -1815,13 +1877,10 @@ export async function persistWorkspaceIndexResult(input: {
         ...(input.result.kind === "ready"
           ? { indexedSha: input.revision.sha }
           : {}),
-        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || ${JSON.stringify(
-          {
-            index: input,
-            ...(input.result.kind === "ready"
-              ? { publishedIndex: input.revision }
-              : {}),
-          },
+        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || jsonb_build_object('index', ${derivedPhaseSql("index", input)}) || ${JSON.stringify(
+          input.result.kind === "ready"
+            ? { publishedIndex: input.revision }
+            : {},
         )}::jsonb`,
         updatedAt: new Date(),
       })
@@ -2129,7 +2188,7 @@ export async function persistWorkspaceGraphResult(input: {
     const [updated] = await getOrgDb()
       .update(workspaces)
       .set({
-        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || ${JSON.stringify({ graph: input })}::jsonb`,
+        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || jsonb_build_object('graph', ${derivedPhaseSql("graph", input)})`,
         updatedAt: new Date(),
       })
       .where(

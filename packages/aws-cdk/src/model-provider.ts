@@ -2,6 +2,7 @@ import type * as cdk from "aws-cdk-lib"
 import * as ecs from "aws-cdk-lib/aws-ecs"
 import * as iam from "aws-cdk-lib/aws-iam"
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
+
 import type { CtxPipeModelProviderProps } from "./types"
 
 const DEFAULT_BEDROCK_EMBEDDING_MODEL = "cohere.embed-v4:0"

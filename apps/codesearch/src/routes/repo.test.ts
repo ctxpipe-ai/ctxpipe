@@ -1,8 +1,17 @@
 import { execFileSync } from "node:child_process"
 import { mkdirSync, renameSync } from "node:fs"
-import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises"
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import {
   afterAll,
@@ -14,6 +23,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import type { AppEnv } from "../app/env.js"
 import { startGitHttpServer } from "../test/gitHttpServer.js"
 
@@ -28,16 +38,25 @@ const { cacheRoot } = await vi.hoisted(async () => {
   return { cacheRoot: root }
 })
 
-const { getAccessibleRepositoryMock } = vi.hoisted(() => ({
-  getAccessibleRepositoryMock: vi.fn(),
-}))
+const { getAccessibleRepositoryMock, getIndexableRepositoryMock } = vi.hoisted(
+  () => ({
+    getAccessibleRepositoryMock: vi.fn(),
+    getIndexableRepositoryMock: vi.fn(),
+  }),
+)
 
 // Codesearch tests have no database, so this stubs the repository row lookup.
 vi.mock("../domain/repositories/service.js", () => ({
   getAccessibleRepository: getAccessibleRepositoryMock,
-  getIndexableRepository: vi.fn(),
+  getIndexableRepository: getIndexableRepositoryMock,
 }))
 
+import { withRepositoryIndexOperation } from "../domain/indexing/indexConcurrency.js"
+import {
+  zoektRepositoryName,
+  zoektShardFilePrefix,
+} from "../domain/zoekt/shardPrefix.js"
+import { createLogger, withLogger } from "../observability/logger.js"
 import { registerRepoRoutes } from "./repo.js"
 
 const repoCacheDir = join(cacheRoot, "repo-cache")
@@ -708,18 +727,19 @@ describe("reads stay inside the checkout", () => {
     "git-dir/config",
   ]
 
-  it.each(
-    refusedFiles,
-  )("GET /files/{path} answers %s like a missing file", async (path) => {
-    const app = createTestApp()
-    const missing = await app.request("/repo_abcdef27/files/missing.txt")
-    const res = await app.request(
-      `/repo_abcdef27/files/${encodeURIComponent(path)}`,
-    )
+  it.each(refusedFiles)(
+    "GET /files/{path} answers %s like a missing file",
+    async (path) => {
+      const app = createTestApp()
+      const missing = await app.request("/repo_abcdef27/files/missing.txt")
+      const res = await app.request(
+        `/repo_abcdef27/files/${encodeURIComponent(path)}`,
+      )
 
-    expect(res.status).toBe(404)
-    expect(await res.json()).toEqual(await missing.json())
-  })
+      expect(res.status).toBe(404)
+      expect(await res.json()).toEqual(await missing.json())
+    },
+  )
 
   it("POST /files-query omits refused files and keeps files inside", async () => {
     const app = createTestApp()
@@ -835,25 +855,23 @@ describe("reads stay inside the checkout", () => {
   })
 
   // .git/config can hold a clone token, so .git is never listed.
-  it.each([
-    ".git",
-    ".GIT",
-    "nested/.git",
-    "git-dir",
-  ])("GET /files and POST /glob answer %s like a missing directory", async (path) => {
-    const app = createTestApp()
-    const list = await app.request(
-      `/repo_abcdef27/files?path=${encodeURIComponent(path)}`,
-    )
-    const glob = await app.request("/repo_abcdef27/glob", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ pattern: "*", path }),
-    })
+  it.each([".git", ".GIT", "nested/.git", "git-dir"])(
+    "GET /files and POST /glob answer %s like a missing directory",
+    async (path) => {
+      const app = createTestApp()
+      const list = await app.request(
+        `/repo_abcdef27/files?path=${encodeURIComponent(path)}`,
+      )
+      const glob = await app.request("/repo_abcdef27/glob", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pattern: "*", path }),
+      })
 
-    expect(list.status).toBe(404)
-    expect(glob.status).toBe(404)
-  })
+      expect(list.status).toBe(404)
+      expect(glob.status).toBe(404)
+    },
+  )
 
   it("POST /glob answers a symlinked directory outside like a missing one", async () => {
     const app = createTestApp()
@@ -870,5 +888,320 @@ describe("reads stay inside the checkout", () => {
     expect(res.status).toBe(404)
     expect(await res.json()).toEqual(await missing.json())
     expect(nested.status).toBe(404)
+  })
+})
+
+describe("POST /{repoId}/checkouts/delete", () => {
+  const ORG = MOCK_REPO.orgId
+  const REPO = MOCK_REPO.id
+  const checkoutsDir = join(repoCacheDir, ORG, REPO, "checkouts")
+  const coldDir = join(cacheRoot, "zoekt-index")
+  const published = `rev:${"a".repeat(40)}`
+  const old = `rev:${"b".repeat(40)}`
+  const older = `rev:${"c".repeat(40)}`
+  const zoektIds: Record<string, number> = {
+    default: 1,
+    [published]: 2,
+    [old]: 3,
+    [older]: 4,
+  }
+
+  const shardName = (checkoutKey: string) =>
+    `${zoektShardFilePrefix(
+      zoektRepositoryName({ orgId: ORG, repoId: REPO, checkoutKey }),
+    )}v16.00000.zoekt`
+
+  async function writeCheckout(checkoutKey: string) {
+    await mkdir(join(checkoutsDir, checkoutKey, "src"), { recursive: true })
+    await writeFile(
+      join(checkoutsDir, checkoutKey, "src", "a.ts"),
+      "x".repeat(100),
+    )
+    await writeFile(join(checkoutsDir, `${checkoutKey}.scip`), "s".repeat(10))
+    await writeFile(
+      join(checkoutsDir, `${checkoutKey}.go.scip`),
+      "g".repeat(10),
+    )
+    await writeFile(join(coldDir, shardName(checkoutKey)), "z".repeat(1000))
+  }
+
+  function gcApp(sub = `repo-gc:${REPO}`) {
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("db", {} as AppEnv["Variables"]["db"])
+      c.set("auth", {
+        sub,
+        orgId: ORG,
+        principal: "service",
+      } as AppEnv["Variables"]["auth"])
+      await withLogger(createLogger({}), () => next())
+    })
+    registerRepoRoutes(app)
+    return app
+  }
+
+  const deleteKeys = (
+    checkoutKeys: string[],
+    sub?: string,
+    runEndedAt?: string,
+  ) =>
+    gcApp(sub).request(`/${REPO}/checkouts/delete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ checkoutKeys, runEndedAt }),
+    })
+
+  const exists = (path: string) =>
+    stat(path).then(
+      () => true,
+      () => false,
+    )
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    await rm(coldDir, { recursive: true, force: true })
+    await mkdir(coldDir, { recursive: true })
+    for (const key of Object.keys(zoektIds)) await writeCheckout(key)
+    getAccessibleRepositoryMock.mockResolvedValue({
+      ...MOCK_REPO,
+      name: "ctxpipe",
+      publishedCheckoutKey: published,
+    })
+    getIndexableRepositoryMock.mockImplementation(
+      async (_db: unknown, _repo: string, _org: string, key: string) =>
+        zoektIds[key] ? { zoektRepoId: zoektIds[key] } : null,
+    )
+  })
+
+  it("deletes only the listed keys and keeps the published and default checkouts", async () => {
+    const res = await deleteKeys([old, older, published])
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      deleted: [{ checkoutKey: old }, { checkoutKey: older }],
+      skipped: [{ checkoutKey: published, reason: "published" }],
+    })
+    expect((await readdir(checkoutsDir)).sort()).toEqual(
+      [
+        "default",
+        "default.go.scip",
+        "default.scip",
+        published,
+        `${published}.go.scip`,
+        `${published}.scip`,
+      ].sort(),
+    )
+    expect((await readdir(coldDir)).sort()).toEqual(
+      [shardName("default"), shardName(published)].sort(),
+    )
+  })
+
+  it("keeps a key that a run used again after the caller listed it", async () => {
+    getIndexableRepositoryMock.mockResolvedValue({
+      zoektRepoId: zoektIds[old],
+      checkoutUsedRecently: true,
+    })
+
+    const res = await deleteKeys([old])
+
+    expect(await res.json()).toEqual({
+      deleted: [],
+      skipped: [{ checkoutKey: old, reason: "recent" }],
+    })
+    expect(await exists(join(checkoutsDir, old))).toBe(true)
+    expect(await exists(join(coldDir, shardName(old)))).toBe(true)
+  })
+
+  it("deletes a recently used key when the run that used it ended", async () => {
+    getIndexableRepositoryMock.mockResolvedValue({
+      zoektRepoId: zoektIds[old],
+      checkoutUsedRecently: true,
+      checkoutUsedAt: new Date("2026-10-24T10:00:00.000Z"),
+    })
+
+    const res = await deleteKeys([old], undefined, "2026-10-24T10:00:00.000Z")
+
+    expect(await res.json()).toEqual({
+      deleted: [{ checkoutKey: old }],
+      skipped: [],
+    })
+    expect(await exists(join(checkoutsDir, old))).toBe(false)
+  })
+
+  it("keeps the key of an ended run when a run used it after the run ended", async () => {
+    getIndexableRepositoryMock.mockResolvedValue({
+      zoektRepoId: zoektIds[old],
+      checkoutUsedRecently: true,
+      checkoutUsedAt: new Date("2026-10-24T10:00:00.001Z"),
+    })
+
+    const res = await deleteKeys([old], undefined, "2026-10-24T10:00:00.000Z")
+
+    expect(await res.json()).toEqual({
+      deleted: [],
+      skipped: [{ checkoutKey: old, reason: "recent" }],
+    })
+    expect(await exists(join(checkoutsDir, old))).toBe(true)
+  })
+
+  it("keeps the files of a longer key and of a repository whose id starts with this id", async () => {
+    // The SHA-256 key starts with the SHA-1 key; repo_abcdef271 starts with
+    // repo_abcdef27.
+    const longKey = `rev:${"b".repeat(64)}`
+    const otherRepo = `${REPO}1`
+    await mkdir(join(checkoutsDir, longKey), { recursive: true })
+    await writeFile(join(checkoutsDir, `${longKey}.scip`), "s")
+    await writeFile(join(coldDir, shardName(longKey)), "z")
+    const otherShard = `${zoektShardFilePrefix(
+      zoektRepositoryName({ orgId: ORG, repoId: otherRepo, checkoutKey: old }),
+    )}v16.00000.zoekt`
+    await mkdir(join(repoCacheDir, ORG, otherRepo, "checkouts", old), {
+      recursive: true,
+    })
+    await writeFile(join(coldDir, otherShard), "z")
+
+    const res = await deleteKeys([old])
+
+    expect(await res.json()).toMatchObject({ deleted: [{ checkoutKey: old }] })
+    expect(await exists(join(checkoutsDir, old))).toBe(false)
+    expect(await exists(join(coldDir, shardName(old)))).toBe(false)
+    for (const path of [
+      join(checkoutsDir, longKey),
+      join(checkoutsDir, `${longKey}.scip`),
+      join(coldDir, shardName(longKey)),
+      join(repoCacheDir, ORG, otherRepo, "checkouts", old),
+      join(coldDir, otherShard),
+    ])
+      expect(await exists(path)).toBe(true)
+  })
+
+  it("is idempotent: a key without a row is skipped", async () => {
+    getIndexableRepositoryMock.mockResolvedValue(null)
+
+    const res = await deleteKeys([old])
+
+    expect(await res.json()).toEqual({
+      deleted: [],
+      skipped: [{ checkoutKey: old, reason: "not_found" }],
+    })
+    expect(await exists(join(checkoutsDir, old))).toBe(true)
+  })
+
+  it("deletes nothing while an index job holds the repository", async () => {
+    let release = () => {}
+    const held = withRepositoryIndexOperation(
+      REPO,
+      () => new Promise<void>((resolve) => (release = resolve)),
+    )
+
+    const res = await deleteKeys([old])
+    release()
+    await held
+
+    expect(res.status).toBe(409)
+    expect(await exists(join(checkoutsDir, old))).toBe(true)
+    expect(await exists(join(coldDir, shardName(old)))).toBe(true)
+  })
+
+  it("refuses the default key, an old Workspace key, and keys that are not checkout keys", async () => {
+    for (const key of [
+      "default",
+      "rev:../../etc",
+      `ws:a/b:${"c".repeat(40)}`,
+      `ws:ws_one:${"c".repeat(40)}`,
+      "ws:ws_one",
+    ]) {
+      const res = await deleteKeys([key])
+      expect(res.status).toBe(400)
+    }
+    expect(await exists(join(checkoutsDir, "default"))).toBe(true)
+  })
+
+  it("refuses a caller that has no collection token for the repository", async () => {
+    const res = await deleteKeys([old], `repo-purge:${REPO}`)
+
+    expect(res.status).toBe(403)
+    expect(await exists(join(checkoutsDir, old))).toBe(true)
+  })
+})
+
+describe("Workspace token reads", () => {
+  const published = `rev:${"b".repeat(40)}`
+  const pinned = "c".repeat(40)
+
+  function createWorkspaceApp(linkedRepositoryId: string) {
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("db", {} as AppEnv["Variables"]["db"])
+      c.set("env", {
+        NODE_ENV: "test",
+        PORT: 3001,
+      } as AppEnv["Variables"]["env"])
+      c.set("log", {
+        error: (error: Error | string) => loggedErrors.push(String(error)),
+      } as unknown as AppEnv["Variables"]["log"])
+      c.set("auth", {
+        sub: "org:org_mock123",
+        orgId: "org_mock123",
+        principal: "service",
+        workspaceId: "ws_alpha",
+        workspaceRepositoryIds: [linkedRepositoryId],
+      } as AppEnv["Variables"]["auth"])
+      await next()
+    })
+    registerRepoRoutes(app)
+    return app
+  }
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    getAccessibleRepositoryMock.mockResolvedValue({
+      ...MOCK_REPO,
+      publishedCheckoutKey: published,
+    })
+    const checkouts = join(
+      repoCacheDir,
+      "org_mock123",
+      "repo_abcdef27",
+      "checkouts",
+    )
+    await mkdir(join(checkouts, published), { recursive: true })
+    await writeFile(join(checkouts, published, "a.txt"), "published\n")
+    await mkdir(join(checkouts, `ws:ws_alpha:${pinned}`), { recursive: true })
+    await writeFile(
+      join(checkouts, `ws:ws_alpha:${pinned}`, "a.txt"),
+      "workspace copy\n",
+    )
+  })
+
+  it("reads the published checkout of a linked repository, not the pinned copy", async () => {
+    const app = createWorkspaceApp("repo_abcdef27")
+    const file = await app.request("/repo_abcdef27/files/a.txt")
+    expect(file.status).toBe(200)
+    expect(await file.text()).toBe("published\n")
+    const tree = await app.request("/repo_abcdef27/tree")
+    expect(tree.status).toBe(200)
+    expect(await tree.json()).toEqual({ paths: ["a.txt"] })
+  })
+
+  it("answers 403 for a repository that the Workspace does not link", async () => {
+    const app = createWorkspaceApp("repo_other")
+    for (const path of ["/repo_abcdef27/files/a.txt", "/repo_abcdef27/tree"]) {
+      const res = await app.request(path)
+      expect(res.status).toBe(403)
+    }
+  })
+
+  it("does not let a Workspace token index", async () => {
+    const res = await createWorkspaceApp("repo_abcdef27").request(
+      "/repo_abcdef27/index",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ targetHash: pinned }),
+      },
+    )
+    expect(res.status).toBe(403)
+    expect(getIndexableRepositoryMock).not.toHaveBeenCalled()
   })
 })

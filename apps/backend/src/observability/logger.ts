@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+
 import {
   createLogger,
   type DrainContext,
@@ -10,6 +11,7 @@ import {
 import { createOTLPDrain } from "evlog/otlp"
 import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
+
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
 import { applyLogContract } from "./logContract.js"

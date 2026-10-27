@@ -6,6 +6,7 @@ import {
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { Hono } from "hono"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+
 import { codesearchSpanProcessors } from "./otel.js"
 
 const exporter = new InMemorySpanExporter()

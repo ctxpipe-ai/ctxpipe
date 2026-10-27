@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
@@ -9,6 +10,7 @@ import {
   pendingWorkspaceUpgradesHandler,
   upgradeItemFixture,
 } from "@/mocks/workspace-upgrades-handlers"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
@@ -16,14 +18,14 @@ import {
   readOnlyWorkspace,
 } from "../workspaces/workspace-fixtures"
 import {
-  CHOOSE_WORKSPACES_HINT,
-  ChooseWorkspacesStep,
-} from "./ChooseWorkspacesStep"
-import {
   type ChooseWorkspacesValue,
   chooseWorkspacesRequests,
   emptyChooseWorkspaces,
 } from "./choose-workspaces"
+import {
+  CHOOSE_WORKSPACES_HINT,
+  ChooseWorkspacesStep,
+} from "./ChooseWorkspacesStep"
 
 /** The step with its state, as a wizard holds it. */
 function StepWithState(
@@ -123,6 +125,10 @@ export const SingleWorkspace: Story = {
 }
 
 export const ChooseWorkspacesMulti: Story = {
+  parameters: {
+    intent:
+      "Catches a multi-workspace connector step that mixes the shared and per-workspace scope. Same scope shows one picker, different scope shows one for each workspace. Not for connector sign-in.",
+  },
   tags: ["workspace-golden"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -201,7 +207,7 @@ export const OneWorkspaceNeedsUpgrade: Story = {
       canvas.getByText(/Needs the format upgrade first/),
     ).toBeVisible()
     await expect(
-      canvas.getByRole("link", { name: "Open Upgrades" }),
+      canvas.getByRole("link", { name: "Review upgrade" }),
     ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
     // Some Workspace can still take the source: no page-level notice.
     await expect(
@@ -279,7 +285,7 @@ export const BelowFormatWithNoUpgradeRowYet: Story = {
       ).toBeEnabled(),
     )
     await expect(
-      canvas.getByRole("link", { name: "Open Upgrades" }),
+      canvas.getByRole("link", { name: "Review upgrade" }),
     ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
   },
 }

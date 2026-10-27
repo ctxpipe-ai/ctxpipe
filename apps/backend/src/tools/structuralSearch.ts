@@ -1,4 +1,5 @@
 import { z } from "zod/v3"
+
 import { requireCurrentOrgId } from "../auth/context.js"
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
@@ -21,10 +22,7 @@ export type StructuralSearchBody = {
   limit?: number
 }
 
-type StructuralSearchWorkspace = { workspaceId: string } & (
-  | { sha: string }
-  | { legacy: true }
-)
+type StructuralSearchWorkspace = { workspaceId: string }
 
 /** The parsed codesearch answer, or the status and detail of a 4xx. A 5xx throws. */
 export async function codesearchStructuralSearchJson(
@@ -54,15 +52,10 @@ export async function codesearchStructuralSearchJson(
             ],
           }
         : {}),
-      ...(workspace ? { workspaceId: workspace.workspaceId } : {}),
-      ...(workspace && "legacy" in workspace
-        ? { legacyWorkspace: true as const }
-        : {}),
-      ...(workspace && "sha" in workspace
+      ...(workspace
         ? {
-            workspaceRevisions: [
-              { repositoryId: repository.id, sha: workspace.sha },
-            ],
+            workspaceId: workspace.workspaceId,
+            workspaceRepositoryIds: [repository.id],
           }
         : {}),
     },

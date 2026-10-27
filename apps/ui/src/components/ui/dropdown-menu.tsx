@@ -1,6 +1,7 @@
 "use client"
 
 import { Menu as MenuPrimitive } from "@base-ui/react/menu"
+
 import { cn } from "@/lib/utils"
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {

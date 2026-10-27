@@ -1,9 +1,11 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
+
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Spinner } from "@/components/ui/spinner"
+
 import { displayOAuthCallbackUrl } from "../../lib/display-oauth-callback-url"
 import {
   fetchNotionOauthApp,

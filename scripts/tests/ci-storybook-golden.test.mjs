@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
+
 import {
   isGoldenPlaySuccess,
   requiredStories,
@@ -325,8 +326,9 @@ test("CI requires the Storybook Playwright golden job without retries", () => {
   assert.match(workflow, /name: Storybook Playwright golden journey/)
   assert.match(workflow, /node scripts\/ci\/storybook-golden\.mjs/)
   assert.doesNotMatch(workflow, /--retry/)
+  // storybook-golden.mjs plays the stories with storybook-play.mjs.
   const runner = readFileSync(
-    new URL("../../scripts/ci/storybook-golden.mjs", import.meta.url),
+    new URL("../../scripts/ci/storybook-play.mjs", import.meta.url),
     "utf8",
   )
   const select = readFileSync(

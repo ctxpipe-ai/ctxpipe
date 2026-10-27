@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { useEffect, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { ConversationTitleButton } from "./ConversationTitleButton"
@@ -73,6 +74,10 @@ type Story = StoryObj<typeof meta>
  * not save the old name. Focus returns to the title button.
  */
 export const UneditedSaveKeepsAutomaticTitle: Story = {
+  parameters: {
+    intent:
+      "Catches a rename save with no edit that stores a title. The automatic title must stay, send no request, and return focus to the title button. Not for real renames.",
+  },
   tags: ["workspace-golden"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -100,6 +105,10 @@ export const UneditedSaveKeepsAutomaticTitle: Story = {
 
 /** Escape cancels and returns focus to the title button. */
 export const EscapeReturnsFocus: Story = {
+  parameters: {
+    intent:
+      "Catches an Escape in the rename field that saves or loses focus. Escape cancels, sends no request, and returns focus to the title button. Not for saving a name.",
+  },
   tags: ["workspace-golden"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

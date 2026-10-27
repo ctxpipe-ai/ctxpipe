@@ -1,0 +1,75 @@
+---
+title: How indexing works
+description: What ctxpipe builds after content reaches a Workspace, and how to read indexing states.
+---
+
+**Indexing** turns the files and the linked code of a Workspace into data that
+chat, search, the graph, and MCP can use. It runs in the background after each
+change, so new content can take a few minutes to show in answers.
+
+## Two kinds of indexing
+
+<Steps>
+  <Step>
+    ### The Workspace repository
+
+    When the default branch of the Workspace repository changes, ctxpipe reads
+    the knowledge files at that commit and rebuilds the index: units, links and
+    claims for the graph, and embeddings for search. This step never changes
+    files and calls no extraction model. The previous index serves until the new
+    one is ready.
+  </Step>
+
+  <Step>
+    ### Linked repositories
+
+    When a linked repository changes, ctxpipe checks out its linked branch,
+    builds code search and code navigation, and uses models to extract
+    services, APIs, libraries, infrastructure, and instructions. ctxpipe
+    commits the extracted knowledge to the Workspace repository as knowledge
+    files, which starts the first kind of indexing.
+  </Step>
+</Steps>
+
+## Read the status
+
+**Settings** in each Workspace shows the hydrate status of the Workspace, the
+status of each linked repository, and the **Status** group. Its **Working now**
+list shows each ingestion that runs, with its stage, its progress, and how long it
+has run. In the sidebar, a pulse next to a Workspace shows that it ingests now.
+
+For the status of a linked repository (**Pending**, **Indexing**, **Indexed**,
+**Indexed with issues**), see
+[Indexing status](/docs/workspaces/linked-repositories#indexing-status). For the
+hydrate status, see
+[Hydrate and skipped files](/docs/workspaces/settings#hydrate-and-skipped-files).
+
+When an index of the Workspace fails, the last good version continues to serve.
+Fix the cause, often front matter that is not valid or lost repository access,
+and push again.
+
+<Callout type="warn" title="Indexed does not mean correct">
+  Indexing builds search and graph data from files and from claims that a
+  model extracted. It does not prove an answer. Ask for the files, and check
+  risky decisions against the current code.
+</Callout>
+
+## Three layers
+
+Content in a Workspace lives in three layers:
+
+1. **Files**: the bytes in git, in the Workspace repository or a linked
+   repository.
+2. **Search**: the text and code index over those files. Chat and MCP can
+   retrieve anything here.
+3. **Graph**: typed nodes and relationships from links, claims, and `kind`
+   front matter. Mirrored connector content becomes `Issue`, `Thread`,
+   `PullRequest`, and similar nodes. It is never treated as instructions.
+   Cross-tool links are joined by URL or identifier, not guessed.
+
+<Cards>
+  <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="How files become graph nodes and claims." />
+  <Card title="Linked repositories" href="/docs/workspaces/linked-repositories" description="Link code and read its status." />
+  <Card title="Knowledge graph" href="/docs/workspaces/graph" description="Explore what indexing built." />
+  <Card title="Self-host operations" href="/docs/self-hosting/operations" description="Diagnose services, logs, storage, and recovery." />
+</Cards>

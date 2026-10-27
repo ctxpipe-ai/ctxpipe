@@ -9,7 +9,7 @@ type GitNameStatus = { status: string; from: string; to: string }
 export function parseNameStatus(output: Buffer | string): GitNameStatus[] {
   const fields = output.toString("utf8").split("\0")
   const changes: GitNameStatus[] = []
-  for (let index = 0; index < fields.length - 1; ) {
+  for (let index = 0; index < fields.length - 1;) {
     const status = fields[index++] ?? ""
     if (!status) break
     const from = fields[index++] ?? ""

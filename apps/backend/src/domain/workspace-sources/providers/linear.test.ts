@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { parseSourceEntry } from "../sources-file.js"
 import { linearSourceScope, summarizeLinearScope } from "./linear.js"
 

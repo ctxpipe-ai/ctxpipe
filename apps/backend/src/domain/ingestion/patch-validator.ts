@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { isDeepStrictEqual } from "node:util"
+
 import { fromMarkdown } from "mdast-util-from-markdown"
 import { parseDocument, stringify, type YAMLSeq } from "yaml"
 import { z } from "zod"
@@ -16,6 +17,7 @@ import {
   DENIED_HEADINGS,
   INJECTION_PHRASES,
 } from "../../../ingest-skills/bin/guard-patterns.mjs"
+
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { isHostOnlyPath } from "../workspaces/host-only.js"
 import {
@@ -1362,7 +1364,7 @@ function contentProblem(text: string): CheckFailure | null {
     return fail("The file has a bidirectional control character")
   if (/[\u200B-\u200D\u2060\uFEFF]/.test(text))
     return fail("The file has a zero-width character")
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: the check finds control characters
+  // oxlint-disable-next-line no-control-regex -- the check finds control characters
   if (/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(text))
     return fail("The file has a control character")
   const tokens = [...text.matchAll(HUMAN_MARKER)].map((m) =>
@@ -1730,7 +1732,7 @@ function codeSpans(
     later.set(length, k)
   }
   const spans: Array<{ start: number; end: number; text: string }> = []
-  for (let k = 0; k < runs.length; ) {
+  for (let k = 0; k < runs.length;) {
     const open = runs[k]
     const close = runs[next[k] ?? -1]
     if (!open || !close) {

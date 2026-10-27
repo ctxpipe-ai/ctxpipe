@@ -1,20 +1,19 @@
 ---
 title: Create a Workspace
-description: Choose or create the git repository that holds a Workspace's knowledge.
+description: Choose or create the git repository that holds the knowledge of a Workspace.
 ---
 
-Add Workspace has two steps. Step 1 chooses the Workspace's **workspace
-repository**. There is no draft step: once you pick a repository, the
-Workspace exists and ctxpipe starts reading it. Step 2 adds the code
-repositories and tools that the Workspace reads.
+Add Workspace has two steps. Step 1 chooses the **Workspace repository**. When
+you choose it, the Workspace exists and ctxpipe starts to read it. Step 2 adds
+the code repositories and tools that the Workspace reads. Step 2 is optional.
 
 ## Before you start
 
-- Connect GitHub from **Connectors** if you want to pick or create a
-  repository on GitHub. ctxpipe can only write to repositories the ctxpipe GitHub App
-  can access.
-- Decide which repository should hold this Workspace's knowledge. An empty
-  repository is fine; so is an existing documentation repository.
+- Connect GitHub on **Connectors** if you want to select or create a repository
+  on GitHub. ctxpipe can write only to the repositories that the ctxpipe GitHub
+  App can access.
+- Choose the repository for the knowledge of this Workspace. An empty
+  repository is good. An existing documentation repository is good too.
 
 ## Create the Workspace
 
@@ -22,28 +21,26 @@ repositories and tools that the Workspace reads.
   <Step>
     ### Open Add Workspace
 
-    Choose **+** next to **Workspaces** in the sidebar. Home also has
-    **Create Workspace**: in the **Get started** guide, or on its own while
-    your organization has no Workspace. After you connect GitHub from
-    **Connectors**, the GitHub setup page also has **Create workspace**.
+    Choose **+** next to **Workspaces** in the sidebar. You can also choose
+    **Create Workspace** on Home, or on the GitHub setup page after you connect
+    GitHub.
   </Step>
 
   <Step>
     ### Choose the repository
 
-    Pick one of three ways:
+    Choose one of these options:
 
-    - **Select GitHub**: search the repositories the ctxpipe GitHub App can see.
-      Sort by recently pushed, newest, oldest, or name.
-    - **Create on GitHub**: opens GitHub's new-repository page. Create the
-      repository, make sure the App can access it, then come back and select
-      it.
-    - **Paste URL**: any git URL. Repositories outside GitHub work as
-      read-only Workspaces.
+    - **Select GitHub**: search the repositories that the ctxpipe GitHub App can
+      see.
+    - **Create on GitHub**: open the new-repository page of GitHub. Create the
+      repository, make sure that the App can access it, then come back and
+      select it.
+    - **Paste URL**: use any git URL. ctxpipe cannot write to a repository that
+      is not on GitHub, so that Workspace is read-only.
 
-    To keep the Workspace in one folder of a larger repository, such as a
-    monorepo, type that folder in **Root folder** (for example
-    `docs/context`). Leave the field empty to use the whole repository. See
+    To keep the Workspace in one folder of a larger repository, type the folder
+    in **Root folder**, for example `docs/context`. See
     [Root folder](#root-folder).
 
     Choose **Create Workspace**.
@@ -52,86 +49,73 @@ repositories and tools that the Workspace reads.
   <Step>
     ### Add code repositories and tools
 
-    ctxpipe first checks that it can write to the workspace repository. The
-    page shows **Checking write access**, then **Setting up the Workspace
-    repository**. Then it shows the **Sources** section of the new Workspace:
+    ctxpipe checks that it can write to the repository and sets it up. Then it
+    shows the **Sources** of the new Workspace:
 
     - Choose **Add repositories** under **GitHub** to link
       [code repositories](/docs/workspaces/linked-repositories).
     - Choose **Add** next to a connected tool, such as Linear or Notion.
-    - Choose **Add another connection**, or **Add connection** when no tool
-      is connected, to connect a new tool. This closes Add Workspace.
+    - Choose **Add another connection** (or **Add connection**) to connect a
+      new tool. This closes Add Workspace.
 
-    Each change adds a source file under `sources/` in the workspace
-    repository. ctxpipe opens a pull request for it. The change applies after you
-    merge the pull request. This step is optional. You can make the same
-    changes later in **Settings**. Choose **Open Workspace** to finish (or
-    **Done**, when you started from the **Get started** guide on Home).
+    Each change opens a pull request that adds a source file under `sources/`.
+    The change applies after you merge it. You can make the same changes later
+    in **Settings**. Choose **Open Workspace** (or **Done**) to finish.
 
-    If you chose a repository that has ctxpipe content from an earlier version, the
-    step shows **Upgrade this Workspace before you add sources**. Choose
-    **Review upgrades**. See [Upgrades](/docs/workspaces/settings#upgrades).
-    If the write check fails, the step shows **Read-only** or **Could not check
-    write access** with the reason. See
+    If the repository has ctxpipe content from an earlier version, the step
+    shows **Upgrade this Workspace before you add sources**. See
+    [Upgrades](/docs/workspaces/settings#upgrades). If ctxpipe cannot write,
+    the step shows the reason. See
     [Write access](/docs/workspaces/settings#write-access).
   </Step>
 
   <Step>
     ### Wait for the first index
 
-    ctxpipe reads the default branch and builds the Workspace's index. Settings
-    shows the progress. You can start a conversation straight away; answers
-    improve once indexing finishes.
+    ctxpipe reads the default branch and builds the index. You can start a
+    conversation at once. The answers improve when indexing is done.
   </Step>
 </Steps>
 
-A repository can be the workspace repository of only one Workspace in an
-organization. Other Workspaces can still add it as a linked repository.
-
-## Root folder
-
-The root folder is the folder in the workspace repository that holds the
-Workspace. The default is the repository root.
-
-- ctxpipe reads knowledge files, `AGENTS.md`, the source files in `sources/`, and
-  `.ctxpipe/workspace.yaml` only below the root folder. Paths in the Files pane,
-  in conversations, and in MCP tools are relative to it.
-- ctxpipe writes only below the root folder. This applies to setup commits,
-  connector mirrors, source pull requests, ingestion, and conversation
-  commits. ctxpipe refuses a conversation push that changes a file outside the
-  root folder, and the agent must undo that change before it can push.
-- The root folder is a relative path, such as `docs/context`. It cannot
-  start with `/`, contain `..` or `.git`, or use characters other than
-  letters, numbers, `.`, `_`, `-`, and `/`.
-
-When you change the root folder in **Settings**, ctxpipe reads the Workspace
-again from the new folder. The current index keeps serving until the new one
-is ready. Files in the old folder stay where they are.
+A repository can be the Workspace repository of only one Workspace in an
+organization. Other Workspaces can link it as a linked repository.
 
 ## What ctxpipe adds to the repository
 
-On a writable repository, ctxpipe makes one setup commit if these files are
-missing below the root folder:
+On a writable repository, ctxpipe makes one setup commit that adds these files
+if they are missing:
 
-- `AGENTS.md` with the Workspace `name` in its front matter and a short folder
+- `AGENTS.md`, with the Workspace `name` in its front matter and a short folder
   map;
 - `.agents/skills/ctxpipe-knowledge/SKILL.md`, which tells coding agents how to
-  write knowledge files for this Workspace.
+  write knowledge files for this Workspace;
+- `.ctxpipe/workspace.yaml`, which holds the
+  [repository format](/docs/workspaces/settings#repository-format), on a
+  repository that has no ctxpipe content yet.
 
-On an empty repository, or a repository that has no ctxpipe content yet, the same
-commit also adds `.ctxpipe/workspace.yaml`. This file holds the
-[repository format](/docs/workspaces/settings#repository-format).
+ctxpipe keeps the files that exist. It adds only what is missing.
 
-Existing files are kept. ctxpipe only adds what is missing.
+## Root folder
 
-## Workspace settings
+The root folder is the folder of the repository that holds the Workspace. The
+default is the root of the repository.
 
-Open the **Settings** tab in a Workspace to change its name, URL name, context
-repository, and root folder, to manage sources, and to see write access and
-upgrades. You can also delete the Workspace there. See
-[Workspace settings](/docs/workspaces/settings).
+- ctxpipe reads and writes only below the root folder. This applies to the
+  knowledge files, `AGENTS.md`, `sources/`, `.ctxpipe/workspace.yaml`,
+  connector mirrors, ingestion, and conversation commits.
+- The paths in **Files**, in conversations, and in the MCP tools are relative
+  to the root folder.
+- ctxpipe refuses a conversation push that changes a file outside the root
+  folder.
+- The root folder is a relative path, such as `docs/context`. It cannot start
+  with `/` or contain `..` or `.git`. It can contain only letters, numbers,
+  `.`, `_`, `-`, and `/`.
+
+When you change the root folder in **Settings**, ctxpipe reads the Workspace
+again from the new folder. The current index serves until the new one is
+ready. Files in the old folder stay where they are.
 
 <Cards>
-  <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="How to structure files ctxpipe can use." />
-  <Card title="Connect sources" href="/docs/connections" description="Mirror Linear, Notion, Confluence, Slack, and PagerDuty into the Workspace." />
+  <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="How to write files that ctxpipe can use." />
+  <Card title="Connections" href="/docs/connections" description="Mirror Linear, Notion, Confluence, Slack, and PagerDuty into the Workspace." />
 </Cards>

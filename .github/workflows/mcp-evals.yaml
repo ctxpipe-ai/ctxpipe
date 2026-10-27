@@ -100,11 +100,11 @@ jobs:
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: pnpm
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - run: pnpm install --frozen-lockfile
       - name: Install the SCIP TypeScript indexer
         run: npm install --global @sourcegraph/scip-typescript@0.4.0
@@ -217,7 +217,7 @@ jobs:
         if: always()
         run: |
           if [ -f "$RUNNER_TEMP/mcp-eval-results.json" ]; then
-            jq '{result: {iterations: .result.iterations, passes: .result.passes}, rates: .rates, report: {passed: .report.passed, aggregates: .report.aggregates}}' "$RUNNER_TEMP/mcp-eval-results.json" > "$RUNNER_TEMP/mcp-eval-public-results.json"
+            jq '{result: {iterations: .result.iterations, passes: .result.passes}, rates: .rates, usage: .usage, report: {passed: .report.passed, aggregates: .report.aggregates}}' "$RUNNER_TEMP/mcp-eval-results.json" > "$RUNNER_TEMP/mcp-eval-public-results.json"
           fi
       - name: Upload pass rates
         if: always()

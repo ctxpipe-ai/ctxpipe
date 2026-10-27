@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import {
   entryPageInnerDecorators,
   orgPageDecorators,
@@ -157,6 +158,8 @@ export const ConnectedAppsEditOrgs: Story = {
   args: { accountView: "connected-apps" },
   beforeEach: editBackend.reset,
   parameters: {
+    intent:
+      "Catches a connected app edit that cannot change its organizations, or a legacy app that offers Edit. Legacy apps show a reconnect hint instead. Not for revoke.",
     storyRoute: {
       pattern: "flat",
       path: "/.auth/account/connected-apps",
@@ -207,6 +210,8 @@ export const ConnectedAppsRevoke: Story = {
   args: { accountView: "connected-apps" },
   beforeEach: revokeBackend.reset,
   parameters: {
+    intent:
+      "Catches a revoke that leaves the app in the list or leaves the dialog open. Confirming sends a DELETE request and removes only that app. Not for revoke errors.",
     storyRoute: {
       pattern: "flat",
       path: "/.auth/account/connected-apps",
@@ -235,6 +240,8 @@ export const ConnectedAppsRevokeError: Story = {
   args: { accountView: "connected-apps" },
   beforeEach: failingRevokeBackend.reset,
   parameters: {
+    intent:
+      "Catches a failed revoke that closes the dialog or removes the app. The dialog stays open with the error and the app stays listed. Not for a successful revoke.",
     storyRoute: {
       pattern: "flat",
       path: "/.auth/account/connected-apps",
@@ -531,6 +538,8 @@ export const OrganizationDeletedStaleSelection: Story = {
   decorators: orgPageDecorators,
   beforeEach: staleSelectionBackend.reset,
   parameters: {
+    intent:
+      "Catches a deleted organization that stays selected in the shell. The shell must switch to the first remaining organization and stop requesting the deleted one. Not for the last organization.",
     storyRoute: {
       pattern: "flat",
       path: "/.auth/account/organizations",
@@ -570,6 +579,8 @@ export const LastOrganizationDeleted: Story = {
   decorators: orgPageDecorators,
   beforeEach: lastOrganizationBackend.reset,
   parameters: {
+    intent:
+      "Catches a delete of the last organization that shows an error screen or requests the deleted one. The user goes to onboarding. Not for other organizations.",
     storyRoute: {
       pattern: "flat",
       path: "/.auth/account/organizations",

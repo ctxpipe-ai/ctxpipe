@@ -1,4 +1,5 @@
 import type { Hono } from "hono"
+
 import type { AppEnv } from "../app/env.js"
 
 export function registerStatusRoutes(app: Hono<AppEnv>) {

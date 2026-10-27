@@ -1,10 +1,10 @@
 "use client"
 
-import type { CSSProperties } from "react"
-import Link from "fumadocs-core/link"
 import { usePathname } from "fumadocs-core/framework"
+import Link from "fumadocs-core/link"
 import { FileText, Folder } from "fumadocs-ui/internal/icons"
 import { cn } from "fumadocs-ui/utils/cn"
+import type { CSSProperties } from "react"
 
 function normalisePathname(pathname: string) {
   return pathname.endsWith("/") && pathname !== "/"

@@ -1,6 +1,7 @@
 import { UriTemplate } from "@modelcontextprotocol/sdk/shared/uriTemplate.js"
 import { describe, expect, it } from "vitest"
 import { z } from "zod"
+
 import { orgArgument } from "../framework/tool-registry.js"
 import { readFileInputShape } from "../tools/read-file.js"
 import { WORKSPACE_FILE_URI_TEMPLATE } from "./workspace-file.js"

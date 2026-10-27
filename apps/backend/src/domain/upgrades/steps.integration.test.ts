@@ -2,7 +2,9 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   type GitPack,
@@ -81,6 +83,7 @@ async function readCommits(pack: GitPack) {
       }
     },
     pack,
+    null,
   )
 }
 
@@ -186,8 +189,11 @@ sources:
     expect(head.files).toContain(KNOWLEDGE_SKILL_PATH)
 
     // Hydrate on the merged tree plans no direct write.
-    const markdown = await readGitFiles(built.pack, (path) =>
-      path.endsWith(".md"),
+    const markdown = await readGitFiles(
+      built.pack,
+      (path) => path.endsWith(".md"),
+      undefined,
+      null,
     )
     expect(
       await planHydrateWrites({

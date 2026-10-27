@@ -6,12 +6,12 @@ import type {
 } from "../workspace-sources/projection-plan.js"
 import { bootstrapWorkspaceFiles } from "./bootstrap.js"
 import { removeFolderMapMarkers } from "./folder-list.js"
-import { hydrateKnowledgeTree } from "./hydrate.js"
 import {
   claimsUpgradeRemainder,
   importKeyCleanupRemainder,
   validFromPersistRemainder,
 } from "./hydrate-write-jobs.js"
+import { hydrateKnowledgeTree } from "./hydrate.js"
 import type { WorkspaceRevision } from "./revision.js"
 import {
   INGESTION_V2_PUBLISH_FORMAT,

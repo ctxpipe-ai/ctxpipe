@@ -8,7 +8,9 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import { describe, expect, it } from "vitest"
+
 import {
   acknowledgeSurfaced,
   classifyText,
@@ -643,9 +645,7 @@ describe("memory/capture", () => {
   })
 
   it("still classifies user-preference lessons", () => {
-    const hits = classifyText(
-      "From now on always colocate Zod with routes",
-    )
+    const hits = classifyText("From now on always colocate Zod with routes")
     expect(hits.some((h) => h.kind === "lesson")).toBe(true)
   })
 
@@ -776,11 +776,12 @@ describe("memory/capture", () => {
     const summary = summarizeCapture({ cwd, host: "cursor" })
     expect(summary.priority).toBe("low")
     expect(summary.candidates).toEqual([])
-    expect(
-      formatStopHookOutput("cursor", summary, {}),
-    ).toEqual({})
+    expect(formatStopHookOutput("cursor", summary, {})).toEqual({})
     const lifecycle = JSON.parse(
-      readFileSync(join(cwd, ".ai", "memory", "events", "lifecycle.json"), "utf8"),
+      readFileSync(
+        join(cwd, ".ai", "memory", "events", "lifecycle.json"),
+        "utf8",
+      ),
     ) as { dismissed?: string[] }
     expect(lifecycle.dismissed).toContain("toolsrc000000001")
   })

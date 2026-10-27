@@ -1,5 +1,6 @@
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
+
 import type { Client, McpAuthMode, Scope } from "../constants.js"
 import { CLIENTS, DEFAULT_BASE_URL, MCP_AUTH_MODES } from "../constants.js"
 import { resolveRepoRoot } from "../memory/paths.js"
@@ -297,14 +298,12 @@ function optionalApiKeyHeaders(apiKeyHeaderValue?: string) {
 export function buildMcpOperations({
   clients,
   baseUrl,
-  org,
   scope,
   auth = "oauth",
   context = createOperationContext(),
 }: {
   clients: Client[]
   baseUrl: string
-  org: string
   scope: Scope
   auth?: McpAuthMode
   context?: OperationContext
@@ -314,7 +313,6 @@ export function buildMcpOperations({
       buildClientOperations({
         client,
         baseUrl,
-        org,
         scope: singleScope,
         auth,
         context,
@@ -326,19 +324,17 @@ export function buildMcpOperations({
 export function buildClientOperations({
   client,
   baseUrl,
-  org,
   scope,
   auth = "oauth",
   context = createOperationContext(),
 }: {
   client: Client
   baseUrl: string
-  org: string
   scope: "repo" | "user"
   auth?: McpAuthMode
   context?: OperationContext
 }): Operation[] {
-  const url = mcpUrl({ baseUrl, org })
+  const url = mcpUrl({ baseUrl })
   const headerValue = mcpHeaderValue(client, auth)
   switch (client) {
     case "cursor":

@@ -3,6 +3,7 @@ import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify, stripVTControlCharacters } from "node:util"
+
 import { expect, it } from "vitest"
 
 it(
@@ -60,6 +61,7 @@ it(
         "workspace-write-connector-mirror",
         "workspace-write-semantic-merge",
         "github-sync-pull-request",
+        "github-sync-issue",
         "workspace-upgrade-scan",
         "workspace-upgrade",
         "workspace-upgrade-reingest",

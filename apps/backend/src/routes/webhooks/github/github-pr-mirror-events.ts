@@ -1,13 +1,11 @@
 import { z } from "zod"
-import { parseEnv } from "../../../config/env.js"
-import { normalizeWorkspaceRepositoryUrl } from "../../../domain/workspaces/slug.js"
-import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
-import { listGithubPrMirrorWorkspaceIds } from "../../../models/github-pr-mirror.js"
+
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import {
   type GithubSyncPullRequestCandidate,
   githubSyncPullRequest,
 } from "../../../openworkflow/workflows/github-sync-pull-request.js"
+import { enqueueForLinkingWorkspaces } from "./github-mirror-events.js"
 
 const pullRequestPayloadSchema = z.object({
   action: z.string(),
@@ -67,12 +65,7 @@ export function githubPrMirrorIdempotencyKey(input: {
   return `github-pr:${input.workspaceId}:${input.gitUrl}:${input.number}:${input.version ?? "unknown"}`
 }
 
-/**
- * One mirror job per Workspace that links the repository; none when no
- * Workspace does. A failed enqueue throws so the delivery answers 5xx and
- * GitHub's redelivery retries; the idempotency key skips jobs already started.
- */
-async function enqueueMirror(input: {
+function enqueueMirror(input: {
   installationId: number
   githubConnectionId?: string
   repositoryFullName: string
@@ -80,47 +73,24 @@ async function enqueueMirror(input: {
   candidate?: GithubSyncPullRequestCandidate
   version: string | undefined
 }): Promise<void> {
-  const gitUrl = normalizeWorkspaceRepositoryUrl(
-    `https://github.com/${input.repositoryFullName}`,
+  return enqueueForLinkingWorkspaces(input, (target) =>
+    runWorkflowWithWorkerWake(
+      githubSyncPullRequest.spec,
+      {
+        ...target,
+        numbers: [input.number],
+        ...(input.candidate ? { candidate: input.candidate } : {}),
+      },
+      {
+        idempotencyKey: githubPrMirrorIdempotencyKey({
+          workspaceId: target.workspaceId,
+          gitUrl: target.gitUrl,
+          number: input.number,
+          version: input.version,
+        }),
+      },
+    ),
   )
-  const installations = await listInstallationsByGithubInstallationId(
-    input.installationId,
-    input.githubConnectionId,
-    parseEnv(process.env as Record<string, string | undefined>),
-  )
-  const failures: unknown[] = []
-  for (const installation of installations) {
-    const workspaceIds = await listGithubPrMirrorWorkspaceIds({
-      orgId: installation.orgId,
-      gitUrl,
-    })
-    for (const workspaceId of workspaceIds) {
-      await runWorkflowWithWorkerWake(
-        githubSyncPullRequest.spec,
-        {
-          orgId: installation.orgId,
-          workspaceId,
-          gitUrl,
-          connectionId: installation.id,
-          numbers: [input.number],
-          ...(input.candidate ? { candidate: input.candidate } : {}),
-        },
-        {
-          idempotencyKey: githubPrMirrorIdempotencyKey({
-            workspaceId,
-            gitUrl,
-            number: input.number,
-            version: input.version,
-          }),
-        },
-      ).catch((error: unknown) => failures.push(error))
-    }
-  }
-  if (failures.length)
-    throw new AggregateError(
-      failures,
-      "GitHub pull request mirror could not be enqueued",
-    )
 }
 
 export async function maybeEnqueueGithubPrMirror(input: {

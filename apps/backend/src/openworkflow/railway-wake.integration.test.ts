@@ -1,9 +1,11 @@
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { config } from "dotenv"
 import { sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest"
+
 import { useMswServer } from "../../test/msw.js"
 import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
@@ -16,7 +18,6 @@ const pr = `pr-${Date.now()}${Math.floor(Math.random() * 1000)}`
 const namespace = `preview-${pr}`
 
 const requests: { headers: Headers; body: { query: string } }[] = []
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
   http.post("https://backboard.railway.com/graphql/v2", async ({ request }) => {
     const body = (await request.json()) as { query: string }

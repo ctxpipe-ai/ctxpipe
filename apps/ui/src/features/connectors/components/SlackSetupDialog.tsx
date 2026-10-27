@@ -5,12 +5,15 @@ import { IconBrandSlack, IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
+
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
+import { DOCS_URL } from "@/lib/docs-url"
+
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   fetchSlackConnectorStatus,
@@ -29,8 +32,7 @@ import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
 
 export const SLACK_SETUP_RESULT_KEY = "slack-setup-result"
 
-const SLACK_DOCS_URL =
-  "https://docs.ctxpipe.ai/docs/connections/source-connectors/slack"
+const SLACK_DOCS_URL = `${DOCS_URL}/docs/connections/source-connectors/slack`
 
 const SLACK_SETUP_STEPS = [
   { id: "authorize", label: "Authorize Slack workspace" },

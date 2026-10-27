@@ -1,5 +1,6 @@
 import { HttpResponse, http } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
 import {
   emptyLinearPage,
   installLinearGraphql,
@@ -19,7 +20,6 @@ import {
 import { captureLinearIncrementalContent } from "./sync.js"
 
 const calls: LinearGraphqlCall[] = []
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 let issue = linearIssueData()
 let initiativeProjectIds: string[] = []

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { withAgentVault } from "../../test/agent-vault-fixture.js"
 import {
   AgentVaultUnavailableError,

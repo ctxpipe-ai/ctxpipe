@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
 import { runMcpDoctor } from "../src/commands.js"
 import {
   diagnoseMcpEndpoint,
   formatMcpDoctorResult,
 } from "../src/mcp/doctor.js"
 
-const remoteUrl = "https://app.example.com/mcp?orgSlug=acme"
+const remoteUrl = "https://app.example.com/mcp"
 
 function healthyFetch(
   appOrigin = "https://app.example.com",
@@ -80,10 +81,7 @@ function initializeOkResponse(): Response {
   })
 }
 
-function apiKeyFetch(
-  secret: string,
-  appOrigin = "https://app.example.com",
-) {
+function apiKeyFetch(secret: string, appOrigin = "https://app.example.com") {
   return vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url =
       input instanceof Request
@@ -114,7 +112,7 @@ describe("diagnoseMcpEndpoint", () => {
   it("accepts loopback HTTP but reports the transport warning", async () => {
     const fetchFn = healthyFetch("http://localhost:3000")
     const result = await diagnoseMcpEndpoint({
-      url: "http://localhost:3000/mcp?orgSlug=acme",
+      url: "http://localhost:3000/mcp",
       fetch: fetchFn,
     })
 
@@ -128,7 +126,7 @@ describe("diagnoseMcpEndpoint", () => {
   it("rejects remote HTTP before making requests", async () => {
     const fetchFn = healthyFetch()
     const result = await diagnoseMcpEndpoint({
-      url: "http://app.example.com/mcp?orgSlug=acme",
+      url: "http://app.example.com/mcp",
       fetch: fetchFn,
     })
 
@@ -145,7 +143,7 @@ describe("diagnoseMcpEndpoint", () => {
       fetch: healthyFetch(),
     })
     const wrongPath = await diagnoseMcpEndpoint({
-      url: "https://app.example.com/api/mcp?orgSlug=acme",
+      url: "https://app.example.com/api/mcp",
       fetch: healthyFetch(),
     })
 
@@ -360,7 +358,7 @@ describe("diagnoseMcpEndpoint", () => {
 
   it("redacts unrelated target query values from JSON and human output", async () => {
     const result = await diagnoseMcpEndpoint({
-      url: `${remoteUrl}&access_token=secret-value`,
+      url: `${remoteUrl}?access_token=secret-value`,
       fetch: healthyFetch(),
     })
     const output = `${JSON.stringify(result)}\n${formatMcpDoctorResult(result)}`

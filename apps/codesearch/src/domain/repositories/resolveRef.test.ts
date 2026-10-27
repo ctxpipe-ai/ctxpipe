@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
 import { repositoryGitRemote } from "../../utils/git.js"
 import { resolveRepositoryRef } from "./resolveRef.js"
 

@@ -4,16 +4,16 @@ import {
   githubLegacyScopeSchema,
   githubScopeRepositories,
 } from "./providers/github.js"
-import { githubSourcePath } from "./source-file.js"
 import { parseSourceFile } from "./source-file-text.js"
+import { githubSourcePath } from "./source-file.js"
 import {
   type ParsedSourceEntry,
   parseLegacySourceEntry,
   type SourceEntry,
   sourcesFileSchema,
 } from "./sources-file.js"
-import { parseSourcesYaml } from "./sources-yaml.js"
 import { applySourcesYamlChange } from "./sources-yaml-edit.js"
+import { parseSourcesYaml } from "./sources-yaml.js"
 
 /**
  * The id of the GitHub entry in `.ctxpipe/sources.yaml` that the legacy

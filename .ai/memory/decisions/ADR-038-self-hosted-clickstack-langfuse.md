@@ -16,7 +16,7 @@ Hosted observability was Langfuse Cloud plus unused Better Stack and Amplitude. 
 
 4. **LLM tracing** is the Langfuse LangChain `CallbackHandler` plus `propagateAttributes` ([ADR-011](ADR-011-backend-observability-otel.md)). Spans leave the process once, on the same OTLP exporter. LangSmith is removed ([ADR-006](ADR-006-langsmith-studio-dev-routes.md)).
 
-5. **Resource attribute** `deployment.environment` follows the [observability skill](../../../.cursor/skills/observability/SKILL.md). The backend flushes PR metrics on demand; codesearch exports traces only on PR. Production keeps a 60s metric reader.
+5. **Resource attribute** `deployment.environment` follows the [observability skill](../../../.agents/skills/observability/SKILL.md). The backend flushes PR metrics on demand; codesearch exports traces only on PR. Production keeps a 60s metric reader.
 
 6. **Browser:** `@hyperdx/browser` posts `POST /.otel/v1/$signal` on the same origin. The UI server holds the collector URL and ingest key. Replay is off. Supersedes [ADR-017](ADR-017-amplitude-analytics.md).
 
@@ -28,7 +28,7 @@ Hosted observability was Langfuse Cloud plus unused Better Stack and Amplitude. 
 
 10. **Billing gauges.** Hourly `cost-telemetry` writes daily `billing.cost` and `billing.usage` points, plus `billing.fx_rate` (USD→AUD), into `otel.otel_metrics_gauge`. Each cost and usage point is stamped with `billing.observed_at_unix_ms`. The HyperDX **Cost** dashboard (`dashboards/cost.json`) reads those rows with raw SQL and `argMax(Value, toUInt64OrZero(Attributes['billing.observed_at_unix_ms']))` per day+provider+sku+scope so a later downward revision wins. Langfuse token cost stays in the `langfuse` database.
 
-11. **Cost credential delivery.** Provider credentials for the Terraform-managed cost collector have source copies in the protected GitHub `observability` Environment. The apply job writes them to Railway immediately before connecting the service image, and syncs them after apply for rotations. Terraform passes only service IDs to the sync script, so provider secret values stay out of plans and state. The isolated PR preview keeps its own Railway variables.
+11. **Cost credential delivery.** Provider credentials for the Terraform-managed cost collector have source copies in the protected GitHub `observability` Environment. The apply job writes them to Railway immediately before connecting the service image, and syncs them after apply for rotations. Terraform passes only service IDs to the sync script, so provider secret values stay out of plans and state. The isolated PR preview keeps its own Railway variables. Superseded by [ADR-054](ADR-054-secrets-sync-from-github-to-railway.md): every observability secret now comes from the GitHub `observability` Environment this way.
 
 ### Consequences
 

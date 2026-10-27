@@ -1,9 +1,11 @@
 import { type DragEvent, useState } from "react"
 import { toast } from "sonner"
+
 import { Button } from "@/components/ui/Button"
-import { TextField } from "@/components/ui/TextField"
 import { Textarea } from "@/components/ui/textarea"
+import { TextField } from "@/components/ui/TextField"
 import { cn } from "@/lib/utils"
+
 import { CopyableBlock } from "../CopyableBlock"
 
 type GithubSelfHostedCredentialsStepProps = {
@@ -277,6 +279,12 @@ export function GithubSelfHostedCredentialsStep({
                           </strong>
                           : Read and write
                         </li>
+                        <li>
+                          <strong className="font-medium text-foreground">
+                            Issues
+                          </strong>
+                          : Read-only
+                        </li>
                       </ul>
                     </li>
                     <li>
@@ -314,6 +322,11 @@ export function GithubSelfHostedCredentialsStep({
                     <li>
                       <strong className="font-medium text-foreground">
                         Pull request review comment
+                      </strong>
+                    </li>
+                    <li>
+                      <strong className="font-medium text-foreground">
+                        Issues
                       </strong>
                     </li>
                     <li>
@@ -381,7 +394,6 @@ export function GithubSelfHostedCredentialsStep({
             </code>{" "}
             file here.
           </p>
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: PEM file drop target around the textarea */}
           <div
             className={cn(
               "rounded-md transition-shadow",

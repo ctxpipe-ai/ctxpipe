@@ -1,10 +1,12 @@
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useRef } from "react"
 import { RadioGroup as RACRadioGroup } from "react-aria-components"
+
 import { Checkbox } from "@/components/ui/Checkbox"
 import { Radio } from "@/components/ui/RadioGroup"
 import { SkeletonRow } from "@/components/ui/Skeleton"
 import { cn } from "@/lib/utils"
+
 import type { GithubRepoItem } from "../githubRepoSelection"
 
 const ROW_SIZE_PX = 40

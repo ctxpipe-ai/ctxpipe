@@ -1,11 +1,16 @@
 import { execFile } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { mkdir, mkdtemp, open, rm, writeFile } from "node:fs/promises"
+import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { expect, it } from "vitest"
+
+import { expect, it, vi } from "vitest"
+
 import {
   captureGitPack,
+  fetchGitCommits,
+  type GitPack,
   listTreeBlobs,
   nativeGit,
   withGitDirectory,
@@ -101,22 +106,27 @@ it("waits for a Git process the operation left running before it removes the dir
   let leftDirectory = ""
   try {
     await expect(
-      withGitDirectory("0".repeat(40), async (directory) => {
-        leftDirectory = directory
-        // Git blocks on the pipe: it is alive until something writes to it or kills it.
-        void nativeGit(directory, ["hash-object", "-w", "--stdin"], {
-          file: fifo,
-        })
-          .catch((error: unknown) => {
-            leftError = error
+      withGitDirectory(
+        "0".repeat(40),
+        async (directory) => {
+          leftDirectory = directory
+          // Git blocks on the pipe: it is alive until something writes to it or kills it.
+          void nativeGit(directory, ["hash-object", "-w", "--stdin"], {
+            file: fifo,
           })
-          .finally(() => {
-            leftSettled = true
-          })
-        // Let Git start and block, so the process is really alive.
-        await new Promise((resolve) => setTimeout(resolve, 200))
-        throw new Error("the operation failed")
-      }),
+            .catch((error: unknown) => {
+              leftError = error
+            })
+            .finally(() => {
+              leftSettled = true
+            })
+          // Let Git start and block, so the process is really alive.
+          await new Promise((resolve) => setTimeout(resolve, 200))
+          throw new Error("the operation failed")
+        },
+        undefined,
+        null,
+      ),
     ).rejects.toThrow("the operation failed")
     // The clean-up has waited: the process has exited, not only been signaled.
     expect(leftSettled).toBe(true)
@@ -160,7 +170,7 @@ it("opens a large pack without the whole pack in memory", async () => {
     const sha = (await nativeGit(source, ["rev-parse", "HEAD"]))
       .toString()
       .trim()
-    const pack = await captureGitPack(source, sha)
+    const pack = await captureGitPack(source, sha, null)
     const packBytes = (pack.objects.length * 3) / 4
     expect(packBytes).toBeGreaterThan(40 * 2 ** 20)
 
@@ -179,6 +189,7 @@ it("opens a large pack without the whole pack in memory", async () => {
             .trim()
             .split("\n").length,
         pack,
+        null,
       )
       expect(count).toBe(12 * 64)
     } finally {
@@ -193,10 +204,177 @@ it("opens a large pack without the whole pack in memory", async () => {
 it("puts the Git error output and the exit code in the error of a failed pack", async () => {
   const sha = "a".repeat(40)
   await expect(
-    withGitDirectory(sha, async () => undefined, {
+    withGitDirectory(
       sha,
-      objects: Buffer.from("PACK but not a pack").toString("base64"),
-      shallow: "",
-    }),
+      async () => undefined,
+      {
+        sha,
+        objects: Buffer.from("PACK but not a pack").toString("base64"),
+        shallow: "",
+      },
+      null,
+    ),
   ).rejects.toThrow(/git index-pack exit code 128 after \d+ s: fatal: /)
 })
+
+/** A repository with one commit; the caller removes `directory`. */
+async function seededRepository() {
+  const directory = await mkdtemp(join(tmpdir(), "ctxpipe-base-source-"))
+  await nativeGit(directory, ["init", "-q"])
+  await writeFile(join(directory, "notes.md"), "# Notes\n")
+  await nativeGit(directory, ["add", "-A"])
+  await nativeGit(directory, [
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@example.com",
+    "commit",
+    "-qm",
+    "seed",
+  ])
+  const sha = (await nativeGit(directory, ["rev-parse", "HEAD"]))
+    .toString()
+    .trim()
+  return { directory, sha }
+}
+
+const boundUrl = "https://github.com/fixture/bound.git"
+
+it.each([
+  {
+    name: "another repository, with the connection of another org",
+    url: "https://github.com/other-owner/other-repo.git",
+    readUrl: boundUrl,
+    stored: { orgId: "org_other", connectionId: "con_other" },
+  },
+  {
+    name: "another host",
+    url: "https://git.example.invalid/fixture/bound.git",
+    readUrl: "https://git.example.invalid/fixture/bound.git",
+    stored: {},
+  },
+  {
+    name: "plain HTTP",
+    url: "http://github.com/fixture/bound.git",
+    readUrl: "http://github.com/fixture/bound.git",
+    stored: {},
+  },
+  {
+    name: "a URL with a user name",
+    url: "https://x@github.com/o/r",
+    readUrl: "https://x@github.com/o/r",
+    stored: {},
+  },
+  {
+    name: "a host that only starts with github.com",
+    url: "https://github.com.evil/o/r",
+    readUrl: "https://github.com.evil/o/r",
+    stored: {},
+  },
+  {
+    name: "a URL with a port",
+    url: "https://github.com:8443/o/r",
+    readUrl: "https://github.com:8443/o/r",
+    stored: {},
+  },
+  {
+    name: "a URL with a backslash",
+    url: "https://github.com\\@evil.example/o/r",
+    readUrl: "https://github.com\\@evil.example/o/r",
+    stored: {},
+  },
+])(
+  "rejects a stored base on $name before it asks for a token (CTX-955)",
+  async ({ url, readUrl, stored }) => {
+    const sha = "a".repeat(40)
+    const token = vi.fn(async () => "fixture-only-token")
+    const pack = {
+      sha,
+      objects: "",
+      shallow: "",
+      base: { url, shas: [sha], ...stored },
+    } as GitPack
+    await expect(
+      withGitDirectory(sha, async () => "opened", pack, {
+        url: readUrl,
+        token,
+      }),
+    ).rejects.toThrow("not the GitHub repository of its Workspace")
+    expect(token).not.toHaveBeenCalled()
+  },
+)
+
+it("fetches a stored base with the read access of the caller, not with the org and connection in the output (CTX-955)", async () => {
+  const source = await seededRepository()
+  const config = join(source.directory, "gitconfig")
+  try {
+    // The bound GitHub URL reads from the local repository.
+    await writeFile(
+      config,
+      `[url "${source.directory}"]\n\tinsteadOf = ${boundUrl}\n`,
+    )
+    vi.stubEnv("GIT_CONFIG_GLOBAL", config)
+    const token = vi.fn(async () => "fixture-only-token")
+    const pack = {
+      sha: source.sha,
+      objects: "",
+      shallow: "",
+      base: {
+        url: boundUrl,
+        shas: [source.sha],
+        orgId: "org_other",
+        connectionId: "con_other",
+      },
+    } as GitPack
+    const content = await withGitDirectory(
+      source.sha,
+      async (directory) =>
+        (
+          await nativeGit(directory, ["show", `${source.sha}:notes.md`])
+        ).toString(),
+      pack,
+      { url: boundUrl, token },
+    )
+    expect(content).toBe("# Notes\n")
+    expect(token).toHaveBeenCalledTimes(1)
+    await expect(
+      withGitDirectory(source.sha, async () => "opened", pack, null),
+    ).rejects.toThrow("needs the read access of its Workspace")
+  } finally {
+    vi.unstubAllEnvs()
+    await rm(source.directory, { recursive: true, force: true })
+  }
+})
+
+it.each([
+  { status: 503, attempts: 3, error: "returned error: 503" },
+  { status: 404, attempts: 1, error: "not found" },
+  { status: 403, attempts: 1, error: "returned error: 403" },
+])(
+  "fetches again after a $status answer only when the Git host can recover: $attempts attempts",
+  async ({ status, attempts, error }) => {
+    let requests = 0
+    const server = createServer((_request, response) => {
+      requests++
+      response.writeHead(status).end()
+    })
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    const address = server.address()
+    if (!address || typeof address === "string") throw new Error("No port")
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-fetch-retry-"))
+    try {
+      await nativeGit(directory, ["init", "-q"])
+      await expect(
+        fetchGitCommits(directory, {
+          url: `http://127.0.0.1:${address.port}/fixture/bound.git`,
+          shas: ["a".repeat(40)],
+        }),
+      ).rejects.toThrow(error)
+      expect(requests).toBe(attempts)
+    } finally {
+      server.close()
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+  30_000,
+)

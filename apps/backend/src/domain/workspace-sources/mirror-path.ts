@@ -1,4 +1,5 @@
 import { posix } from "node:path"
+
 import { log } from "../../observability/logger.js"
 
 /**
@@ -14,7 +15,7 @@ import { log } from "../../observability/logger.js"
  */
 export function unsafeMirrorPath(path: string, folder = false): string | null {
   if (path.normalize("NFC") !== path) return "changes in Unicode NFC form"
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: the check refuses control characters
+  // oxlint-disable-next-line no-control-regex -- the check refuses control characters
   if (/[\u0000-\u001f\u007f-\u009f]/.test(path))
     return "contains a control character"
   if (path.includes("\\")) return "contains a backslash"

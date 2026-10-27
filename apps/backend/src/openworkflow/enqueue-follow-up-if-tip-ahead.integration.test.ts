@@ -1,9 +1,11 @@
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { config } from "dotenv"
 import { eq, sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
 import { useMswServer } from "../../test/msw.js"
 import { recordSpans } from "../../test/spans.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
@@ -28,7 +30,6 @@ const repositoryId = `repo_follow_up_${suffix}`
 const codesearch = "http://codesearch.follow-up.test"
 const tip = "b".repeat(40)
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
   http.post(`${codesearch}/:repositoryId/resolve-ref`, () =>
     HttpResponse.json({ hash: tip, branch: "main" }),
@@ -71,9 +72,8 @@ describe("enqueueFollowUpIfTipAhead (Postgres)", () => {
 
   it("admits the follow-up with the request id of the parent's restored job telemetry", async () => {
     // Loaded after DATABASE_URL is checked: the OpenWorkflow client connects on import.
-    const { enqueueFollowUpIfTipAhead } = await import(
-      "./enqueue-follow-up-if-tip-ahead.js"
-    )
+    const { enqueueFollowUpIfTipAhead } =
+      await import("./enqueue-follow-up-if-tip-ahead.js")
     const errors: Error[] = []
     const result = await withLogger(createLogger({ test: "follow-up" }), () =>
       restoreJobTelemetry(

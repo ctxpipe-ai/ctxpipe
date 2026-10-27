@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { trace } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
@@ -18,6 +19,7 @@ import {
   expect,
   it,
 } from "vitest"
+
 import {
   findStepCommit,
   ingestRefName,

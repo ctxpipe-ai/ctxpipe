@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import type { UpgradeFailure } from "./upgrade-failure"
 import { upgradeFailureAllowsStartAgain } from "./upgrade-failure"
 

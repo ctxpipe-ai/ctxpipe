@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
+
 import type { AppEnv } from "../../app/env.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
 import { UPGRADE_STATUSES } from "../../domain/upgrades/registry.js"
@@ -36,6 +37,7 @@ import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-t
 import { workspaceActivityRoutes } from "./workspace-activity-routes.js"
 import { workspaceFilesRoutes } from "./workspace-files-routes.js"
 import { workspaceGraphRoutes } from "./workspace-graph-routes.js"
+import { workspaceIngestionRoutes } from "./workspace-ingestion-routes.js"
 import {
   LinkedRepositorySchema,
   workspaceLinkedRoutes,
@@ -649,6 +651,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     return c.json(serializeWorkspace(current), 200)
   })
   .route("/", workspaceActivityRoutes)
+  .route("/", workspaceIngestionRoutes)
   .route("/", workspaceFilesRoutes)
   .route("/", workspaceGraphRoutes)
   .route("/", workspaceLinkedRoutes)

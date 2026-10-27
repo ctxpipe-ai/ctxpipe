@@ -16,6 +16,7 @@
 import { resolve } from "node:path"
 import { setTimeout } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
+
 import { config } from "dotenv"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
@@ -53,9 +54,8 @@ async function main(argv: string[]): Promise<void> {
   const { closeDb, initDb } = await import("../db/client.js")
   initDb(connectionString)
   const { listRepositoriesForOrg } = await import("../models/repositories.js")
-  const { enqueueRepositoryIngestionWorkflow } = await import(
-    "../openworkflow/enqueue-repository-ingestion.js"
-  )
+  const { enqueueRepositoryIngestionWorkflow } =
+    await import("../openworkflow/enqueue-repository-ingestion.js")
 
   try {
     const repositories = await listRepositoriesForOrg(orgId)

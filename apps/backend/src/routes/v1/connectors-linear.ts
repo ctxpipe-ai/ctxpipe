@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
+
 import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
@@ -860,34 +861,32 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       env: c.var.env,
       connection: installed.connection,
       onTokenRefresh: (expectedRefreshToken, expectedAccessToken) =>
-        withOrgDbContext(orgId, () =>
-          refreshLinearConnectionTokensWithLock({
-            orgId,
-            connectionId: installed.connection.id,
-            env: c.var.env,
-            expectedRefreshToken,
-            expectedAccessToken,
-            refresh: async (refreshToken) => {
-              const creds = getLinearOauthAppCreds(
-                installed.connection,
-                c.var.env,
-              )
-              if (!creds) {
-                throw new Error("Linear OAuth is not configured")
-              }
-              const token = await refreshLinearOAuthToken({
-                env: c.var.env,
-                refreshToken,
-                creds,
-              })
-              return {
-                accessToken: token.access_token,
-                refreshToken: token.refresh_token ?? refreshToken,
-                accessTokenExpiresAt: linearTokenExpiresAt(token.expires_in),
-              }
-            },
-          }),
-        ),
+        refreshLinearConnectionTokensWithLock({
+          orgId,
+          connectionId: installed.connection.id,
+          env: c.var.env,
+          expectedRefreshToken,
+          expectedAccessToken,
+          refresh: async (refreshToken) => {
+            const creds = getLinearOauthAppCreds(
+              installed.connection,
+              c.var.env,
+            )
+            if (!creds) {
+              throw new Error("Linear OAuth is not configured")
+            }
+            const token = await refreshLinearOAuthToken({
+              env: c.var.env,
+              refreshToken,
+              creds,
+            })
+            return {
+              accessToken: token.access_token,
+              refreshToken: token.refresh_token ?? refreshToken,
+              accessTokenExpiresAt: linearTokenExpiresAt(token.expires_in),
+            }
+          },
+        }),
     })
     return c.json({ items }, 200)
   })

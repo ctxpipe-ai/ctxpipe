@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useLocation } from "@tanstack/react-router"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+
 import {
   createdWorkspace,
   createdWritableWorkspaceDetail,
@@ -27,6 +28,7 @@ import {
   upgradesFixture,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
+
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import {
@@ -338,7 +340,7 @@ export const StepTwoFormatNotValid: Story = {
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("The format file in the repository is not valid.")
+    await canvas.findByText(/^The format file in the repository is not valid\./)
     await expect(
       canvas.queryByText("Upgrade this Workspace before you add sources"),
     ).toBeNull()
@@ -449,6 +451,8 @@ function placement(canvas: ReturnType<typeof within>): Placement {
 export const KeepsPlaceBetweenSteps: Story = {
   tags: ["workspace-golden"],
   parameters: {
+    intent:
+      "Catches layout shift between the loading skeleton and the loaded steps of the new workspace page. The step keeps its place while data loads. Not for step content.",
     msw: {
       handlers: {
         defaults: slowSessionDefaults,

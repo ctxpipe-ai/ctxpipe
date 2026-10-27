@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import { gitRemoteEnvironment } from "./clone-tree.js"
 import { type GitFileChange, gitFileBytes } from "./file-change.js"
 import { captureGitPack, nativeGit, packGitObjects } from "./pack.js"
@@ -96,7 +97,8 @@ export async function stageUnbornGitFiles(
       ])
     }
     const tree = (await nativeGit(directory, ["write-tree"])).toString().trim()
-    const objects = await packGitObjects(directory, [tree])
+    // An unborn tree has no base: the pack holds all its objects.
+    const objects = await packGitObjects(directory, [tree], null)
     return { tree, objects }
   })
 }
@@ -154,6 +156,6 @@ export async function commitUnbornGitTree(
     )
       .toString()
       .trim()
-    return captureGitPack(directory, sha)
+    return captureGitPack(directory, sha, null)
   }, tree)
 }

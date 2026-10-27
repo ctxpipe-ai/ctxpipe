@@ -1,5 +1,6 @@
 import { http } from "msw"
 import { describe, expect, it, vi } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import { searchKnowledge, vectorScanSettings } from "./knowledge-search.js"
 
@@ -32,7 +33,6 @@ describe("vectorScanSettings", () => {
   })
 })
 
-// biome-ignore lint/correctness/useHookAtTopLevel: Vitest file-scope MSW setup, not a React hook.
 const server = useMswServer()
 
 describe("searchKnowledge deadline", () => {

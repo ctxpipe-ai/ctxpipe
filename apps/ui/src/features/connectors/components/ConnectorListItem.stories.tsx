@@ -1,10 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { IconBrandGithub } from "@tabler/icons-react"
 import { expect, userEvent, within } from "storybook/test"
+
 import {
   expectSkeletonMatchesLoaded,
   SkeletonMatchFrame,
 } from "@/components/ui/skeletonMatchStory"
+
 import {
   ConnectorListItem,
   ConnectorListItemSkeleton,
@@ -175,6 +177,10 @@ export const Checking: Story = {
 
 /** The loading row has the same box as a collapsed connector row. */
 export const ConnectorRowSkeletonMatches: Story = {
+  parameters: {
+    intent:
+      "Catches a connector list skeleton row whose size differs from the loaded row. This causes layout shift. Not for connector data or health states.",
+  },
   tags: ["workspace-golden"],
   args: {
     ...shared,

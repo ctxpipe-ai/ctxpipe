@@ -1,4 +1,5 @@
 import type { Pool } from "pg"
+
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 
 /** Upgrade-only current ownership metadata; never starts work or replaces a current request. */

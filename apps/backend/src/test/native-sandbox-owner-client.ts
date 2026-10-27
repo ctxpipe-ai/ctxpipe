@@ -1,6 +1,7 @@
 import { defineSandbox } from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { initLogger } from "evlog"
+
 import { closeDb, initDb } from "../db/client.js"
 import { postgresSandboxInstanceStore } from "../domain/workspaces/sandbox-instance-store.js"
 import { postgresSandboxLocks } from "../domain/workspaces/sandbox-lock-store.js"
@@ -13,7 +14,7 @@ initDb(process.env.DATABASE_URL)
 const controller = new AbortController()
 const definition = defineSandbox({
   id: "native-replica-proof",
-  provider: dockerSandbox({ image: "node:22" }),
+  provider: dockerSandbox({ image: "node:24" }),
   lifecycle: { reuse: "thread", snapshot: "none" },
 })
 const context = {

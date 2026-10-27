@@ -1,5 +1,6 @@
 import { HttpResponse, type HttpResponseInit, http } from "msw"
 import type { SetupServer } from "msw/node"
+
 import type { LinearIssueRelation } from "../src/services/linear/converter.js"
 
 export type LinearGraphqlCall = {

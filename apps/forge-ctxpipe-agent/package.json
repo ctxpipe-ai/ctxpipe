@@ -1,12 +1,9 @@
 {
   "name": "@ctxpipe/forge-ctxpipe-agent",
   "version": "1.1.36",
-  "main": "index.js",
-  "license": "MIT",
   "private": true,
-  "devDependencies": {
-    "@forge/cli": "^13.4.0"
-  },
+  "license": "MIT",
+  "main": "index.js",
   "scripts": {
     "lint": "eslint src/**/*",
     "dev": "pnpm run ngrok:tunnel",
@@ -19,5 +16,8 @@
     "deploy:pr": "forge deploy --environment \"$FORGE_PR_ENV\" --non-interactive --approve MAJOR_VERSION_RULE",
     "install:pr": "forge install --non-interactive --upgrade --confirm-scopes -e \"$FORGE_PR_ENV\" -s ctxpipe.atlassian.net -p Confluence",
     "install:pr:first": "forge install --non-interactive --confirm-scopes -e \"$FORGE_PR_ENV\" -s ctxpipe.atlassian.net -p Confluence"
+  },
+  "devDependencies": {
+    "@forge/cli": "^13.4.0"
   }
 }

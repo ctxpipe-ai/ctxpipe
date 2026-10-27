@@ -10,6 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { dirname, join, relative, resolve, sep } from "node:path"
+
 import {
   replaceCheckoutFile,
   resolveContainedRealPath,

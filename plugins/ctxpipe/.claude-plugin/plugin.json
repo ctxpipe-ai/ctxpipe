@@ -2,13 +2,13 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "ctxpipe",
   "displayName": "ctxpipe",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Organization engineering context for Claude. Connects the hosted ctxpipe MCP and teaches Claude to search organization knowledge, the graph, and linked code before planning.",
   "author": {
     "name": "ctxpipe",
     "url": "https://ctxpipe.ai"
   },
-  "homepage": "https://docs.ctxpipe.ai/docs/mcp/claude-plugin",
+  "homepage": "https://github.com/ctxpipe-ai/ctxpipe/tree/main/plugins/ctxpipe",
   "repository": "https://github.com/ctxpipe-ai/ctxpipe",
   "license": "MIT",
   "keywords": ["mcp", "ctxpipe", "context", "search", "engineering"]

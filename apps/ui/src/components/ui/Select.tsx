@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "react-aria-components"
 import { tv } from "tailwind-variants"
+
 import { Description, FieldError, Label } from "@/components/ui/Field"
 import { DropdownItem } from "@/components/ui/ListBox"
 import { Popover } from "@/components/ui/Popover"
@@ -30,8 +31,10 @@ const styles = tv({
   },
 })
 
-interface SelectProps<T extends object>
-  extends Omit<AriaSelectProps<T>, "children"> {
+interface SelectProps<T extends object> extends Omit<
+  AriaSelectProps<T>,
+  "children"
+> {
   label?: string
   description?: string
   errorMessage?: string | ((validation: ValidationResult) => string)
@@ -84,4 +87,3 @@ export function Select<T extends object>({
 export function SelectItem(props: ListBoxItemProps) {
   return <DropdownItem {...props} />
 }
-

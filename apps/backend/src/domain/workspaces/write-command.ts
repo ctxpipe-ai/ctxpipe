@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
@@ -6,14 +7,14 @@ import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js
 import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
-import { readGitPackFromRemote } from "../../services/git/pack.js"
+import type { GitPack } from "../../services/git/pack.js"
 import type { ConnectorMirrorSource } from "./connector-mirror.js"
 import {
   assertConnectorMirrorBinding,
   assertConnectorMirrorScope,
 } from "./connector-mirror.js"
 import type { IngestPublishSource } from "./extraction-source.js"
-import { resolveRepositoryReadCredential } from "./resolve-revision.js"
+import { workspaceGitRead } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import { workspaceRootPath } from "./root-path.js"
 import type { WorkspaceWriteJobKind } from "./write-jobs.js"
@@ -86,7 +87,11 @@ export async function completedWorkspaceWrite(
   return null
 }
 
-/** Capture native immutable data using a read credential; no credential or directory is durable. */
+/**
+ * Capture the immutable commit identity; no credential, directory, or Git
+ * object is durable. The output holds no pack: each later step fetches the
+ * commit from the Git host again (CTX-955).
+ */
 export async function acquireWorkspaceWriteRevision(
   input: WorkspaceWriteCommand,
   revision: WorkspaceRevision,
@@ -104,18 +109,24 @@ export async function acquireWorkspaceWriteRevision(
   )
     throw new Error("Workspace write binding changed")
   if (workspace.writeStatus !== "writable") return null
-  const token = await resolveRepositoryReadCredential({
-    orgId: input.orgId,
-    env,
-    remote: revision.remote,
-  })
-  const pack = await readGitPackFromRemote({
-    url: revision.remote.url,
+  const root = workspaceRootPath(revision)
+  const pack: GitPack = {
     sha: revision.sha,
-    additionalShas: previousSha ? [previousSha] : [],
-    token,
-    root: workspaceRootPath(revision),
-  })
-  if (input.mirror) await assertConnectorMirrorScope(input.mirror, pack)
+    objects: "",
+    shallow: "",
+    ...(root ? { root } : {}),
+    base: {
+      url: revision.remote.url,
+      shas: [revision.sha, ...(previousSha ? [previousSha] : [])],
+    },
+  }
+  if (input.mirror)
+    await assertConnectorMirrorScope(
+      input.mirror,
+      pack,
+      // The binding check above proves that `revision.remote` is the bound
+      // repository.
+      workspaceGitRead({ orgId: input.orgId, env, remote: revision.remote }),
+    )
   return { pack, displayName: workspace.displayName }
 }

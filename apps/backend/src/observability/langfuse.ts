@@ -1,4 +1,5 @@
 import { propagateAttributes, startActiveObservation } from "@langfuse/tracing"
+
 import { readAttribution } from "./attribution.js"
 import { otelDeploymentEnvironment } from "./otel.js"
 

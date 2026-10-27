@@ -1,5 +1,6 @@
 import { type QueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router"
+
 import { AppShell } from "@/components/AppShell"
 import { OrgGateError } from "@/features/org/OrgGateError"
 import { isWorkspaceConversationDocument } from "@/features/workspaces/ensure-route-data"

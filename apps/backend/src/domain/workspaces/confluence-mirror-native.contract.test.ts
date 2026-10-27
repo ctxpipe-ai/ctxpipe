@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
+
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { confluenceSyncTargets } from "../../db/schema/confluenceSyncTargets.js"
@@ -14,8 +16,8 @@ import { confluenceSyncContent } from "../../openworkflow/workflows/confluence-s
 import { confluenceSyncSpace } from "../../openworkflow/workflows/confluence-sync-space.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
-import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
+import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 
 it.each(["full", "space", "failed", "rebind"] as const)(
   "captures Confluence %s with scoped deletion and transient credentials",

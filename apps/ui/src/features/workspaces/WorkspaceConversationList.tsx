@@ -1,7 +1,8 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import { useRouter, useSearch } from "@tanstack/react-router"
-import { SideNavRowSkeleton } from "@/components/SideNav/SideNavRowSkeleton"
+
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
+import { SideNavRowSkeleton } from "@/components/SideNav/SideNavRowSkeleton"
 import {
   sideNavLabelClassName,
   sideNavRowClassName,
@@ -10,8 +11,9 @@ import { Button } from "@/components/ui/Button"
 import { useSkeletonHold } from "@/components/ui/Skeleton"
 import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
+
 import { isLiveRun } from "./conversationStatus"
-import { workspaceSearch } from "./pane"
+import { paneSearchForOtherConversation, workspaceSearch } from "./pane"
 import {
   conversationGitTreeOptions,
   workspaceConversationOptions,
@@ -35,7 +37,8 @@ export function WorkspaceConversationList(props: {
     onSelectNav,
   } = props
   const router = useRouter()
-  const paneSearch = workspaceSearch(useSearch({ strict: false }))
+  const currentSearch = useSearch({ strict: false })
+  const paneSearch = paneSearchForOtherConversation(currentSearch)
   const queryClient = useQueryClient()
   const prefetchConversation = (conversationId: string) => {
     void queryClient.prefetchQuery(
@@ -118,7 +121,10 @@ export function WorkspaceConversationList(props: {
                   workspaceSlug: workspace.slug,
                   conversationId: item.id,
                 },
-                search: paneSearch,
+                search:
+                  item.id === currentConversationId
+                    ? workspaceSearch(currentSearch)
+                    : paneSearch,
               }).href
             }
             paneSearch={paneSearch}

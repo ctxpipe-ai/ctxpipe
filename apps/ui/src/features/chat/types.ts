@@ -1,4 +1,5 @@
 import type { InferResponseType } from "hono/client"
+
 import type { ApiClient } from "@/lib/api"
 
 export type ChatStatus = "submitted" | "streaming" | "ready" | "error"

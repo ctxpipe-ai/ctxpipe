@@ -1,4 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm"
+
 import {
   type Db,
   getOrgDb,
@@ -22,7 +23,6 @@ import {
   upsertConnectionDirectory,
 } from "./connection-directory.js"
 import {
-  type ConnectionRow,
   type ForgeInstallationShape,
   forgeConnectionToShape,
   forgeShapeToConfig,
@@ -309,59 +309,6 @@ export async function deleteForgeInstallationByOrgId(
   )
   await Promise.all(removed.map((row) => deleteConnectionDirectory(row.id)))
   return removed.length > 0
-}
-
-/**
- * Resolves the connection by Forge `installationId` without org in the request (webhook), then
- * applies the update under {@link withOrgDbContext} for that row's `orgId`.
- */
-export async function updateForgeAppSystemTokenByInstallationId(input: {
-  installationId: string
-  appSystemToken: string
-  atlassianApiBaseUrl?: string
-}): Promise<boolean> {
-  const directoryRows = await listConnectionDirectoryByForgeInstallationId(
-    input.installationId,
-  )
-  let row: ConnectionRow | undefined
-  for (const directoryRow of directoryRows) {
-    const candidate = await loadConnectionViaDirectory(
-      directoryRow.connectionId,
-    )
-    if (candidate?.type === CONNECTION_TYPE_FORGE) {
-      row = candidate
-      break
-    }
-  }
-  if (!row) return false
-
-  const updated = await withOrgDbContext(row.orgId, async () => {
-    const db = getOrgDb()
-    const shape = forgeConnectionToShape(row)
-    const nextConfig = forgeShapeToConfig(
-      {
-        ...shape,
-        appSystemToken: input.appSystemToken,
-        atlassianApiBaseUrl:
-          input.atlassianApiBaseUrl ?? shape.atlassianApiBaseUrl,
-      },
-      {
-        preserveOauthClientSecretFromConfig: row.config as Record<
-          string,
-          unknown
-        >,
-      },
-    )
-    const [result] = await db
-      .update(connections)
-      .set({ config: nextConfig, updatedAt: new Date() })
-      .where(eq(connections.id, row.id))
-      .returning()
-    return result
-  })
-  if (!updated) return false
-  await upsertConnectionDirectory(updated)
-  return true
 }
 
 export async function getPendingForgeInstallationForUserInOtherOrg(input: {
@@ -689,4 +636,3 @@ export async function updateConfluenceSpaceSyncState(input: {
       )
   })
 }
-

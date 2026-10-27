@@ -1,14 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import { InlineAlert } from "@/components/ui/InlineAlert"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import {
   docsWorkspace,
   pendingWriteWorkspace,
   readOnlyWorkspace,
 } from "./workspace-fixtures"
+import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 
 const meta = {
   title: "Components/Workspaces/ChatChrome",
@@ -238,6 +240,10 @@ export const CleanNoPublishActions: Story = {
 
 /** Sync runs: the button is busy and disabled. */
 export const Pushing: Story = {
+  parameters: {
+    intent:
+      "Catches a pending commit and push button that looks dimmed or stays pressable. It is disabled and marked pending, but keeps full opacity. Not for the idle button or PR actions.",
+  },
   tags: ["workspace-golden"],
   args: {
     ...DirtyCommitPush.args,
@@ -293,6 +299,10 @@ export const CreatingPr: Story = {
  * Its name tells that it opens in a new tab.
  */
 export const ShowPr: Story = {
+  parameters: {
+    intent:
+      "Catches a chat header that hides the pull request link when a PR exists. It shows a Show PR link that opens in a new tab. Not for creating a PR or the sync button.",
+  },
   tags: ["workspace-golden"],
   args: {
     title: "Repo layout",
@@ -425,6 +435,10 @@ const syncCta = {
 
 /** The CTA button has a light face with dark text, and a hover state from the tokens. */
 export const CtaButtonStyle: Story = {
+  parameters: {
+    intent:
+      "Catches a sync button with the wrong look. It needs a filled face, small text, a low height, no external-link icon, and a hover change. Not for button actions.",
+  },
   tags: ["workspace-golden"],
   args: { cta: syncCta },
   play: async ({ canvasElement }) => {
@@ -448,6 +462,10 @@ export const CtaButtonStyle: Story = {
 
 /** The branch is a label with a git-branch icon. A long name truncates. No tooltip shows the internal ref. */
 export const BranchLabel: Story = {
+  parameters: {
+    intent:
+      "Catches a branch label that wraps a long name, drops its icon, or shows a tooltip with the internal ref. The name truncates. Not for the branch link.",
+  },
   tags: ["workspace-golden"],
   args: {
     title: "Repo layout",
@@ -492,6 +510,10 @@ const prCta = {
 
 /** A PR exists and the branch is dirty: Sync is the CTA, Show PR is subtle. */
 export const SyncCtaWithSubtleShowPr: Story = {
+  parameters: {
+    intent:
+      "Catches a header with Sync and a PR where Show PR looks the same as Sync or a Create PR button shows. Show PR must look subtler. Not for the sync action.",
+  },
   tags: ["workspace-golden"],
   args: { cta: { ...syncCta, pullRequest: prCta } },
   play: async ({ canvasElement }) => {
@@ -509,6 +531,10 @@ export const SyncCtaWithSubtleShowPr: Story = {
 
 /** A dirty branch with no PR shows Sync only. */
 export const DirtyShowsOnlySync: Story = {
+  parameters: {
+    intent:
+      "Catches a dirty branch with no PR that shows Create PR. It must show only Sync. Not for clean branches or existing PRs.",
+  },
   tags: ["workspace-golden"],
   args: {
     cta: {

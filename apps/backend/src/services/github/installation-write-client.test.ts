@@ -1,6 +1,7 @@
 import { HttpResponse, http } from "msw"
 import { Octokit } from "octokit"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import type { Env } from "../../config/env.js"
 
@@ -18,7 +19,6 @@ vi.mock("../../models/github-installation.js", () => ({
   getInstallationOctokitForOrg: getInstallationOctokitForOrgMock,
 }))
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 
 type GitTreeEntryBody = {

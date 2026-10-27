@@ -10,6 +10,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import {
   closeDb,
@@ -36,7 +37,6 @@ import {
 } from "./org-code.js"
 import { McpToolError } from "./tool-errors.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 const CODESEARCH = "http://codesearch.test"
 

@@ -1,6 +1,7 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { Webhooks } from "@octokit/webhooks"
 import { z } from "zod"
+
 import type { AppEnv } from "../../../app/env.js"
 import type { Env } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
@@ -21,6 +22,10 @@ import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueu
 import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
+import {
+  maybeEnqueueGithubIssueBackfillsOnPermissionsAccepted,
+  maybeEnqueueGithubIssueMirror,
+} from "./github-issue-mirror-events.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
 import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.js"
@@ -59,6 +64,8 @@ type GithubWebhookContext = {
 type ProcessGithubWebhookOpts = {
   /** Present when a connection-specific secret authenticated the request. */
   connectionId?: string
+  /** `X-GitHub-Delivery`; a redelivery keeps it. */
+  deliveryId?: string
 }
 
 async function githubConnectionAllowsWebhookPayload(input: {
@@ -406,6 +413,11 @@ export async function processGithubWebhookPayload(
       return
     case "installation":
       await processInstallationEvent(opts?.connectionId, payload, ctx)
+      await maybeEnqueueGithubIssueBackfillsOnPermissionsAccepted({
+        payload,
+        githubConnectionId: opts?.connectionId,
+        deliveryId: opts?.deliveryId,
+      })
       return
     case "installation_repositories":
       await processInstallationRepositoriesEvent(
@@ -429,8 +441,27 @@ export async function processGithubWebhookPayload(
       return
     case "pull_request_review":
     case "pull_request_review_comment":
+      await maybeEnqueueGithubPrMirror({
+        eventName,
+        payload,
+        githubConnectionId: opts?.connectionId,
+      })
+      return
+    // A comment goes to the pull request mirror or to the issue mirror.
     case "issue_comment":
       await maybeEnqueueGithubPrMirror({
+        eventName,
+        payload,
+        githubConnectionId: opts?.connectionId,
+      })
+      await maybeEnqueueGithubIssueMirror({
+        eventName,
+        payload,
+        githubConnectionId: opts?.connectionId,
+      })
+      return
+    case "issues":
+      await maybeEnqueueGithubIssueMirror({
         eventName,
         payload,
         githubConnectionId: opts?.connectionId,
@@ -484,7 +515,7 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
       eventName,
       payload,
       { log, env },
-      { connectionId },
+      { connectionId, deliveryId: c.req.header("x-github-delivery") },
     )
     return c.body(null, 200)
   })
@@ -516,7 +547,12 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Bad request" }, 400)
     }
 
-    await processGithubWebhookPayload(eventName, payload, { log, env })
+    await processGithubWebhookPayload(
+      eventName,
+      payload,
+      { log, env },
+      { deliveryId: c.req.header("x-github-delivery") },
+    )
     return c.body(null, 200)
   })
 }

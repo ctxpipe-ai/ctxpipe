@@ -1,71 +1,45 @@
 ---
 title: PagerDuty connector
-description: Connect a PagerDuty account, add it to a Workspace, and keep incidents of selected services available to ctxpipe.
+description: Mirror the incidents of selected PagerDuty services into a Workspace.
 ---
 
-The **PagerDuty connector** mirrors incidents of selected services into the
-repository of a [Workspace](/docs/workspaces). ctxpipe indexes the files like any
-other knowledge file. A source file in the Workspace holds the service scope. A
-pull request adds it, so a person reviews the scope before content syncs.
+The **PagerDuty connector** mirrors the incidents of selected services into a
+[Workspace](/docs/workspaces) repository. ctxpipe requests read access and the
+permission to create its webhook subscription. It does not acknowledge or
+resolve incidents, and it does not show live on-call state.
 
-ctxpipe requests read-only PagerDuty access plus webhook subscription
-permissions. It does not acknowledge, resolve, or otherwise write back to
-PagerDuty incidents, and it does not expose live on-call state.
-
-<Callout title="Fully managed app flow">
-  The hosted ctxpipe service supplies the PagerDuty OAuth application. After you
-  authorize an account, ctxpipe creates one signed v3 webhook subscription for
-  that connection. Self-hosted deployments that do not set a deployment OAuth
-  app start with **Register PagerDuty OAuth app** in the wizard. Paste the
-  client id and secret there, and do not restart the deployment. See
-  [Self-host PagerDuty](/docs/self-hosting/pagerduty).
-</Callout>
+After you authorize an account, ctxpipe creates one signed webhook subscription
+for the connection. On a self-hosted deployment, the operator registers a
+PagerDuty OAuth app first. See [Self-host PagerDuty](/docs/self-hosting/pagerduty).
 
 ## What is mirrored
 
-You select PagerDuty services that the authorized account can already see.
-ctxpipe syncs the incidents of each selected service from the last 90 days. For
-each in-scope incident, ctxpipe writes one Markdown file that can include:
+ctxpipe syncs the incidents of each selected service from the last 90 days. Each
+incident is one Markdown file with:
 
-- Incident title, status, urgency, service, assignees, and timestamps.
-- The triggering alert body, including structured details such as a hostname.
-- A short list of additional alerts on that incident, with an overflow count
-  when more exist.
-- Incident notes.
-- In-scope image attachments copied beside the incident file. Unsafe, signed,
-  or failed downloads leave a PagerDuty permalink stub instead of a private
-  URL.
+- the title, status, urgency, service, assignees, and times;
+- the body of the alert that started it, with its details, such as a host
+  name;
+- a short list of the other alerts on the incident;
+- the incident notes;
+- image attachments, copied next to the file.
 
-PagerDuty v3 webhooks are incident events. Alert create or update arrives as
-`incident.triggered` or a later incident event. ctxpipe fetches the incident,
-alerts, and notes again on each in-scope event. It does not use the webhook
-envelope as the file content.
+ctxpipe removes routing keys and other secret alert fields before it writes to
+git. If an incident moves to a service that is not selected, ctxpipe deletes its
+file.
 
-ctxpipe strips routing keys and other secret-bearing alert fields before it
-writes to Git. Out-of-scope services produce no fetch and no file. If a live
-incident moves to an unselected service, or PagerDuty returns 404, ctxpipe deletes
-that incident file.
+## Connect PagerDuty
 
-<Callout title="Account webhooks, source scope">
-  The webhook subscription is account-level, so PagerDuty can deliver events
-  for every service. ctxpipe fetches and writes only incidents whose service is in
-  the scope of a source with the status **OK**.
-</Callout>
+Follow [Add a tool to a Workspace](/docs/connections#add-a-tool-to-a-workspace).
+For PagerDuty:
 
-## Prerequisites
+1. On **Connectors**, choose **Add connection**, then **PagerDuty**. Authorize
+   the app in the PagerDuty popup.
+2. In **Add to Workspaces**, select the Workspaces, then the services. If the
+   list is empty, create a service in PagerDuty first.
+3. Merge the pull request that adds `sources/pagerduty/<name>.md`.
 
-- Permission to authorize an application in the PagerDuty account.
-- A [Workspace](/docs/workspaces) whose repository the ctxpipe GitHub App can write
-  to. The repository must use format 2 or higher. If it does not, the Workspace
-  shows **Upgrade this Workspace first**. See
-  [Upgrades](/docs/workspaces/settings#upgrades).
-- Permission to merge the pull request that adds the source.
-
-## Where the scope lives
-
-The connection holds authorization only. The scope is in a source file in each
-Workspace, at `sources/pagerduty/<name>.md`. The front matter holds the service
-ids. The body is an optional description of what the source is for.
+## Source file
 
 ```markdown
 ---
@@ -75,166 +49,39 @@ services: [PSVC001, PSVC002]
 ---
 ```
 
-The scope goes live after the merge. See
-[Workspace settings](/docs/workspaces/settings#sources) for draft scope and live scope.
-
-Each Workspace has its own
-scope.
-
-## Setup flow
-
-<Steps>
-  <Step>
-    ### Register the OAuth app (self-hosted only)
-
-    On a self-hosted deployment without a deployment OAuth app, choosing
-    **PagerDuty** opens **Register PagerDuty OAuth app**. Follow the
-    [self-hosted PagerDuty guide](/docs/self-hosting/pagerduty) to register the
-    deployment app and save its credentials in ctxpipe. Hosted ctxpipe supplies its
-    managed OAuth app and skips this step.
-  </Step>
-
-  <Step>
-    ### Connect PagerDuty
-
-    Open **Connectors**, choose **Add connection**, then select **PagerDuty**.
-    Authorize the application in the PagerDuty popup.
-  </Step>
-
-  <Step>
-    ### Add to Workspaces
-
-    The next step is **Add to Workspaces**. Select the Workspaces that sync from
-    PagerDuty. Then search the services of the account and select at least one.
-    If the list is empty, create a service in PagerDuty first. ctxpipe only reads
-    existing services. It does not add PagerDuty integrations. When you select
-    more than one Workspace, choose **Same scope for each Workspace** or **A
-    different scope for each Workspace**.
-
-    Choose **Add to Workspaces**. You can add the connection to a Workspace
-    later. Expand the connector on **Connectors**. When no Workspace uses the
-    connection, choose **Add to a Workspace**. Otherwise, choose **Manage**.
-  </Step>
-
-  <Step>
-    ### Merge the pull requests
-
-    ctxpipe opens one pull request for each Workspace. Each pull request adds
-    `sources/pagerduty/<name>.md`. The dialog shows **Merge the pull request**
-    (or **Merge the pull requests**) with a link to each one. Review the
-    selected services and the repository audience, then merge.
-
-    After each merge, the dialog shows **Pull request merged**. The source does
-    not sync before the merge.
-  </Step>
-
-  <Step>
-    ### Wait for the first sync
-
-    After GitHub reports the merge, ctxpipe reads the source file and makes the
-    first PagerDuty mirror. The Workspace indexes the new files after that. See
-    [Indexing](/docs/connections/ingestion) for the lifecycle.
-  </Step>
-</Steps>
-
-## Change what syncs
-
-Edit, rename, or remove a source in the **Settings** of the Workspace. See
-[Workspace settings](/docs/workspaces/settings#sources). When you remove a service from the scope, ctxpipe deletes the incident files of that
-service in a sync commit.
-
 ## Files in the repository
-
-Mirrored files live under `pagerduty/` in each Workspace repository. Each
-selected service has its own folder:
 
 ```text
 pagerduty/services/<serviceId>/incidents/<number>--<id>.md
 pagerduty/services/<serviceId>/incidents/<number>--<id>/assets/…
 ```
 
-The source owns these folders. Do not edit the files by hand: the next sync
-overwrites them.
+When you remove a service from the scope, the next sync deletes the incident
+files of that service.
 
-## Keeping content current
+## How incidents stay current
 
-PagerDuty sends signed webhook events to ctxpipe when incidents are created or
-updated. For a source with the status **OK**, ctxpipe verifies the HMAC against the
-raw body, skips the event unless the payload names a service in the scope,
-updates the affected file, and starts indexing again.
+PagerDuty sends a signed event when an incident changes, or when a new alert
+arrives on it. The subscription covers the whole account, but ctxpipe fetches
+and writes only the incidents of the services in an **OK** source. It ignores
+the other events.
 
-Events that arrive before the source is live, including during the first sync,
-are skipped and not queued. ctxpipe acknowledges and ignores events for unselected
-services. ctxpipe rejects stale deliveries. ctxpipe does not backfill missed webhook
-events. Repair the webhook delivery, then choose **Sync now** in the menu of
-the connector card. An owner or admin can do this.
+## Check the setup
 
-## Verify the complete flow
-
-1. Complete PagerDuty OAuth and confirm that the expected account appears on
-   **Connectors**.
-2. Choose **Add to Workspaces**, select a Workspace, and select at least one
-   service.
-3. Merge the pull request that adds `sources/pagerduty/<name>.md`.
-4. Confirm that the Workspace repository has files under
+1. The PagerDuty account shows on **Connectors**.
+2. After the merge, the Workspace repository has files under
    `pagerduty/services/`.
-5. Trigger or update an in-scope incident in PagerDuty. Confirm that the
-   matching Git file changes, including the triggering alert details and notes.
-6. Confirm that the Workspace index is ready in its **Settings**.
-
-Steps 3 and 4 test the GitHub push webhook and the first mirror. Step 5 tests
-the PagerDuty webhook delivery.
+3. When you trigger or update an incident of a selected service, its file
+   changes. This step tests the webhook.
 
 ## Troubleshooting
 
-### Authorization fails
+- **Changes do not arrive.** Make sure that the incident is on a selected
+  service. Then ask the operator to check that the connection still has its
+  webhook subscription, and that `POST /api/v1/webhook/pagerduty` is reachable.
+- **You reconnect PagerDuty.** ctxpipe keeps or replaces the webhook
+  subscription. It never adds a second one.
+- **You remove the connector.** ctxpipe also deletes the webhook subscription
+  in PagerDuty.
 
-Allow popups and retry. On fully managed ctxpipe, report persistent OAuth errors to
-support. On a self-hosted deployment, finish **Register PagerDuty OAuth app** in
-the wizard, or ask the operator to verify that a deployment OAuth app exists.
-Confirm that the callback URI matches exactly.
-
-### Add to a Workspace shows an error
-
-The dialog shows a message about the format, the write access, or your role.
-See [Add source shows an error](/docs/workspaces/settings#add-source-shows-an-error).
-
-### No pull request appears
-
-Confirm that the GitHub App has write access to the Workspace repository. If
-the dialog reports an error, close it and try again.
-
-### The source shows a status other than OK
-
-Read the status and the reason of the row in **Settings**. See
-[Source status](/docs/workspaces/settings#source-status).
-
-### Content sync failed
-
-Choose **Sync now** in the menu of the connector card. If it fails again, ask the
-operator to check worker logs, PagerDuty token refresh, GitHub write access,
-and outbound access to `identity.pagerduty.com` plus `api.pagerduty.com` or
-`api.eu.pagerduty.com`.
-
-### Changes in PagerDuty do not arrive
-
-The first sync can succeed when later webhook delivery fails. Confirm that the
-incident belongs to a service in the scope. ctxpipe ignores out-of-scope events on
-purpose. Ask the operator to verify that the connection still has a webhook
-subscription and that `POST /api/v1/webhook/pagerduty` is reachable.
-
-### PagerDuty authorization was revoked
-
-The source shows the reason "PagerDuty does not accept the ctxpipe access any more.
-Reconnect PagerDuty on the Connectors page." The connector card shows **Reconnect
-PagerDuty**. Choose it and authorize again. Incremental updates stop while the
-authorization is revoked. Authorizing again keeps the existing subscription when
-its signing secret is still stored. Otherwise, ctxpipe replaces the subscription
-and does not add a second one.
-
-### Removing the connector
-
-Choose **Remove connector** in the menu of the connector card. See
-[Connection menu](/docs/connections#connection-menu) for what stays in Git.
-ctxpipe also deletes the PagerDuty webhook subscription while the access token is
-still available.
+For other problems, see [Troubleshooting](/docs/connections#troubleshooting).

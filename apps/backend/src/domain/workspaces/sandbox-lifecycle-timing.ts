@@ -1,10 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+
 import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
+
 import { log } from "../../observability/logger.js"
 import { SANDBOX_GIT_GUARD } from "./job-sandbox.js"
 
-const SANDBOX_LIFECYCLE_MARK_PATH =
-  "/tmp/ctxpipe-sandbox-lifecycle.jsonl"
+const SANDBOX_LIFECYCLE_MARK_PATH = "/tmp/ctxpipe-sandbox-lifecycle.jsonl"
 
 type SandboxLifecycleScope = "ensure" | "chat"
 

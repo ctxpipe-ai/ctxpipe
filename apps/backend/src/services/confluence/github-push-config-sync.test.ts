@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { connectorConfigPush } from "./github-push-config-sync.js"
 
 const PATH = "confluence/config.yaml"

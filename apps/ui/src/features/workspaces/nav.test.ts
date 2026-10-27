@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { isWorkspaceNavOpen, workspaceTitleAction } from "./nav"
 
 describe("workspaceTitleAction", () => {

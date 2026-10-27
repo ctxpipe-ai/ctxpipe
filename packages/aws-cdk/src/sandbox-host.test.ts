@@ -2,6 +2,7 @@ import * as cdk from "aws-cdk-lib"
 import { Match, Template } from "aws-cdk-lib/assertions"
 import * as ec2 from "aws-cdk-lib/aws-ec2"
 import { describe, expect, it } from "vitest"
+
 import { CtxPipe } from "./ctxpipe"
 import type { CtxPipeProps } from "./types"
 
@@ -162,20 +163,23 @@ describe("sandbox host", () => {
     ["small", "t4g.medium", 30],
     ["medium", "t4g.large", 50],
     ["large", "t4g.xlarge", 100],
-  ] as const)("size %s runs on %s with a %d GiB gp3 Docker volume", (size, instanceType, volume) => {
-    const data = launchTemplateData(template(size, { size }))
-    expect(data.InstanceType).toBe(instanceType)
-    expect(data.BlockDeviceMappings).toContainEqual(
-      expect.objectContaining({
-        DeviceName: "/dev/xvdb",
-        Ebs: expect.objectContaining({
-          VolumeSize: volume,
-          VolumeType: "gp3",
-          Encrypted: true,
+  ] as const)(
+    "size %s runs on %s with a %d GiB gp3 Docker volume",
+    (size, instanceType, volume) => {
+      const data = launchTemplateData(template(size, { size }))
+      expect(data.InstanceType).toBe(instanceType)
+      expect(data.BlockDeviceMappings).toContainEqual(
+        expect.objectContaining({
+          DeviceName: "/dev/xvdb",
+          Ebs: expect.objectContaining({
+            VolumeSize: volume,
+            VolumeType: "gp3",
+            Encrypted: true,
+          }),
         }),
-      }),
-    )
-  })
+      )
+    },
+  )
 
   it("takes the instance type and Docker volume from optional props", () => {
     const data = launchTemplateData(

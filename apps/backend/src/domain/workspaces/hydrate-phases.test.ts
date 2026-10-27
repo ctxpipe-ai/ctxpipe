@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+
 import { effectiveValidFrom, looksLikeGitSha } from "./hydrate-phases.js"
 
 describe("hydrate phases", () => {

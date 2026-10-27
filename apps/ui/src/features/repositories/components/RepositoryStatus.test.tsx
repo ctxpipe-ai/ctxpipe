@@ -1,22 +1,22 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
+
 import {
   RepositoryStatus,
   type RepositoryStatusState,
 } from "./RepositoryStatus"
 
 describe("RepositoryStatus", () => {
-  it.each<RepositoryStatusState>([
-    "queued",
-    "running",
-    "refreshing",
-  ])("uses indexingDetail as the label for %s", (status) => {
-    expect(
-      renderToStaticMarkup(
-        <RepositoryStatus status={status} indexingDetail="finalizing 7/22" />,
-      ),
-    ).toContain("finalizing 7/22")
-  })
+  it.each<RepositoryStatusState>(["queued", "running", "refreshing"])(
+    "uses indexingDetail as the label for %s",
+    (status) => {
+      expect(
+        renderToStaticMarkup(
+          <RepositoryStatus status={status} indexingDetail="finalizing 7/22" />,
+        ),
+      ).toContain("finalizing 7/22")
+    },
+  )
 
   it("ignores indexingDetail for non-active statuses", () => {
     expect(

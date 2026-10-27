@@ -77,7 +77,10 @@ services:
     image: falkordb/falkordb:latest
     restart: unless-stopped
     environment:
-      FALKORDB_ARGS: "BOLT_PORT 7687"
+      # CMD_INFO no: in 4.20.7 the module load can start a cron task before
+      # its lock is ready, and the server then stops answering (see
+      # .github/actions/falkordb).
+      FALKORDB_ARGS: "BOLT_PORT 7687 CMD_INFO no"
     # Never published, like postgres.
 
   # Host dev only: Postgres and FalkorDB on host ports, forwarded so the data
@@ -345,6 +348,10 @@ services:
       context: .
       dockerfile: apps/backend/Dockerfile.worker
     restart: unless-stopped
+    # Docker waits this long after SIGTERM before SIGKILL (the default is
+    # 10 seconds). The worker marks its step attempts stopped in this time,
+    # and its supervisor kills the worker after 25 seconds.
+    stop_grace_period: 30s
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
@@ -405,8 +412,9 @@ services:
       <<: *otel-env
       OTEL_SERVICE_NAME: ui
       CONFLUENCE_FORGE_INSTALL_URL: ${CONFLUENCE_FORGE_INSTALL_URL:-}
+    # Loopback only: users reach this service through the backend.
     ports:
-      - "${CTXPIPE_UI_HOST_PORT:-3002}:3002"
+      - "127.0.0.1:${CTXPIPE_UI_HOST_PORT:-3002}:3002"
 
   codesearch:
     profiles: [deploy]
@@ -425,8 +433,9 @@ services:
       OTEL_SERVICE_NAME: codesearch
       CODESEARCH_INDEXER_CONCURRENCY: "1"
       CODESEARCH_INDEX_PIPELINE_CONCURRENCY: "1"
+    # Loopback only: users reach this service through the backend.
     ports:
-      - "${CTXPIPE_CODESEARCH_HOST_PORT:-3001}:3001"
+      - "127.0.0.1:${CTXPIPE_CODESEARCH_HOST_PORT:-3001}:3001"
     volumes:
       - zoekt_index_deploy:/data/zoekt-index
       - repo_cache:/data/repo-cache

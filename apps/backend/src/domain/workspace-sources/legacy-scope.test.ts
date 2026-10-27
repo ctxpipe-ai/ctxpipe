@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { z } from "zod"
+
 import { parseLegacyScope, splitLegacyScope } from "./legacy-scope.js"
 import { confluenceSourceScopeSchema } from "./providers/confluence.js"
 import { linearScopeSchema } from "./providers/linear.js"

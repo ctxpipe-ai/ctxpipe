@@ -1,4 +1,5 @@
 import { z } from "zod"
+
 import { parseEnv } from "../../config/env.js"
 import {
   chooseUpgradeBranch,
@@ -133,6 +134,8 @@ async function buildAndPushUpgrade(input: {
     const [file] = await readGitFiles(
       pack,
       (path) => path === WORKSPACE_FORMAT_PATH,
+      undefined,
+      null,
     )
     return { pack, read: readWorkspaceFormat(file?.content ?? null) }
   })

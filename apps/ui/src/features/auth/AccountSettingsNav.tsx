@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router"
+
 import { betterAuthShellClassNames } from "@/features/auth/betterAuthShellClassNames"
 import { cn } from "@/lib/utils"
 

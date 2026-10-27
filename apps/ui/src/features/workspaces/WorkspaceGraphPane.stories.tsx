@@ -1,9 +1,10 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite"
 import { expect, waitFor, within } from "storybook/test"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceGraphPane } from "./WorkspaceGraphPane"
 import { docsWorkspaceGraph } from "./workspace-fixtures"
+import { WorkspaceGraphPane } from "./WorkspaceGraphPane"
 
 function paneFrame(widthClass: string): Decorator {
   return (Story) => (
@@ -85,6 +86,10 @@ export const WidePane: Story = {
 }
 
 export const NodesWithoutRelationships: Story = {
+  parameters: {
+    intent:
+      "Catches a graph with nodes but no edges that shows a blank pane. It says how many nodes it has and that it has no edges yet. Not for graphs with edges.",
+  },
   tags: ["workspace-golden"],
   args: {
     pending: false,

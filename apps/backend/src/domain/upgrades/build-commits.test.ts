@@ -3,7 +3,9 @@ import { randomBytes } from "node:crypto"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+
 import { afterEach, describe, expect, it } from "vitest"
+
 import {
   type GitPack,
   readGitPackFromRemote,
@@ -78,6 +80,7 @@ async function readCommits(pack: GitPack) {
       }
     },
     pack,
+    null,
   )
 }
 
@@ -160,6 +163,7 @@ describe("buildUpgradeCommits", () => {
         }
       },
       built.pack,
+      null,
     )
     expect(head.subjects).toEqual([
       "ctxpipe upgrade: set the Workspace format to 3",
@@ -408,6 +412,7 @@ describe("buildUpgradeCommits", () => {
           cwd: directory,
         }),
       built.pack,
+      null,
     )
     expect(Buffer.compare(blob, bytes)).toBe(0)
     // The base64 compare sees the same bytes, so the step makes no commit.

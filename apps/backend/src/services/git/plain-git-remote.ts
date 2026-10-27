@@ -1,4 +1,5 @@
 import { lookup as dnsLookup } from "node:dns/promises"
+
 import {
   type CheckedPlainGitRemote,
   ipLiteral,

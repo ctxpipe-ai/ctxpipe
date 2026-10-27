@@ -1,11 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+
 import { Button } from "@/components/ui/Button"
+
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { WorkspaceFileTree } from "./WorkspaceFileTree"
 import { docsWorkspaceGitTree } from "./workspace-fixtures"
+import { WorkspaceFileTree } from "./WorkspaceFileTree"
 
 const nestedPaths = [
   "AGENTS.md",
@@ -175,6 +177,10 @@ function PierreKeyboardFocusHarness(
 }
 
 export const PierreKeyboardFocus: Story = {
+  parameters: {
+    intent:
+      "Catches a file tree search that loses keyboard focus. Typing then Enter selects a file, and Escape returns focus to the selected row. Not for the file list content.",
+  },
   tags: ["workspace-golden"],
   args: {
     paths: ["AGENTS.md", "knowledge/billing.md"],
@@ -234,8 +240,8 @@ export const PierreKeyboardFocus: Story = {
         selected.contains(focused) ||
         Boolean(
           selected.shadowRoot &&
-            focused &&
-            selected.shadowRoot.contains(focused),
+          focused &&
+          selected.shadowRoot.contains(focused),
         ) ||
         pierreFocused === selected,
     ).toBe(true)
@@ -333,6 +339,10 @@ function DeletedFileHarness(props: ComponentProps<typeof WorkspaceFileTree>) {
 const deletedRowSelector = "button[data-item-path='old-pricing.md']"
 
 export const DeletedFileStaysUntilMerged: Story = {
+  parameters: {
+    intent:
+      "Catches a deleted file that vanishes from the tree or can be selected. It stays as a struck-through row with a text summary and is not selectable. Not for other markers.",
+  },
   tags: ["workspace-golden"],
   args: {
     paths: ["AGENTS.md", "knowledge/billing.md"],
@@ -382,6 +392,10 @@ export const DeletedFileStaysUntilMerged: Story = {
 }
 
 export const ChangeMarkers: Story = {
+  parameters: {
+    intent:
+      "Catches file tree rows that miss their change markers. Added, modified, and deleted files show the right marker and counts. Not for folder expansion.",
+  },
   tags: ["workspace-golden"],
   args: {
     paths: [
@@ -466,6 +480,10 @@ function NewPathsHarness(props: ComponentProps<typeof WorkspaceFileTree>) {
 
 /** A new path list (for example the sandbox tree) keeps the open folders. */
 export const NewPathsKeepExpandedFolders: Story = {
+  parameters: {
+    intent:
+      "Catches a path reload that collapses folders the user opened. New paths appear and open folders stay open. Not for the first load.",
+  },
   tags: ["workspace-golden"],
   args: { selectedPath: "AGENTS.md" },
   render: (args) => <NewPathsHarness {...args} />,

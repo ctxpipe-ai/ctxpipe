@@ -1,64 +1,60 @@
 ---
 title: Linked repositories
-description: Add code repositories to a Workspace so chat and agents can search them.
+description: Add code repositories to a Workspace, so that chat and agents can search them.
 ---
 
-**Linked repositories** are code repositories a Workspace searches. ctxpipe
-indexes each one for code search and extracts services, APIs, libraries, and
-their relationships into the workspace repository as knowledge files.
+**Linked repositories** are the code repositories that a Workspace searches.
+ctxpipe indexes each one for code search, and extracts its services, APIs,
+libraries, and their relationships into the Workspace repository as knowledge
+files.
 
-A repository can be linked to several Workspaces. Each Workspace keeps its own
-index, so search in one Workspace never returns another Workspace's code.
+A repository can be linked to many Workspaces. Each Workspace keeps its own
+index, so a search in one Workspace never returns the code of another.
 
 ## Link repositories
 
-Each linked GitHub repository is one source file in the workspace repository, at
-`sources/github/<owner>/<name>.md`. A pull request adds or removes the file. The
-change applies after you merge the pull request.
+Each linked repository is one source file in the Workspace repository, for
+example `sources/github/<owner>/<name>.md`. A pull request adds or removes the
+file. The change applies after you merge the pull request.
 
 <Steps>
   <Step>
-    ### Open Settings
+    ### Open Add repositories
 
-    In the Workspace, open the **Settings** tab and find **GitHub** under
-    **Sources**.
+    In the Workspace, open the **Settings** tab. Under **Sources**, choose
+    **Add repositories** in the **GitHub** group.
   </Step>
 
   <Step>
-    ### Add repositories
+    ### Choose the repositories
 
-    Choose **Add repositories**. Search the repositories that the ctxpipe GitHub
-    App can see (sort by recently pushed, newest, oldest, or name) and select one
-    or more. This list shows only GitHub repositories. Only an organization
-    owner or admin can list them. A member sees "Ask an admin to add
-    repositories." To link a repository on another git host that needs no
-    credential, see [Plain git repositories](#plain-git-repositories). On hosted
-    ctxpipe, that host must be public. A self-hosted deployment can also read a git
-    server inside your network.
+    - **Select GitHub**: search the repositories that the ctxpipe GitHub App can
+      see, and select one or more. Only an organization owner or admin can list
+      them.
+    - **Paste URL**: type the URL of a public repository on any git host, or of a
+      public GitHub repository with no GitHub connection. See
+      [Plain git repositories](#plain-git-repositories).
 
-    Choose **Open a pull request**. ctxpipe opens one pull request for up to 20
-    repositories. The message "Pull request opened. The change applies after the
-    merge." has a **View pull request** action.
+    Choose **Open a pull request**. One pull request can link up to 20
+    repositories.
   </Step>
 
   <Step>
-    ### Merge and wait for indexing
+    ### Merge, then wait for indexing
 
-    Merge the pull request. The row shows **Awaiting merge** until then. After
-    the merge is on the default branch, ctxpipe queues each repository for
-    indexing.
+    Merge the pull request. Until then, the row shows **Awaiting merge**. After
+    the merge, ctxpipe queues each repository for indexing.
   </Step>
 </Steps>
 
-To remove a repository, choose the unlink button on its row (**Unlink
-owner/name**). ctxpipe opens a pull request
-that deletes its source file. After you merge it, ctxpipe stops searching the
-repository and retracts the knowledge that it extracted.
+To remove a repository, choose the unlink button on its row. ctxpipe opens a
+pull request that deletes the source file. After the merge, ctxpipe stops
+searching the repository and removes the knowledge that it extracted from it.
 
 ## Pin a branch or tag
 
-A source file reads the default branch of the repository. To read a branch or a
-tag, add `ref` to the front matter with a pull request:
+A source reads the default branch of the repository. To read another branch or
+a tag, add `ref` to the front matter with a pull request:
 
 ```markdown
 ---
@@ -71,19 +67,15 @@ ref: release
 The payments API. Use it for questions about refunds and card tokens.
 ```
 
-The `repository` key is `owner/name`. A `ref` is a branch or a tag. The body is an
-optional description of what the repository is for. People own the body, and
-ctxpipe never changes it. A repository can be a source of only one file. A source
-file cannot name the workspace repository itself.
-
-You can rename or move a source file inside `sources/github/`. The pin stays
-with the repository.
+The body is an optional description of what the repository is for. People own
+the body, and ctxpipe never changes it. You can rename or move the file inside
+`sources/github/`. The pin stays with the repository.
 
 ## Plain git repositories
 
-ctxpipe can also read a repository on another git host that needs no
-credential, or a public GitHub repository with no GitHub connection. Add a source file for it under
-`sources/git/` in the workspace repository with a pull request:
+ctxpipe can read a repository that needs no credential: a public repository on
+another git host, or a public GitHub repository. Use **Paste URL**, or add a
+source file under `sources/git/` with a pull request:
 
 ```markdown
 ---
@@ -92,81 +84,41 @@ url: https://git.example.org/team/tools.git
 ---
 ```
 
-ctxpipe reads the repository with git, with no credential. In each deployment,
-the URL must obey these rules:
+ctxpipe checks the URL before it opens the pull request. On hosted ctxpipe, the
+URL must:
 
-- ctxpipe does not support ssh (`git@…` or `ssh://`), `git://`, or `file://`
-  URLs: the sandbox reaches the outside only through an HTTP proxy.
-- It has no user name, password, query, or fragment.
+- use `https://` and the default port;
+- have a public domain name as its host, not an IP address or a name such as
+  `localhost`, and resolve only to public addresses;
+- have no user name, password, query, or fragment.
 
-On hosted ctxpipe, and on each deployment that does not set
-`SANDBOX_PROVIDER=docker`, the URL must also obey these rules:
+ctxpipe does not support ssh (`git@…`, `ssh://`), `git://`, or `file://` URLs,
+and does not follow a redirect. Use the exact clone URL. A repository that
+needs a credential works only on GitHub, through the GitHub App.
 
-- It uses `https://` and the default port.
-- Its host is a domain name, not an IP address or a private name such as
-  `localhost` or a `.local` or `.internal` name.
-- Each address of the host is public. ctxpipe does not read a host that
-  resolves to a private, loopback, or link-local address.
-
-A self-hosted deployment with Docker sandboxes (`SANDBOX_PROVIDER=docker`,
-which Docker Compose and AWS CDK set) can also read a git server inside your
-network. Its URL can use `http://`, another port, an IP address, or an
-internal host name, for example `http://git.internal:3000/team/tools.git`.
-ctxpipe never reads a host that resolves to a cloud metadata or link-local
-address (`169.254.0.0/16`, such as `169.254.169.254`, `fe80::/10`, or
-`fd00:ec2::254`), also on a self-hosted deployment.
-The sandbox fetches the repository through Agent Vault. Agent Vault connects
-to a private address only when that address is in its network allowlist. Add
-the address of your git server to it:
-
-- Docker Compose: set `AGENT_VAULT_NETWORK_ALLOWLIST` in `.env`. Add only
-  the single host address of your git server, for example
-  `AGENT_VAULT_NETWORK_ALLOWLIST=10.20.0.15`. Compose always keeps
-  `172.30.99.10` (the backend) in the list.
-- AWS CDK: set `sandboxHost.agentVaultNetworkAllowlist`, for example
-  `["10.20.0.15/32"]`. ctxpipe adds it after the backend subnets. The sandbox host
-  must also have a route to that address.
-
-<Callout type="warn">
-  Chat-sandbox vaults forward each host that no rule matches. An address or CIDR in this list therefore lets every chat agent reach every port and path at that address. Add only the single host address of the git server, never a whole subnet.
-</Callout>
-
-Do not add a cloud metadata, link-local, or loopback address.
-
-ctxpipe does not follow a redirect. Use the exact clone URL of the repository.
-Repositories that need a credential on other git hosts are not supported.
-
-The sandbox that extracts knowledge can fetch the repository only while it
-prepares its copy of the source. The steps after that cannot reach the git
-host.
-
-The source file links the repository to the Workspace. As before Workspaces,
-ctxpipe indexes a plain git repository when you add it with the repositories
-API (`POST /{orgSlug}/api/v1/repositories` with `name` and `gitUrl`), and
-when you start its indexing again (`POST /{orgSlug}/api/v1/repositories/{id}/reindex`).
-Both calls check the URL with the rules above and answer `400` with the
-rule when ctxpipe does not read it.
-Each index of the repository also updates the knowledge of each Workspace
-whose source file names it.
+A self-hosted deployment can also read a git server inside your network. See
+[Plain git repositories](/docs/self-hosting/configuration#plain-git-repositories)
+in the self-hosting configuration.
 
 ## Indexing status
 
 | Status | Meaning |
 | --- | --- |
-| **Pending** | Linked, waiting to be indexed. |
-| **Indexing** | ctxpipe is building search and extracting knowledge. Answers may be incomplete. |
-| **Indexed** | Search and extraction finished for the current commit. |
-| **Indexed with issues** | Search works, but part of the index failed, usually code navigation for one language. The reason is shown on the row. |
+| **Pending** | Linked, waiting for indexing. |
+| **Indexing** | ctxpipe is building search and extracting knowledge. Answers can be incomplete. |
+| **Indexed** | Search and extraction are done for the current commit. |
+| **Indexed with issues** | Search works, but part of the index failed, usually code navigation for one language. The row shows the reason. |
 
-Indexing runs again when the linked branch or tag of the repository changes.
+Indexing runs again when the linked branch or tag changes. **Working now**, in
+the **Status** group of **Settings**, shows the progress of each run.
 
 ## What indexing builds
 
-- **Code search**: text, file, and symbol search over the default branch.
-- **Code navigation**: definitions and references for supported languages.
+- **Code search**: text, file, and symbol search over the linked branch.
+- **Code navigation**: definitions and references for the supported languages.
 - **Extracted knowledge**: services, APIs, libraries, infrastructure, and
-  instructions such as `AGENTS.md`, skills, and ADRs, committed to the
-  workspace repository as knowledge files with claims.
+  instructions such as `AGENTS.md`, skills, and ADRs. ctxpipe commits them to
+  the Workspace repository as knowledge files with claims.
 - **GitHub Actions workflows**: one knowledge file in `knowledge/workflows/`
   for each workflow file in `.github/workflows/`. It lists the triggers and
   the job ids, and it links to the services, apps, and libraries whose
@@ -174,15 +126,14 @@ Indexing runs again when the linked branch or tag of the repository changes.
   commands, environment values, or secrets. A merged pull request that
   changes a workflow file links to that knowledge file.
 
-Extraction uses models on parts of the code. Treat extracted claims like any
-other knowledge file: review them in git and correct them when they are wrong.
+Extraction uses models on parts of the code. Treat extracted claims like other
+knowledge files: review them in git, and correct them when they are wrong.
 
 ## Closed pull requests
 
 For a linked GitHub repository, ctxpipe also mirrors its closed pull requests,
-merged or not, into `github/pulls/` in the workspace repository. When ctxpipe
-first reads a link, whether you added it in **Settings** or added its source
-file with Git, it backfills up to 200 recent closed pull requests. After that,
-each pull request that closes arrives as GitHub reports it.
-Unlinking stops new pull requests and keeps the files already mirrored. See
+merged or not, into `github/pulls/` in the Workspace repository. When you link
+the repository, ctxpipe backfills up to 200 recent closed pull requests. After
+that, each pull request arrives when it closes. When you unlink, new pull
+requests stop. The files already mirrored stay. See
 [GitHub connector](/docs/connections/source-connectors/github).

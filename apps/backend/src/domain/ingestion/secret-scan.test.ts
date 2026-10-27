@@ -1,7 +1,9 @@
 import { execFileSync } from "node:child_process"
 import { readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
+
 import { describe, expect, it } from "vitest"
+
 import { findSuspectedSecret } from "./secret-scan.js"
 
 describe("findSuspectedSecret on the documents of this repository", () => {
@@ -86,7 +88,7 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
     ["a value shortened in the middle", "API_KEY=ghp_ab...wxyz"],
     [
       "a URL with template user and password",
-      // biome-ignore lint/suspicious/noTemplateCurlyInString: the case is a literal URL template
+      // oxlint-disable-next-line no-template-curly-in-string -- the case is a literal URL template
       "postgres://${DB_USER}:${DB_PASSWORD}@db/app",
     ],
     [
@@ -102,7 +104,10 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
     ],
     ["a file name with a GitHub prefix", "see ghs_12_build.log"],
     ["a snake-case name with a number", "daily_highs_2_moving_average_window"],
-    ["a bare prefix with a snake-case name", "ghs_2_repository_owner_total_count"],
+    [
+      "a bare prefix with a snake-case name",
+      "ghs_2_repository_owner_total_count",
+    ],
     ["a short word and digits", "DB_PASSWORD=password123"],
   ])("does not find %s", (_, line) => {
     expect(found(line)).toBeNull()

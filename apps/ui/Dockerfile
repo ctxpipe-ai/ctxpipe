@@ -1,5 +1,5 @@
 # Build from monorepo root: docker build -f apps/ui/Dockerfile .
-FROM node:22-alpine AS deps
+FROM node:24.22.1-alpine AS deps
 WORKDIR /app
 ENV CI=true
 RUN npm install -g pnpm@10.12.1
@@ -9,7 +9,7 @@ COPY apps/ui/package.json apps/ui/package.json
 COPY apps/backend/package.json apps/backend/package.json
 RUN pnpm install --frozen-lockfile
 
-FROM node:22-alpine AS builder
+FROM node:24.22.1-alpine AS builder
 WORKDIR /app
 ENV CI=true
 RUN npm install -g pnpm@10.12.1
@@ -25,7 +25,7 @@ ENV VITE_PUBLIC_API_URL=$VITE_PUBLIC_API_URL
 RUN NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @ctxpipe/ui build
 
 # Production stage — Nitro/Vinxi outputs a self-contained server bundle to .output/
-FROM oven/bun:1.4.2-alpine
+FROM oven/bun:1.4.4-alpine
 WORKDIR /app
 ENV CI=true
 ENV NODE_ENV=production

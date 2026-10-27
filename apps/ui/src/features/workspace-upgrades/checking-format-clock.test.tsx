@@ -3,11 +3,14 @@
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { useCheckingFormatExpired } from "./checking-format-clock"
+
+import { upgradeItemFixture } from "@/mocks/workspace-upgrades-handlers"
+
+import { useExpiredCheckingKeys } from "./checking-format-clock"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
-describe("useCheckingFormatExpired", () => {
+describe("useExpiredCheckingKeys", () => {
   afterEach(() => {
     vi.useRealTimers()
   })
@@ -16,9 +19,19 @@ describe("useCheckingFormatExpired", () => {
     vi.useFakeTimers()
     let renders = 0
     let expired = false
+    // A re-ingestion blocked for the format, while the Workspace has it.
+    const checking = upgradeItemFixture({
+      key: "clock-stop",
+      kind: "reingest",
+      status: "blocked",
+      blockedReason: "needs_format",
+      targetFormat: 3,
+    })
     function Probe() {
       renders++
-      expired = useCheckingFormatExpired("acme/docs/clock-stop", true)
+      expired = useExpiredCheckingKeys("acme/docs", [checking], 3).has(
+        "clock-stop",
+      )
       return null
     }
     const root = createRoot(document.createElement("div"))

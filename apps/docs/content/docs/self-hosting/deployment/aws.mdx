@@ -67,13 +67,18 @@ new CtxPipe(stack, "CtxPipe", {
     apiKey: cdk.SecretValue.unsafePlainText(String(modelApiKey)),
     models: {
       fast: "gpt-4.1-mini",
-      // Optional: medium, high, embedding
+      embedding: "text-embedding-3-large",
+      // Optional: medium, high
       // medium: "gpt-4.1",
       // high: "gpt-4.1",
     },
   },
 });
 ```
+
+Set `models.embedding` for an OpenAI-compatible provider. Without it, the
+backend uses `openai/text-embedding-3-large`, an OpenRouter model id that other
+providers do not know.
 
 #### Amazon Bedrock (task role)
 
@@ -118,11 +123,14 @@ cdk synth
 cdk deploy -c modelApiKey="$OPENAI_API_KEY"
 ```
 
-**Bedrock** (example context keys from [`examples/aws-cdk-self-host`](https://github.com/ctxpipe-ai/ctxpipe/tree/main/examples/aws-cdk-self-host)):
+**Bedrock**, with the example app in
+[`examples/aws-cdk-self-host`](https://github.com/ctxpipe-ai/ctxpipe/tree/main/examples/aws-cdk-self-host).
+It always uses Bedrock, and reads `orgSlug`, `domainName`, `hostedZoneId`,
+`size`, `stackName`, `modelFast`, `modelMedium`, `modelHigh`, and
+`modelEmbedding` from the context:
 
 ```bash
 cdk deploy \
-  -c modelKind=bedrock \
   -c modelFast="anthropic.claude-sonnet-4-20250514-v1:0" \
   -c orgSlug=acme \
   -c domainName=app.example.com \
@@ -135,13 +143,11 @@ After `cdk deploy` completes, open `https://<customDomain.domainName>`.
 
 ### 6) Complete onboarding with the same `orgSlug`
 
-When you create the first organization in onboarding, use the **exact same**
-slug as the `orgSlug` you passed to `CtxPipe`.
-
-<Callout type="warn" title="Slug must match">
-  If onboarding uses a different org slug than the deployed `orgSlug`,
-  org-scoped graph configuration will not line up.
-</Callout>
+When you create the first organization in onboarding, use the **same** slug
+as the `orgSlug` of `CtxPipe`. The construct uses the slug for the graph
+database settings of the organization (`GRAPH_DB_URI_<orgSlug>`). If the two
+slugs are different, the graph of the organization does not work. The slug can
+contain only lowercase letters, digits, and `-`.
 
 ### 7) Upgrade an existing stack
 
@@ -153,6 +159,9 @@ cdk synth
 cdk deploy
 ```
 
+Before the first deploy of a new version, check the Aurora minor version. See
+[Aurora PostgreSQL minor version](https://github.com/ctxpipe-ai/ctxpipe/blob/main/packages/aws-cdk/README.md#aurora-postgresql-minor-version).
+
 `cdk deploy` runs Postgres migrations, then rolls the ECS services. You do not set image tags in `CtxPipe` props, and you should not retag tasks to `:latest` yourself. The migrate task provisions `ctxpipe_app`, and then the stack writes the runtime `DATABASE_URL` secret; CDK operators do not set either URL by hand and do not run `psql`.
 
 This is how codesearch memory bumps (4 / 8 / 12 GiB) and ingest behavior land together. Updating only container images, or only task memory, leaves the stack split across releases.
@@ -162,25 +171,9 @@ adds it with no new required props. That deploy only adds resources and
 replaces nothing that holds data. It waits until the host reports ready,
 then rolls backend and worker.
 
-### Bonus: automate upgrades with CI/CD
-
-Set up CI/CD so dependency upgrades for `@ctxpipe/aws-cdk` trigger:
-
-1. dependency update (or Renovate/Dependabot PR),
-2. `cdk synth` validation,
-3. `cdk deploy` from your pipeline.
-
-This keeps your self-hosted stack aligned with the construct version you run.
-
-## Critical org slug requirement
-
-`orgSlug` is not only infra config. It must match the org you create in the
-product onboarding flow.
-
-- The construct configures org-scoped graph runtime values using this slug.
-- During first login/onboarding, create the org with the **exact same slug**.
-- If the onboarding org slug does not match the deployed `orgSlug`, org-scoped
-  graph configuration will not line up as expected.
+To automate upgrades, let Renovate or Dependabot open a pull request for each
+new `@ctxpipe/aws-cdk` version, and run `cdk synth` and `cdk deploy` from your
+pipeline.
 
 ## Why each prop exists
 
@@ -198,7 +191,8 @@ product onboarding flow.
 |---|---|
 | `size` | Capacity profile for single-tenant deployments. Valid values: `small`, `medium`, `large`. Defaults to `small` when omitted. |
 | `otel` | Optional OTLP export. Omit it and the tasks export nothing. The construct does not deploy a collector, Langfuse, or ClickStack. |
-| `sandboxHost` | Optional `instanceType` and `dockerVolumeSizeGiB` for the [chat sandbox host](#chat-sandbox-host), and `agentVaultNetworkAllowlist` for a [private git server](#private-git-servers). The host is always created; these only change its size and its allowlist. |
+| `sandboxHost` | The [chat sandbox host](#chat-sandbox-host): `instanceType`, `dockerVolumeSizeGiB` (a whole number, at least 20), `agentVaultNetworkAllowlist` for a [private git server](#private-git-servers), and `enabled`. The host is on by default. `enabled: false` creates no host, and turns chat off. |
+| `connectorSecrets` | Deployment-wide connector credentials. See [Optional connector secrets](#optional-connector-secrets). |
 
 ### `modelProvider` union
 
@@ -241,11 +235,21 @@ Replace `defaultModel: "gpt-4.1-mini"` with `models: { fast: "gpt-4.1-mini" }`.
 
 ### Optional connector secrets
 
-Pass deployment-wide connector credentials through `connectorSecrets`. For
-Slack, set `slackClientId`, `slackClientSecret`, and `slackSigningSecret`
-together. For PagerDuty, set `pagerdutyClientId` and `pagerdutyClientSecret`
-together; there is no shared webhook secret. The construct stores them in
-Secrets Manager and injects them into the required ECS tasks. See
+Pass deployment-wide connector credentials through `connectorSecrets`. Each
+value is a `cdk.SecretValue`. The construct stores them in Secrets Manager and
+gives them to the ECS tasks that need them. Most connectors can also take their
+credentials in the setup wizard of the product, so these are optional.
+
+| Connector | Keys |
+|---|---|
+| GitHub App | `githubAppId`, `githubPrivateKey`, `githubWebhookSecret`, `githubClientId`, `githubClientSecret` |
+| Atlassian | `atlassianClientId`, `atlassianClientSecret` |
+| Slack | `slackClientId`, `slackClientSecret`, `slackSigningSecret` (set all three) |
+| Linear | `linearClientId`, `linearClientSecret`, `linearRedirectUri`, `linearWebhookSecret` |
+| Notion | `notionClientId`, `notionClientSecret`, `notionWebhookSecret` |
+| PagerDuty | `pagerdutyClientId`, `pagerdutyClientSecret`, `pagerdutyRedirectUri`. There is no shared webhook secret. |
+
+See
 [Self-host Slack](/docs/self-hosting/slack) and
 [Self-host PagerDuty](/docs/self-hosting/pagerduty) for callback and webhook
 settings.
@@ -270,7 +274,7 @@ Browser telemetry and the signal URLs the apps read are in [Configuration](/docs
 | Edge + ingress | Public ALB + ACM certificate + Route 53 records | Exposes one HTTPS origin and routes public traffic to backend. |
 | Compute | ECS cluster + Fargate services (`backend`, `worker`, `ui`, `codesearch`) | Runs application APIs, background jobs, UI, and code indexing/search workloads. |
 | Chat sandboxes | One EC2 Docker host in an Auto Scaling group, Docker volume, TLS secrets, CloudWatch alarms | Runs each Workspace conversation's agent in its own container. |
-| Stateful data | Aurora PostgreSQL, Neptune cluster, EFS for `/data` | Persists relational state, graph data, and codesearch cache/indexes. |
+| Stateful data | Aurora PostgreSQL 16, Neptune cluster, EFS for `/data` | Persists relational state, graph data, and codesearch cache/indexes. |
 | Secrets + identity | Secrets Manager secrets, generated `AUTH_SECRET`, optional connector secrets | Stores runtime credentials and injects them into tasks securely. |
 | Email delivery | SES domain identity, DKIM, SMTP credentials | Enables transactional email from backend (`ctxpipe-noreply@<hosted-zone-apex>`). |
 | Deploy safety | Migration custom resource (one-off ECS task) + ECS deployment rollback controls | Runs migrations during deploy and prevents partial/broken rollouts. |

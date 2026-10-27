@@ -70,3 +70,19 @@ export function workspaceSearch(search: Record<string, unknown>): {
     pane: typeof search.pane === "string" ? search.pane : undefined,
   }
 }
+
+/**
+ * Search for a move to a different conversation or to a new chat. A file
+ * or diff pane belongs to one conversation, so a file pane becomes the Files
+ * pane and a diff pane closes. Files, graph, and settings stay open.
+ */
+export function paneSearchForOtherConversation(
+  search: Record<string, unknown>,
+): {
+  pane?: string
+} {
+  const pane = parsePane(workspaceSearch(search).pane)
+  if (pane?.kind === "file") return { pane: "files" }
+  if (pane?.kind === "diff") return { pane: undefined }
+  return workspaceSearch(search)
+}

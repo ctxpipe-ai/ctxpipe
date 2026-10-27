@@ -1,5 +1,6 @@
 import { chat } from "@tanstack/ai"
 import { z } from "zod"
+
 import { abortAfter } from "../../lib/abortAfter.js"
 import { getLogger } from "../../observability/logger.js"
 import {
@@ -83,6 +84,7 @@ export async function nativeFolderSetChanged(
       )
     },
     pack,
+    null,
   )
 }
 
@@ -269,9 +271,8 @@ export async function updateFolderList(input: {
   folders: { previous: readonly string[]; current: readonly string[] }
 }): Promise<string | null> {
   const log = getLogger()
-  const { getModel, modelProviderConfigured } = await import(
-    "../../retrieval/services/modelProvider.js"
-  )
+  const { getModel, modelProviderConfigured } =
+    await import("../../retrieval/services/modelProvider.js")
   if (!modelProviderConfigured()) {
     log.info("No model is configured, so the AGENTS.md folder list stays", {
       step: "folder-list",

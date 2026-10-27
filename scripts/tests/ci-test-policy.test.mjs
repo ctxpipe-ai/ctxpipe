@@ -150,7 +150,6 @@ test("proof policy rejects aliased skips, retries and owned module mocks without
     }
     writeFileSync(
       runner,
-      // biome-ignore lint/suspicious/noTemplateCurlyInString: Fixture source retains its runtime interpolation.
       'spawnSync("node", [vitest, "run", `--retry=${count}`])',
     )
     assert.equal(spawnSync(process.execPath, [policy, runner]).status, 1)
@@ -394,7 +393,7 @@ test("CI runs the full-tree proof policy; workflow_dispatch does not select chan
   assert.match(
     workflow,
     /run: node scripts\/ci\/check-test-policy\.mjs\n/,
-    "Biome job must invoke the policy with no path argv",
+    "Lint job must invoke the policy with no path argv",
   )
   assert.doesNotMatch(
     workflow,

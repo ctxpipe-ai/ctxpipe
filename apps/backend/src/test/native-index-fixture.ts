@@ -5,10 +5,12 @@ import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+
 import { eq, sql } from "drizzle-orm"
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { expect, onTestFinished } from "vitest"
+
 import { withOrgIdContext } from "../auth/withAuth.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
@@ -16,6 +18,7 @@ import { repositories } from "../db/schema/repositories.js"
 import { orgFirstWorkspaces, workspaces } from "../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
 import { generateObjectId } from "../lib/id.js"
+import { markRepositoryIndexingReady } from "../models/repositories.js"
 import { repositoryIndex } from "../openworkflow/workflows/repository-index.js"
 import { workspaceIndex } from "../openworkflow/workflows/workspace-index.js"
 import { workspaceTipCheck } from "../openworkflow/workflows/workspace-tip-check.js"
@@ -255,6 +258,28 @@ export async function createNativeIndexFixture(
     worker = runner.newWorker({ concurrency: 2 })
     await worker.start()
     const indexInput = { orgId: org.id, revision }
+    // Workspace code reads use the published checkout: an ingestion indexes
+    // `rev:<sha>` and the repository row publishes it. Give the request of
+    // a queued ingestion when one exists: it owns the repository row.
+    const publish = async (requestId?: string) => {
+      const published = await runner.runWorkflow(repositoryIndex.spec, {
+        repositoryId,
+        orgId: org.id,
+        targetHash: sha,
+        ingestionV2: true,
+      })
+      expect(await published.result({ timeoutMs: 30_000 })).toMatchObject({
+        searchIndexOk: true,
+        targetHash: sha,
+      })
+      await withOrgIdContext(org, () =>
+        markRepositoryIndexingReady({
+          repositoryId,
+          targetHash: sha,
+          requestId,
+        }),
+      )
+    }
     return {
       databaseUrl,
       directory,
@@ -274,7 +299,9 @@ export async function createNativeIndexFixture(
       runner,
       indexInput,
       cleanup,
+      publish,
       index: async () => {
+        await publish()
         const handle = await runner.runWorkflow(workspaceIndex.spec, indexInput)
         expect(await handle.result({ timeoutMs: 30_000 })).toEqual({
           published: true,

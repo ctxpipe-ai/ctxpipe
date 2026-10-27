@@ -34,6 +34,15 @@ railway_graphql() {
   printf '%s' "$body"
 }
 
+# railway_service_instance_update <environment-id> <service-id> <input-json>
+# Send one serviceInstanceUpdate with the given ServiceInstanceUpdateInput.
+railway_service_instance_update() {
+  local env_id="$1" service_id="$2" input="$3"
+  railway_graphql \
+    'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+    "$(jq -nc --arg env "$env_id" --arg service "$service_id" --argjson input "$input" '{environmentId:$env, serviceId:$service, input:$input}')"
+}
+
 load_project() {
   local project_json
   project_json="$(railway_graphql \
@@ -59,7 +68,7 @@ load_project() {
 # Fail when Railway does not return the environment list after 5 attempts, so
 # a caller never reads an API error as "the environment does not exist". The
 # waits add up to 150 seconds: a Railway rate limit (HTTP 429) asks for up to
-# about 70 seconds, and many PR Deploy runs share one account token.
+# about 70 seconds, and many PR Deploy runs share one workspace token.
 railway_environment_id() {
   local project="$1" name="$2" attempt body
   for attempt in 1 2 3 4 5; do

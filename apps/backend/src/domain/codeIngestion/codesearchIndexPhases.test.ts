@@ -1,5 +1,6 @@
 import { HttpResponse, http } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
 import { useMswServer } from "../../../test/msw.js"
 import { CODEBASE_DIDNT_FIT_AVAILABLE_MEMORY } from "../../lib/memoryFitError.js"
 import {
@@ -10,7 +11,6 @@ import {
 } from "./codesearchIndexPhases.js"
 import { RepositoryGoneError } from "./repositoryGone.js"
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
 const base = "http://codesearch.test"
 

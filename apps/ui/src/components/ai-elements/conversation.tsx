@@ -1,12 +1,12 @@
 "use client"
 
+import { ArrowDownIcon } from "lucide-react"
 import type { ComponentProps } from "react"
+import { useCallback } from "react"
+import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
 
 import { Button } from "@/components/ui/Button"
 import { cn } from "@/lib/utils"
-import { ArrowDownIcon } from "lucide-react"
-import { useCallback } from "react"
-import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
 
 type ConversationProps = ComponentProps<typeof StickToBottom>
 
@@ -28,9 +28,7 @@ export const Conversation = ({ className, ...props }: ConversationProps) => {
   )
 }
 
-type ConversationContentProps = ComponentProps<
-  typeof StickToBottom.Content
->
+type ConversationContentProps = ComponentProps<typeof StickToBottom.Content>
 
 export const ConversationContent = ({
   className,
@@ -72,4 +70,3 @@ export const ConversationScrollButton = ({
     )
   )
 }
-

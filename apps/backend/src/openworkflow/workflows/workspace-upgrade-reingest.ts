@@ -1,4 +1,5 @@
 import { z } from "zod"
+
 import { parseEnv } from "../../config/env.js"
 import type { IngestionV2Input } from "../../domain/ingestion/ingestion-run.js"
 import {
@@ -121,6 +122,7 @@ const runOutputSchema = z
                 timeLimit: z.number().optional(),
                 model: z.number().optional(),
                 other: z.number().optional(),
+                crashLoop: z.number().optional(),
               })
               .optional(),
             refused: z.string().optional(),
@@ -134,14 +136,20 @@ const runOutputSchema = z
 /**
  * One fixed line for the steps that failed after their 3 attempts, with no
  * error text: that text can hold source text. The line names the cause that
- * classifies the failure (CTX-896): a time limit, else a model error, else
- * no cause (a step of the sandbox or of the push). Null when no step failed so.
+ * classifies the failure (CTX-896): a worker crash loop (CTX-971), else a
+ * time limit, else a model error, else no cause (a step of the sandbox or of
+ * the push). Null when no step failed so.
  */
 function stepFailureLine(failures: IngestStepFailures = {}): string | null {
   const count =
-    (failures.timeLimit ?? 0) + (failures.model ?? 0) + (failures.other ?? 0)
+    (failures.timeLimit ?? 0) +
+    (failures.model ?? 0) +
+    (failures.other ?? 0) +
+    (failures.crashLoop ?? 0)
   if (!count) return null
   const steps = `${count} ingest ${count === 1 ? "step" : "steps"} failed after 3 attempts`
+  if (failures.crashLoop)
+    return `${steps}. The worker stopped during a step 3 times (for example, it ran out of memory). Start the re-ingestion again. If it stops again, report it to support.`
   if (failures.timeLimit) return `${steps}. A step reached its time limit.`
   if (failures.model) return `${steps}. The model returned an error.`
   return `${steps}.`
@@ -371,13 +379,17 @@ async function planReingest(input: {
     // and the reason. A plain git repository is read with no credential,
     // from a host that passes the plain git rules (CTX-815).
     let tipError: string | null = null
-    const tip = await (source.githubConnectionId
-      ? resolveRepositoryReadTip({
-          orgId: input.orgId,
-          env,
-          remote: { url: source.url, connectionId: source.githubConnectionId },
-        })
-      : resolvePlainGitTip(source.url)
+    const tip = await (
+      source.githubConnectionId
+        ? resolveRepositoryReadTip({
+            orgId: input.orgId,
+            env,
+            remote: {
+              url: source.url,
+              connectionId: source.githubConnectionId,
+            },
+          })
+        : resolvePlainGitTip(source.url)
     ).catch((error: unknown) => {
       tipError = tipErrorText(error)
       return null

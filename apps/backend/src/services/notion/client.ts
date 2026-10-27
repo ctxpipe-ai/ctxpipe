@@ -196,18 +196,19 @@ async function fetchNotion<T>(
   } else if (res.status === 401 && input.connection.refreshToken) {
     const expectedRefreshToken = input.connection.refreshToken
     const expectedAccessToken = input.connection.accessToken
-    const tokens = await (input.onTokenRefresh
-      ? input.onTokenRefresh(expectedRefreshToken, expectedAccessToken)
-      : input.env.NOTION_CLIENT_ID && input.env.NOTION_CLIENT_SECRET
-        ? refreshNotionOAuthToken({
-            clientId: input.env.NOTION_CLIENT_ID,
-            clientSecret: input.env.NOTION_CLIENT_SECRET,
-            refreshToken: expectedRefreshToken,
-          }).then((refreshed) => ({
-            accessToken: refreshed.access_token,
-            refreshToken: refreshed.refresh_token ?? expectedRefreshToken,
-          }))
-        : Promise.reject(new Error("Notion OAuth is not configured"))
+    const tokens = await (
+      input.onTokenRefresh
+        ? input.onTokenRefresh(expectedRefreshToken, expectedAccessToken)
+        : input.env.NOTION_CLIENT_ID && input.env.NOTION_CLIENT_SECRET
+          ? refreshNotionOAuthToken({
+              clientId: input.env.NOTION_CLIENT_ID,
+              clientSecret: input.env.NOTION_CLIENT_SECRET,
+              refreshToken: expectedRefreshToken,
+            }).then((refreshed) => ({
+              accessToken: refreshed.access_token,
+              refreshToken: refreshed.refresh_token ?? expectedRefreshToken,
+            }))
+          : Promise.reject(new Error("Notion OAuth is not configured"))
     ).catch((error: unknown) => {
       // An invalid grant: the refresh token is revoked too.
       if (

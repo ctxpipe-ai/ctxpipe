@@ -1,4 +1,5 @@
 import { generateKeyPairSync } from "node:crypto"
+
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
@@ -12,6 +13,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { useMswServer } from "../../../test/msw.js"
 import type { AppEnv } from "../../app/env.js"
@@ -48,7 +50,6 @@ const { privateKey: ownAppPrivateKey } = generateKeyPairSync("rsa", {
 
 let installationLookups = 0
 
-// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
   http.get("https://api.github.com/user/installations", ({ request }) => {
     installationLookups += 1
