@@ -1091,16 +1091,18 @@ test("the manifest lists the preview deployment and its UI smoke test, and the g
   assert.deepEqual(smoke.prerequisites, ["preview-deployment"])
   assert.deepEqual(prerequisites["preview-deployment"].needs, ["preview-pr"])
   assert.deepEqual(deploy.prerequisites, ["preview-pr"])
-  // A plain backend code change does not touch an input of either check.
-  for (const check of deploys.values())
-    assert.ok(
-      !check.inputs.some((input) =>
-        ["apps/backend/**", "apps/backend/src/**", "apps/ui/**"].includes(
-          input,
-        ),
-      ),
-      check.id,
-    )
+  // A plain app code change does not select the deployment: no input is a
+  // whole app directory, and no app source input imports a repo module (a
+  // selector follows the imports of a source input).
+  for (const input of deploy.inputs) {
+    assert.ok(!/^apps\/[^/]+\/(src\/)?\*\*$/.test(input), input)
+    if (/^apps\/.*\.(ts|tsx|mjs)$/.test(input))
+      assert.doesNotMatch(
+        readFileSync(join(root, input), "utf8"),
+        /from "\.{1,2}\//,
+        input,
+      )
+  }
   // Each deploy check is one step of the deploy job of pr-deploy.yaml.
   const job = workflow.slice(workflow.indexOf("\n  deploy_pr_environment:\n"))
   assert.ok(job.includes("name: Deploy PR environment (Railway + Neon)\n"))

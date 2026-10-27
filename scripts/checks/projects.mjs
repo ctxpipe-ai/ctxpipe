@@ -300,22 +300,18 @@ const definitions = () => [
       "scripts/preview-service-vars.sh",
       "scripts/preview-ui-private.sh",
       // The images, their start commands and the variables that they read.
+      // No app source file other than env.ts: a selector follows the imports
+      // of a source input, so an entry file would select on all app code.
       "apps/backend/Dockerfile",
       "apps/backend/Dockerfile.worker",
       "apps/ui/Dockerfile",
       "apps/codesearch/Dockerfile",
       "apps/codesearch/start.sh",
       "apps/backend/package.json",
-      "apps/backend/src/server.ts",
-      "apps/backend/src/openworkflow/worker-supervisor.ts",
       "apps/backend/src/config/env.ts",
-      // The migrate job.
       "apps/backend/migrations/**",
-      "apps/backend/src/db/migrate.ts",
       // The connector asset job, which the deploy needs.
       "apps/backend/vitest.connector-assets.config.ts",
-      "apps/backend/src/scripts/verifyConnectorAssetRuntime.ts",
-      "apps/backend/src/services/connectors/assets.ts",
       // The production environment that each preview copies.
       "infra/module/ctxpipe/railway.tf",
       "infra/module/ctxpipe/neon.tf",
