@@ -287,6 +287,7 @@ const definitions = () => [
     // Only what the deploy workflow reads. A dependency change selects the
     // image build checks, not a full preview deploy.
     inputs: [
+      ".node-version",
       "scripts/checks/projects.mjs",
       ".github/workflows/pr-deploy.yaml",
       // The scripts that the workflow sources: Railway, Neon, the service
@@ -337,6 +338,7 @@ const definitions = () => [
     file: "scripts/ci/smoke-preview-ui.sh",
     root: "",
     inputs: [
+      ".node-version",
       "scripts/checks/projects.mjs",
       "scripts/ci/smoke-preview-ui.sh",
       "scripts/preview-ui-private.sh",
