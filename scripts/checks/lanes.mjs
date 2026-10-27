@@ -267,11 +267,12 @@ export function markExitFailure(records, run) {
   if (run.status === 0 && !run.error && !run.signal) return records
   const cause = run.error?.message ?? run.signal ?? `exit ${run.status}`
   return records.map((record) =>
-    record.status === "failed"
+    record.status === "failed" || (record.status === "error" && !record.origin)
       ? record
       : {
           ...record,
           status: "error",
+          origin: "runner",
           message: `Vitest failed (${cause}); see the log${record.message ? `. ${record.message}` : ""}`,
         },
   )
@@ -379,6 +380,9 @@ export function suiteRecord(id, suite, log, message) {
       : 0,
     cases,
     ...(log && { log }),
+    // A suite that is in the report but did not run (a load error) is a
+    // fault of the test file. Only a missing suite is a fault of the runner.
+    ...(!suite && { origin: "runner" }),
     ...(status === "error"
       ? { message: suite?.message || message || "Suite did not run" }
       : {}),

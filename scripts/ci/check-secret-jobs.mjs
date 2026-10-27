@@ -50,9 +50,11 @@
 //   proves that the commit is on main (`git merge-base --is-ancestor HEAD
 //   origin/main`) in the step directly after each such checkout, before any
 //   other command of that step. On main, its token has the subject of main,
-//   which a cloud role can trust. The proof is a plain command whose failure
-//   fails the step: the step has no `if:` and no `continue-on-error`, and
-//   nothing hides the exit status (`||`, `;`, `set +e`).
+//   which a cloud role can trust. The proof is the last non-empty line of the
+//   `run` of its step, and a plain command whose failure fails the step: the
+//   step has no `if:`, no `continue-on-error`, no `shell:`, no `set `, no
+//   `trap`, and nothing on the proof line or after it hides the exit status
+//   (`&&`, `||`, `;`).
 // - The merge gate selection job (ci.yaml merge-gate-select) does not use
 //   `workbench`: it reads only our own result store and the selector release
 //   through a read-only OIDC role of the factory account. It needs no secret
@@ -135,7 +137,10 @@ const exceptions = new Map(
   }),
 )
 
-const oidcToken = /^\s+id-token:\s*write\b/
+// An OIDC token: `id-token: write`, `permissions: write-all`, or the flow
+// form `permissions: { id-token: write }`, at workflow or job level.
+const oidcToken =
+  /^\s+id-token:\s*write\b|^\s*permissions:\s*(?:write-all\b|\{[^}]*\bid-token:\s*write\b)/
 
 // Jobs that run only for main, as deploy.yaml does. The check keeps their
 // `if:` limited to refs/heads/main.
@@ -193,6 +198,7 @@ function parse(text) {
   for (const line of code(text)) {
     if (/^\S/.test(line.text)) {
       section = /^(\w+):/.exec(line.text)?.[1] ?? ""
+      if (section === "permissions") workflowPermissions.push(line)
       continue
     }
     if (section === "env") workflowEnv.push(line)
@@ -285,7 +291,9 @@ for (const script of reviewedScripts) {
 
 for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
   const file = join(".github", "workflows", name)
-  const { workflowEnv, workflowPermissions, jobs } = parse(readFileSync(join(root, file), "utf8"))
+  const { workflowEnv, workflowPermissions, jobs } = parse(
+    readFileSync(join(root, file), "utf8"),
+  )
   const isProduction = file === production
 
   for (const { text, number } of workflowEnv)
@@ -317,10 +325,9 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
       "deploy.yaml:release",
       "deploy.yaml:prerelease",
     ].includes(`${name}:${job.name}`)
-    const holdsSecret = job.lines.some(
-      ({ text }) =>
-        secretUse.test(text),
-    ) || (hasOidc && !oidcPublishJob)
+    const holdsSecret =
+      job.lines.some(({ text }) => secretUse.test(text)) ||
+      (hasOidc && !oidcPublishJob)
     const environment = job.lines
       .map(({ text }) => /^ {4}environment:\s*['"]?([\w-]+)/.exec(text)?.[1])
       .find(Boolean)
@@ -391,20 +398,29 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
               /^\s+(?:-\s+)?uses:/.test(text) ||
               untrusted.some(([pattern]) => pattern.test(text)),
           )
-        // The proof is a plain command whose failure fails the step: no `if:`,
-        // no `continue-on-error`, no `set +e`, nothing after it that hides
-        // its exit status (`||`, `;`, `|`, `&`).
-        const proofLine = next[proof]?.text ?? ""
+        // The proof is the last non-empty line of the `run` of its step, a plain
+        // command whose failure fails the step. The step has no `if:`, no
+        // `continue-on-error`, no `shell:`. No line of it has `set `, `trap`,
+        // `&&`, `||`, `;`, `|` or `&` on the proof line, or anything after it.
+        const runIndex = next.findIndex(({ text }) =>
+          /^\s*(?:-\s+)?run:/.test(text),
+        )
+        const runLines = next
+          .slice(Math.max(runIndex, 0))
+          .map(({ text }) =>
+            text.replace(/^\s*(?:-\s+)?run:\s*(?:[|>][+-]?)?/, ""),
+          )
+          .filter((text) => text.trim() !== "")
         const hidden =
           proof !== -1 &&
-          (!/^\s*(?:-\s+)?(?:run:\s*(?:[|>][+-]?\s*)?)?git merge-base --is-ancestor HEAD origin\/main\s*(?:&&.*)?$/.test(
-            proofLine,
-          ) ||
+          (runIndex === -1 ||
+            runLines.at(-1)?.trim() !==
+              "git merge-base --is-ancestor HEAD origin/main" ||
             next.some(
-              ({ text }, at) =>
-                /^\s+(?:-\s+)?(if|continue-on-error):/.test(text) ||
-                /\bset\s+\+e\b/.test(text) ||
-                (at > proof && /^\s*(\|\||;|\||&(?!&))/.test(text)),
+              ({ text }) =>
+                /^\s+(?:-\s+)?(if|continue-on-error|shell):/.test(text) ||
+                /(?<![\w-])set\s/.test(text) ||
+                /(?<![\w-])trap\b/.test(text),
             ))
         if (proof === -1 || early || hidden)
           failures.push(

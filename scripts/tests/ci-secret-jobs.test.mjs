@@ -671,21 +671,48 @@ test("rejects a proof step that can hide its failure", () => {
     `      - run: |\n          ${cmd}\n          || true\n`,
     `      - run: |\n          set +e\n          ${cmd}\n`,
     `      - run: if ${cmd}; then echo ok; fi\n`,
+    `      - shell: bash {0}\n        run: ${cmd}\n`,
+    `      - run: ${cmd} && echo ok\n`,
+    `      - run: |\n          ${cmd}\n          echo after\n`,
+    `      - run: |\n          set +o errexit\n          ${cmd}\n`,
+    `      - run: |\n          trap 'exit 0' ERR\n          ${cmd}\n`,
   ])
     rejects(
       { ".github/workflows/deploy.yaml": job(proof) },
       /job prerelease has an OIDC token and checks out another commit/,
     )
   rejects(
-    { ".github/workflows/deploy.yaml": job(`      - run: ${cmd} || true\n`, true) },
+    {
+      ".github/workflows/deploy.yaml": job(
+        `      - run: ${cmd} || true\n`,
+        true,
+      ),
+    },
     /job prerelease has an OIDC token and checks out another commit/,
   )
   for (const proof of [
     `      - run: ${cmd}\n`,
-    `      - run: |\n          ${cmd}\n          echo ok\n`,
+    `      - run: |\n          echo before\n          ${cmd}\n`,
   ]) {
     const result = check({ ".github/workflows/deploy.yaml": job(proof) })
     assert.equal(result.stderr, "")
     assert.equal(result.status, 0)
   }
+})
+
+test("detects an OIDC token from write-all and from the flow form", () => {
+  const checkout = `      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6\n        with:\n          ref: \${{ inputs.ref }}\n`
+  const noProof = "      - run: echo hi\n"
+  const jobs = (workflow, job) =>
+    `on: workflow_dispatch\n${workflow}jobs:\n  prerelease:\n${job}    steps:\n${checkout}${noProof}`
+  for (const [workflow, job] of [
+    ["permissions: write-all\n", ""],
+    ["permissions: { id-token: write }\n", ""],
+    ["", "    permissions: write-all\n"],
+    ["", "    permissions: { contents: read, id-token: write }\n"],
+  ])
+    rejects(
+      { ".github/workflows/deploy.yaml": jobs(workflow, job) },
+      /job prerelease has an OIDC token and checks out another commit/,
+    )
 })

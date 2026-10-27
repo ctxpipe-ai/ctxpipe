@@ -86,17 +86,19 @@ export function decideMode({ config, event, fork, changed }) {
   const full = (reason) => ({ mode: "full", reason })
   if (event !== "pull_request") return full(`event ${event}`)
   if (fork) return full("fork PR")
-  // A change to one of these can change how checks are selected or run, so
-  // the run is full. The PR then shows the change of the rule in its diff.
+  // A change to one of these can change how the gate decides, so the run is
+  // full: the workflow that runs the gate, its actions, its pin, and the code
+  // that the gate and the runner execute. Other workflows, Markdown files, the
+  // root package.json, the lockfile and .node-version are not here: the
+  // selector reads them as lane inputs (scripts/checks/lanes.mjs), and the
+  // toolchain is part of each key.
   const inputs = changed.filter((path) =>
     [
-      /^\.github\//,
-      /^scripts\/checks\//,
-      /^scripts\/ci\//,
-      /^pnpm-lock\.yaml$/,
-      /^pnpm-workspace\.yaml$/,
-      /^package\.json$/,
-      /^\.node-version$/,
+      /^\.github\/workflows\/ci\.yaml$/,
+      /^\.github\/actions\//,
+      /^\.github\/merge-gate\.json$/,
+      /^scripts\/checks\/(?:schema\/[^/]+\.json|[^/]+\.mjs)$/,
+      /^scripts\/ci\/(?:vitest-launch|test-suite|graph-ready|prerequisites)\.mjs$/,
     ].some((input) => input.test(path)),
   )
   if (inputs.length)

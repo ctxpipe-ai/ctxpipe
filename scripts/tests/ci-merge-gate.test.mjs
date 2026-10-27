@@ -48,20 +48,33 @@ test("only a same-repo pull_request without gate input changes runs the selector
     ".github/workflows/ci.yaml",
     ".github/merge-gate.json",
     "scripts/checks/gate.mjs",
+    "scripts/checks/schema/result.v1.schema.json",
+    ".github/actions/setup/action.yml",
     "scripts/ci/test-suite.mjs",
-    "pnpm-lock.yaml",
-    "pnpm-workspace.yaml",
-    "package.json",
-    ".node-version",
+    "scripts/ci/vitest-launch.mjs",
   ])
     assert.deepEqual(mode({ changed: ["apps/a.ts", path] }), {
       mode: "full",
       reason: `gate inputs changed: ${path}`,
     })
+  for (const path of [
+    ".github/workflows/deploy.yaml",
+    ".github/workflows/pr-deploy.yaml",
+    ".github/workflows/observability.yaml",
+    ".github/workflows/terraform-plan-pr.yaml",
+    "scripts/checks/README.md",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "package.json",
+    ".node-version",
+    "scripts/ci/check-secret-jobs.mjs",
+  ])
+    assert.equal(mode({ changed: ["apps/a.ts", path] }).mode, "select", path)
   assert.match(
-    mode({ changed: Array.from({ length: 7 }, (_, i) => `.github/${i}`) })
-      .reason,
-    /: \.github\/0, .*\.github\/4 and 2 more$/,
+    mode({
+      changed: Array.from({ length: 7 }, (_, i) => `.github/actions/${i}`),
+    }).reason,
+    /: \.github\/actions\/0, .*\.github\/actions\/4 and 2 more$/,
   )
   assert.deepEqual(
     mode({ config: { ...pinned, factory: { version: null, sha256: null } } }),
@@ -694,6 +707,11 @@ test("a Vitest suite gives one result record", () => {
   assert.equal(suiteRecord("a", suite(["passed", "failed"])).status, "failed")
   assert.equal(suiteRecord("a", suite(["skipped"])).status, "skipped")
   assert.equal(suiteRecord("a", undefined).status, "error")
+  assert.equal(suiteRecord("a", undefined).origin, "runner")
+  // A suite that threw at load is in the report: its fault, so no origin.
+  const loadError = { ...suite([]), message: "Cannot find module" }
+  assert.equal(suiteRecord("a", loadError).status, "error")
+  assert.equal(suiteRecord("a", loadError).origin, undefined)
   assert.equal(suiteRecord("a", suite(["passed"])).durationMs, 20)
   assert.deepEqual(
     schemaErrors(

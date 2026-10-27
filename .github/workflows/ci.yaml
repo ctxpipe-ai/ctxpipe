@@ -1473,6 +1473,10 @@ jobs:
                 cat -v "$list"
               } >> "$RUNNER_TEMP/store.txt"
             done
+          if grep -q '^SUSPECT WRITER' "$RUNNER_TEMP/store.txt"; then
+            hashes="$(grep -o '^SUSPECT WRITER sha256 [0-9a-f]*' "$RUNNER_TEMP/store.txt" | awk '{print $4}' | tr '\n' ' ')"
+            echo "::error::Suspect agent writers (sha256 of the writer): ${hashes}. The run had an infrastructure fault or many confirmed failures, so no writer was quarantined. A person or the nightly agent reviews the markers under quarantine/suspect/."
+          fi
           if grep -q '^AUDIT FAILED' "$RUNNER_TEMP/store.txt"; then
             echo "::error::The audit of the result store failed, so no key was quarantined. See the Results writer summary."
           fi

@@ -35,13 +35,13 @@ try {
     if (record.status === "failed" || record.status === "error") failed = true
     process.stdout.write(`${JSON.stringify({ schemaVersion: 1, ...record })}\n`)
   }
-  const unrun = (id, message) =>
-    emit({ id, status: "error", durationMs: 0, cases: [], message })
+  const unrun = (id, message, origin) =>
+    emit({ id, status: "error", durationMs: 0, cases: [], origin, message })
   const known = new Map((await listChecks()).checks.map((c) => [c.id, c]))
   const selected = []
   for (const id of ids) {
     if (known.has(id)) selected.push(known.get(id))
-    else unrun(id, "Unknown check id")
+    else unrun(id, "Unknown check id", "runner")
   }
   const missing = await prepare(
     selected.flatMap((check) => check.prerequisites ?? []),
@@ -50,7 +50,11 @@ try {
   for (const check of selected) {
     const need = (check.prerequisites ?? []).find((name) => missing.has(name))
     if (need)
-      unrun(check.id, `Prerequisite ${need} failed: ${missing.get(need)}`)
+      unrun(
+        check.id,
+        `Prerequisite ${need} failed: ${missing.get(need)}`,
+        "prerequisite",
+      )
     else groups.set(check.family, [...(groups.get(check.family) ?? []), check])
   }
   const traced = []
@@ -63,7 +67,7 @@ try {
       result = await runners[family](checks, trace)
     } catch (error) {
       for (const { id } of checks)
-        unrun(id, `The ${family} run failed: ${error.message}`)
+        unrun(id, `The ${family} run failed: ${error.message}`, "runner")
       continue
     }
     for (const record of result.records) emit(record)

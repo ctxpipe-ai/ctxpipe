@@ -44,6 +44,10 @@
         }
       }
     },
+    "origin": {
+      "description": "Optional. Set only on an error record of a check that did not run because of a fault outside the check: prerequisite (a prerequisite failed) or runner (the runner failed, or the check is unknown). Set by the runner only; a test file cannot set it. A consumer detects an infrastructure fault from this field, never from the message text.",
+      "enum": ["prerequisite", "runner"]
+    },
     "log": {
       "description": "Repo-relative path of the runner log for the group of checks.",
       "type": "string"

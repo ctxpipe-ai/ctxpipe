@@ -560,6 +560,7 @@ test("an eval check refuses to run without the workbench variables", () => {
   const document = schema("result")
   validate(record, document, document)
   assert.equal(record.status, "error")
+  assert.equal(record.origin, "prerequisite")
   assert.match(record.message, /Prerequisite workbench failed/)
   assert.match(record.message, /MODEL_PROVIDER_API_KEY/)
   assert.match(record.message, /workbench environment/)
@@ -695,6 +696,10 @@ test("a Vitest exit failure fails every record that has not failed", async () =>
     ["error", "failed", "error"],
   )
   assert.match(marked[0].message, /Vitest failed \(exit 1\)/)
+  assert.equal(marked[0].origin, "runner")
+  // A load error of a test file is its own fault: no origin.
+  const loadError = { id: "d", status: "error", durationMs: 1, cases: [] }
+  assert.equal(markExitFailure([loadError], { status: 1 })[0].origin, undefined)
   assert.match(
     markExitFailure(records, { status: null, signal: "SIGKILL" })[0].message,
     /SIGKILL/,

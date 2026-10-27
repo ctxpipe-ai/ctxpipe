@@ -74,7 +74,10 @@ export async function caseVerdict(run, caseId, stored, usage = {}) {
     {
       iterations: run.iterations,
       passes: Object.fromEntries(
-        models.map((model) => [model, { [caseId]: run.passes[model]?.[caseId] }]),
+        models.map((model) => [
+          model,
+          { [caseId]: run.passes[model]?.[caseId] },
+        ]),
       ),
     },
     stored && {
@@ -184,6 +187,7 @@ export async function runEvals(checks) {
           status: "error",
           durationMs,
           cases: [],
+          origin: "runner",
           log: log.relative,
           message,
         })),
