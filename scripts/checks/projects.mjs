@@ -5,8 +5,9 @@ import { fileURLToPath } from "node:url"
 import { logFile, logged } from "./log.mjs"
 
 // The project-level checks: typecheck (one for each project of
-// scripts/ci/projects.json), lint (oxlint, oxfmt, knip) and the policy
-// scripts (of the CI lint job, and the Terraform plan). Each one runs a
+// scripts/ci/projects.json), lint (oxlint, oxfmt, knip), the policy
+// scripts (of the CI lint job, and the Terraform plan) and the builds (each
+// production image and each package of the CI build jobs). Each one runs a
 // fixed command over a whole project, so it has no trace. Its inputs are the
 // files that it reads, approximated with whole directories: a change anywhere
 // in them selects it.
@@ -170,6 +171,99 @@ const definitions = () => [
       commands: [node(file)],
     }
   }),
+  // The production images of the Production build job: one check for each
+  // image. A build pulls base images by tag and packages from the network
+  // without a lock, so the same inputs can give another result: a result
+  // cache never reuses it. The release and deploy images come only from the
+  // deploy workflows, never from this check.
+  ...[
+    ["backend", "apps/backend/Dockerfile", ["apps/backend/**", "shared/**"]],
+    [
+      "worker",
+      "apps/backend/Dockerfile.worker",
+      ["apps/backend/**", "shared/**"],
+    ],
+    [
+      "ui",
+      "apps/ui/Dockerfile",
+      ["apps/ui/**", "apps/backend/src/**", "apps/backend/package.json"],
+    ],
+    [
+      "codesearch",
+      "apps/codesearch/Dockerfile",
+      ["apps/codesearch/**", "shared/**"],
+      // The layer cache of the codesearch toolchain stages. The Layer cache
+      // job of ci.yaml writes it on main; a reader needs no login.
+      [
+        "--cache-from",
+        "type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-codesearch",
+      ],
+    ],
+    ["docs", "apps/docs/Dockerfile", ["apps/docs/**"]],
+    [
+      "chat-sandbox",
+      "scripts/chat-sandbox/Dockerfile",
+      ["scripts/chat-sandbox/**"],
+      // The AWS sandbox host is arm64, and no other job builds it for arm64
+      // before a release.
+      ["--platform", "linux/arm64"],
+    ],
+  ].map(([name, file, reads, flags = []]) => {
+    const context = name === "chat-sandbox" ? "scripts/chat-sandbox" : "."
+    return {
+      family: "build",
+      lane: `image-${name}`,
+      file,
+      root: file.replace(/\/[^/]+$/, ""),
+      inputs: [
+        ...shared,
+        file,
+        ...(context === "."
+          ? [".dockerignore", "tsconfig.json", "patches/**"]
+          : []),
+        ...reads,
+      ],
+      stochastic: true,
+      prerequisites: ["docker"],
+      intent: `Catches a ${name} production image that does not build. Run it when its Dockerfile, the lockfile or the source that it copies changes; never for a change only to tests or docs of another app.`,
+      commands: [
+        [
+          "docker",
+          "buildx",
+          "build",
+          "--progress=plain",
+          "--file",
+          file,
+          ...flags,
+          context,
+        ],
+      ],
+    }
+  }),
+  // The package builds of the Runnable packages job: one check for each
+  // package. Each build reads only the checkout and the lockfile, so its
+  // result is a function of its inputs.
+  ...[
+    ["backend", "@ctxpipe/backend", "apps/backend", ["shared/**"], ["bun"]],
+    [
+      "codesearch",
+      "@ctxpipe/codesearch",
+      "apps/codesearch",
+      ["shared/**"],
+      ["bun"],
+    ],
+    ["aws-cdk", "@ctxpipe/aws-cdk", "packages/aws-cdk", ["tsconfig.json"]],
+    ["cli", "ctxpipe", "packages/cli", ["tsconfig.json"]],
+  ].map(([name, pkg, directory, reads, prerequisites]) => ({
+    family: "build",
+    lane: `package-${name}`,
+    file: `${directory}/package.json`,
+    root: directory,
+    inputs: [...shared, `${directory}/**`, ...reads],
+    prerequisites,
+    intent: `Catches a ${pkg} build that fails. Run it when the package source, its build config or the lockfile changes; never for a change outside the files that it reads.`,
+    commands: [pnpm("--filter", pkg, "build")],
+  })),
 ]
 
 export function listProjects() {

@@ -506,22 +506,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Each image is one check of the manifest (scripts/checks/projects.mjs
+        # holds its Dockerfile, context and build flags).
         include:
           - name: backend
-            dockerfile: apps/backend/Dockerfile
+            check: build:image-backend:apps/backend/Dockerfile
           - name: worker
-            dockerfile: apps/backend/Dockerfile.worker
+            check: build:image-worker:apps/backend/Dockerfile.worker
           - name: ui
-            dockerfile: apps/ui/Dockerfile
+            check: build:image-ui:apps/ui/Dockerfile
           - name: codesearch
-            dockerfile: apps/codesearch/Dockerfile
+            check: build:image-codesearch:apps/codesearch/Dockerfile
           - name: docs
-            dockerfile: apps/docs/Dockerfile
+            check: build:image-docs:apps/docs/Dockerfile
           # deploy.yaml publishes this image for arm64 (the AWS sandbox host is
           # Graviton). No other job builds it for arm64 before release.
           - name: chat-sandbox
-            dockerfile: scripts/chat-sandbox/Dockerfile
-            context: scripts/chat-sandbox
+            check: build:image-chat-sandbox:scripts/chat-sandbox/Dockerfile
             platforms: linux/arm64
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -530,16 +531,34 @@ jobs:
         with:
           platforms: arm64
       - uses: ./.github/actions/setup-buildx
-      # Only codesearch reads a layer cache: its toolchain stages are the slow
-      # part. This job reads it without a login. The layer-cache job writes it
-      # (see the comment there).
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          context: ${{ matrix.context || '.' }}
-          file: ${{ matrix.dockerfile }}
-          platforms: ${{ matrix.platforms }}
-          push: false
-          cache-from: ${{ matrix.name == 'codesearch' && 'type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-codesearch' || '' }}
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Only codesearch reads a layer cache: its toolchain stages are the slow
+      # part. The check reads it without a login. The layer-cache job writes
+      # it (see the comment there). The record goes to the merge gate.
+      - name: Build the image through the check runner
+        env:
+          CHECK: ${{ matrix.check }}
+          NAME: ${{ matrix.name }}
+        run: |
+          set -o pipefail
+          mkdir -p ".ci-results/build-$NAME"
+          echo "$CHECK" | pnpm -s checks:run | tee ".ci-results/build-$NAME/records.ndjson"
+      - name: Show the build log
+        if: failure()
+        run: cat .ci-results/checks/*.log
+      - name: Preserve the build result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-results-build-${{ matrix.name }}
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   # Writes the Docker layer caches that test-shards (chat sandbox) and
   # production-builds (codesearch) read.
@@ -616,11 +635,27 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @ctxpipe/backend build
-      - run: pnpm --filter @ctxpipe/codesearch build
-      - run: pnpm --filter @ctxpipe/aws-cdk build
-      - run: pnpm --filter ctxpipe build
+      # Each package build is one check of the manifest. The record goes to
+      # the merge gate.
+      - name: Build the packages through the check runner
+        run: |
+          set -o pipefail
+          mkdir -p .ci-results/build-packages
+          pnpm -s checks:list |
+            jq -r '.checks[] | select(.family == "build" and (.lane | startswith("package-"))) | .id' |
+            pnpm -s checks:run | tee .ci-results/build-packages/records.ndjson
+      - name: Show the build log
+        if: failure()
+        run: cat .ci-results/checks/*.log
       - run: pnpm --filter @ctxpipe/aws-cdk-self-host typecheck
+      - name: Preserve the build results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-results-build-packages
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   storybook-build:
     timeout-minutes: 20

@@ -22,12 +22,38 @@ A check id is `<family>:<lane>:<file>`, for example `vitest:ui:apps/ui/src/compo
 | `typecheck` | the `name` of each project in `scripts/ci/projects.json` | project | `typecheck:ui:apps/ui/tsconfig.json` | `scripts/ci/typecheck.mjs` with the project's diagnostic allowances |
 | `lint` | `oxlint`, `format`, `knip` | tool | `lint:knip:knip.json` | `pnpm lint`, `pnpm format:check`, `pnpm knip` |
 | `policy` | the name of each policy script of the CI lint job, and `claude-plugin` | script | `policy:test-policy:scripts/ci/check-test-policy.mjs` | that script |
+| `build` | `image-<name>` for each production image, `package-<name>` for each package build | image or package | `build:image-ui:apps/ui/Dockerfile`, `build:package-cli:packages/cli/package.json` | `docker buildx build` of the Dockerfile, or `pnpm --filter <package> build` |
 
 - A Storybook story is a case of its stories file. The story id is the Storybook id, so the id stays the same when the story moves in its file. [`storybook.mjs`](storybook.mjs) lists the stories with the Storybook indexer (`buildIndex`), and runs them against `apps/ui/storybook-static`.
 - An eval case calls paid models. The record has `stochastic: true`: the same inputs can give a different result, so a result cache must not reuse it. Its inputs are only its harness. `tools` lists the MCP tools that the case declares. A reader selects the case by those tools and the trace's `tools` edges (the tools that each Vitest case called), then by its `intent`. A reader never selects it by an import. The verdict of a case is the eval gate (`apps/backend/evals/mcp/gate.ts`) for that one case: its thresholds and the baseline drop for the case. When a model has no baseline entry for the case, only the pass-rate floor applies, and the case message says "no baseline". A whole-run gate failure (for example, too few models) does not change the verdict of a case. The runner writes it to stderr as one note. The memory live evals have no check; each scenario is listed when a live runner can run it.
 - The `latency` and `upgrade` lanes run the files that the PR suite does not run (`*.latency.ts`, `*.upgrade.ts`), each with its own Vitest config. A latency result is `stochastic`: wall-clock bounds vary on shared runners.
 - The `typecheck`, `lint` and `policy` checks run a fixed command over a whole project, so they have no trace. Their `inputs` approximate the files that they read with whole directories (for example `apps/**` for oxlint, `apps/backend/src/**` for the UI typecheck, because the UI types import the backend RPC types, and the repo-root `shared/**` for the backend, codesearch and UI typechecks). A change in one of them selects the check. Their `root` is the repo root (`""`) or the project directory.
 - A `typecheck` check is incremental. It keeps the TypeScript build info in `node_modules/.cache/typecheck/`. It checks again only the files that a change can affect. When the result does not match the diagnostic allowance, it deletes the build info and checks all files again. Thus, a failure always comes from a full check. Delete that directory to force a full check. The CI Typecheck job keeps the directory in the cache. The job on a push to `main` does not restore the cache, so it is always a full check.
+
+## Builds
+
+The `build` checks are the jobs Production build and Runnable packages of `ci.yaml`. Each job runs its checks with `pnpm -s checks:run` and keeps the records in a `test-results-build-*` artifact, so the merge gate reads the full-run result of each check. These jobs still run on each pull request; the gate does not skip a build until [CTX-1054](https://linear.app/ctxpipe/issue/CTX-1054). Release and deploy images come only from the deploy workflows, with no selector and no cache.
+
+| Job | Matrix entry or step | Check |
+| --- | --- | --- |
+| `production-builds` | `backend` | `build:image-backend:apps/backend/Dockerfile` |
+| `production-builds` | `worker` | `build:image-worker:apps/backend/Dockerfile.worker` |
+| `production-builds` | `ui` | `build:image-ui:apps/ui/Dockerfile` |
+| `production-builds` | `codesearch` | `build:image-codesearch:apps/codesearch/Dockerfile` |
+| `production-builds` | `docs` | `build:image-docs:apps/docs/Dockerfile` |
+| `production-builds` | `chat-sandbox` (arm64) | `build:image-chat-sandbox:scripts/chat-sandbox/Dockerfile` |
+| `packages` | `@ctxpipe/backend` | `build:package-backend:apps/backend/package.json` |
+| `packages` | `@ctxpipe/codesearch` | `build:package-codesearch:apps/codesearch/package.json` |
+| `packages` | `@ctxpipe/aws-cdk` | `build:package-aws-cdk:packages/aws-cdk/package.json` |
+| `packages` | `ctxpipe` | `build:package-cli:packages/cli/package.json` |
+| `packages` | `@ctxpipe/aws-cdk-self-host` typecheck | `typecheck:self-host:examples/aws-cdk-self-host/tsconfig.json` (also in the Typecheck job) |
+| `layer-cache` | all | none |
+
+- The inputs of an image are its Dockerfile, the root files that it copies (the lockfile, `patches/**`, `.dockerignore`) and the directories that it copies. The inputs of a package are its directory, the lockfile and the directories that it imports.
+- An image build is `stochastic`: it pulls base images by tag, and packages from the network without a lock, so the same inputs can give another result. A result cache never reuses it. A package build reads only the checkout, so the cache keys it as any other check.
+- An image check needs the `docker` prerequisite. The codesearch image reads the public layer cache `ghcr.io/ctxpipe-ai/ci-cache:production-codesearch` without a login. The chat-sandbox image builds for `linux/arm64`; on an amd64 runner the job installs QEMU first.
+- The Layer cache job is cache warming, not a check. It writes the layer caches on `main` only, and its failure is a miss on the next run. A cache miss makes a build slower, never another result.
+- Cost: the record of each build has its `durationMs`. The gate counts both jobs as always-run jobs (`cost` in `gate.mjs`), so a build check has no shard profile.
 
 ## Other pull request workflows
 

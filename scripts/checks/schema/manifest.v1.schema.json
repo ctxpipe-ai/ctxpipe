@@ -29,8 +29,16 @@
           "pattern": "^[a-z]+:[a-z0-9-]+:[^#]+(#.+)?$"
         },
         "family": {
-          "description": "`vitest`: a Vitest test file. `storybook`: a Storybook story with a play function, played in Chromium. `eval`: an eval case that calls paid models. `typecheck`: one TypeScript project. `lint`: oxlint, oxfmt or knip over the repo. `policy`: a policy script of the CI lint job, or the Terraform plan.",
-          "enum": ["vitest", "storybook", "eval", "typecheck", "lint", "policy"]
+          "description": "`vitest`: a Vitest test file. `storybook`: a Storybook story with a play function, played in Chromium. `eval`: an eval case that calls paid models. `typecheck`: one TypeScript project. `lint`: oxlint, oxfmt or knip over the repo. `policy`: a policy script of the CI lint job, or the Terraform plan. `build`: one production image or one package build of the CI build jobs.",
+          "enum": [
+            "vitest",
+            "storybook",
+            "eval",
+            "typecheck",
+            "lint",
+            "policy",
+            "build"
+          ]
         },
         "lane": {
           "description": "One group of checks that run together: for Vitest one runner invocation (package directory, config and runtime); for other families the kind of check.",

@@ -176,7 +176,8 @@ test("the manifest matches its schema and lists each check of each family", asyn
       check.family === "eval" ||
       check.lane === "golden" ||
       check.lane === "latency" ||
-      check.lane === "upgrade"
+      check.lane === "upgrade" ||
+      check.family === "build"
     if (expensive) {
       assert.ok(check.intent, `${check.id} has no intent`)
       assert.ok(
@@ -188,7 +189,8 @@ test("the manifest matches its schema and lists each check of each family", asyn
       check.stochastic ?? false,
       check.family === "eval" ||
         check.lane === "latency" ||
-        check.lane === "terraform-plan",
+        check.lane === "terraform-plan" ||
+        check.lane.startsWith("image-"),
       check.id,
     )
   }
@@ -912,4 +914,88 @@ test("the manifest lists a check for each job of the other pull request workflow
   assert.ok(lane("eval", "mcp").length > 0)
   for (const check of lane("eval", "mcp"))
     assert.equal(check.stochastic, true, check.id)
+})
+
+test("the manifest lists a build check for each production image and package of CI", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const builds = new Map(
+    JSON.parse(result.stdout)
+      .checks.filter((check) => check.family === "build")
+      .map((check) => [check.id, check]),
+  )
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const job = (name) =>
+    workflow.slice(
+      workflow.indexOf(`\n  ${name}:\n`),
+      workflow.indexOf("\n\n  ", workflow.indexOf(`\n  ${name}:\n`) + 1),
+    )
+  // The Production build job builds each image check of its matrix through
+  // the check runner, and each image check is in the matrix.
+  const images = [...job("production-builds").matchAll(/check: (\S+)/g)].map(
+    ([, id]) => id,
+  )
+  assert.deepEqual(
+    images.sort(),
+    [...builds.keys()].filter((id) => id.startsWith("build:image-")),
+  )
+  assert.ok(job("production-builds").includes("pnpm -s checks:run"))
+  assert.ok(job("packages").includes("pnpm -s checks:run"))
+  const expected = {
+    "build:image-backend:apps/backend/Dockerfile": [
+      "apps/backend/**",
+      "shared/**",
+      "patches/**",
+      ".dockerignore",
+    ],
+    "build:image-worker:apps/backend/Dockerfile.worker": [
+      "apps/backend/**",
+      "shared/**",
+    ],
+    "build:image-ui:apps/ui/Dockerfile": ["apps/ui/**", "apps/backend/src/**"],
+    "build:image-codesearch:apps/codesearch/Dockerfile": [
+      "apps/codesearch/**",
+      "shared/**",
+    ],
+    "build:image-docs:apps/docs/Dockerfile": ["apps/docs/**"],
+    "build:image-chat-sandbox:scripts/chat-sandbox/Dockerfile": [
+      "scripts/chat-sandbox/**",
+    ],
+    "build:package-backend:apps/backend/package.json": [
+      "apps/backend/**",
+      "shared/**",
+    ],
+    "build:package-codesearch:apps/codesearch/package.json": [
+      "apps/codesearch/**",
+      "shared/**",
+    ],
+    "build:package-aws-cdk:packages/aws-cdk/package.json": [
+      "packages/aws-cdk/**",
+    ],
+    "build:package-cli:packages/cli/package.json": ["packages/cli/**"],
+  }
+  assert.deepEqual([...builds.keys()].sort(), Object.keys(expected).sort())
+  for (const [id, inputs] of Object.entries(expected)) {
+    const check = builds.get(id)
+    assert.ok(existsSync(join(root, check.file)), `${check.file} is missing`)
+    for (const input of [...inputs, "pnpm-lock.yaml"])
+      assert.ok(check.inputs.includes(input), `${id} lacks input ${input}`)
+    assert.ok(check.intent, id)
+    const image = check.lane.startsWith("image-")
+    // An image pulls base images by tag, so a result cache never reuses it;
+    // a package build is a function of its inputs.
+    assert.equal(check.stochastic ?? false, image, id)
+    assert.deepEqual(runsInOf(id), {
+      job: image ? "production-builds" : "packages",
+    })
+  }
+  assert.deepEqual(
+    builds.get("build:image-codesearch:apps/codesearch/Dockerfile")
+      .prerequisites,
+    ["docker"],
+  )
+  assert.deepEqual(
+    builds.get("build:package-backend:apps/backend/package.json").prerequisites,
+    ["bun"],
+  )
 })
