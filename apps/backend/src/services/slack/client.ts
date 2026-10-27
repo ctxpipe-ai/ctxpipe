@@ -4,6 +4,7 @@ import {
   decodeSlackBotToken,
   parseSlackConnectionStored,
 } from "../../lib/connection-config.js"
+import { DOCS_URL } from "../../lib/docs-url.js"
 import type { SlackConnectionShape } from "../../models/connection-rows.js"
 import {
   missingSlackBotScopes,
@@ -410,8 +411,7 @@ export async function resolveSlackChannelInfo(input: {
 export const SLACK_MENTION_STATUS_WORKING = "ctxpipe agent working…"
 export const SLACK_CAPTURE_STATUS_CAPTURED = "Engineering context captured."
 export const SLACK_CAPTURE_STATUS_FAILED = "Engineering context capture failed."
-export const SLACK_MENTION_CAPABILITY_REPLY =
-  "I can capture this thread into your context repo. Ask me to capture it, or mention me with no extra text."
+export const SLACK_MENTION_CAPABILITY_REPLY = `I can capture this thread into your context repo. Ask me to capture it, or mention me with no extra text. For other questions about ctxpipe, see the <${DOCS_URL}|ctxpipe docs>.`
 
 export async function postSlackThreadMessage(input: {
   env: Env

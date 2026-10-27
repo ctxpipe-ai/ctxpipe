@@ -168,6 +168,31 @@ export const PlainLinkMovesCurrentNav: Story = {
   },
 }
 
+export const DocsLinkOpensProductDocs: Story = {
+  parameters: {
+    ...SingleWorkspace.parameters,
+    intent:
+      "Catches a Docs link that is missing from the Help list of the main navigation. Also catches a Docs link that does not open the product docs in a new tab, or that has no name in the collapsed rail. Not for the other footer items.",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const nav = await canvas.findByRole("navigation", {
+      name: "Main navigation",
+    })
+    const help = await within(nav).findByRole("list", { name: "Help" })
+    const docs = within(help).getByRole("link", { name: "Docs" })
+    await expect(docs).toHaveAttribute("href", "https://docs.ctxpipe.ai")
+    await expect(docs).toHaveAttribute("target", "_blank")
+    await userEvent.click(
+      canvas.getByRole("button", { name: /collapse navigation/i }),
+    )
+    await within(nav).findByRole("button", { name: /expand navigation/i })
+    await expect(
+      within(nav).getByRole("link", { name: "Docs" }),
+    ).toHaveAttribute("href", "https://docs.ctxpipe.ai")
+  },
+}
+
 export const UserMenuLinksConnectedApps: Story = {
   tags: ["workspace-golden"],
   parameters: {

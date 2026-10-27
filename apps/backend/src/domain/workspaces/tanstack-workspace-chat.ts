@@ -31,6 +31,7 @@ import { eq } from "drizzle-orm"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
+import { DOCS_URL } from "../../lib/docs-url.js"
 import { loadConversationTurns } from "../../models/conversation-messages.js"
 import { saveConversationTurnChanges } from "../../models/conversation-turn-changes.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
@@ -1007,10 +1008,16 @@ async function startWorkspaceChat(
           },
           onConfig(_ctx, config) {
             const rootPath = workspaceRootPath(built.revision)
-            // The push refuses a change outside the root folder; this tells the agent first.
-            // The orientation follows: it changes only with the revision, so
-            // the prompt cache keeps it across turns.
+            // The docs block never changes, so it comes first and the prompt
+            // cache keeps it. The push refuses a change outside the root
+            // folder; the root block tells the agent first. The orientation
+            // follows: it changes only with the revision, so the prompt cache
+            // keeps it across turns.
             const rootPrompts = [
+              JSON.stringify({
+                type: "ctxpipe_docs",
+                instructions: `For a question about ctxpipe itself (Workspaces, sources, upgrades, MCP setup, self-hosting), read ${DOCS_URL}/llms.txt, then the page that matches. Answer from that page, and give its URL without the .mdx ending. Do not answer such a question from the Workspace knowledge: it is about this organization, not about ctxpipe. If you cannot read the docs, give the user ${DOCS_URL}.`,
+              }),
               ...(rootPath
                 ? [
                     JSON.stringify({
