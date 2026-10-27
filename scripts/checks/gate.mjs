@@ -255,10 +255,10 @@ function manifestClosure(lock) {
   }
   for (const [importer, names] of Object.entries(manifestPackages))
     for (const name of names) {
+      // A manifest package that one side does not have has no closure on that
+      // side; the version check in lockfileCause sees the addition or removal.
       const version = lock.importers.get(importer)?.deps.get(name)
-      if (version === undefined)
-        throw new Error(`importer ${importer} has no ${name}`)
-      snapshot(name, version)
+      if (version !== undefined) snapshot(name, version)
     }
   return keys
 }
