@@ -254,8 +254,8 @@ function ConnectStep(props: {
         </InlineAlert>
       ) : props.webhookMissing ? (
         <InlineAlert variant="warning">
-          Live updates are off. Paste the key again, and ctxpipe tries to add the
-          webhook again.
+          Live updates are off. Paste the key again, and ctxpipe tries to add
+          the webhook again.
         </InlineAlert>
       ) : null}
       <TextField

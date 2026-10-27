@@ -353,11 +353,8 @@ describe("Plain connector routes (Postgres + msw)", () => {
     const res = await request(`/plain/catalog?connectionId=${connectionId}`)
 
     expect(res.status).toBe(400)
-    expect(
-      (await request(`/plain/status?connectionId=${connectionId}`).then((r) =>
-        r.json(),
-      )) as { status: string },
-    ).toMatchObject({ status: "revoked" })
+    const status = await request(`/plain/status?connectionId=${connectionId}`)
+    expect(await status.json()).toMatchObject({ status: "revoked" })
   })
 
   it("removes the webhook target, the connection, and its directory row", async () => {
