@@ -106,13 +106,13 @@ const definitions = () => [
   },
   {
     // The plan of terraform-plan-pr.yaml. It reads the remote state, so the
-    // same inputs can give another result.
+    // same inputs can give another result: a result cache never reuses it.
     family: "policy",
     lane: "terraform-plan",
     file: "infra/main.tf",
     root: "infra",
     inputs: [...shared, "infra/**"],
-    stochastic: true,
+    cacheable: false,
     prerequisites: ["terraform-plan"],
     intent:
       "Catches a Terraform change that the plan rejects or that changes infrastructure. Run it when a file under infra changes; never for app code.",
@@ -174,7 +174,7 @@ const definitions = () => [
   // The production images of the Production build job: one check for each
   // image. A build pulls base images by tag and packages from the network
   // without a lock, so the same inputs can give another result: a result
-  // cache never reuses it. The release and deploy images come only from the
+  // cache never reuses it, but the selector selects it by its inputs. The release and deploy images come only from the
   // deploy workflows, never from this check.
   ...[
     ["backend", "apps/backend/Dockerfile", ["apps/backend/**", "shared/**"]],
@@ -192,9 +192,12 @@ const definitions = () => [
       "codesearch",
       "apps/codesearch/Dockerfile",
       ["apps/codesearch/**", "shared/**"],
-      // The layer cache of the codesearch toolchain stages. The Layer cache
-      // job of ci.yaml writes it on main; a reader needs no login.
+      // The Dockerfile builds only for amd64. The layer cache of the
+      // codesearch toolchain stages: the Layer cache job of ci.yaml writes it
+      // on main; a reader needs no login.
       [
+        "--platform",
+        "linux/amd64",
         "--cache-from",
         "type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-codesearch",
       ],
@@ -223,7 +226,7 @@ const definitions = () => [
           : []),
         ...reads,
       ],
-      stochastic: true,
+      cacheable: false,
       prerequisites: ["docker"],
       intent: `Catches a ${name} production image that does not build. Run it when its Dockerfile, the lockfile or the source that it copies changes; never for a change only to tests or docs of another app.`,
       commands: [
@@ -242,36 +245,43 @@ const definitions = () => [
   }),
   // The package builds of the Runnable packages job: one check for each
   // package. Each build reads only the checkout and the lockfile, so its
-  // result is a function of its inputs.
+  // result is a function of its inputs. The backend and codesearch builds
+  // run Bun. The aws-cdk build stamps an image tag (IMAGE_TAG, else
+  // GITHUB_SHA or a git ref); the check sets a fixed tag, so the output
+  // does not depend on the commit.
   ...[
-    ["backend", "@ctxpipe/backend", "apps/backend", ["shared/**"], ["bun"]],
+    ["backend", "@ctxpipe/backend", "apps/backend", ["shared/**"], "bun"],
     [
       "codesearch",
       "@ctxpipe/codesearch",
       "apps/codesearch",
       ["shared/**"],
-      ["bun"],
+      "bun",
     ],
     ["aws-cdk", "@ctxpipe/aws-cdk", "packages/aws-cdk", ["tsconfig.json"]],
     ["cli", "ctxpipe", "packages/cli", ["tsconfig.json"]],
-  ].map(([name, pkg, directory, reads, prerequisites]) => ({
+  ].map(([name, pkg, directory, reads, runtime]) => ({
     family: "build",
     lane: `package-${name}`,
     file: `${directory}/package.json`,
     root: directory,
     inputs: [...shared, `${directory}/**`, ...reads],
-    prerequisites,
+    ...(runtime && { runtime, prerequisites: [runtime] }),
     intent: `Catches a ${pkg} build that fails. Run it when the package source, its build config or the lockfile changes; never for a change outside the files that it reads.`,
-    commands: [pnpm("--filter", pkg, "build")],
+    commands: [
+      name === "aws-cdk"
+        ? ["env", "IMAGE_TAG=check", ...pnpm("--filter", pkg, "build")]
+        : pnpm("--filter", pkg, "build"),
+    ],
   })),
 ]
 
 export function listProjects() {
   return definitions().map(
-    ({ commands: _commands, prerequisites, ...check }) => ({
+    ({ commands: _commands, prerequisites, runtime, ...check }) => ({
       id: `${check.family}:${check.lane}:${check.file}`,
       ...check,
-      runtime: "node",
+      runtime: runtime ?? "node",
       ...(prerequisites && { prerequisites }),
     }),
   )

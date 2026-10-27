@@ -98,7 +98,11 @@
           "uniqueItems": true
         },
         "stochastic": {
-          "description": "true: the result can differ between runs on the same inputs (a model call, a wall-clock bound). A result cache must not reuse such a result. Optional; without it, false.",
+          "description": "true: the result can differ between runs on the same inputs (a model call, a wall-clock bound). A result cache must not reuse such a result, and a reader selects the check only when asked to (it costs model spend or has a wall-clock bound). Optional; without it, false.",
+          "type": "boolean"
+        },
+        "cacheable": {
+          "description": "false: a result cache must not reuse the result (the check reads outside state: a base image by tag, a remote state), but a reader selects the check by the normal rules. Optional; without it, true.",
           "type": "boolean"
         },
         "intent": {
