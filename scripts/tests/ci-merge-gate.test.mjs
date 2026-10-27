@@ -374,6 +374,34 @@ test("a lockfile change in the closure of a manifest package forces a full run",
   })
 })
 
+test("the gate reads a long lockfile key that pnpm writes as an explicit key", () => {
+  // pnpm writes a key longer than 1024 characters as `? <key>`, with the
+  // value on the next line as `: <first line>`.
+  const explicit = (optional) =>
+    lockfile().replace(
+      "  esbuild@0.1.0: {}",
+      `  ? esbuild@0.1.0\n  : optional: ${optional}`,
+    )
+  assert.deepEqual(
+    packageMode(
+      { "pnpm-lock.yaml": explicit(true) },
+      { "pnpm-lock.yaml": explicit(true) },
+    ),
+    { mode: "select", reason: "shadow" },
+  )
+  assert.deepEqual(
+    packageMode(
+      { "pnpm-lock.yaml": explicit(true) },
+      { "pnpm-lock.yaml": explicit(false) },
+    ),
+    {
+      mode: "full",
+      reason:
+        "package file pnpm-lock.yaml: esbuild@0.1.0 changed in the closure of a manifest package",
+    },
+  )
+})
+
 test("the gate parses the lockfile of the repo", () => {
   const text = readFileSync(join(root, "pnpm-lock.yaml"), "utf8")
   assert.deepEqual(

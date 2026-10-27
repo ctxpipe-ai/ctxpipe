@@ -198,7 +198,20 @@ const unquote = (value) =>
 // the text of each section, the entries of `importers`, `packages` and
 // `snapshots` (their text and their dependencies).
 function parseLockfile(text) {
-  const sections = yamlBlocks(text)
+  // pnpm writes a key longer than 1024 characters as `? <key>`, with its
+  // value on the next line as `: <first line>`. Write them as plain keys.
+  const sections = yamlBlocks(
+    text
+      .split("\n")
+      .map((line) => {
+        const match = /^( *)([?:]) (.*)$/.exec(line)
+        if (!match) return line
+        return match[2] === "?"
+          ? `${match[1]}${match[3]}:`
+          : `${match[1]}  ${match[3]}`
+      })
+      .join("\n"),
+  )
   if (sections.get("lockfileVersion") !== "lockfileVersion: '9.0'\n")
     throw new Error("the lockfile is not version 9.0")
   const entries = (name) => {
