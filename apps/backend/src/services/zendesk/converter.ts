@@ -82,13 +82,14 @@ const lineBreak = /\r\n|[\r\n\u2028\u2029]/
  * zero-width mark, a variation selector, a Hangul filler) can change how a
  * reader or an agent sees the text. The strip runs before the redaction, so
  * that such a character cannot hide an email address or a phone number from
- * it. A combining accent stays.
+ * it. NFKC turns a full-width digit, a Unicode space, and a look-alike of
+ * `@` or `.` into the plain character that the redaction knows. A combining
+ * accent stays.
  */
 function withoutControlCharacters(text: string): string {
-  return text.replace(
-    /(?![\t\n\r])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu,
-    "",
-  )
+  return text
+    .replace(/(?![\t\n\r])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, "")
+    .normalize("NFKC")
 }
 
 /** The lines of customer text, split at every line end. */
@@ -113,15 +114,24 @@ const MAX_LINE_CHARS = 2 * 1024
 
 /**
  * The start of the text up to `max` characters. The cut moves back to the
- * last space or line end, so that no part of a word stays. A part of an
- * email address, such as `jo.smith@example.`, is not an address to the
- * redaction. Text with no space before the cut is dropped.
+ * last space or line end, so that no part of a word stays; it looks back at
+ * most 2,100 characters. A part of an email address, such as
+ * `jo.smith@example.`, is not an address to the redaction. When that range
+ * holds no space (CJK text), the cut stays at `max` and moves back only over
+ * address characters. Last, the cut moves back over phone characters, so
+ * that no part of a phone number stays.
  */
 function startOf(text: string, max: number): { text: string; cut: boolean } {
   if (text.length <= max) return { text, cut: false }
   const head = text.slice(0, max)
+  const floor = Math.max(0, head.length - 2100)
   let end = head.length
-  while (end > 0 && !/\s/.test(head[end - 1] ?? "")) end -= 1
+  while (end > floor && !/\s/.test(head[end - 1] ?? "")) end -= 1
+  if (end === floor && !/\s/.test(head[end - 1] ?? "")) {
+    end = head.length
+    while (end > 0 && /[\w.%+@-]/.test(head[end - 1] ?? "")) end -= 1
+  }
+  while (end > 0 && /[\d\s().+-]/.test(head[end - 1] ?? "")) end -= 1
   return { text: head.slice(0, end), cut: true }
 }
 
@@ -200,10 +210,10 @@ function withoutUrlQueries(text: string): string {
   // characters.
   const starts = [
     ...text.matchAll(
-      /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/|(?<![a-z0-9])www\.|\]\(/gi,
+      /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/|(?<![a-z0-9])www\.|\]\(|(?<![\w.@/-])(?:[a-z0-9-]+\.)+[a-z]{2,}\/|(?<![\w:/])\/\//gi,
     ),
   ].map((match) => match.index)
-  const queryEnd = /[\s<>]|\]\(/g
+  const queryEnd = /[\s<>]|\]\(|\)(?=\[)/g
   let out = ""
   let copied = 0
   let segment = 0
@@ -253,7 +263,7 @@ function endMarksOf(query: string): string {
 
 /** Dates and times stay: `2026-10-14`, `14.10.2026`, `09:00`. */
 const datePattern =
-  /\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?|\d{1,2}[./]\d{1,2}[./]\d{2,4}(?: \d{2}:\d{2})?/
+  /\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?|\d{1,2}[./]\d{1,2}[./]\d{2,4}(?!\.\d)(?: \d{2}:\d{2})?/
     .source
 
 /**
@@ -264,7 +274,7 @@ const datePattern =
  * digit or `:` (a time).
  */
 const phoneRunPattern =
-  /(?<![\w.+/#-])(?:\+ ?)?\(?\d+(?:(?:\) ?|[ .-]\(?|\()(?!\d{4}-\d{2}-\d{2})\d+)*(?![\w:])/
+  /(?<![\w.+/#-])(?:\+ ?)?\(?\d+(?:(?:\) ?|(?:[ \t]{1,3}|[.-])\(?|\()(?!\d{4}-\d{2}-\d{2})\d+)*(?![\w:])/
     .source
 
 /**
@@ -297,6 +307,11 @@ function withoutPhoneNumbers(text: string): string {
 export function redactTicketText(text: string): string {
   return withoutPhoneNumbers(
     withoutUrlQueries(withoutPrivateUrls(text))
+      // Credentials before the host of a URL with any scheme.
+      .replace(
+        /\b([a-z][a-z0-9+.-]{0,31}):\/\/[^\s/?#@]{1,256}@/gi,
+        "$1://[credentials removed]@",
+      )
       // A link with a script or data scheme that a bracket in its target
       // kept out of the link pass.
       .replace(/\b(?:javascript|data|vbscript|file):\S*/gi, "[link removed]")
@@ -390,7 +405,8 @@ export function zendeskArticleFile(input: {
   if (!isZendeskId(article.id))
     throw new Error("A Zendesk article id must be a number")
   const title = inlineTicketText(article.title)
-  const slug = slugify(title).slice(0, 80) || "untitled"
+  const slug =
+    slugify(redactTicketText(oneLine(article.title))).slice(0, 80) || "untitled"
   const url = articleUrl(article.url, input.subdomain)
   const lines = [
     ...frontMatter([

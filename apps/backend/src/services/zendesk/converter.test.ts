@@ -764,14 +764,14 @@ describe("security re-review: probes on the real file functions", () => {
     )
 
     it("keeps a combining accent", () => {
-      expect(ticketOf("café menu")).toContain("> café menu")
+      expect(ticketOf("cafe\u0301 menu")).toContain("> caf\u00e9 menu")
     })
   })
 
   describe("a length cut after the redaction made the text shorter", () => {
     const address = "jo.smith@example.com"
-    // The cut moves back at most 512 characters. A run with no space
-    // leaves the cut at that fallback point, so sweep the address over it.
+    // A run with no space leaves the cut at the hard limit, so sweep the
+    // address over it.
     it.each([
       ["a comment", 16 * 1024, (text: string) => ticketOf(text)],
       [
@@ -782,7 +782,7 @@ describe("security re-review: probes on the real file functions", () => {
     ])("keeps no fragment of an address in %s", (_name, max, render) => {
       for (const filler of ["(", "<a>"]) {
         for (let shift = 0; shift <= address.length + 2; shift += 1) {
-          const start = max - 512 - shift
+          const start = max - shift
           const text = `${filler.repeat(Math.ceil(start / filler.length)).slice(0, start)}${address}${"z".repeat(max)}`
           const content = render(text)
           expect(content).not.toMatch(/jo\.smith|@example|smith@/)
@@ -794,11 +794,9 @@ describe("security re-review: probes on the real file functions", () => {
       const link = `https://f.example.com/${"p".repeat(300)}?token=SECRET2`
       for (let shift = 0; shift <= address.length + 2; shift += 1) {
         const links = `<${link}>`.repeat(
-          Math.floor((16 * 1024 - 512) / (link.length + 2)),
+          Math.floor((16 * 1024) / (link.length + 2)),
         )
-        const pad = "<".repeat(
-          Math.max(0, 16 * 1024 - 512 - shift - links.length),
-        )
+        const pad = "<".repeat(Math.max(0, 16 * 1024 - shift - links.length))
         const content = ticketOf(`${links}${pad}${address}${"z".repeat(600)}`)
         expect(content).not.toMatch(/jo\.smith|@example|smith@|SECRET2/)
       }
@@ -871,9 +869,121 @@ describe("security re-review: probes on the real file functions", () => {
 
     it("removes the query of a plain URL in the body", () => {
       const content = articleOf({
-        bodyHtml: "<p>Open https://f.example.com/l?sig=SECRET9</p>",
+        bodyHtml: "<p>Open https://f.example.com/l?code=SECRET9</p>",
       })
       expect(content).not.toContain("SECRET9")
+    })
+  })
+
+  describe("round two: Unicode spaces and full-width characters", () => {
+    it.each([
+      ["a no-break space", "Tel +61\u00A0412\u00A0345\u00A0678", /412|345|678/],
+      [
+        "a narrow no-break space",
+        "Tel 06\u202F12\u202F34\u202F56\u202F78",
+        /12\D*34\D*56/,
+      ],
+      ["a thin space", "Tel 555\u2009123\u20094567", /555|123|4567/],
+      ["a tab", "Tel 555\t123\t4567", /555|123|4567/],
+      ["two spaces", "Tel 555  123  4567", /555|123|4567/],
+      ["full-width digits", "Tel ０９０-１２３４-５６７８", /１２３４|1234/],
+      ["a full-width at sign", "Mail jo.smith＠example.com", /smith|example/],
+      ["a small commercial at", "Mail jo﹫x.com", /x\.com/],
+      ["a one dot leader", "Mail jo@example\u2024com", /example/],
+    ])("removes a contact detail with %s", (_name, text, leak) => {
+      expect(ticketOf(text)).not.toMatch(leak)
+      expect(ticketOf("x", { subject: text })).not.toMatch(leak)
+    })
+  })
+
+  describe("round two: a dotted phone number", () => {
+    it("removes a French number and keeps dotted dates", () => {
+      const content = ticketOf("Tel 01.23.45.67.89 on 14.10.2026")
+      expect(content).not.toMatch(/23\.45/)
+      expect(content).toContain("14.10.2026")
+    })
+  })
+
+  describe("round two: a cut inside a phone number", () => {
+    const phones = [
+      ["call +1 555 123 4567", /555|123|4567/],
+      ["call +61 412 345 678", /412|345|678/],
+    ] as const
+    it.each(phones)(
+      "keeps no part of a phone number after %s",
+      (text, leak) => {
+        for (const [max, render] of [
+          [16 * 1024, (value: string) => ticketOf(value)],
+          [2 * 1024, (value: string) => ticketOf("x", { subject: value })],
+        ] as const) {
+          for (let shift = 0; shift <= text.length + 1; shift += 1) {
+            const start = max - shift
+            const lead = `${"x ".repeat(Math.ceil(start / 2))}`.slice(
+              0,
+              start - 1,
+            )
+            expect(render(`${lead} ${text} ${"y ".repeat(40)}`)).not.toMatch(
+              leak,
+            )
+          }
+        }
+      },
+    )
+  })
+
+  describe("round two: a URL with no scheme", () => {
+    it.each([
+      "Open app.example.com/reset?code=SECRET1",
+      "Open //cdn.example.com/f.pdf?code=SECRET1",
+      "Open 1www.example.com/r?code=SECRET1",
+    ])("removes the query of %s", (text) => {
+      expect(ticketOf(text)).not.toContain("SECRET1")
+      expect(ticketOf("x", { subject: text })).not.toContain("SECRET1")
+    })
+
+    it.each([
+      "postgres://admin:hunter2@10.0.0.5:5432/app",
+      "redis://:hunter2@localhost:6379",
+      "mongodb+srv://u:hunter2!@cluster0.example.net/db",
+    ])("removes the credentials of %s", (text) => {
+      expect(ticketOf(`Use ${text} now`)).not.toContain("hunter2")
+      expect(ticketOf("x", { subject: text })).not.toContain("hunter2")
+    })
+  })
+
+  describe("round two: adjacent links", () => {
+    it("keeps two links apart when each has a query", () => {
+      const content = articleOf({
+        bodyHtml:
+          '<p><a href="https://a.com/one?x=1">one</a><a href="https://b.com/two?y=2">two</a></p>',
+      })
+      expect(content).toContain(
+        "[one](https://a.com/one)[two](https://b.com/two)",
+      )
+    })
+  })
+
+  describe("round two: the article slug", () => {
+    it("builds the slug from the title as written", () => {
+      const file = zendeskArticleFile({
+        subdomain: "acme",
+        categoryId: "1",
+        article: { ...article, title: "A < B" },
+      })
+      expect(file.path).toMatch(/\/a-b--360000000001\.md$/)
+    })
+  })
+
+  describe("round two: text with no space", () => {
+    it("keeps the start of a long CJK comment", () => {
+      const content = ticketOf("你好世界".repeat(4200))
+      expect(content).toContain("你好世界")
+      expect(content).toContain("> [comment truncated]")
+    })
+
+    it("keeps the start of a long CJK subject", () => {
+      const content = ticketOf("x", { subject: "你好世界".repeat(600) })
+      expect(content).toContain("你好世界")
     })
   })
 })
