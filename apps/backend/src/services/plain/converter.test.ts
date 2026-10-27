@@ -228,8 +228,8 @@ describe("thread text that looks like structure", () => {
       },
     }).content
     expect(Date.now() - started).toBeLessThan(1_500)
-    // A title keeps 1,000 characters.
-    expect(content).toContain("# T-4501: Slow \n")
+    // A title is cut, and the cut drops the spaces at its end.
+    expect(content).toContain("# T-4501: Slow\n")
     expect(content).toContain("The rest of this message is in Plain.")
     expect(content.length).toBeLessThan(25_000)
   })
@@ -601,7 +601,7 @@ describe("redaction gaps found in a security re-review, round two (CTX-869)", ()
   })
 
   it("keeps a combining accent", () => {
-    expect(body("café open")).toContain("café open")
+    expect(body("cafe\u0301 open")).toContain("caf\u00e9 open")
   })
 
   describe("a cut at 100,000 characters", () => {
@@ -622,7 +622,15 @@ describe("redaction gaps found in a security re-review, round two (CTX-869)", ()
     })
 
     it("does not leave a part of an address in a title or a name", () => {
-      const content = render({ title: straddle, customerName: straddle })
+      // The title cut is 4,000 characters. Short credential links become
+      // stubs, so the address still starts inside the 1,000-character result.
+      let text = ""
+      while (text.length < 3_800)
+        text += `https://f.example.com/a?token=${"x".repeat(70)} `
+      const rest = 3_991 - text.length
+      text += `https://f.example.com/a?token=${"x".repeat(rest - 31)} `
+      const titled = `${text}jo.smith@example.com tail`
+      const content = render({ title: titled, customerName: titled })
       expect(content).not.toContain("jo.smith")
     })
   })
@@ -672,6 +680,112 @@ describe("redaction gaps found in a security re-review, round two (CTX-869)", ()
     body(`${"a".repeat(5_000_000)}`)
     body("https://".repeat(600_000))
     body(`${"️".repeat(5_000_000)}`)
+    body("a=b&".repeat(1_000_000))
+    body("x://".repeat(1_000_000))
+    body(`${"a".repeat(2_000_000)}@`)
+    body(`?${"k".repeat(2_000_000)}`)
     expect(performance.now() - start).toBeLessThan(5_000)
+  })
+})
+
+describe("redaction gaps found in a security re-review, round three (CTX-869)", () => {
+  const render = (over: Partial<PlainThreadForMirror>) =>
+    plainThreadFile({ labelTypeId: "lt_1", thread: { ...thread, ...over } })
+      .content
+  const body = (text: string) =>
+    render({
+      messages: [{ authorName: null, createdAt: null, internal: false, text }],
+    })
+  const articleContent = (over: Partial<PlainArticleForMirror>) =>
+    plainArticleFile({
+      helpCenterId: "hc_1",
+      article: { ...article, ...over },
+    }).content
+
+  it.each([
+    ["postgres://admin:hunter2@10.0.0.5:5432/app", "hunter2"],
+    ["redis://:hunter2@localhost:6379", "hunter2"],
+    ["mongodb+srv://u:p4ss!@cluster0.example.net/db", "p4ss"],
+    ["files.example.com/log?token=SECRET1", "SECRET1"],
+    ["wwww.example.com/?token=SECRET2", "SECRET2"],
+  ])("removes the credential in %s", (link, secret) => {
+    expect(body(`See ${link} now`)).not.toContain(secret)
+    const titled = render({ title: link, customerName: link })
+    expect(titled).not.toContain(secret)
+    expect(
+      articleContent({ title: link, contentHtml: `<p>${link}</p>` }),
+    ).not.toContain(secret)
+  })
+
+  it("keeps a normal link and normal text with an equals sign", () => {
+    const content = body(
+      "See https://example.com/a?lang=en and a=b and k=v&x=1",
+    )
+    expect(content).toContain("https://example.com/a?lang=en")
+    expect(content).toContain("a=b and k=v&x=1")
+  })
+
+  it.each([
+    ["a space", "https://x.example.com/a b?token=SECRETS"],
+    ["a tab", "https://x.example.com/a\tb?token=SECRETS"],
+  ])("removes an article link whose href has %s", (_name, href) => {
+    const content = articleContent({
+      contentHtml: `<p><a href="${href}">label</a></p>`,
+    })
+    expect(content).not.toContain("SECRETS")
+    expect(content).toContain("label")
+  })
+
+  it("keeps an article link that may stay", () => {
+    const content = articleContent({
+      contentHtml: '<p><a href="https://help.example.com/a">label</a></p>',
+    })
+    expect(content).toContain("[label](https://help.example.com/a)")
+  })
+
+  it.each([
+    ["a no-break space", "555\u00A0123\u00A04567", "555"],
+    ["an en dash", "555\u2013123\u20134567", "555"],
+    ["a national number", "0412\u00A0345\u00A0678", "0412"],
+  ])("removes a phone number with %s", (_name, phone, start) => {
+    expect(body(`Call ${phone} now`)).not.toContain(start)
+    expect(render({ title: phone })).not.toContain(start)
+  })
+
+  it("keeps a date and a version", () => {
+    const content = body("On 2026-10-27 we shipped 1.2.3 today")
+    expect(content).toContain("2026-10-27")
+    expect(content).toContain("1.2.3")
+  })
+
+  it("keeps text when a long message has no space", () => {
+    expect(body("あ".repeat(120_000))).toContain("あああ")
+  })
+
+  it("leaves no digit of a phone number that a cut splits", () => {
+    const content = body(
+      `${"x ".repeat(49_995)}+61 412 345 678 and more words after the number`,
+    )
+    expect(content).not.toMatch(/\+61|412|345/)
+    expect(content).toContain("x x")
+  })
+
+  it.each([
+    ["full-width digits", "Tel ０９０-１２３４-５６７８", "１２３４", "1234"],
+    [
+      "a full-width at sign",
+      "Mail jo.smith＠example.com",
+      "jo.smith",
+      "jo.smith",
+    ],
+    ["a small at sign", "Mail jo.smith﹫example.com", "jo.smith", "jo.smith"],
+    ["a French number", "Tel 06 12 34 56 78", "56 78", "34 56"],
+  ])("removes %s after NFKC", (_name, text, a, b) => {
+    const content = body(text)
+    expect(content).not.toContain(a)
+    expect(content).not.toContain(b)
+    const titled = render({ title: text, customerName: text })
+    expect(titled).not.toContain(a)
+    expect(titled).not.toContain(b)
   })
 })

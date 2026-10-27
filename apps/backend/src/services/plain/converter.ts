@@ -74,6 +74,14 @@ function frontMatter(fields: Array<[string, string | null]>): string[] {
 }
 
 /**
+ * A credential parameter in a query or a fragment, with its value. The name
+ * has a bound, so the pattern is linear. The same list serves `isKeptUrl` and
+ * the redaction of text that is not a URL.
+ */
+const credentialParameter =
+  /([?&#][\w.-]{0,64}(?:token|key|secret|password|passwd|signature)|[?&#](?:code|pwd|sig|auth))=[^\s&#]*/i
+
+/**
  * A URL that may stay in a file: an absolute `https:` URL that carries no
  * credential (a signed URL, a token, a key, a code, or a password in the
  * query or the fragment). A relative, `http:`, `mailto:`, or other URL does
@@ -85,10 +93,7 @@ function isKeptUrl(url: string): boolean {
   return !(
     isConnectorAssetCredentialUrl(url, {
       includeGenericCredentials: true,
-    }) ||
-    /[?&#][\w.-]*(token|key|secret|password|passwd|signature)=|[?&#](code|pwd|sig|auth)=/i.test(
-      url,
-    )
+    }) || credentialParameter.test(url)
   )
 }
 
@@ -108,21 +113,27 @@ const withoutMarkdownSyntax = (text: string) =>
  * joiner) is not always a format character, but it also hides text.
  */
 const withoutControls = (text: string) =>
-  text.replace(
-    /(?![\t\n\r])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu,
-    "",
-  )
+  text
+    .replace(/(?![\t\n\r])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, "")
+    // Full-width digits and at signs, and the odd spaces, become ASCII.
+    .normalize("NFKC")
 
 /**
- * Input over 100,000 characters keeps its first 100,000 characters, less the
- * last partial word: the cut cannot leave a part of an address. The loop is
- * linear.
+ * Input over the limit keeps its first characters, less the last partial
+ * word and the digits and phone punctuation at the end: the cut cannot leave
+ * a part of an address or a phone number. The loops are linear.
  */
-function head(text: string): string {
-  if (text.length <= 100_000) return text
-  const kept = text.slice(0, 100_000)
+function head(text: string, limit = 100_000): string {
+  if (text.length <= limit) return text
+  const kept = text.slice(0, limit)
+  // Text with no space for 2,100 characters (such as Japanese) has no word
+  // to drop: cut at the limit.
+  const floor = Math.max(0, limit - 2_100)
   let end = kept.length
-  while (end > 0 && !/\s/.test(kept.charAt(end - 1))) end -= 1
+  while (end > floor && !/\s/.test(kept.charAt(end - 1))) end -= 1
+  if (end === floor) end = kept.length
+  // A cut inside a phone number that has spaces leaves its first digits.
+  while (end > 0 && "0123456789 ().+-".includes(kept.charAt(end - 1))) end -= 1
   return kept.slice(0, end)
 }
 
@@ -164,6 +175,18 @@ function withHttpsUrlsOnly(text: string): string {
 }
 
 /**
+ * Text without a credential in a link of any scheme, or in a parameter of a
+ * link that the URL filter did not find (no scheme, a wrong prefix).
+ */
+const withoutCredentials = (text: string) =>
+  text
+    .replace(
+      /\b([a-z][a-z0-9+.-]{0,31}):\/\/[^\s/?#@]{1,256}@/gi,
+      "$1://[credentials removed]@",
+    )
+    .replace(new RegExp(credentialParameter.source, "gi"), "$1=[removed]")
+
+/**
  * Thread text without contact details or private URLs (ADR-059). Messages
  * and titles are free text from customers: email signatures carry
  * addresses and phone numbers. Other personal data can remain.
@@ -172,28 +195,33 @@ function redactThreadText(text: string): string {
   // The strip comes first: a format character inside an address or a
   // parameter name must not hide it from the patterns.
   return (
-    withHttpsUrlsOnly(withoutPrivateLinks(withoutControls(text)))
+    withoutCredentials(
+      withHttpsUrlsOnly(withoutPrivateLinks(withoutControls(text))),
+    )
       .replace(
         /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,24}/g,
         "[email removed]",
       )
       .replace(
         // A time zone such as UTC+10 is not a phone number.
-        /(?<!(?:UTC|GMT)\s?)\+\d[\d\s().-]{7,30}\d|\(\d{3}\)\s?\d{3}[-.\s]\d{4}|\b\d{3}[-. ]\d{3}[-. ]\d{4}\b/g,
+        /(?<!(?:UTC|GMT)\s?)\+\d[\d\s\p{Zs}\p{Pd}().]{7,30}\d|\(\d{3}\)[\s\p{Zs}]?\d{3}[\p{Zs}\p{Pd}.\s]\d{4}|\b\d{3}[\p{Zs}\p{Pd}.]\d{3}[\p{Zs}\p{Pd}.]\d{4}\b/gu,
         "[phone removed]",
       )
       // A national number that starts with 0 (Australia, the UK): 9 to 11
       // digits, in groups, in one run, or after an area code in brackets.
       // The digit count keeps a spaced date out.
       .replace(
-        /\(0\d{1,4}\)\s?\d{3,4}[ -]?\d{3,4}|\b0\d{1,4}(?:[ -]?\d{2,6}){1,3}\b/g,
+        /\(0\d{1,4}\)\s?\d{3,4}[\p{Zs}\p{Pd}]?\d{3,4}|\b0\d{1,4}(?:[\p{Zs}\p{Pd}]?\d{2,6}){1,4}\b/gu,
         (match) => {
           const digits = match.replace(/\D/g, "").length
           return digits >= 9 && digits <= 11 ? "[phone removed]" : match
         },
       )
       // An Australian 1300 or 1800 number.
-      .replace(/\b1[38]00[ -]?\d{3}[ -]?\d{3}\b/g, "[phone removed]")
+      .replace(
+        /\b1[38]00[\p{Zs}\p{Pd}]?\d{3}[\p{Zs}\p{Pd}]?\d{3}\b/gu,
+        "[phone removed]",
+      )
   )
 }
 
@@ -205,7 +233,7 @@ const inline = (text: string) => withoutMarkdownSyntax(oneLine(text))
 
 /** A title or a name from a customer: short, redacted, and on one line. */
 const field = (text: string) =>
-  inline(redactThreadText(head(withoutControls(text))).slice(0, 1_000))
+  inline(redactThreadText(head(withoutControls(text), 4_000)).slice(0, 1_000))
 
 /**
  * A message body as a quote, with no link, image, or HTML. Markdown also
@@ -244,9 +272,21 @@ function articleBodyMarkdown(html: string): string {
         content: `[Image: ${node.getAttribute("alt")?.trim() || "image"}]`,
         recurse: false,
       }),
+      // A href with a space or a tab can pass the Markdown link filter.
+      a: ({ node }) => {
+        const href = node.getAttribute("href") ?? ""
+        return isKeptUrl(href)
+          ? {
+              prefix: "[",
+              postfix: `](${href.replace(/[()]/g, encodeURIComponent)})`,
+            }
+          : {}
+      },
     },
   )
-  return withHttpsUrlsOnly(withoutPrivateLinks(withoutControls(markdown)))
+  return withoutCredentials(
+    withHttpsUrlsOnly(withoutPrivateLinks(withoutControls(markdown))),
+  )
 }
 
 export function plainArticleFile(input: {
