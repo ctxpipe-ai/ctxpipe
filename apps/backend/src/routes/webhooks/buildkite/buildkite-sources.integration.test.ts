@@ -32,6 +32,7 @@ function app() {
 
 async function post(input: {
   event: string
+  headerEvent?: string
   token?: string
   path?: string
   at?: number
@@ -54,7 +55,7 @@ async function post(input: {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-buildkite-event": input.event,
+        "x-buildkite-event": input.headerEvent ?? input.event,
         "x-buildkite-signature": `timestamp=${timestamp},signature=${signature}`,
       },
       body,
@@ -187,6 +188,15 @@ describe("Buildkite webhook routes to Workspace sources (Postgres)", () => {
 
   it("acks a ping without a sync", async () => {
     expect((await post({ event: "ping" })).status).toBe(200)
+    expect(await sourceRuns()).toEqual([])
+  })
+
+  it("reads the event from the signed body, not the header", async () => {
+    const response = await post({
+      event: "ping",
+      headerEvent: "build.finished",
+    })
+    expect(response.status).toBe(200)
     expect(await sourceRuns()).toEqual([])
   })
 

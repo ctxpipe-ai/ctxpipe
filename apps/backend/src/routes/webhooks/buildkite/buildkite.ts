@@ -35,11 +35,16 @@ async function handleBuildkiteWebhook(c: Context<AppEnv>) {
   }
   noteResolvedWebhookConnections([{ orgId: target.orgId, id: connectionId }])
 
-  // `ping` and the other events have nothing to sync.
-  if (
-    c.req.header("x-buildkite-event") !== "build.finished" ||
-    target.status !== "installed"
-  ) {
+  // The signature does not cover the `X-Buildkite-Event` header, so the event
+  // name comes from the signed body. `ping` and the other events have nothing
+  // to sync.
+  let event: unknown
+  try {
+    event = (JSON.parse(rawBody.toString("utf8")) as { event?: unknown })?.event
+  } catch {
+    event = undefined
+  }
+  if (event !== "build.finished" || target.status !== "installed") {
     return c.body(null, 200)
   }
 
