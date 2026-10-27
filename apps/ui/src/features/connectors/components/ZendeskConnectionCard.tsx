@@ -93,8 +93,8 @@ export function ZendeskConnectionCard({
     >
       {status?.status === "installed" && !status.webhookConfigured ? (
         <p className="text-sm text-muted-foreground">
-          Help Center articles sync once a day: Zendesk did not let ctxpipe add its
-          webhook. Select Add the webhook, and connect as a Zendesk admin.
+          Help Center articles sync once a day: Zendesk did not let ctxpipe add
+          its webhook. Select Add the webhook, and connect as a Zendesk admin.
         </p>
       ) : null}
       {isError ? (

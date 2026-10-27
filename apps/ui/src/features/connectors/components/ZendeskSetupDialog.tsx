@@ -201,8 +201,8 @@ export function ZendeskSetupDialog({
         <div className="space-y-4">
           {status.webhookConfigured ? null : (
             <InlineAlert variant="warning">
-              Zendesk did not let ctxpipe add the Help Center webhook, so articles
-              sync once a day. Reconnect as a Zendesk admin to add it.
+              Zendesk did not let ctxpipe add the Help Center webhook, so
+              articles sync once a day. Reconnect as a Zendesk admin to add it.
             </InlineAlert>
           )}
           <AddToWorkspacesStep

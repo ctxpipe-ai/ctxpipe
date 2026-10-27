@@ -370,6 +370,7 @@ describe("listZendeskViewTickets", () => {
     const tickets = await listZendeskViewTickets({ ...ctx, viewId: "90" })
 
     expect(commentRequests).toBe(10)
+    if (typeof tickets === "string") throw new Error(tickets)
     expect(tickets).toHaveLength(1)
     const comments = tickets[0]?.comments ?? []
     expect(comments).toHaveLength(11)
