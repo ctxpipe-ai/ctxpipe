@@ -116,7 +116,8 @@ const withoutControls = (text: string) =>
   text
     .replace(/(?![\t\n\r])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, "")
     // Full-width digits and at signs, and the odd spaces, become ASCII.
-    .normalize("NFKC")
+    // Hangul compatibility jamo and vulgar fractions stay as they are.
+    .replace(/[^ㄱ-ㆎ¼-¾⅐-⅟↉]+/g, (run) => run.normalize("NFKC"))
 
 /**
  * Input over the limit keeps its first characters, less the last partial
@@ -131,7 +132,11 @@ function head(text: string, limit = 100_000): string {
   const floor = Math.max(0, limit - 2_100)
   let end = kept.length
   while (end > floor && !/\s/.test(kept.charAt(end - 1))) end -= 1
-  if (end === floor) end = kept.length
+  if (end === floor) {
+    end = kept.length
+    // Drop the address characters at the cut too.
+    while (end > 0 && /[\w.%+@-]/.test(kept.charAt(end - 1))) end -= 1
+  }
   // A cut inside a phone number that has spaces leaves its first digits.
   while (end > 0 && "0123456789 ().+-".includes(kept.charAt(end - 1))) end -= 1
   return kept.slice(0, end)
@@ -278,7 +283,7 @@ function articleBodyMarkdown(html: string): string {
         return isKeptUrl(href)
           ? {
               prefix: "[",
-              postfix: `](${href.replace(/[()]/g, encodeURIComponent)})`,
+              postfix: `](${href.replace(/[\s()<>]/g, (c) => `%${c.charCodeAt(0).toString(16).padStart(2, "0")}`)})`,
             }
           : {}
       },

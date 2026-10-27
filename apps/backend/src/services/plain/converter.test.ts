@@ -763,11 +763,13 @@ describe("redaction gaps found in a security re-review, round three (CTX-869)", 
   })
 
   it("leaves no digit of a phone number that a cut splits", () => {
-    const content = body(
-      `${"x ".repeat(49_995)}+61 412 345 678 and more words after the number`,
-    )
-    expect(content).not.toMatch(/\+61|412|345/)
-    expect(content).toContain("x x")
+    // Two long links put the cut inside the number, after a space.
+    const link = (n: number) => `http://${"a".repeat(n - 7)}`
+    const title = `${link(2040)} ${link(1943)} call 0412 345 6${"78 now…"}`
+    const titled = render({ title })
+    expect(titled).not.toMatch(/0412|345/)
+    expect(titled).toContain("call")
+    expect(titled).not.toContain("call 0")
   })
 
   it.each([
@@ -787,5 +789,36 @@ describe("redaction gaps found in a security re-review, round three (CTX-869)", 
     const titled = render({ title: text, customerName: text })
     expect(titled).not.toContain(a)
     expect(titled).not.toContain(b)
+  })
+
+  it("encodes a newline in an article link href", () => {
+    const content = articleContent({
+      contentHtml:
+        '<p><a href="https://a.example/x&#10;&#10;# Injected heading&#10;&#10;![p](https://track.example/p.png">t</a></p>',
+    })
+    expect(content).not.toMatch(/^# Injected/m)
+    expect(content).not.toContain("![p](")
+  })
+
+  it("encodes a parenthesis in an article link href", () => {
+    const content = articleContent({
+      contentHtml:
+        '<p><a href="https://a.example/x)![i](https://track.example/p.png">t</a></p>',
+    })
+    expect(content).not.toContain("![i](")
+    expect(content).toContain("%29")
+  })
+
+  it("leaves no part of an address when a cut has no space to walk back to", () => {
+    const customerName = `http://${"b".repeat(1_946)}<http://${"a".repeat(2_025)}<jo.smith@example.com tail`
+    // The 4,000-character cut falls inside the address.
+    const titled = render({ customerName })
+    expect(titled).not.toContain("jo.smith")
+  })
+
+  it("keeps Korean jamo and fractions", () => {
+    const text = "ㅋㅋㅋ ㅠㅠ 3½ m²"
+    expect(body(text)).toContain("ㅋㅋㅋ ㅠㅠ 3½ m2")
+    expect(render({ title: text })).toContain("ㅋㅋㅋ ㅠㅠ 3½ m2")
   })
 })
