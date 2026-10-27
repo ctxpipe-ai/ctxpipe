@@ -84,7 +84,7 @@ describe("plainArticleFile", () => {
         "- Two",
         "",
         // An image is not copied in this version.
-        "[Image: Settings screen]",
+        "\\[Image: Settings screen\\]",
         "",
         "```",
         "npm run reset",
@@ -395,7 +395,18 @@ describe("headings and links from the Plain API", () => {
           '<p><img src="x.png" alt="x](javascript:alert(1)) [y"></p>',
       },
     })
-    expect(content).toContain("[Image: x\\](javascript:alert(1)) \\[y]")
+    expect(content).toContain("\\[Image: x\\](javascript:alert(1)) \\[y\\]")
+    expect(content).not.toMatch(/(^|[^\\])\]\(javascript/m)
+  })
+
+  it("leaves no live link when text that starts with a bracket follows an image", () => {
+    const { content } = plainArticleFile({
+      helpCenterId: "hc_1",
+      article: {
+        ...article,
+        contentHtml: '<p><img src="x.png" alt="x">(javascript:alert(1))</p>',
+      },
+    })
     expect(content).not.toMatch(/(^|[^\\])\]\(javascript/m)
   })
 

@@ -89,7 +89,6 @@ function frontMatter(fields: Array<[string, string | null]>): string[] {
 function quote(lines: string): string {
   return lines
     .split("\n")
-    .map((line) => line.replace(/^(\s*)(#|[=-]+\s*$)/, "$1\\$2"))
     .map((line) => (line ? `> ${line}` : ">"))
     .join("\n")
 }
@@ -104,7 +103,7 @@ function articleBodyMarkdown(html: string): string {
     { bulletMarker: "-", codeBlockStyle: "fenced" },
     {
       img: ({ node }) => ({
-        content: `[Image: ${customerLine(node.getAttribute("alt") ?? "", { maxChars: 1_000 }) || "image"}]`,
+        content: `\\[Image: ${customerLine(node.getAttribute("alt") ?? "", { maxChars: 1_000 }) || "image"}\\]`,
         recurse: false,
       }),
       a: ({ node }) => {

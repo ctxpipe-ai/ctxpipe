@@ -1,3 +1,4 @@
+import { fromMarkdown } from "mdast-util-from-markdown"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -52,6 +53,10 @@ describe("strip at entry", () => {
       { maxChars: 100 },
     )
     expect(text).not.toContain("jo.smith")
+  })
+
+  it("writes a space for a removed run between two backticks", () => {
+    expect(body("`\u200b` and `\u2060\ufeff`x")).toBe("` ` and ` `x")
   })
 
   it("keeps a combining accent, composed by NFKC", () => {
@@ -161,6 +166,12 @@ describe("no live Markdown from customer text", () => {
     )
   })
 
+  it("escapes a line that would be a heading or a heading underline", () => {
+    expect(
+      body("# Title\nText\n---\n  ## Sub\n= = \n==  \n- item\na # b"),
+    ).toBe("\\# Title\nText\n\\---\n  \\## Sub\n= = \n\\==  \n- item\na # b")
+  })
+
   it("gives only line feeds as line ends in a body", () => {
     expect(body("a\r\nb\rc\u2028d\u2029e")).toBe("a\nb\nc\nd\ne")
   })
@@ -174,6 +185,8 @@ describe("emails", () => {
     ["a full-width at sign", "jo.smith＠example.com"],
     ["a combining mark in the local part", "jo.smith̀@example.com"],
     ["a Unicode domain", "jo@bücher.example"],
+    ["an ideographic full stop in the domain", "jo@example\u3002com"],
+    ["a half-width ideographic full stop in the domain", "jo@example\uff61com"],
   ])("removes %s", (_name, address) => {
     expect(body(`Mail ${address} today`)).toBe("Mail \\[email removed\\] today")
     expect(line(`Refund for ${address}`)).toBe("Refund for \\[email removed\\]")
@@ -223,6 +236,18 @@ describe("phones", () => {
   ])("removes %s", (_name, phone) => {
     expect(body(`Call ${phone} today`)).toBe("Call \\[phone removed\\] today")
     expect(line(`Call ${phone} today`)).toBe("Call \\[phone removed\\] today")
+  })
+
+  it("removes a number with minus signs as separators", () => {
+    expect(body("Call +61\u2212412\u2212345\u2212678 now")).toBe(
+      "Call \\[phone removed\\] now",
+    )
+  })
+
+  it("removes the brackets of a number with the number", () => {
+    expect(body("Call (0412345678) or (0412 345 678).")).toBe(
+      "Call (\\[phone removed\\]) or (\\[phone removed\\]).",
+    )
   })
 
   it("removes a number right after a word", () => {
@@ -494,6 +519,20 @@ describe("URLs", () => {
     )
   })
 
+  it.each([
+    ["//intranet/reset?k=SECRET", "//intranet/reset"],
+    ["example.com?k=SECRET", "example.com"],
+    ["example.com:8443/r?k=SECRET", "example.com:8443/r"],
+    ["app.example.com#k=SECRET", "app.example.com"],
+  ])("removes the query of a URL with no scheme: %s", (url, kept) => {
+    expect(body(`Open ${url} now`)).toBe(`Open ${kept} now`)
+  })
+
+  it("keeps a comment, a region mark, and a question after a host", () => {
+    const text = "// comment\n//#region setup\nexample.com? Yes"
+    expect(body(text)).toBe(text)
+  })
+
   it("keeps a // that is not a URL", () => {
     expect(body("//#region setup // note")).toBe("//#region setup // note")
   })
@@ -549,6 +588,14 @@ describe("credentials", () => {
       "//[credentials removed]@cdn.example.com/a",
     ],
     [
+      "postgres://admin:S3cr#t!@db.example.com/prod",
+      "postgres://[credentials removed]@db.example.com/prod",
+    ],
+    [
+      "postgres://admin:S3cr?t!@db.example.com/prod",
+      "postgres://[credentials removed]@db.example.com/prod",
+    ],
+    [
       "1postgres://admin:hunter2@db.example.com/app",
       "1postgres://[credentials removed]@db.example.com/app",
     ],
@@ -560,6 +607,12 @@ describe("credentials", () => {
     const escapedKept = kept.replace(/[[\]]/g, "\\$&")
     expect(body(`Use ${url} now`)).toBe(`Use ${escapedKept} now`)
     expect(line(url)).toBe(escapedKept)
+  })
+
+  it("removes a userinfo before the query (the cost: an address in a query)", () => {
+    expect(body("See https://x.com?e=jo@example.com now")).toBe(
+      "See https://\\[credentials removed\\]@example.com now",
+    )
   })
 
   it.each([
@@ -724,6 +777,20 @@ describe("one cut", () => {
     )
   })
 
+  it.each([
+    [
+      "an address with an ideographic full stop",
+      "你好jo@example\u3002com",
+      /jo|example/,
+    ],
+    ["a number with minus signs", "电话+61\u2212412\u2212345\u2212678", /\d/],
+  ])("drops the start of %s at a cut with no space", (_name, tail, leak) => {
+    const text = `${"你".repeat(3_000)}${tail}`
+    const maxChars = text.length - 2
+    expect(customerText(text, { maxChars }).text).not.toMatch(leak)
+    expect(customerLine(text, { maxChars })).not.toMatch(leak)
+  })
+
   it("does not split a surrogate pair", () => {
     for (const maxChars of [1_001, 1_002]) {
       const { text } = customerText("😀".repeat(2_000), { maxChars })
@@ -782,6 +849,21 @@ describe("article links", () => {
     expect(safeHref(href, "credential-links")).toBeNull()
   })
 
+  it.each(policies)(
+    "drops a link that has a userinfo after the encoding (%s)",
+    (policy) => {
+      expect(safeHref("https://SECRET\\@x.example.com/a", policy)).toBeNull()
+    },
+  )
+
+  it.each([
+    "https://x.example.com/app#/route?token=s1",
+    "https://x.example.com/a?next=%2Fb%3Ftoken%3Ds1",
+    "https://x.example.com/a%3Ftoken%3Ds1",
+  ])("drops a nested credential for credential-links: %s", (href) => {
+    expect(safeHref(href, "credential-links")).toBeNull()
+  })
+
   it("keeps a link with a normal query for credential-links", () => {
     expect(
       safeHref("https://help.example.com/a?lang=en", "credential-links"),
@@ -823,6 +905,49 @@ describe("article links", () => {
 })
 
 describe("article bodies", () => {
+  // The link targets of the Markdown, as a CommonMark parser (micromark)
+  // reads them.
+  const targets = (markdown: string) => {
+    const found: string[] = []
+    const visit = (node: object) => {
+      if ("url" in node && typeof node.url === "string") found.push(node.url)
+      if ("children" in node && Array.isArray(node.children))
+        node.children.forEach(visit)
+    }
+    visit(fromMarkdown(markdown))
+    return found
+  }
+
+  it.each(["credential-links", "queries", "full"] as const)(
+    "keeps code spans paired, so that no script link comes alive (%s)",
+    (policy) => {
+      for (const markdown of [
+        "Call `https://api.example.com/v1?page=2` then `[x](javascript:alert(1))` there.",
+        "Set `token=abc` then `[x](javascript:alert(2))` there.",
+        "Get `https://x.com/a?key=SECRET` then `[x](javascript:alert(3))` there.",
+        "Get `https://u:p@x.com/a` then `[x](javascript:alert(4))` there.",
+        // node-html-markdown 1.3.0 gives this for the HTML
+        // `<code>&#8203;</code> and <code>a`[x](javascript:alert(7))</code>`.
+        "`\u200b` and `` a`[x](javascript:alert(7)) ``",
+      ]) {
+        expect(targets(markdown)).toEqual([])
+        expect(targets(articleText(markdown, policy))).toEqual([])
+      }
+    },
+  )
+
+  it.each(["queries", "full"] as const)(
+    "keeps the escape of a link end in a label (%s)",
+    (policy) => {
+      const markdown =
+        "[see https://x.com/a?b=\\](javascript:alert(1)) more](https://ok.example/)"
+      expect(targets(markdown)).toEqual(["https://ok.example/"])
+      expect(targets(articleText(markdown, policy))).toEqual([
+        "https://ok.example/",
+      ])
+    },
+  )
+
   // Markdown as the converter writes it: the `a` translator puts in the link
   // that `safeHref` gave, and the text is escaped.
   const markdown = [
@@ -1002,6 +1127,13 @@ describe("time", () => {
       `${"1".repeat(n)}a`,
       `${"1 ".repeat(n / 2)}:`,
       "```a ".repeat(n / 5),
+      "`\u200b".repeat(n / 2),
+      "\n".repeat(n),
+      `${"-".repeat(n)}x`,
+      "a.bc:1".repeat(n / 6),
+      "//a".repeat(n / 3),
+      `https://x.co/${"%25".repeat(n / 3)}`,
+      "a@b\u3002".repeat(n / 4),
     ]
     const start = performance.now()
     for (const text of shapes) {
