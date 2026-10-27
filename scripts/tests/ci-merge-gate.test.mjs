@@ -18,6 +18,7 @@ import {
   comment,
   decideMode,
   describe,
+  laneScripts,
   manifestPackages,
   marker,
   shadow,
@@ -315,7 +316,7 @@ test("a registry dependency change in a workspace package runs the selector", ()
   )
 })
 
-test("a package.json change outside the dependency lists forces a full run", () => {
+test("a package.json change that the gate does not allow forces a full run", () => {
   const full = (path, base, head, cause) =>
     assert.deepEqual(packageMode({ [path]: base }, { [path]: head }), {
       mode: "full",
@@ -328,22 +329,53 @@ test("a package.json change outside the dependency lists forces a full run", () 
     backendPackage({ name: "@ctxpipe/ui" }),
     'field "name" changed',
   )
-  // prerequisites.mjs runs build-storybook as a lane setup.
-  full(
-    "apps/ui/package.json",
-    backendPackage(),
-    backendPackage({
-      scripts: { dev: "bun run dev", "build-storybook": "node x.js" },
-    }),
-    'field "scripts" changed',
-  )
+  for (const field of [
+    "publishConfig",
+    "files",
+    "main",
+    "module",
+    "exports",
+    "imports",
+    "types",
+    "type",
+    "bin",
+    "engines",
+  ])
+    full(
+      backend,
+      backendPackage(),
+      backendPackage({ [field]: "x" }),
+      `field "${field}" changed`,
+    )
+  // prerequisites.mjs runs build-storybook as a lane setup, and the prebuild
+  // hook of the aws-cdk build runs stamp-image-tag.
+  const script = (path, name) =>
+    full(
+      path,
+      backendPackage(),
+      backendPackage({ scripts: { dev: "bun run dev", [name]: "node x.js" } }),
+      `script "${name}" changed`,
+    )
+  script("apps/ui/package.json", "build-storybook")
+  script("packages/aws-cdk/package.json", "stamp-image-tag")
+  for (const name of [
+    "install",
+    "preinstall",
+    "postinstall",
+    "prepare",
+    "prepublishOnly",
+    "prepack",
+    "postpack",
+    "pretest",
+    "postbuild",
+    "checks:list",
+  ])
+    script(backend, name)
   full(
     backend,
     backendPackage(),
-    backendPackage({
-      scripts: { dev: "bun run dev", postinstall: "node x.js" },
-    }),
-    'field "scripts" changed',
+    backendPackage({ scripts: "node x.js" }),
+    'cannot parse: not a mapping: "node x.js"',
   )
   full(
     backend,
@@ -357,14 +389,19 @@ test("a package.json change outside the dependency lists forces a full run", () 
     backendPackage({ pnpm: { onlyBuiltDependencies: ["esbuild"] } }),
     'field "pnpm" changed',
   )
-  // A root dependency can link a bin (such as `node`) that comes first in
-  // PATH for `pnpm -s checks:list`.
-  full(
-    "package.json",
-    "{}",
-    JSON.stringify({ devDependencies: { "evil-node": "^1.0.0" } }),
-    "the root package changed",
-  )
+  // The root package may change only its dependency lists.
+  for (const [field, value] of [
+    ["scripts", { lint: "oxlint ." }],
+    ["engines", { node: ">=24" }],
+    ["description", "x"],
+    ["packageManager", "pnpm@10.0.0"],
+  ])
+    full(
+      "package.json",
+      "{}",
+      JSON.stringify({ [field]: value }),
+      `field "${field}" changed`,
+    )
   assert.match(
     packageMode({ "package.json": "{}" }, { "package.json": '{"name": "x",' })
       .reason,
@@ -375,6 +412,171 @@ test("a package.json change outside the dependency lists forces a full run", () 
     mode: "full",
     reason: "package file apps/backend/package.json changed and cannot be read",
   })
+})
+
+test("a dependency, a descriptive field or an unrun script change selects", () => {
+  const select = (path, base, head) =>
+    assert.deepEqual(packageMode({ [path]: base }, { [path]: head }), {
+      mode: "select",
+      reason: "shadow",
+    })
+  // No dependency bin runs in the manifest step (the next test), so a root
+  // dependency can change too.
+  select(
+    "package.json",
+    "{}",
+    JSON.stringify({ devDependencies: { "evil-node": "^1.0.0" } }),
+  )
+  select(
+    "apps/backend/package.json",
+    backendPackage(),
+    backendPackage({
+      version: "1.2.0",
+      description: "x",
+      keywords: ["x"],
+      author: "x",
+      contributors: ["x"],
+      license: "MIT",
+      homepage: "https://example.com",
+      repository: "x",
+      bugs: "x",
+      funding: "x",
+      scripts: { dev: "bun run dev", "secrets:reencrypt": "bun x.ts" },
+    }),
+  )
+  // A script that no lane runs, in a package that has lane scripts.
+  select(
+    "packages/aws-cdk/package.json",
+    backendPackage(),
+    backendPackage({ scripts: { dev: "bun run dev", clean: "rm -rf lib" } }),
+  )
+})
+
+// The package scripts that `text` runs through pnpm: `pnpm("<script>")` and
+// `"pnpm", ["--filter", "<name>", "<script>"]` (and `run <script>`), each as
+// [filter or undefined, script]. `exec` runs a bin, not a script.
+const pnpmRuns = (text) =>
+  [...text.matchAll(/(?:pnpm\(|"pnpm",\s*\[)((?:\s*"[^"]*"\s*,?)+)/g)].flatMap(
+    (match) => {
+      const words = [...match[1].matchAll(/"([^"]*)"/g)].map((word) => word[1])
+      let filter
+      const rest = []
+      for (let i = 0; i < words.length; i++)
+        if (words[i] === "--filter") filter = words[++i]
+        else if (!words[i].startsWith("-")) rest.push(words[i])
+      if (rest[0] === "exec" || rest[0] === "install") return []
+      return [[filter, rest[0] === "run" ? rest[1] : rest[0]]]
+    },
+  )
+
+test("laneScripts holds each package script that a lane or a prerequisite runs", () => {
+  const directories = new Map()
+  for (const parent of ["apps", "packages", "examples"])
+    for (const name of readdirSync(join(root, parent))) {
+      const file = join(root, parent, name, "package.json")
+      if (existsSync(file))
+        directories.set(
+          JSON.parse(readFileSync(file, "utf8")).name,
+          `${parent}/${name}`,
+        )
+    }
+  const files = [
+    ...readdirSync(join(root, "scripts/checks"))
+      .filter((name) => name.endsWith(".mjs"))
+      .map((name) => `scripts/checks/${name}`),
+    ...readdirSync(join(root, "scripts/ci"))
+      .filter((name) => name.endsWith(".mjs"))
+      .map((name) => `scripts/ci/${name}`),
+    "apps/codesearch/scripts/run-vitest-contracts.mjs",
+  ]
+  const runs = files.flatMap((file) =>
+    pnpmRuns(readFileSync(join(root, file), "utf8")),
+  )
+  // The reader finds the known runs, so a broken reader cannot pass.
+  for (const [filter, name] of [
+    ["@ctxpipe/ui", "build-storybook"],
+    ["@ctxpipe/aws-cdk", "build"],
+    [undefined, "knip"],
+  ])
+    assert.ok(
+      runs.some((run) => run[0] === filter && run[1] === name),
+      `reads ${filter ?? "root"} ${name}`,
+    )
+  for (const [filter, name] of runs) {
+    // Any root package change outside the dependency lists is a full run.
+    if (filter === undefined) continue
+    const directory = directories.get(filter)
+    assert.ok(directory, `${filter} is a workspace package`)
+    assert.ok(
+      laneScripts[directory]?.includes(name),
+      `laneScripts["${directory}"] holds ${name}`,
+    )
+  }
+  // Each script that a lane script (or its pre or post hook) runs in turn.
+  for (const [directory, names] of Object.entries(laneScripts)) {
+    const { scripts } = JSON.parse(
+      readFileSync(join(root, directory, "package.json"), "utf8"),
+    )
+    for (const name of names) {
+      assert.ok(scripts[name], `${directory} has the script ${name}`)
+      for (const hook of [`pre${name}`, name, `post${name}`])
+        for (const match of (scripts[hook] ?? "").matchAll(
+          /\b(?:pnpm|npm|yarn|bun)\s+(?:-\S+\s+)*run\s+([\w:.-]+)/g,
+        ))
+          assert.ok(
+            names.includes(match[1]),
+            `laneScripts["${directory}"] holds ${match[1]} (${hook} runs it)`,
+          )
+    }
+  }
+})
+
+test("no dependency bin can run in the manifest step", () => {
+  // The manifest job records the absolute Node path before the install, and
+  // runs list.mjs with it, not through pnpm.
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const job = workflow.slice(
+    workflow.indexOf("  merge-gate-manifest:"),
+    workflow.indexOf("  merge-gate-select:"),
+  )
+  const path = job.indexOf('echo "path=$(command -v node)" >> "$GITHUB_OUTPUT"')
+  const install = job.indexOf("- run: pnpm install --frozen-lockfile")
+  const step = job.slice(job.indexOf("- name: Manifest and toolchain"))
+  assert.ok(
+    path > 0 && path < install,
+    "the Node path comes before the install",
+  )
+  assert.match(step, /NODE: \$\{\{ steps\.node\.outputs\.path \}\}/)
+  assert.match(step, /"\$NODE" scripts\/checks\/list\.mjs /)
+  assert.doesNotMatch(
+    step.slice(0, step.indexOf("- name: Preserve")),
+    /\bpnpm\b|\bnpx\b/,
+  )
+  // A root dependency with `bin: { node, git }` comes first in PATH (as
+  // through `pnpm run`). list.mjs does not start either bin.
+  const directory = mkdtempSync(join(tmpdir(), "gate-bin-"))
+  const bin = join(directory, "node_modules/.bin")
+  const marker = join(directory, "ran")
+  mkdirSync(bin, { recursive: true })
+  for (const name of ["node", "git"])
+    writeFileSync(
+      join(bin, name),
+      `#!/bin/sh\necho ${name} >> "${marker}"\nexit 1\n`,
+      { mode: 0o755 },
+    )
+  const listed = spawnSync(
+    process.execPath,
+    [join(root, "scripts/checks/list.mjs")],
+    {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: 256 * 1024 * 1024,
+      env: { ...process.env, PATH: `${bin}:.:${process.env.PATH}` },
+    },
+  )
+  assert.equal(listed.status, 0, listed.stderr)
+  assert.ok(JSON.parse(listed.stdout).checks.length > 0)
+  assert.equal(existsSync(marker), false, "a dependency bin ran")
 })
 
 test("pnpm-workspace.yaml forces a full run for a change outside the catalogs and overrides", () => {
@@ -407,8 +609,8 @@ test("a lockfile change that the gate cannot verify as registry code forces a fu
   const reason = (options, edit) =>
     lockReason(options, edit).replace(/^package file pnpm-lock\.yaml: /, "")
   assert.equal(
-    reason({ root: [["evil-node", "^1.0.0", "1.0.0"]] }),
-    "the root importer changed",
+    reason({ root: [["x", "github:attacker/x", "1.0.0"]] }),
+    "importer .: x is not a registry dependency",
   )
   // A git dependency outside the manifest closure: pnpm 10.12 runs its
   // prepare script when it fetches it.

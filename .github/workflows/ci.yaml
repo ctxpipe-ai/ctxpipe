@@ -1145,13 +1145,22 @@ jobs:
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
         with:
           bun-version: 1.4.4
+      # The absolute Node path, before the install: no dependency bin can
+      # take over the manifest step (list.mjs also keeps node_modules out of
+      # PATH for each command that it starts).
+      - name: Node path
+        id: node
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+        run: echo "path=$(command -v node)" >> "$GITHUB_OUTPUT"
       - run: pnpm install --frozen-lockfile
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
       - name: Manifest and toolchain
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+        env:
+          NODE: ${{ steps.node.outputs.path }}
         run: |
-          pnpm -s checks:list > "$RUNNER_TEMP/merge-gate/manifest.json"
-          node scripts/checks/toolchain.mjs "$RUNNER_TEMP/merge-gate/manifest.json" \
+          "$NODE" scripts/checks/list.mjs > "$RUNNER_TEMP/merge-gate/manifest.json"
+          "$NODE" scripts/checks/toolchain.mjs "$RUNNER_TEMP/merge-gate/manifest.json" \
             > "$RUNNER_TEMP/merge-gate/toolchain.json"
       - name: Preserve the merge gate inputs
         if: always()

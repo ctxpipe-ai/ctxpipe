@@ -84,7 +84,7 @@ export function stepResults(jobs) {
   return results
 }
 
-// The packages that `pnpm -s checks:list` loads, by importer path in
+// The packages that `scripts/checks/list.mjs` loads, by importer path in
 // pnpm-lock.yaml. A test keeps this list complete: it walks the files that
 // list.mjs loads, with apps/ui/.storybook/main.ts.
 export const manifestPackages = {
@@ -241,15 +241,27 @@ function parseYaml(text) {
   return root
 }
 
-// The cause of a full run for a changed package.json, else undefined. Only
-// the dependency lists of a workspace package may change; the root package
-// reaches every lane, and its bins come first in PATH for `checks:list`.
+// The package scripts that a lane or a prerequisite runs, by package
+// directory, with each script that they run in turn (`prebuild` of
+// packages/aws-cdk runs `pnpm run stamp-image-tag`). A change to one forces a
+// full run. A test reads the lane files and the scripts, and fails when one
+// runs a package script that is not here. The root package is not here: any
+// change to it outside the dependency lists forces a full run.
+export const laneScripts = {
+  "apps/ui": ["build-storybook"],
+  "packages/aws-cdk": ["build", "stamp-image-tag"],
+}
+
+// The cause of a full run for a changed package.json, else undefined. A
+// dependency list may change in each package: no dependency can run in the
+// manifest step (list.mjs). The root package may change only its dependency
+// lists. A workspace package may also change its descriptive fields and a
+// script that no lane runs and that pnpm does not run by itself.
 function packageJsonCause(base, head, path) {
   const [a, b] = [base, head].map((text) => JSON.parse(text ?? "{}"))
   if (!isObject(a) || !isObject(b)) return "not a JSON object"
-  const keys = changedKeys(a, b)
-  if (path === "package.json" && keys.length) return "the root package changed"
-  const key = keys.find(
+  const root = path === "package.json"
+  const key = changedKeys(a, b).find(
     (name) =>
       ![
         "dependencies",
@@ -257,9 +269,35 @@ function packageJsonCause(base, head, path) {
         "optionalDependencies",
         "peerDependencies",
         "peerDependenciesMeta",
+        ...(root
+          ? []
+          : [
+              "description",
+              "keywords",
+              "author",
+              "contributors",
+              "license",
+              "homepage",
+              "repository",
+              "bugs",
+              "funding",
+              "version",
+              "scripts",
+            ]),
       ].includes(name),
   )
   if (key !== undefined) return `field "${key}" changed`
+  const directory = posix.dirname(path)
+  // pnpm runs `install` and each `pre<name>` and `post<name>` hook by itself
+  // (the lifecycle scripts `preinstall`, `prepare`, `prepack` and the like
+  // are such names). The merge gate job runs the `checks:` scripts.
+  const script = changedKeys(mapping(a.scripts), mapping(b.scripts)).find(
+    (name) =>
+      name === "install" ||
+      /^(?:pre|post|checks:)/.test(name) ||
+      laneScripts[directory]?.includes(name),
+  )
+  if (script !== undefined) return `script "${script}" changed`
 }
 
 function workspaceCause(base, head) {
@@ -336,7 +374,6 @@ function lockfileCause(base, head) {
   for (const path of changedKeys(ai, bi)) {
     if (!Object.hasOwn(ai, path) || !Object.hasOwn(bi, path))
       return `importer ${path} added or removed`
-    if (path === ".") return "the root importer changed"
     const [x, y] = [ai[path], bi[path]].map(mapping)
     const field = changedKeys(x, y).find(
       (name) => !dependencyGroups.includes(name),
@@ -405,7 +442,7 @@ export function decideMode({ config, event, fork, changed, read }) {
   // A change to one of these can change how the gate decides, so the run is
   // full: the workflow that runs the gate, its actions, its pin, and the code
   // that the gate and the runner execute. The manifest job runs the code of
-  // the PR (`pnpm install`, `pnpm -s checks:list`), so a file that changes
+  // the PR (`pnpm install`, `scripts/checks/list.mjs`), so a file that changes
   // how the manifest is made is here too: the pnpm configuration, the
   // patches, each package.yaml and package.json5 (pnpm reads them as project
   // manifests), the Storybook config that the index build loads, and each file
