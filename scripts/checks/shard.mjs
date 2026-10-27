@@ -26,6 +26,8 @@ export const storybookBuildMinutes = 1.2
 // A check without an entry (an eval, the latency check) has its own workflow.
 // A build check has no profile: its job runs on each pull request whatever
 // the selection is, until the gate runs the selected builds (CTX-1054).
+// A deploy check runs in the job `Deploy PR environment (Railway + Neon)` of
+// pr-deploy.yaml, not in ci.yaml, and has no profile.
 const runsIn = {
   lint: { job: "lint", profile: "project" },
   policy: { job: "lint", profile: "project" },
@@ -44,6 +46,7 @@ const runsIn = {
   "vitest:codesearch": { job: "codesearch", profile: "codesearch" },
   "vitest:codesearch-bun": { job: "codesearch", profile: "codesearch" },
   "vitest:vercel": { job: "vercel-sandbox", profile: "vercel" },
+  deploy: { job: "pr-deploy" },
   ...Object.fromEntries([
     ...["backend", "worker", "ui", "codesearch", "docs", "chat-sandbox"].map(
       (name) => [`build:image-${name}`, { job: "production-builds" }],

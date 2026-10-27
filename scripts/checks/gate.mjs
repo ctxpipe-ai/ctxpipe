@@ -33,14 +33,15 @@ import {
 //
 //   gate.mjs shadow --config <merge-gate.json> --inputs <dir> --results <dir>
 //                   --needs <file> [--jobs <file>] [--earlier <file>]
-//                   --out <dir>
+//                   [--deploy <file>] --out <dir>
 //     The decision of a PR run in shadow mode. The full run gates; this
 //     computes what a gated run would decide from the same results, and
 //     writes decision.json, summary.md and comment.md to <dir>. <inputs>
 //     holds the artifacts of the manifest and select jobs, <results> the test
 //     artifacts, <needs> the `needs` context, <jobs> the jobs of this run
 //     attempt from the GitHub API, <earlier> the jobs of the earlier attempts
-//     of this run.
+//     of this run, <deploy> the jobs of the newest PR Deploy run of the PR
+//     head.
 
 // The steps of the Lint and format job that run one check each, by the
 // `<family>:<lane>:` prefix of its id. The step result is the check result.
@@ -61,6 +62,14 @@ export const lintSteps = {
     "policy:workflow-inputs:",
   "Validate and install the Claude plugin": "policy:claude-plugin:",
 }
+// The steps of the job `Deploy PR environment (Railway + Neon)` of
+// pr-deploy.yaml that run one deploy check each. A test keeps these names
+// equal to the steps in pr-deploy.yaml.
+export const deploySteps = {
+  "Update Railway service config via GraphQL and deploy once":
+    "deploy:preview:",
+  "Smoke-test the preview UI": "deploy:preview-ui-smoke:",
+}
 // The step of the Lint and format job that the gated run always runs.
 const ciScriptTests = "CI command regression tests"
 
@@ -71,9 +80,31 @@ const conclusion = (value) =>
 // The result of each step above in this run, and of the CI script tests.
 // Also the result of each image build: the matrix job `Production build
 // (<name>)` of ci.yaml is a plain Docker build of the check
-// `build:image-<name>:`, so the job result is the check result.
-export function stepResults(jobs) {
+// `build:image-<name>:`, so the job result is the check result. And the
+// result of each deploy check, from the steps of the PR Deploy run (`deploy`).
+// A PR Deploy run that has not ended gives `pending` (no verdict yet). A
+// deploy job that a failed job before it skipped gives `failed` for the
+// deployment: it never came up. A run without a deploy run gives no result.
+export function stepResults(jobs, deploy) {
   const results = new Map()
+  if (deploy && deploy.status && deploy.status !== "completed")
+    for (const prefix of Object.values(deploySteps))
+      results.set(prefix, "pending")
+  else if (deploy) {
+    const list = deploy.jobs ?? []
+    const job = list.find(
+      (item) => item.name === "Deploy PR environment (Railway + Neon)",
+    )
+    if (job?.steps?.length) {
+      for (const step of job.steps)
+        if (deploySteps[step.name])
+          results.set(deploySteps[step.name], conclusion(step.conclusion))
+    } else if (
+      list.some((item) => item.conclusion === "failure") &&
+      (!job || job.conclusion === "skipped")
+    )
+      results.set("deploy:preview:", "failed")
+  }
   for (const job of jobs?.jobs ?? []) {
     const image = /^Production build \((.+)\)$/.exec(job.name)?.[1]
     if (image) results.set(`build:image-${image}:`, conclusion(job.conclusion))
@@ -204,7 +235,7 @@ export function fullRunResults(records, needs, steps = new Map()) {
     if (results.has(id)) return results.get(id)
     const [family, lane] = id.split(":")
     const step = steps.get(`${family}:${lane}:`)
-    if (step === "passed" || step === "failed") return step
+    if (["passed", "failed", "pending"].includes(step)) return step
     const job = runsInOf(id)?.job
     return `missing result (job ${job ?? "none"}: ${needs[job]?.result ?? "did not run"})`
   }
@@ -560,12 +591,21 @@ function withJobChecks(selection, jobs) {
   }
 }
 
-export function shadow({ config, inputs, records, needs, jobs, earlier, run }) {
+export function shadow({
+  config,
+  inputs,
+  records,
+  needs,
+  jobs,
+  earlier,
+  deploy,
+  run,
+}) {
   const mode = readJson(join(inputs, "mode.json"))
   let selection = readJson(join(inputs, "selection.json"))
   const select = needs["merge-gate-select"]?.result
   const full = fullVerdict(needs)
-  const steps = stepResults(jobs)
+  const steps = stepResults(jobs, deploy)
   const result = fullRunResults(records, needs, steps)
   let fallback
   if (!mode)
@@ -872,6 +912,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
         needs: JSON.parse(readFileSync(options.needs, "utf8")),
         jobs: readJson(options.jobs),
         earlier: readJson(options.earlier),
+        deploy: readJson(options.deploy),
         run,
       })
       mkdirSync(options.out, { recursive: true })

@@ -23,6 +23,7 @@ A check id is `<family>:<lane>:<file>`, for example `vitest:ui:apps/ui/src/compo
 | `lint` | `oxlint`, `format`, `knip` | tool | `lint:knip:knip.json` | `pnpm lint`, `pnpm format:check`, `pnpm knip` |
 | `policy` | the name of each policy script of the CI lint job, and `claude-plugin` | script | `policy:test-policy:scripts/ci/check-test-policy.mjs` | that script |
 | `build` | `image-<name>` for each production image, `package-<name>` for each package build | image or package | `build:image-ui:apps/ui/Dockerfile`, `build:package-cli:packages/cli/package.json` | `docker buildx build` of the Dockerfile, or `pnpm --filter <package> build` |
+| `deploy` | `preview`, `preview-ui-smoke` | preview deployment, or check against the deployed preview | `deploy:preview:.github/workflows/pr-deploy.yaml` | `pr-deploy.yaml` on the PR branch, or `scripts/ci/smoke-preview-ui.sh` against the preview |
 
 - A Storybook story is a case of its stories file. The story id is the Storybook id, so the id stays the same when the story moves in its file. [`storybook.mjs`](storybook.mjs) lists the stories with the Storybook indexer (`buildIndex`), and runs them against `apps/ui/storybook-static`.
 - An eval case calls paid models. The record has `stochastic: true`: the same inputs can give a different result, so a result cache must not reuse it. Its inputs are only its harness. `tools` lists the MCP tools that the case declares. A reader selects the case by those tools and the trace's `tools` edges (the tools that each Vitest case called), then by its `intent`. A reader never selects it by an import. The verdict of a case is the eval gate (`apps/backend/evals/mcp/gate.ts`) for that one case: its thresholds and the baseline drop for the case. When a model has no baseline entry for the case, only the pass-rate floor applies, and the case message says "no baseline". A whole-run gate failure (for example, too few models) does not change the verdict of a case. The runner writes it to stderr as one note. The memory live evals have no check; each scenario is listed when a live runner can run it.
@@ -54,6 +55,22 @@ The `build` checks are the jobs Production build and Runnable packages of `ci.ya
 - An image check needs the `docker` prerequisite. The codesearch image builds for `linux/amd64` (its Dockerfile stops on another architecture), and reads the public layer cache `ghcr.io/ctxpipe-ai/ci-cache:production-codesearch` without a login. The chat-sandbox image builds for `linux/arm64`: on an amd64 machine, install binfmt/QEMU first (the CI job does this).
 - The Layer cache job is cache warming, not a check. It writes the layer caches on `main` only, and its failure is a miss on the next run. A cache miss makes a build slower, never another result.
 - Cost: the record of each build has its `durationMs`. The gate counts both jobs as always-run jobs (`cost` in `gate.mjs`), so a build check has no shard profile.
+
+## Preview deployment
+
+The `deploy` checks are the PR preview of `pr-deploy.yaml` (Railway and Neon) and the one automated check that runs against the deployed preview.
+
+| Check | Job and step of `pr-deploy.yaml` | Catches |
+| --- | --- | --- |
+| `deploy:preview:.github/workflows/pr-deploy.yaml` | `Deploy PR environment (Railway + Neon)`, step `Update Railway service config via GraphQL and deploy once` | a deployment that does not start or wire up |
+| `deploy:preview-ui-smoke:scripts/ci/smoke-preview-ui.sh` | the same job, step `Smoke-test the preview UI` | a preview backend that does not serve the UI of its own build |
+
+- The inputs of the deployment are its config: `pr-deploy.yaml`, each script that it sources, the Dockerfiles of the four preview images and their start commands, the backend variables (`apps/backend/src/config/env.ts`), the migrations, the config of the connector asset test that the deploy needs, and the Railway and Neon Terraform files of the production environment that each preview copies. No input is a lockfile or a package manifest: a dependency change selects the `build:image-*` checks, which build the images, and a full preview deploy for each dependency bump costs too much. A change to app code that a unit or contract check covers is not an input. A selector follows the imports of a source input, so no input is an app entry file (such as `server.ts`): it would select the deployment on each app change. A test keeps each source input free of repo imports. The inputs of the smoke test are the smoke script, the private UI setup and the UI Dockerfile.
+- Both checks have `cacheable: false`: the result comes from Railway and Neon, so a result cache never reuses it. A selector selects them by their inputs.
+- No other check runs against the deployed preview in PR CI. The jobs before the deploy (the PR images, the connector asset check, the Neon branch and the migrate) are part of the deployment: when one fails, the deploy job does not run, and the gate maps `deploy:preview` to `failed`. The `preview-env` agent skill and the `PR preview roll existing images` workflow are run by hand and are not checks.
+- Result in the merge gate: the shadow job reads the jobs of the newest PR Deploy run of the PR head (`--deploy` of `gate.mjs`), and `stepResults` maps each step to its check (`deploySteps`). The PR Deploy run often ends after CI. The shadow job takes the newest run whose deploy job did not skip. A run that has not ended gives `pending` for both checks, and `pending` stays out of the agreement metrics.
+- Prerequisite: `preview-pr` (`PR_NUMBER` is set, the GitHub CLI is logged in, and the PR head is the local `HEAD`), for both checks. The smoke script retries until the preview answers. The manual run waits for a new run of the current commit. The secrets are in the GitHub environment `Preview`, never on a laptop. Thus `pnpm checks:run` of `deploy:preview` starts PR Deploy on the PR branch with `gh workflow run` and waits for it with `gh run watch`.
+- When PR Deploy runs today: on each push to a same-repository pull request (`opened`, `reopened`, `synchronize`), not on a fork. A person can ask for a new deploy with **Run workflow** (`workflow_dispatch`) from the PR branch, with the PR number as input. A run from `main` fails. `pr-preview-roll-existing.yaml` rolls the images that exist without a build. No label or comment starts a deploy. When the gate runs only the selected checks ([CTX-1054](https://linear.app/ctxpipe/issue/CTX-1054)), it starts PR Deploy only when it selects a deploy check; the manual `workflow_dispatch` stays.
 
 ## Other pull request workflows
 
@@ -101,6 +118,7 @@ A check lists its `prerequisites` by name. Before the checks run, the runner mak
 | `terraform-plan` | verifies the Terraform CLI and the state keys of the `terraform-plan` environment |
 | `codesearch-server` | verifies that `CODESEARCH_URL` answers |
 | `mcp-server` | verifies that the backend of this checkout answers at `AUTH_BASE_URL` + `/mcp` |
+| `preview-pr` | verifies `PR_NUMBER`, the GitHub CLI login, and that the PR head is the local `HEAD` |
 | `aws-cdk-image-tag`, `aws-cdk-build`, `docs-mdx` | makes the generated files that a typecheck needs |
 
 ## Cost

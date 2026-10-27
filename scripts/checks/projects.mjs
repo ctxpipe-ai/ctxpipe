@@ -6,8 +6,9 @@ import { logFile, logged } from "./log.mjs"
 
 // The project-level checks: typecheck (one for each project of
 // scripts/ci/projects.json), lint (oxlint, oxfmt, knip), the policy
-// scripts (of the CI lint job, and the Terraform plan) and the builds (each
-// production image and each package of the CI build jobs). Each one runs a
+// scripts (of the CI lint job, and the Terraform plan), the builds (each
+// production image and each package of the CI build jobs) and the preview
+// deployment with its UI smoke test. Each one runs a
 // fixed command over a whole project, so it has no trace. Its inputs are the
 // files that it reads, approximated with whole directories: a change anywhere
 // in them selects it.
@@ -274,6 +275,87 @@ const definitions = () => [
         : pnpm("--filter", pkg, "build"),
     ],
   })),
+  // The preview deployment of pr-deploy.yaml, and the check that runs against
+  // the deployed preview. Each result comes from Railway and Neon, so a result
+  // cache never reuses it. The secrets are in the GitHub environment Preview,
+  // so the check runs the workflow on the PR branch (PR_NUMBER) and waits.
+  {
+    family: "deploy",
+    lane: "preview",
+    file: ".github/workflows/pr-deploy.yaml",
+    root: "",
+    // Only what the deploy workflow reads. A dependency change selects the
+    // image build checks, not a full preview deploy.
+    inputs: [
+      ".node-version",
+      "scripts/checks/projects.mjs",
+      ".github/workflows/pr-deploy.yaml",
+      // The scripts that the workflow sources: Railway, Neon, the service
+      // variables and the secret names that the deploy sets.
+      "scripts/railway-graphql.sh",
+      "scripts/preview-app-db-password.sh",
+      "scripts/preview-github-app-vars.sh",
+      "scripts/preview-neon-branch.sh",
+      "scripts/preview-otel-vars.sh",
+      "scripts/preview-own-secrets.sh",
+      "scripts/preview-sandbox-vars.sh",
+      "scripts/preview-secrets.sh",
+      "scripts/preview-service-vars.sh",
+      "scripts/preview-ui-private.sh",
+      // The images, their start commands and the variables that they read.
+      // No app source file other than env.ts: a selector follows the imports
+      // of a source input, so an entry file would select on all app code.
+      "apps/backend/Dockerfile",
+      "apps/backend/Dockerfile.worker",
+      "apps/ui/Dockerfile",
+      "apps/codesearch/Dockerfile",
+      "apps/codesearch/start.sh",
+      "apps/backend/src/config/env.ts",
+      "apps/backend/migrations/**",
+      // The connector asset job, which the deploy needs.
+      "apps/backend/vitest.connector-assets.config.ts",
+      // The production environment that each preview copies.
+      "infra/module/ctxpipe/railway.tf",
+      "infra/module/ctxpipe/neon.tf",
+    ],
+    cacheable: false,
+    prerequisites: ["preview-pr"],
+    intent:
+      "Catches a preview deployment that does not start or wire up: images, start commands, variables, migrations, Railway or Neon setup. Run it when that config changes; never for a change that unit and contract checks already cover.",
+    commands: [
+      [
+        "sh",
+        "-c",
+        // Waits for a run id above the newest dispatch run of this commit: an
+        // older run is never the one that this check started.
+        'set -e; branch="$(git branch --show-current)"; head="$(git rev-parse HEAD)"; list() { gh run list --workflow pr-deploy.yaml --branch "$branch" --event workflow_dispatch --commit "$head" --json databaseId --jq "map(.databaseId) | max // 0"; }; before="$(list)"; gh workflow run pr-deploy.yaml --ref "$branch" -f pr_number="$PR_NUMBER"; id=0; for _ in $(seq 24); do sleep 5; id="$(list)"; [ "$id" -gt "$before" ] && break; done; [ "$id" -gt "$before" ] || { echo "No new PR Deploy run for $head" >&2; exit 1; }; gh run watch --exit-status "$id"',
+      ],
+    ],
+  },
+  {
+    family: "deploy",
+    lane: "preview-ui-smoke",
+    file: "scripts/ci/smoke-preview-ui.sh",
+    root: "",
+    inputs: [
+      ".node-version",
+      "scripts/checks/projects.mjs",
+      "scripts/ci/smoke-preview-ui.sh",
+      "scripts/preview-ui-private.sh",
+      "apps/ui/Dockerfile",
+    ],
+    cacheable: false,
+    prerequisites: ["preview-pr"],
+    intent:
+      "Catches a preview whose backend does not serve the UI of its own build (the private UI proxy). Run it when the UI proxy or the UI image changes; never for a change inside UI pages.",
+    commands: [
+      [
+        "sh",
+        "-c",
+        'bash scripts/ci/smoke-preview-ui.sh "https://backend-pr-$PR_NUMBER.up.railway.app"',
+      ],
+    ],
+  },
 ]
 
 export function listProjects() {

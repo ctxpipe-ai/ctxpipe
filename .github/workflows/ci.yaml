@@ -1369,8 +1369,10 @@ jobs:
           REPO: ${{ github.repository }}
           RUN: ${{ github.run_id }}
           ATTEMPT: ${{ github.run_attempt }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         # The jobs of the earlier attempts show the flakes: a job that failed
-        # in an earlier attempt and passed in this one.
+        # in an earlier attempt and passed in this one. The jobs of the newest
+        # PR Deploy run of the PR head give the deploy checks their results.
         run: |
           gh api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" --paginate \
             --jq '.jobs[]' | jq -s '{jobs: .}' > "$RUNNER_TEMP/jobs.json"
@@ -1378,6 +1380,22 @@ jobs:
             gh api "repos/$REPO/actions/runs/$RUN/attempts/$attempt/jobs?per_page=100" --paginate \
               --jq '.jobs[]'
           done | jq -s '{jobs: .}' > "$RUNNER_TEMP/earlier.json"
+          # The newest PR Deploy run of the head whose deploy job did not
+          # skip. A run that a newer push cancelled early has no deploy job.
+          gh api "repos/$REPO/actions/workflows/pr-deploy.yaml/runs?head_sha=$HEAD_SHA&per_page=20" \
+            --jq '.workflow_runs[] | [.id, .status] | @tsv' > "$RUNNER_TEMP/deploy-runs.tsv"
+          echo '{"jobs": []}' > "$RUNNER_TEMP/deploy.json"
+          while read -r id status; do
+            gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" --paginate \
+              --jq '.jobs[]' | jq -s --arg status "$status" '{status: $status, jobs: .}' > "$RUNNER_TEMP/candidate.json"
+            if [[ -z "$(jq -r '.jobs[] | select(.name == "Deploy PR environment (Railway + Neon)" and .conclusion != "skipped") | .name' "$RUNNER_TEMP/candidate.json")" ]]; then
+              # Keep the first run as the answer if no run has a deploy job.
+              [[ "$(jq '.jobs | length' "$RUNNER_TEMP/deploy.json")" == 0 ]] && cp "$RUNNER_TEMP/candidate.json" "$RUNNER_TEMP/deploy.json"
+              continue
+            fi
+            cp "$RUNNER_TEMP/candidate.json" "$RUNNER_TEMP/deploy.json"
+            break
+          done < "$RUNNER_TEMP/deploy-runs.tsv"
       - name: Decision
         env:
           NEEDS: ${{ toJSON(needs) }}
@@ -1386,7 +1404,8 @@ jobs:
           node scripts/checks/gate.mjs shadow --config .github/merge-gate.json \
             --inputs "$RUNNER_TEMP/inputs" --results "$RUNNER_TEMP/results" \
             --needs "$RUNNER_TEMP/needs.json" --jobs "$RUNNER_TEMP/jobs.json" \
-            --earlier "$RUNNER_TEMP/earlier.json" --out "$RUNNER_TEMP/decision"
+            --earlier "$RUNNER_TEMP/earlier.json" --deploy "$RUNNER_TEMP/deploy.json" \
+            --out "$RUNNER_TEMP/decision"
           cat "$RUNNER_TEMP/decision/summary.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve the decision
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
