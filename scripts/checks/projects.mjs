@@ -6,9 +6,10 @@ import { logFile, logged } from "./log.mjs"
 
 // The project-level checks: typecheck (one for each project of
 // scripts/ci/projects.json), lint (oxlint, oxfmt, knip) and the policy
-// scripts of the CI lint job. Each one runs a fixed command over a whole
-// project, so it has no trace. Its inputs are the files that it reads,
-// approximated with whole directories: a change anywhere in them selects it.
+// scripts (of the CI lint job, and the Claude plugin check). Each one runs a
+// fixed command over a whole project, so it has no trace. Its inputs are the
+// files that it reads, approximated with whole directories: a change anywhere
+// in them selects it.
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const shared = [
@@ -126,6 +127,8 @@ const definitions = () => [
     ["workflow-inputs", [".github/**"]],
     ["ui-motion", ["apps/ui/src/**"]],
     ["story-play-timing", ["apps/ui/src/**"]],
+    // Not in the CI lint job: claude-plugin-test.yaml runs it.
+    ["claude-plugin", ["plugins/**", ".claude-plugin/**"]],
   ].map(([lane, reads]) => {
     const file = `scripts/ci/check-${lane}.mjs`
     return {

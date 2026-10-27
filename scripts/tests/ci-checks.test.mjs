@@ -834,3 +834,53 @@ test("every check has the root toolchain files among its inputs", () => {
     ])
       assert.ok(inputs.includes(file), `${id} lacks input ${file}`)
 })
+
+test("the manifest lists a check for each job of the other pull request workflows", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const checks = new Map(
+    JSON.parse(result.stdout).checks.map((check) => [check.id, check]),
+  )
+  const lane = (family, name) =>
+    [...checks.values()].filter(
+      (check) => check.family === family && check.lane === name,
+    )
+  // cli-test.yaml runs the cli lane.
+  assert.ok(lane("vitest", "cli").length > 0)
+  assert.ok(lane("vitest", "cli")[0].inputs.includes("packages/cli/src/**"))
+  // claude-plugin-test.yaml: each backend test file that its Backend tests job
+  // names and that exists is a check of the backend lane. The UI tests job
+  // runs the ui lane.
+  const workflow = readFileSync(
+    join(root, ".github/workflows/claude-plugin-test.yaml"),
+    "utf8",
+  )
+  const named = workflow
+    .match(/^\s+src\/\S+\.test\.ts$/gm)
+    .map((line) => `apps/backend/${line.trim()}`)
+  assert.ok(named.length >= 5)
+  for (const file of named.filter((file) => existsSync(join(root, file))))
+    assert.ok(checks.has(`vitest:backend:${file}`), file)
+  assert.ok(lane("vitest", "ui").length > 0)
+  // Its package job is the policy check of the plugin.
+  const plugin = checks.get(
+    "policy:claude-plugin:scripts/ci/check-claude-plugin.mjs",
+  )
+  assert.ok(plugin)
+  assert.equal(plugin.family, "policy")
+  assert.equal(plugin.root, "")
+  assert.equal(plugin.runtime, "node")
+  assert.equal(plugin.stochastic, undefined)
+  for (const input of [
+    "plugins/**",
+    ".claude-plugin/**",
+    "scripts/ci/check-claude-plugin.mjs",
+    "scripts/checks/projects.mjs",
+  ])
+    assert.ok(plugin.inputs.includes(input), input)
+  assert.ok(workflow.includes("run: node scripts/ci/check-claude-plugin.mjs"))
+  // mcp-evals.yaml runs the eval cases; a model call is stochastic.
+  assert.ok(lane("eval", "mcp").length > 0)
+  for (const check of lane("eval", "mcp"))
+    assert.equal(check.stochastic, true, check.id)
+})

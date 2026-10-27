@@ -88,23 +88,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-      - name: Validate plugin and marketplace
-        run: |
-          npx -y @anthropic-ai/claude-code@2.1.251 plugin validate ./plugins/ctxpipe --strict
-          npx -y @anthropic-ai/claude-code@2.1.251 plugin validate . --strict
-      - name: Install from the marketplace
-        run: |
-          config_dir="$(mktemp -d)"
-          export CLAUDE_CONFIG_DIR="$config_dir"
-          npx -y @anthropic-ai/claude-code@2.1.251 plugin marketplace add "$GITHUB_WORKSPACE" --scope user
-          npx -y @anthropic-ai/claude-code@2.1.251 plugin install ctxpipe@ctxpipe --scope user --yes
-          plugin_list="$(npx -y @anthropic-ai/claude-code@2.1.251 plugin list --json)"
-          PLUGIN_LIST="$plugin_list" node -e '
-            const plugins = JSON.parse(process.env.PLUGIN_LIST);
-            const installed = plugins.some((plugin) =>
-              plugin.id === "ctxpipe@ctxpipe" &&
-              plugin.enabled === true &&
-              plugin.mcpServers?.ctxpipe?.url === "https://app.ctxpipe.ai/mcp"
-            );
-            if (!installed) process.exit(1);
-          '
+      # The check policy:claude-plugin of the check manifest runs the same
+      # script (scripts/checks/README.md).
+      - name: Validate and install the plugin
+        run: node scripts/ci/check-claude-plugin.mjs
