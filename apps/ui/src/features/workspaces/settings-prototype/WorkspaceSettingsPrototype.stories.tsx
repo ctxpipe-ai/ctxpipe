@@ -114,6 +114,7 @@ export const ChangesByPullRequest = scenarioStory(
 export const WriteCheckFailed = scenarioStory(scenarios.writeCheckFailed)
 export const GraphProblems = scenarioStory(scenarios.graphProblems)
 export const RepositoryMoving = scenarioStory(scenarios.repositoryMoving)
+export const LongHistory = scenarioStory(scenarios.longHistory)
 export const MemberView = scenarioStory(scenarios.memberView)
 export const Loading = scenarioStory(scenarios.loading)
 export const LoadErrors = scenarioStory(scenarios.loadErrors)

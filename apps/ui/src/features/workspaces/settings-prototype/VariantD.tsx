@@ -11,9 +11,18 @@ import {
   IconCircleCheck,
   IconGitBranch,
   IconGitPullRequest,
+  IconInfoCircle,
 } from "@tabler/icons-react"
-import type { ReactNode } from "react"
-import { Link as AriaLink } from "react-aria-components"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { type ReactNode, useState } from "react"
+import {
+  Link as AriaLink,
+  Button as AriaButton,
+  Switch as AriaSwitch,
+  Tooltip,
+  TooltipTrigger,
+} from "react-aria-components"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/Button"
 import {
@@ -30,7 +39,11 @@ import type {
   SourceLiveStatusLookup,
 } from "@/features/workspace-sources/SourceLiveStatusCell"
 import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
-import { AutomaticUpgradesToggle } from "@/features/workspace-upgrades/AutomaticUpgradesToggle"
+import {
+  saveWorkspaceUpgradeModeAndWait,
+  workspaceUpgradeKeys,
+  workspaceUpgradeModeOptions,
+} from "@/features/workspace-upgrades/queries"
 import { formatElapsed } from "@/features/workspace-upgrades/upgrade-progress"
 import { UpgradeRunProgress } from "@/features/workspace-upgrades/UpgradeRunProgress"
 import { focusVisibleClassName } from "@/lib/focus-styles"
@@ -38,19 +51,11 @@ import { useNow } from "@/lib/useNow"
 import { cn } from "@/lib/utils"
 
 import { ingestionProgress } from "../ingestion"
-import { StatusTag } from "../StatusTag"
 import type {
   SettingsModel,
   SourceActivity,
   UpgradeView,
 } from "./use-settings-model"
-
-const TONE = {
-  attention: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-  good: "border-teal-400/30 bg-teal-400/10 text-teal-200",
-  neutral: "border-border bg-zinc-800 text-muted-foreground",
-  error: "border-red-400/30 bg-red-400/10 text-red-200",
-}
 
 type PartId = "upgrades" | "sources" | "graph" | "repository"
 
@@ -247,29 +252,49 @@ function QuietStatus(props: { children: ReactNode }) {
 
 // Upgrades
 
+/** The dot of an upgrade row: what kind of attention it wants. */
+function upgradeDot(view: UpgradeView): { className: string; label: string } {
+  if (view.item.status === "failed")
+    return { className: "bg-red-400", label: "Failed" }
+  if (view.group === "needs_you")
+    return { className: "bg-amber-400", label: "Needs you" }
+  return { className: "ctx-status-pulse bg-teal-400", label: "Working" }
+}
+
+/** The server title in the words of the page: "file layout", not "format". */
+const plainTitle = (title: string) =>
+  title.replace(
+    /^Upgrade to format (\d+)$/,
+    "File layout upgrade to version $1",
+  )
+
+/** "14:46" in the user's clock. */
+const clock = (iso: string) =>
+  new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+
 function UpgradesCard(props: { model: SettingsModel; loading: boolean }) {
   const { model, loading } = props
   const { upgrades } = model
   const needsYou =
     !loading &&
     (upgrades.status === "error" || upgrades.headline?.label === "Needs you")
-  const status = loading ? null : upgrades.status === "error" ? (
-    <StatusTag label="Could not load" className={TONE.attention} />
-  ) : upgrades.headline?.label === "Needs you" ? (
-    <StatusTag label="Needs you" className={TONE.attention} />
-  ) : upgrades.working.length ? (
-    <StatusTag label="Working" className={TONE.good} pulse />
-  ) : (
-    <QuietStatus>Up to date</QuietStatus>
-  )
   const active = [...upgrades.needsYou, ...upgrades.working]
+  // The rows and the alert say "needs you" and "working". The header says
+  // only what the body does not.
+  const status =
+    loading || upgrades.status === "error" || active.length ? null : (
+      <QuietStatus>Up to date</QuietStatus>
+    )
+  // The cost of the last applied re-ingestion: the best guess of the next one.
+  const lastCost = [...upgrades.done]
+    .filter((view) => view.item.kind === "reingest" && view.spend)
+    .sort((a, b) => b.item.updatedAt.localeCompare(a.item.updatedAt))[0]
+    ?.spend?.replace(/^Spend: /, "")
   return (
     <PartCard
       id="upgrades"
       title="Upgrades"
-      description={
-        upgrades.intro ?? "ctxpipe keeps the format of this Workspace current."
-      }
+      description="ctxpipe keeps this Workspace current."
       status={status}
       needsYou={needsYou}
     >
@@ -295,48 +320,33 @@ function UpgradesCard(props: { model: SettingsModel; loading: boolean }) {
           Could not load the upgrades.
         </InlineAlert>
       ) : (
-        <div className="flex flex-col gap-3">
+        // Full-width hairlines between the parts, not boxes.
+        <div className="-mx-5 -mb-4 divide-y divide-white/[0.06] border-t border-white/[0.06]">
           {active.length ? (
             <ul
-              className="mt-1 flex flex-col divide-y divide-white/[0.06]"
+              className="divide-y divide-white/[0.06]"
               aria-label="Upgrades that need you or run now"
             >
               {active.map((view) => (
-                <UpgradeEntry key={view.key} view={view} model={model} />
+                <UpgradeEntry
+                  key={view.key}
+                  view={view}
+                  model={model}
+                  lastCost={view.item.kind === "reingest" ? lastCost : null}
+                />
               ))}
             </ul>
           ) : null}
-          <div
-            className={cn(
-              "flex min-h-7 flex-wrap items-center gap-x-2 text-xs text-muted-foreground",
-              active.length && "border-t border-white/[0.06] pt-3",
-            )}
-          >
-            <span>{upgrades.formatLine}</span>
-            <AutomaticUpgradesToggle
+          <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-3 px-5 py-3">
+            <AutomaticUpgradesSwitch
               orgSlug={model.orgSlug}
               workspaceSlug={model.workspace.slug}
               isAdmin={model.isAdmin}
             />
+            <FormatNote line={upgrades.formatLine} />
           </div>
-          {upgrades.done.length && upgrades.historyLine ? (
-            <Disclosure className="-mx-2 -mt-2">
-              <DisclosureHeader>
-                <span className="text-xs font-normal text-muted-foreground">
-                  {upgrades.historyLine}
-                </span>
-              </DisclosureHeader>
-              <DisclosurePanel className="px-2">
-                <ul
-                  className="flex flex-col divide-y divide-white/[0.06] pb-1"
-                  aria-label="Applied upgrades"
-                >
-                  {upgrades.done.map((view) => (
-                    <HistoryRow key={view.key} view={view} />
-                  ))}
-                </ul>
-              </DisclosurePanel>
-            </Disclosure>
+          {upgrades.done.length ? (
+            <HistorySection views={upgrades.done} />
           ) : null}
         </div>
       )}
@@ -344,246 +354,479 @@ function UpgradesCard(props: { model: SettingsModel; loading: boolean }) {
   )
 }
 
-/** One upgrade that needs the user or runs now, with its one action. */
-function UpgradeEntry(props: { view: UpgradeView; model: SettingsModel }) {
+/** One upgrade that needs the user or runs now: a row, with its action on the right. */
+function UpgradeEntry(props: {
+  view: UpgradeView
+  model: SettingsModel
+  lastCost: string | null | undefined
+}) {
   const { view, model } = props
   const stepsWithReport = view.steps.filter((step) => step.report.length > 0)
   const failure = view.failure
+  const dot = upgradeDot(view)
+  const waitsToStart =
+    view.item.kind === "reingest" && view.item.status === "awaiting_operator"
+  // One muted line of facts. "Ready to start" is the Start button itself.
+  const meta = [
+    waitsToStart ? null : view.tag.label,
+    waitsToStart && props.lastCost
+      ? `The last run cost ${props.lastCost}`
+      : null,
+    waitsToStart && view.item.checkedAt
+      ? `Checked at ${clock(view.item.checkedAt)}`
+      : view.checkResult,
+    view.blocked ? null : view.note,
+    view.waiting,
+    view.spend,
+  ].filter((line): line is string => Boolean(line))
   return (
-    <li className="py-4 first:pt-0 last:pb-1" aria-label={view.title}>
-      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
-        <h3 className="min-w-0 text-sm text-foreground">{view.title}</h3>
-        <StatusTag {...view.tag} />
-      </div>
-      <p className="mt-1 max-w-prose text-xs text-muted-foreground">
-        {view.description}
-      </p>
-
-      {view.steps.length ? (
-        <ol
-          className="mt-3 flex flex-col gap-1.5"
-          aria-label={`Steps of ${view.title}`}
-        >
-          {view.steps.map((step, index) => (
-            <li key={step.format} className="flex items-baseline gap-2 text-xs">
-              <span className="w-4 shrink-0 text-muted-foreground tabular-nums">
-                {index + 1}
-              </span>
-              <span className="text-foreground">{step.title}</span>
-              {step.commitSha ? (
-                <code className="font-mono text-muted-foreground">
-                  {step.commitSha.slice(0, 7)}
-                </code>
-              ) : null}
-            </li>
-          ))}
-        </ol>
-      ) : null}
-
-      {view.progress ? (
-        <UpgradeRunProgress title={view.title} progress={view.progress} />
-      ) : null}
-
-      {view.notices.length ? (
-        <ul
-          className="mt-3 flex flex-col gap-1.5 text-xs"
-          aria-label={`Notes of ${view.title}`}
-        >
-          {view.notices.map((notice) => (
-            <li
-              key={`${notice.kind}-${notice.text}`}
-              className="flex items-start gap-2"
-            >
-              {notice.kind === "action" ? (
-                <IconArrowRight
-                  className="mt-px size-3.5 shrink-0 text-foreground"
-                  aria-hidden
-                />
-              ) : (
-                <IconAlertTriangle
-                  className="mt-px size-3.5 shrink-0 text-amber-300"
-                  aria-hidden
-                />
-              )}
-              <span
-                className={
-                  notice.kind === "action"
-                    ? "text-foreground"
-                    : "text-muted-foreground"
-                }
-              >
-                <span className="sr-only">
-                  {notice.kind === "action" ? "Action: " : "Risk: "}
-                </span>
-                {notice.text}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {stepsWithReport.length ? (
-        <Disclosure className="-mx-2 mt-2">
-          <DisclosureHeader>
-            <span className="text-xs font-normal text-muted-foreground">
-              Details
-            </span>
-          </DisclosureHeader>
-          <DisclosurePanel className="px-2">
-            <div className="flex flex-col gap-2 pb-1">
-              {stepsWithReport.map((step) => (
-                <div key={step.format}>
-                  <p className="text-xs text-foreground">
-                    Format {step.format}: {step.title}
-                  </p>
-                  <ul className="mt-1 flex flex-col gap-1 text-xs break-words text-muted-foreground">
-                    {step.report.map((line, index) => (
-                      <li key={`${step.format}-${index}`}>{line}</li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </DisclosurePanel>
-        </Disclosure>
-      ) : null}
-
-      {view.blocked ? (
-        <div className="mt-3">
-          <InlineAlert variant="warning" title={view.blocked.title}>
-            <p>{view.blocked.body}</p>
-          </InlineAlert>
-        </div>
-      ) : null}
-
-      {[
-        view.blocked ? null : view.note,
-        view.waiting,
-        view.checkResult,
-        view.spend ? `${view.spend}.` : null,
-      ]
-        .filter((line): line is string => Boolean(line))
-        .map((line) => (
-          <p key={line} className="mt-2 text-xs text-muted-foreground">
-            {line}
+    <li className="px-5 py-4" aria-label={view.title}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h3 className="flex items-center gap-2 text-sm text-foreground">
+            <span
+              aria-hidden
+              className={cn("size-1.5 shrink-0 rounded-full", dot.className)}
+            />
+            <span className="sr-only">{dot.label}: </span>
+            {plainTitle(view.title)}
+          </h3>
+          <p className="mt-1 max-w-prose pl-3.5 text-xs text-muted-foreground">
+            {view.description}
           </p>
-        ))}
+          {meta.length ? (
+            <p className="mt-1.5 pl-3.5 text-xs text-muted-foreground">
+              {meta.join(" · ")}
+            </p>
+          ) : null}
+          {view.pullRequest ? (
+            <p className="mt-1.5 pl-3.5">
+              <TextLink
+                href={view.pullRequest.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs"
+              >
+                <IconGitPullRequest className="size-3.5" aria-hidden />
+                {view.pullRequest.number
+                  ? `Open pull request #${view.pullRequest.number}`
+                  : "Open pull request"}
+              </TextLink>
+            </p>
+          ) : null}
+        </div>
+        <div className="shrink-0">
+          <UpgradeAction view={view} />
+        </div>
+      </div>
 
-      {failure ? (
-        <div className="mt-3">
-          <InlineAlert
-            variant="error"
-            title="The upgrade failed"
-            actions={
-              failure.connectorsHref || failure.fixPrompt ? (
-                <>
-                  {failure.connectorsHref ? (
-                    <TextLink
-                      href={failure.connectorsHref}
-                      className="self-center text-xs"
-                    >
-                      {failure.connectorsLabel}
-                    </TextLink>
-                  ) : null}
-                  {failure.fixPrompt && model.graph.fixWithAgent ? (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onPress={() =>
-                        failure.fixPrompt &&
-                        model.graph.fixWithAgent?.(failure.fixPrompt)
-                      }
-                    >
-                      Fix using agent
-                    </Button>
-                  ) : null}
-                </>
-              ) : undefined
-            }
+      <div className="pl-3.5">
+        {view.steps.length ? (
+          <ol
+            className="mt-3 flex flex-col gap-1"
+            aria-label={`Steps of ${view.title}`}
           >
-            {failure.step ? <p>Failed step: {failure.step}.</p> : null}
-            <p className={failure.step ? "mt-1" : undefined}>
-              {failure.reason}
-            </p>
-            <p className="mt-1 text-xs break-words opacity-80">
-              Details: {failure.summary}
-            </p>
-            <p className="mt-1">{failure.action}</p>
-            {failure.autoRetried ? (
-              <p className="mt-1">
-                ctxpipe already started this upgrade again once by itself.
-              </p>
-            ) : null}
-          </InlineAlert>
-        </div>
-      ) : view.failureReason ? (
-        <div className="mt-3">
-          <InlineAlert variant="error" title="The upgrade failed">
-            <p>{view.failureReason}</p>
-          </InlineAlert>
-        </div>
-      ) : null}
+            {view.steps.map((step, index) => (
+              <li
+                key={step.format}
+                className="flex items-baseline gap-2 text-xs text-muted-foreground"
+              >
+                <span className="w-3 shrink-0 tabular-nums">{index + 1}</span>
+                <span>{step.title}</span>
+                {step.commitSha ? (
+                  <code className="font-mono">
+                    {step.commitSha.slice(0, 7)}
+                  </code>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        ) : null}
 
-      <UpgradeActions view={view} />
+        {view.progress ? (
+          <UpgradeRunProgress title={view.title} progress={view.progress} />
+        ) : null}
+
+        {view.notices.length ? (
+          <ul
+            className="mt-3 flex flex-col gap-1.5 text-xs"
+            aria-label={`Notes of ${view.title}`}
+          >
+            {view.notices.map((notice) => (
+              <li
+                key={`${notice.kind}-${notice.text}`}
+                className="flex items-start gap-2"
+              >
+                {notice.kind === "action" ? (
+                  <IconArrowRight
+                    className="mt-px size-3.5 shrink-0 text-foreground"
+                    aria-hidden
+                  />
+                ) : (
+                  <IconAlertTriangle
+                    className="mt-px size-3.5 shrink-0 text-amber-300"
+                    aria-hidden
+                  />
+                )}
+                <span
+                  className={
+                    notice.kind === "action"
+                      ? "text-foreground"
+                      : "text-muted-foreground"
+                  }
+                >
+                  <span className="sr-only">
+                    {notice.kind === "action" ? "Action: " : "Risk: "}
+                  </span>
+                  {notice.text}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        {stepsWithReport.length ? (
+          <Disclosure className="-mx-2 mt-2">
+            <DisclosureHeader>
+              <span className="text-xs font-normal text-muted-foreground">
+                Details
+              </span>
+            </DisclosureHeader>
+            <DisclosurePanel className="px-2">
+              <div className="flex flex-col gap-2 pb-1">
+                {stepsWithReport.map((step) => (
+                  <div key={step.format}>
+                    <p className="text-xs text-foreground">
+                      Format {step.format}: {step.title}
+                    </p>
+                    <ul className="mt-1 flex flex-col gap-1 text-xs break-words text-muted-foreground">
+                      {step.report.map((line) => (
+                        <li key={`${step.format}-${line}`}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </DisclosurePanel>
+          </Disclosure>
+        ) : null}
+
+        {view.blocked ? (
+          <div className="mt-3">
+            <InlineAlert variant="warning" title={view.blocked.title}>
+              <p>{view.blocked.body}</p>
+            </InlineAlert>
+          </div>
+        ) : null}
+
+        {failure ? (
+          <div className="mt-3">
+            <InlineAlert
+              variant="error"
+              title="The upgrade failed"
+              actions={
+                failure.connectorsHref || failure.fixPrompt ? (
+                  <>
+                    {failure.connectorsHref ? (
+                      <TextLink
+                        href={failure.connectorsHref}
+                        className="self-center text-xs"
+                      >
+                        {failure.connectorsLabel}
+                      </TextLink>
+                    ) : null}
+                    {failure.fixPrompt && model.graph.fixWithAgent ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onPress={() =>
+                          failure.fixPrompt &&
+                          model.graph.fixWithAgent?.(failure.fixPrompt)
+                        }
+                      >
+                        Fix using agent
+                      </Button>
+                    ) : null}
+                  </>
+                ) : undefined
+              }
+            >
+              {failure.step ? <p>Failed step: {failure.step}.</p> : null}
+              <p className={failure.step ? "mt-1" : undefined}>
+                {failure.reason}
+              </p>
+              <p className="mt-1 text-xs break-words opacity-80">
+                Details: {failure.summary}
+              </p>
+              <p className="mt-1">{failure.action}</p>
+              {failure.autoRetried ? (
+                <p className="mt-1">
+                  ctxpipe already started this upgrade again once by itself.
+                </p>
+              ) : null}
+            </InlineAlert>
+          </div>
+        ) : view.failureReason ? (
+          <div className="mt-3">
+            <InlineAlert variant="error" title="The upgrade failed">
+              <p>{view.failureReason}</p>
+            </InlineAlert>
+          </div>
+        ) : null}
+      </div>
     </li>
   )
 }
 
-function UpgradeActions(props: { view: UpgradeView }) {
+/** The one action of an upgrade row, small and on the right of its title. */
+function UpgradeAction(props: { view: UpgradeView }) {
   const { view } = props
-  const action = view.canCheck ? (
-    <Button
-      variant="secondary"
-      isPending={view.checking}
-      onPress={view.check}
-      aria-label={`Check again: ${view.title}`}
-    >
-      Check again
-    </Button>
-  ) : view.canStart ? (
-    <Button
-      variant="primary"
-      isPending={view.starting}
-      onPress={view.start}
-      aria-label={`${view.startLabel}: ${view.title}`}
-    >
-      {view.startLabel}
-    </Button>
-  ) : view.memberAsk ? (
-    <p className="text-xs text-muted-foreground">{view.memberAsk}</p>
-  ) : null
-  if (!view.pullRequest && !action) return null
+  if (view.canCheck)
+    return (
+      <Button
+        variant="secondary"
+        size="sm"
+        isPending={view.checking}
+        onPress={view.check}
+        aria-label={`Check again: ${view.title}`}
+      >
+        Check again
+      </Button>
+    )
+  if (view.canStart)
+    return (
+      <Button
+        variant="primary"
+        size="sm"
+        isPending={view.starting}
+        onPress={view.start}
+        aria-label={`${view.startLabel}: ${view.title}`}
+      >
+        {view.startLabel}
+      </Button>
+    )
+  if (view.memberAsk)
+    return (
+      <p className="pt-1 text-xs text-muted-foreground">{view.memberAsk}</p>
+    )
+  return null
+}
+
+/**
+ * The automatic-upgrades setting as a switch. The same save as
+ * AutomaticUpgradesToggle: a commit to the format file, then the new setting.
+ * The switch shows the new position while the commit runs.
+ */
+function AutomaticUpgradesSwitch(props: {
+  orgSlug: string
+  workspaceSlug: string
+  isAdmin: boolean | null
+}) {
+  const { orgSlug, workspaceSlug } = props
+  const queryClient = useQueryClient()
+  const modeOptions = workspaceUpgradeModeOptions(orgSlug, workspaceSlug)
+  const setting = useQuery(modeOptions).data
+  const save = useMutation({
+    mutationFn: (next: "manual" | "automatic") =>
+      saveWorkspaceUpgradeModeAndWait(
+        queryClient,
+        orgSlug,
+        workspaceSlug,
+        next,
+      ),
+    onSuccess: (result, next) => {
+      if (result === "pending") {
+        toast.message(
+          "ctxpipe has not finished the save yet. Refresh the page later to see the setting.",
+        )
+        return
+      }
+      queryClient.setQueryData(modeOptions.queryKey, {
+        mode: next,
+        reason: null,
+      })
+    },
+    onError: (error: Error) => {
+      toast.error(`${error.message.replace(/\.$/, "")}. Try again.`)
+    },
+    onSettled: (_result, _error, next) => {
+      if (next === "automatic")
+        void queryClient.invalidateQueries({
+          queryKey: workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
+        })
+    },
+  })
+  if (!setting) return null
+  if (setting.mode === null)
+    return (
+      <p className="max-w-prose text-xs text-muted-foreground">
+        Automatic upgrades: ctxpipe could not read the setting. Check the GitHub
+        connection on the Connectors page, then reload this page.
+      </p>
+    )
+  const on = save.isPending
+    ? save.variables === "automatic"
+    : setting.mode === "automatic"
+  const canChange = props.isAdmin === true
+  const helpId = `automatic-upgrades-help-${workspaceSlug}`
   return (
-    <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-      {view.pullRequest ? (
-        <Button
-          variant="secondary"
-          href={view.pullRequest.url}
-          target="_blank"
-          rel="noreferrer"
-        >
-          <IconGitPullRequest className="size-4" aria-hidden />
-          {view.pullRequest.number
-            ? `Open pull request #${view.pullRequest.number}`
-            : "Open pull request"}
-        </Button>
-      ) : null}
-      {action}
+    <div className="flex min-w-0 basis-[30rem] flex-col gap-1">
+      <AriaSwitch
+        isSelected={on}
+        isDisabled={!canChange || save.isPending}
+        onChange={(next) => save.mutate(next ? "automatic" : "manual")}
+        aria-describedby={helpId}
+        className="group flex w-fit items-center gap-2.5 text-sm text-foreground disabled:cursor-default"
+      >
+        {({ isSelected, isFocusVisible }) => (
+          <>
+            <span
+              aria-hidden
+              className={cn(
+                "flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 transition-colors",
+                isSelected ? "bg-teal-500" : "bg-white/15",
+                isFocusVisible &&
+                  "ring-2 ring-ring ring-offset-2 ring-offset-background",
+                !canChange && "opacity-50",
+              )}
+            >
+              <span
+                className={cn(
+                  "size-3 rounded-full bg-white shadow transition-transform",
+                  isSelected && "translate-x-3",
+                )}
+              />
+            </span>
+            Automatic upgrades
+            {save.isPending ? (
+              <span className="text-xs text-muted-foreground">Saving…</span>
+            ) : null}
+          </>
+        )}
+      </AriaSwitch>
+      <p id={helpId} className="pl-9.5 text-xs text-muted-foreground">
+        {on
+          ? "ctxpipe starts each upgrade by itself, paid re-ingestions too. A failed upgrade waits for you."
+          : canChange
+            ? "You start each upgrade. Turn this on to let ctxpipe start them."
+            : "An owner or admin starts each upgrade, and can turn this on."}
+      </p>
     </div>
   )
 }
 
+/**
+ * The Workspace format in plain words, with a tooltip that says what it is.
+ * A format problem (not readable, newer than ctxpipe) shows as its sentence.
+ */
+function FormatNote(props: { line: string | null }) {
+  const latest = props.line?.match(/^Format (\d+)$/)
+  const behind = props.line?.match(
+    /^The repository uses format (\d+)\. ctxpipe reads format (\d+)\.$/,
+  )
+  const version = latest?.[1] ?? behind?.[1]
+  if (!version)
+    return props.line ? (
+      <p className="max-w-prose text-xs text-muted-foreground">{props.line}</p>
+    ) : null
+  return (
+    <p className="flex items-center gap-1 text-xs text-muted-foreground">
+      {behind
+        ? `File layout: version ${version}. The latest is ${behind[2]}.`
+        : `File layout: version ${version}, the latest`}
+      <TooltipTrigger delay={200}>
+        <AriaButton
+          aria-label="About the file layout version"
+          className={cn(
+            "rounded-full p-0.5 text-muted-foreground hover:text-foreground",
+            focusVisibleClassName,
+          )}
+        >
+          <IconInfoCircle className="size-3.5" aria-hidden />
+        </AriaButton>
+        <Tooltip
+          placement="top end"
+          offset={6}
+          className="max-w-64 rounded-md bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-100 shadow-md"
+        >
+          How ctxpipe arranges the files in this Workspace's repository. When a
+          new layout ships, an upgrade moves the files in a pull request.
+        </Tooltip>
+      </TooltipTrigger>
+    </p>
+  )
+}
+
+const HISTORY_SHOWN = 5
+
+/**
+ * The applied upgrades, newest first: a date, what it was, and its pull
+ * request or spend. Five show; the rest open in a scroll area.
+ */
+function HistorySection(props: { views: UpgradeView[] }) {
+  const [all, setAll] = useState(false)
+  const sorted = [...props.views].sort((a, b) =>
+    b.item.updatedAt.localeCompare(a.item.updatedAt),
+  )
+  const shown = all ? sorted : sorted.slice(0, HISTORY_SHOWN)
+  const last = sorted[0]
+  return (
+    <Disclosure className="px-3 py-1">
+      <DisclosureHeader>
+        <span className="flex w-full items-baseline gap-2 text-xs font-normal">
+          <span className="text-foreground">History</span>
+          <span className="text-muted-foreground">
+            {sorted.length} applied
+            {last ? ` · last on ${historyDate(last.item.updatedAt)}` : ""}
+          </span>
+        </span>
+      </DisclosureHeader>
+      <DisclosurePanel className="px-2 pb-2">
+        <ul
+          className={cn(
+            "divide-y divide-white/[0.04]",
+            all &&
+              sorted.length > HISTORY_SHOWN &&
+              "max-h-72 overflow-y-auto pr-1",
+          )}
+          aria-label="Applied upgrades"
+        >
+          {shown.map((view) => (
+            <HistoryRow key={view.key} view={view} />
+          ))}
+        </ul>
+        {sorted.length > HISTORY_SHOWN ? (
+          <Button
+            variant="quiet"
+            size="sm"
+            className="mt-1 -ml-2.5"
+            onPress={() => setAll((value) => !value)}
+          >
+            {all ? "Show fewer" : `Show all ${sorted.length}`}
+          </Button>
+        ) : null}
+      </DisclosurePanel>
+    </Disclosure>
+  )
+}
+
+/** "Oct 21", in one zone, as the history line of the current page. */
+const historyDate = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  })
+
 function HistoryRow(props: { view: UpgradeView }) {
   const { view } = props
   return (
-    <li className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2.5">
-      <div className="min-w-0">
-        <p className="text-xs text-foreground">{view.title}</p>
-        {view.spend ? (
-          <p className="text-xs text-muted-foreground">{view.spend}.</p>
-        ) : null}
-      </div>
-      <div className="flex items-center gap-3">
+    <li className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto] items-baseline gap-x-3 py-2 text-xs">
+      <span className="text-muted-foreground tabular-nums">
+        {historyDate(view.item.updatedAt)}
+      </span>
+      <span className="truncate text-foreground">{plainTitle(view.title)}</span>
+      <span className="text-muted-foreground">
         {view.pullRequest ? (
           <TextLink
             href={view.pullRequest.url}
@@ -597,9 +840,10 @@ function HistoryRow(props: { view: UpgradeView }) {
               ? `#${view.pullRequest.number}`
               : "Pull request"}
           </TextLink>
+        ) : view.spend ? (
+          view.spend.replace(/^Spend: /, "")
         ) : null}
-        <StatusTag {...view.tag} />
-      </div>
+      </span>
     </li>
   )
 }
@@ -674,15 +918,7 @@ function SourcesCard(props: {
       ),
   }
   return (
-    <PartCard
-      id="sources"
-      title="Sources"
-      status={
-        running.length ? (
-          <StatusTag label="Working" className={TONE.good} pulse />
-        ) : null
-      }
-    >
+    <PartCard id="sources" title="Sources">
       {activity.status === "error" ? (
         <div className="mb-4">
           <InlineAlert
@@ -721,22 +957,6 @@ function GraphCard(props: { model: SettingsModel }) {
   const failed = graph.status === "failed"
   const indexing = graph.indexingRun
   const now = useNow(indexing !== null)
-  const status = failed ? (
-    <StatusTag label="Did not load" className={TONE.error} />
-  ) : skipped.length ? (
-    <StatusTag
-      label={`${skipped.length} ${skipped.length === 1 ? "file" : "files"} skipped`}
-      className={TONE.attention}
-    />
-  ) : graph.status === "running" ? (
-    <StatusTag label="Loading" className={TONE.neutral} pulse />
-  ) : indexing ? (
-    <StatusTag label="Indexing" className={TONE.neutral} pulse />
-  ) : graph.status === "ready" ? (
-    <QuietStatus>Loaded</QuietStatus>
-  ) : (
-    <StatusTag label="Waiting to load" className={TONE.neutral} pulse />
-  )
   const legacy = new Set(
     (workspace.skippedFiles ?? [])
       .filter((file) => file.source === "legacy-overlay")
@@ -746,7 +966,6 @@ function GraphCard(props: { model: SettingsModel }) {
     <PartCard
       id="graph"
       title="Knowledge graph"
-      status={status}
       needsYou={failed || skipped.length > 0}
     >
       <div className="flex flex-col gap-3">
@@ -855,16 +1074,6 @@ function GraphCard(props: { model: SettingsModel }) {
 
 function RepositoryCard(props: { model: SettingsModel }) {
   const { repository, access } = props.model
-  const status =
-    access.tone === "read_only" ? (
-      <StatusTag label="Read-only" className={TONE.attention} />
-    ) : access.tone === "check_failed" ? (
-      <StatusTag label="Could not check access" className={TONE.attention} />
-    ) : access.stalled ? (
-      <StatusTag label="Still checking access" className={TONE.attention} />
-    ) : access.tone === "pending" ? (
-      <StatusTag label="Checking access" className={TONE.neutral} pulse />
-    ) : null
   const canSave =
     repository.rootFolderChanged && repository.rootFolderError === null
   return (
@@ -872,7 +1081,6 @@ function RepositoryCard(props: { model: SettingsModel }) {
       id="repository"
       title="Repository"
       description="The GitHub repository where this Workspace keeps its files."
-      status={status}
       needsYou={
         access.tone === "read_only" ||
         access.tone === "check_failed" ||
@@ -1043,11 +1251,7 @@ function GeneralCard(props: { model: SettingsModel }) {
     <PartCard
       id="general"
       title="Workspace"
-      status={
-        general.dirty ? (
-          <StatusTag label="Not saved" className={TONE.neutral} />
-        ) : null
-      }
+      status={general.dirty ? <QuietStatus>Not saved</QuietStatus> : null}
       footer={
         <>
           {general.dirty ? (

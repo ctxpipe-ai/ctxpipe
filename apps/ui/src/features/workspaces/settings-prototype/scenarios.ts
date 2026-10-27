@@ -116,6 +116,31 @@ const firstReingestDone = upgradeItemFixture({
     },
   ] as never,
 })
+/** 22 older re-ingestions, one each 3 days back from Oct 18: a long history. */
+const olderReingests = Array.from({ length: 22 }, (_, index) => {
+  const day = new Date(Date.UTC(2026, 9, 18, 6, 10) - index * 3 * 86_400_000)
+  return upgradeItemFixture({
+    key: `reingest-old-${index}`,
+    kind: "reingest",
+    title: "Re-ingestion of the source repositories",
+    status: "completed",
+    fromFormat: 3,
+    targetFormat: 3,
+    steps: [],
+    updatedAt: day.toISOString(),
+    repositories: [
+      {
+        repository: BUSY_REPO,
+        sha: "1c965f6c",
+        runId: `run_old_${index}`,
+        status: "done",
+        report: [],
+        spendUsd: 2.4 + (index % 5) * 0.37,
+        spendUnknown: false,
+      },
+    ] as never,
+  })
+})
 const reingestBase = {
   key: "reingest-skills-1027",
   kind: "reingest" as const,
@@ -488,6 +513,14 @@ export const scenarios = {
         minutesAgo: 2,
       }),
     ],
+  },
+  longHistory: {
+    name: "Long history",
+    about:
+      "A Workspace with 24 applied upgrades: the history shows the 5 newest, and the rest open in a scroll area.",
+    detail: prototypeWorkspace,
+    upgrades: [reingestReady, formatDone, firstReingestDone, ...olderReingests],
+    runs: busyRuns,
   },
   memberView: {
     name: "Member view",
