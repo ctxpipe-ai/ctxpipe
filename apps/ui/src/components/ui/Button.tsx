@@ -98,6 +98,7 @@ export function Button(props: ButtonProps) {
     ...rest
   } = props
 
+  // Probe: harmless comment for the merge gate shadow run.
   if (href) {
     const linkClassName: ComponentProps<typeof RACLink>["className"] =
       typeof className === "function"
