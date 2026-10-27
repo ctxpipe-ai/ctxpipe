@@ -16,6 +16,7 @@ const SYNCED_PROVIDERS: ReadonlySet<SourceProvider> = new Set([
   "linear",
   "notion",
   "pagerduty",
+  "buildkite",
 ])
 
 /**

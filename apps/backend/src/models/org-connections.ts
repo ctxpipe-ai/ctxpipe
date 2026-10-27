@@ -27,6 +27,7 @@ const DISPLAY_NAME_KEYS: Record<ConnectionType, readonly string[]> = {
   linear: ["workspaceName"],
   notion: ["workspaceName"],
   pagerduty: ["accountName", "accountSubdomain"],
+  buildkite: ["organizationSlug"],
 }
 
 /** Read only the non-secret name keys of a connection config. */
