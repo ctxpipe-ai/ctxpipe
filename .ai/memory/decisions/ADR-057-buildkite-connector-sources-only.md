@@ -1,6 +1,6 @@
 # ADR-057: Buildkite connector, Workspace sources only
 
-**Status:** Proposed (the connectors area owner accepts or changes it in the pull request review) | **Date:** 2026-10-13 | **Tags:** connectors, buildkite, webhooks, git, workspace-sources
+**Status:** Accepted (the connectors area owner, 2026-10-27) | **Date:** 2026-10-13 | **Tags:** connectors, buildkite, webhooks, git, workspace-sources
 
 ## Context
 
