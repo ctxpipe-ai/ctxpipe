@@ -108,15 +108,19 @@ jobs:
       # The build info of the last typecheck (scripts/ci/typecheck.mjs). The
       # newest one with the same lockfile and tsconfig files comes first. A
       # pull request without its own entry gets the entry of main. A build
-      # info from a different TypeScript version is not used.
+      # info from a different TypeScript version is not used. A push to main
+      # does not restore it: that run is cold, so a bad merge fails on main.
+      - name: Compute the typecheck cache key
+        id: typecheck-cache
+        run: echo "prefix=${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json', 'apps/*/tsconfig.json', 'packages/*/tsconfig.json', 'examples/*/tsconfig.json') }}-" >> "$GITHUB_OUTPUT"
       - name: Restore the typecheck build info
+        if: github.event_name != 'push'
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: node_modules/.cache/typecheck
-          key: typecheck-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json', 'apps/*/tsconfig.json', 'packages/*/tsconfig.json', 'examples/*/tsconfig.json') }}-${{ github.sha }}
+          key: typecheck-${{ steps.typecheck-cache.outputs.prefix }}${{ github.sha }}
           restore-keys: |
-            typecheck-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json', 'apps/*/tsconfig.json', 'packages/*/tsconfig.json', 'examples/*/tsconfig.json') }}-
-            typecheck-${{ runner.os }}-
+            typecheck-${{ steps.typecheck-cache.outputs.prefix }}
       # The check runner runs each project with its diagnostic allowance and
       # writes one result record for each, for the merge gate. The output of
       # each project is in .ci-results/checks (the next step prints it).
@@ -135,7 +139,7 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: node_modules/.cache/typecheck
-          key: typecheck-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json', 'apps/*/tsconfig.json', 'packages/*/tsconfig.json', 'examples/*/tsconfig.json') }}-${{ github.sha }}
+          key: typecheck-${{ steps.typecheck-cache.outputs.prefix }}${{ github.sha }}
       - name: Typecheck output
         if: always()
         run: cat .ci-results/checks/*.log || true

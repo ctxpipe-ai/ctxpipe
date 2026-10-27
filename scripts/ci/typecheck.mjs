@@ -65,14 +65,14 @@ try {
     "",
   )
   // An incremental program checks again only the files that a change can
-  // affect, and reads the diagnostics of the other files from the build info
+  // affect. It reads the diagnostics of the other files from the build info
   // of the last run. CI keeps the build info in its cache (the Typecheck
   // job). TypeScript can write a union or a property list in a different
-  // order when it checks only some files, and the allowance compares the
-  // message text. Thus, when the result does not match the allowance, the
-  // check starts again without the build info. A run without the build info
-  // checks all files in the order of a full program, so a failure always
-  // comes from a full check.
+  // order when it checks only some files. The allowance compares the message
+  // text. Thus, when the result does not match the allowance, the check
+  // starts again without the build info. A run without the build info checks
+  // all files in the order of a full program. Thus, a failure always comes
+  // from a full check.
   const buildInfo = join(
     repository,
     "node_modules/.cache/typecheck",
