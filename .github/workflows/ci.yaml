@@ -1369,8 +1369,10 @@ jobs:
           REPO: ${{ github.repository }}
           RUN: ${{ github.run_id }}
           ATTEMPT: ${{ github.run_attempt }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         # The jobs of the earlier attempts show the flakes: a job that failed
-        # in an earlier attempt and passed in this one.
+        # in an earlier attempt and passed in this one. The jobs of the newest
+        # PR Deploy run of the PR head give the deploy checks their results.
         run: |
           gh api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" --paginate \
             --jq '.jobs[]' | jq -s '{jobs: .}' > "$RUNNER_TEMP/jobs.json"
@@ -1378,6 +1380,11 @@ jobs:
             gh api "repos/$REPO/actions/runs/$RUN/attempts/$attempt/jobs?per_page=100" --paginate \
               --jq '.jobs[]'
           done | jq -s '{jobs: .}' > "$RUNNER_TEMP/earlier.json"
+          deploy="$(gh api "repos/$REPO/actions/workflows/pr-deploy.yaml/runs?head_sha=$HEAD_SHA&per_page=1" \
+            --jq '.workflow_runs[0].id // empty')"
+          if [[ -n "$deploy" ]]; then
+            gh api "repos/$REPO/actions/runs/$deploy/jobs?per_page=100" --paginate --jq '.jobs[]'
+          fi | jq -s '{jobs: .}' > "$RUNNER_TEMP/deploy.json"
       - name: Decision
         env:
           NEEDS: ${{ toJSON(needs) }}
@@ -1386,7 +1393,8 @@ jobs:
           node scripts/checks/gate.mjs shadow --config .github/merge-gate.json \
             --inputs "$RUNNER_TEMP/inputs" --results "$RUNNER_TEMP/results" \
             --needs "$RUNNER_TEMP/needs.json" --jobs "$RUNNER_TEMP/jobs.json" \
-            --earlier "$RUNNER_TEMP/earlier.json" --out "$RUNNER_TEMP/decision"
+            --earlier "$RUNNER_TEMP/earlier.json" --deploy "$RUNNER_TEMP/deploy.json" \
+            --out "$RUNNER_TEMP/decision"
           cat "$RUNNER_TEMP/decision/summary.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve the decision
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -14,6 +14,7 @@ export const runners = {
   lint: runProjects,
   policy: runProjects,
   build: runProjects,
+  deploy: runProjects,
 }
 
 export async function listChecks() {

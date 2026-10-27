@@ -6,8 +6,9 @@ import { logFile, logged } from "./log.mjs"
 
 // The project-level checks: typecheck (one for each project of
 // scripts/ci/projects.json), lint (oxlint, oxfmt, knip), the policy
-// scripts (of the CI lint job, and the Terraform plan) and the builds (each
-// production image and each package of the CI build jobs). Each one runs a
+// scripts (of the CI lint job, and the Terraform plan), the builds (each
+// production image and each package of the CI build jobs) and the preview
+// deployment with its UI smoke test. Each one runs a
 // fixed command over a whole project, so it has no trace. Its inputs are the
 // files that it reads, approximated with whole directories: a change anywhere
 // in them selects it.
@@ -274,6 +275,87 @@ const definitions = () => [
         : pnpm("--filter", pkg, "build"),
     ],
   })),
+  // The preview deployment of pr-deploy.yaml, and the check that runs against
+  // the deployed preview. Each result comes from Railway and Neon, so a result
+  // cache never reuses it. The secrets are in the GitHub environment Preview,
+  // so the check runs the workflow on the PR branch (PR_NUMBER) and waits.
+  {
+    family: "deploy",
+    lane: "preview",
+    file: ".github/workflows/pr-deploy.yaml",
+    root: "",
+    inputs: [
+      ...shared,
+      ".github/workflows/pr-deploy.yaml",
+      // The scripts that the workflow sources: Railway, Neon, the service
+      // variables and the secret names that the deploy sets.
+      "scripts/railway-graphql.sh",
+      "scripts/preview-app-db-password.sh",
+      "scripts/preview-github-app-vars.sh",
+      "scripts/preview-neon-branch.sh",
+      "scripts/preview-otel-vars.sh",
+      "scripts/preview-own-secrets.sh",
+      "scripts/preview-sandbox-vars.sh",
+      "scripts/preview-secrets.sh",
+      "scripts/preview-service-vars.sh",
+      "scripts/preview-ui-private.sh",
+      // The images, their start commands and the variables that they read.
+      "apps/backend/Dockerfile",
+      "apps/backend/Dockerfile.worker",
+      "apps/ui/Dockerfile",
+      "apps/codesearch/Dockerfile",
+      "apps/codesearch/start.sh",
+      "apps/backend/package.json",
+      "apps/backend/src/server.ts",
+      "apps/backend/src/openworkflow/worker-supervisor.ts",
+      "apps/backend/src/config/env.ts",
+      // The migrate job.
+      "apps/backend/migrations/**",
+      "apps/backend/src/db/migrate.ts",
+      // The connector asset job, which the deploy needs.
+      "apps/backend/vitest.connector-assets.config.ts",
+      "apps/backend/src/scripts/verifyConnectorAssetRuntime.ts",
+      "apps/backend/src/services/connectors/assets.ts",
+      // The production environment that each preview copies.
+      "infra/module/ctxpipe/railway.tf",
+      "infra/module/ctxpipe/neon.tf",
+    ],
+    cacheable: false,
+    prerequisites: ["preview-pr"],
+    intent:
+      "Catches a preview deployment that does not start or wire up: images, start commands, variables, migrations, Railway or Neon setup. Run it when that config changes; never for a change that unit and contract checks already cover.",
+    commands: [
+      [
+        "sh",
+        "-c",
+        'set -e; branch="$(git branch --show-current)"; gh workflow run pr-deploy.yaml --ref "$branch" -f pr_number="$PR_NUMBER"; sleep 10; gh run watch --exit-status "$(gh run list --workflow pr-deploy.yaml --branch "$branch" --event workflow_dispatch --limit 1 --json databaseId --jq ".[0].databaseId")"',
+      ],
+    ],
+  },
+  {
+    family: "deploy",
+    lane: "preview-ui-smoke",
+    file: "scripts/ci/smoke-preview-ui.sh",
+    root: "",
+    inputs: [
+      ...shared,
+      "scripts/ci/smoke-preview-ui.sh",
+      "scripts/preview-ui-private.sh",
+      "apps/ui/Dockerfile",
+      "apps/backend/src/routes/ui.ts",
+    ],
+    cacheable: false,
+    prerequisites: ["preview-deployment"],
+    intent:
+      "Catches a preview whose backend does not serve the UI of its own build (the private UI proxy). Run it when the UI proxy or the UI image changes; never for a change inside UI pages.",
+    commands: [
+      [
+        "sh",
+        "-c",
+        'bash scripts/ci/smoke-preview-ui.sh "https://backend-pr-$PR_NUMBER.up.railway.app"',
+      ],
+    ],
+  },
 ]
 
 export function listProjects() {

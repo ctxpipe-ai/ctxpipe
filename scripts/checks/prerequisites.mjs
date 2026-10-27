@@ -229,6 +229,37 @@ export const prerequisites = {
         )
     },
   },
+  // The open pull request of this checkout (PR_NUMBER), at the pushed head.
+  // The preview deploy runs pr-deploy.yaml on GitHub, which deploys the PR
+  // head, not the local tree.
+  "preview-pr": {
+    prepare: () => {
+      const pr = required(
+        "PR_NUMBER",
+        "Push the branch, open its pull request and set PR_NUMBER to its number.",
+      )
+      const head = quiet(
+        "gh",
+        ["pr", "view", pr, "--json", "headRefOid", "--jq", ".headRefOid"],
+        "Install the GitHub CLI and run gh auth login.",
+      )
+      if (
+        head !== quiet("git", ["rev-parse", "HEAD"], "Run in a git checkout.")
+      )
+        throw new Error(
+          `PR #${pr} head is ${head}, not the local HEAD. Push the branch first.`,
+        )
+    },
+  },
+  // The deployed preview of that pull request answers.
+  "preview-deployment": {
+    needs: ["preview-pr"],
+    prepare: () =>
+      answers(
+        `https://backend-pr-${process.env.PR_NUMBER}.up.railway.app/`,
+        "Deploy the preview first: run the check deploy:preview, or PR Deploy on the PR branch.",
+      ),
+  },
   "codesearch-server": {
     prepare: () =>
       answers(
