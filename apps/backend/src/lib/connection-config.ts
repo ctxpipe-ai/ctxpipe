@@ -849,7 +849,7 @@ export type ZendeskSourceSync = z.infer<typeof zendeskSourceSyncSchema>
 
 /**
  * Stored in `connections.config` for `type === "zendesk"` (ADR-058). A
- * self-host admin saves a local OAuth client on the row; hosted ctx| uses
+ * self-host admin saves a local OAuth client on the row; hosted ctxpipe uses
  * its global OAuth client from env (`ZENDESK_CLIENT_*`). Tokens and the
  * webhook signing secret are encrypted.
  */

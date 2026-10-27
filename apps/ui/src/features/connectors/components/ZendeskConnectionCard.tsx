@@ -75,7 +75,7 @@ export function ZendeskConnectionCard({
       health={health}
       remove={{
         description:
-          "This removes the Zendesk connection, its saved tokens, and the webhook that ctx| added in Zendesk. The Workspace sources that use it stop syncing. Files already in GitHub stay in place.",
+          "This removes the Zendesk connection, its saved tokens, and the webhook that ctxpipe added in Zendesk. The Workspace sources that use it stop syncing. Files already in GitHub stay in place.",
         onConfirm: () => removeMutation.mutate(),
       }}
       workspace={connectorDash(status?.subdomain)}
@@ -93,7 +93,7 @@ export function ZendeskConnectionCard({
     >
       {status?.status === "installed" && !status.webhookConfigured ? (
         <p className="text-sm text-muted-foreground">
-          Help Center articles sync once a day: Zendesk did not let ctx| add its
+          Help Center articles sync once a day: Zendesk did not let ctxpipe add its
           webhook. Select Add the webhook, and connect as a Zendesk admin.
         </p>
       ) : null}

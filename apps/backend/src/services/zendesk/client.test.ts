@@ -376,7 +376,7 @@ describe("createZendeskArticleWebhook", () => {
     expect(bodies).toEqual([
       {
         webhook: {
-          name: "ctx| Help Center sync",
+          name: "ctxpipe Help Center sync",
           endpoint: "https://app.example.com/api/v1/webhook/zendesk/con_1",
           http_method: "POST",
           request_format: "json",

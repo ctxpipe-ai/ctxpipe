@@ -22,7 +22,7 @@ const ARTICLE_EVENTS = new Set([
 const SYNC_WINDOW_MS = 10 * 60 * 1000
 
 /**
- * ctx| creates one webhook for each connection, so the URL names the
+ * ctxpipe creates one webhook for each connection, so the URL names the
  * connection and the route verifies with that connection's secret (ADR-058).
  */
 async function handleZendeskWebhook(c: Context<AppEnv>) {

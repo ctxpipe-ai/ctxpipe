@@ -58,7 +58,7 @@ const label = (item: Item) =>
 function missingDetail(item: Item, reason: "not_found" | "forbidden") {
   return reason === "not_found"
     ? `${label(item)} does not exist. Remove it from the source.`
-    : `ctx| cannot read ${label(item)}. Give the Zendesk user access to it, or remove it from the source.`
+    : `ctxpipe cannot read ${label(item)}. Give the Zendesk user access to it, or remove it from the source.`
 }
 
 function items(scopes: readonly ZendeskSourceScope[]): Item[] {
@@ -271,7 +271,7 @@ export const zendeskSourceAdapter: SourceAdapter<ZendeskSourceScope> = {
         for (const id of scope.categories)
           if (!known.has(id))
             problems.push(
-              `ctx| cannot read Zendesk Help Center category ${id}. Check that it exists, and that the Zendesk user can read it.`,
+              `ctxpipe cannot read Zendesk Help Center category ${id}. Check that it exists, and that the Zendesk user can read it.`,
             )
       }
       if (scope.views?.length) {
@@ -281,7 +281,7 @@ export const zendeskSourceAdapter: SourceAdapter<ZendeskSourceScope> = {
         for (const id of scope.views)
           if (!known.has(id))
             problems.push(
-              `ctx| cannot read Zendesk view ${id}. Check that it exists, is active, and is shared with the Zendesk user.`,
+              `ctxpipe cannot read Zendesk view ${id}. Check that it exists, is active, and is shared with the Zendesk user.`,
             )
       }
       return problems.length ? problems.join("; ") : null

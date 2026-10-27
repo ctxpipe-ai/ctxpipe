@@ -336,7 +336,7 @@ describe("Zendesk source adapter (Postgres + msw)", () => {
         env,
       }),
     ).toBe(
-      "ctx| cannot read Zendesk Help Center category 38. Check that it exists, and that the Zendesk user can read it.; ctx| cannot read Zendesk view 92. Check that it exists, is active, and is shared with the Zendesk user.",
+      "ctxpipe cannot read Zendesk Help Center category 38. Check that it exists, and that the Zendesk user can read it.; ctxpipe cannot read Zendesk view 92. Check that it exists, is active, and is shared with the Zendesk user.",
     )
     expect(zd.reads.sort()).toEqual(["categories", "views"])
   })

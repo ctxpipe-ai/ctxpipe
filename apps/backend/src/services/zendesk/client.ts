@@ -326,7 +326,7 @@ export async function createZendeskArticleWebhook(
     method: "POST",
     json: {
       webhook: {
-        name: "ctx| Help Center sync",
+        name: "ctxpipe Help Center sync",
         endpoint: input.endpoint,
         http_method: "POST",
         request_format: "json",

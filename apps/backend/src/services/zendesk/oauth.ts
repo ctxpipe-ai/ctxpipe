@@ -12,8 +12,8 @@ import { assertNotInOrgDbContext } from "../../db/client.js"
 import { readBoundedJson } from "../connectors/bounded-json.js"
 
 /**
- * The scopes that ctx| asks for (ADR-058): read Help Center, tickets,
- * views, and users, and manage the one webhook that ctx| creates.
+ * The scopes that ctxpipe asks for (ADR-058): read Help Center, tickets,
+ * views, and users, and manage the one webhook that ctxpipe creates.
  */
 const ZENDESK_OAUTH_SCOPES = [
   "hc:read",

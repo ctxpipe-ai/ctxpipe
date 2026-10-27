@@ -61,7 +61,7 @@ type ZendeskSetupDialogProps = {
 /**
  * Connect a Zendesk account with OAuth, then add Zendesk to Workspaces
  * (ADR-050, ADR-058). A self-hosted deployment registers its own OAuth
- * client first; hosted ctx| has a global one.
+ * client first; hosted ctxpipe has a global one.
  */
 export function ZendeskSetupDialog({
   orgSlug,
@@ -201,7 +201,7 @@ export function ZendeskSetupDialog({
         <div className="space-y-4">
           {status.webhookConfigured ? null : (
             <InlineAlert variant="warning">
-              Zendesk did not let ctx| add the Help Center webhook, so articles
+              Zendesk did not let ctxpipe add the Help Center webhook, so articles
               sync once a day. Reconnect as a Zendesk admin to add it.
             </InlineAlert>
           )}
@@ -419,8 +419,8 @@ function ConnectStep(props: {
           {props.status.status === "revoked"
             ? "Zendesk does not accept the saved authorization. Connect again."
             : props.status.status === "installed"
-              ? "Connect again as a Zendesk admin so ctx| can add the Help Center webhook."
-              : "Approve read access to Help Center, tickets, views, and users. A Zendesk admin also lets ctx| add one webhook for Help Center changes."}
+              ? "Connect again as a Zendesk admin so ctxpipe can add the Help Center webhook."
+              : "Approve read access to Help Center, tickets, views, and users. A Zendesk admin also lets ctxpipe add one webhook for Help Center changes."}
         </p>
       </div>
       {props.error ? (
