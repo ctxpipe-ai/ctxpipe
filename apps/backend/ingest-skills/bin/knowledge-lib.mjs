@@ -302,6 +302,8 @@ function bodyOf(text) {
   return front ? text.slice(front[0].length) : null
 }
 
+const hasHumanSection = (text) => text.includes("<!-- ctxpipe:human -->")
+
 /**
  * The full text of a file that the source owns alone, as `newFile` writes
  * it. Returns the text before when only the host fields would change (the
@@ -310,7 +312,7 @@ function bodyOf(text) {
  * when the file has a human section: then the caller adds to it only.
  */
 function replaceFile(before, plan, claims, related) {
-  if (before.includes("<!-- ctxpipe:human -->")) return null
+  if (hasHumanSection(before)) return null
   const { kind, name, summary, fields = [] } = plan.create
   const text = newFile({ ...plan.create, claims, related })
   const yaml = frontMatter(before) ?? ""
@@ -737,7 +739,7 @@ export function writeStep(step, plans, skipped = [], options = {}) {
       refused =
         typeof text === "string" &&
         text !== before &&
-        (before === null || plan.replace) &&
+        (before === null || (plan.replace && !hasHumanSection(before))) &&
         refusedText(text)
       if (!refused) break
     }
