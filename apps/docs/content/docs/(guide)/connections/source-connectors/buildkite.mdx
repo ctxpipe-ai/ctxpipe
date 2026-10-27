@@ -23,7 +23,9 @@ You select pipelines for each Workspace. For each pipeline, ctxpipe writes:
   it is not listed.
 
 A finished build is passed, failed, canceled, or blocked. A blocked build
-waits at a block step; its file changes when someone unblocks it.
+waits at a block step. When someone unblocks it, the build runs again and is no
+longer finished. The next sync deletes its file. The file comes back when the
+build finishes.
 
 ctxpipe does not read build logs, environment variables, meta-data, or the
 commands of steps. These can contain secrets.
@@ -81,8 +83,8 @@ pipelines.
 
     Open **Connectors**, select **Add connection**, then select **Buildkite**.
     Type the organization slug (the name in your Buildkite URL) and paste the
-    token. ctxpipe checks the token with Buildkite before it saves it. ctxpipe keeps
-    the token encrypted and never shows it again.
+    token. ctxpipe checks the token with Buildkite before it saves it. ctxpipe
+    keeps the token encrypted and never shows it again.
   </Step>
 
   <Step>
@@ -107,15 +109,18 @@ pipelines.
   <Step>
     ### Add to Workspaces
 
-    The next step is **Add Buildkite to Workspaces**. Select the Workspaces
-    that sync from Buildkite. Then select at least one pipeline. Type in the
-    filter to find a pipeline by its name or slug. When you select more than
-    one Workspace, choose **Same scope for each Workspace** or **A different
-    scope for each Workspace**.
+    The next step is **Add Buildkite to Workspaces**.
 
-    Choose **Add to Workspaces**. You can add the connection to a Workspace
-    later. Expand the connector on **Connectors**. When no Workspace uses the
-    connection, choose **Add to a Workspace**. Otherwise, choose **Manage**.
+    1. Select the Workspaces that sync from Buildkite.
+    2. Select at least one pipeline. Type in the filter to find a pipeline by
+       its name or slug.
+    3. If you select more than one Workspace, choose **Same scope for each
+       Workspace** or **A different scope for each Workspace**.
+    4. Choose **Add to Workspaces**.
+
+    You can add the connection to a Workspace later. Expand the connector on
+    **Connectors**. When no Workspace uses the connection, choose **Add to a
+    Workspace**. Otherwise, choose **Manage**.
   </Step>
 
   <Step>
@@ -123,8 +128,10 @@ pipelines.
 
     ctxpipe opens one pull request for each Workspace. Each pull request adds
     `sources/buildkite/<name>.md`. The dialog shows **Merge the pull request**
-    (or **Merge the pull requests**) with a link to each one. Review the
-    selected pipelines and the repository audience, then merge.
+    (or **Merge the pull requests**) with a link to each one.
+
+    1. Review the selected pipelines and the repository audience.
+    2. Merge each pull request.
 
     After each merge, the dialog shows **Pull request merged**. The source does
     not sync before the merge.
@@ -156,14 +163,14 @@ buildkite/pipelines/<pipeline-slug>/builds/<build-number>.md
 Do not edit these files. ctxpipe writes them again on each sync. When a build is
 no longer among the latest 25, ctxpipe deletes its file in the same commit.
 
-## Keeping content current
+## How builds stay current
 
 - **Webhook:** a signed `build.finished` event starts a sync of the connection
   at the end of a 10-minute window. More events in the same window start no
   more syncs, so a busy pipeline gives at most one commit for each Workspace in
   each window.
 - **Daily sync:** ctxpipe syncs each connection once a day.
-- **Sync now:** an org admin can select **Sync now** in the menu of the
+- **Sync now:** an organization owner or admin can select **Sync now** in the menu of the
   connector card.
 
 ## Verify the complete flow
@@ -189,8 +196,8 @@ the Buildkite webhook delivery.
 ### Buildkite refuses the token
 
 The setup shows the reason. Make sure that the token has the two read
-scopes and no GraphQL API access, and that the organization of the token is the organization slug that
-you typed.
+scopes and no GraphQL API access. Make sure that the organization of the token
+is the organization slug that you typed.
 
 ### Add to a Workspace shows an error
 
@@ -211,7 +218,7 @@ Read the status and the reason of the row in **Settings**. See
 
 Choose **Sync now** in the menu of the connector card. If it fails again, ask
 the operator to check the worker logs, GitHub write access, and outbound access
-to `api.buildkite.com`.
+to `api.buildkite.com` and `graphql.buildkite.com`.
 
 ### The card shows “Needs reconnect”
 
@@ -219,8 +226,8 @@ Buildkite refused the saved token, for example because someone deleted it.
 The card says "Buildkite does not accept the saved token. Reconnect with a new
 token." The source shows the reason "Buildkite does not accept the API access
 token of this connection any more. Reconnect Buildkite on the Connectors page."
-ctxpipe keeps the files and stops the sync. Select **Reconnect Buildkite** on the
-card and paste a new token.
+ctxpipe keeps the files and stops the sync. Select **Reconnect Buildkite** on
+the card and paste a new token.
 
 ### A source shows “Out of access”
 
@@ -234,14 +241,14 @@ name.
 Make sure that the webhook uses the signature option, sends `build.finished`,
 and includes the pipeline. A build arrives at the end of the 10-minute window
 of its event. The webhook settings in Buildkite show the response of each
-delivery. A `401` response means that the token in ctxpipe is not the token of the
-webhook. Expand the connector card, select **Replace the webhook token**,
+delivery. A `401` response means that the token in ctxpipe is not the token of
+the webhook. Expand the connector card, select **Replace the webhook token**,
 and paste the token again.
 
-### Removing the connector
+### Remove the connector
 
 Choose **Remove connector** in the menu of the connector card. See
 [Connection menu](/docs/connections#connection-menu) for what stays in Git.
-Removing the connector deletes the saved tokens. The Workspace sources that
-use it stop syncing. Delete the webhook in Buildkite too, and the API access
+This deletes the saved tokens. The Workspace sources that use the connector
+stop syncing. Delete the webhook in Buildkite too, and the API access
 token if nothing else uses it.

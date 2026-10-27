@@ -99,11 +99,11 @@ To change what a Workspace reads, edit, rename, or remove its source. See
 
 ## How content stays current
 
-- **Webhooks.** Linear, Notion, Confluence, PagerDuty, and Buildkite tell ctxpipe when
+- **Webhooks.** Linear, Notion, Confluence, and PagerDuty tell ctxpipe when
   content changes. ctxpipe updates the files of the sources whose scope
   includes the change. Events that arrive before a source is live are skipped.
 - **Buildkite webhooks.** A finished build starts a full sync after a 10-minute
-  window. Further events in that window share the same sync.
+  window. More events in that window share the same sync.
 - **Daily full sync.** Once a day, ctxpipe syncs each connection that has a
   source with the status **OK**. This sync finds content that the provider
   deleted, and content that a webhook missed.

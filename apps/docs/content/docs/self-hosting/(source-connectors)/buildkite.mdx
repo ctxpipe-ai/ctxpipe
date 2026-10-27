@@ -5,9 +5,9 @@ description: Use the Buildkite connector on a self-hosted ctxpipe. It needs no e
 
 ## Overview
 
-Self-hosted Buildkite uses the same connector flow as hosted ctxpipe. Buildkite
-has no OAuth application for other products, so an org admin pastes a Buildkite
-API access token in the setup. The webhook token is also connection-specific.
+A self-hosted ctxpipe uses the same Buildkite connector flow as hosted ctxpipe.
+Buildkite has no OAuth application for other products, so an organization owner
+or admin pastes a Buildkite API access token in the setup. The webhook token is also connection-specific.
 ctxpipe encrypts both tokens on the connection with the connection secret key
 of the deployment.
 
@@ -20,7 +20,8 @@ Compose, Railway, or CDK settings.
   connector syncs once a day and on **Sync now**.
 - A ctxpipe GitHub App connection with write access to each Workspace repository
   that syncs Buildkite builds.
-- The backend and worker able to reach `api.buildkite.com` over HTTPS.
+- The backend and worker able to reach `api.buildkite.com` over HTTPS. The
+  backend also reaches `graphql.buildkite.com`, only when someone connects.
 
 ## Webhook URL
 
@@ -38,7 +39,8 @@ and refuses a signature older than five minutes. A webhook that sends the plain
 in the window or the daily sync then gets the build.
 
 All traffic stays on your deployment. Buildkite sends the webhook to your
-`AUTH_BASE_URL`, and your backend and worker call `api.buildkite.com`.
+`AUTH_BASE_URL`, and your backend and worker call `api.buildkite.com`. Your backend also calls
+`graphql.buildkite.com` on connect.
 
 ## Verify the connector
 
@@ -51,7 +53,7 @@ All traffic stays on your deployment. Buildkite sends the webhook to your
 4. In **Add Buildkite to Workspaces**, select a Workspace and at least one
    pipeline. Merge the pull request that adds the source file
    under `sources/buildkite/`.
-5. Confirm the source shows **OK** in the Workspace settings and files appear
+5. Confirm that the source shows **OK** in the Workspace settings and files appear
    under `buildkite/pipelines/<slug>/`.
 6. Finish a build in a selected pipeline. Confirm that
    `POST /api/v1/webhook/buildkite/{connectionId}` returns `200`, and that the
