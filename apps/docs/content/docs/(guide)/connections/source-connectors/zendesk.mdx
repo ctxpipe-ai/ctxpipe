@@ -25,9 +25,22 @@ Workspace.
   assignee, and the comments in order. Internal notes are marked.
 
 ctxpipe writes people by name only, and attachments by file name only, because
-their links are private. In ticket text, ctxpipe removes email addresses, phone
-numbers, and links that carry a credential. Other personal data in the text
-can remain.
+their links are private. ctxpipe applies the same rules to ticket text and to
+article text:
+
+- It removes email addresses (also with non-Latin letters) and phone numbers.
+- It removes the user name, the password, the query, and the fragment of each
+  URL. A URL with a path segment named `token` goes as a whole. A value after
+  a name such as `token=` or `api_key=` goes too, also outside a URL.
+- It writes `\ [ ] < >` as plain text, so that a customer cannot add a link,
+  an image, or HTML to a file.
+- It cuts a long comment and marks the cut. A comment keeps at most 16,384
+  characters.
+- In an article, a link stays only when it is an absolute https link with no
+  credential. The query and the fragment of the link go. Other links keep
+  only their text.
+
+Other personal data in the text can remain.
 
 <Callout type="warn" title="Ticket comments are personal data">
   Ticket comments are text from your customers, and they can hold personal

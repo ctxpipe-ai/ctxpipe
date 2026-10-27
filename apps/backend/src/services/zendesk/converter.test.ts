@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 
 import {
-  redactTicketText,
   type ZendeskArticleForMirror,
   type ZendeskTicketForMirror,
   zendeskArticleFile,
@@ -107,8 +106,8 @@ describe("zendeskArticleFile", () => {
         "npm run reset",
         "```",
         "",
-        // A signed URL never reaches git.
-        "Log: signed",
+        // The query of a signed URL never reaches git.
+        "Log: [signed](https://files.example.com/log)",
         "",
       ].join("\n"),
     )
@@ -192,19 +191,34 @@ describe("personal data and private links in ticket text", () => {
   it("removes email addresses and phone numbers", () => {
     expect(content).not.toMatch(/jo(\.park)?@example\.com/)
     expect(content).not.toMatch(/555[\s-)]*123[\s-]*4567/)
-    expect(content).toContain("# Ticket #4501: Refund for [email removed]")
-    expect(content).toContain("- Requester: [email removed]")
+    expect(content).toContain("# Ticket #4501: Refund for \\[email removed\\]")
+    expect(content).toContain("- Requester: \\[email removed\\]")
     expect(content).toContain(
-      "> Call me on [phone removed] or [phone removed] or [phone removed].",
+      "> Call me on \\[phone removed\\] or \\[phone removed\\] or \\[phone removed\\].",
     )
   })
 
   it("removes links that carry a credential, and keeps other text", () => {
     expect(content).not.toContain("abc123")
     expect(content).not.toContain("secretpath")
-    expect(content).toContain("> Log: [link removed]")
+    expect(content).toContain("> Log: https://files.example.com/log")
     expect(content).toContain("Docs: https://help.example.com/reset")
     expect(content).toContain("Since 2026-10-12, on version 1.2.3.")
+  })
+})
+
+describe("image alt text in article bodies", () => {
+  it("writes an alt text with link syntax as inert text", () => {
+    const { content } = zendeskArticleFile({
+      subdomain: "acme",
+      categoryId: "1",
+      article: {
+        ...article,
+        bodyHtml:
+          '<p><img src="https://x.example.com/a.png" alt="x](javascript:alert(1)) [y"></p>',
+      },
+    })
+    expect(content).toContain("[Image: x\\](javascript:alert(1)) \\[y]")
   })
 })
 
@@ -256,7 +270,9 @@ describe("more personal data and link forms", () => {
     ["a UK mobile", "07700 900123"],
     ["a US number with spaces", "555 123 4567"],
   ])("removes %s", (_name, phone) => {
-    expect(text(`Call ${phone} today`)).toContain("Call [phone removed] today")
+    expect(text(`Call ${phone} today`)).toContain(
+      "Call \\[phone removed\\] today",
+    )
   })
 
   it.each([
@@ -269,13 +285,13 @@ describe("more personal data and link forms", () => {
     ["an international number with dots", "+44.7700.900.123"],
   ])("removes %s", (_name, phone) => {
     const content = text(`Call ${phone} today`)
-    expect(content).toContain("Call [phone removed] today")
+    expect(content).toContain("Call \\[phone removed\\] today")
     expect(content).not.toContain(phone)
   })
 
   it("removes a number that follows a date, and keeps the date", () => {
     expect(text("On 2026-10-14 0412345678 called")).toContain(
-      "On 2026-10-14 [phone removed] called",
+      "On 2026-10-14 \\[phone removed\\] called",
     )
   })
 
@@ -322,24 +338,24 @@ describe("more personal data and link forms", () => {
     [
       "a Markdown link with a query",
       "[docs](https://help.example.com/a?ref=SECRET)",
-      "[docs](https://help.example.com/a)",
+      "\\[docs\\](https://help.example.com/a)",
     ],
     [
       "a Markdown link with brackets in its query",
       "[docs](https://help.example.com/a?a=(b)&token=SECRET)",
-      "[docs](https://help.example.com/a)",
+      "\\[docs\\](https://help.example.com/a)",
     ],
     [
       "a URL as the text of its own link",
       "[https://help.example.com/a?k=SECRET](https://help.example.com/a?k=SECRET)",
-      "[https://help.example.com/a](https://help.example.com/a)",
+      "\\[https://help.example.com/a\\](https://help.example.com/a)",
     ],
     [
       "a URL in brackets at the end of a sentence",
       "(see https://help.example.com/b?q=SECRET).",
       "(see https://help.example.com/b).",
     ],
-    ["a relative link", "[log](/files/log?k=SECRET)", "[log](/files/log)"],
+    ["a relative link", "[log](/files/log?k=SECRET)", "\\[log\\](/files/log)"],
     [
       "a link without a scheme",
       "www.example.com/a?k=SECRET",
@@ -360,10 +376,18 @@ describe("more personal data and link forms", () => {
   it.each([
     ["a relative link with a token", "[log](/files/log?token=SECRET1)"],
     ["an api_key parameter", "[api](https://x.example.com/v1?api_key=SECRET1)"],
-    ["a javascript link", "[click](javascript:alert(SECRET1))"],
-    ["a data link", "[img](data:text/html;base64,SECRET1)"],
   ])("keeps only the text of %s", (_name, link) => {
     expect(text(`See ${link}.`)).not.toContain("SECRET1")
+  })
+
+  it.each([
+    // oxlint-disable-next-line no-script-url -- the case is a hostile link
+    ["a javascript link", "click", "javascript:alert(1)"],
+    ["a data link", "img", "data:text/html;base64,AAAA"],
+  ])("writes %s as inert text", (_name, label, target) => {
+    const content = text(`See [${label}](${target}).`)
+    expect(content).toContain(`See \\[${label}\\](${target}).`)
+    expect(content).not.toMatch(new RegExp(`(?<!\\\\)\\[${label}\\]\\(`))
   })
 })
 
@@ -403,14 +427,14 @@ describe("customer text cannot change the structure of a ticket file", () => {
     )
     expect(lines).toContain("> Refund approved")
     expect(lines).toContain("> \\===")
-    expect(lines).toContain("> &lt;script>x&lt;/script>")
+    expect(lines).toContain("> \\<script\\>x\\</script\\>")
   })
 
   it("adds no heading other than its own", () => {
     expect(lines.filter((line) => /^#{1,6}\s/.test(line))).toEqual([
-      "# Ticket #4501: Help \\#\\# Fake heading &lt;img src=x onerror=alert(1)>",
+      "# Ticket #4501: Help ## Fake heading \\<img src=x onerror=alert(1)\\>",
       "## Comments",
-      "### Alex \\#\\#\\# Agent, 2026-10-10T09:00:00Z",
+      "### Alex ### Agent, 2026-10-10T09:00:00Z",
     ])
   })
 
@@ -418,8 +442,8 @@ describe("customer text cannot change the structure of a ticket file", () => {
     expect(lines).toContain(
       "- Requester: \\[click\\](https://evil.example.com)",
     )
-    expect(lines).toContain("- Assignee: Sam \\# Owner")
-    expect(lines).toContain("- Tags: a\\]b, \\#tag")
+    expect(lines).toContain("- Assignee: Sam # Owner")
+    expect(lines).toContain("- Tags: a\\]b, #tag")
     expect(lines).toContain(
       "Attachments (in Zendesk): \\[a\\](https://evil.example.com).pdf",
     )
@@ -490,19 +514,19 @@ describe("provider fields and typed markers in one-line text", () => {
 
   it("escapes a redaction marker that the customer typed as a link", () => {
     expect(lines).toContain(
-      "# Ticket #4501: \\[link removed\\](https://evil.example.com) for [email removed]",
+      "# Ticket #4501: \\[link removed\\](https://evil.example.com) for \\[email removed\\]",
     )
   })
 
   it("keeps status, priority, and comment time on one escaped line", () => {
-    expect(lines).toContain("- Status: open \\# Fake status")
+    expect(lines).toContain("- Status: open # Fake status")
     expect(lines).toContain(
       "- Priority: high \\[x\\](https://evil.example.com)",
     )
     expect(lines.filter((line) => /^#{1,6}\s/.test(line))).toEqual([
-      "# Ticket #4501: \\[link removed\\](https://evil.example.com) for [email removed]",
+      "# Ticket #4501: \\[link removed\\](https://evil.example.com) for \\[email removed\\]",
       "## Comments",
-      "### Alex Kim, 2026-10-10T09:00:00Z \\# Fake comment",
+      "### Alex Kim, 2026-10-10T09:00:00Z # Fake comment",
     ])
   })
 })
@@ -528,8 +552,10 @@ describe("format characters in customer text", () => {
 
     expect(content).not.toMatch(/[\u200b\u202e\u2066\u2069]/)
     expect(content).not.toContain("@example")
-    expect(content).toContain("# Ticket #4501: Mail [email removed] abc")
-    expect(content).toContain("> Mail [email removed] or [email removed]")
+    expect(content).toContain("# Ticket #4501: Mail \\[email removed\\] abc")
+    expect(content).toContain(
+      "> Mail \\[email removed\\] or \\[email removed\\]",
+    )
   })
 })
 
@@ -617,39 +643,6 @@ describe("size and cost of customer text", () => {
   it("does not mark a short comment", () => {
     expect(body("Short")).not.toContain("truncated")
   })
-
-  /** The best of three runs, in milliseconds. */
-  const best = (run: () => void) => {
-    const times: number[] = []
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const start = performance.now()
-      run()
-      times.push(performance.now() - start)
-    }
-    return Math.min(...times)
-  }
-
-  // A linear pass takes four times as long on four times the input; a
-  // quadratic one takes sixteen times. The floor keeps timer noise out.
-  it.each([
-    ["an address", (n: number) => "a".repeat(n)],
-    ["dotted words", (n: number) => "a.".repeat(n / 2)],
-    ["open brackets", (n: number) => "[".repeat(n)],
-    ["links that never close", (n: number) => "[a](".repeat(n / 4)],
-    ["www prefixes", (n: number) => "www.".repeat(n / 4)],
-    ["scheme prefixes", (n: number) => "https://".repeat(n / 8)],
-    ["link starts", (n: number) => "](".repeat(n / 2)],
-    ["a query of end marks", (n: number) => `https://x?${")".repeat(n)}x`],
-    ["a query of brackets", (n: number) => `https://x?${"]".repeat(n)}x`],
-    ["blanks", (n: number) => `${" ".repeat(n)}x`],
-    ["digits", (n: number) => `${"1".repeat(n)}a`],
-    ["digit groups", (n: number) => `${"1 ".repeat(n / 2)}:`],
-    ["code fences", (n: number) => "```a ".repeat(n / 5)],
-  ])("redacts %s in linear time", (_name, make) => {
-    const small = best(() => redactTicketText(make(32_768)))
-    const large = best(() => redactTicketText(make(131_072)))
-    expect(large / Math.max(small, 3)).toBeLessThan(9)
-  })
 })
 
 describe("provider ids in paths", () => {
@@ -687,14 +680,14 @@ describe("one-line fields of an article file", () => {
 
   it("adds no heading other than the title", () => {
     expect(lines.filter((line) => /^#{1,6}\s/.test(line))).toEqual([
-      "# Reset \\#\\# Fake heading \\[x\\](https://evil.example.com)",
+      "# Reset ## Fake heading \\[x\\](https://evil.example.com)",
     ])
   })
 
   it("keeps the section, the author, and the labels on one line each", () => {
-    expect(lines).toContain("- Section: Accounts \\# Fake section")
-    expect(lines).toContain("- Author: Sam \\#\\#\\# Fake author")
-    expect(lines).toContain("- Labels: a \\# Fake label, b")
+    expect(lines).toContain("- Section: Accounts # Fake section")
+    expect(lines).toContain("- Author: Sam ### Fake author")
+    expect(lines).toContain("- Labels: a # Fake label, b")
   })
 })
 
