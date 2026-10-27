@@ -43,6 +43,7 @@ import {
   workspaceDetailOptions,
   workspaceKeys,
 } from "./queries"
+import { useMaximizeForWideVariant } from "./settings-prototype/prototype-variant"
 import type { WorkspaceDetail } from "./types"
 import { useWorkspaceConversationPublish } from "./useWorkspaceConversationPublish"
 import { WorkspaceChat } from "./WorkspaceChat"
@@ -149,6 +150,8 @@ function WorkspacePrepareFailedLayout(props: {
   const [paneCollapsed, setPaneCollapsed] = useState(false)
   const [paneWidth, setPaneWidth] = useState<number | null>(null)
   const [maximized, setMaximized] = useState(false)
+  // PROTOTYPE: settings variant D opens the pane maximized.
+  useMaximizeForWideVariant(setMaximized)
   const paneOpen = !paneCollapsed
 
   return (
@@ -332,6 +335,8 @@ function WorkspaceSurfaceSession(props: {
   const initialPane = landingPane(paneParam)
   const [shownPane, setShownPane] = useState<ParsedPane | null>(initialPane)
   const [maximized, setMaximized] = useState(false)
+  // PROTOTYPE: settings variant D opens the pane maximized.
+  useMaximizeForWideVariant(setMaximized)
   const [paneWidth, setPaneWidth] = useState<number | null>(null)
   const [treeCollapsed, setTreeCollapsed] = useState(false)
   const [paneCollapsed, setPaneCollapsed] = useState(initialPane == null)

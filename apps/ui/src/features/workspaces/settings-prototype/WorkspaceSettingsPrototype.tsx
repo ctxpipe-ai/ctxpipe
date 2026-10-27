@@ -9,6 +9,7 @@ import { useSettingsModel } from "./use-settings-model"
 import { VariantA } from "./VariantA"
 import { VariantB } from "./VariantB"
 import { VariantC } from "./VariantC"
+import { VariantD } from "./VariantD"
 
 export function WorkspaceSettingsPrototype(props: {
   variant: Exclude<SettingsVariantKey, "current">
@@ -26,6 +27,7 @@ export function WorkspaceSettingsPrototype(props: {
       {props.variant === "A" ? <VariantA model={model} /> : null}
       {props.variant === "B" ? <VariantB model={model} /> : null}
       {props.variant === "C" ? <VariantC model={model} /> : null}
+      {props.variant === "D" ? <VariantD model={model} /> : null}
       {model.dialogs}
     </div>
   )

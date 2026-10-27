@@ -70,6 +70,12 @@ import {
   SourceEditorDialog,
   type SourceEditorTarget,
 } from "./SourceEditorDialog"
+import {
+  liveSourceGridClassName,
+  type SourceLiveStatus,
+  SourceLiveStatusCell,
+  type SourceLiveStatusLookup,
+} from "./SourceLiveStatusCell"
 
 // The same dot + word shape as `ConnectorHealthIndicator` on the Connectors page.
 const statusBase = "inline-flex shrink-0 items-center gap-1.5 font-mono text-xs"
@@ -225,11 +231,20 @@ function SourceRow(props: {
   onEdit: (() => void) | null
   onRename: (() => void) | null
   onRemove: (() => void) | null
+  /** PROTOTYPE (variant D): the live work; undefined keeps today's cell. */
+  live?: SourceLiveStatus | null
 }) {
   const { source, pending, showDetail, onEdit, onRename, onRemove } = props
   const tag = STATUS_TAG[source.status]
+  const liveMode = props.live !== undefined
+  const state = (
+    <span className={tag.className}>
+      <span className={tag.dotClassName} aria-hidden />
+      {liveMode && source.status === "ok" ? "Connected" : tag.label}
+    </span>
+  )
   return (
-    <li className={sourceRowClassName}>
+    <li className={cn(sourceRowClassName, liveMode && liveSourceGridClassName)}>
       <p className="truncate text-sm text-foreground">{source.scopeSummary}</p>
       <p className={sourceRowMetaClassName}>
         <span className="truncate">
@@ -240,10 +255,16 @@ function SourceRow(props: {
         </span>
         <code className="truncate font-mono">{source.path}</code>
       </p>
-      <span className={cn(sourceRowStatusClassName, tag.className)}>
-        <span className={tag.dotClassName} aria-hidden />
-        {tag.label}
-      </span>
+      {liveMode ? (
+        <div className={sourceRowStatusClassName}>
+          <SourceLiveStatusCell state={state} live={props.live ?? null} />
+        </div>
+      ) : (
+        <span className={cn(sourceRowStatusClassName, tag.className)}>
+          <span className={tag.dotClassName} aria-hidden />
+          {tag.label}
+        </span>
+      )}
       <div className={sourceRowActionsClassName}>
         {onEdit ? (
           <Button
@@ -454,8 +475,10 @@ export function WorkspaceSources(props: {
   workspaceSlug: string
   /** The repositories linked to the Workspace, for the GitHub section. */
   linkedRepositories?: WorkspaceLinkedRepository[]
+  /** PROTOTYPE (variant D): live work in the Status column of each row. */
+  liveStatus?: SourceLiveStatusLookup
 }) {
-  const { orgSlug, workspaceSlug, linkedRepositories } = props
+  const { orgSlug, workspaceSlug, linkedRepositories, liveStatus } = props
   const queryClient = useQueryClient()
   const sourcesQuery = useQuery(workspaceSourcesOptions(orgSlug, workspaceSlug))
   // The sources of a Workspace below the newest format move with the format
@@ -648,7 +671,13 @@ export function WorkspaceSources(props: {
             </div>
           ) : null}
           <div className="mt-4 overflow-hidden rounded-md border border-white/[0.06]">
-            <div aria-hidden className={sourceTableHeadClassName}>
+            <div
+              aria-hidden
+              className={cn(
+                sourceTableHeadClassName,
+                liveStatus && liveSourceGridClassName,
+              )}
+            >
               <span>Source</span>
               <span>Connection</span>
               <span>File</span>
@@ -672,6 +701,7 @@ export function WorkspaceSources(props: {
                         source={source}
                         pending={pendingOf(source.path)}
                         showDetail
+                        {...(liveStatus ? { live: null } : {})}
                         onEdit={null}
                         onRename={null}
                         onRemove={
@@ -703,6 +733,7 @@ export function WorkspaceSources(props: {
                   ? repositories.filter(repositoryNeedsAttention).length
                   : sources.filter((item) => item.status !== "ok").length
                 const connected = connectionsOf(provider).length > 0
+                const live = liveStatus?.provider(label) ?? null
                 const meta =
                   [
                     repositories
@@ -718,6 +749,7 @@ export function WorkspaceSources(props: {
                     pendingAdds.length > 0
                       ? `${pendingAdds.length} awaiting merge`
                       : null,
+                    live ? `${live.label} now` : null,
                   ]
                     .filter(Boolean)
                     .join(" · ") || `No ${label} sources yet`
@@ -764,6 +796,9 @@ export function WorkspaceSources(props: {
                           canEdit={canEdit}
                           showEmptyAction={githubEmptyAction}
                           onAdd={() => setGithubAddOpen(true)}
+                          {...(liveStatus
+                            ? { liveStatus: liveStatus.repository }
+                            : {})}
                         />
                         <GithubSourceNotes
                           sources={sources}
@@ -779,6 +814,7 @@ export function WorkspaceSources(props: {
                             key={source.path}
                             source={source}
                             pending={pendingOf(source.path)}
+                            {...(liveStatus ? { live } : {})}
                             showDetail={
                               !shared.some(
                                 ([detail]) => detail === source.statusDetail,

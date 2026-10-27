@@ -67,6 +67,11 @@ import {
   sourceRowStatusClassName,
   sourceRowsClassName,
 } from "./source-table"
+import {
+  liveSourceGridClassName,
+  type SourceLiveStatus,
+  SourceLiveStatusCell,
+} from "./SourceLiveStatusCell"
 
 /** One item of a GitHub scope: `owner/name`, or a map with a branch or tag. */
 type ScopeItem = string | { name: string; ref?: string }
@@ -225,6 +230,8 @@ export function GithubSourceRepositories(props: {
   showEmptyAction: boolean
   /** Opens the Add repositories dialog, which the caller renders. */
   onAdd: () => void
+  /** PROTOTYPE (variant D): the live work of a repository, by its title. */
+  liveStatus?: (title: string) => SourceLiveStatus | null
 }) {
   const { orgSlug, workspaceSlug, rows, canEdit } = props
   const queryClient = useQueryClient()
@@ -324,7 +331,13 @@ export function GithubSourceRepositories(props: {
                   ? canEdit && row.source.removable
                   : true
                 return (
-                  <li key={row.key} className={sourceRowClassName}>
+                  <li
+                    key={row.key}
+                    className={cn(
+                      sourceRowClassName,
+                      props.liveStatus && liveSourceGridClassName,
+                    )}
+                  >
                     {webUrl ? (
                       <Link
                         href={webUrl}
@@ -363,25 +376,46 @@ export function GithubSourceRepositories(props: {
                       )}
                     </p>
                     <span className={sourceRowStatusClassName}>
-                      <TooltipProvider delay={200}>
-                        <Tooltip>
-                          {/* The trigger is a button, so keyboard focus opens the tip. */}
-                          <TooltipTrigger
-                            className={cn(
-                              status.className,
-                              focusVisibleClassName,
-                            )}
-                          >
-                            <span className={status.dotClassName} aria-hidden />
-                            {status.label}
-                            {/* Base UI sets no description, so the status carries it. */}
-                            <span className="sr-only">{status.hint}</span>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">
-                            {status.hint}
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
+                      {props.liveStatus ? (
+                        <SourceLiveStatusCell
+                          state={
+                            <span
+                              className={status.className}
+                              title={status.hint}
+                            >
+                              <span
+                                className={status.dotClassName}
+                                aria-hidden
+                              />
+                              {status.label}
+                            </span>
+                          }
+                          live={props.liveStatus(row.title)}
+                        />
+                      ) : (
+                        <TooltipProvider delay={200}>
+                          <Tooltip>
+                            {/* The trigger is a button, so keyboard focus opens the tip. */}
+                            <TooltipTrigger
+                              className={cn(
+                                status.className,
+                                focusVisibleClassName,
+                              )}
+                            >
+                              <span
+                                className={status.dotClassName}
+                                aria-hidden
+                              />
+                              {status.label}
+                              {/* Base UI sets no description, so the status carries it. */}
+                              <span className="sr-only">{status.hint}</span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">
+                              {status.hint}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
                     </span>
                     <div className={sourceRowActionsClassName}>
                       {canUnlink ? (
