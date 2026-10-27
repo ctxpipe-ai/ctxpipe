@@ -67,11 +67,7 @@ import {
   sourceRowStatusClassName,
   sourceRowsClassName,
 } from "./source-table"
-import {
-  liveSourceGridClassName,
-  type SourceLiveStatus,
-  SourceLiveStatusCell,
-} from "./SourceLiveStatusCell"
+import { CompactSourceRow, type SourceLiveStatus } from "./SourceLiveStatusCell"
 
 /** One item of a GitHub scope: `owner/name`, or a map with a branch or tag. */
 type ScopeItem = string | { name: string; ref?: string }
@@ -330,14 +326,80 @@ export function GithubSourceRepositories(props: {
                 const canUnlink = row.source
                   ? canEdit && row.source.removable
                   : true
+                // PROTOTYPE (variant D): a two-line row with one status line.
+                if (props.liveStatus) {
+                  const notes = [
+                    row.source?.description ? (
+                      <p
+                        key="description"
+                        className="line-clamp-2 text-muted-foreground"
+                      >
+                        {row.source.description}
+                      </p>
+                    ) : null,
+                    row.source && !row.source.removable ? (
+                      <p key="yaml" className="text-muted-foreground">
+                        Defined in .ctxpipe/sources.yaml. Edit that file to
+                        unlink it.
+                      </p>
+                    ) : null,
+                    row.linked?.indexingStatus === "complete_with_issues" &&
+                    row.linked.indexingError ? (
+                      <p key="issues" className="text-amber-200/80">
+                        {row.linked.indexingError}
+                      </p>
+                    ) : null,
+                  ].filter(Boolean)
+                  return (
+                    <CompactSourceRow
+                      key={row.key}
+                      name={row.title}
+                      title={
+                        webUrl ? (
+                          <Link
+                            href={webUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            variant="secondary"
+                            className="text-sm text-foreground no-underline hover:text-teal-300"
+                          >
+                            {row.title}
+                          </Link>
+                        ) : (
+                          row.title
+                        )
+                      }
+                      subtitle={
+                        row.source?.path ?? "Linked by a repositories file"
+                      }
+                      state={{
+                        label: status.label,
+                        tone:
+                          status.label === "Indexed"
+                            ? "ok"
+                            : status.label === "Indexed with issues"
+                              ? "attention"
+                              : "neutral",
+                      }}
+                      live={props.liveStatus(row.title)}
+                      actions={
+                        canUnlink
+                          ? [
+                              {
+                                id: "unlink",
+                                label: "Unlink",
+                                onAction: () => unlinkMutation.mutate(row),
+                                isDisabled: unlinkMutation.isPending,
+                              },
+                            ]
+                          : []
+                      }
+                      {...(notes.length ? { note: <>{notes}</> } : {})}
+                    />
+                  )
+                }
                 return (
-                  <li
-                    key={row.key}
-                    className={cn(
-                      sourceRowClassName,
-                      props.liveStatus && liveSourceGridClassName,
-                    )}
-                  >
+                  <li key={row.key} className={sourceRowClassName}>
                     {webUrl ? (
                       <Link
                         href={webUrl}
@@ -376,46 +438,25 @@ export function GithubSourceRepositories(props: {
                       )}
                     </p>
                     <span className={sourceRowStatusClassName}>
-                      {props.liveStatus ? (
-                        <SourceLiveStatusCell
-                          state={
-                            <span
-                              className={status.className}
-                              title={status.hint}
-                            >
-                              <span
-                                className={status.dotClassName}
-                                aria-hidden
-                              />
-                              {status.label}
-                            </span>
-                          }
-                          live={props.liveStatus(row.title)}
-                        />
-                      ) : (
-                        <TooltipProvider delay={200}>
-                          <Tooltip>
-                            {/* The trigger is a button, so keyboard focus opens the tip. */}
-                            <TooltipTrigger
-                              className={cn(
-                                status.className,
-                                focusVisibleClassName,
-                              )}
-                            >
-                              <span
-                                className={status.dotClassName}
-                                aria-hidden
-                              />
-                              {status.label}
-                              {/* Base UI sets no description, so the status carries it. */}
-                              <span className="sr-only">{status.hint}</span>
-                            </TooltipTrigger>
-                            <TooltipContent side="top">
-                              {status.hint}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
+                      <TooltipProvider delay={200}>
+                        <Tooltip>
+                          {/* The trigger is a button, so keyboard focus opens the tip. */}
+                          <TooltipTrigger
+                            className={cn(
+                              status.className,
+                              focusVisibleClassName,
+                            )}
+                          >
+                            <span className={status.dotClassName} aria-hidden />
+                            {status.label}
+                            {/* Base UI sets no description, so the status carries it. */}
+                            <span className="sr-only">{status.hint}</span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            {status.hint}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     </span>
                     <div className={sourceRowActionsClassName}>
                       {canUnlink ? (

@@ -71,9 +71,9 @@ import {
   type SourceEditorTarget,
 } from "./SourceEditorDialog"
 import {
-  liveSourceGridClassName,
+  CompactSourceRow,
+  SourceAccordionGroup,
   type SourceLiveStatus,
-  SourceLiveStatusCell,
   type SourceLiveStatusLookup,
 } from "./SourceLiveStatusCell"
 
@@ -231,20 +231,114 @@ function SourceRow(props: {
   onEdit: (() => void) | null
   onRename: (() => void) | null
   onRemove: (() => void) | null
-  /** PROTOTYPE (variant D): the live work; undefined keeps today's cell. */
+  /** PROTOTYPE (variant D): the live work; undefined keeps today's row. */
   live?: SourceLiveStatus | null
 }) {
   const { source, pending, showDetail, onEdit, onRename, onRemove } = props
   const tag = STATUS_TAG[source.status]
-  const liveMode = props.live !== undefined
-  const state = (
-    <span className={tag.className}>
-      <span className={tag.dotClassName} aria-hidden />
-      {liveMode && source.status === "ok" ? "Connected" : tag.label}
-    </span>
+  const actions = (
+    <>
+      {onEdit ? (
+        <Button
+          variant="quiet"
+          size="icon-sm"
+          aria-label={`Edit ${source.path}`}
+          onPress={onEdit}
+        >
+          <IconPencil className="size-4 text-muted-foreground" aria-hidden />
+        </Button>
+      ) : null}
+      {onRename ? (
+        <Button
+          variant="quiet"
+          size="icon-sm"
+          aria-label={`Rename ${source.path}`}
+          onPress={onRename}
+        >
+          <IconCursorText
+            className="size-4 text-muted-foreground"
+            aria-hidden
+          />
+        </Button>
+      ) : null}
+      {onRemove ? (
+        <Button
+          variant="quiet"
+          size="icon-sm"
+          aria-label={`Remove ${source.path}`}
+          onPress={onRemove}
+        >
+          <IconTrash className="size-4 text-muted-foreground" aria-hidden />
+        </Button>
+      ) : null}
+    </>
   )
+  const hasNote =
+    (showDetail && source.statusDetail) ||
+    pending ||
+    source.description ||
+    !source.removable
+  const note = hasNote ? (
+    <>
+      {source.description ? (
+        <p
+          className="truncate text-muted-foreground"
+          title={source.description}
+        >
+          {source.description}
+        </p>
+      ) : null}
+      {source.removable ? null : (
+        <p className="text-muted-foreground">
+          This row is not a source file. Edit the file that defines it.
+        </p>
+      )}
+      {showDetail && source.statusDetail ? (
+        <p
+          className={
+            source.status === "ok"
+              ? "text-muted-foreground"
+              : "text-amber-200/80"
+          }
+        >
+          {source.statusDetail}
+        </p>
+      ) : null}
+      {pending ? <AwaitingMergeLink change={pending} /> : null}
+    </>
+  ) : null
+
+  if (props.live !== undefined)
+    return (
+      <CompactSourceRow
+        name={source.scopeSummary}
+        title={source.scopeSummary}
+        subtitle={source.path}
+        state={{
+          label: source.status === "ok" ? "Connected" : tag.label,
+          tone:
+            source.status === "ok"
+              ? "ok"
+              : source.status === "invalid"
+                ? "error"
+                : "attention",
+        }}
+        live={props.live}
+        actions={[
+          ...(onEdit ? [{ id: "edit", label: "Edit", onAction: onEdit }] : []),
+          ...(onRename
+            ? [{ id: "rename", label: "Rename", onAction: onRename }]
+            : []),
+          ...(onRemove
+            ? [{ id: "remove", label: "Remove", onAction: onRemove }]
+            : []),
+        ]}
+        note={note}
+      />
+    )
+
   return (
-    <li className={cn(sourceRowClassName, liveMode && liveSourceGridClassName)}>
+    <li className={sourceRowClassName}>
       <p className="truncate text-sm text-foreground">{source.scopeSummary}</p>
       <p className={sourceRowMetaClassName}>
         <span className="truncate">
@@ -255,83 +349,12 @@ function SourceRow(props: {
         </span>
         <code className="truncate font-mono">{source.path}</code>
       </p>
-      {liveMode ? (
-        <div className={sourceRowStatusClassName}>
-          <SourceLiveStatusCell state={state} live={props.live ?? null} />
-        </div>
-      ) : (
-        <span className={cn(sourceRowStatusClassName, tag.className)}>
-          <span className={tag.dotClassName} aria-hidden />
-          {tag.label}
-        </span>
-      )}
-      <div className={sourceRowActionsClassName}>
-        {onEdit ? (
-          <Button
-            variant="quiet"
-            size="icon-sm"
-            aria-label={`Edit ${source.path}`}
-            onPress={onEdit}
-          >
-            <IconPencil className="size-4 text-muted-foreground" aria-hidden />
-          </Button>
-        ) : null}
-        {onRename ? (
-          <Button
-            variant="quiet"
-            size="icon-sm"
-            aria-label={`Rename ${source.path}`}
-            onPress={onRename}
-          >
-            <IconCursorText
-              className="size-4 text-muted-foreground"
-              aria-hidden
-            />
-          </Button>
-        ) : null}
-        {onRemove ? (
-          <Button
-            variant="quiet"
-            size="icon-sm"
-            aria-label={`Remove ${source.path}`}
-            onPress={onRemove}
-          >
-            <IconTrash className="size-4 text-muted-foreground" aria-hidden />
-          </Button>
-        ) : null}
-      </div>
-      {(showDetail && source.statusDetail) ||
-      pending ||
-      source.description ||
-      !source.removable ? (
-        <div className={sourceRowNoteClassName}>
-          {source.description ? (
-            <p
-              className="truncate text-muted-foreground"
-              title={source.description}
-            >
-              {source.description}
-            </p>
-          ) : null}
-          {source.removable ? null : (
-            <p className="text-muted-foreground">
-              This row is not a source file. Edit the file that defines it.
-            </p>
-          )}
-          {showDetail && source.statusDetail ? (
-            <p
-              className={
-                source.status === "ok"
-                  ? "text-muted-foreground"
-                  : "text-amber-200/80"
-              }
-            >
-              {source.statusDetail}
-            </p>
-          ) : null}
-          {pending ? <AwaitingMergeLink change={pending} /> : null}
-        </div>
-      ) : null}
+      <span className={cn(sourceRowStatusClassName, tag.className)}>
+        <span className={tag.dotClassName} aria-hidden />
+        {tag.label}
+      </span>
+      <div className={sourceRowActionsClassName}>{actions}</div>
+      {note ? <div className={sourceRowNoteClassName}>{note}</div> : null}
     </li>
   )
 }
@@ -567,38 +590,64 @@ export function WorkspaceSources(props: {
       <h2 id="workspace-sources" className="sr-only">
         Sources
       </h2>
-      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
-        <div className="min-w-0">
-          {loading ? (
-            <SkeletonText className="text-sm" boneClassName="h-3.5 w-48" />
-          ) : data && !isEmpty && !loadFailed ? (
-            <p className="text-sm font-medium text-foreground">
-              {connectorsSummary(
-                items,
-                pendingChanges,
-                linkedRepositories?.length ?? 0,
+      {liveStatus && data && !isEmpty && !loadFailed ? (
+        // PROTOTYPE (variant D): one quiet line in place of the two-line head.
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+          <p className="min-w-0 text-xs text-muted-foreground">
+            {connectorsSummary(
+              items,
+              pendingChanges,
+              linkedRepositories?.length ?? 0,
+            )}{" "}
+            · one file each in{" "}
+            <code className="font-mono">{data.path ?? "sources"}/</code>
+          </p>
+          {needsUpgrade ? null : (
+            <Link
+              href={`/${orgSlug}/connectors`}
+              className={cn(
+                "shrink-0 rounded-md text-xs text-teal-400 underline-offset-4 transition-colors hover:text-teal-300 hover:underline",
+                focusVisibleClassName,
               )}
-            </p>
-          ) : null}
-          {data && isEmpty ? null : (
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Saved as one file for each source in{" "}
-              <code className="font-mono">{data?.path ?? "sources"}/</code>
-            </p>
+            >
+              Add connection
+            </Link>
           )}
         </div>
-        {data && !isEmpty && !loadFailed && !needsUpgrade ? (
-          <Link
-            href={`/${orgSlug}/connectors`}
-            className={cn(
-              "shrink-0 rounded-md text-sm text-teal-400 underline-offset-4 transition-colors hover:text-teal-300 hover:underline",
-              focusVisibleClassName,
+      ) : (
+        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+          <div className="min-w-0">
+            {loading ? (
+              <SkeletonText className="text-sm" boneClassName="h-3.5 w-48" />
+            ) : data && !isEmpty && !loadFailed ? (
+              <p className="text-sm font-medium text-foreground">
+                {connectorsSummary(
+                  items,
+                  pendingChanges,
+                  linkedRepositories?.length ?? 0,
+                )}
+              </p>
+            ) : null}
+            {data && isEmpty ? null : (
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Saved as one file for each source in{" "}
+                <code className="font-mono">{data?.path ?? "sources"}/</code>
+              </p>
             )}
-          >
-            Add another connection
-          </Link>
-        ) : null}
-      </div>
+          </div>
+          {data && !isEmpty && !loadFailed && !needsUpgrade ? (
+            <Link
+              href={`/${orgSlug}/connectors`}
+              className={cn(
+                "shrink-0 rounded-md text-sm text-teal-400 underline-offset-4 transition-colors hover:text-teal-300 hover:underline",
+                focusVisibleClassName,
+              )}
+            >
+              Add another connection
+            </Link>
+          ) : null}
+        </div>
+      )}
 
       {loading ? (
         <SourcesSkeleton />
@@ -671,18 +720,14 @@ export function WorkspaceSources(props: {
             </div>
           ) : null}
           <div className="mt-4 overflow-hidden rounded-md border border-white/[0.06]">
-            <div
-              aria-hidden
-              className={cn(
-                sourceTableHeadClassName,
-                liveStatus && liveSourceGridClassName,
-              )}
-            >
-              <span>Source</span>
-              <span>Connection</span>
-              <span>File</span>
-              <span>Status</span>
-            </div>
+            {liveStatus ? null : (
+              <div aria-hidden className={sourceTableHeadClassName}>
+                <span>Source</span>
+                <span>Connection</span>
+                <span>File</span>
+                <span>Status</span>
+              </div>
+            )}
             <div className="flex flex-col divide-y divide-white/[0.06]">
               {unknownProvider.length > 0 ? (
                 <ConnectorGroup
@@ -749,12 +794,157 @@ export function WorkspaceSources(props: {
                     pendingAdds.length > 0
                       ? `${pendingAdds.length} awaiting merge`
                       : null,
-                    live ? `${live.label} now` : null,
                   ]
                     .filter(Boolean)
                     .join(" · ") || `No ${label} sources yet`
                 // The GitHub rows are repositories; its notes keep each detail.
                 const shared = repositories ? [] : sharedStatusDetails(sources)
+                const action =
+                  provider === "github" &&
+                  connected &&
+                  canEdit &&
+                  !githubEmptyAction ? (
+                    <Button
+                      variant="quiet"
+                      onPress={() => setGithubAddOpen(true)}
+                    >
+                      <IconPlus className="size-4" aria-hidden />
+                      Add repositories
+                    </Button>
+                  ) : provider !== "github" && connected && canEdit ? (
+                    <Button
+                      variant="quiet"
+                      aria-label={`Add ${label} source`}
+                      onPress={() => setEditor({ kind: "add", provider })}
+                    >
+                      <IconPlus className="size-4" aria-hidden />
+                      Add
+                    </Button>
+                  ) : null
+                const body =
+                  provider === "github" ? (
+                    <>
+                      <GithubSourceRepositories
+                        orgSlug={orgSlug}
+                        workspaceSlug={workspaceSlug}
+                        rows={githubRepositories}
+                        canEdit={canEdit}
+                        showEmptyAction={githubEmptyAction}
+                        onAdd={() => setGithubAddOpen(true)}
+                        {...(liveStatus
+                          ? { liveStatus: liveStatus.repository }
+                          : {})}
+                      />
+                      <GithubSourceNotes
+                        sources={sources}
+                        pendingAdds={pendingAdds}
+                        pendingOf={pendingOf}
+                      />
+                    </>
+                  ) : sources.length === 0 &&
+                    pendingAdds.length === 0 ? null : (
+                    <ul className={sourceRowsClassName}>
+                      {sources.map((source) => (
+                        <SourceRow
+                          key={source.path}
+                          source={source}
+                          pending={pendingOf(source.path)}
+                          {...(liveStatus ? { live } : {})}
+                          showDetail={
+                            !shared.some(
+                              ([detail]) => detail === source.statusDetail,
+                            )
+                          }
+                          onEdit={
+                            // A plain git source has no connection to edit.
+                            canEdit &&
+                            source.removable &&
+                            SOURCE_SCOPES[provider].connectionType !== null
+                              ? () =>
+                                  setEditor({
+                                    kind: "edit",
+                                    provider,
+                                    source,
+                                  })
+                              : null
+                          }
+                          onRename={
+                            canEdit && source.removable
+                              ? () => setRenaming(source)
+                              : null
+                          }
+                          onRemove={
+                            canEdit && source.removable
+                              ? () => setRemoving(source)
+                              : null
+                          }
+                        />
+                      ))}
+                      {pendingAdds.map((change) => (
+                        <PendingAddRow key={change.path} change={change} />
+                      ))}
+                    </ul>
+                  )
+                if (liveStatus) {
+                  // PROTOTYPE (variant D): the connector as an accordion. The
+                  // header holds what the rows share; the rows hold the rest.
+                  const working = repositories
+                    ? repositories.filter((row) =>
+                        liveStatus.repository(row.title),
+                      ).length
+                    : live
+                      ? sources.length
+                      : 0
+                  const connections = [
+                    ...new Set(
+                      sources.flatMap((item) =>
+                        item.connectionName ? [item.connectionName] : [],
+                      ),
+                    ),
+                  ]
+                  const count = repositories
+                    ? `${repositories.length} ${repositories.length === 1 ? "repository" : "repositories"}`
+                    : plural(sources.length, "source")
+                  return (
+                    <SourceAccordionGroup
+                      key={provider}
+                      id={sourceAnchorId(provider)}
+                      Icon={Icon}
+                      title={label}
+                      meta={[
+                        connections.join(", ") || null,
+                        (repositories?.length ?? sources.length) > 0
+                          ? count
+                          : `No ${label} sources yet`,
+                        pendingAdds.length > 0
+                          ? `${pendingAdds.length} awaiting merge`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                      summary={
+                        attention > 0
+                          ? {
+                              label: `${attention} ${attention === 1 ? "needs" : "need"} attention`,
+                              tone: "attention",
+                            }
+                          : working > 0
+                            ? { label: `${working} working`, tone: "working" }
+                            : null
+                      }
+                      defaultExpanded={
+                        working > 0 ||
+                        attention > 0 ||
+                        pendingAdds.length > 0 ||
+                        (repositories?.length ?? sources.length) === 0
+                      }
+                      note={<SharedStatusDetails details={shared} />}
+                      action={action}
+                    >
+                      {body}
+                    </SourceAccordionGroup>
+                  )
+                }
                 return (
                   <ConnectorGroup
                     key={provider}
@@ -763,93 +953,9 @@ export function WorkspaceSources(props: {
                     title={label}
                     meta={meta}
                     note={<SharedStatusDetails details={shared} />}
-                    action={
-                      provider === "github" &&
-                      connected &&
-                      canEdit &&
-                      !githubEmptyAction ? (
-                        <Button
-                          variant="quiet"
-                          onPress={() => setGithubAddOpen(true)}
-                        >
-                          <IconPlus className="size-4" aria-hidden />
-                          Add repositories
-                        </Button>
-                      ) : provider !== "github" && connected && canEdit ? (
-                        <Button
-                          variant="quiet"
-                          aria-label={`Add ${label} source`}
-                          onPress={() => setEditor({ kind: "add", provider })}
-                        >
-                          <IconPlus className="size-4" aria-hidden />
-                          Add
-                        </Button>
-                      ) : null
-                    }
+                    action={action}
                   >
-                    {provider === "github" ? (
-                      <>
-                        <GithubSourceRepositories
-                          orgSlug={orgSlug}
-                          workspaceSlug={workspaceSlug}
-                          rows={githubRepositories}
-                          canEdit={canEdit}
-                          showEmptyAction={githubEmptyAction}
-                          onAdd={() => setGithubAddOpen(true)}
-                          {...(liveStatus
-                            ? { liveStatus: liveStatus.repository }
-                            : {})}
-                        />
-                        <GithubSourceNotes
-                          sources={sources}
-                          pendingAdds={pendingAdds}
-                          pendingOf={pendingOf}
-                        />
-                      </>
-                    ) : sources.length === 0 &&
-                      pendingAdds.length === 0 ? null : (
-                      <ul className={sourceRowsClassName}>
-                        {sources.map((source) => (
-                          <SourceRow
-                            key={source.path}
-                            source={source}
-                            pending={pendingOf(source.path)}
-                            {...(liveStatus ? { live } : {})}
-                            showDetail={
-                              !shared.some(
-                                ([detail]) => detail === source.statusDetail,
-                              )
-                            }
-                            onEdit={
-                              // A plain git source has no connection to edit.
-                              canEdit &&
-                              source.removable &&
-                              SOURCE_SCOPES[provider].connectionType !== null
-                                ? () =>
-                                    setEditor({
-                                      kind: "edit",
-                                      provider,
-                                      source,
-                                    })
-                                : null
-                            }
-                            onRename={
-                              canEdit && source.removable
-                                ? () => setRenaming(source)
-                                : null
-                            }
-                            onRemove={
-                              canEdit && source.removable
-                                ? () => setRemoving(source)
-                                : null
-                            }
-                          />
-                        ))}
-                        {pendingAdds.map((change) => (
-                          <PendingAddRow key={change.path} change={change} />
-                        ))}
-                      </ul>
-                    )}
+                    {body}
                   </ConnectorGroup>
                 )
               })}

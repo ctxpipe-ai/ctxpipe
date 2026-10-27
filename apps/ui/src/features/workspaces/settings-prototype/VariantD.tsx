@@ -37,6 +37,7 @@ import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useNow } from "@/lib/useNow"
 import { cn } from "@/lib/utils"
 
+import { ingestionProgress } from "../ingestion"
 import { StatusTag } from "../StatusTag"
 import type {
   SettingsModel,
@@ -605,33 +606,6 @@ function HistoryRow(props: { view: UpgradeView }) {
 
 // Sources
 
-const STAGE_WORD: Record<string, string> = {
-  publishing: "publishing",
-  ingesting: "reading the code",
-  indexing: "indexing",
-  planning: "planning",
-  waiting: "waiting",
-  queued: "queued",
-}
-const STAGE_ORDER = Object.keys(STAGE_WORD)
-
-/** "6 runs: 1 publishing, 4 reading the code, 1 waiting". */
-function runsLine(source: SourceActivity): string | null {
-  if (source.runs.length < 2) return null
-  const counts = new Map<string, number>()
-  for (const run of source.runs) {
-    const stage = run.stage ?? "running"
-    counts.set(stage, (counts.get(stage) ?? 0) + 1)
-  }
-  const parts = [...counts]
-    .sort(
-      ([a], [b]) =>
-        (STAGE_ORDER.indexOf(a) + 1 || 99) - (STAGE_ORDER.indexOf(b) + 1 || 99),
-    )
-    .map(([stage, count]) => `${count} ${STAGE_WORD[stage] ?? stage}`)
-  return `${source.runs.length} runs: ${parts.join(", ")}`
-}
-
 /** The short word for the work of a source, for the Status column. */
 function liveLabel(source: SourceActivity): string {
   if (source.kind === "source_sync") return "Syncing"
@@ -666,8 +640,17 @@ function SourcesCard(props: {
     source
       ? {
           label: liveLabel(source),
-          detail: runsLine(source) ?? source.progress.count,
           since: source.since,
+          runs: source.runs.map((run) => {
+            const progress = ingestionProgress(run)
+            return {
+              key: run.id,
+              label: progress.count
+                ? `${progress.label} · ${progress.count}`
+                : progress.label,
+              since: run.startedAt,
+            }
+          }),
         }
       : null
   // A repository run is named by the repository; a connector sync by the
