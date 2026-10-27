@@ -39,6 +39,9 @@ export const inputs = [
   "scripts/checks/run.mjs",
   "scripts/checks/storybook.mjs",
   "scripts/ci/storybook-golden.mjs",
+  "scripts/ci/check-allowlist-history.mjs",
+  "scripts/ci/check-test-report.mjs",
+  "scripts/ci/failures/storybook-golden.json",
   "scripts/ci/storybook-golden-select.mjs",
   "scripts/ci/storybook-play.mjs",
 ]

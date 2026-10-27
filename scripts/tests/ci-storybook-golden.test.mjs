@@ -432,3 +432,18 @@ test("every script that ci.yaml runs for a Storybook job is a Storybook check in
   assert.ok(scripts.size > 0)
   for (const script of scripts) assert.ok(inputs.includes(script), script)
 })
+
+test("every scripts/ci file that the golden runner reads at run time is a Storybook check input", async () => {
+  const { inputs } = await import("../checks/storybook.mjs")
+  const runner = readFileSync(
+    join(root, "scripts/ci/storybook-golden.mjs"),
+    "utf8",
+  )
+  const paths = new Set(
+    [...runner.matchAll(/"(scripts\/ci\/[\w./-]+\.(?:mjs|json))"/g)].map(
+      (match) => match[1],
+    ),
+  )
+  assert.ok(paths.has("scripts/ci/failures/storybook-golden.json"))
+  for (const path of paths) assert.ok(inputs.includes(path), path)
+})
