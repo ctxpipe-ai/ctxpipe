@@ -29,7 +29,7 @@
           "pattern": "^[a-z]+:[a-z0-9-]+:[^#]+(#.+)?$"
         },
         "family": {
-          "description": "`vitest`: a Vitest test file. `storybook`: a Storybook story with a play function, played in Chromium. `eval`: an eval case that calls paid models. `typecheck`: one TypeScript project. `lint`: oxlint, oxfmt or knip over the repo. `policy`: a policy script of the CI lint job.",
+          "description": "`vitest`: a Vitest test file. `storybook`: a Storybook story with a play function, played in Chromium. `eval`: an eval case that calls paid models. `typecheck`: one TypeScript project. `lint`: oxlint, oxfmt or knip over the repo. `policy`: a policy script of the CI lint job, or the Terraform plan.",
           "enum": ["vitest", "storybook", "eval", "typecheck", "lint", "policy"]
         },
         "lane": {

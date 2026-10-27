@@ -70,6 +70,8 @@ jobs:
         run: node scripts/ci/check-runners.mjs
       - name: Reject outside values in run scripts and workflows without permissions
         run: node scripts/ci/check-workflow-inputs.mjs
+      - name: Validate and install the Claude plugin
+        run: node scripts/ci/check-claude-plugin.mjs
       - name: CI command regression tests
         run: |
           node --test scripts/tests/ci-*.test.mjs

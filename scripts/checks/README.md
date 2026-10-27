@@ -21,13 +21,32 @@ A check id is `<family>:<lane>:<file>`, for example `vitest:ui:apps/ui/src/compo
 | `eval` | `mcp` (MCPJam, `apps/backend/evals/mcp/cases.ts`), eval case | `eval:mcp:apps/backend/evals/mcp/cases.ts#stale-cursor` | one seed and one `evals/mcp/run.ts` run for the selected cases |
 | `typecheck` | the `name` of each project in `scripts/ci/projects.json` | project | `typecheck:ui:apps/ui/tsconfig.json` | `scripts/ci/typecheck.mjs` with the project's diagnostic allowances |
 | `lint` | `oxlint`, `format`, `knip` | tool | `lint:knip:knip.json` | `pnpm lint`, `pnpm format:check`, `pnpm knip` |
-| `policy` | the name of each policy script of the CI lint job | script | `policy:test-policy:scripts/ci/check-test-policy.mjs` | that script |
+| `policy` | the name of each policy script of the CI lint job, and `claude-plugin` | script | `policy:test-policy:scripts/ci/check-test-policy.mjs` | that script |
 
 - A Storybook story is a case of its stories file. The story id is the Storybook id, so the id stays the same when the story moves in its file. [`storybook.mjs`](storybook.mjs) lists the stories with the Storybook indexer (`buildIndex`), and runs them against `apps/ui/storybook-static`.
 - An eval case calls paid models. The record has `stochastic: true`: the same inputs can give a different result, so a result cache must not reuse it. Its inputs are only its harness. `tools` lists the MCP tools that the case declares. A reader selects the case by those tools and the trace's `tools` edges (the tools that each Vitest case called), then by its `intent`. A reader never selects it by an import. The verdict of a case is the eval gate (`apps/backend/evals/mcp/gate.ts`) for that one case: its thresholds and the baseline drop for the case. When a model has no baseline entry for the case, only the pass-rate floor applies, and the case message says "no baseline". A whole-run gate failure (for example, too few models) does not change the verdict of a case. The runner writes it to stderr as one note. The memory live evals have no check; each scenario is listed when a live runner can run it.
 - The `latency` and `upgrade` lanes run the files that the PR suite does not run (`*.latency.ts`, `*.upgrade.ts`), each with its own Vitest config. A latency result is `stochastic`: wall-clock bounds vary on shared runners.
 - The `typecheck`, `lint` and `policy` checks run a fixed command over a whole project, so they have no trace. Their `inputs` approximate the files that they read with whole directories (for example `apps/**` for oxlint, `apps/backend/src/**` for the UI typecheck, because the UI types import the backend RPC types, and the repo-root `shared/**` for the backend, codesearch and UI typechecks). A change in one of them selects the check. Their `root` is the repo root (`""`) or the project directory.
 - A `typecheck` check is incremental. It keeps the TypeScript build info in `node_modules/.cache/typecheck/`. It checks again only the files that a change can affect. When the result does not match the diagnostic allowance, it deletes the build info and checks all files again. Thus, a failure always comes from a full check. Delete that directory to force a full check. The CI Typecheck job keeps the directory in the cache. The job on a push to `main` does not restore the cache, so it is always a full check.
+
+## Other pull request workflows
+
+Some checks also run in a workflow other than `ci.yaml`. These workflows stay until the gate runs the selected checks ([CTX-1054](https://linear.app/ctxpipe/issue/CTX-1054)). Each job maps to a check as follows:
+
+| Workflow | Job | Check |
+| --- | --- | --- |
+| `cli-test.yaml` | `ctxpipe-cli` | the `vitest:cli` lane |
+| `claude-plugin-test.yaml` | `backend` | its files in the `vitest:backend` lane |
+| `claude-plugin-test.yaml` | `ui` | the `vitest:ui` lane |
+| `mcp-evals.yaml` | `evals` | the `eval:mcp` cases |
+| `terraform-plan-pr.yaml` | `terraform-plan` | `policy:terraform-plan:infra/main.tf` |
+| `ingestion-v2-proof.yaml` | `proof` | none |
+| `mcp-evals-reminder.yaml` | `remind` | none |
+
+- The `claude-plugin` check runs as a step of the Lint and format job of `ci.yaml`. It needs the network: `npx` downloads the pinned Claude Code. `claude-plugin-test.yaml` has no job for it.
+- The Terraform plan is a `stochastic` check: its result comes from the remote Terraform state, so a result cache never reuses it. Its inputs are `infra/**`, so a selector selects it when a Terraform file changes. It has the `terraform-plan` prerequisite: the Terraform CLI and the state keys (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`) of the `terraform-plan` environment. The check does not write the PR comment; the workflow does. The `ci.yaml` Terraform job, which runs on each pull request, validates the code.
+- The ingestion proof has no check. It needs a Compose `deploy` stack, a Workspace repository and the repository list from the workbench secrets, and the script `scripts/ci/ingestion-v2-proof.sh` reads them from the workflow. Listing it needs a runner that starts that stack, which is more than a command. Only the CTO starts it by hand, and it spends model money on real repositories.
+- The reminder has no check. It only writes a PR comment.
 
 ## Intent
 
@@ -53,6 +72,7 @@ A check lists its `prerequisites` by name. Before the checks run, the runner mak
 | `storybook-build` | builds Storybook; with `SKIP_STORYBOOK_BUILD=1` (CI downloads the build), verifies only that it exists |
 | `previous-release` | verifies `RELEASE_TREE`, a checkout of the previous release with its dependencies |
 | `workbench` | verifies `MODEL_PROVIDER`, `MODEL_PROVIDER_API_KEY` and `MCP_EVAL_MODELS` (at least the gate minimum of models): the evals spend money, so they run only with the `workbench` environment |
+| `terraform-plan` | verifies the Terraform CLI and the state keys of the `terraform-plan` environment |
 | `codesearch-server` | verifies that `CODESEARCH_URL` answers |
 | `mcp-server` | verifies that the backend of this checkout answers at `AUTH_BASE_URL` + `/mcp` |
 | `aws-cdk-image-tag`, `aws-cdk-build`, `docs-mdx` | makes the generated files that a typecheck needs |

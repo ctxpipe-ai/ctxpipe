@@ -59,6 +59,7 @@ export const lintSteps = {
   "Reject non-Blacksmith runners": "policy:runners:",
   "Reject outside values in run scripts and workflows without permissions":
     "policy:workflow-inputs:",
+  "Validate and install the Claude plugin": "policy:claude-plugin:",
 }
 // The step of the Lint and format job that the gated run always runs.
 const ciScriptTests = "CI command regression tests"

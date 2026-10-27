@@ -14,7 +14,9 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
 
+import { lintSteps } from "../checks/gate.mjs"
 import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
+import { runsInOf } from "../checks/shard.mjs"
 import { requiredStories } from "../ci/storybook-golden-select.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -168,7 +170,7 @@ test("the manifest matches its schema and lists each check of each family", asyn
   assert.ok(count("storybook", "golden") >= requiredStories.length)
   assert.ok(count("storybook", "plays") > 0)
   // An expensive check states its intent in under about 40 words, and a
-  // check that calls a model or a wall clock is stochastic.
+  // check that calls a model, a wall clock or remote state is stochastic.
   for (const check of manifest.checks) {
     const expensive =
       check.family === "eval" ||
@@ -184,7 +186,9 @@ test("the manifest matches its schema and lists each check of each family", asyn
     }
     assert.equal(
       check.stochastic ?? false,
-      check.family === "eval" || check.lane === "latency",
+      check.family === "eval" ||
+        check.lane === "latency" ||
+        check.lane === "terraform-plan",
       check.id,
     )
   }
@@ -833,4 +837,79 @@ test("every check has the root toolchain files among its inputs", () => {
       ".node-version",
     ])
       assert.ok(inputs.includes(file), `${id} lacks input ${file}`)
+})
+
+test("the manifest lists a check for each job of the other pull request workflows", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const checks = new Map(
+    JSON.parse(result.stdout).checks.map((check) => [check.id, check]),
+  )
+  const lane = (family, name) =>
+    [...checks.values()].filter(
+      (check) => check.family === family && check.lane === name,
+    )
+  // cli-test.yaml runs the cli lane.
+  assert.ok(lane("vitest", "cli").length > 0)
+  assert.ok(lane("vitest", "cli")[0].inputs.includes("packages/cli/src/**"))
+  // claude-plugin-test.yaml: each backend test file that its Backend tests job
+  // names exists and is a check of the backend lane. The UI tests job runs
+  // the ui lane.
+  const workflow = readFileSync(
+    join(root, ".github/workflows/claude-plugin-test.yaml"),
+    "utf8",
+  )
+  const named = workflow
+    .match(/^\s+src\/\S+\.test\.ts$/gm)
+    .map((line) => `apps/backend/${line.trim()}`)
+  assert.ok(named.length >= 5)
+  for (const file of named) {
+    assert.ok(existsSync(join(root, file)), `${file} does not exist`)
+    assert.ok(checks.has(`vitest:backend:${file}`), file)
+  }
+  assert.ok(lane("vitest", "ui").length > 0)
+  // The Lint and format job of ci.yaml runs the policy check of the plugin.
+  const plugin = checks.get(
+    "policy:claude-plugin:scripts/ci/check-claude-plugin.mjs",
+  )
+  assert.ok(plugin)
+  assert.equal(plugin.family, "policy")
+  assert.equal(plugin.root, "")
+  assert.equal(plugin.runtime, "node")
+  assert.equal(plugin.stochastic, undefined)
+  for (const input of [
+    "plugins/**",
+    ".claude-plugin/**",
+    "scripts/ci/check-claude-plugin.mjs",
+    "scripts/checks/projects.mjs",
+  ])
+    assert.ok(plugin.inputs.includes(input), input)
+  assert.ok(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8").includes(
+      "run: node scripts/ci/check-claude-plugin.mjs",
+    ),
+  )
+  // The Terraform plan: stochastic, selected by the files of infra.
+  const plan = checks.get("policy:terraform-plan:infra/main.tf")
+  assert.ok(plan)
+  assert.equal(plan.stochastic, true)
+  assert.ok(plan.inputs.includes("infra/**"))
+  assert.deepEqual(plan.prerequisites, ["terraform-plan"])
+  assert.ok(plan.intent)
+  // Each check that is not stochastic has a result in a full run: a lint or
+  // policy check has a step of the Lint and format job, any other check has
+  // a job.
+  for (const check of checks.values()) {
+    if (check.stochastic) continue
+    assert.ok(
+      check.family === "lint" || check.family === "policy"
+        ? Object.values(lintSteps).some((key) => check.id.startsWith(key))
+        : runsInOf(check.id),
+      check.id,
+    )
+  }
+  // mcp-evals.yaml runs the eval cases; a model call is stochastic.
+  assert.ok(lane("eval", "mcp").length > 0)
+  for (const check of lane("eval", "mcp"))
+    assert.equal(check.stochastic, true, check.id)
 })

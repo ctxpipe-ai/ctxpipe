@@ -23,8 +23,7 @@ export const storybookBuildMinutes = 1.2
 
 // Where each check runs, by `<family>:<lane>` or else `<family>`: `job` is
 // the job of today's full run, `profile` the profile job of a gated run.
-// A check without an entry (an eval, the latency check) has its own
-// workflow.
+// A check without an entry (an eval, the latency check) has its own workflow.
 const runsIn = {
   lint: { job: "lint", profile: "project" },
   policy: { job: "lint", profile: "project" },
