@@ -2,8 +2,8 @@
   "$comment": "The merge gate (scripts/checks/README.md, Merge gate). mode: shadow (the full run gates; the gated verdict is published beside it). Phase 1 has no other mode. factory: the pinned selector release (the factory commit and the SHA-256 of factory-linux-x64.tar.gz); null until the first release. acceptAgentResults: a pass that an agent or a person stored satisfies the gate.",
   "mode": "shadow",
   "factory": {
-    "version": "752102c0ec0da53c986924fdde9e6e024a60d22d",
-    "sha256": "49217e41d6f73b9caaa3fb44cfa6e6158249b9fce461c98dc0e8b8f46ebc4c77"
+    "version": "4703e89e77e3482c11765ef064038adc12bdc92f",
+    "sha256": "7a0283724926f3099cc95e3129dc447207778ed18132fcaeac1617826c5983d1"
   },
   "acceptAgentResults": true
 }
