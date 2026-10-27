@@ -70,6 +70,8 @@ jobs:
         run: node scripts/ci/check-runners.mjs
       - name: Reject outside values in run scripts and workflows without permissions
         run: node scripts/ci/check-workflow-inputs.mjs
+      - name: Validate and install the Claude plugin
+        run: node scripts/ci/check-claude-plugin.mjs
       - name: CI command regression tests
         run: |
           node --test scripts/tests/ci-*.test.mjs
@@ -504,6 +506,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Each entry is the check `build:image-<name>:` of the manifest
+        # (scripts/checks/projects.mjs). The merge gate takes the result of
+        # the job `Production build (<name>)` as the check result, so this
+        # job needs no workspace install.
         include:
           - name: backend
             dockerfile: apps/backend/Dockerfile
@@ -614,11 +620,27 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @ctxpipe/backend build
-      - run: pnpm --filter @ctxpipe/codesearch build
-      - run: pnpm --filter @ctxpipe/aws-cdk build
-      - run: pnpm --filter ctxpipe build
+      # Each package build is one check of the manifest. The record goes to
+      # the merge gate.
+      - name: Build the packages through the check runner
+        run: |
+          set -o pipefail
+          mkdir -p .ci-results/build-packages
+          pnpm -s checks:list |
+            jq -r '.checks[] | select(.family == "build" and (.lane | startswith("package-"))) | .id' |
+            pnpm -s checks:run | tee .ci-results/build-packages/records.ndjson
+      - name: Show the build log
+        if: failure()
+        run: cat .ci-results/checks/*.log
       - run: pnpm --filter @ctxpipe/aws-cdk-self-host typecheck
+      - name: Preserve the build results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-results-build-packages
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   storybook-build:
     timeout-minutes: 20
@@ -1347,8 +1369,10 @@ jobs:
           REPO: ${{ github.repository }}
           RUN: ${{ github.run_id }}
           ATTEMPT: ${{ github.run_attempt }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         # The jobs of the earlier attempts show the flakes: a job that failed
-        # in an earlier attempt and passed in this one.
+        # in an earlier attempt and passed in this one. The jobs of the newest
+        # PR Deploy run of the PR head give the deploy checks their results.
         run: |
           gh api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" --paginate \
             --jq '.jobs[]' | jq -s '{jobs: .}' > "$RUNNER_TEMP/jobs.json"
@@ -1356,6 +1380,22 @@ jobs:
             gh api "repos/$REPO/actions/runs/$RUN/attempts/$attempt/jobs?per_page=100" --paginate \
               --jq '.jobs[]'
           done | jq -s '{jobs: .}' > "$RUNNER_TEMP/earlier.json"
+          # The newest PR Deploy run of the head whose deploy job did not
+          # skip. A run that a newer push cancelled early has no deploy job.
+          gh api "repos/$REPO/actions/workflows/pr-deploy.yaml/runs?head_sha=$HEAD_SHA&per_page=20" \
+            --jq '.workflow_runs[] | [.id, .status] | @tsv' > "$RUNNER_TEMP/deploy-runs.tsv"
+          echo '{"jobs": []}' > "$RUNNER_TEMP/deploy.json"
+          while read -r id status; do
+            gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" --paginate \
+              --jq '.jobs[]' | jq -s --arg status "$status" '{status: $status, jobs: .}' > "$RUNNER_TEMP/candidate.json"
+            if [[ -z "$(jq -r '.jobs[] | select(.name == "Deploy PR environment (Railway + Neon)" and .conclusion != "skipped") | .name' "$RUNNER_TEMP/candidate.json")" ]]; then
+              # Keep the first run as the answer if no run has a deploy job.
+              [[ "$(jq '.jobs | length' "$RUNNER_TEMP/deploy.json")" == 0 ]] && cp "$RUNNER_TEMP/candidate.json" "$RUNNER_TEMP/deploy.json"
+              continue
+            fi
+            cp "$RUNNER_TEMP/candidate.json" "$RUNNER_TEMP/deploy.json"
+            break
+          done < "$RUNNER_TEMP/deploy-runs.tsv"
       - name: Decision
         env:
           NEEDS: ${{ toJSON(needs) }}
@@ -1364,7 +1404,8 @@ jobs:
           node scripts/checks/gate.mjs shadow --config .github/merge-gate.json \
             --inputs "$RUNNER_TEMP/inputs" --results "$RUNNER_TEMP/results" \
             --needs "$RUNNER_TEMP/needs.json" --jobs "$RUNNER_TEMP/jobs.json" \
-            --earlier "$RUNNER_TEMP/earlier.json" --out "$RUNNER_TEMP/decision"
+            --earlier "$RUNNER_TEMP/earlier.json" --deploy "$RUNNER_TEMP/deploy.json" \
+            --out "$RUNNER_TEMP/decision"
           cat "$RUNNER_TEMP/decision/summary.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve the decision
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

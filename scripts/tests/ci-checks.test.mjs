@@ -14,7 +14,15 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
 
+import {
+  deploySteps,
+  fullRunResults,
+  lintSteps,
+  stepResults,
+} from "../checks/gate.mjs"
+import { prerequisites } from "../checks/prerequisites.mjs"
 import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
+import { runsInOf } from "../checks/shard.mjs"
 import { requiredStories } from "../ci/storybook-golden-select.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -167,14 +175,17 @@ test("the manifest matches its schema and lists each check of each family", asyn
   // so the golden lane holds at least them.
   assert.ok(count("storybook", "golden") >= requiredStories.length)
   assert.ok(count("storybook", "plays") > 0)
-  // An expensive check states its intent in under about 40 words, and a
-  // check that calls a model or a wall clock is stochastic.
+  // An expensive check states its intent in under about 40 words. A check
+  // that calls a model or a wall clock is stochastic; a check that reads
+  // remote state, base images by tag or a deployment is not cacheable.
   for (const check of manifest.checks) {
     const expensive =
       check.family === "eval" ||
       check.lane === "golden" ||
       check.lane === "latency" ||
-      check.lane === "upgrade"
+      check.lane === "upgrade" ||
+      check.family === "build" ||
+      check.family === "deploy"
     if (expensive) {
       assert.ok(check.intent, `${check.id} has no intent`)
       assert.ok(
@@ -185,6 +196,15 @@ test("the manifest matches its schema and lists each check of each family", asyn
     assert.equal(
       check.stochastic ?? false,
       check.family === "eval" || check.lane === "latency",
+      check.id,
+    )
+    assert.equal(
+      check.cacheable ?? true,
+      !(
+        check.lane === "terraform-plan" ||
+        check.lane.startsWith("image-") ||
+        check.family === "deploy"
+      ),
       check.id,
     )
   }
@@ -825,12 +845,322 @@ test("every check has the root toolchain files among its inputs", () => {
   assert.equal(result.status, 0, result.stderr)
   const { checks } = JSON.parse(result.stdout)
   assert.ok(checks.length > 0)
-  for (const { id, inputs } of checks)
-    for (const file of [
-      "package.json",
-      "pnpm-lock.yaml",
-      "pnpm-workspace.yaml",
-      ".node-version",
-    ])
+  // The deploy checks read only their own files: they need only the Node
+  // version of the toolchain, so that a dependency change selects the image
+  // builds, not a preview deploy.
+  for (const { id, family, inputs } of checks)
+    for (const file of family === "deploy"
+      ? [".node-version"]
+      : [
+          "package.json",
+          "pnpm-lock.yaml",
+          "pnpm-workspace.yaml",
+          ".node-version",
+        ])
       assert.ok(inputs.includes(file), `${id} lacks input ${file}`)
+})
+
+test("the manifest lists a check for each job of the other pull request workflows", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const checks = new Map(
+    JSON.parse(result.stdout).checks.map((check) => [check.id, check]),
+  )
+  const lane = (family, name) =>
+    [...checks.values()].filter(
+      (check) => check.family === family && check.lane === name,
+    )
+  // cli-test.yaml runs the cli lane.
+  assert.ok(lane("vitest", "cli").length > 0)
+  assert.ok(lane("vitest", "cli")[0].inputs.includes("packages/cli/src/**"))
+  // claude-plugin-test.yaml: each backend test file that its Backend tests job
+  // names exists and is a check of the backend lane. The UI tests job runs
+  // the ui lane.
+  const workflow = readFileSync(
+    join(root, ".github/workflows/claude-plugin-test.yaml"),
+    "utf8",
+  )
+  const named = workflow
+    .match(/^\s+src\/\S+\.test\.ts$/gm)
+    .map((line) => `apps/backend/${line.trim()}`)
+  assert.ok(named.length >= 5)
+  for (const file of named) {
+    assert.ok(existsSync(join(root, file)), `${file} does not exist`)
+    assert.ok(checks.has(`vitest:backend:${file}`), file)
+  }
+  assert.ok(lane("vitest", "ui").length > 0)
+  // The Lint and format job of ci.yaml runs the policy check of the plugin.
+  const plugin = checks.get(
+    "policy:claude-plugin:scripts/ci/check-claude-plugin.mjs",
+  )
+  assert.ok(plugin)
+  assert.equal(plugin.family, "policy")
+  assert.equal(plugin.root, "")
+  assert.equal(plugin.runtime, "node")
+  assert.equal(plugin.stochastic, undefined)
+  for (const input of [
+    "plugins/**",
+    ".claude-plugin/**",
+    "scripts/ci/check-claude-plugin.mjs",
+    "scripts/checks/projects.mjs",
+  ])
+    assert.ok(plugin.inputs.includes(input), input)
+  assert.ok(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8").includes(
+      "run: node scripts/ci/check-claude-plugin.mjs",
+    ),
+  )
+  // The Terraform plan: not cacheable, selected by the files of infra.
+  const plan = checks.get("policy:terraform-plan:infra/main.tf")
+  assert.ok(plan)
+  assert.equal(plan.cacheable, false)
+  assert.ok(plan.inputs.includes("infra/**"))
+  assert.deepEqual(plan.prerequisites, ["terraform-plan"])
+  assert.ok(plan.intent)
+  // Each check that is not stochastic has a result in a full run: a lint or
+  // policy check has a step of the Lint and format job, any other check has
+  // a job. The Terraform plan has its own workflow.
+  for (const check of checks.values()) {
+    if (check.stochastic || check === plan) continue
+    assert.ok(
+      check.family === "lint" || check.family === "policy"
+        ? Object.values(lintSteps).some((key) => check.id.startsWith(key))
+        : runsInOf(check.id),
+      check.id,
+    )
+  }
+  // mcp-evals.yaml runs the eval cases; a model call is stochastic.
+  assert.ok(lane("eval", "mcp").length > 0)
+  for (const check of lane("eval", "mcp"))
+    assert.equal(check.stochastic, true, check.id)
+})
+
+test("the manifest lists a build check for each production image and package of CI", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const builds = new Map(
+    JSON.parse(result.stdout)
+      .checks.filter((check) => check.family === "build")
+      .map((check) => [check.id, check]),
+  )
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const job = (name) =>
+    workflow.slice(
+      workflow.indexOf(`\n  ${name}:\n`),
+      workflow.indexOf("\n\n  ", workflow.indexOf(`\n  ${name}:\n`) + 1),
+    )
+  // The Production build job has one matrix entry for each image check: the
+  // merge gate takes the job `Production build (<name>)` as the result of
+  // `build:image-<name>:`. Each entry builds the Dockerfile of its check.
+  const images = [
+    ...job("production-builds").matchAll(
+      /- name: (\S+)\n\s+dockerfile: (\S+)/g,
+    ),
+  ].map(([, name, file]) => `build:image-${name}:${file}`)
+  assert.deepEqual(
+    images.sort(),
+    [...builds.keys()].filter((id) => id.startsWith("build:image-")),
+  )
+  assert.ok(!job("production-builds").includes("pnpm install"))
+  assert.equal(
+    fullRunResults(
+      [],
+      {},
+      stepResults({
+        jobs: [{ name: "Production build (ui)", conclusion: "failure" }],
+      }),
+    )("build:image-ui:apps/ui/Dockerfile"),
+    "failed",
+  )
+  assert.ok(job("packages").includes("pnpm -s checks:run"))
+  const expected = {
+    "build:image-backend:apps/backend/Dockerfile": [
+      "apps/backend/**",
+      "shared/**",
+      "patches/**",
+      ".dockerignore",
+    ],
+    "build:image-worker:apps/backend/Dockerfile.worker": [
+      "apps/backend/**",
+      "shared/**",
+    ],
+    "build:image-ui:apps/ui/Dockerfile": ["apps/ui/**", "apps/backend/src/**"],
+    "build:image-codesearch:apps/codesearch/Dockerfile": [
+      "apps/codesearch/**",
+      "shared/**",
+    ],
+    "build:image-docs:apps/docs/Dockerfile": ["apps/docs/**"],
+    "build:image-chat-sandbox:scripts/chat-sandbox/Dockerfile": [
+      "scripts/chat-sandbox/**",
+    ],
+    "build:package-backend:apps/backend/package.json": [
+      "apps/backend/**",
+      "shared/**",
+    ],
+    "build:package-codesearch:apps/codesearch/package.json": [
+      "apps/codesearch/**",
+      "shared/**",
+    ],
+    "build:package-aws-cdk:packages/aws-cdk/package.json": [
+      "packages/aws-cdk/**",
+    ],
+    "build:package-cli:packages/cli/package.json": ["packages/cli/**"],
+  }
+  assert.deepEqual([...builds.keys()].sort(), Object.keys(expected).sort())
+  for (const [id, inputs] of Object.entries(expected)) {
+    const check = builds.get(id)
+    assert.ok(existsSync(join(root, check.file)), `${check.file} is missing`)
+    for (const input of [...inputs, "pnpm-lock.yaml"])
+      assert.ok(check.inputs.includes(input), `${id} lacks input ${input}`)
+    assert.ok(check.intent, id)
+    const image = check.lane.startsWith("image-")
+    // An image pulls base images by tag, so a result cache never reuses it;
+    // a package build is a function of its inputs.
+    assert.equal(check.cacheable ?? true, !image, id)
+    assert.deepEqual(runsInOf(id), {
+      job: image ? "production-builds" : "packages",
+    })
+  }
+  assert.deepEqual(
+    builds.get("build:image-codesearch:apps/codesearch/Dockerfile")
+      .prerequisites,
+    ["docker"],
+  )
+  // The backend and codesearch builds run Bun: a cache key holds its version.
+  for (const name of ["backend", "codesearch"]) {
+    const check = builds.get(`build:package-${name}:apps/${name}/package.json`)
+    assert.equal(check.runtime, "bun")
+    assert.deepEqual(check.prerequisites, ["bun"])
+  }
+  assert.equal(
+    builds.get("build:package-cli:packages/cli/package.json").runtime,
+    "node",
+  )
+})
+
+test("the manifest lists the preview deployment and its UI smoke test, and the gate reads their PR Deploy steps", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const deploys = new Map(
+    JSON.parse(result.stdout)
+      .checks.filter((check) => check.family === "deploy")
+      .map((check) => [check.id, check]),
+  )
+  const deploy = deploys.get("deploy:preview:.github/workflows/pr-deploy.yaml")
+  const smoke = deploys.get(
+    "deploy:preview-ui-smoke:scripts/ci/smoke-preview-ui.sh",
+  )
+  assert.deepEqual(
+    [...deploys.keys()].sort(),
+    [deploy.id, smoke.id].sort(),
+    "each deploy check",
+  )
+  const workflow = readFileSync(
+    join(root, ".github/workflows/pr-deploy.yaml"),
+    "utf8",
+  )
+  // The deployment selects on each script that the workflow or a sourced
+  // script sources, and on each image that it builds.
+  const sourced = new Set(
+    [
+      ...workflow.matchAll(/\$\{GITHUB_WORKSPACE\}\/(scripts\/[\w./-]+\.sh)/g),
+    ].map(([, file]) => file),
+  )
+  for (const file of [...sourced])
+    for (const [, name] of readFileSync(join(root, file), "utf8").matchAll(
+      /source "\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)\/([\w.-]+\.sh)"/g,
+    ))
+      sourced.add(`scripts/${name}`)
+  assert.ok(sourced.size >= 10)
+  const images = [...workflow.matchAll(/^\s+dockerfile: (\S+)$/gm)].map(
+    ([, file]) => file,
+  )
+  assert.equal(images.length, 4)
+  for (const input of [
+    ...sourced,
+    ...images,
+    "apps/backend/migrations/**",
+    "infra/module/ctxpipe/railway.tf",
+  ])
+    assert.ok(deploy.inputs.includes(input), `deploy lacks input ${input}`)
+  for (const check of deploys.values()) {
+    for (const input of check.inputs.filter((item) => !item.endsWith("/**")))
+      assert.ok(existsSync(join(root, input)), `${input} is missing`)
+    assert.equal(check.cacheable, false, check.id)
+    assert.ok(check.intent, check.id)
+    // Its job is in pr-deploy.yaml, and it has no profile of a gated run.
+    assert.deepEqual(runsInOf(check.id), { job: "pr-deploy" })
+  }
+  // The smoke test needs the deployed preview, which needs the pull request.
+  assert.deepEqual(smoke.prerequisites, ["preview-pr"])
+  assert.equal(prerequisites["preview-deployment"], undefined)
+  assert.deepEqual(deploy.prerequisites, ["preview-pr"])
+  // A plain app code change does not select the deployment: no input is a
+  // whole app directory, and no app source input imports a repo module (a
+  // selector follows the imports of a source input).
+  for (const input of [...deploy.inputs, ...smoke.inputs]) {
+    assert.ok(!/^apps\/[^/]+\/(src\/)?\*\*$/.test(input), input)
+    if (/^apps\/.*\.(ts|tsx|mjs)$/.test(input))
+      assert.doesNotMatch(
+        readFileSync(join(root, input), "utf8"),
+        /from "\.{1,2}\//,
+        input,
+      )
+    // A dependency change selects the image builds, not a preview deploy.
+    assert.ok(!/(^|\/)(pnpm-lock\.yaml|package\.json)$/.test(input), input)
+  }
+  // Each deploy check is one step of the deploy job of pr-deploy.yaml.
+  const job = workflow.slice(workflow.indexOf("\n  deploy_pr_environment:\n"))
+  assert.ok(job.includes("name: Deploy PR environment (Railway + Neon)\n"))
+  assert.deepEqual(Object.values(deploySteps).sort(), [
+    "deploy:preview-ui-smoke:",
+    "deploy:preview:",
+  ])
+  for (const step of Object.keys(deploySteps))
+    assert.ok(job.includes(`- name: ${step}\n`), step)
+  assert.match(
+    job,
+    /- name: Smoke-test the preview UI\n\s+run: bash scripts\/ci\/smoke-preview-ui\.sh /,
+  )
+  // The gate reads the result of each step of the newest PR Deploy run. A
+  // run without the deploy job (a failed job before it, or a run that has
+  // not ended) gives a missing result, which fails the gated run.
+  const deployRun = (conclusions) => ({
+    jobs: [
+      {
+        name: "Deploy PR environment (Railway + Neon)",
+        steps: Object.keys(deploySteps).map((name, index) => ({
+          name,
+          conclusion: conclusions[index],
+        })),
+      },
+    ],
+  })
+  const read = (run) => fullRunResults([], {}, stepResults({ jobs: [] }, run))
+  assert.equal(read(deployRun(["success", "failure"]))(deploy.id), "passed")
+  assert.equal(read(deployRun(["success", "failure"]))(smoke.id), "failed")
+  assert.equal(read(deployRun(["failure", "skipped"]))(deploy.id), "failed")
+  assert.match(
+    read(deployRun(["failure", "skipped"]))(smoke.id),
+    /^missing result \(job pr-deploy/,
+  )
+  assert.match(read(undefined)(deploy.id), /^missing result/)
+  // A failed job before the deploy job skips it: the deployment failed.
+  const skipped = {
+    status: "completed",
+    jobs: [
+      { name: "Migrate PR Neon branch", conclusion: "failure" },
+      {
+        name: "Deploy PR environment (Railway + Neon)",
+        conclusion: "skipped",
+        steps: [],
+      },
+    ],
+  }
+  assert.equal(read(skipped)(deploy.id), "failed")
+  assert.match(read(skipped)(smoke.id), /^missing result/)
+  // A run that has not ended gives pending, outside the failed checks.
+  const pending = { status: "in_progress", jobs: [] }
+  assert.equal(read(pending)(deploy.id), "pending")
+  assert.equal(read(pending)(smoke.id), "pending")
 })

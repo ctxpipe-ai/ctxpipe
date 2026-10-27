@@ -1391,7 +1391,6 @@ jobs:
             update_ui_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
             deploy_service "$UI_SERVICE_ID" >/dev/null
             wait_for_image_deploy "ui" "$UI_SERVICE_ID" "$UI_IMAGE"
-            bash scripts/ci/smoke-preview-ui.sh "https://backend-pr-${PR_NUMBER}.up.railway.app"
 
             upsert_database_url_without_deploy "$CODESEARCH_SERVICE_ID" >/dev/null
             upsert_preview_codesearch_capacity "$CODESEARCH_SERVICE_ID" >/dev/null
@@ -1412,6 +1411,12 @@ jobs:
             fi
 
             echo "All services updated and deployed with a single deploy per service"
+
+      # The check deploy:preview-ui-smoke (scripts/checks/README.md, Preview
+      # deployment). It is a step of its own, so the merge gate reads its
+      # result apart from the deploy step (deploy:preview).
+      - name: Smoke-test the preview UI
+        run: bash scripts/ci/smoke-preview-ui.sh "https://backend-pr-${PR_NUMBER}.up.railway.app"
 
       - name: Get backend public URL
         id: backend_url
