@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // workflows: a repository-wide step on the assembled ref, after the other
-// steps. It writes one knowledge/workflows/<repository>-<file>.md file of
+// steps. It writes one knowledge/workflows/<owner>-<repository>-<file>.md file of
 // kind Workflow for each GitHub Actions workflow file of the source
 // (.github/workflows/*.yml and *.yaml). The file holds the triggers, the job
 // ids, and a MENTIONS claim to each Service, App, or Library file of a root
 // that an `on.<event>.paths` filter or a `working-directory` names. It never
-// copies a `run`, `env`, `with`, or `secrets` value. No model runs. A step
+// copies a `run`, `env`, `with`, or `secrets` value. A hash suffix keeps two
+// names that collide apart. No model runs. A step
 // writes at most 30 files; the host runs it again while the result has
 // `more: true`.
 //
@@ -18,6 +19,7 @@ import { posix } from "node:path"
 import {
   DENIED_HEADINGS,
   INJECTION_PHRASES,
+  WORKFLOW_FILE_PATTERN,
 } from "../../bin/guard-patterns.mjs"
 import {
   findExisting,
@@ -49,8 +51,6 @@ const MAX_STALE = 10
 const MAX_LISTED = 50
 const IN_SUMMARY = 5
 
-/** GitHub runs only the files directly in this folder. */
-const WORKFLOW_FILE = /^\.github\/workflows\/[A-Za-z0-9_.-]{1,100}\.ya?ml$/
 const EVENT = /^[a-z][a-z0-9_]{0,63}$/
 const JOB = /^[A-Za-z_][A-Za-z0-9_-]{0,99}$/
 /** A workflow name that is safe as a heading and a YAML value. */
@@ -85,7 +85,7 @@ function rootOf(value) {
   return best
 }
 
-const list = (items) => {
+const joinNames = (items) => {
   const shown = items.slice(0, IN_SUMMARY)
   const rest = items.length - shown.length
   const head = rest > 0 ? [...shown, `${rest} more`] : shown
@@ -107,7 +107,7 @@ const found = trackedFiles(source)
   .sort()
 const files = []
 for (const path of found) {
-  if (WORKFLOW_FILE.test(path)) files.push(path)
+  if (WORKFLOW_FILE_PATTERN.test(path)) files.push(path)
   else
     skipped.push({
       path: safePath(path) ? path : null,
@@ -140,7 +140,7 @@ if (files.length > MAX_WORKFLOWS)
   })
 
 // 2. One plan for each workflow file that the script can read.
-const sole = (e) =>
+const isSoleOwned = (e) =>
   e?.owned === true && Array.isArray(e.sources) && e.sources.length === 1
 const repositoryFile = findExisting(index, "Repository", [
   repository,
@@ -150,7 +150,7 @@ const plans = []
 for (const file of files.slice(0, MAX_WORKFLOWS)) {
   const path = targets.get(file)
   const entry = entryAt.get(path)
-  if (entry && !sole(entry) && entry.kind !== "Workflow") {
+  if (entry && !isSoleOwned(entry) && entry.kind !== "Workflow") {
     skipped.push({ path, reason: "A file of another kind has this path" })
     continue
   }
@@ -190,14 +190,10 @@ for (const file of files.slice(0, MAX_WORKFLOWS)) {
       ? `- Part of [${repository}](${relativeTo(path, repositoryFile)})`
       : `- Part of \`${repository}\``,
   ]
-  for (const { where, value } of workflow.locations) {
+  for (const { where, event, job, value } of workflow.locations) {
     const root = rootOf(value)
     // `where` embeds an event key or a job key. Test the key as plainly as
     // the Triggers and Jobs lists do; a location with another key is out.
-    const event = /^on\.(.*)\.paths$/.exec(where)?.[1]
-    const job = /^jobs\.(.*)\.(?:defaults\.run|steps)\.working-directory$/.exec(
-      where,
-    )?.[1]
     if (
       !root ||
       (event !== undefined && !EVENT.test(event)) ||
@@ -215,8 +211,8 @@ for (const file of files.slice(0, MAX_WORKFLOWS)) {
   }
 
   let summary = `GitHub Actions workflow ${file} of ${repository}`
-  if (triggers.length) summary += `, on ${list(triggers)}`
-  if (jobs.length) summary += `, with the jobs ${list(jobs)}`
+  if (triggers.length) summary += `, on ${joinNames(triggers)}`
+  if (jobs.length) summary += `, with the jobs ${joinNames(jobs)}`
   summary = summary.length < 1000 ? `${summary}.` : `${summary.slice(0, 990)}.`
   const section = (title, items) =>
     items.length
@@ -229,7 +225,7 @@ for (const file of files.slice(0, MAX_WORKFLOWS)) {
     path,
     claims,
     related,
-    replace: sole(entry),
+    replace: isSoleOwned(entry),
     create: {
       kind: "Workflow",
       name,
@@ -257,7 +253,7 @@ const stale = index
       e.kind === "Workflow" &&
       typeof e.path === "string" &&
       e.path.startsWith("knowledge/workflows/") &&
-      sole(e) &&
+      isSoleOwned(e) &&
       !known.has(e.path),
   )
   .map((e) => e.path)
@@ -265,8 +261,8 @@ const stale = index
 const limit = Math.min(
   MAX_STALE,
   Math.floor(
-    index.filter((e) => e.path?.startsWith("knowledge/") && sole(e)).length *
-      DELETE_SHARE,
+    index.filter((e) => e.path?.startsWith("knowledge/") && isSoleOwned(e))
+      .length * DELETE_SHARE,
   ),
 )
 const deletes = readDeletes(step)

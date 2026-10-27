@@ -3,6 +3,14 @@
 // them from here, so that a script skill can apply the same rules before it
 // writes a file. Change them here only.
 
+/**
+ * A GitHub Actions workflow file: GitHub runs only the files directly in
+ * `.github/workflows/`. The `workflows` skill, the validator, and the hydrate
+ * step use this pattern.
+ */
+export const WORKFLOW_FILE_PATTERN =
+  /^\.github\/workflows\/[A-Za-z0-9_.-]{1,100}\.ya?ml$/
+
 /** A heading that matches one of these addresses agents or models. */
 export const DENIED_HEADINGS = [
   /\bsystem\s+prompts?\b/i,

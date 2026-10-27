@@ -1,8 +1,9 @@
 import { posix, win32 } from "node:path"
 
+import { WORKFLOW_FILE_PATTERN } from "../../../ingest-skills/bin/guard-patterns.mjs"
 import { log } from "../../observability/logger.js"
 import { type HydrateClaim, sourcePathOf } from "./hydrate.js"
-import { WORKFLOW_FILE_PATTERN } from "./layout.js"
+import { KNOWLEDGE_KIND_FOLDERS } from "./layout.js"
 import { WORKSPACE_LINK_SCHEME } from "./mirror-units.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
@@ -63,7 +64,9 @@ export function pullRequestChangedClaims(
       // directly in `.github/workflows/` (as the validator checks).
       if (
         unit.attributes.generated_by !== "ctxpipe-extract" ||
-        !unit.path.startsWith("knowledge/workflows/") ||
+        !unit.path.startsWith(
+          `knowledge/${KNOWLEDGE_KIND_FOLDERS.Workflow}/`,
+        ) ||
         typeof file !== "string" ||
         !WORKFLOW_FILE_PATTERN.test(file) ||
         !Array.isArray(unit.attributes.sources) ||

@@ -1902,7 +1902,9 @@ describe("workflows skill", () => {
       name: null,
       triggers: ["push", "pull_request"],
       jobs: ["a"],
-      locations: [{ where: "jobs.a.steps.working-directory", value: "svc/a" }],
+      locations: [
+        { where: "jobs.a.steps.working-directory", job: "a", value: "svc/a" },
+      ],
     })
     expect(
       readWorkflow(

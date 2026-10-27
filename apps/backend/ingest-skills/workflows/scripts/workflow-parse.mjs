@@ -18,7 +18,7 @@
 // from its text, and it caps the line count, the line length, and the
 // depth.
 
-import { yamlEntry } from "../../apis/scripts/apis-lib.mjs"
+import { yamlEntry } from "../../bin/yaml-lib.mjs"
 
 const MAX_ROWS = 20_000
 const MAX_LINE = 4000
@@ -223,55 +223,73 @@ function walk(rows, visit) {
   }
 }
 
-/** `path` is `parts`; a null part matches each key, but not a list item. */
-const at = (path, ...parts) =>
+/** True when `path` is `parts`; a null part matches each key, but not a list item. */
+const pathIs = (path, ...parts) =>
   path.length === parts.length &&
   parts.every((part, i) =>
     part === null ? typeof path[i] === "string" : part === path[i],
   )
 
-const strings = (value) =>
+/** The text of a scalar value as a list of one, or a list of scalars as it is. */
+const stringsOf = (value) =>
   typeof value === "string" ? [value] : Array.isArray(value) ? value : []
+
+/** The text of a scalar value as a list of one; no text for any other value. */
+const stringOf = (value) => (typeof value === "string" ? [value] : [])
 
 /**
  * The parts of a workflow that a knowledge file holds, or { skip: reason }:
  * `name` (null when the file has none), the trigger names (`triggers`), the
  * job ids (`jobs`), and `locations`: each `on.<event>.paths` filter and each
- * `working-directory` (top level, job, or step) as `{ where, value }`. It
- * never reads a `run`, `env`, `with`, or `secrets` value.
+ * `working-directory` (top level, job, or step) as `{ where, event, job,
+ * value }`. `event` is the event key of a `paths` filter, `job` is the job
+ * key of a job or step, and `where` names the key path for a reader. The
+ * reader tests no key; the caller tests `event` and `job`. It never reads a
+ * `run`, `env`, `with`, or `secrets` value.
  */
 export function readWorkflow(text) {
   let name = null
   const triggers = []
   const jobs = []
   const locations = []
-  const place = (where, values) => values.map((value) => ({ where, value }))
-  const one = (value) => (typeof value === "string" ? [value] : [])
+  const place = (where, keys, values) =>
+    values.map((value) => ({ where, ...keys, value }))
   try {
     walk(rowsOf(text), (path, value) => {
       const event = path[1]
-      if (at(path, "name") && typeof value === "string") name = value
-      else if (at(path, "on") || at(path, "on", ITEM))
-        triggers.push(...strings(value))
-      else if (at(path, "on", null)) triggers.push(event)
+      if (pathIs(path, "name") && typeof value === "string") name = value
+      else if (pathIs(path, "on") || pathIs(path, "on", ITEM))
+        triggers.push(...stringsOf(value))
+      else if (pathIs(path, "on", null)) triggers.push(event)
       else if (
-        at(path, "on", null, "paths") ||
-        at(path, "on", null, "paths", ITEM)
+        pathIs(path, "on", null, "paths") ||
+        pathIs(path, "on", null, "paths", ITEM)
       )
-        locations.push(...place(`on.${event}.paths`, strings(value)))
-      else if (at(path, "jobs", null)) jobs.push(path[1])
-      else if (at(path, "defaults", "run", "working-directory"))
-        locations.push(...place("defaults.run.working-directory", one(value)))
-      else if (at(path, "jobs", null, "defaults", "run", "working-directory"))
+        locations.push(
+          ...place(`on.${event}.paths`, { event }, stringsOf(value)),
+        )
+      else if (pathIs(path, "jobs", null)) jobs.push(path[1])
+      else if (pathIs(path, "defaults", "run", "working-directory"))
+        locations.push(
+          ...place("defaults.run.working-directory", {}, stringOf(value)),
+        )
+      else if (
+        pathIs(path, "jobs", null, "defaults", "run", "working-directory")
+      )
         locations.push(
           ...place(
             `jobs.${path[1]}.defaults.run.working-directory`,
-            one(value),
+            { job: path[1] },
+            stringOf(value),
           ),
         )
-      else if (at(path, "jobs", null, "steps", ITEM, "working-directory"))
+      else if (pathIs(path, "jobs", null, "steps", ITEM, "working-directory"))
         locations.push(
-          ...place(`jobs.${path[1]}.steps.working-directory`, one(value)),
+          ...place(
+            `jobs.${path[1]}.steps.working-directory`,
+            { job: path[1] },
+            stringOf(value),
+          ),
         )
     })
   } catch (error) {

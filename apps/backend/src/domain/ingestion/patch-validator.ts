@@ -17,13 +17,11 @@ import { z } from "zod"
 import {
   DENIED_HEADINGS,
   INJECTION_PHRASES,
+  WORKFLOW_FILE_PATTERN,
 } from "../../../ingest-skills/bin/guard-patterns.mjs"
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { isHostOnlyPath } from "../workspaces/host-only.js"
-import {
-  KNOWLEDGE_KIND_FOLDERS,
-  WORKFLOW_FILE_PATTERN,
-} from "../workspaces/layout.js"
+import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { type AreaFile, checkAreaChange, parseAreaBody } from "./area-file.js"
 import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
@@ -345,10 +343,11 @@ export function gitSource(
 }
 
 /**
- * Checks paths in the source repository. One `git ls-tree` reads the files
- * and folders at `sha` once; each check is then a set lookup. When the
- * listing is larger than the limit of `runGit`, each check fails with that
- * reason, so the step stops.
+ * Checks paths in the source repository. A check of a file (`blob`) runs one
+ * `git ls-tree` for that path. A check of another type reads the files and
+ * folders at `sha` with one `git ls-tree` for the whole step; each such check
+ * is then a set lookup. When the output is larger than the limit of
+ * `runGit`, the check fails with that reason, so the step stops.
  */
 function gitSourcePathExists(
   repoDir: string,

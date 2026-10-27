@@ -287,12 +287,8 @@ beforeAll(async () => {
     "ownership",
     "workflows",
   ]
-  // The workflow parser imports this helper. Keep it without the API skill,
-  // so the plan still has only one model skill.
-  for (const file of real.files.filter(
-    (f) =>
-      kept.includes(f.path.split("/")[0] ?? "") ||
-      f.path === "apis/scripts/apis-lib.mjs",
+  for (const file of real.files.filter((f) =>
+    kept.includes(f.path.split("/")[0] ?? ""),
   )) {
     mkdirSync(dirname(join(bundleDir, file.path)), { recursive: true })
     writeFileSync(join(bundleDir, file.path), file.content, {
