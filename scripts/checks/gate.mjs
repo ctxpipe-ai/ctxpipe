@@ -11,6 +11,7 @@ import { pathToFileURL } from "node:url"
 
 import { schemaErrors } from "./schema.mjs"
 import {
+  checkJobs,
   profiles,
   readTrace,
   runsInOf,
@@ -85,23 +86,12 @@ export function stepResults(jobs) {
   return results
 }
 
-// The jobs of ci.yaml that only collect, select, publish or record: a change
-// to one can change how the gate decides.
-const gateJobs = [
-  "merge-gate-manifest",
-  "merge-gate-select",
-  "merge-gate",
-  "results-writer",
-  "trace",
-]
-
-// The job of line i of ci.yaml when the line is in the `name` or the `steps`
-// of a job that is not a gate job; null for a blank or comment line; else
-// undefined. It reads the indents of the workflow, not its YAML.
+// The job of line i of ci.yaml when the line is in the `steps` of a job that
+// a manifest check runs in (or in the Storybook build job, which they need);
+// null for a blank or comment line; else undefined. It reads the indents of
+// the workflow, not its YAML.
 function jobOf(lines, i) {
   if (/^\s*(?:#|$)/.test(lines[i])) return null
-  if (/^\s*(?:-\s+)?(?:needs|if|runs-on|env|services|strategy):/.test(lines[i]))
-    return undefined
   let key
   let job
   for (let j = i; j >= 0; j--) {
@@ -112,8 +102,8 @@ function jobOf(lines, i) {
     else if (indent.length === 0)
       return name === "jobs" &&
         job &&
-        ["name", "steps"].includes(key) &&
-        !gateJobs.includes(job)
+        key === "steps" &&
+        (checkJobs.has(job) || job === "storybook-build")
         ? job
         : undefined
   }
@@ -122,7 +112,7 @@ function jobOf(lines, i) {
 
 // The jobs that a change to ci.yaml touches, from the line ranges of its
 // `git diff -U0` hunks on both sides, or undefined when one changed line is
-// not in the `name` or the `steps` of such a job.
+// not in the `steps` of such a job.
 function changedJobs(path, read, diff) {
   const sides = [read(path, "base"), read(path, "head")].map((text) =>
     text.split("\n"),
@@ -171,7 +161,7 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
       /^apps\/codesearch\/scripts\/run-vitest-contracts\.mjs$/,
     ].some((input) => input.test(path)),
   )
-  // A change to ci.yaml only in the `name` or the `steps` of check jobs runs
+  // A change to ci.yaml only in the `steps` of check jobs runs
   // the selector; the shadow job then runs each check of those jobs.
   let jobs = []
   const scoped =

@@ -157,7 +157,7 @@ test("only a same-repo pull_request without gate input changes runs the selector
   assert.equal(mode({ config: { ...pinned, mode: "gate" } }).mode, "full")
 })
 
-test("a ci.yaml change only in the steps or names of check jobs runs the selector with those jobs", () => {
+test("a ci.yaml change only in the steps of check jobs runs the selector with those jobs", () => {
   const path = ".github/workflows/ci.yaml"
   const base = readFileSync(join(root, path), "utf8")
   // The hunks come from git, as in CI: `git diff -U0` of the two sides.
@@ -202,6 +202,15 @@ test("a ci.yaml change only in the steps or names of check jobs runs the selecto
   // A merge gate job.
   assert.deepEqual(
     mode(base.replace("did not finish in 3 minutes", "did not finish")),
+    full,
+  )
+  // A job that runs no check, and a job `name`.
+  assert.deepEqual(
+    mode(base.replace('echo "Test shards:', 'echo "Shards:')),
+    full,
+  )
+  assert.deepEqual(
+    mode(base.replace("name: Lint and format\n", "name: Lint\n")),
     full,
   )
   // A `needs` line of a check job.
