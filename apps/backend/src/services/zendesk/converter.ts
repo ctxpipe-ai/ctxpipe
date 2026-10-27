@@ -88,10 +88,7 @@ function line(text: string): string {
  */
 function quotedTicketText(text: string): string {
   const { text: body, cut } = customerText(text, { maxChars: 16_384 })
-  const quoted = body.split("\n").map((row) => {
-    const escaped = row.replace(/^(\s*)(#|[=-]+\s*$)/, "$1\\$2")
-    return escaped ? `> ${escaped}` : ">"
-  })
+  const quoted = body.split("\n").map((row) => (row ? `> ${row}` : ">"))
   return [...quoted, ...(cut ? ["> [comment truncated]"] : [])].join("\n")
 }
 
@@ -131,7 +128,7 @@ function articleBodyMarkdown(html: string): string {
         return href ? { prefix: "[", postfix: `](${href})` } : {}
       },
       img: ({ node }) => ({
-        content: `[Image: ${customerLine(node.getAttribute("alt") ?? "", { maxChars: 2_048 }) || "image"}]`,
+        content: `\\[Image: ${customerLine(node.getAttribute("alt") ?? "", { maxChars: 2_048 }) || "image"}\\]`,
         recurse: false,
       }),
     },

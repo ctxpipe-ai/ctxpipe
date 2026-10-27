@@ -12,13 +12,17 @@
  *   break stayed.
  * - Escape: `\ [ ] < >` are literal in all customer text, and the markers
  *   are escaped with it (Plain). Zendesk kept `[ ]` live in quotes, so it
- *   needed a scheme pass and link rules. `#` is not escaped: no field starts
- *   a line.
+ *   needed a scheme pass and link rules. In a body, a line that would be a
+ *   heading or a heading underline is escaped too (both converters did this
+ *   after the redaction; the helper now owns it). A one-line field does not
+ *   start a line, so its `#` is not escaped.
  * - URLs: each URL loses its userinfo, query, and fragment (Zendesk). Plain
  *   kept a query with no known credential name. A URL with another scheme
  *   than https keeps its scheme, host, and path (Zendesk); Plain removed it,
  *   but it holds no credential and a reader can need it. A path segment named
  *   `token` removes the URL (the Zendesk attachment rule, made generic).
+ *   The userinfo goes before the query, so a `#` or `?` in a password does
+ *   not keep part of it.
  * - Credential parameters: removed anywhere in the text, not only after
  *   `?`, `&`, or `#` (Plain had the list; Zendesk had none outside URLs).
  * - Emails: Unicode local parts and domains. Both converters matched ASCII
@@ -28,6 +32,20 @@
  * - Cut: one cut, before the redaction (see `cutAt`). Plain cut twice.
  * - Article links: only an absolute https link stays (Plain). Zendesk kept a
  *   relative link, which has no meaning in git.
+ *
+ * Known costs in normal text:
+ * - Any run of 9 to 15 digits becomes `[phone removed]`: an order number, a
+ *   Unix time, a SKU, an ISBN, a ZIP+4 code, or a `Ref:` number.
+ * - `code=` is a credential name, so `status code=404` becomes
+ *   `code=[removed]`.
+ * - An `@` in a query reads as the end of a userinfo:
+ *   `https://x.com?e=jo@example.com` becomes
+ *   `https://[credentials removed]@example.com`. A `/` in a password is not
+ *   found (`postgres://admin:pa/ss@host`), because a path can hold an `@`.
+ * - A body keeps the escapes inside a code fence (`\[`), because the helper
+ *   does not parse Markdown.
+ * - The result can be longer than `maxChars`: the markers and the escapes
+ *   add characters after the cut. A caller must not expect the limit.
  */
 
 /**
@@ -39,9 +57,15 @@
  * NFKC skips Hangul compatibility jamo and vulgar fractions, because it would
  * change normal text. It also skips the forms that it would turn into
  * `[ ] < > \` or a backtick, so that NFKC cannot make a live Markdown mark.
+ * A removed run between two backticks becomes one space, so that the strip
+ * cannot join two backtick runs into one longer code span mark.
  */
 function stripped(text: string): string {
   return text
+    .replace(
+      /(?<=`)(?:(?![\t\n\r])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}])+(?=`)/gu,
+      " ",
+    )
     .replace(/(?![\t\n\r])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, "")
     .replace(
       /[^ㄱ-ㆎ¼-¾⅐-⅟↉\u1FEF\uFE47\uFE48\uFE64\uFE65\uFE68\uFF1C\uFF1E\uFF3B-\uFF3D\uFF40]+/g,
@@ -67,14 +91,14 @@ const datePattern =
 
 /**
  * A run of digit groups that can be a phone number: an optional `+`, then
- * digit groups with one to three spaces or tabs, one dot, or one dash between
- * them, and brackets around a group. A run does not start after a letter, a
+ * digit groups with one to three spaces or tabs, one dot, one dash, or one
+ * minus sign between them, and brackets around a group. A run does not start after a letter, a
  * digit, `.`, `/`, `#`, or `-` (a version, a path, a ticket reference), but a
  * `+` can follow a letter (`Mob+61`). A run does not end before a letter, a
  * digit, or `:` (a time).
  */
 const phoneRunPattern =
-  /(?:(?<![\w.+/#-])|(?<=\p{L})(?=\+))(?:\+ ?)?\(?\d+(?:(?:\) ?|(?:[ \t]{1,3}|[.\p{Pd}])\(?|\()(?!\d{4}-\d{2}-\d{2})\d+)*(?![\w:])/u
+  /(?:(?<![\w.+/#-])|(?<=\p{L})(?=\+))(?:\+ ?)?\(?\d+(?:(?:\) ?|(?:[ \t]{1,3}|[.\p{Pd}−])\(?|\()(?!\d{4}-\d{2}-\d{2})\d+)*(?![\w:])/u
     .source
 
 const phoneOrDate = new RegExp(`(${datePattern})|${phoneRunPattern}`, "gu")
@@ -85,6 +109,8 @@ const phoneOrDate = new RegExp(`(${datePattern})|${phoneRunPattern}`, "gu")
  * and unspaced numbers. A long order number or a Unix time also has 9 to 15
  * digits, so it goes too: that is the known cost of the rule. In a code span,
  * a run of digit groups with only dots between them is a version and stays.
+ * An opening bracket that the run took, with no closing bracket in it, stays
+ * before the marker, so that the brackets stay as a pair.
  */
 function withoutPhones(text: string, mark: Marker): string {
   return text
@@ -94,9 +120,11 @@ function withoutPhones(text: string, mark: Marker): string {
         if (date) return match
         if (index % 2 === 1 && /^\d+(?:\.\d+)+$/.test(match)) return match
         const digits = match.replace(/\D/g, "").length
-        return (digits >= 9 && digits <= 15) || /^\d{3}-\d{4}$/.test(match)
-          ? mark("phone removed")
-          : match
+        if (!((digits >= 9 && digits <= 15) || /^\d{3}-\d{4}$/.test(match)))
+          return match
+        return /^\([^)]*$/.test(match)
+          ? `(${mark("phone removed")}`
+          : mark("phone removed")
       }),
     )
     .join("")
@@ -104,7 +132,8 @@ function withoutPhones(text: string, mark: Marker): string {
 
 /**
  * Text without email addresses. The local part and the domain can have any
- * letter, mark, or digit (`josé@`, a Cyrillic look-alike in the domain). In
+ * letter, mark, or digit (`josé@`, a Cyrillic look-alike in the domain). The
+ * ideographic full stop `。` also separates the labels of the domain. In
  * text with no spaces (Chinese, Japanese) the address also takes the letters
  * next to it: that text goes with it. A backslash can be in the local part,
  * because the article Markdown escapes `_` and `*`.
@@ -118,7 +147,7 @@ function withoutEmails(text: string, mark: Marker): string {
   let out = ""
   let copied = 0
   for (const match of text.matchAll(
-    /@[\p{L}\p{M}\p{N}.-]{1,253}\.\p{L}{2,63}/gu,
+    /@[\p{L}\p{M}\p{N}.。-]{1,253}[.。]\p{L}{2,63}/gu,
   )) {
     let start = match.index
     while (
@@ -145,29 +174,32 @@ const credentialName =
 /**
  * Text without the value of a credential parameter (`token=`, `api_key=`,
  * `sig=`), also outside a URL. A name does not start inside a word, so
- * `barcode=` stays.
+ * `barcode=` stays. The value ends at a backtick, so that it cannot remove
+ * the end of a code span.
  */
 function withoutCredentialParameters(text: string, mark: Marker): string {
   return text.replace(
-    new RegExp(`(?<![\\w.-])(${credentialName})=[^\\s&#]*`, "gi"),
+    new RegExp(`(?<![\\w.-])(${credentialName})=[^\\s&#\`]*`, "gi"),
     (_match, name: string) => `${name}=${mark("removed")}`,
   )
 }
 
 /**
  * A URL in text, as the base and the query. A URL starts at a scheme
- * (`https://`, `postgres://`), at `www.`, at a host and a path with no scheme
- * (`app.example.com/`), at `//host.tld`, or at a path that starts with `/`
+ * (`https://`, `postgres://`), at `www.`, at a host with no scheme and a
+ * `/`, `?`, or `#` after it (`app.example.com/`, `example.com:8443?`), at `//`
+ * before a word character (`//intranet/`), or at a path that starts with `/`
  * after a space or an opening mark (a relative link). The base ends at a
- * space, `<`, `>`, `?`, or `#`. The query and the fragment end at a space,
- * `<`, `>`, or the `](` of a link, so that a URL in a link label does not
- * take the link target. A scheme match starts once for each run of scheme
+ * space, `<`, `>`, `?`, `#`, or a backtick. The query and the fragment end at
+ * a space, `<`, `>`, a backtick, or the `](` or `\](` of a link, so that a URL
+ * in a link label does not take the link target or its escape. A backtick
+ * ends a URL, so that the redaction cannot remove the end of a code span. A scheme match starts once for each run of scheme
  * characters, so a long run costs linear time; the run can start with a
  * digit or a mark (`1https://`, `...https://`), and these stay before the
  * scheme.
  */
 const urlPattern =
-  /((?:(?<![a-z0-9+.-])[a-z0-9+.-]+:\/\/|(?<![a-z0-9])www\.|(?<![\w.@/-])(?:[a-z0-9-]+\.)+[a-z]{2,}\/|(?<![\w:/])\/\/(?=[^\s/?#<>]*\.[a-z])|(?<![^\s(["'<>=])\/(?=[\w%-]))[^\s<>?#]*)((?:[?#](?:(?!\]\()[^\s<>])*)?)/gi
+  /((?:(?<![a-z0-9+.-])[a-z0-9+.-]+:\/\/|(?<![a-z0-9])www\.|(?<![\w.@/-])(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?=[/?#])|(?<![\w:/])\/\/(?=[\w-])|(?<![^\s(["'<>=])\/(?=[\w%-]))[^\s<>?#`]*)((?:[?#](?:(?!\\?\]\()[^\s<>`])*)?)/gi
 
 /** The marks at the end of a URL that belong to the text around it. */
 function endMarksOf(text: string): string {
@@ -186,8 +218,9 @@ const withoutUserinfo = (base: string, mark: Marker) =>
 
 /**
  * Whether a URL carries a credential: a userinfo, a path segment named
- * `token`, or a query or fragment parameter with a credential name. The URL
- * parser decodes a name such as `%74oken`.
+ * `token`, or a parameter with a credential name anywhere in the URL (also
+ * in a fragment route, `#/route?token=`). The check decodes ASCII
+ * percent-escapes three times, so `%74oken` and `%3Ftoken%3D` are found.
  */
 function hasCredential(url: string): boolean {
   let parsed: URL
@@ -196,31 +229,36 @@ function hasCredential(url: string): boolean {
   } catch {
     return true
   }
-  const name = new RegExp(`^(?:${credentialName})$`, "i")
+  let decoded = url
+  for (let pass = 0; pass < 3; pass += 1)
+    decoded = decoded.replace(/%([0-7][\da-f])/gi, (_match, hex: string) =>
+      String.fromCharCode(Number.parseInt(hex, 16)),
+    )
   return (
     parsed.username !== "" ||
     parsed.password !== "" ||
     hasTokenPath(parsed.pathname) ||
-    [
-      ...parsed.searchParams.keys(),
-      ...new URLSearchParams(parsed.hash.slice(1)).keys(),
-    ].some((key) => name.test(key))
+    new RegExp(`(?<![\\w.-])(?:${credentialName})=`, "i").test(decoded)
   )
 }
 
 /**
  * Text in which each URL has no userinfo, no query, and no fragment. The
- * query of a URL can hold any credential, so no list of names decides. A
+ * userinfo goes first, from the whole URL, so that a `#` or `?` in a
+ * password does not keep part of it. The query of a URL can hold any
+ * credential, so no list of names decides. A
  * URL with a path segment named `token` goes as a whole. A URL with another
  * scheme than https keeps its scheme, host, and path: they hold no
  * credential, and a reader can need them (`http://localhost:3000/app`).
  */
 function withoutUrlQueries(text: string, mark: Marker): string {
-  return text.replace(urlPattern, (url, base: string, query: string) =>
-    hasTokenPath(base)
-      ? `${mark("link removed")}${endMarksOf(url)}`
-      : `${withoutUserinfo(base, mark)}${endMarksOf(query)}`,
-  )
+  return text.replace(urlPattern, (url: string) => {
+    const kept = withoutUserinfo(url, mark)
+    const query = kept.search(/[?#]/)
+    const base = query < 0 ? kept : kept.slice(0, query)
+    if (hasTokenPath(base)) return `${mark("link removed")}${endMarksOf(url)}`
+    return query < 0 ? kept : `${base}${endMarksOf(kept.slice(query))}`
+  })
 }
 
 /**
@@ -288,7 +326,8 @@ function redacted(text: string, policy: ArticlePolicy, mark: Marker): string {
  * word stays; it looks back at most 2,100 characters. When that range has no
  * space (Chinese or Japanese text, or one long token), the cut moves back
  * over at most 320 characters that can be in an address or a URL (ASCII
- * marks, letters, marks, digits). An address has at most 320 characters. Last,
+ * marks, `。`, `−`, letters, marks, digits). An address has at most 320
+ * characters. Last,
  * the cut moves back over phone characters, so that no part of a phone number
  * stays, and it does not split a surrogate pair. Each loop is linear.
  */
@@ -301,17 +340,18 @@ function cutAt(text: string, maxChars: number): { text: string; cut: boolean } {
   if (!/\s/.test(head.charAt(end - 1))) {
     const stop = Math.max(0, head.length - 320)
     end = head.length
-    while (end > stop && /[!-~\p{L}\p{M}\p{N}]/u.test(head.charAt(end - 1)))
+    while (end > stop && /[!-~。−\p{L}\p{M}\p{N}]/u.test(head.charAt(end - 1)))
       end -= 1
   }
-  while (end > 0 && /[\d\s().+\p{Pd}]/u.test(head.charAt(end - 1))) end -= 1
+  while (end > 0 && /[\d\s().+\p{Pd}−]/u.test(head.charAt(end - 1))) end -= 1
   if (/[\uD800-\uDBFF]/.test(head.charAt(end - 1))) end -= 1
   return { text: head.slice(0, end), cut: true }
 }
 
 /**
  * A body of customer text (a message, a comment): stripped, cut, redacted,
- * and escaped, in that order. The text has only line feeds as line ends.
+ * and escaped, in that order. A line that would be a heading or a heading
+ * underline is escaped. The text has only line feeds as line ends.
  * `cut` is true when the text was longer than `maxChars`.
  */
 export function customerText(
@@ -325,7 +365,10 @@ export function customerText(
     opts.maxChars,
   )
   return {
-    text: escaped(redacted(head.text, "full", plainMarker)),
+    text: escaped(redacted(head.text, "full", plainMarker)).replace(
+      /^([ \t]*)(#|[=-]+[ \t]*$)/gm,
+      "$1\\$2",
+    ),
     cut: head.cut,
   }
 }
@@ -349,17 +392,23 @@ export function customerLine(text: string, opts: { maxChars: number }): string {
  * stays: a relative link has no meaning in git. `credential-links` drops a
  * link with a credential parameter; the other policies remove the query and
  * the fragment. A space, a bracket, an angle bracket, or a backslash is
- * percent-encoded, so that it cannot end the link.
+ * percent-encoded, so that it cannot end the link. The check runs again on
+ * the encoded link: the URL parser reads `\` as `/`, but `%5C` can be part
+ * of a userinfo.
  */
 export function safeHref(href: string, policy: ArticlePolicy): string | null {
   const url = stripped(href).trim()
   const query = url.search(/[?#]/)
   const kept =
     policy === "credential-links" || query < 0 ? url : url.slice(0, query)
-  if (!/^https:\/\//i.test(kept) || hasCredential(kept)) return null
-  return kept.replace(/[\s()<>\\]/g, (mark) =>
+  const encoded = kept.replace(/[\s()<>\\]/g, (mark) =>
     mark === "(" ? "%28" : mark === ")" ? "%29" : encodeURIComponent(mark),
   )
+  return /^https:\/\//i.test(kept) &&
+    !hasCredential(kept) &&
+    !hasCredential(encoded)
+    ? encoded
+    : null
 }
 
 /**

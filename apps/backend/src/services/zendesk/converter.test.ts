@@ -100,7 +100,7 @@ describe("zendeskArticleFile", () => {
         "- Two",
         "",
         // An image is not copied in this version; the article link has it.
-        "[Image: Settings screen]",
+        "\\[Image: Settings screen\\]",
         "",
         "```",
         "npm run reset",
@@ -218,7 +218,21 @@ describe("image alt text in article bodies", () => {
           '<p><img src="https://x.example.com/a.png" alt="x](javascript:alert(1)) [y"></p>',
       },
     })
-    expect(content).toContain("[Image: x\\](javascript:alert(1)) \\[y]")
+    expect(content).toContain("\\[Image: x\\](javascript:alert(1)) \\[y\\]")
+  })
+
+  it("gives no live link when text after an image starts with a parenthesis", () => {
+    const { content } = zendeskArticleFile({
+      subdomain: "acme",
+      categoryId: "1",
+      article: {
+        ...article,
+        bodyHtml:
+          '<p><img src="https://x.example.com/a.png" alt="x">(javascript:alert(1))</p>',
+      },
+    })
+    expect(content).not.toContain("[Image: x](javascript:")
+    expect(content).toContain("\\[Image: x\\](javascript:alert(1))")
   })
 })
 
