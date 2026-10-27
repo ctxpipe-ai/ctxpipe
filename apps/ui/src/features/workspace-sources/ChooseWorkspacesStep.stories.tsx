@@ -109,6 +109,22 @@ export const ShowsHint: Story = {
   },
 }
 
+export const NoWorkspaces: Story = {
+  parameters: {
+    msw: { handlers: { page: [workspaceListHandler([])] } },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      await canvas.findByText(/There are no Workspaces yet\./),
+    ).toBeVisible()
+    await expect(canvas.getByText(/Add to a Workspace/)).toBeVisible()
+    await expect(
+      canvas.getByRole("button", { name: "Create a Workspace" }),
+    ).toBeEnabled()
+  },
+}
+
 export const SingleWorkspace: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
