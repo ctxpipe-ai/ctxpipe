@@ -18,9 +18,9 @@
  *   after the redaction; the helper now owns it). A one-line field does not
  *   start a line, so its `#` is not escaped, but its backtick is: a field can
  *   go into live Markdown (an image alt in an article).
- * - Parser check: each entry point parses its result (`isUnsafeMarkdown`).
- *   When the parser finds a live node, the result is the redacted text with
- *   each punctuation character escaped.
+ * - Parser check: each entry point parses its result as CommonMark and as
+ *   GFM (`isUnsafeMarkdown`). When a parser finds a live node, the result is
+ *   the redacted text with each punctuation character escaped.
  * - URLs: each URL loses its userinfo, query, and fragment (Zendesk). Plain
  *   kept a query with no known credential name. A URL with another scheme
  *   than https keeps its scheme, host, and path (Zendesk); Plain removed it,
@@ -49,15 +49,23 @@
  *   found (`postgres://admin:pa/ss@host`), because a path can hold an `@`.
  * - A body keeps the escapes inside a code fence (`\[`, `&lt;`), because the
  *   escape does not parse Markdown.
- * - An article with HTML, a link that is not https, or more than 50,000
- *   characters becomes inert text: its headings, lists, and links show as
- *   plain text. A tag that the article shows as text (`&lt;b&gt;` in its
- *   HTML) is not HTML: it is written as `&lt;b&gt;` outside code.
+ * - An article with HTML, a link that is not https, more than 200,000
+ *   characters, or a shape that is slow to parse becomes inert text: its
+ *   headings, lists, and links show as plain text. A tag that the article
+ *   shows as text (`&lt;b&gt;` in its HTML) is not HTML: it is written as
+ *   `&lt;b&gt;` outside code. Slow shapes are rare in normal articles: a
+ *   code block of more than about 25,000 characters with no blank line and
+ *   a bracket that does not pair, or a table of more than about 10,000
+ *   cells in all.
+ * - A body of more than 200,000 characters after the escape, with a `[`,
+ *   `<`, `@`, `://`, or `www.`, also becomes inert text (the parser limit).
  * - The result can be longer than `maxChars`: the markers and the escapes
  *   add characters after the cut. A caller must not expect the limit.
  */
 
 import { fromMarkdown } from "mdast-util-from-markdown"
+import { gfmFromMarkdown } from "mdast-util-gfm"
+import { gfm } from "micromark-extension-gfm"
 
 /**
  * The strip at entry. A control, format, or default-ignorable character
@@ -454,55 +462,203 @@ function cutAt(text: string, maxChars: number): { text: string; cut: boolean } {
   return { text: head.slice(0, end), cut: true }
 }
 
+/** A node of a Markdown tree, with the fields that the checks read. */
+type MarkdownNode = {
+  type: string
+  url?: string
+  value?: string
+  children?: MarkdownNode[]
+  position?: { start: { offset?: number }; end: { offset?: number } }
+}
+
 /**
- * The CommonMark tree of the Markdown, or `null` when the parser fails (deep
- * nesting overflows the stack). Emphasis cannot change a link (links bind
- * first), so the parser skips it: on `*a*a…` it costs quadratic time.
+ * The CommonMark tree of the Markdown, or the GFM tree when `github` is true,
+ * or `null` when the parser fails (deep nesting overflows the stack).
+ * Emphasis and strikethrough cannot change a link (links bind first), so
+ * the parser skips them: on `*a*a…` and `~a~a…` they cost quadratic time.
  */
-function parsed(markdown: string): ReturnType<typeof fromMarkdown> | null {
+function parsed(markdown: string, github = false): MarkdownNode | null {
   try {
     return fromMarkdown(markdown, {
-      extensions: [{ disable: { null: ["attention"] } }],
+      extensions: [
+        ...(github ? [gfm()] : []),
+        { disable: { null: ["attention", "strikethrough"] } },
+      ],
+      mdastExtensions: github ? [gfmFromMarkdown()] : [],
     })
   } catch {
     return null
   }
 }
 
+/** Each node of the tree. A loop, not a recursion: a deep tree overflows the stack. */
+function* nodesOf(tree: MarkdownNode): Generator<MarkdownNode> {
+  const nodes = [tree]
+  for (let node = nodes.pop(); node; node = nodes.pop()) {
+    yield node
+    if (node.children) nodes.push(...node.children)
+  }
+}
+
+/** The start and end offsets of each code span and code block of the tree. */
+function codeRangesOf(tree: MarkdownNode): [number, number][] {
+  const ranges: [number, number][] = []
+  for (const node of nodesOf(tree))
+    if ((node.type === "code" || node.type === "inlineCode") && node.position)
+      ranges.push([
+        node.position.start.offset ?? 0,
+        node.position.end.offset ?? 0,
+      ])
+  return ranges
+}
+
 /**
- * Whether a CommonMark parser finds a live node in the Markdown: HTML, or a
- * link, image, autolink, or definition whose target is not https or carries
- * a credential. Each entry point runs this check on its result, as the
- * safety net after the rules above: the parser reads the text as a renderer
- * does, so the check does not depend on a regex edge case. A converter can
- * also call it on a whole file.
+ * Whether a GFM link is a literal autolink that can stay: its text is the
+ * URL as the reader sees it (`http://…`, `https://…`, `www.…`, or an email
+ * address), its scheme is http, https, or mailto, and it has no credential.
+ * Its target is then the visible, redacted text. GFM makes no literal
+ * autolink with another scheme. It must not start in a CommonMark code span
+ * or code block: there, the two parsers do not agree (a `|` in a code span
+ * on a table row breaks the span in GFM), and CommonMark shows it as code.
+ */
+function isAllowedAutolink(
+  node: MarkdownNode,
+  code: [number, number][],
+): boolean {
+  const [text] = node.children ?? []
+  const start = node.position?.start.offset
+  return (
+    node.type === "link" &&
+    node.children?.length === 1 &&
+    text?.type === "text" &&
+    node.url !== undefined &&
+    [text.value, `http://${text.value}`, `mailto:${text.value}`].includes(
+      node.url,
+    ) &&
+    /^(?:https?|mailto):/i.test(node.url) &&
+    !hasAutolinkCredential(node.url) &&
+    start !== undefined &&
+    !code.some(([from, to]) => start >= from && start < to)
+  )
+}
+
+/**
+ * Whether a literal autolink carries a credential. Its host can hold text
+ * that the URL parser rejects (`https://x.com)＜b＞`), so the check reads a
+ * userinfo as an `@` before the path, and checks the rest of the URL with a
+ * valid host.
+ */
+function hasAutolinkCredential(url: string): boolean {
+  const authority = /^[a-z]+:\/\/[^/?#]*/i.exec(url)?.[0]
+  if (!authority) return hasCredential(url)
+  return (
+    authority.includes("@") ||
+    hasCredential(`https://host.invalid${url.slice(authority.length)}`)
+  )
+}
+
+/**
+ * Whether the parser check can read the Markdown in a bounded time: at most
+ * 200,000 characters, and an estimated parse time (`parseCost`) of at most
+ * 2 seconds. The parsers cost more than linear time on some constructs, so
+ * the length alone is not a bound. A long normal article (headings,
+ * paragraphs, lists, tables, code blocks, and links) of 200,000 characters
+ * has an estimate of 0.4 to 0.6 seconds, and its parses take about 0.2
+ * seconds. Each hostile shape that passes takes at most about 4 seconds
+ * (Node 26, slow JIT state).
+ */
+function isParseable(markdown: string): boolean {
+  return markdown.length <= 200_000 && parseCost(markdown) <= 2e9
+}
+
+/**
+ * An estimate of the time that the two parses of the parser check take, in
+ * nanoseconds on Node 26 in a process that parsed other text before (the
+ * slow JIT state). Each term is one construct that costs more than linear
+ * time in micromark 4 and its GFM extensions, with a weight from
+ * measurements. Each term is larger than the cost of its construct. A unit
+ * is a run of lines with no blank line: no paragraph or table crosses a
+ * blank line.
+ * - Each list item adds events to one array of the whole text.
+ * - The GFM search for an email address reads a run of word characters
+ *   again from each `-`, `.`, `_`, or `+` in it.
+ * - A `]` that is not part of a simple link (`[text](url)`) walks
+ *   back through its paragraph to find its opening. A `[` that is not part
+ *   of a simple link makes each later word walk back to it. A simple link
+ *   has no mark in its text that can hide one of its brackets (a backtick,
+ *   `<`, `>`, a parenthesis, or `|`), so the parser pairs its brackets.
+ * - Each bracket, escape, character reference, and code span makes the
+ *   parser merge the rest of its paragraph again. Each `<` (an unclosed
+ *   `<?` or `<!--`) scans the rest of its paragraph.
+ * - Each line of a unit can be a lazy line of a list item or a quote.
+ * - Each block costs about 30 microseconds.
+ * - Each list mark at the start of a line (`-`, `1.`) nests the line one
+ *   level deeper. A quote mark (`>`) costs much less.
+ * - Each table cell adds an edit to one list of the whole text.
+ */
+function parseCost(text: string): number {
+  const markdown = text.replace(/\r\n?/g, "\n")
+  const count = (part: string, marks: RegExp) => part.match(marks)?.length ?? 0
+  let cost =
+    1.5 *
+    count(markdown, /^[ \t>]*(?:[*+-]|\d{1,9}[.)])(?=[ \t]|$)/gm) *
+    markdown.length
+  for (const [run] of markdown.matchAll(/[-.\w+]{2,}/g))
+    cost += 0.6 * run.length * count(run, /[-.+_]/g)
+  let cells = 0
+  for (const unit of markdown.split(/\n[ \t]*\n/)) {
+    let open = false
+    for (const mark of unit.matchAll(
+      /\\[\s\S]|!?\[(?!\^)(?:[^\\[\]`<>()|\n]|\\[!-/:-@[-`{-~]){0,1000}\]\([^\s\\`<>()[\]]*(?: "[^"\\\n]*")?\)|[[\]]/g,
+    )) {
+      if (mark[0] === "]") cost += 60 * mark.index
+      if (mark[0] === "[") open = true
+    }
+    const lines = count(unit, /\n/g) + 1
+    cost +=
+      30_000 +
+      25 * lines ** 2 +
+      (open ? 3 * unit.length ** 2 : 0) +
+      unit.length * (1.5 * count(unit, /[\\&`[\]]/g) + 12 * count(unit, /</g))
+    if (unit.includes("|")) cells += count(unit, /\|/g) + lines
+  }
+  for (const [lead] of markdown.matchAll(/^[ \t>*+\-\d.)]+/gm))
+    cost += 200 * count(lead, /[*+-]|\d[.)]/g) ** 2
+  return cost + 10 * cells ** 2
+}
+
+/**
+ * Whether a CommonMark or a GFM parser finds a live node in the Markdown:
+ * HTML, or a link, image, autolink, or definition whose target is not https
+ * or carries a credential. A GFM literal autolink can also have an http or
+ * mailto target (`isAllowedAutolink`). Each entry point runs this check on
+ * its result, as the safety net after the rules above: the parsers read the
+ * text as a renderer does, so the check does not depend on a regex edge
+ * case. A converter can also call it on a whole file.
  *
- * Text with no `[` and no `<` cannot have one of these nodes, so it is not
- * parsed. The parser skips emphasis (see `parsed`). Other shapes (`]]]…`,
- * `[a][a…`, a long list) still cost quadratic time, so text longer than
- * 50,000 characters is not parsed and counts as unsafe. A parser error
- * (deep nesting overflows the stack) also counts as unsafe.
- *
- * The parser reads CommonMark only: GFM is not a dependency of the backend.
+ * Text with no `[`, `<`, `@`, `://`, or `www.` cannot have one of these
+ * nodes, so it is not parsed. The parsers skip emphasis and strikethrough
+ * (see `parsed`). Text that `isParseable` rejects is not parsed and counts
+ * as unsafe. A parser error (deep nesting overflows the stack; the GFM
+ * parser overflows at 8,000 nested quotes) also counts as unsafe.
  */
 export function isUnsafeMarkdown(markdown: string): boolean {
-  if (!/[[<]/.test(markdown)) return false
-  if (markdown.length > 50_000) return true
-  const tree = parsed(markdown)
-  if (!tree) return true
-  // A loop, not a recursion: a deep tree overflows the stack.
-  const nodes: object[] = [tree]
-  for (let node = nodes.pop(); node; node = nodes.pop()) {
-    if ("type" in node && node.type === "html") return true
-    if (
-      "url" in node &&
-      typeof node.url === "string" &&
-      (!/^https:\/\//i.test(node.url) || hasCredential(node.url))
-    )
-      return true
-    if ("children" in node && Array.isArray(node.children))
-      for (const child of node.children) nodes.push(child)
-  }
+  if (!/[[<@]|:\/\/|www\./i.test(markdown)) return false
+  if (!isParseable(markdown)) return true
+  const commonMark = parsed(markdown)
+  const github = parsed(markdown, true)
+  if (!commonMark || !github) return true
+  const code = codeRangesOf(commonMark)
+  for (const tree of [commonMark, github])
+    for (const node of nodesOf(tree)) {
+      if (node.type === "html") return true
+      if (
+        typeof node.url === "string" &&
+        (!/^https:\/\//i.test(node.url) || hasCredential(node.url)) &&
+        !(tree === github && isAllowedAutolink(node, code))
+      )
+        return true
+    }
   return false
 }
 
@@ -630,30 +786,15 @@ export function safeHref(href: string, policy: ArticlePolicy): string | null {
  * `&lt;` is already literal and a `\` before it would escape the `&`.
  *
  * Text with no `<` cannot form HTML or an autolink, so it is not parsed.
- * Text longer than the limit of the parser check is not parsed either: it
- * becomes the inert fallback. When the escape changes how the code spans
- * pair, the parser check still reads the result.
+ * Text that the parser check cannot read in a bounded time (`isParseable`)
+ * is not parsed either: it becomes the inert fallback. When the escape
+ * changes how the code spans pair, the parser check still reads the result.
  */
 function withTextTags(markdown: string): string {
-  if (!markdown.includes("<") || markdown.length > 50_000) return markdown
+  if (!markdown.includes("<") || !isParseable(markdown)) return markdown
   const tree = parsed(markdown)
   if (!tree) return markdown
-  const kept: [number, number][] = []
-  const nodes: object[] = [tree]
-  for (let node = nodes.pop(); node; node = nodes.pop()) {
-    if (
-      "type" in node &&
-      (node.type === "code" || node.type === "inlineCode") &&
-      "position" in node
-    ) {
-      const { start, end } = node.position as {
-        start: { offset: number }
-        end: { offset: number }
-      }
-      kept.push([start.offset, end.offset])
-    } else if ("children" in node && Array.isArray(node.children))
-      for (const child of node.children) nodes.push(child)
-  }
+  const kept = codeRangesOf(tree)
   for (const marks of markdown.matchAll(
     /^(?:[ \t]*(?:>|[*+-][ \t]|\d{1,9}[.)][ \t]))+/gm,
   ))
@@ -683,9 +824,9 @@ function withTextTags(markdown: string): string {
  * `safeHref` for each link: stripped and redacted by the policy, with each
  * `<` and `>` in text as a character reference (`withTextTags`). The
  * Markdown stays live, so each marker is escaped as it is written. When the
- * parser check finds a live node (HTML, a link that is not https), or the
- * article is longer than 50,000 characters, the whole article is the inert
- * fallback.
+ * parser check finds a live node (HTML, a link that is not https), or it
+ * cannot read the article in a bounded time (`isParseable`), the whole
+ * article is the inert fallback.
  */
 export function articleText(markdown: string, policy: ArticlePolicy): string {
   const safe = withTextTags(redacted(stripped(markdown), policy, liveMarkdown))

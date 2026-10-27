@@ -1,4 +1,6 @@
 import { fromMarkdown } from "mdast-util-from-markdown"
+import { gfmFromMarkdown } from "mdast-util-gfm"
+import { gfm } from "micromark-extension-gfm"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -1434,17 +1436,25 @@ describe("parser check", () => {
     expect(isUnsafeMarkdown(markdown)).toBe(true)
   })
 
-  it("counts text over 50,000 characters as unsafe", () => {
+  it("counts text over 200,000 characters as unsafe", () => {
     expect(
-      isUnsafeMarkdown(`[x](https://ok.example/) ${"a".repeat(50_000)}`),
+      isUnsafeMarkdown(`[x](https://ok.example/) ${"a".repeat(199_976)}`),
     ).toBe(true)
+    expect(
+      isUnsafeMarkdown(`[x](https://ok.example/) ${"a".repeat(199_975)}`),
+    ).toBe(false)
   })
 
+  // The GFM parser overflows the stack on 8,000 nested quotes, so a deeper
+  // tree counts as unsafe.
   it("reads a deep tree without a stack overflow", () => {
     expect(
-      isUnsafeMarkdown(`${"> ".repeat(20_000)}[x](https://ok.example/)`),
+      isUnsafeMarkdown(`${">".repeat(5_000)}[x](https://ok.example/)`),
     ).toBe(false)
-    expect(isUnsafeMarkdown(`${"> ".repeat(20_000)}[x](/a)`)).toBe(true)
+    expect(isUnsafeMarkdown(`${">".repeat(5_000)}[x](/a)`)).toBe(true)
+    expect(
+      isUnsafeMarkdown(`${">".repeat(11_000)}[x](https://ok.example/)`),
+    ).toBe(true)
   })
 
   it.each(["credential-links", "queries", "full"] as const)(
@@ -1465,7 +1475,7 @@ describe("parser check", () => {
     "writes a long article as inert, redacted text (%s)",
     (policy) => {
       const out = articleText(
-        `See token=SECRET and [x](https://ok.example/) ${"a ".repeat(25_000)}`,
+        `See token=SECRET and [x](https://ok.example/) ${"a ".repeat(100_000)}`,
         policy,
       )
       expect(out).toMatch(
@@ -1474,6 +1484,236 @@ describe("parser check", () => {
       expect(targets(out)).toEqual([])
     },
   )
+})
+
+describe("GFM", () => {
+  const policies = ["credential-links", "queries", "full"] as const
+
+  // The link, image, and definition targets of the Markdown, and its node
+  // types, as a GFM parser (micromark with the GFM extensions) reads them.
+  const read = (markdown: string) => {
+    const found = { targets: [] as string[], types: [] as string[] }
+    const visit = (node: object) => {
+      if ("type" in node && typeof node.type === "string")
+        found.types.push(node.type)
+      if ("url" in node && typeof node.url === "string")
+        found.targets.push(node.url)
+      if ("children" in node && Array.isArray(node.children))
+        node.children.forEach(visit)
+    }
+    visit(
+      fromMarkdown(markdown, {
+        extensions: [gfm()],
+        mdastExtensions: [gfmFromMarkdown()],
+      }),
+    )
+    return found
+  }
+
+  // The output of node-html-markdown 1.3.0 for a code span with an internal
+  // `|` on a line before a delimiter row. In GFM, the line is a table row, so
+  // the code span breaks and the text in it is live.
+  const brokenCodeSpans = [
+    // <code>a | [x](javascript:alert(1)) | b</code><br>|-|-|-|
+    // oxlint-disable-next-line no-script-url -- the case is a hostile link
+    ["a script link", "`a | [x](javascript:alert(1)) | b`  \n|-|-|-|"],
+    // <code>[x](data:text/html,xxx) | y</code><br>|-|-|
+    ["a data link", "`[x](data:text/html,xxx) | y`  \n|-|-|"],
+    // <code>http://169.254.169.254/latest | x</code><br>|-|-|
+    [
+      "an http literal autolink",
+      "`http://169.254.169.254/latest | x`  \n|-|-|",
+    ],
+  ] as const
+
+  it.each(brokenCodeSpans)(
+    "finds %s that GFM reads in a broken code span",
+    (_name, markdown) => {
+      expect(isUnsafeMarkdown(markdown)).toBe(true)
+    },
+  )
+
+  it.each(
+    policies.flatMap((policy) =>
+      brokenCodeSpans.map(
+        ([name, markdown]) => [name, policy, markdown] as const,
+      ),
+    ),
+  )(
+    "writes no live link for %s in a broken code span (%s)",
+    (_name, policy, markdown) => {
+      const out = articleText(markdown, policy)
+      const { targets } = read(out)
+      expect(
+        targets.filter((url) => /^(?:javascript|data):/i.test(url)),
+      ).toEqual([])
+      // The inert fallback has no unescaped ASCII punctuation. A GFM parser
+      // still reads an http URL in its text as a literal autolink to the
+      // visible text, as in any body.
+      const inert = !/[!-/:-@[-`{-~]/.test(out.replace(/\\[!-/:-@[-`{-~]/g, ""))
+      expect(inert || targets.every((url) => /^https:\/\//i.test(url))).toBe(
+        true,
+      )
+    },
+  )
+
+  it("finds a literal autolink with a credential", () => {
+    expect(isUnsafeMarkdown("See https://x.example.com/a?token=s1 now")).toBe(
+      true,
+    )
+  })
+
+  it("passes a literal autolink with http, https, or mailto", () => {
+    expect(
+      isUnsafeMarkdown(
+        "See http://localhost:3000/a, https://x.example.com/a, www.example.com, and jo@example.com",
+      ),
+    ).toBe(false)
+  })
+
+  it("keeps an http literal autolink in a body", () => {
+    expect(body("Open http://localhost:3000/a now")).toBe(
+      "Open http://localhost:3000/a now",
+    )
+    expect(read(body("Open http://localhost:3000/a now")).targets).toEqual([
+      "http://localhost:3000/a",
+    ])
+  })
+
+  // `credential-links` removes an http URL, so only the other policies keep
+  // it.
+  it.each(["queries", "full"] as const)(
+    "keeps an http literal autolink in an article (%s)",
+    (policy) => {
+      const out = articleText("Open http://localhost:3000/a now", policy)
+      expect(out).toBe("Open http://localhost:3000/a now")
+      expect(read(out).targets).toEqual(["http://localhost:3000/a"])
+    },
+  )
+
+  // <table><tr><th>A</th><th>B</th></tr><tr><td><a
+  // href="https://ok.example/a">x</a></td><td>y</td></tr></table>
+  it.each(policies)("keeps a table in an article (%s)", (policy) => {
+    const markdown =
+      "| A                         | B |\n| ------------------------- | - |\n| [x](https://ok.example/a) | y |"
+    const out = articleText(markdown, policy)
+    expect(out).toBe(markdown)
+    expect(read(out).types).toEqual(expect.arrayContaining(["table", "link"]))
+  })
+
+  // <table><tr><th>A</th><th>B</th></tr><tr><td><a
+  // href="javascript:alert(1)">x</a></td><td>y</td></tr></table>, with the
+  // href as node-html-markdown writes it when the translator keeps it.
+  it.each(policies)(
+    "writes no live link for a script link in a table cell (%s)",
+    (policy) => {
+      const out = articleText(
+        // oxlint-disable-next-line no-script-url -- the case is a hostile link
+        "| A                            | B |\n| ---------------------------- | - |\n| [x](javascript:alert%281%29) | y |",
+        policy,
+      )
+      expect(read(out).targets).toEqual([])
+    },
+  )
+})
+
+describe("long content", () => {
+  const policies = ["credential-links", "queries", "full"] as const
+
+  // The node types of the Markdown, as a GFM parser reads it.
+  const types = (markdown: string) => {
+    const found = new Set<string>()
+    const visit = (node: object) => {
+      if ("type" in node && typeof node.type === "string") found.add(node.type)
+      if ("children" in node && Array.isArray(node.children))
+        node.children.forEach(visit)
+    }
+    visit(
+      fromMarkdown(markdown, {
+        extensions: [gfm()],
+        mdastExtensions: [gfmFromMarkdown()],
+      }),
+    )
+    return [...found]
+  }
+
+  // The output of node-html-markdown 1.3.0 for one section of a help
+  // article, where `id` is a number of four digits (so that the table
+  // columns keep their width):
+  // <h2>Step 0007: connect the account</h2><p>Open the
+  // <strong>Settings</strong> page and select <a
+  // href="https://help.example.com/hc/articles/0007-setup">the setup
+  // guide</a>. Then read <a
+  // href="https://help.example.com/hc/articles/0007-limits">the
+  // limits</a>.</p><ul><li>Enter the name of the workspace.</li><li>Select
+  // <a href="https://help.example.com/hc/articles/0007-roles">a
+  // role</a>.</li><li>Click <em>Save</em>.</li></ul><ol><li>Copy the
+  // key.</li><li>Paste it in the field.</li></ol><table><thead><tr>
+  // <th>Plan</th><th>Requests</th></tr></thead><tbody><tr><td>Team</td><td><a
+  // href="https://help.example.com/hc/articles/0007-plans">1,000 a
+  // minute</a></td></tr><tr><td>Enterprise</td><td>10,000 a
+  // minute</td></tr></tbody></table><pre><code>curl
+  // https://api.example.com/v1/items/0007\n</code></pre>
+  // For an article of many sections, node-html-markdown writes the sections
+  // with a blank line between them.
+  const section = (id: string) =>
+    [
+      `## Step ${id}: connect the account`,
+      "",
+      `Open the **Settings** page and select [the setup guide](https://help.example.com/hc/articles/${id}-setup). Then read [the limits](https://help.example.com/hc/articles/${id}-limits).`,
+      "",
+      "* Enter the name of the workspace.",
+      `* Select [a role](https://help.example.com/hc/articles/${id}-roles).`,
+      "* Click _Save_.",
+      "1. Copy the key.",
+      "2. Paste it in the field.",
+      "",
+      "| Plan       | Requests                                                          |",
+      "| ---------- | ----------------------------------------------------------------- |",
+      `| Team       | [1,000 a minute](https://help.example.com/hc/articles/${id}-plans) |`,
+      "| Enterprise | 10,000 a minute                                                   |",
+      "",
+      "```",
+      `curl https://api.example.com/v1/items/${id}`,
+      "",
+      "```",
+    ].join("\n")
+  const article = (chars: number) => {
+    const sections: string[] = []
+    while (sections.join("\n\n").length < chars)
+      sections.push(section(String(sections.length).padStart(4, "0")))
+    return sections.join("\n\n")
+  }
+
+  it.each(
+    [50_000, 150_000].flatMap((chars) =>
+      policies.map((policy) => [chars, policy] as const),
+    ),
+  )(
+    "keeps the formatting of an article of %i characters (%s)",
+    (chars, policy) => {
+      const markdown = article(chars)
+      const out = articleText(markdown, policy)
+      expect(out).toBe(markdown)
+      expect(types(out)).toEqual(
+        expect.arrayContaining(["heading", "list", "table", "link", "code"]),
+      )
+      expect(isUnsafeMarkdown(out)).toBe(false)
+    },
+  )
+
+  it("keeps the formatting of a long body with markers", () => {
+    const out = body(
+      "Hi team, the export fails for jo@example.com since Monday. Call me at +1 415 555 0100 or see https://status.example.com/incidents/42 for the details.\n\n".repeat(
+        100,
+      ),
+    )
+    expect(out.length).toBeGreaterThan(15_000)
+    expect(out).toContain(
+      "Hi team, the export fails for \\[email removed\\] since Monday. Call me at \\[phone removed\\] or see https://status.example.com/incidents/42 for the details.\n\nHi team,",
+    )
+    expect(isUnsafeMarkdown(out)).toBe(false)
+  })
 })
 
 describe("time", () => {
@@ -1540,20 +1780,55 @@ describe("time", () => {
     ).toBe("\\[x\\](https://x.com/a;)")
   })
 
-  // The parse costs quadratic time on a run of `]` (the slowest shape that
-  // was found), so the length limit of the parser check bounds it. `*a*a…`
-  // is quadratic too, unless the parser skips emphasis. Each shape starts
-  // with `[`, so that the check parses it.
-  it("checks the slowest parser shapes at the length limit", () => {
-    const n = 49_999
+  // The parse costs quadratic time on a run of `]` that does not pair (the
+  // slowest shape that was found), so the pre-scan of the parser check finds
+  // it and the result is the inert fallback with no parse. `*a*a…` and
+  // `~a~a…` after a `[` that does not pair, GFM tables, and lazy lines are
+  // quadratic too. Each shape starts with `[`, so that the check reads it.
+  it("writes the slowest parser shapes at the length limit as inert text", () => {
+    const n = 199_999
     const shapes = [
       "]".repeat(n),
+      `${"]".repeat(n - 2)}[`,
       "*a".repeat(n / 2),
+      "~a".repeat(n / 2),
       `<${"]".repeat(n - 1)}`,
       `<${"\\".repeat(n - 1)}`,
+      `a|b\n-|-\n${"a|b\n".repeat(n / 4 - 2)}`,
+      "a@".repeat(n / 2),
+      `\n\n- a\n${"b\n".repeat(n / 2 - 3)}`,
     ]
-    const start = performance.now()
-    for (const text of shapes) articleText(`[${text}`, "credential-links")
-    expect(performance.now() - start).toBeLessThan(60_000)
+    // The worker lease is 30 seconds, so one result must take less than 10.
+    for (const text of shapes) {
+      const start = performance.now()
+      const out = articleText(`[${text}`, "credential-links")
+      expect(performance.now() - start).toBeLessThan(10_000)
+      expect(out.replace(/\\[!-/:-@[-`{-~]/g, "")).not.toMatch(/[!-/:-@[-`{-~]/)
+    }
+  }, 120_000)
+
+  // The slowest shapes that the pre-scan lets through to the parse, each just
+  // below the bound of one term of the estimate: a `[` that does not pair, an
+  // email address run, unclosed HTML, character references, a deep list, a
+  // long list item with lazy lines, a long GFM table, and many small blocks.
+  // The result keeps its link, so the parser check read it.
+  it("checks the slowest shapes that the pre-scan passes", () => {
+    const link = "[x](https://ok.example/)"
+    const shapes = [
+      `[${"*a".repeat(12_000)} ${link}`,
+      `${link} ${"a-".repeat(35_000)}`,
+      `${link} ${"<?".repeat(7_000)}`,
+      `${link} ${"x &amp; y ".repeat(10_000)}`,
+      `${"- ".repeat(2_000)}${link}`,
+      `${link}\n\n- a\n${"b\n".repeat(8_000)}`,
+      `${link}\n\na|b\n-|-\n${"a|b\n".repeat(4_500)}`,
+      `${"x\n\n".repeat(30_000)}${link}`,
+    ]
+    for (const text of shapes) {
+      const start = performance.now()
+      const out = articleText(text, "credential-links")
+      expect(performance.now() - start).toBeLessThan(10_000)
+      expect(out).toContain(link)
+    }
   }, 120_000)
 })
