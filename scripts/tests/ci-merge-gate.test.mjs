@@ -4,7 +4,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs"
@@ -50,9 +49,11 @@ function listTimeFiles() {
       ...[...text.matchAll(/(?:from\s+|import\()\s*["'](\.[^"']+)["']/g)].map(
         (match) => relative(root, resolve(root, dirname(file), match[1])),
       ),
-      ...[...text.matchAll(/(?:json\(|readFileSync\(\s*join\(root,\s*)"([^"]+\.(?:mjs|json))"/g)].map(
-        (match) => match[1],
-      ),
+      ...[
+        ...text.matchAll(
+          /(?:json\(|readFileSync\(\s*join\(root,\s*)"([^"]+\.(?:mjs|json))"/g,
+        ),
+      ].map((match) => match[1]),
     ]
     for (const path of found)
       for (const candidate of [path, `${path}.ts`, `${path}.mjs`])
@@ -77,13 +78,7 @@ test("a file that list.mjs runs outside scripts/checks forces a full run", () =>
   ])
     assert.ok(files.includes(known), `walk reaches ${known}`)
   const outside = files.filter((file) => !file.startsWith("scripts/checks/"))
-  for (const file of [
-    ...outside,
-    "package.json",
-    "pnpm-lock.yaml",
-    "pnpm-workspace.yaml",
-    ...readdirSync(join(root, "apps")).map((name) => `apps/${name}/package.json`),
-  ])
+  for (const file of [...outside, ".npmrc"])
     if (existsSync(join(root, file)))
       assert.equal(
         decideMode({
@@ -113,6 +108,17 @@ test("only a same-repo pull_request without gate input changes runs the selector
   })
   assert.deepEqual(mode({ fork: true }), { mode: "full", reason: "fork PR" })
   for (const path of [
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "apps/ui/package.json",
+    "packages/cli/package.json",
+  ])
+    assert.deepEqual(mode({ changed: [path] }), {
+      mode: "select",
+      reason: "shadow",
+    })
+  for (const path of [
     ".github/workflows/ci.yaml",
     ".github/merge-gate.json",
     "scripts/checks/gate.mjs",
@@ -120,11 +126,8 @@ test("only a same-repo pull_request without gate input changes runs the selector
     ".github/actions/setup/action.yml",
     "scripts/ci/test-suite.mjs",
     "scripts/ci/vitest-launch.mjs",
-    "package.json",
-    "pnpm-lock.yaml",
-    "pnpm-workspace.yaml",
-    "apps/ui/package.json",
-    "packages/cli/package.json",
+    ".npmrc",
+    "patches/a.patch",
   ])
     assert.deepEqual(mode({ changed: ["apps/a.ts", path] }), {
       mode: "full",
