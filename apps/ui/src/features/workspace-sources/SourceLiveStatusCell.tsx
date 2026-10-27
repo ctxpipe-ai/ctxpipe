@@ -23,8 +23,19 @@ import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useNow } from "@/lib/useNow"
 import { cn } from "@/lib/utils"
 
-/** One run of a source. */
-export type SourceLiveRun = { key: string; label: string; since: string }
+/** One run of a source, with the detail of today's "Ingesting now" list. */
+export type SourceLiveRun = {
+  key: string
+  /** The stage as a sentence, for example "Reading the code". */
+  label: string
+  /** For example "1 of 3 parts done". */
+  count: string | null
+  /** From 0 to 1; null when the run does not count its parts. */
+  fraction: number | null
+  /** Why the run waits, or what it does now. */
+  detail: string | null
+  since: string
+}
 
 /** The live work of one source. */
 export type SourceLiveStatus = {
@@ -118,6 +129,10 @@ export function CompactSourceRow(props: {
 }) {
   const [runsOpen, setRunsOpen] = useState(false)
   const runs = props.live?.runs ?? []
+  // A problem stays visible while ctxpipe works: the work moves under the row.
+  const problem =
+    props.state.tone === "attention" || props.state.tone === "error"
+  const live = problem ? null : props.live
   return (
     // The row starts under the connector name (chevron, icon, gaps), so the
     // sources read as children of their connector on a wide list.
@@ -129,10 +144,10 @@ export function CompactSourceRow(props: {
             {props.subtitle}
           </div>
         </div>
-        <StatusCell state={props.state} live={props.live} />
-        {props.live ? <Elapsed since={props.live.since} /> : <span />}
+        <StatusCell state={props.state} live={live} />
+        {live ? <Elapsed since={live.since} /> : <span />}
         <div>
-          {runs.length > 1 ? (
+          {runs.length > 0 ? (
             <AriaButton
               aria-expanded={runsOpen}
               aria-label={`${runsOpen ? "Hide" : "Show"} the ${runs.length} runs of ${props.name}`}
@@ -142,7 +157,7 @@ export function CompactSourceRow(props: {
                 focusVisibleClassName,
               )}
             >
-              {runs.length} runs
+              {runs.length} {runs.length === 1 ? "run" : "runs"}
               <IconChevronRight
                 aria-hidden
                 className={cn(
@@ -183,21 +198,57 @@ export function CompactSourceRow(props: {
           ) : null}
         </div>
       </div>
+      {problem && props.live ? (
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span
+            aria-hidden
+            className="ctx-status-pulse size-1.5 shrink-0 rounded-full bg-teal-400"
+          />
+          {props.live.label} now
+        </p>
+      ) : null}
       {props.note ? <div className="mt-1 text-xs">{props.note}</div> : null}
       {runsOpen ? <RunList runs={runs} /> : null}
     </li>
   )
 }
 
-/** The runs under a row: each label under the name, each time in the time column. */
+/**
+ * The runs under a row, as in today's "Ingesting now" list: the stage and
+ * the count, a bar, why the run waits, and the time in the time column.
+ */
 function RunList(props: { runs: SourceLiveRun[] }) {
   return (
-    <ul className="mt-1.5 flex flex-col gap-1">
+    <ul className="mt-2 flex flex-col gap-2">
       {props.runs.map((run) => (
-        <li key={run.key} className={cn(GRID, "text-xs")}>
-          <span className="col-span-2 truncate border-l border-white/[0.08] pl-3 text-muted-foreground">
-            {run.label}
-          </span>
+        <li key={run.key} className={cn(GRID, "items-start text-xs")}>
+          <div className="col-span-2 min-w-0 border-l border-white/[0.08] pl-3">
+            <p className="text-foreground">
+              {run.label}
+              {run.count ? (
+                <span className="text-muted-foreground"> · {run.count}</span>
+              ) : null}
+            </p>
+            <div
+              aria-hidden
+              className="mt-1 h-0.5 max-w-xs overflow-hidden rounded-full bg-white/[0.08]"
+            >
+              <div
+                className={cn(
+                  "h-full rounded-full bg-teal-400/70",
+                  run.fraction === null && "ctx-status-pulse w-1/3",
+                )}
+                style={
+                  run.fraction === null
+                    ? undefined
+                    : { width: `${Math.round(run.fraction * 100)}%` }
+                }
+              />
+            </div>
+            {run.detail ? (
+              <p className="mt-1 text-muted-foreground">{run.detail}</p>
+            ) : null}
+          </div>
           <Elapsed since={run.since} />
         </li>
       ))}
@@ -246,75 +297,102 @@ export function SourceAccordionGroup(props: {
   summary: { label: string; tone: "working" | "attention" } | null
   note?: ReactNode
   action?: ReactNode
-  defaultExpanded: boolean
+  /**
+   * True while the connector works, needs attention, or waits for a merge.
+   * The group opens when this turns true (also after the first render, when
+   * the live work loads), and it stays open until the user closes it.
+   */
+  wantsOpen: boolean
   children?: ReactNode
 }) {
   const { Icon } = props
+  const linked =
+    props.id !== undefined &&
+    typeof window !== "undefined" &&
+    window.location.hash === `#${props.id}`
+  const [expanded, setExpanded] = useState(props.wantsOpen || linked)
+  // Adjust the state when the prop changes, during render (no Effect).
+  const [wanted, setWanted] = useState(props.wantsOpen)
+  if (props.wantsOpen !== wanted) {
+    setWanted(props.wantsOpen)
+    if (props.wantsOpen) setExpanded(true)
+  }
   return (
-    <AriaDisclosure id={props.id} defaultExpanded={props.defaultExpanded}>
-      {({ isExpanded }) => (
-        <>
-          <div className={cn(GRID, "bg-white/[0.02] px-3 py-2")}>
-            <AriaButton
-              slot="trigger"
-              className={cn(
-                "flex min-w-0 items-center gap-3 rounded-md text-left",
-                focusVisibleClassName,
-              )}
-            >
-              <IconChevronRight
-                aria-hidden
+    <div
+      id={props.id}
+      ref={linked ? scrollIntoViewWhenLinked : undefined}
+      className="scroll-mt-4"
+    >
+      <AriaDisclosure isExpanded={expanded} onExpandedChange={setExpanded}>
+        {({ isExpanded }) => (
+          <>
+            <div className={cn(GRID, "bg-white/[0.02] px-3 py-2")}>
+              <AriaButton
+                slot="trigger"
                 className={cn(
-                  "size-4 shrink-0 text-muted-foreground transition-transform",
-                  isExpanded && "rotate-90",
-                )}
-              />
-              <span
-                className="ctx-node size-7 shrink-0 rounded-md text-foreground"
-                aria-hidden
-              >
-                <Icon className="size-4" />
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-sm text-foreground">
-                  {props.title}
-                </span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {props.meta}
-                </span>
-              </span>
-            </AriaButton>
-            {props.summary ? (
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1.5 text-xs whitespace-nowrap",
-                  props.summary.tone === "working"
-                    ? "text-teal-200"
-                    : "text-amber-200",
+                  "flex min-w-0 items-center gap-3 rounded-md text-left",
+                  focusVisibleClassName,
                 )}
               >
-                <span
+                <IconChevronRight
                   aria-hidden
                   className={cn(
-                    "size-1.5 rounded-full",
-                    props.summary.tone === "working"
-                      ? "ctx-status-pulse bg-teal-400"
-                      : "bg-amber-400",
+                    "size-4 shrink-0 text-muted-foreground transition-transform",
+                    isExpanded && "rotate-90",
                   )}
                 />
-                {props.summary.label}
-              </span>
-            ) : (
+                <span
+                  className="ctx-node size-7 shrink-0 rounded-md text-foreground"
+                  aria-hidden
+                >
+                  <Icon className="size-4" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm text-foreground">
+                    {props.title}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {props.meta}
+                  </span>
+                </span>
+              </AriaButton>
+              {props.summary ? (
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1.5 text-xs whitespace-nowrap",
+                    props.summary.tone === "working"
+                      ? "text-teal-200"
+                      : "text-amber-200",
+                  )}
+                >
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "size-1.5 rounded-full",
+                      props.summary.tone === "working"
+                        ? "ctx-status-pulse bg-teal-400"
+                        : "bg-amber-400",
+                    )}
+                  />
+                  {props.summary.label}
+                </span>
+              ) : (
+                <span />
+              )}
               <span />
-            )}
-            <span />
-            <span />
-            <div className="flex justify-end">{props.action}</div>
-          </div>
-          {props.note}
-          <AriaDisclosurePanel>{props.children}</AriaDisclosurePanel>
-        </>
-      )}
-    </AriaDisclosure>
+              <span />
+              <div className="flex justify-end">{props.action}</div>
+            </div>
+            {props.note}
+            <AriaDisclosurePanel>{props.children}</AriaDisclosurePanel>
+          </>
+        )}
+      </AriaDisclosure>
+    </div>
   )
+}
+
+/** A link to a connector (#source-github) scrolls to it, as WorkspaceSources does. */
+function scrollIntoViewWhenLinked(element: HTMLElement | null) {
+  element?.scrollIntoView({ block: "start" })
 }

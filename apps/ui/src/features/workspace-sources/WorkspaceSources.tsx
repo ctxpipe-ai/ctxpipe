@@ -360,7 +360,32 @@ function SourceRow(props: {
   )
 }
 
-function PendingAddRow(props: { change: PendingSourceChange }) {
+function PendingAddRow(props: {
+  change: PendingSourceChange
+  /** PROTOTYPE (variant D): the compact row, on the shared columns. */
+  compact?: boolean
+}) {
+  if (props.compact)
+    return (
+      <CompactSourceRow
+        name="New source"
+        title="New source"
+        subtitle={props.change.path}
+        state={{ label: "Awaiting merge", tone: "attention" }}
+        live={null}
+        actions={[]}
+        note={
+          <TextLink
+            href={props.change.pullRequestUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs"
+          >
+            Open the pull request
+          </TextLink>
+        }
+      />
+    )
   return (
     <li className={sourceRowClassName}>
       <p className="truncate text-sm text-foreground">New source</p>
@@ -384,6 +409,7 @@ function GithubSourceNotes(props: {
   sources: WorkspaceSource[]
   pendingAdds: PendingSourceChange[]
   pendingOf: (path: string) => PendingSourceChange | undefined
+  compact?: boolean
 }) {
   const { sources, pendingAdds, pendingOf } = props
   const notes = sources.filter(
@@ -411,7 +437,11 @@ function GithubSourceNotes(props: {
         )
       })}
       {pendingAdds.map((change) => (
-        <PendingAddRow key={change.path} change={change} />
+        <PendingAddRow
+          key={change.path}
+          change={change}
+          compact={props.compact ?? false}
+        />
       ))}
     </ul>
   )
@@ -857,6 +887,7 @@ export function WorkspaceSources(props: {
                         sources={sources}
                         pendingAdds={pendingAdds}
                         pendingOf={pendingOf}
+                        compact={liveStatus !== undefined}
                       />
                     </>
                   ) : sources.length === 0 &&
@@ -899,7 +930,11 @@ export function WorkspaceSources(props: {
                         />
                       ))}
                       {pendingAdds.map((change) => (
-                        <PendingAddRow key={change.path} change={change} />
+                        <PendingAddRow
+                          key={change.path}
+                          change={change}
+                          compact={liveStatus !== undefined}
+                        />
                       ))}
                     </ul>
                   )
@@ -950,7 +985,7 @@ export function WorkspaceSources(props: {
                             ? { label: `${working} working`, tone: "working" }
                             : null
                       }
-                      defaultExpanded={
+                      wantsOpen={
                         working > 0 ||
                         attention > 0 ||
                         pendingAdds.length > 0 ||

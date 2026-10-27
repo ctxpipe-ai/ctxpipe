@@ -316,6 +316,33 @@ const sources = workspaceSourceList({
   ],
 })
 
+/**
+ * The busy day with problems in the sources: the Linear source lost its
+ * access while a Linear sync runs, a new source waits for its merge, and one
+ * repository was indexed with issues.
+ */
+const sourcesWithProblems = workspaceSourceList({
+  items: sources.items.map((item) =>
+    item.provider === "linear"
+      ? {
+          ...item,
+          status: "out_of_access" as const,
+          statusDetail:
+            "The Linear connection cannot read the team PLAT. Give it access in Linear, or remove the team.",
+        }
+      : item,
+  ),
+  pendingChanges: [
+    {
+      path: "sources/linear/support.md",
+      provider: "linear",
+      action: "add",
+      pullRequestUrl: `${REPO}/pull/31`,
+      createdAt: "2026-10-27T09:10:00.000Z",
+    },
+  ] as never,
+})
+
 /** Accepts each settings save, so a variant can show its saved state. */
 const writeHandlers = (detail: WorkspaceDetail) => [
   http.patch(
@@ -348,7 +375,11 @@ export type Scenario = {
   runs: IngestionItem[]
   sources?: ReturnType<typeof workspaceSourceList> | "loading" | "error"
   role?: "owner" | "member"
-  automatic?: "manual" | "automatic"
+  /** The automatic-upgrades setting, or why ctxpipe cannot read it. */
+  automatic?:
+    | "manual"
+    | "automatic"
+    | { unreadable: "no_tip" | "invalid_format" | "unreadable" }
 }
 
 /**
@@ -375,7 +406,10 @@ function scenarioHandlers(scenario: Scenario) {
     workspaceUpgradeStartHandler(),
     workspaceUpgradeCheckHandler(),
     ...workspaceUpgradeAutomaticHandlers({
-      setting: { mode: scenario.automatic ?? "manual" },
+      setting:
+        typeof scenario.automatic === "object"
+          ? { mode: null, reason: scenario.automatic.unreadable }
+          : { mode: scenario.automatic ?? "manual" },
     }),
     workspaceSourcesHandler(scenario.sources ?? sources),
     ...workspaceSourceChangeHandlers(),
@@ -521,6 +555,33 @@ export const scenarios = {
     detail: prototypeWorkspace,
     upgrades: [reingestReady, formatDone, firstReingestDone, ...olderReingests],
     runs: busyRuns,
+  },
+  sourceProblems: {
+    name: "Source problems",
+    about:
+      "Nothing in the upgrades, but the sources need you: Linear lost access to a team while a Linear sync runs, a new source waits for its merge, and web-console was indexed with issues.",
+    detail: {
+      ...prototypeWorkspace,
+      linkedRepositories: prototypeWorkspace.linkedRepositories?.map(
+        (repository) =>
+          repository.gitUrl.endsWith("/web-console")
+            ? { ...repository, indexingStatus: "complete_with_issues" as const }
+            : repository,
+      ),
+    },
+    upgrades: [formatDone, firstReingestDone],
+    runs: busyRuns,
+    sources: sourcesWithProblems,
+  },
+  formatNotValid: {
+    name: "File layout not valid",
+    about:
+      "The format file of the repository is not valid: ctxpipe cannot read the file layout or the automatic-upgrades setting.",
+    detail: prototypeWorkspace,
+    upgrades: [formatDone, firstReingestDone],
+    formatVersion: -1,
+    runs: [],
+    automatic: { unreadable: "invalid_format" },
   },
   memberView: {
     name: "Member view",

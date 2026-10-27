@@ -115,6 +115,24 @@ export const WriteCheckFailed = scenarioStory(scenarios.writeCheckFailed)
 export const GraphProblems = scenarioStory(scenarios.graphProblems)
 export const RepositoryMoving = scenarioStory(scenarios.repositoryMoving)
 export const LongHistory = scenarioStory(scenarios.longHistory)
+export const SourceProblems = scenarioStory(scenarios.sourceProblems)
+
+/** A Home notice links to #upgrades: the Upgrades card gets the focus. */
+export const LinkToUpgrades: Story = {
+  ...scenarioStory(scenarios.busyDay),
+  name: "Link to upgrades",
+  parameters: {
+    ...scenarioStory(scenarios.busyDay).parameters,
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: ORG,
+      workspaceSlug: WS,
+      pane: "settings",
+      hash: "upgrades",
+    } satisfies StoryRouteParams,
+  },
+}
+export const FormatNotValid = scenarioStory(scenarios.formatNotValid)
 export const MemberView = scenarioStory(scenarios.memberView)
 export const Loading = scenarioStory(scenarios.loading)
 export const LoadErrors = scenarioStory(scenarios.loadErrors)

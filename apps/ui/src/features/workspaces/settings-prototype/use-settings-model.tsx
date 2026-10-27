@@ -763,6 +763,10 @@ export function useSettingsModel(props: {
       formatLine: upgradesData
         ? formatHealthLine(upgradesData.formatVersion, upgradesData.codeFormat)
         : null,
+      /** The format of the repository and the format that ctxpipe reads. */
+      format: upgradesData
+        ? { version: formatVersion, code: upgradesData.codeFormat }
+        : null,
       needsYou: lists.needs_you.map(describeUpgrade),
       working: lists.working.map(describeUpgrade),
       done: lists.done.map(describeUpgrade),

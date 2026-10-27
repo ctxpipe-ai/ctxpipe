@@ -9,16 +9,26 @@
 import {
   IconAlertTriangle,
   IconArrowRight,
+  IconChevronRight,
   IconCircleCheck,
   IconGitBranch,
   IconGitPullRequest,
   IconInfoCircle,
 } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { type ReactNode, useState } from "react"
+import { useLocation } from "@tanstack/react-router"
+import {
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
 import {
   Link as AriaLink,
   Button as AriaButton,
+  Disclosure as AriaDisclosure,
+  DisclosurePanel as AriaDisclosurePanel,
   Switch as AriaSwitch,
   Tooltip,
   TooltipTrigger,
@@ -35,12 +45,14 @@ import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Link as TextLink } from "@/components/ui/Link"
 import { SkeletonText, useSkeletonHold } from "@/components/ui/Skeleton"
 import { TextField } from "@/components/ui/TextField"
+import { workspaceSourcesOptions } from "@/features/workspace-sources/queries"
 import type {
   SourceLiveStatus,
   SourceLiveStatusLookup,
 } from "@/features/workspace-sources/SourceLiveStatusCell"
 import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
 import {
+  WORKSPACE_UPGRADES_HASH,
   saveWorkspaceUpgradeModeAndWait,
   workspaceUpgradeKeys,
   workspaceUpgradeModeOptions,
@@ -69,12 +81,49 @@ const PART_TITLE: Record<PartId, string> = {
 
 const cardId = (part: string) => `settings-d-card-${part}`
 
+/**
+ * Scrolls only the pane's own scroll area to an element. `scrollIntoView`
+ * also scrolls the outer boxes, which shifts the whole pane.
+ */
+function scrollPaneTo(element: HTMLElement) {
+  const scroller = element.closest<HTMLElement>("[data-settings-scroll]")
+  if (!scroller) return
+  scroller.scrollTop +=
+    element.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+}
+
 /** Moves the view and the focus to a card. */
 function jumpTo(part: PartId) {
   const card = document.getElementById(cardId(part))
   if (!card) return
-  card.scrollIntoView({ block: "start" })
+  scrollPaneTo(card)
   card.focus({ preventScroll: true })
+}
+
+/**
+ * A link can land on a card (#upgrades from a Home notice): the card gets the
+ * focus and stays at the top while the parts above load, until the user
+ * scrolls or for a few seconds. The same rules as WorkspaceSettingsPane.
+ */
+function useLanding(ref: RefObject<HTMLElement | null>, landing: boolean) {
+  useEffect(() => {
+    const card = ref.current
+    if (!landing || !card) return
+    const toStart = () => scrollPaneTo(card)
+    card.focus({ preventScroll: true })
+    toStart()
+    const keep = new ResizeObserver(toStart)
+    if (card.parentElement) keep.observe(card.parentElement)
+    const stop = () => keep.disconnect()
+    const timer = setTimeout(stop, 3000)
+    const events = ["wheel", "touchstart", "keydown"] as const
+    for (const event of events) window.addEventListener(event, stop)
+    return () => {
+      stop()
+      clearTimeout(timer)
+      for (const event of events) window.removeEventListener(event, stop)
+    }
+  }, [ref, landing])
 }
 
 export function VariantD(props: { model: SettingsModel }) {
@@ -92,9 +141,11 @@ export function VariantD(props: { model: SettingsModel }) {
   const upgradesNeedYou =
     model.upgrades.status === "error" ||
     model.upgrades.headline?.label === "Needs you"
+  const sourcesNeedYou = useSourcesNeedYou(model)
 
   const needs: PartId[] = [
     ...(upgradesNeedYou ? (["upgrades"] as const) : []),
+    ...(sourcesNeedYou ? (["sources"] as const) : []),
     ...(graphNeedsYou ? (["graph"] as const) : []),
     ...(accessNeedsYou ? (["repository"] as const) : []),
   ]
@@ -120,12 +171,34 @@ export function VariantD(props: { model: SettingsModel }) {
       </header>
 
       <UpgradesCard model={model} loading={upgradesLoading} />
-      <SourcesCard model={model} running={runningSources} />
+      <SourcesCard
+        model={model}
+        running={runningSources}
+        needsYou={sourcesNeedYou}
+      />
       <GraphCard model={model} />
       <RepositoryCard model={model} />
       <GeneralCard model={model} />
       <DangerCard model={model} />
     </div>
+  )
+}
+
+/**
+ * A source needs the user when it has a problem, a linked repository indexed
+ * with issues, or a source change waits for a merge. The same reads as the
+ * sources list, from the same cache.
+ */
+function useSourcesNeedYou(model: SettingsModel): boolean {
+  const sources = useQuery(
+    workspaceSourcesOptions(model.orgSlug, model.workspace.slug),
+  ).data
+  return (
+    (sources?.items ?? []).some((item) => item.status !== "ok") ||
+    (sources?.pendingChanges.length ?? 0) > 0 ||
+    (model.repository.linkedRepositories ?? []).some(
+      (repository) => repository.indexingStatus === "complete_with_issues",
+    )
   )
 }
 
@@ -205,11 +278,16 @@ function PartCard(props: {
   status?: ReactNode
   needsYou?: boolean
   danger?: boolean
+  /** A link landed on this card. */
+  landing?: boolean
   children: ReactNode
   footer?: ReactNode
 }) {
+  const ref = useRef<HTMLElement>(null)
+  useLanding(ref, props.landing ?? false)
   return (
     <section
+      ref={ref}
       id={cardId(props.id)}
       tabIndex={-1}
       aria-labelledby={`${cardId(props.id)}-title`}
@@ -276,21 +354,28 @@ const clock = (iso: string) =>
 function UpgradesCard(props: { model: SettingsModel; loading: boolean }) {
   const { model, loading } = props
   const { upgrades } = model
+  const hash = useLocation({ select: (location) => location.hash })
+  // The headline also counts a format file that ctxpipe cannot read.
   const needsYou =
     !loading &&
     (upgrades.status === "error" || upgrades.headline?.label === "Needs you")
   const active = [...upgrades.needsYou, ...upgrades.working]
-  // The rows and the alert say "needs you" and "working". The header says
-  // only what the body does not.
+  const formatBehind =
+    upgrades.format !== null &&
+    upgrades.format.version !== null &&
+    upgrades.format.version >= 0 &&
+    upgrades.format.version < upgrades.format.code
+  // The rows, the alert, and the format line say "needs you" and "working".
+  // The header says only what the body does not.
   const status =
-    loading || upgrades.status === "error" || active.length ? null : (
-      <QuietStatus>Up to date</QuietStatus>
+    loading ||
+    upgrades.status === "error" ||
+    active.length ||
+    needsYou ? null : (
+      <QuietStatus>
+        {formatBehind ? "Checking the file layout" : "Up to date"}
+      </QuietStatus>
     )
-  // The cost of the last applied re-ingestion: the best guess of the next one.
-  const lastCost = [...upgrades.done]
-    .filter((view) => view.item.kind === "reingest" && view.spend)
-    .sort((a, b) => b.item.updatedAt.localeCompare(a.item.updatedAt))[0]
-    ?.spend?.replace(/^Spend: /, "")
   return (
     <PartCard
       id="upgrades"
@@ -298,6 +383,7 @@ function UpgradesCard(props: { model: SettingsModel; loading: boolean }) {
       description="ctxpipe keeps this Workspace current."
       status={status}
       needsYou={needsYou}
+      landing={hash === WORKSPACE_UPGRADES_HASH}
     >
       {loading ? (
         <div className="flex flex-col gap-1" aria-busy>
@@ -329,12 +415,7 @@ function UpgradesCard(props: { model: SettingsModel; loading: boolean }) {
               aria-label="Upgrades that need you or run now"
             >
               {active.map((view) => (
-                <UpgradeEntry
-                  key={view.key}
-                  view={view}
-                  model={model}
-                  lastCost={view.item.kind === "reingest" ? lastCost : null}
-                />
+                <UpgradeEntry key={view.key} view={view} model={model} />
               ))}
             </ul>
           ) : null}
@@ -344,10 +425,10 @@ function UpgradesCard(props: { model: SettingsModel; loading: boolean }) {
               workspaceSlug={model.workspace.slug}
               isAdmin={model.isAdmin}
             />
-            <FormatNote line={upgrades.formatLine} />
+            <FormatNote line={upgrades.formatLine} format={upgrades.format} />
           </div>
           {upgrades.done.length ? (
-            <HistorySection views={upgrades.done} />
+            <HistorySection views={upgrades.done} model={model} />
           ) : null}
         </div>
       )}
@@ -356,23 +437,15 @@ function UpgradesCard(props: { model: SettingsModel; loading: boolean }) {
 }
 
 /** One upgrade that needs the user or runs now: a row, with its action on the right. */
-function UpgradeEntry(props: {
-  view: UpgradeView
-  model: SettingsModel
-  lastCost: string | null | undefined
-}) {
+function UpgradeEntry(props: { view: UpgradeView; model: SettingsModel }) {
   const { view, model } = props
-  const stepsWithReport = view.steps.filter((step) => step.report.length > 0)
-  const failure = view.failure
   const dot = upgradeDot(view)
   const waitsToStart =
     view.item.kind === "reingest" && view.item.status === "awaiting_operator"
   // One muted line of facts. "Ready to start" is the Start button itself.
+  // No cost estimate: the range was too wide to help (CTX-894).
   const meta = [
     waitsToStart ? null : view.tag.label,
-    waitsToStart && props.lastCost
-      ? `The last run cost ${props.lastCost}`
-      : null,
     waitsToStart && view.item.checkedAt
       ? `Checked at ${clock(view.item.checkedAt)}`
       : view.checkResult,
@@ -420,162 +493,172 @@ function UpgradeEntry(props: {
           <UpgradeAction view={view} />
         </div>
       </div>
-
-      <div className="pl-3.5">
-        {view.steps.length ? (
-          <ol
-            className="mt-3 flex flex-col gap-1"
-            aria-label={`Steps of ${view.title}`}
-          >
-            {view.steps.map((step, index) => (
-              <li
-                key={step.format}
-                className="flex items-baseline gap-2 text-xs text-muted-foreground"
-              >
-                <span className="w-3 shrink-0 tabular-nums">{index + 1}</span>
-                <span>{step.title}</span>
-                {step.commitSha ? (
-                  <code className="font-mono">
-                    {step.commitSha.slice(0, 7)}
-                  </code>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-        ) : null}
-
-        {view.progress ? (
-          <UpgradeRunProgress title={view.title} progress={view.progress} />
-        ) : null}
-
-        {view.notices.length ? (
-          <ul
-            className="mt-3 flex flex-col gap-1.5 text-xs"
-            aria-label={`Notes of ${view.title}`}
-          >
-            {view.notices.map((notice) => (
-              <li
-                key={`${notice.kind}-${notice.text}`}
-                className="flex items-start gap-2"
-              >
-                {notice.kind === "action" ? (
-                  <IconArrowRight
-                    className="mt-px size-3.5 shrink-0 text-foreground"
-                    aria-hidden
-                  />
-                ) : (
-                  <IconAlertTriangle
-                    className="mt-px size-3.5 shrink-0 text-amber-300"
-                    aria-hidden
-                  />
-                )}
-                <span
-                  className={
-                    notice.kind === "action"
-                      ? "text-foreground"
-                      : "text-muted-foreground"
-                  }
-                >
-                  <span className="sr-only">
-                    {notice.kind === "action" ? "Action: " : "Risk: "}
-                  </span>
-                  {notice.text}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-
-        {stepsWithReport.length ? (
-          <Disclosure className="-mx-2 mt-2">
-            <DisclosureHeader>
-              <span className="text-xs font-normal text-muted-foreground">
-                Details
-              </span>
-            </DisclosureHeader>
-            <DisclosurePanel className="px-2">
-              <div className="flex flex-col gap-2 pb-1">
-                {stepsWithReport.map((step) => (
-                  <div key={step.format}>
-                    <p className="text-xs text-foreground">
-                      Format {step.format}: {step.title}
-                    </p>
-                    <ul className="mt-1 flex flex-col gap-1 text-xs break-words text-muted-foreground">
-                      {step.report.map((line) => (
-                        <li key={`${step.format}-${line}`}>{line}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            </DisclosurePanel>
-          </Disclosure>
-        ) : null}
-
-        {view.blocked ? (
-          <div className="mt-3">
-            <InlineAlert variant="warning" title={view.blocked.title}>
-              <p>{view.blocked.body}</p>
-            </InlineAlert>
-          </div>
-        ) : null}
-
-        {failure ? (
-          <div className="mt-3">
-            <InlineAlert
-              variant="error"
-              title="The upgrade failed"
-              actions={
-                failure.connectorsHref || failure.fixPrompt ? (
-                  <>
-                    {failure.connectorsHref ? (
-                      <TextLink
-                        href={failure.connectorsHref}
-                        className="self-center text-xs"
-                      >
-                        {failure.connectorsLabel}
-                      </TextLink>
-                    ) : null}
-                    {failure.fixPrompt && model.graph.fixWithAgent ? (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onPress={() =>
-                          failure.fixPrompt &&
-                          model.graph.fixWithAgent?.(failure.fixPrompt)
-                        }
-                      >
-                        Fix using agent
-                      </Button>
-                    ) : null}
-                  </>
-                ) : undefined
-              }
-            >
-              {failure.step ? <p>Failed step: {failure.step}.</p> : null}
-              <p className={failure.step ? "mt-1" : undefined}>
-                {failure.reason}
-              </p>
-              <p className="mt-1 text-xs break-words opacity-80">
-                Details: {failure.summary}
-              </p>
-              <p className="mt-1">{failure.action}</p>
-              {failure.autoRetried ? (
-                <p className="mt-1">
-                  ctxpipe already started this upgrade again once by itself.
-                </p>
-              ) : null}
-            </InlineAlert>
-          </div>
-        ) : view.failureReason ? (
-          <div className="mt-3">
-            <InlineAlert variant="error" title="The upgrade failed">
-              <p>{view.failureReason}</p>
-            </InlineAlert>
-          </div>
-        ) : null}
-      </div>
+      <UpgradeBody view={view} model={model} />
     </li>
+  )
+}
+
+/**
+ * The detail of an upgrade: steps, progress, notes, step reports, and a
+ * block or a failure. An active row and an opened history row show it.
+ */
+function UpgradeBody(props: { view: UpgradeView; model: SettingsModel }) {
+  const { view, model } = props
+  const stepsWithReport = view.steps.filter((step) => step.report.length > 0)
+  const failure = view.failure
+  return (
+    <div className="pl-3.5">
+      {view.steps.length ? (
+        <ol
+          className="mt-3 flex flex-col gap-1"
+          aria-label={`Steps of ${view.title}`}
+        >
+          {view.steps.map((step, index) => (
+            <li
+              key={step.format}
+              className="flex items-baseline gap-2 text-xs text-muted-foreground"
+            >
+              <span className="w-3 shrink-0 tabular-nums">{index + 1}</span>
+              <span>{step.title}</span>
+              {step.commitSha ? (
+                <code className="font-mono">{step.commitSha.slice(0, 7)}</code>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+
+      {view.progress ? (
+        <UpgradeRunProgress title={view.title} progress={view.progress} />
+      ) : null}
+
+      {view.notices.length ? (
+        <ul
+          className="mt-3 flex flex-col gap-1.5 text-xs"
+          aria-label={`Notes of ${view.title}`}
+        >
+          {view.notices.map((notice) => (
+            <li
+              key={`${notice.kind}-${notice.text}`}
+              className="flex items-start gap-2"
+            >
+              {notice.kind === "action" ? (
+                <IconArrowRight
+                  className="mt-px size-3.5 shrink-0 text-foreground"
+                  aria-hidden
+                />
+              ) : (
+                <IconAlertTriangle
+                  className="mt-px size-3.5 shrink-0 text-amber-300"
+                  aria-hidden
+                />
+              )}
+              <span
+                className={
+                  notice.kind === "action"
+                    ? "text-foreground"
+                    : "text-muted-foreground"
+                }
+              >
+                <span className="sr-only">
+                  {notice.kind === "action" ? "Action: " : "Risk: "}
+                </span>
+                {notice.text}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {stepsWithReport.length ? (
+        <Disclosure className="-mx-2 mt-2">
+          <DisclosureHeader>
+            <span className="text-xs font-normal text-muted-foreground">
+              Details
+            </span>
+          </DisclosureHeader>
+          <DisclosurePanel className="px-2">
+            <div className="flex flex-col gap-2 pb-1">
+              {stepsWithReport.map((step) => (
+                <div key={step.format}>
+                  <p className="text-xs text-foreground">
+                    Format {step.format}: {step.title}
+                  </p>
+                  <ul className="mt-1 flex flex-col gap-1 text-xs break-words text-muted-foreground">
+                    {step.report.map((line) => (
+                      <li key={`${step.format}-${line}`}>{line}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </DisclosurePanel>
+        </Disclosure>
+      ) : null}
+
+      {view.blocked ? (
+        <div className="mt-3">
+          <InlineAlert variant="warning" title={view.blocked.title}>
+            <p>{view.blocked.body}</p>
+          </InlineAlert>
+        </div>
+      ) : null}
+
+      {failure ? (
+        <div className="mt-3">
+          <InlineAlert
+            variant="error"
+            title="The upgrade failed"
+            actions={
+              failure.connectorsHref || failure.fixPrompt ? (
+                <>
+                  {failure.connectorsHref ? (
+                    <TextLink
+                      href={failure.connectorsHref}
+                      className="self-center text-xs"
+                    >
+                      {failure.connectorsLabel}
+                    </TextLink>
+                  ) : null}
+                  {failure.fixPrompt && model.graph.fixWithAgent ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onPress={() =>
+                        failure.fixPrompt &&
+                        model.graph.fixWithAgent?.(failure.fixPrompt)
+                      }
+                    >
+                      Fix using agent
+                    </Button>
+                  ) : null}
+                </>
+              ) : undefined
+            }
+          >
+            {failure.step ? <p>Failed step: {failure.step}.</p> : null}
+            <p className={failure.step ? "mt-1" : undefined}>
+              {failure.reason}
+            </p>
+            <p className="mt-1 text-xs break-words opacity-80">
+              Details: {failure.summary}
+            </p>
+            <p className="mt-1">{failure.action}</p>
+            {failure.autoRetried ? (
+              <p className="mt-1">
+                ctxpipe already started this upgrade again once by itself.
+              </p>
+            ) : null}
+          </InlineAlert>
+        </div>
+      ) : view.failureReason ? (
+        <div className="mt-3">
+          <InlineAlert variant="error" title="The upgrade failed">
+            <p>{view.failureReason}</p>
+          </InlineAlert>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -646,6 +729,11 @@ function AutomaticUpgradesSwitch(props: {
         mode: next,
         reason: null,
       })
+      toast.success(
+        next === "automatic"
+          ? "Automatic upgrades are on. ctxpipe starts each upgrade by itself."
+          : "Automatic upgrades are off. An owner or admin starts each upgrade.",
+      )
     },
     onError: (error: Error) => {
       toast.error(`${error.message.replace(/\.$/, "")}. Try again.`)
@@ -661,8 +749,17 @@ function AutomaticUpgradesSwitch(props: {
   if (setting.mode === null)
     return (
       <p className="max-w-prose text-xs text-muted-foreground">
-        Automatic upgrades: ctxpipe could not read the setting. Check the GitHub
-        connection on the Connectors page, then reload this page.
+        Automatic upgrades:{" "}
+        {
+          {
+            no_tip:
+              "ctxpipe has not read the repository yet. Refresh the Workspace.",
+            invalid_format:
+              "the format file .ctxpipe/workspace.yaml is not valid. Fix it on the default branch.",
+            unreadable:
+              "ctxpipe could not read the repository. Check the GitHub connection on the Connectors page, then reload this page.",
+          }[setting.reason ?? "unreadable"]
+        }
       </p>
     )
   const on = save.isPending
@@ -720,21 +817,36 @@ function AutomaticUpgradesSwitch(props: {
  * The Workspace format in plain words, with a tooltip that says what it is.
  * A format problem (not readable, newer than ctxpipe) shows as its sentence.
  */
-function FormatNote(props: { line: string | null }) {
-  const latest = props.line?.match(/^Format (\d+)$/)
-  const behind = props.line?.match(
-    /^The repository uses format (\d+)\. ctxpipe reads format (\d+)\.$/,
+function FormatNote(props: {
+  line: string | null
+  format: SettingsModel["upgrades"]["format"]
+}) {
+  const { format } = props
+  if (
+    format === null ||
+    format.version === null ||
+    format.version < 0 ||
+    format.version > format.code
   )
-  const version = latest?.[1] ?? behind?.[1]
-  if (!version)
     return props.line ? (
-      <p className="max-w-prose text-xs text-muted-foreground">{props.line}</p>
+      <p
+        className={cn(
+          "max-w-prose text-xs",
+          // Not valid, or newer than ctxpipe: the Workspace is read-only.
+          format?.version === null || format === null
+            ? "text-muted-foreground"
+            : "text-amber-200",
+        )}
+      >
+        {props.line}
+      </p>
     ) : null
+  const version = format.version
   return (
     <p className="flex items-center gap-1 text-xs text-muted-foreground">
-      {behind
-        ? `File layout: version ${version}. The latest is ${behind[2]}.`
-        : `File layout: version ${version}, the latest`}
+      {version === format.code
+        ? `File layout: version ${version}, the latest`
+        : `File layout: version ${version}. The latest is ${format.code}.`}
       <TooltipTrigger delay={200}>
         <AriaButton
           aria-label="About the file layout version"
@@ -764,13 +876,14 @@ const HISTORY_SHOWN = 5
  * The applied upgrades, newest first: a date, what it was, and its pull
  * request or spend. Five show; the rest open in a scroll area.
  */
-function HistorySection(props: { views: UpgradeView[] }) {
+function HistorySection(props: { views: UpgradeView[]; model: SettingsModel }) {
   const [all, setAll] = useState(false)
   const sorted = [...props.views].sort((a, b) =>
     b.item.updatedAt.localeCompare(a.item.updatedAt),
   )
   const shown = all ? sorted : sorted.slice(0, HISTORY_SHOWN)
   const last = sorted[0]
+  const { model } = props
   return (
     <Disclosure className="px-3 py-1">
       <DisclosureHeader>
@@ -793,7 +906,7 @@ function HistorySection(props: { views: UpgradeView[] }) {
           aria-label="Applied upgrades"
         >
           {shown.map((view) => (
-            <HistoryRow key={view.key} view={view} />
+            <HistoryRow key={view.key} view={view} model={model} />
           ))}
         </ul>
         {sorted.length > HISTORY_SHOWN ? (
@@ -819,32 +932,80 @@ const historyDate = (iso: string) =>
     timeZone: "UTC",
   })
 
-function HistoryRow(props: { view: UpgradeView }) {
-  const { view } = props
+/**
+ * An applied upgrade: the date, the title, and its pull request or spend.
+ * It opens to what the card showed when the upgrade ran: the description,
+ * the check, the spend, the pull request, the steps, and the reports.
+ */
+function HistoryRow(props: { view: UpgradeView; model: SettingsModel }) {
+  const { view, model } = props
+  const meta = [view.checkResult, view.note, view.spend].filter(
+    (line): line is string => Boolean(line),
+  )
   return (
-    <li className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto] items-baseline gap-x-3 py-2 text-xs">
-      <span className="text-muted-foreground tabular-nums">
-        {historyDate(view.item.updatedAt)}
-      </span>
-      <span className="truncate text-foreground">{plainTitle(view.title)}</span>
-      <span className="text-muted-foreground">
-        {view.pullRequest ? (
-          <TextLink
-            href={view.pullRequest.url}
-            target="_blank"
-            rel="noreferrer"
-            variant="secondary"
-            className="inline-flex items-center gap-1 text-xs"
-          >
-            <IconGitPullRequest className="size-3.5" aria-hidden />
-            {view.pullRequest.number
-              ? `#${view.pullRequest.number}`
-              : "Pull request"}
-          </TextLink>
-        ) : view.spend ? (
-          view.spend.replace(/^Spend: /, "")
-        ) : null}
-      </span>
+    <li className="text-xs">
+      <AriaDisclosure>
+        {({ isExpanded }) => (
+          <>
+            <div className="flex items-center gap-3 py-1">
+              <AriaButton
+                slot="trigger"
+                className={cn(
+                  "grid min-w-0 flex-1 grid-cols-[1rem_3.5rem_minmax(0,1fr)] items-center gap-x-2 rounded-md py-1 text-left",
+                  focusVisibleClassName,
+                )}
+              >
+                <IconChevronRight
+                  aria-hidden
+                  className={cn(
+                    "size-3.5 text-muted-foreground transition-transform",
+                    isExpanded && "rotate-90",
+                  )}
+                />
+                <span className="text-muted-foreground tabular-nums">
+                  {historyDate(view.item.updatedAt)}
+                </span>
+                <span className="truncate text-foreground">
+                  {plainTitle(view.title)}
+                </span>
+              </AriaButton>
+              <span className="shrink-0 text-muted-foreground">
+                {view.pullRequest ? (
+                  <TextLink
+                    href={view.pullRequest.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    variant="secondary"
+                    className="inline-flex items-center gap-1 text-xs"
+                  >
+                    <IconGitPullRequest className="size-3.5" aria-hidden />
+                    {view.pullRequest.number
+                      ? `#${view.pullRequest.number}`
+                      : "Pull request"}
+                  </TextLink>
+                ) : view.spend ? (
+                  view.spend.replace(/^Spend: /, "")
+                ) : null}
+              </span>
+            </div>
+            <AriaDisclosurePanel>
+              <div className="pb-3 pl-[1.625rem]">
+                <p className="max-w-prose text-muted-foreground">
+                  {view.description}
+                </p>
+                {meta.length ? (
+                  <p className="mt-1.5 text-muted-foreground">
+                    {meta.join(" · ")}
+                  </p>
+                ) : null}
+                <div className="-ml-3.5">
+                  <UpgradeBody view={view} model={model} />
+                </div>
+              </div>
+            </AriaDisclosurePanel>
+          </>
+        )}
+      </AriaDisclosure>
     </li>
   )
 }
@@ -876,6 +1037,7 @@ function liveLabel(source: SourceActivity): string {
 function SourcesCard(props: {
   model: SettingsModel
   running: SourceActivity[]
+  needsYou: boolean
 }) {
   const { model, running } = props
   const { activity } = model
@@ -884,15 +1046,17 @@ function SourcesCard(props: {
   ): SourceLiveStatus | null =>
     source
       ? {
+          // The word and the time of the same run: the most advanced one.
           label: liveLabel(source),
-          since: source.since,
+          since: source.lead.startedAt,
           runs: source.runs.map((run) => {
             const progress = ingestionProgress(run)
             return {
               key: run.id,
-              label: progress.count
-                ? `${progress.label} · ${progress.count}`
-                : progress.label,
+              label: progress.label,
+              count: progress.count,
+              fraction: progress.fraction,
+              detail: progress.detail,
               since: run.startedAt,
             }
           }),
@@ -900,26 +1064,33 @@ function SourcesCard(props: {
       : null
   // A repository run is named by the repository; a connector sync by the
   // provider ("Linear sources").
+  // The compact list shows at all times. While the work loads or cannot
+  // load, a row shows its state only.
+  const ready = activity.status === "ready"
   const liveStatus: SourceLiveStatusLookup = {
     repository: (title) =>
-      toLive(
-        running.find(
-          (source) =>
-            source.kind === "repository" &&
-            source.title.toLowerCase() === title.toLowerCase(),
-        ),
-      ),
+      !ready
+        ? null
+        : toLive(
+            running.find(
+              (source) =>
+                source.kind === "repository" &&
+                source.title.toLowerCase() === title.toLowerCase(),
+            ),
+          ),
     provider: (label) =>
-      toLive(
-        running.find(
-          (source) =>
-            source.kind === "source_sync" &&
-            source.title === `${label} sources`,
-        ),
-      ),
+      !ready
+        ? null
+        : toLive(
+            running.find(
+              (source) =>
+                source.kind === "source_sync" &&
+                source.title === `${label} sources`,
+            ),
+          ),
   }
   return (
-    <PartCard id="sources" title="Sources">
+    <PartCard id="sources" title="Sources" needsYou={props.needsYou}>
       {activity.status === "error" ? (
         <div className="mb-4">
           <InlineAlert
@@ -939,7 +1110,7 @@ function SourcesCard(props: {
         orgSlug={model.orgSlug}
         workspaceSlug={model.workspace.slug}
         linkedRepositories={model.repository.linkedRepositories}
-        {...(activity.status === "ready" ? { liveStatus } : {})}
+        liveStatus={liveStatus}
       />
       {running.length ? (
         <p className="mt-3 text-xs text-muted-foreground">
@@ -1015,16 +1186,18 @@ function GraphCard(props: { model: SettingsModel }) {
         ) : null}
         {skipped.length ? (
           <div className="mt-1 border-t border-white/[0.06] pt-3">
-            <h3 className="text-sm text-foreground">
-              ctxpipe skipped {skipped.length}{" "}
-              {skipped.length === 1 ? "file" : "files"}
-            </h3>
-            <p className="mt-0.5 max-w-prose text-xs text-muted-foreground">
-              Chat, MCP, search, and the graph do not use these files.
-              {skipped.some((file) => !legacy.has(file.path))
-                ? " Fix each file that is in Git and push the change to the default branch."
-                : ""}
-            </p>
+            <div role="alert">
+              <h3 className="text-sm text-foreground">
+                ctxpipe skipped {skipped.length}{" "}
+                {skipped.length === 1 ? "file" : "files"}
+              </h3>
+              <p className="mt-0.5 max-w-prose text-xs text-muted-foreground">
+                Chat, MCP, search, and the graph do not use these files.
+                {skipped.some((file) => !legacy.has(file.path))
+                  ? " Fix each file that is in Git and push the change to the default branch."
+                  : ""}
+              </p>
+            </div>
             <ul className="mt-2 flex flex-col divide-y divide-white/[0.06]">
               {skipped.map((file) => (
                 <li
@@ -1133,6 +1306,7 @@ function RepositoryCard(props: { model: SettingsModel }) {
             variant="ghost"
             size="sm"
             className="shrink-0"
+            aria-label="Change the context repository"
             onPress={repository.openRelink}
           >
             Change
@@ -1157,7 +1331,7 @@ function RepositoryCard(props: { model: SettingsModel }) {
             isDisabled={repository.savingRootFolder}
             isInvalid={repository.rootFolderError !== null}
             errorMessage={repository.rootFolderError ?? undefined}
-            description="ctxpipe reads and changes files only in this folder."
+            description="A team can keep its context in a folder of an existing repository. You can also keep several Workspaces in one repository, with one folder for each. ctxpipe reads and changes files only in this folder."
           />
         </form>
       </div>
@@ -1165,38 +1339,46 @@ function RepositoryCard(props: { model: SettingsModel }) {
   )
 }
 
-/** Write access as plain text, with the fix next to it. */
+/**
+ * Write access as one line, with the fix next to it. A problem has the title
+ * and the facts of today's alert, and is announced.
+ */
 function WriteAccessLine(props: { model: SettingsModel }) {
   const { access, repository } = props.model
   const problem =
     access.tone === "read_only" ||
     access.tone === "check_failed" ||
     access.stalled
-  const text =
-    access.tone === "writable"
+  const title = access.stalled
+    ? "Still checking write access"
+    : access.tone === "check_failed"
+      ? "Could not check write access"
+      : access.tone === "read_only"
+        ? "Read-only"
+        : null
+  const text = access.stalled
+    ? "The check takes longer than usual."
+    : access.tone === "writable"
       ? "ctxpipe can push to this repository."
       : access.tone === "pull_request"
         ? `Changes by pull request. ${access.description}`
         : access.tone === "pending"
-          ? access.stalled
-            ? "ctxpipe still checks write access. The check takes longer than usual."
-            : "ctxpipe checks write access now."
+          ? "ctxpipe checks write access now."
           : access.description
-  const fix =
-    access.tone === "read_only" && access.needsRelink ? (
-      <Button variant="secondary" size="sm" onPress={repository.openRelink}>
-        Select the repository again
-      </Button>
-    ) : problem ? (
-      <Button
-        variant="secondary"
-        size="sm"
-        isPending={access.checking}
-        onPress={access.checkAgain}
-      >
-        Check again
-      </Button>
-    ) : null
+  const fix = access.needsRelink ? (
+    <Button variant="secondary" size="sm" onPress={repository.openRelink}>
+      Select the repository again
+    </Button>
+  ) : access.canCheckAgain ? (
+    <Button
+      variant="secondary"
+      size="sm"
+      isPending={access.checking}
+      onPress={access.checkAgain}
+    >
+      Check again
+    </Button>
+  ) : null
   return (
     <div
       className={cn(
@@ -1215,6 +1397,13 @@ function WriteAccessLine(props: { model: SettingsModel }) {
             className="mt-0.5 size-4 shrink-0 text-muted-foreground"
             aria-hidden
           />
+        ) : access.tone === "pending" ? (
+          <span
+            aria-hidden
+            className="flex size-4 shrink-0 items-center justify-center"
+          >
+            <span className="ctx-status-pulse size-1.5 rounded-full bg-zinc-400" />
+          </span>
         ) : (
           <IconCircleCheck
             className="mt-0.5 size-4 shrink-0 text-teal-300"
@@ -1222,19 +1411,23 @@ function WriteAccessLine(props: { model: SettingsModel }) {
           />
         )}
         <p
+          role={problem ? "alert" : undefined}
           className={cn(
             "text-sm",
             problem ? "text-amber-50" : "text-muted-foreground",
           )}
         >
           <span className="sr-only">Write access: </span>
+          {title ? <span className="font-medium">{title}. </span> : null}
           {text}
           {access.tone === "read_only" ? (
             <span className="text-amber-100/70">
               {" "}
               {access.needsRelink
                 ? "After GitHub can see the repository, select it again."
-                : "After you fix it, press Check again."}
+                : access.writeStatus === "read_only"
+                  ? "After you fix it, reload this page. ctxpipe checks again at most once a minute."
+                  : null}
             </span>
           ) : null}
         </p>
@@ -1266,7 +1459,7 @@ function GeneralCard(props: { model: SettingsModel }) {
           ) : null}
           <Button
             type="submit"
-            form="settings-c-general"
+            form="settings-d-general"
             variant="primary"
             isPending={general.saving}
             isDisabled={!general.dirty}
@@ -1277,7 +1470,7 @@ function GeneralCard(props: { model: SettingsModel }) {
       }
     >
       <form
-        id="settings-c-general"
+        id="settings-d-general"
         className="grid items-start gap-4 @2xl:grid-cols-2"
         onSubmit={(event) => {
           event.preventDefault()
@@ -1294,7 +1487,7 @@ function GeneralCard(props: { model: SettingsModel }) {
           label="URL name"
           value={general.slug}
           onChange={general.setSlug}
-          description="If you change the URL name, old links stop working."
+          description="Used in this Workspace's web address. If you change it, old links stop working."
         />
       </form>
     </PartCard>
