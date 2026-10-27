@@ -84,12 +84,15 @@ const lineBreak = /\r\n|[\r\n\u2028\u2029]/
  * that such a character cannot hide an email address or a phone number from
  * it. NFKC turns a full-width digit, a Unicode space, and a look-alike of
  * `@` or `.` into the plain character that the redaction knows. A combining
- * accent stays.
+ * accent stays. A Korean compatibility jamo and a vulgar fraction stay too,
+ * because NFKC would change normal text.
  */
 function withoutControlCharacters(text: string): string {
   return text
     .replace(/(?![\t\n\r])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, "")
-    .normalize("NFKC")
+    .replace(/[^\u3131-\u318E\u00BC-\u00BE\u2150-\u215F\u2189]+/g, (run) =>
+      run.normalize("NFKC"),
+    )
 }
 
 /** The lines of customer text, split at every line end. */
@@ -210,7 +213,7 @@ function withoutUrlQueries(text: string): string {
   // characters.
   const starts = [
     ...text.matchAll(
-      /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/|(?<![a-z0-9])www\.|\]\(|(?<![\w.@/-])(?:[a-z0-9-]+\.)+[a-z]{2,}\/|(?<![\w:/])\/\//gi,
+      /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/|(?<![a-z0-9])www\.|\]\(|(?<![\w.@/-])(?:[a-z0-9-]+\.)+[a-z]{2,}\/|(?<![\w:/])\/\/(?=[a-z0-9-]+\.)/gi,
     ),
   ].map((match) => match.index)
   const queryEnd = /[\s<>]|\]\(|\)(?=\[)/g

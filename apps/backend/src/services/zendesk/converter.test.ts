@@ -974,6 +974,40 @@ describe("security re-review: probes on the real file functions", () => {
     })
   })
 
+  describe("final security check: text that NFKC would damage", () => {
+    it.each(["ㅋㅋㅋ ㅠㅠ", "3½ m"])("keeps %s in a comment", (text) => {
+      expect(ticketOf(`Note ${text} end`)).toContain(`Note ${text} end`)
+    })
+
+    it("keeps compatibility jamo and fractions in an article title", () => {
+      const content = articleOf({ title: "ㅋㅋㅋ ㅠㅠ 3½" })
+      expect(content).toContain("ㅋㅋㅋ ㅠㅠ 3½")
+    })
+
+    it("still folds full-width digits and a no-break space", () => {
+      expect(ticketOf("Tel ０９０-１２３４-５６７８ ㅋ")).not.toMatch(
+        /1234|１２３４/,
+      )
+      expect(ticketOf("a\u00A0b")).toContain("a b")
+    })
+  })
+
+  describe("final security check: a // that is not a URL", () => {
+    it("keeps a #region marker in text and in a code block", () => {
+      expect(ticketOf("//#region setup")).toContain("//#region setup")
+      const content = articleOf({
+        bodyHtml: "<pre><code>//#region setup</code></pre>",
+      })
+      expect(content).toContain("//#region setup")
+    })
+
+    it("still removes the query of a scheme-relative URL", () => {
+      expect(
+        ticketOf("Open //cdn.example.com/f.pdf?sig=SECRET1"),
+      ).not.toContain("SECRET1")
+    })
+  })
+
   describe("round two: text with no space", () => {
     it("keeps the start of a long CJK comment", () => {
       const content = ticketOf("你好世界".repeat(4200))
