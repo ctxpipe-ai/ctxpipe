@@ -6,7 +6,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs"
-import { join } from "node:path"
+import { join, posix } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { schemaErrors } from "./schema.mjs"
@@ -102,203 +102,295 @@ export const manifestPackages = {
   ],
 }
 
-// The package files: a change to one of them forces a full run only when it
-// can change how the manifest is made. pnpm 10 runs no build script of a
-// dependency unless a setting (`onlyBuiltDependencies` or a like setting)
-// allows it. Those settings are in the `pnpm` field of a package.json and in
-// pnpm-workspace.yaml, and a change to them forces a full run. Thus a
-// dependency change can run code in the manifest job only through a package
-// that checks:list loads (manifestPackages) or a lifecycle script of a
-// workspace package.
-const packageJsonKeys = new Set([
-  "dependencies",
-  "devDependencies",
-  "optionalDependencies",
-  "peerDependencies",
-  "peerDependenciesMeta",
-  "scripts",
-  "name",
-  "version",
-  "description",
-  "keywords",
-  "license",
-  "author",
-  "contributors",
-  "homepage",
-  "repository",
-  "bugs",
-  "funding",
-  "private",
-  "files",
-  "publishConfig",
-])
-const installScripts = new Set([
-  "preinstall",
-  "install",
-  "postinstall",
-  "preprepare",
-  "prepare",
-  "postprepare",
-  "prepublish",
-  "dependencies",
-  "pnpm:devPreinstall",
-])
+// The package files: a change to one of them forces a full run unless the
+// gate reads all of it as a registry dependency change that runs no code of
+// the PR in the manifest job (README, Package files). A change that the gate
+// cannot read forces a full run.
+
+const isObject = (value) =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+// The value as a mapping: {} for null or no value. Any other value throws.
+const mapping = (value) => {
+  if (value === undefined || value === null) return {}
+  if (!isObject(value))
+    throw new Error(`not a mapping: ${JSON.stringify(value)}`)
+  return value
+}
 
 const changedKeys = (base, head) =>
   [...new Set([...Object.keys(base), ...Object.keys(head)])].filter(
     (key) => JSON.stringify(base[key]) !== JSON.stringify(head[key]),
   )
 
-const isObject = (value) =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
-
-// The cause of a full run for a changed package.json, else undefined.
-function packageJsonCause(base, head) {
-  const [a, b] = [base, head].map((text) => JSON.parse(text ?? "{}"))
-  if (!isObject(a) || !isObject(b)) return "not a JSON object"
-  for (const key of changedKeys(a, b)) {
-    if (!packageJsonKeys.has(key)) return `field "${key}" changed`
-    if (key !== "scripts") continue
-    const [x, y] = [a.scripts ?? {}, b.scripts ?? {}]
-    if (!isObject(x) || !isObject(y)) return "scripts is not an object"
-    const script = changedKeys(x, y).find(
-      (name) => installScripts.has(name) || /^(?:pre|post)?checks:/.test(name),
-    )
-    if (script) return `script "${script}" changed`
+// A strict reader for the YAML that pnpm writes: block mappings, block
+// sequences of scalars, plain and quoted scalars (no escapes), literal block
+// scalars (`|` and `|-`), one-line flow collections of scalars, full-line
+// comments, and the `? <key>` form that pnpm writes for a key longer than
+// 1024 characters, with its value on the next line as `: <first line of the
+// value>`. Each scalar is a string. Each other form, a duplicate key or a bad
+// indentation throws, and the gate then gives a full run.
+function parseYaml(text) {
+  const scalar = (value) => {
+    if (/^'(?:[^']|'')*'$/.test(value))
+      return value.slice(1, -1).replaceAll("''", "'")
+    if (/^"[^"\\]*"$/.test(value)) return value.slice(1, -1)
+    if (/^[^\s'"#&*!|>%@`{}[\],?:-]/.test(value) && !/: | #|:$|\s$/.test(value))
+      return value
+    throw new Error(`unsupported value: ${value}`)
   }
+  const item = `(?:'(?:[^']|'')*'|"[^"\\\\]*"|[^\\s'",{}[\\]](?:[^'",{}[\\]]*[^\\s'",{}[\\]])?)`
+  const value = (text) => {
+    if (!/^[{[]/.test(text)) return scalar(text)
+    const map = text[0] === "{"
+    const entry = map ? `${item}: ${item}` : item
+    const [open, close] = map ? ["\\{", "\\}"] : ["\\[", "\\]"]
+    if (!new RegExp(`^${open}(?:${entry}(?:, ${entry})*)?${close}$`).test(text))
+      throw new Error(`unsupported flow collection: ${text}`)
+    const parts = [
+      ...text
+        .slice(1, -1)
+        .matchAll(new RegExp(map ? `(${item}): (${item})` : `(${item})`, "g")),
+    ]
+    if (!map) return parts.map((part) => scalar(part[1]))
+    const result = Object.create(null)
+    for (const [, key, part] of parts) {
+      if (Object.hasOwn(result, scalar(key)))
+        throw new Error(`duplicate key: ${key}`)
+      result[scalar(key)] = scalar(part)
+    }
+    return result
+  }
+  const keyLine =
+    /^('(?:[^']|'')*'|"[^"\\]*"|[^\s'"#&*!|>%@`{}[\],?:-].*?):(?: (.*))?$/
+  const parse = (indent, body) => {
+    const sequence = /^- (.+)$/.exec(body)
+    if (sequence) return { indent, item: sequence[1] }
+    const match = keyLine.exec(body)
+    if (!match) throw new Error(`unsupported line: ${body}`)
+    return { indent, key: scalar(match[1]), value: match[2] }
+  }
+  const lines = []
+  const raw = text.split("\n")
+  for (let i = 0; i < raw.length; i++) {
+    if (/^ *(?:#.*)?$/.test(raw[i])) continue
+    const [, spaces, body] = /^( *)(.*)$/.exec(raw[i])
+    const long = /^\? (.+)$/.exec(body)
+    if (!long) {
+      const line = parse(spaces.length, body)
+      lines.push(line)
+      if (!/^\|-?$/.test(line.value ?? "")) continue
+      // A literal block scalar: its text is each next line that is blank or
+      // indented more than its key.
+      line.value = undefined
+      line.literal = ""
+      while (
+        i + 1 < raw.length &&
+        (/^ *$/.test(raw[i + 1]) || raw[i + 1].startsWith(`${spaces} `))
+      )
+        line.literal += `${raw[++i]}\n`
+      continue
+    }
+    const next = new RegExp(`^${spaces}: (.+)$`).exec(raw[++i] ?? "")
+    if (!next) throw new Error(`a long key without a value: ${body}`)
+    const nested = keyLine.test(next[1])
+    lines.push({
+      indent: spaces.length,
+      key: scalar(long[1]),
+      value: nested ? undefined : next[1],
+    })
+    if (nested) lines.push(parse(spaces.length + 2, next[1]))
+  }
+  const root = Object.create(null)
+  const stack = [{ indent: 0, node: root }]
+  let open
+  for (const line of lines) {
+    if (
+      open &&
+      (line.indent > open.indent ||
+        (line.item !== undefined && line.indent === open.indent))
+    ) {
+      const node = line.item === undefined ? Object.create(null) : []
+      open.node[open.key] = node
+      stack.push({ indent: line.indent, node })
+    }
+    open = undefined
+    while (
+      stack.at(-1).indent > line.indent ||
+      (line.item === undefined &&
+        Array.isArray(stack.at(-1).node) &&
+        stack.at(-1).indent === line.indent)
+    )
+      stack.pop()
+    const { indent, node } = stack.at(-1)
+    if (indent !== line.indent)
+      throw new Error(`unexpected indentation: ${line.key ?? line.item}`)
+    if (line.item !== undefined) {
+      if (!Array.isArray(node))
+        throw new Error(`unexpected sequence item: ${line.item}`)
+      node.push(value(line.item))
+      continue
+    }
+    if (Array.isArray(node) || Object.hasOwn(node, line.key))
+      throw new Error(`duplicate or unexpected key: ${line.key}`)
+    node[line.key] =
+      line.literal ?? (line.value === undefined ? null : value(line.value))
+    if (line.value === undefined && line.literal === undefined)
+      open = { node, key: line.key, indent }
+  }
+  return root
 }
 
-// The text of each top-level block of a YAML file: a line at column 0
-// starts a block. Comment and blank lines are not part of a block.
-function yamlBlocks(text) {
-  const blocks = new Map()
-  let key = ""
-  for (const line of text.split("\n")) {
-    if (!line.trim() || line.trim().startsWith("#")) continue
-    if (!/^\s/.test(line)) key = /^([^:]*):/.exec(line)?.[1] ?? line
-    blocks.set(key, `${blocks.get(key) ?? ""}${line}\n`)
-  }
-  return blocks
+// The cause of a full run for a changed package.json, else undefined. Only
+// the dependency lists of a workspace package may change; the root package
+// reaches every lane, and its bins come first in PATH for `checks:list`.
+function packageJsonCause(base, head, path) {
+  const [a, b] = [base, head].map((text) => JSON.parse(text ?? "{}"))
+  if (!isObject(a) || !isObject(b)) return "not a JSON object"
+  const keys = changedKeys(a, b)
+  if (path === "package.json" && keys.length) return "the root package changed"
+  const key = keys.find(
+    (name) =>
+      ![
+        "dependencies",
+        "devDependencies",
+        "optionalDependencies",
+        "peerDependencies",
+        "peerDependenciesMeta",
+      ].includes(name),
+  )
+  if (key !== undefined) return `field "${key}" changed`
 }
 
 function workspaceCause(base, head) {
-  const [a, b] = [base ?? "", head ?? ""].map(yamlBlocks)
-  const key = [...new Set([...a.keys(), ...b.keys()])].find(
-    (name) =>
-      a.get(name) !== b.get(name) &&
-      !["packages", "catalog", "catalogs", "overrides"].includes(name),
+  const [a, b] = [base ?? "", head ?? ""].map(parseYaml)
+  const key = changedKeys(a, b).find(
+    (name) => !["catalog", "catalogs", "overrides"].includes(name),
   )
   if (key !== undefined) return `setting "${key}" changed`
 }
 
-const unquote = (value) =>
-  /^'.*'$/.test(value) ? value.slice(1, -1).replace(/''/g, "'") : value
-
-// A parser for the subset of the pnpm lockfile v9 that the gate reads:
-// the text of each section, the entries of `importers`, `packages` and
-// `snapshots` (their text and their dependencies).
-function parseLockfile(text) {
-  // pnpm writes a key longer than 1024 characters as `? <key>`, with its
-  // value on the next line as `: <first line>`. Write them as plain keys.
-  const sections = yamlBlocks(
-    text
-      .split("\n")
-      .map((line) => {
-        const match = /^( *)([?:]) (.*)$/.exec(line)
-        if (!match) return line
-        return match[2] === "?"
-          ? `${match[1]}${match[3]}:`
-          : `${match[1]}  ${match[3]}`
-      })
-      .join("\n"),
-  )
-  if (sections.get("lockfileVersion") !== "lockfileVersion: '9.0'\n")
-    throw new Error("the lockfile is not version 9.0")
-  const entries = (name) => {
-    const map = new Map()
-    let entry
-    let group
-    for (const line of (sections.get(name) ?? "").split("\n").slice(1)) {
-      if (!line) continue
-      let match
-      if ((match = /^ {2}(\S.*?):(?: \{\})?$/.exec(line))) {
-        entry = { text: "", deps: new Map() }
-        map.set(unquote(match[1]), entry)
-        group = undefined
-      } else if (!entry) throw new Error(`unexpected line in ${name}: ${line}`)
-      else if (/^ {4}\S/.test(line)) group = /^ {4}(\S+):$/.exec(line)?.[1]
-      else if (
-        ["dependencies", "devDependencies", "optionalDependencies"].includes(
-          group,
-        )
-      ) {
-        if ((match = /^ {6}(\S.*?):(?: (.+))?$/.exec(line))) {
-          entry.dep = unquote(match[1])
-          if (match[2] !== undefined)
-            entry.deps.set(entry.dep, unquote(match[2]))
-        } else if ((match = /^ {8}version: (.+)$/.exec(line)))
-          entry.deps.set(entry.dep, unquote(match[1]))
-      }
-      entry.text += `${line}\n`
-    }
-    return map
-  }
-  return {
-    sections,
-    importers: entries("importers"),
-    packages: entries("packages"),
-    snapshots: entries("snapshots"),
-  }
-}
+const dependencyGroups = [
+  "dependencies",
+  "devDependencies",
+  "optionalDependencies",
+]
 
 // The snapshot keys in the dependency closure of each manifest package.
 function manifestClosure(lock) {
+  const snapshots = mapping(lock.snapshots)
   const keys = new Set()
   const snapshot = (name, value) => {
     if (value.startsWith("link:")) return
-    const key = lock.snapshots.has(`${name}@${value}`)
+    const key = Object.hasOwn(snapshots, `${name}@${value}`)
       ? `${name}@${value}`
       : value
-    if (!lock.snapshots.has(key))
+    if (!Object.hasOwn(snapshots, key))
       throw new Error(`no snapshot for ${name} ${value}`)
     if (keys.has(key)) return
     keys.add(key)
-    for (const [dep, version] of lock.snapshots.get(key).deps)
-      snapshot(dep, version)
+    const entry = mapping(snapshots[key])
+    for (const group of ["dependencies", "optionalDependencies"])
+      for (const [dep, version] of Object.entries(mapping(entry[group])))
+        snapshot(dep, version)
   }
   for (const [importer, names] of Object.entries(manifestPackages))
     for (const name of names) {
       // A manifest package that one side does not have has no closure on that
       // side; the version check in lockfileCause sees the addition or removal.
-      const version = lock.importers.get(importer)?.deps.get(name)
+      const version = importerVersion(lock, importer, name)
       if (version !== undefined) snapshot(name, version)
     }
   return keys
 }
 
+const importerVersion = (lock, importer, name) => {
+  const entry = mapping(mapping(lock.importers)[importer])
+  for (const group of dependencyGroups) {
+    const dep = mapping(entry[group])[name]
+    if (dep !== undefined) return mapping(dep).version
+  }
+}
+
 function lockfileCause(base, head) {
   if (base === null || head === null) return "added or removed"
-  const [a, b] = [base, head].map(parseLockfile)
-  const section = [...new Set([...a.sections.keys(), ...b.sections.keys()])].find(
+  const [a, b] = [base, head].map(parseYaml)
+  if (a.lockfileVersion !== "9.0" || b.lockfileVersion !== "9.0")
+    throw new Error("the lockfile is not version 9.0")
+  const section = changedKeys(a, b).find(
     (name) =>
-      a.sections.get(name) !== b.sections.get(name) &&
       !["importers", "packages", "snapshots", "overrides", "catalogs"].includes(
         name,
       ),
   )
   if (section !== undefined) return `section "${section}" changed`
+  // A specifier that the registry resolves: a semver range or a tag, or a
+  // catalog: or workspace: reference. Not a git, URL, path, tarball or alias.
+  const registry = (specifier) =>
+    typeof specifier === "string" &&
+    /^(?:catalog:[\w.-]*|workspace:[\w.*^~<>=|+ -]+|(?!\.)[\w.*^~<>=|+ -]+)$/.test(
+      specifier,
+    ) &&
+    !/\.(?:tgz|tar|tar\.gz)$/i.test(specifier)
+  const [ai, bi] = [a, b].map((lock) => mapping(lock.importers))
+  for (const path of changedKeys(ai, bi)) {
+    if (!Object.hasOwn(ai, path) || !Object.hasOwn(bi, path))
+      return `importer ${path} added or removed`
+    if (path === ".") return "the root importer changed"
+    const [x, y] = [ai[path], bi[path]].map(mapping)
+    const field = changedKeys(x, y).find(
+      (name) => !dependencyGroups.includes(name),
+    )
+    if (field !== undefined) return `importer ${path}: field "${field}" changed`
+    for (const group of dependencyGroups) {
+      const [p, q] = [x[group], y[group]].map(mapping)
+      for (const name of changedKeys(p, q)) {
+        if (!Object.hasOwn(q, name)) continue
+        const { specifier, version } = mapping(q[name])
+        const linked =
+          typeof version === "string" &&
+          version.startsWith("link:") &&
+          specifier?.startsWith("workspace:") &&
+          Object.hasOwn(bi, posix.join(path, version.slice(5)))
+        if (
+          !registry(specifier) ||
+          (!linked && !/^\d[\w.+-]*(?:\(.*\))?$/.test(version))
+        )
+          return `importer ${path}: ${name} is not a registry dependency`
+      }
+    }
+  }
+  const [ap, bp] = [a, b].map((lock) => mapping(lock.packages))
+  for (const key of changedKeys(ap, bp)) {
+    if (!Object.hasOwn(bp, key)) continue
+    const resolution = mapping(bp[key]).resolution
+    if (!isObject(resolution) || Object.keys(resolution).join() !== "integrity")
+      return `${key} has no registry resolution`
+  }
+  const [ao, bo] = [a, b].map((lock) => mapping(lock.overrides))
+  for (const name of changedKeys(ao, bo))
+    if (Object.hasOwn(bo, name) && !registry(bo[name]))
+      return `override ${name} is not a registry specifier`
+  const [ac, bc] = [a, b].map((lock) => mapping(lock.catalogs))
+  for (const catalog of changedKeys(ac, bc)) {
+    const [p, q] = [ac[catalog], bc[catalog]].map(mapping)
+    for (const name of changedKeys(p, q))
+      if (Object.hasOwn(q, name) && !registry(mapping(q[name]).specifier))
+        return `catalog ${catalog}: ${name} is not a registry specifier`
+  }
   for (const [importer, names] of Object.entries(manifestPackages))
     for (const name of names)
       if (
-        a.importers.get(importer)?.deps.get(name) !==
-        b.importers.get(importer)?.deps.get(name)
+        importerVersion(a, importer, name) !==
+        importerVersion(b, importer, name)
       )
         return `manifest package ${name} of ${importer} changed`
+  const [as, bs] = [a, b].map((lock) => mapping(lock.snapshots))
   for (const key of new Set([...manifestClosure(a), ...manifestClosure(b)])) {
     const plain = key.replace(/\(.*$/, "")
     if (
-      a.snapshots.get(key)?.text !== b.snapshots.get(key)?.text ||
-      a.packages.get(plain)?.text !== b.packages.get(plain)?.text
+      JSON.stringify(as[key]) !== JSON.stringify(bs[key]) ||
+      JSON.stringify(ap[plain]) !== JSON.stringify(bp[plain])
     )
       return `${plain} changed in the closure of a manifest package`
   }
@@ -315,7 +407,8 @@ export function decideMode({ config, event, fork, changed, read }) {
   // that the gate and the runner execute. The manifest job runs the code of
   // the PR (`pnpm install`, `pnpm -s checks:list`), so a file that changes
   // how the manifest is made is here too: the pnpm configuration, the
-  // patches, the Storybook config that the index build loads, and each file
+  // patches, each package.yaml and package.json5 (pnpm reads them as project
+  // manifests), the Storybook config that the index build loads, and each file
   // that scripts/checks/list.mjs runs outside scripts/checks/ (a test keeps
   // this list complete). The package files follow below. Other workflows,
   // Markdown files and .node-version are not here: the selector reads them as
@@ -331,6 +424,7 @@ export function decideMode({ config, event, fork, changed, read }) {
       /^scripts\/ci\/[^/]+\.json$/,
       /^(?:\.npmrc|\.pnpmfile\.cjs)$/,
       /^patches\//,
+      /(?:^|\/)package\.(?:yaml|json5)$/,
       /^apps\/backend\/evals\/mcp\/(?:cases|gate)\.ts$/,
       /^apps\/ui\/\.storybook\/(?:check-modules\.mjs|main\.ts)$/,
       /^apps\/codesearch\/scripts\/run-vitest-contracts\.mjs$/,
@@ -354,7 +448,7 @@ export function decideMode({ config, event, fork, changed, read }) {
     if (!read) return full(`package file ${path} changed and cannot be read`)
     let cause
     try {
-      cause = rule(read(path, "base"), read(path, "head"))
+      cause = rule(read(path, "base"), read(path, "head"), path)
     } catch (error) {
       cause = `cannot parse: ${error.message}`
     }

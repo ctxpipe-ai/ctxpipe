@@ -74,9 +74,11 @@ function listTimeFiles() {
       ...specifiers
         .filter((name) => name.startsWith("."))
         .map((name) => relative(root, resolve(root, dirname(file), name))),
-      ...[...text.matchAll(/(?:json\(|readFileSync\(\s*join\(root,\s*)"([^"]+\.(?:mjs|json))"/g)].map(
-        (match) => match[1],
-      ),
+      ...[
+        ...text.matchAll(
+          /(?:json\(|readFileSync\(\s*join\(root,\s*)"([^"]+\.(?:mjs|json))"/g,
+        ),
+      ].map((match) => match[1]),
       ...(/buildIndex\(\{\s*configDir:\s*join\(ui,\s*"\.storybook"\)/.test(text)
         ? ["apps/ui/.storybook/main.ts"]
         : []),
@@ -95,7 +97,8 @@ function listTimeFiles() {
 // The importer of a file in pnpm-lock.yaml: the nearest directory with a
 // package.json that is a workspace project, else ".".
 function importerOf(file) {
-  const projects = /^(?:apps|packages|examples)\/[^/]+$|^ops\/observability\/[^/]+$/
+  const projects =
+    /^(?:apps|packages|examples)\/[^/]+$|^ops\/observability\/[^/]+$/
   for (let dir = dirname(file); dir !== "."; dir = dirname(dir))
     if (projects.test(dir) && existsSync(join(root, dir, "package.json")))
       return dir
@@ -195,24 +198,36 @@ test("only a same-repo pull_request without gate input changes runs the selector
 })
 
 // A small v9 lockfile: each manifest package at 1.0.0, `vite` depends on
-// `esbuild`, and apps/ui also has `left-pad` outside the closure.
+// `esbuild`, and apps/backend has `hono` outside the closure. `root` and
+// `backend` add [name, specifier, version] dependencies to the root and to
+// apps/backend; `packages` adds [key, resolution] entries with an empty
+// snapshot.
 function lockfile({
   version = "'9.0'",
   esbuild = "sha512-esbuild",
-  leftPad = "1.0.0",
+  hono = "1.0.0",
   settings = "autoInstallPeers: true",
+  root = [],
+  backend = [],
+  packages = [],
 } = {}) {
-  const importer = (path, names) => [
+  const importer = (path, deps) => [
     `  ${path}:`,
     "    dependencies:",
-    ...names.flatMap((name) => [
+    ...deps.flatMap(([name, specifier, resolved]) => [
       `      '${name}':`,
-      "        specifier: ^1.0.0",
-      `        version: ${name === "left-pad" ? leftPad : "1.0.0"}`,
+      `        specifier: ${specifier}`,
+      `        version: ${resolved}`,
     ]),
     "",
   ]
+  const registry = (names) => names.map((name) => [name, "^1.0.0", "1.0.0"])
   const names = [...new Set(Object.values(manifestPackages).flat())]
+  const entries = [
+    ...names.map((name) => [`${name}@1.0.0`, "{integrity: sha512-x}"]),
+    [`hono@${hono}`, "{integrity: sha512-hono}"],
+    ...packages,
+  ]
   return [
     `lockfileVersion: ${version}`,
     "",
@@ -221,26 +236,30 @@ function lockfile({
     "",
     "importers:",
     "",
-    ...importer(".", manifestPackages["."]),
-    ...importer("apps/ui", [...manifestPackages["apps/ui"], "left-pad"]),
+    ...importer(".", [...registry(manifestPackages["."]), ...root]),
+    ...importer("apps/backend", [["hono", "^1.0.0", hono], ...backend]),
+    ...importer("apps/ui", registry(manifestPackages["apps/ui"])),
     "packages:",
     "",
-    ...[...names.map((name) => `${name}@1.0.0`), `left-pad@${leftPad}`]
-      .flatMap((key) => [`  '${key}':`, "    resolution: {integrity: x}", ""]),
+    ...entries.flatMap(([key, resolution]) => [
+      `  '${key}':`,
+      `    resolution: ${resolution}`,
+      "",
+    ]),
     "  esbuild@0.1.0:",
     `    resolution: {integrity: ${esbuild}}`,
     "",
     "snapshots:",
     "",
-    ...names.flatMap((name) =>
-      name === "vite"
-        ? ["  vite@1.0.0:", "    dependencies:", "      esbuild: 0.1.0", ""]
-        : [`  '${name}@1.0.0': {}`, ""],
-    ),
+    "  vite@1.0.0:",
+    "    dependencies:",
+    "      esbuild: 0.1.0",
+    "",
     "  esbuild@0.1.0: {}",
     "",
-    `  left-pad@${leftPad}: {}`,
-    "",
+    ...entries
+      .filter(([key]) => key !== "vite@1.0.0")
+      .flatMap(([key]) => [`  '${key}': {}`, ""]),
   ].join("\n")
 }
 
@@ -251,127 +270,238 @@ const packageMode = (base, head) =>
     (path, side) => (side === "base" ? base : head)[path] ?? null,
   )
 
-const uiPackage = (overrides = {}) =>
+const backendPackage = (overrides = {}) =>
   JSON.stringify({
-    name: "@ctxpipe/ui",
-    scripts: { dev: "vite dev" },
-    dependencies: { "left-pad": "^1.0.0" },
+    name: "@ctxpipe/backend",
+    scripts: { dev: "bun run dev" },
+    dependencies: { hono: "^1.0.0" },
     ...overrides,
   })
 
-test("a dependency bump outside the manifest closure runs the selector", () => {
+// The reason of the gate for a lockfile change from lockfile() to
+// lockfile(options), or to the text that `edit` makes from lockfile().
+const lockReason = (options, edit = (text) => text) =>
+  packageMode(
+    { "pnpm-lock.yaml": lockfile() },
+    { "pnpm-lock.yaml": edit(lockfile(options)) },
+  ).reason
+
+test("a registry dependency change in a workspace package runs the selector", () => {
   assert.deepEqual(
     packageMode(
-      { "apps/ui/package.json": uiPackage(), "pnpm-lock.yaml": lockfile() },
       {
-        "apps/ui/package.json": uiPackage({
-          dependencies: { "left-pad": "^1.1.0" },
+        "apps/backend/package.json": backendPackage(),
+        "pnpm-lock.yaml": lockfile(),
+      },
+      {
+        "apps/backend/package.json": backendPackage({
+          dependencies: { hono: "^1.1.0" },
         }),
-        "pnpm-lock.yaml": lockfile({ leftPad: "1.1.0" }),
+        "pnpm-lock.yaml": lockfile({ hono: "1.1.0" }),
       },
     ),
     { mode: "select", reason: "shadow" },
   )
-  // A new script that does not run at install or at list time.
+  // A new registry dependency, and a new transitive registry package.
   assert.equal(
-    packageMode(
-      { "apps/ui/package.json": uiPackage() },
-      {
-        "apps/ui/package.json": uiPackage({
-          scripts: { dev: "vite dev", lint: "oxlint" },
-        }),
-      },
-    ).mode,
-    "select",
+    lockReason({
+      backend: [["zod", "^4.0.0", "4.0.0"]],
+      packages: [
+        ["zod@4.0.0", "{integrity: sha512-zod}"],
+        ["zod-core@4.0.0", "{integrity: sha512-core}"],
+      ],
+    }),
+    "shadow",
   )
 })
 
-test("a package.json change that can run code in the manifest job forces a full run", () => {
-  const full = (head, cause) =>
-    assert.deepEqual(
-      packageMode(
-        { "apps/ui/package.json": uiPackage() },
-        { "apps/ui/package.json": head },
-      ),
-      { mode: "full", reason: `package file apps/ui/package.json: ${cause}` },
-    )
+test("a package.json change outside the dependency lists forces a full run", () => {
+  const full = (path, base, head, cause) =>
+    assert.deepEqual(packageMode({ [path]: base }, { [path]: head }), {
+      mode: "full",
+      reason: `package file ${path}: ${cause}`,
+    })
+  const backend = "apps/backend/package.json"
   full(
-    uiPackage({ scripts: { dev: "vite dev", postinstall: "node x.js" } }),
-    'script "postinstall" changed',
+    backend,
+    backendPackage(),
+    backendPackage({ name: "@ctxpipe/ui" }),
+    'field "name" changed',
+  )
+  // prerequisites.mjs runs build-storybook as a lane setup.
+  full(
+    "apps/ui/package.json",
+    backendPackage(),
+    backendPackage({
+      scripts: { dev: "bun run dev", "build-storybook": "node x.js" },
+    }),
+    'field "scripts" changed',
   )
   full(
-    uiPackage({ scripts: { dev: "vite dev", "checks:list": "node x.mjs" } }),
-    'script "checks:list" changed',
+    backend,
+    backendPackage(),
+    backendPackage({
+      scripts: { dev: "bun run dev", postinstall: "node x.js" },
+    }),
+    'field "scripts" changed',
   )
   full(
-    uiPackage({ packageManager: "pnpm@10.0.0" }),
+    backend,
+    backendPackage(),
+    backendPackage({ packageManager: "pnpm@10.0.0" }),
     'field "packageManager" changed',
   )
   full(
-    uiPackage({ pnpm: { onlyBuiltDependencies: ["esbuild"] } }),
+    backend,
+    backendPackage(),
+    backendPackage({ pnpm: { onlyBuiltDependencies: ["esbuild"] } }),
     'field "pnpm" changed',
   )
+  // A root dependency can link a bin (such as `node`) that comes first in
+  // PATH for `pnpm -s checks:list`.
+  full(
+    "package.json",
+    "{}",
+    JSON.stringify({ devDependencies: { "evil-node": "^1.0.0" } }),
+    "the root package changed",
+  )
   assert.match(
-    packageMode(
-      { "package.json": "{}" },
-      { "package.json": '{"name": "x",' },
-    ).reason,
+    packageMode({ "package.json": "{}" }, { "package.json": '{"name": "x",' })
+      .reason,
     /^package file package\.json: cannot parse: /,
   )
   // Without a reader the gate cannot see the change.
-  assert.deepEqual(pinnedMode(["apps/ui/package.json"]), {
+  assert.deepEqual(pinnedMode(["apps/backend/package.json"]), {
     mode: "full",
-    reason: "package file apps/ui/package.json changed and cannot be read",
+    reason: "package file apps/backend/package.json changed and cannot be read",
   })
 })
 
-test("pnpm-workspace.yaml forces a full run only for a setting outside the package lists", () => {
+test("pnpm-workspace.yaml forces a full run for a change outside the catalogs and overrides", () => {
   const base = "packages:\n  - apps/*\n\ncatalog:\n  vite: ^1.0.0\n"
+  const reason = (head) =>
+    packageMode(
+      { "pnpm-workspace.yaml": base },
+      { "pnpm-workspace.yaml": head },
+    ).reason
+  assert.equal(reason(`${base.replace("^1.0.0", "^1.1.0")}# note\n`), "shadow")
   assert.equal(
-    packageMode(
-      { "pnpm-workspace.yaml": base },
-      {
-        "pnpm-workspace.yaml": `${base.replace("^1.0.0", "^1.1.0")}# note\n`,
-      },
-    ).mode,
-    "select",
+    reason(`${base}onlyBuiltDependencies:\n  - esbuild\n`),
+    'package file pnpm-workspace.yaml: setting "onlyBuiltDependencies" changed',
   )
-  assert.deepEqual(
-    packageMode(
-      { "pnpm-workspace.yaml": base },
-      {
-        "pnpm-workspace.yaml": `${base}onlyBuiltDependencies:\n  - esbuild\n`,
-      },
+  assert.equal(
+    reason(base.replace("apps/*", "apps/**")),
+    'package file pnpm-workspace.yaml: setting "packages" changed',
+  )
+  assert.equal(
+    reason(`${base}catalog: [\n`),
+    "package file pnpm-workspace.yaml: cannot parse: duplicate or unexpected key: catalog",
+  )
+  assert.match(
+    reason(`${base}  react: [\n`),
+    /^package file pnpm-workspace\.yaml: cannot parse: unsupported flow collection/,
+  )
+})
+
+test("a lockfile change that the gate cannot verify as registry code forces a full run", () => {
+  const reason = (options, edit) =>
+    lockReason(options, edit).replace(/^package file pnpm-lock\.yaml: /, "")
+  assert.equal(
+    reason({ root: [["evil-node", "^1.0.0", "1.0.0"]] }),
+    "the root importer changed",
+  )
+  // A git dependency outside the manifest closure: pnpm 10.12 runs its
+  // prepare script when it fetches it.
+  assert.equal(
+    reason({
+      backend: [
+        [
+          "x",
+          "github:attacker/x",
+          "https://codeload.github.com/attacker/x/tar.gz/0abc",
+        ],
+      ],
+    }),
+    "importer apps/backend: x is not a registry dependency",
+  )
+  assert.equal(
+    reason({ backend: [["x", "^1.0.0", "file:../x"]] }),
+    "importer apps/backend: x is not a registry dependency",
+  )
+  // A transitive entry with a git, tarball or directory resolution.
+  for (const resolution of [
+    "{commit: 0abc, repo: https://github.com/attacker/x, type: git}",
+    "{tarball: https://example.com/x.tgz}",
+    "{directory: ../x, type: directory}",
+  ])
+    assert.equal(
+      reason({ packages: [["x@1.0.0", resolution]] }),
+      "x@1.0.0 has no registry resolution",
+    )
+  // pnpm reads apps/evil/package.yaml as a project manifest.
+  assert.equal(
+    reason({}, (text) =>
+      text.replace("importers:\n\n", "importers:\n\n  apps/evil: {}\n\n"),
     ),
-    {
-      mode: "full",
-      reason:
-        'package file pnpm-workspace.yaml: setting "onlyBuiltDependencies" changed',
-    },
+    "importer apps/evil added or removed",
   )
+  assert.equal(
+    reason({}, (text) => `${text}overrides:\n  hono: github:attacker/hono\n`),
+    "override hono is not a registry specifier",
+  )
+  assert.equal(
+    pinnedMode(["apps/evil/package.yaml"]).reason,
+    "gate inputs changed: apps/evil/package.yaml",
+  )
+})
+
+test("the lockfile reader rejects each form that it does not know, in all of the file", () => {
+  const reason = (edit) =>
+    lockReason({}, edit).replace(/^package file pnpm-lock\.yaml: /, "")
+  // A second hono entry outside the closure would replace the first.
+  assert.equal(
+    reason((text) =>
+      text.replace(
+        "  'hono@1.0.0': {}",
+        "  'hono@1.0.0': {}\n  hono@1.0.0:\n    dependencies:\n      evil: 1.0.0",
+      ),
+    ),
+    "cannot parse: duplicate or unexpected key: hono@1.0.0",
+  )
+  for (const [form, cause] of [
+    ["  'hono@1.0.0': &a {}", /unsupported value: &a \{\}/],
+    ["  'hono@1.0.0': {a: {b: c}}", /unsupported flow collection/],
+    ["  'hono@1.0.0':\n    optional: true # note", /unsupported value/],
+    ["  'hono@1.0.0':\n\t{}", /unsupported line/],
+    [
+      "  'hono@1.0.0':\n    optional: true\n   bad: 1",
+      /unexpected indentation/,
+    ],
+  ])
+    assert.match(
+      reason((text) => text.replace("  'hono@1.0.0': {}", form)),
+      new RegExp(`^cannot parse: ${cause.source}`),
+      form,
+    )
 })
 
 test("a lockfile change in the closure of a manifest package forces a full run", () => {
-  const lockMode = (head) =>
-    packageMode(
-      { "pnpm-lock.yaml": lockfile() },
-      { "pnpm-lock.yaml": lockfile(head) },
-    )
-  assert.equal(lockMode({}).mode, "select")
+  const reason = (options) =>
+    lockReason(options).replace(/^package file pnpm-lock\.yaml: /, "")
+  assert.equal(reason({}), "shadow")
   // esbuild is a dependency of vite, which the Storybook index build loads.
-  assert.deepEqual(lockMode({ esbuild: "sha512-other" }), {
-    mode: "full",
-    reason:
-      "package file pnpm-lock.yaml: esbuild@0.1.0 changed in the closure of a manifest package",
-  })
-  assert.match(
-    lockMode({ version: "'6.0'" }).reason,
-    /^package file pnpm-lock\.yaml: cannot parse: the lockfile is not version 9\.0$/,
+  assert.equal(
+    reason({ esbuild: "sha512-other" }),
+    "esbuild@0.1.0 changed in the closure of a manifest package",
   )
-  assert.deepEqual(lockMode({ settings: "autoInstallPeers: false" }), {
-    mode: "full",
-    reason: 'package file pnpm-lock.yaml: section "settings" changed',
-  })
+  assert.equal(
+    reason({ version: "'6.0'" }),
+    "cannot parse: the lockfile is not version 9.0",
+  )
+  assert.equal(
+    reason({ settings: "autoInstallPeers: false" }),
+    'section "settings" changed',
+  )
 })
 
 test("the gate reads a long lockfile key that pnpm writes as an explicit key", () => {
@@ -402,12 +532,14 @@ test("the gate reads a long lockfile key that pnpm writes as an explicit key", (
   )
 })
 
-test("the gate parses the lockfile of the repo", () => {
-  const text = readFileSync(join(root, "pnpm-lock.yaml"), "utf8")
-  assert.deepEqual(
-    packageMode({ "pnpm-lock.yaml": text }, { "pnpm-lock.yaml": text }),
-    { mode: "select", reason: "shadow" },
-  )
+test("the gate parses the lockfile and the workspace file of the repo", () => {
+  for (const path of ["pnpm-lock.yaml", "pnpm-workspace.yaml"]) {
+    const text = readFileSync(join(root, path), "utf8")
+    assert.deepEqual(packageMode({ [path]: text }, { [path]: text }), {
+      mode: "select",
+      reason: "shadow",
+    })
+  }
 })
 
 test("the committed merge gate config is valid and in shadow mode", () => {
