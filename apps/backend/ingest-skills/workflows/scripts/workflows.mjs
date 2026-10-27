@@ -68,6 +68,17 @@ const slug = (text) =>
 const hash = (text) =>
   createHash("sha256").update(text).digest("hex").slice(0, 8)
 
+/**
+ * True when the validator would refuse the text as an instruction to an
+ * agent (ADR-052 section 5). It scans each text that the script writes, so
+ * one such text would make it refuse the whole step. A hyphen in a job id
+ * or a path can hold a phrase.
+ */
+const looksLikeInstruction = (text) =>
+  INJECTION_PHRASES.some((pattern) => pattern.test(text))
+const safeEvent = (text) => EVENT.test(text) && !looksLikeInstruction(text)
+const safeJob = (text) => JOB.test(text) && !looksLikeInstruction(text)
+
 /** The code root with the longest path that holds a location, or null. */
 function rootOf(value) {
   let path = value.trim()
@@ -78,7 +89,7 @@ function rootOf(value) {
     return null
   let best = null
   for (const root of roots) {
-    if (root.path === ".") continue
+    if (root.path === "." || looksLikeInstruction(root.path)) continue
     if (path !== root.path && !path.startsWith(`${root.path}/`)) continue
     if (!best || root.path.length > best.path.length) best = root
   }
@@ -107,7 +118,12 @@ const found = trackedFiles(source)
   .sort()
 const files = []
 for (const path of found) {
-  if (WORKFLOW_FILE_PATTERN.test(path)) files.push(path)
+  if (WORKFLOW_FILE_PATTERN.test(path) && looksLikeInstruction(path))
+    skipped.push({
+      path: null,
+      reason: "The workflow file name has an instruction to an agent",
+    })
+  else if (WORKFLOW_FILE_PATTERN.test(path)) files.push(path)
   else
     skipped.push({
       path: safePath(path) ? path : null,
@@ -160,22 +176,21 @@ for (const file of files.slice(0, MAX_WORKFLOWS)) {
     continue
   }
   const unsafe =
-    workflow.triggers.filter((t) => !EVENT.test(t)).length +
-    workflow.jobs.filter((j) => !JOB.test(j)).length
+    workflow.triggers.filter((t) => !safeEvent(t)).length +
+    workflow.jobs.filter((j) => !safeJob(j)).length
   if (unsafe)
     skipped.push({
       path: file,
-      reason: `${unsafe} trigger or job names have characters that the script does not quote`,
+      reason: `${unsafe} trigger or job names have characters that the script does not quote, or an instruction to an agent`,
     })
-  const triggers = [...new Set(workflow.triggers.filter((t) => EVENT.test(t)))]
-  const jobs = workflow.jobs.filter((j) => JOB.test(j))
+  const triggers = [...new Set(workflow.triggers.filter(safeEvent))]
+  const jobs = workflow.jobs.filter(safeJob)
   const named = workflow.name?.trim() ?? ""
   // The validator refuses an instruction to an agent in the front matter
   // and in the body (ADR-052 section 5), so a name with such a phrase does
   // not stay in the file.
   const name =
-    NAME.test(named) &&
-    !INJECTION_PHRASES.some((pattern) => pattern.test(named))
+    NAME.test(named) && !looksLikeInstruction(named)
       ? named
       : posix.basename(file)
   // The validator refuses a heading that addresses agents. Such a name stays
@@ -196,8 +211,8 @@ for (const file of files.slice(0, MAX_WORKFLOWS)) {
     // the Triggers and Jobs lists do; a location with another key is out.
     if (
       !root ||
-      (event !== undefined && !EVENT.test(event)) ||
-      (job !== undefined && !JOB.test(job))
+      (event !== undefined && !safeEvent(event)) ||
+      (job !== undefined && !safeJob(job))
     )
       continue
     related.push(`- Names \`${root.path}\` in \`${where}\``)
