@@ -61,5 +61,27 @@ once.
    `POST /api/v1/webhook/buildkite/{connectionId}` returns `200`, and that the
    build file appears after the 10-minute window.
 
+## Troubleshooting
+
+### Builds do not arrive
+
+- Confirm that Buildkite can reach `AUTH_BASE_URL` over public HTTPS. With a
+  private URL, no webhook arrives, and the connector syncs once a day and on
+  **Sync now**.
+- A `401` answer has three causes: the webhook sends the plain
+  `X-Buildkite-Token`, the token in the setup is not the token of this
+  webhook, or the clock of the backend is more than five minutes off. Select
+  the signature option in Buildkite, paste the webhook token again in the
+  setup, and check the time of the backend host.
+- A `503` answer means that ctxpipe could not queue the sync. Check the backend
+  logs. The next event in the window or the daily sync gets the build.
+
+### The setup cannot check GraphQL access
+
+The setup shows "ctxpipe cannot make sure that the token has no GraphQL API
+access. Try again later." when the backend cannot reach
+`graphql.buildkite.com`. Allow outbound HTTPS from the backend to that host,
+then connect again.
+
 See [Buildkite connector](/docs/connections/source-connectors/buildkite) for
 the files, the sync, and product troubleshooting.
