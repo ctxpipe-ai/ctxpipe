@@ -19,6 +19,7 @@ const shared = [
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
+  ".node-version",
   "scripts/checks/run.mjs",
   "scripts/ci/vitest-launch.mjs",
 ]

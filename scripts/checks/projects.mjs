@@ -11,7 +11,13 @@ import { logFile, logged } from "./log.mjs"
 // approximated with whole directories: a change anywhere in them selects it.
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
-const shared = ["package.json", "pnpm-lock.yaml", "scripts/checks/projects.mjs"]
+const shared = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  ".node-version",
+  "scripts/checks/projects.mjs",
+]
 const node = (script, ...args) => [process.execPath, script, ...args]
 const pnpm = (...args) => ["pnpm", ...args]
 

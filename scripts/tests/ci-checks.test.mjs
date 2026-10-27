@@ -815,3 +815,18 @@ test("the rerun takes each failed record below the results once, and no rerun re
   assert.deepEqual(summary.notRerun, failedIds(directory).slice(1))
   rmSync(directory, { recursive: true })
 })
+
+test("every check has the root toolchain files among its inputs", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const { checks } = JSON.parse(result.stdout)
+  assert.ok(checks.length > 0)
+  for (const { id, inputs } of checks)
+    for (const file of [
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      ".node-version",
+    ])
+      assert.ok(inputs.includes(file), `${id} lacks input ${file}`)
+})

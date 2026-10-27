@@ -30,6 +30,7 @@ const inputs = [
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
+  ".node-version",
   "apps/ui/package.json",
   "apps/ui/tsconfig.json",
   "apps/ui/vite.config.ts",

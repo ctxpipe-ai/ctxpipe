@@ -13,7 +13,13 @@ import { logFile, logged } from "./log.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const cases = "apps/backend/evals/mcp/cases.ts"
-const shared = ["package.json", "pnpm-lock.yaml", "scripts/checks/evals.mjs"]
+const shared = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  ".node-version",
+  "scripts/checks/evals.mjs",
+]
 const env = [
   { name: "MODEL_PROVIDER", mode: "value" },
   { name: "MCP_EVAL_MODELS", mode: "value" },
