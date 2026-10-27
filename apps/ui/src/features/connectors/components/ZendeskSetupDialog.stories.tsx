@@ -325,7 +325,7 @@ export const ReconnectToAddTheWebhook: Story = {
       await body.findByRole("heading", { name: "Add Zendesk to Workspaces" }),
     )
     await expect(
-      body.getByText(/Zendesk did not let ctx\| add the Help Center webhook/),
+      body.getByText(/Zendesk did not let ctxpipe add the Help Center webhook/),
     ).toBeVisible()
   },
 }
