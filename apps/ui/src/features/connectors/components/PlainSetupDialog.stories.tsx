@@ -240,7 +240,7 @@ export const ReconnectForTheWebhook: Story = {
     // A working connection opens at the key: a reconnect adds the target.
     await visible(await body.findByLabelText("API key"))
     await expect(
-      body.getByText(/ctx\| tries to add the webhook again/),
+      body.getByText(/ctxpipe tries to add the webhook again/),
     ).toBeVisible()
   },
 }
