@@ -1,16 +1,19 @@
 /**
  * PROTOTYPE (settings variant D, branch `prototype/workspace-settings`). The
  * compact source list: each connector is an accordion, each source is a
- * two-line row (name, then its file), and each row has ONE status line: the
- * live work when there is some, else the state, quiet when healthy. The runs
- * of a busy source open under the row.
+ * two-line row (name, then its file), and each row has ONE status: the live
+ * work when there is some, else the state, quiet when healthy. The runs of a
+ * busy source open under the row. Headers, rows, and runs share one column
+ * grid, so the status dots, the times, and the actions line up.
  */
-import { IconChevronRight, IconDots } from "@tabler/icons-react"
+import { IconChevronRight, IconDots, IconPlus } from "@tabler/icons-react"
 import { type ComponentType, type ReactNode, useState } from "react"
 import {
   Button as AriaButton,
   Disclosure as AriaDisclosure,
   DisclosurePanel as AriaDisclosurePanel,
+  Tooltip,
+  TooltipTrigger,
 } from "react-aria-components"
 
 import { Button } from "@/components/ui/Button"
@@ -55,36 +58,45 @@ const TONE: Record<SourceStateTone, { dot: string; text: string }> = {
   error: { dot: "bg-red-400", text: "text-red-300" },
 }
 
-/** One line: the live work first; else the state, colored only for a problem. */
-function SourceStatusLine(props: {
+/**
+ * The columns of a header, a row, and a run: the name, the status, the time,
+ * the runs, and the action. On a narrow pane each column takes its content.
+ */
+const GRID =
+  "grid grid-cols-[minmax(0,1fr)_auto_auto_auto_2rem] items-center gap-x-3 @3xl:grid-cols-[minmax(0,1fr)_8.5rem_4.5rem_4.5rem_2rem]"
+
+/** The status cell: the live work first; else the state, colored only for a problem. */
+function StatusCell(props: {
   state: { label: string; tone: SourceStateTone }
   live: SourceLiveStatus | null
 }) {
   const { live, state } = props
-  const now = useNow(live !== null)
-  if (live)
-    return (
-      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs">
-        <span
-          aria-hidden
-          className="ctx-status-pulse size-1.5 shrink-0 rounded-full bg-teal-400"
-        />
-        <span className="text-foreground">{live.label}</span>
-        <span className="tabular-nums text-muted-foreground">
-          · {formatElapsed(live.since, now)}
-        </span>
-      </span>
-    )
   const tone = TONE[state.tone]
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 whitespace-nowrap text-xs",
-        tone.text,
+        "inline-flex min-w-0 items-center gap-1.5 text-xs whitespace-nowrap",
+        live ? "text-foreground" : tone.text,
       )}
     >
-      <span aria-hidden className={cn("size-1.5 rounded-full", tone.dot)} />
-      {state.label}
+      <span
+        aria-hidden
+        className={cn(
+          "size-1.5 shrink-0 rounded-full",
+          live ? "ctx-status-pulse bg-teal-400" : tone.dot,
+        )}
+      />
+      <span className="truncate">{live ? live.label : state.label}</span>
+    </span>
+  )
+}
+
+/** The time of live work, so the times of all rows line up on the right. */
+function Elapsed(props: { since: string }) {
+  const now = useNow(true)
+  return (
+    <span className="text-right text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+      {formatElapsed(props.since, now)}
     </span>
   )
 }
@@ -110,15 +122,16 @@ export function CompactSourceRow(props: {
     // The row starts under the connector name (chevron, icon, gaps), so the
     // sources read as children of their connector on a wide list.
     <li className="group/row py-2.5 pr-3 pl-3 hover:bg-foreground/[0.03] @xl:pl-20">
-      <div className="grid grid-cols-[minmax(0,1fr)_auto_2rem] items-center gap-x-4">
+      <div className={GRID}>
         <div className="min-w-0">
           <div className="truncate text-sm text-foreground">{props.title}</div>
           <div className="truncate font-mono text-xs text-muted-foreground">
             {props.subtitle}
           </div>
         </div>
-        <div className="flex items-center justify-end gap-3">
-          <SourceStatusLine state={props.state} live={props.live} />
+        <StatusCell state={props.state} live={props.live} />
+        {props.live ? <Elapsed since={props.live.since} /> : <span />}
+        <div>
           {runs.length > 1 ? (
             <AriaButton
               aria-expanded={runsOpen}
@@ -176,22 +189,46 @@ export function CompactSourceRow(props: {
   )
 }
 
+/** The runs under a row: each label under the name, each time in the time column. */
 function RunList(props: { runs: SourceLiveRun[] }) {
-  const now = useNow(true)
   return (
-    <ul className="mt-2 ml-3 flex flex-col gap-1 border-l border-white/[0.08] pl-3">
+    <ul className="mt-1.5 flex flex-col gap-1">
       {props.runs.map((run) => (
-        <li
-          key={run.key}
-          className="flex items-center justify-between gap-3 text-xs"
-        >
-          <span className="text-muted-foreground">{run.label}</span>
-          <span className="tabular-nums text-muted-foreground">
-            {formatElapsed(run.since, now)}
+        <li key={run.key} className={cn(GRID, "text-xs")}>
+          <span className="col-span-2 truncate border-l border-white/[0.08] pl-3 text-muted-foreground">
+            {run.label}
           </span>
+          <Elapsed since={run.since} />
         </li>
       ))}
     </ul>
+  )
+}
+
+/** The add action of a connector: an icon in the action column, its name in a tooltip. */
+export function SourceGroupAddButton(props: {
+  label: string
+  onPress: () => void
+}) {
+  return (
+    <TooltipTrigger delay={200}>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label={props.label}
+        onPress={props.onPress}
+        className="text-muted-foreground hover:text-foreground"
+      >
+        <IconPlus className="size-4" aria-hidden />
+      </Button>
+      <Tooltip
+        placement="top"
+        offset={6}
+        className="rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-100 shadow-md"
+      >
+        {props.label}
+      </Tooltip>
+    </TooltipTrigger>
   )
 }
 
@@ -217,11 +254,11 @@ export function SourceAccordionGroup(props: {
     <AriaDisclosure id={props.id} defaultExpanded={props.defaultExpanded}>
       {({ isExpanded }) => (
         <>
-          <div className="flex items-center gap-3 bg-white/[0.02] px-3 py-2">
+          <div className={cn(GRID, "bg-white/[0.02] px-3 py-2")}>
             <AriaButton
               slot="trigger"
               className={cn(
-                "flex min-w-0 flex-1 items-center gap-3 rounded-md text-left",
+                "flex min-w-0 items-center gap-3 rounded-md text-left",
                 focusVisibleClassName,
               )}
             >
@@ -250,7 +287,7 @@ export function SourceAccordionGroup(props: {
             {props.summary ? (
               <span
                 className={cn(
-                  "inline-flex shrink-0 items-center gap-1.5 text-xs",
+                  "inline-flex items-center gap-1.5 text-xs whitespace-nowrap",
                   props.summary.tone === "working"
                     ? "text-teal-200"
                     : "text-amber-200",
@@ -267,8 +304,12 @@ export function SourceAccordionGroup(props: {
                 />
                 {props.summary.label}
               </span>
-            ) : null}
-            {props.action}
+            ) : (
+              <span />
+            )}
+            <span />
+            <span />
+            <div className="flex justify-end">{props.action}</div>
           </div>
           {props.note}
           <AriaDisclosurePanel>{props.children}</AriaDisclosurePanel>

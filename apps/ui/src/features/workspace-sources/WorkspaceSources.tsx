@@ -73,6 +73,7 @@ import {
 import {
   CompactSourceRow,
   SourceAccordionGroup,
+  SourceGroupAddButton,
   type SourceLiveStatus,
   type SourceLiveStatusLookup,
 } from "./SourceLiveStatusCell"
@@ -800,10 +801,27 @@ export function WorkspaceSources(props: {
                 // The GitHub rows are repositories; its notes keep each detail.
                 const shared = repositories ? [] : sharedStatusDetails(sources)
                 const action =
+                  liveStatus &&
                   provider === "github" &&
                   connected &&
                   canEdit &&
                   !githubEmptyAction ? (
+                    <SourceGroupAddButton
+                      label="Add repositories"
+                      onPress={() => setGithubAddOpen(true)}
+                    />
+                  ) : liveStatus &&
+                    provider !== "github" &&
+                    connected &&
+                    canEdit ? (
+                    <SourceGroupAddButton
+                      label={`Add ${label} source`}
+                      onPress={() => setEditor({ kind: "add", provider })}
+                    />
+                  ) : provider === "github" &&
+                    connected &&
+                    canEdit &&
+                    !githubEmptyAction ? (
                     <Button
                       variant="quiet"
                       onPress={() => setGithubAddOpen(true)}
