@@ -613,7 +613,7 @@ describe("createPlainWebhookTarget", () => {
     expect(operations[0]?.variables).toEqual({
       input: {
         url: "https://ctx.example.com/api/v1/webhook/plain/con_1",
-        description: "ctx| Workspace sources",
+        description: "ctxpipe Workspace sources",
         isEnabled: true,
         version: "2026-10-06",
         eventSubscriptions: [{ eventType: "timeline.timeline_entry_changed" }],

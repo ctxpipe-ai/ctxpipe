@@ -492,7 +492,7 @@ export async function createPlainWebhookTarget(input: {
       variables: {
         input: {
           url: input.url,
-          description: "ctx| Workspace sources",
+          description: "ctxpipe Workspace sources",
           isEnabled: true,
           version: "2026-10-06",
           eventSubscriptions: [

@@ -150,7 +150,7 @@ export async function savePlainConnection(input: {
 }
 
 /**
- * Save the webhook target that ctx| created in Plain, and its token. The
+ * Save the webhook target that ctxpipe created in Plain, and its token. The
  * save applies only while the row still has `previousTargetId` (the target
  * that the request read), so of two parallel connects only one saves.
  * Gives false when the row changed: the caller deletes its own target.

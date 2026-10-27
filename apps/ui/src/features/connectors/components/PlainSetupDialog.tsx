@@ -52,7 +52,7 @@ type PlainSetupDialogProps = {
 
 /**
  * Connect Plain with a machine-user API key, then add Plain to Workspaces
- * (ADR-050, ADR-059). ctx| creates the webhook target for live updates.
+ * (ADR-050, ADR-059). ctxpipe creates the webhook target for live updates.
  */
 export function PlainSetupDialog({
   orgSlug,
@@ -231,11 +231,11 @@ function ConnectStep(props: {
           <strong className="font-medium text-foreground">
             Settings → Machine Users
           </strong>
-          , add a machine user for ctx|, and create an{" "}
+          , add a machine user for ctxpipe, and create an{" "}
           <ExternalLink href="https://www.plain.com/docs/graphql/authentication">
             API key
           </ExternalLink>{" "}
-          with only these permissions. ctx| reads with the key, creates one
+          with only these permissions. ctxpipe reads with the key, creates one
           webhook target for live updates, and keeps the key encrypted.
         </p>
         <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
@@ -254,7 +254,7 @@ function ConnectStep(props: {
         </InlineAlert>
       ) : props.webhookMissing ? (
         <InlineAlert variant="warning">
-          Live updates are off. Paste the key again, and ctx| tries to add the
+          Live updates are off. Paste the key again, and ctxpipe tries to add the
           webhook again.
         </InlineAlert>
       ) : null}

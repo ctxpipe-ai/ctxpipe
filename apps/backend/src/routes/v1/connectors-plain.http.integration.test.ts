@@ -273,7 +273,7 @@ describe("Plain connector routes (Postgres + msw)", () => {
   })
 
   it("connects without live updates when Plain refuses the webhook target", async () => {
-    // For example, a self-hosted ctx| that Plain cannot reach.
+    // For example, a self-hosted ctxpipe that Plain cannot reach.
     pl.refuseTarget = "The URL must be public"
 
     const { connectionId } = await connected()

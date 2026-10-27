@@ -5,7 +5,7 @@ type SetupStatus = {
 
 /**
  * A connection holds auth only (ADR-050, ADR-059): paste a machine-user API
- * key, then add Plain to Workspaces. ctx| creates the webhook target.
+ * key, then add Plain to Workspaces. ctxpipe creates the webhook target.
  */
 export const PLAIN_SETUP_STEPS = [
   { id: "connect", label: "Connect Plain" },

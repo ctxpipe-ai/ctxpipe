@@ -235,7 +235,7 @@ export const plainSourceAdapter: SourceAdapter<PlainSourceScope> = {
         for (const id of scope.helpCenters)
           if (!known.has(id))
             problems.push(
-              `ctx| cannot read Plain Help Center ${id}. Check that it exists.`,
+              `ctxpipe cannot read Plain Help Center ${id}. Check that it exists.`,
             )
       }
       if (scope.labels?.length) {
@@ -247,7 +247,7 @@ export const plainSourceAdapter: SourceAdapter<PlainSourceScope> = {
         for (const id of scope.labels)
           if (!known.has(id))
             problems.push(
-              `ctx| cannot read Plain label ${id}. Check that it exists and is not archived.`,
+              `ctxpipe cannot read Plain label ${id}. Check that it exists and is not archived.`,
             )
       }
       return problems.length ? problems.join("; ") : null

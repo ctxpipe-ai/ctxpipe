@@ -1,13 +1,13 @@
 ---
 title: Plain
-description: Use the Plain connector on a self-hosted ctx|. It needs no environment variables.
+description: Use the Plain connector on a self-hosted ctxpipe. It needs no environment variables.
 ---
 
 ## Overview
 
-Self-hosted Plain uses the same connector flow as hosted ctx|. Plain has no
+Self-hosted Plain uses the same connector flow as hosted ctxpipe. Plain has no
 OAuth application for other products, so an org admin pastes the API key of a
-Plain machine user in the setup. ctx| encrypts the key and the webhook
+Plain machine user in the setup. ctxpipe encrypts the key and the webhook
 token on the connection with the connection secret key of the deployment.
 
 There is no `PLAIN_*` environment variable. You do not need to change Compose,
@@ -17,23 +17,23 @@ Railway, or CDK settings.
 
 - A public HTTPS `AUTH_BASE_URL` for the webhook target. Plain sends webhooks
   only to a public HTTPS address. Without it, the connector syncs once a day
-  and on **Sync now**. ctx| cannot check that Plain reaches the URL: when
+  and on **Sync now**. ctxpipe cannot check that Plain reaches the URL: when
   Plain accepts the target but cannot reach it, the card still shows live
   updates as on.
-- A ctx| GitHub App connection with write access to each Workspace repository
+- A ctxpipe GitHub App connection with write access to each Workspace repository
   that syncs Plain content.
 - The backend and worker able to reach `core-api.uk.plain.com` over HTTPS.
 
 ## Webhook target
 
-At connect, ctx| creates one Plain webhook target for each connection:
+At connect, ctxpipe creates one Plain webhook target for each connection:
 
 ```text
 {AUTH_BASE_URL}/api/v1/webhook/plain/{connectionId}
 ```
 
 The target sends `timeline.timeline_entry_changed` events with a random token
-in the `X-Ctxpipe-Webhook-Token` header. ctx| compares the token and
+in the `X-Ctxpipe-Webhook-Token` header. ctxpipe compares the token and
 refuses a request without it. A failed enqueue returns `503`, and Plain sends
 the event again.
 
@@ -47,7 +47,7 @@ the event again.
    `sources/plain/`.
 4. Confirm the source shows **OK** in the Workspace settings and files appear
    under `plain/`.
-5. In Plain, open **Settings → Webhooks** and confirm the ctx| target. Add a
+5. In Plain, open **Settings → Webhooks** and confirm the ctxpipe target. Add a
    note to a thread with a selected label. Confirm that
    `POST /api/v1/webhook/plain/{connectionId}` returns `200`, and that the
    thread file changes after the 10-minute window.

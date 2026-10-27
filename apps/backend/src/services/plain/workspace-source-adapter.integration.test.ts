@@ -358,7 +358,7 @@ describe("Plain source adapter (Postgres + msw)", () => {
         env,
       }),
     ).toBe(
-      "ctx| cannot read Plain Help Center hc_x. Check that it exists.; ctx| cannot read Plain label lt_x. Check that it exists and is not archived.",
+      "ctxpipe cannot read Plain Help Center hc_x. Check that it exists.; ctxpipe cannot read Plain label lt_x. Check that it exists and is not archived.",
     )
     expect(pl.reads.sort()).toEqual(["helpCenters", "labelTypes"])
   })
