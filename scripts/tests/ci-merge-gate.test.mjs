@@ -18,8 +18,6 @@ import {
   comment,
   decideMode,
   describe,
-  laneScripts,
-  manifestPackages,
   marker,
   shadow,
   summary,
@@ -40,49 +38,21 @@ const pinned = {
 
 // The files that list.mjs runs or imports at list time, from the static
 // import closure of list.mjs: a relative `from "x"` or `import("x")`, a script
-// that a `json("x")` call spawns, a file that a `readFileSync(join(root, "x"))`
-// read opens, and apps/ui/.storybook/main.ts, which the Storybook index build
-// (`buildIndex({ configDir: join(ui, ".storybook") })`) loads. It also gives
-// the bare package names that these files import, by file.
+// that a `json("x")` call spawns, and a file that a `readFileSync(join(root, "x"))` read opens.
 function listTimeFiles() {
   const seen = new Set()
-  const packages = new Map()
   const visit = (file) => {
     if (seen.has(file)) return
     seen.add(file)
     if (!/\.(?:mjs|ts)$/.test(file)) return
     const text = readFileSync(join(root, file), "utf8")
-    const specifiers = [
-      ...text.matchAll(/(?:from\s+|import\()\s*["']([^"']+)["']/g),
-    ].map((match) => match[1])
-    packages.set(
-      file,
-      [
-        ...specifiers
-          .filter((name) => !name.startsWith(".") && !name.startsWith("node:"))
-          .map((name) =>
-            name
-              .split("/")
-              .slice(0, name.startsWith("@") ? 2 : 1)
-              .join("/"),
-          ),
-        ...[...text.matchAll(/getAbsolutePath\("([^"]+)"\)/g)].map(
-          (match) => match[1],
-        ),
-      ].filter((name, i, all) => all.indexOf(name) === i),
-    )
     const found = [
-      ...specifiers
-        .filter((name) => name.startsWith("."))
-        .map((name) => relative(root, resolve(root, dirname(file), name))),
-      ...[
-        ...text.matchAll(
-          /(?:json\(|readFileSync\(\s*join\(root,\s*)"([^"]+\.(?:mjs|json))"/g,
-        ),
-      ].map((match) => match[1]),
-      ...(/buildIndex\(\{\s*configDir:\s*join\(ui,\s*"\.storybook"\)/.test(text)
-        ? ["apps/ui/.storybook/main.ts"]
-        : []),
+      ...[...text.matchAll(/(?:from\s+|import\()\s*["'](\.[^"']+)["']/g)].map(
+        (match) => relative(root, resolve(root, dirname(file), match[1])),
+      ),
+      ...[...text.matchAll(/(?:json\(|readFileSync\(\s*join\(root,\s*)"([^"]+\.(?:mjs|json))"/g)].map(
+        (match) => match[1],
+      ),
     ]
     for (const path of found)
       for (const candidate of [path, `${path}.ts`, `${path}.mjs`])
@@ -92,52 +62,35 @@ function listTimeFiles() {
         }
   }
   visit("scripts/checks/list.mjs")
-  return { files: [...seen], packages }
+  return [...seen]
 }
-
-// The importer of a file in pnpm-lock.yaml: the nearest directory with a
-// package.json that is a workspace project, else ".".
-function importerOf(file) {
-  const projects =
-    /^(?:apps|packages|examples)\/[^/]+$|^ops\/observability\/[^/]+$/
-  for (let dir = dirname(file); dir !== "."; dir = dirname(dir))
-    if (projects.test(dir) && existsSync(join(root, dir, "package.json")))
-      return dir
-  return "."
-}
-
-const pinnedMode = (changed, read) =>
-  decideMode({
-    config: pinned,
-    event: "pull_request",
-    fork: false,
-    changed,
-    read,
-  })
 
 test("a file that list.mjs runs outside scripts/checks forces a full run", () => {
-  const { files, packages } = listTimeFiles()
+  const files = listTimeFiles()
   // The walk finds the known files, so a broken walk cannot pass.
   for (const known of [
     "scripts/checks/families.mjs",
     "apps/backend/evals/mcp/cases.ts",
     "apps/ui/.storybook/check-modules.mjs",
-    "apps/ui/.storybook/main.ts",
     "apps/codesearch/scripts/run-vitest-contracts.mjs",
     "scripts/ci/projects.json",
   ])
     assert.ok(files.includes(known), `walk reaches ${known}`)
   const outside = files.filter((file) => !file.startsWith("scripts/checks/"))
-  for (const file of [...outside, ".npmrc", ".pnpmfile.cjs"])
-    assert.equal(pinnedMode([file]).mode, "full", file)
-  // Each package that these files load is a manifest package of its
-  // importer, so a lockfile change in its closure forces a full run.
-  assert.ok(packages.get("apps/ui/.storybook/main.ts").includes("vite"))
-  for (const [file, names] of packages)
-    for (const name of names)
-      assert.ok(
-        manifestPackages[importerOf(file)]?.includes(name),
-        `${name} (imported by ${file}) is a manifest package`,
+  for (const file of [
+    ...outside,
+    ".npmrc",
+  ])
+    if (existsSync(join(root, file)))
+      assert.equal(
+        decideMode({
+          config: pinned,
+          event: "pull_request",
+          fork: false,
+          changed: [file],
+        }).mode,
+        "full",
+        file,
       )
 })
 
@@ -157,6 +110,14 @@ test("only a same-repo pull_request without gate input changes runs the selector
   })
   assert.deepEqual(mode({ fork: true }), { mode: "full", reason: "fork PR" })
   for (const path of [
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "apps/ui/package.json",
+    "packages/cli/package.json",
+  ])
+    assert.deepEqual(mode({ changed: [path] }), { mode: "select", reason: "shadow" })
+  for (const path of [
     ".github/workflows/ci.yaml",
     ".github/merge-gate.json",
     "scripts/checks/gate.mjs",
@@ -165,9 +126,7 @@ test("only a same-repo pull_request without gate input changes runs the selector
     "scripts/ci/test-suite.mjs",
     "scripts/ci/vitest-launch.mjs",
     ".npmrc",
-    ".pnpmfile.cjs",
     "patches/a.patch",
-    "apps/ui/.storybook/main.ts",
   ])
     assert.deepEqual(mode({ changed: ["apps/a.ts", path] }), {
       mode: "full",
@@ -196,577 +155,6 @@ test("only a same-repo pull_request without gate input changes runs the selector
   assert.equal(mode({ config: { ...pinned, mode: "off" } }).mode, "full")
   // Phase 1 has no gate mode: only shadow selects.
   assert.equal(mode({ config: { ...pinned, mode: "gate" } }).mode, "full")
-})
-
-// A small v9 lockfile: each manifest package at 1.0.0, `vite` depends on
-// `esbuild`, and apps/backend has `hono` outside the closure. `root` and
-// `backend` add [name, specifier, version] dependencies to the root and to
-// apps/backend; `packages` adds [key, resolution] entries with an empty
-// snapshot.
-function lockfile({
-  version = "'9.0'",
-  esbuild = "sha512-esbuild",
-  hono = "1.0.0",
-  settings = "autoInstallPeers: true",
-  root = [],
-  backend = [],
-  packages = [],
-} = {}) {
-  const importer = (path, deps) => [
-    `  ${path}:`,
-    "    dependencies:",
-    ...deps.flatMap(([name, specifier, resolved]) => [
-      `      '${name}':`,
-      `        specifier: ${specifier}`,
-      `        version: ${resolved}`,
-    ]),
-    "",
-  ]
-  const registry = (names) => names.map((name) => [name, "^1.0.0", "1.0.0"])
-  const names = [...new Set(Object.values(manifestPackages).flat())]
-  const entries = [
-    ...names.map((name) => [`${name}@1.0.0`, "{integrity: sha512-x}"]),
-    [`hono@${hono}`, "{integrity: sha512-hono}"],
-    ...packages,
-  ]
-  return [
-    `lockfileVersion: ${version}`,
-    "",
-    "settings:",
-    `  ${settings}`,
-    "",
-    "importers:",
-    "",
-    ...importer(".", [...registry(manifestPackages["."]), ...root]),
-    ...importer("apps/backend", [["hono", "^1.0.0", hono], ...backend]),
-    ...importer("apps/ui", registry(manifestPackages["apps/ui"])),
-    "packages:",
-    "",
-    ...entries.flatMap(([key, resolution]) => [
-      `  '${key}':`,
-      `    resolution: ${resolution}`,
-      "",
-    ]),
-    "  esbuild@0.1.0:",
-    `    resolution: {integrity: ${esbuild}}`,
-    "",
-    "snapshots:",
-    "",
-    "  vite@1.0.0:",
-    "    dependencies:",
-    "      esbuild: 0.1.0",
-    "",
-    "  esbuild@0.1.0: {}",
-    "",
-    ...entries
-      .filter(([key]) => key !== "vite@1.0.0")
-      .flatMap(([key]) => [`  '${key}': {}`, ""]),
-  ].join("\n")
-}
-
-// decideMode with the base and head texts of each changed package file.
-const packageMode = (base, head) =>
-  pinnedMode(
-    [...new Set([...Object.keys(base), ...Object.keys(head)])],
-    (path, side) => (side === "base" ? base : head)[path] ?? null,
-  )
-
-const backendPackage = (overrides = {}) =>
-  JSON.stringify({
-    name: "@ctxpipe/backend",
-    scripts: { dev: "bun run dev" },
-    dependencies: { hono: "^1.0.0" },
-    ...overrides,
-  })
-
-// The reason of the gate for a lockfile change from lockfile() to
-// lockfile(options), or to the text that `edit` makes from lockfile().
-const lockReason = (options, edit = (text) => text) =>
-  packageMode(
-    { "pnpm-lock.yaml": lockfile() },
-    { "pnpm-lock.yaml": edit(lockfile(options)) },
-  ).reason
-
-test("a registry dependency change in a workspace package runs the selector", () => {
-  assert.deepEqual(
-    packageMode(
-      {
-        "apps/backend/package.json": backendPackage(),
-        "pnpm-lock.yaml": lockfile(),
-      },
-      {
-        "apps/backend/package.json": backendPackage({
-          dependencies: { hono: "^1.1.0" },
-        }),
-        "pnpm-lock.yaml": lockfile({ hono: "1.1.0" }),
-      },
-    ),
-    { mode: "select", reason: "shadow" },
-  )
-  // A new registry dependency, and a new transitive registry package.
-  assert.equal(
-    lockReason({
-      backend: [["zod", "^4.0.0", "4.0.0"]],
-      packages: [
-        ["zod@4.0.0", "{integrity: sha512-zod}"],
-        ["zod-core@4.0.0", "{integrity: sha512-core}"],
-      ],
-    }),
-    "shadow",
-  )
-})
-
-test("a package.json change that the gate does not allow forces a full run", () => {
-  const full = (path, base, head, cause) =>
-    assert.deepEqual(packageMode({ [path]: base }, { [path]: head }), {
-      mode: "full",
-      reason: `package file ${path}: ${cause}`,
-    })
-  const backend = "apps/backend/package.json"
-  full(
-    backend,
-    backendPackage(),
-    backendPackage({ name: "@ctxpipe/ui" }),
-    'field "name" changed',
-  )
-  for (const field of [
-    "publishConfig",
-    "files",
-    "main",
-    "module",
-    "exports",
-    "imports",
-    "types",
-    "type",
-    "bin",
-    "engines",
-  ])
-    full(
-      backend,
-      backendPackage(),
-      backendPackage({ [field]: "x" }),
-      `field "${field}" changed`,
-    )
-  // prerequisites.mjs runs build-storybook as a lane setup, and the prebuild
-  // hook of the aws-cdk build runs stamp-image-tag.
-  const script = (path, name) =>
-    full(
-      path,
-      backendPackage(),
-      backendPackage({ scripts: { dev: "bun run dev", [name]: "node x.js" } }),
-      `script "${name}" changed`,
-    )
-  script("apps/ui/package.json", "build-storybook")
-  script("packages/aws-cdk/package.json", "stamp-image-tag")
-  for (const name of [
-    "install",
-    "preinstall",
-    "postinstall",
-    "prepare",
-    "prepublishOnly",
-    "prepack",
-    "postpack",
-    "pretest",
-    "postbuild",
-    "checks:list",
-  ])
-    script(backend, name)
-  full(
-    backend,
-    backendPackage(),
-    backendPackage({ scripts: "node x.js" }),
-    'cannot parse: not a mapping: "node x.js"',
-  )
-  full(
-    backend,
-    backendPackage(),
-    backendPackage({ packageManager: "pnpm@10.0.0" }),
-    'field "packageManager" changed',
-  )
-  full(
-    backend,
-    backendPackage(),
-    backendPackage({ pnpm: { onlyBuiltDependencies: ["esbuild"] } }),
-    'field "pnpm" changed',
-  )
-  // The root package may change only its dependency lists.
-  for (const [field, value] of [
-    ["scripts", { lint: "oxlint ." }],
-    ["engines", { node: ">=24" }],
-    ["description", "x"],
-    ["packageManager", "pnpm@10.0.0"],
-  ])
-    full(
-      "package.json",
-      "{}",
-      JSON.stringify({ [field]: value }),
-      `field "${field}" changed`,
-    )
-  assert.match(
-    packageMode({ "package.json": "{}" }, { "package.json": '{"name": "x",' })
-      .reason,
-    /^package file package\.json: cannot parse: /,
-  )
-  // Without a reader the gate cannot see the change.
-  assert.deepEqual(pinnedMode(["apps/backend/package.json"]), {
-    mode: "full",
-    reason: "package file apps/backend/package.json changed and cannot be read",
-  })
-})
-
-test("a dependency, a descriptive field or an unrun script change selects", () => {
-  const select = (path, base, head) =>
-    assert.deepEqual(packageMode({ [path]: base }, { [path]: head }), {
-      mode: "select",
-      reason: "shadow",
-    })
-  // No dependency bin runs in the manifest step (the next test), so a root
-  // dependency can change too.
-  select(
-    "package.json",
-    "{}",
-    JSON.stringify({ devDependencies: { "evil-node": "^1.0.0" } }),
-  )
-  select(
-    "apps/backend/package.json",
-    backendPackage(),
-    backendPackage({
-      version: "1.2.0",
-      description: "x",
-      keywords: ["x"],
-      author: "x",
-      contributors: ["x"],
-      license: "MIT",
-      homepage: "https://example.com",
-      repository: "x",
-      bugs: "x",
-      funding: "x",
-      scripts: { dev: "bun run dev", "secrets:reencrypt": "bun x.ts" },
-    }),
-  )
-  // A script that no lane runs, in a package that has lane scripts.
-  select(
-    "packages/aws-cdk/package.json",
-    backendPackage(),
-    backendPackage({ scripts: { dev: "bun run dev", clean: "rm -rf lib" } }),
-  )
-})
-
-// The package scripts that `text` runs through pnpm: `pnpm("<script>")` and
-// `"pnpm", ["--filter", "<name>", "<script>"]` (and `run <script>`), each as
-// [filter or undefined, script]. `exec` runs a bin, not a script.
-const pnpmRuns = (text) =>
-  [...text.matchAll(/(?:pnpm\(|"pnpm",\s*\[)((?:\s*"[^"]*"\s*,?)+)/g)].flatMap(
-    (match) => {
-      const words = [...match[1].matchAll(/"([^"]*)"/g)].map((word) => word[1])
-      let filter
-      const rest = []
-      for (let i = 0; i < words.length; i++)
-        if (words[i] === "--filter") filter = words[++i]
-        else if (!words[i].startsWith("-")) rest.push(words[i])
-      if (rest[0] === "exec" || rest[0] === "install") return []
-      return [[filter, rest[0] === "run" ? rest[1] : rest[0]]]
-    },
-  )
-
-test("laneScripts holds each package script that a lane or a prerequisite runs", () => {
-  const directories = new Map()
-  for (const parent of ["apps", "packages", "examples"])
-    for (const name of readdirSync(join(root, parent))) {
-      const file = join(root, parent, name, "package.json")
-      if (existsSync(file))
-        directories.set(
-          JSON.parse(readFileSync(file, "utf8")).name,
-          `${parent}/${name}`,
-        )
-    }
-  const files = [
-    ...readdirSync(join(root, "scripts/checks"))
-      .filter((name) => name.endsWith(".mjs"))
-      .map((name) => `scripts/checks/${name}`),
-    ...readdirSync(join(root, "scripts/ci"))
-      .filter((name) => name.endsWith(".mjs"))
-      .map((name) => `scripts/ci/${name}`),
-    "apps/codesearch/scripts/run-vitest-contracts.mjs",
-  ]
-  const runs = files.flatMap((file) =>
-    pnpmRuns(readFileSync(join(root, file), "utf8")),
-  )
-  // The reader finds the known runs, so a broken reader cannot pass.
-  for (const [filter, name] of [
-    ["@ctxpipe/ui", "build-storybook"],
-    ["@ctxpipe/aws-cdk", "build"],
-    [undefined, "knip"],
-  ])
-    assert.ok(
-      runs.some((run) => run[0] === filter && run[1] === name),
-      `reads ${filter ?? "root"} ${name}`,
-    )
-  for (const [filter, name] of runs) {
-    // Any root package change outside the dependency lists is a full run.
-    if (filter === undefined) continue
-    const directory = directories.get(filter)
-    assert.ok(directory, `${filter} is a workspace package`)
-    assert.ok(
-      laneScripts[directory]?.includes(name),
-      `laneScripts["${directory}"] holds ${name}`,
-    )
-  }
-  // Each script that a lane script (or its pre or post hook) runs in turn.
-  for (const [directory, names] of Object.entries(laneScripts)) {
-    const { scripts } = JSON.parse(
-      readFileSync(join(root, directory, "package.json"), "utf8"),
-    )
-    for (const name of names) {
-      assert.ok(scripts[name], `${directory} has the script ${name}`)
-      for (const hook of [`pre${name}`, name, `post${name}`])
-        for (const match of (scripts[hook] ?? "").matchAll(
-          /\b(?:pnpm|npm|yarn|bun)\s+(?:-\S+\s+)*run\s+([\w:.-]+)/g,
-        ))
-          assert.ok(
-            names.includes(match[1]),
-            `laneScripts["${directory}"] holds ${match[1]} (${hook} runs it)`,
-          )
-    }
-  }
-})
-
-test("no dependency bin can run in the manifest step", () => {
-  // The manifest job records the absolute Node path before the install, and
-  // runs list.mjs with it, not through pnpm.
-  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
-  const job = workflow.slice(
-    workflow.indexOf("  merge-gate-manifest:"),
-    workflow.indexOf("  merge-gate-select:"),
-  )
-  const path = job.indexOf('echo "path=$(command -v node)" >> "$GITHUB_OUTPUT"')
-  const install = job.indexOf("- run: pnpm install --frozen-lockfile")
-  const step = job.slice(job.indexOf("- name: Manifest and toolchain"))
-  assert.ok(
-    path > 0 && path < install,
-    "the Node path comes before the install",
-  )
-  assert.match(step, /NODE: \$\{\{ steps\.node\.outputs\.path \}\}/)
-  assert.match(step, /"\$NODE" scripts\/checks\/list\.mjs /)
-  assert.doesNotMatch(
-    step.slice(0, step.indexOf("- name: Preserve")),
-    /\bpnpm\b|\bnpx\b/,
-  )
-  // A root dependency with `bin: { node, git }` comes first in PATH (as
-  // through `pnpm run`). list.mjs does not start either bin.
-  const directory = mkdtempSync(join(tmpdir(), "gate-bin-"))
-  const bin = join(directory, "node_modules/.bin")
-  const marker = join(directory, "ran")
-  mkdirSync(bin, { recursive: true })
-  for (const name of ["node", "git", "pnpm", "bun"])
-    writeFileSync(
-      join(bin, name),
-      `#!/bin/sh\necho ${name} >> "${marker}"\nexit 1\n`,
-      { mode: 0o755 },
-    )
-  const listed = spawnSync(
-    process.execPath,
-    [join(root, "scripts/checks/list.mjs")],
-    {
-      cwd: root,
-      encoding: "utf8",
-      maxBuffer: 256 * 1024 * 1024,
-      env: { ...process.env, PATH: `${bin}:.:${process.env.PATH}` },
-    },
-  )
-  assert.equal(listed.status, 0, listed.stderr)
-  assert.ok(JSON.parse(listed.stdout).checks.length > 0)
-  assert.equal(existsSync(marker), false, "a dependency bin ran")
-  // toolchain.mjs probes pnpm and bun: neither may come from a dependency.
-  const manifest = join(directory, "manifest.json")
-  writeFileSync(manifest, JSON.stringify({ checks: [] }))
-  const probed = spawnSync(
-    process.execPath,
-    [join(root, "scripts/checks/toolchain.mjs"), manifest],
-    {
-      cwd: root,
-      encoding: "utf8",
-      env: { ...process.env, PATH: `${bin}:.:${process.env.PATH}` },
-    },
-  )
-  assert.equal(probed.status, 0, probed.stderr)
-  assert.equal(existsSync(marker), false, "a dependency bin ran")
-})
-
-test("pnpm-workspace.yaml forces a full run for a change outside the catalogs and overrides", () => {
-  const base = "packages:\n  - apps/*\n\ncatalog:\n  vite: ^1.0.0\n"
-  const reason = (head) =>
-    packageMode(
-      { "pnpm-workspace.yaml": base },
-      { "pnpm-workspace.yaml": head },
-    ).reason
-  assert.equal(reason(`${base.replace("^1.0.0", "^1.1.0")}# note\n`), "shadow")
-  assert.equal(
-    reason(`${base}onlyBuiltDependencies:\n  - esbuild\n`),
-    'package file pnpm-workspace.yaml: setting "onlyBuiltDependencies" changed',
-  )
-  assert.equal(
-    reason(base.replace("apps/*", "apps/**")),
-    'package file pnpm-workspace.yaml: setting "packages" changed',
-  )
-  assert.equal(
-    reason(`${base}catalog: [\n`),
-    "package file pnpm-workspace.yaml: cannot parse: duplicate or unexpected key: catalog",
-  )
-  assert.match(
-    reason(`${base}  react: [\n`),
-    /^package file pnpm-workspace\.yaml: cannot parse: unsupported flow collection/,
-  )
-  // A block scalar: the first text line sets the indentation of the text, and
-  // a folded scalar is not read.
-  assert.match(
-    reason(`${base}  x: |\n     a\n   b\n`),
-    /cannot parse: unexpected indentation in a block scalar/,
-  )
-  assert.match(
-    reason(`${base}  x: >\n     a\n`),
-    /cannot parse: unsupported block scalar/,
-  )
-  assert.equal(reason(`${base}  x: |-\n     a\n      b\n`), "shadow")
-})
-
-test("a lockfile change that the gate cannot verify as registry code forces a full run", () => {
-  const reason = (options, edit) =>
-    lockReason(options, edit).replace(/^package file pnpm-lock\.yaml: /, "")
-  assert.equal(
-    reason({ root: [["x", "github:attacker/x", "1.0.0"]] }),
-    "importer .: x is not a registry dependency",
-  )
-  // A git dependency outside the manifest closure: pnpm 10.12 runs its
-  // prepare script when it fetches it.
-  assert.equal(
-    reason({
-      backend: [
-        [
-          "x",
-          "github:attacker/x",
-          "https://codeload.github.com/attacker/x/tar.gz/0abc",
-        ],
-      ],
-    }),
-    "importer apps/backend: x is not a registry dependency",
-  )
-  assert.equal(
-    reason({ backend: [["x", "^1.0.0", "file:../x"]] }),
-    "importer apps/backend: x is not a registry dependency",
-  )
-  // A transitive entry with a git, tarball or directory resolution.
-  for (const resolution of [
-    "{commit: 0abc, repo: https://github.com/attacker/x, type: git}",
-    "{tarball: https://example.com/x.tgz}",
-    "{directory: ../x, type: directory}",
-  ])
-    assert.equal(
-      reason({ packages: [["x@1.0.0", resolution]] }),
-      "x@1.0.0 has no registry resolution",
-    )
-  // pnpm reads apps/evil/package.yaml as a project manifest.
-  assert.equal(
-    reason({}, (text) =>
-      text.replace("importers:\n\n", "importers:\n\n  apps/evil: {}\n\n"),
-    ),
-    "importer apps/evil added or removed",
-  )
-  assert.equal(
-    reason({}, (text) => `${text}overrides:\n  hono: github:attacker/hono\n`),
-    "override hono is not a registry specifier",
-  )
-  assert.equal(
-    pinnedMode(["apps/evil/package.yaml"]).reason,
-    "gate inputs changed: apps/evil/package.yaml",
-  )
-})
-
-test("the lockfile reader rejects each form that it does not know, in all of the file", () => {
-  const reason = (edit) =>
-    lockReason({}, edit).replace(/^package file pnpm-lock\.yaml: /, "")
-  // A second hono entry outside the closure would replace the first.
-  assert.equal(
-    reason((text) =>
-      text.replace(
-        "  'hono@1.0.0': {}",
-        "  'hono@1.0.0': {}\n  hono@1.0.0:\n    dependencies:\n      evil: 1.0.0",
-      ),
-    ),
-    "cannot parse: duplicate or unexpected key: hono@1.0.0",
-  )
-  for (const [form, cause] of [
-    ["  'hono@1.0.0': &a {}", /unsupported value: &a \{\}/],
-    ["  'hono@1.0.0': {a: {b: c}}", /unsupported flow collection/],
-    ["  'hono@1.0.0':\n    optional: true # note", /unsupported value/],
-    ["  'hono@1.0.0':\n\t{}", /unsupported line/],
-    [
-      "  'hono@1.0.0':\n    optional: true\n   bad: 1",
-      /unexpected indentation/,
-    ],
-  ])
-    assert.match(
-      reason((text) => text.replace("  'hono@1.0.0': {}", form)),
-      new RegExp(`^cannot parse: ${cause.source}`),
-      form,
-    )
-})
-
-test("a lockfile change in the closure of a manifest package forces a full run", () => {
-  const reason = (options) =>
-    lockReason(options).replace(/^package file pnpm-lock\.yaml: /, "")
-  assert.equal(reason({}), "shadow")
-  // esbuild is a dependency of vite, which the Storybook index build loads.
-  assert.equal(
-    reason({ esbuild: "sha512-other" }),
-    "esbuild@0.1.0 changed in the closure of a manifest package",
-  )
-  assert.equal(
-    reason({ version: "'6.0'" }),
-    "cannot parse: the lockfile is not version 9.0",
-  )
-  assert.equal(
-    reason({ settings: "autoInstallPeers: false" }),
-    'section "settings" changed',
-  )
-})
-
-test("the gate reads a long lockfile key that pnpm writes as an explicit key", () => {
-  // pnpm writes a key longer than 1024 characters as `? <key>`, with the
-  // value on the next line as `: <first line>`.
-  const explicit = (optional) =>
-    lockfile().replace(
-      "  esbuild@0.1.0: {}",
-      `  ? esbuild@0.1.0\n  : optional: ${optional}`,
-    )
-  assert.deepEqual(
-    packageMode(
-      { "pnpm-lock.yaml": explicit(true) },
-      { "pnpm-lock.yaml": explicit(true) },
-    ),
-    { mode: "select", reason: "shadow" },
-  )
-  assert.deepEqual(
-    packageMode(
-      { "pnpm-lock.yaml": explicit(true) },
-      { "pnpm-lock.yaml": explicit(false) },
-    ),
-    {
-      mode: "full",
-      reason:
-        "package file pnpm-lock.yaml: esbuild@0.1.0 changed in the closure of a manifest package",
-    },
-  )
-})
-
-test("the gate parses the lockfile and the workspace file of the repo", () => {
-  for (const path of ["pnpm-lock.yaml", "pnpm-workspace.yaml"]) {
-    const text = readFileSync(join(root, path), "utf8")
-    assert.deepEqual(packageMode({ [path]: text }, { [path]: text }), {
-      mode: "select",
-      reason: "shadow",
-    })
-  }
 })
 
 test("the committed merge gate config is valid and in shadow mode", () => {

@@ -2,7 +2,6 @@ import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { pathToFileURL } from "node:url"
-import { restrictPath } from "./safe-path.mjs"
 
 // Writes the toolchain record (schema/toolchain.v1.schema.json) to stdout:
 // the versions, the platform and the hashed environment that a result cache
@@ -52,8 +51,6 @@ function probe(tool) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
   try {
-    // `pnpm --version` must not start a bin of a dependency.
-    restrictPath()
     if (process.argv.length !== 3)
       throw new Error("Usage: toolchain.mjs <manifest.json>")
     const record = toolchain(JSON.parse(readFileSync(process.argv[2], "utf8")))

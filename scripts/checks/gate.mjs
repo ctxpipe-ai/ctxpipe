@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process"
 import {
   existsSync,
   mkdirSync,
@@ -6,7 +5,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs"
-import { join, posix } from "node:path"
+import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { schemaErrors } from "./schema.mjs"
@@ -27,7 +26,6 @@ import {
 //                 --changed <file>
 //     Prints {"mode", "reason"}: `select` when the selector runs for this
 //     run, else `full` and why. <file> lists the changed paths of the PR.
-//     It reads the changed package files from HEAD and HEAD^1 with git.
 //
 //   gate.mjs shadow --config <merge-gate.json> --inputs <dir> --results <dir>
 //                   --needs <file> [--jobs <file>] [--earlier <file>]
@@ -84,388 +82,19 @@ export function stepResults(jobs) {
   return results
 }
 
-// The packages that `scripts/checks/list.mjs` loads, by importer path in
-// pnpm-lock.yaml. A test keeps this list complete: it walks the files that
-// list.mjs loads, with apps/ui/.storybook/main.ts.
-export const manifestPackages = {
-  ".": ["@jridgewell/sourcemap-codec"],
-  "apps/ui": [
-    "storybook",
-    "@storybook/react-vite",
-    "@storybook/addon-a11y",
-    "@storybook/addon-docs",
-    "@storybook/addon-mcp",
-    "@tailwindcss/vite",
-    "storybook-addon-tanstack-start",
-    "vite",
-    "vite-tsconfig-paths",
-  ],
-}
-
-// The package files: a change to one of them forces a full run unless the
-// gate reads all of it as a registry dependency change that runs no code of
-// the PR in the manifest job (README, Package files). A change that the gate
-// cannot read forces a full run.
-
-const isObject = (value) =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
-
-// The value as a mapping: {} for null or no value. Any other value throws.
-const mapping = (value) => {
-  if (value === undefined || value === null) return {}
-  if (!isObject(value))
-    throw new Error(`not a mapping: ${JSON.stringify(value)}`)
-  return value
-}
-
-const changedKeys = (base, head) =>
-  [...new Set([...Object.keys(base), ...Object.keys(head)])].filter(
-    (key) => JSON.stringify(base[key]) !== JSON.stringify(head[key]),
-  )
-
-// A strict reader for the YAML that pnpm writes: block mappings, block
-// sequences of scalars, plain and quoted scalars (no escapes), literal block
-// scalars (`|` and `|-`), one-line flow collections of scalars, full-line
-// comments, and the `? <key>` form that pnpm writes for a key longer than
-// 1024 characters, with its value on the next line as `: <first line of the
-// value>`. Each scalar is a string. Each other form, a duplicate key or a bad
-// indentation throws, and the gate then gives a full run.
-function parseYaml(text) {
-  const scalar = (value) => {
-    if (/^'(?:[^']|'')*'$/.test(value))
-      return value.slice(1, -1).replaceAll("''", "'")
-    if (/^"[^"\\]*"$/.test(value)) return value.slice(1, -1)
-    if (/^[^\s'"#&*!|>%@`{}[\],?:-]/.test(value) && !/: | #|:$|\s$/.test(value))
-      return value
-    throw new Error(`unsupported value: ${value}`)
-  }
-  const item = `(?:'(?:[^']|'')*'|"[^"\\\\]*"|[^\\s'",{}[\\]](?:[^'",{}[\\]]*[^\\s'",{}[\\]])?)`
-  const value = (text) => {
-    if (!/^[{[]/.test(text)) return scalar(text)
-    const map = text[0] === "{"
-    const entry = map ? `${item}: ${item}` : item
-    const [open, close] = map ? ["\\{", "\\}"] : ["\\[", "\\]"]
-    if (!new RegExp(`^${open}(?:${entry}(?:, ${entry})*)?${close}$`).test(text))
-      throw new Error(`unsupported flow collection: ${text}`)
-    const parts = [
-      ...text
-        .slice(1, -1)
-        .matchAll(new RegExp(map ? `(${item}): (${item})` : `(${item})`, "g")),
-    ]
-    if (!map) return parts.map((part) => scalar(part[1]))
-    const result = Object.create(null)
-    for (const [, key, part] of parts) {
-      if (Object.hasOwn(result, scalar(key)))
-        throw new Error(`duplicate key: ${key}`)
-      result[scalar(key)] = scalar(part)
-    }
-    return result
-  }
-  const keyLine =
-    /^('(?:[^']|'')*'|"[^"\\]*"|[^\s'"#&*!|>%@`{}[\],?:-].*?):(?: (.*))?$/
-  const parse = (indent, body) => {
-    const sequence = /^- (.+)$/.exec(body)
-    if (sequence) return { indent, item: sequence[1] }
-    const match = keyLine.exec(body)
-    if (!match) throw new Error(`unsupported line: ${body}`)
-    return { indent, key: scalar(match[1]), value: match[2] }
-  }
-  const lines = []
-  const raw = text.split("\n")
-  for (let i = 0; i < raw.length; i++) {
-    if (/^ *(?:#.*)?$/.test(raw[i])) continue
-    const [, spaces, body] = /^( *)(.*)$/.exec(raw[i])
-    const long = /^\? (.+)$/.exec(body)
-    if (!long) {
-      const line = parse(spaces.length, body)
-      lines.push(line)
-      if (!/^\|-?$/.test(line.value ?? "")) {
-        // A folded scalar or an indicator (`>`, `|+`, `|2`) is not read.
-        if (/^[|>]/.test(line.value ?? ""))
-          throw new Error(`unsupported block scalar: ${body}`)
-        continue
-      }
-      // A literal block scalar: its text is each next line that is blank or
-      // indented more than its key. The first text line sets the indentation
-      // of the text, and a later line must not be indented less.
-      line.value = undefined
-      line.literal = ""
-      let textIndent
-      while (
-        i + 1 < raw.length &&
-        (/^ *$/.test(raw[i + 1]) || raw[i + 1].startsWith(`${spaces} `))
-      ) {
-        const next = raw[++i]
-        if (!/^ *$/.test(next)) {
-          const indent = /^ */.exec(next)[0].length
-          textIndent ??= indent
-          if (indent < textIndent)
-            throw new Error(`unexpected indentation in a block scalar: ${body}`)
-        }
-        line.literal += `${next}\n`
-      }
-      continue
-    }
-    const next = new RegExp(`^${spaces}: (.+)$`).exec(raw[++i] ?? "")
-    if (!next) throw new Error(`a long key without a value: ${body}`)
-    const nested = keyLine.test(next[1])
-    lines.push({
-      indent: spaces.length,
-      key: scalar(long[1]),
-      value: nested ? undefined : next[1],
-    })
-    if (nested) lines.push(parse(spaces.length + 2, next[1]))
-  }
-  const root = Object.create(null)
-  const stack = [{ indent: 0, node: root }]
-  let open
-  for (const line of lines) {
-    if (
-      open &&
-      (line.indent > open.indent ||
-        (line.item !== undefined && line.indent === open.indent))
-    ) {
-      const node = line.item === undefined ? Object.create(null) : []
-      open.node[open.key] = node
-      stack.push({ indent: line.indent, node })
-    }
-    open = undefined
-    while (
-      stack.at(-1).indent > line.indent ||
-      (line.item === undefined &&
-        Array.isArray(stack.at(-1).node) &&
-        stack.at(-1).indent === line.indent)
-    )
-      stack.pop()
-    const { indent, node } = stack.at(-1)
-    if (indent !== line.indent)
-      throw new Error(`unexpected indentation: ${line.key ?? line.item}`)
-    if (line.item !== undefined) {
-      if (!Array.isArray(node))
-        throw new Error(`unexpected sequence item: ${line.item}`)
-      node.push(value(line.item))
-      continue
-    }
-    if (Array.isArray(node) || Object.hasOwn(node, line.key))
-      throw new Error(`duplicate or unexpected key: ${line.key}`)
-    node[line.key] =
-      line.literal ?? (line.value === undefined ? null : value(line.value))
-    if (line.value === undefined && line.literal === undefined)
-      open = { node, key: line.key, indent }
-  }
-  return root
-}
-
-// The package scripts that a lane or a prerequisite runs, by package
-// directory, with each script that they run in turn (`prebuild` of
-// packages/aws-cdk runs `pnpm run stamp-image-tag`). A change to one forces a
-// full run. A test reads the lane files and the scripts, and fails when one
-// runs a package script that is not here. The root package is not here: any
-// change to it outside the dependency lists forces a full run.
-export const laneScripts = {
-  "apps/ui": ["build-storybook"],
-  "packages/aws-cdk": ["build", "stamp-image-tag"],
-}
-
-// The cause of a full run for a changed package.json, else undefined. A
-// dependency list may change in each package: no dependency can run in the
-// manifest step (list.mjs). The root package may change only its dependency
-// lists. A workspace package may also change its descriptive fields and a
-// script that no lane runs and that pnpm does not run by itself.
-function packageJsonCause(base, head, path) {
-  const [a, b] = [base, head].map((text) => JSON.parse(text ?? "{}"))
-  if (!isObject(a) || !isObject(b)) return "not a JSON object"
-  const root = path === "package.json"
-  const key = changedKeys(a, b).find(
-    (name) =>
-      ![
-        "dependencies",
-        "devDependencies",
-        "optionalDependencies",
-        "peerDependencies",
-        "peerDependenciesMeta",
-        ...(root
-          ? []
-          : [
-              "description",
-              "keywords",
-              "author",
-              "contributors",
-              "license",
-              "homepage",
-              "repository",
-              "bugs",
-              "funding",
-              "version",
-              "scripts",
-            ]),
-      ].includes(name),
-  )
-  if (key !== undefined) return `field "${key}" changed`
-  const directory = posix.dirname(path)
-  // pnpm runs `install` and each `pre<name>` and `post<name>` hook by itself
-  // (the lifecycle scripts `preinstall`, `prepare`, `prepack` and the like
-  // are such names). The merge gate job runs the `checks:` scripts.
-  const script = changedKeys(mapping(a.scripts), mapping(b.scripts)).find(
-    (name) =>
-      name === "install" ||
-      /^(?:pre|post|checks:)/.test(name) ||
-      laneScripts[directory]?.includes(name),
-  )
-  if (script !== undefined) return `script "${script}" changed`
-}
-
-function workspaceCause(base, head) {
-  const [a, b] = [base ?? "", head ?? ""].map(parseYaml)
-  const key = changedKeys(a, b).find(
-    (name) => !["catalog", "catalogs", "overrides"].includes(name),
-  )
-  if (key !== undefined) return `setting "${key}" changed`
-}
-
-const dependencyGroups = [
-  "dependencies",
-  "devDependencies",
-  "optionalDependencies",
-]
-
-// The snapshot keys in the dependency closure of each manifest package.
-function manifestClosure(lock) {
-  const snapshots = mapping(lock.snapshots)
-  const keys = new Set()
-  const snapshot = (name, value) => {
-    if (value.startsWith("link:")) return
-    const key = Object.hasOwn(snapshots, `${name}@${value}`)
-      ? `${name}@${value}`
-      : value
-    if (!Object.hasOwn(snapshots, key))
-      throw new Error(`no snapshot for ${name} ${value}`)
-    if (keys.has(key)) return
-    keys.add(key)
-    const entry = mapping(snapshots[key])
-    for (const group of ["dependencies", "optionalDependencies"])
-      for (const [dep, version] of Object.entries(mapping(entry[group])))
-        snapshot(dep, version)
-  }
-  for (const [importer, names] of Object.entries(manifestPackages))
-    for (const name of names) {
-      // A manifest package that one side does not have has no closure on that
-      // side; the version check in lockfileCause sees the addition or removal.
-      const version = importerVersion(lock, importer, name)
-      if (version !== undefined) snapshot(name, version)
-    }
-  return keys
-}
-
-const importerVersion = (lock, importer, name) => {
-  const entry = mapping(mapping(lock.importers)[importer])
-  for (const group of dependencyGroups) {
-    const dep = mapping(entry[group])[name]
-    if (dep !== undefined) return mapping(dep).version
-  }
-}
-
-function lockfileCause(base, head) {
-  if (base === null || head === null) return "added or removed"
-  const [a, b] = [base, head].map(parseYaml)
-  if (a.lockfileVersion !== "9.0" || b.lockfileVersion !== "9.0")
-    throw new Error("the lockfile is not version 9.0")
-  const section = changedKeys(a, b).find(
-    (name) =>
-      !["importers", "packages", "snapshots", "overrides", "catalogs"].includes(
-        name,
-      ),
-  )
-  if (section !== undefined) return `section "${section}" changed`
-  // A specifier that the registry resolves: a semver range or a tag, or a
-  // catalog: or workspace: reference. Not a git, URL, path, tarball or alias.
-  const registry = (specifier) =>
-    typeof specifier === "string" &&
-    /^(?:catalog:[\w.-]*|workspace:[\w.*^~<>=|+ -]+|(?!\.)[\w.*^~<>=|+ -]+)$/.test(
-      specifier,
-    ) &&
-    !/\.(?:tgz|tar|tar\.gz)$/i.test(specifier)
-  const [ai, bi] = [a, b].map((lock) => mapping(lock.importers))
-  for (const path of changedKeys(ai, bi)) {
-    if (!Object.hasOwn(ai, path) || !Object.hasOwn(bi, path))
-      return `importer ${path} added or removed`
-    const [x, y] = [ai[path], bi[path]].map(mapping)
-    const field = changedKeys(x, y).find(
-      (name) => !dependencyGroups.includes(name),
-    )
-    if (field !== undefined) return `importer ${path}: field "${field}" changed`
-    for (const group of dependencyGroups) {
-      const [p, q] = [x[group], y[group]].map(mapping)
-      for (const name of changedKeys(p, q)) {
-        if (!Object.hasOwn(q, name)) continue
-        const { specifier, version } = mapping(q[name])
-        const linked =
-          typeof version === "string" &&
-          version.startsWith("link:") &&
-          specifier?.startsWith("workspace:") &&
-          Object.hasOwn(bi, posix.join(path, version.slice(5)))
-        if (
-          !registry(specifier) ||
-          (!linked && !/^\d[\w.+-]*(?:\(.*\))?$/.test(version))
-        )
-          return `importer ${path}: ${name} is not a registry dependency`
-      }
-    }
-  }
-  const [ap, bp] = [a, b].map((lock) => mapping(lock.packages))
-  for (const key of changedKeys(ap, bp)) {
-    if (!Object.hasOwn(bp, key)) continue
-    const resolution = mapping(bp[key]).resolution
-    if (!isObject(resolution) || Object.keys(resolution).join() !== "integrity")
-      return `${key} has no registry resolution`
-  }
-  const [ao, bo] = [a, b].map((lock) => mapping(lock.overrides))
-  for (const name of changedKeys(ao, bo))
-    if (Object.hasOwn(bo, name) && !registry(bo[name]))
-      return `override ${name} is not a registry specifier`
-  const [ac, bc] = [a, b].map((lock) => mapping(lock.catalogs))
-  for (const catalog of changedKeys(ac, bc)) {
-    const [p, q] = [ac[catalog], bc[catalog]].map(mapping)
-    for (const name of changedKeys(p, q))
-      if (Object.hasOwn(q, name) && !registry(mapping(q[name]).specifier))
-        return `catalog ${catalog}: ${name} is not a registry specifier`
-  }
-  for (const [importer, names] of Object.entries(manifestPackages))
-    for (const name of names)
-      if (
-        importerVersion(a, importer, name) !==
-        importerVersion(b, importer, name)
-      )
-        return `manifest package ${name} of ${importer} changed`
-  const [as, bs] = [a, b].map((lock) => mapping(lock.snapshots))
-  for (const key of new Set([...manifestClosure(a), ...manifestClosure(b)])) {
-    const plain = key.replace(/\(.*$/, "")
-    if (
-      JSON.stringify(as[key]) !== JSON.stringify(bs[key]) ||
-      JSON.stringify(ap[plain]) !== JSON.stringify(bp[plain])
-    )
-      return `${plain} changed in the closure of a manifest package`
-  }
-}
-
-// `read(path, side)` gives the text of `path` at "base" or "head", or null
-// when it does not exist there.
-export function decideMode({ config, event, fork, changed, read }) {
+export function decideMode({ config, event, fork, changed }) {
   const full = (reason) => ({ mode: "full", reason })
   if (event !== "pull_request") return full(`event ${event}`)
   if (fork) return full("fork PR")
   // A change to one of these can change how the gate decides, so the run is
   // full: the workflow that runs the gate, its actions, its pin, and the code
   // that the gate and the runner execute. The manifest job runs the code of
-  // the PR (`pnpm install`, `scripts/checks/list.mjs`), so a file that changes
-  // how the manifest is made is here too: the pnpm configuration, the
-  // patches, each package.yaml and package.json5 (pnpm reads them as project
-  // manifests), the Storybook config that the index build loads, and each file
+  // the PR (`pnpm install`, `pnpm -s checks:list`), so a file that changes
+  // how the manifest is made is here too: .npmrc, the patches, and each file
   // that scripts/checks/list.mjs runs outside scripts/checks/ (a test keeps
-  // this list complete). The package files follow below. Other workflows,
-  // Markdown files and .node-version are not here: the selector reads them as
-  // lane inputs (scripts/checks/lanes.mjs), and the toolchain is part of each
-  // key.
+  // this list complete). Package files and the lockfile are lane inputs that
+  // the selector reads, not gate inputs. Other workflows, Markdown files and
+  // .node-version are lane inputs too, and the toolchain is part of each key.
   const inputs = changed.filter((path) =>
     [
       /^\.github\/workflows\/ci\.yaml$/,
@@ -474,11 +103,10 @@ export function decideMode({ config, event, fork, changed, read }) {
       /^scripts\/checks\/(?:schema\/[^/]+\.json|[^/]+\.mjs)$/,
       /^scripts\/ci\/(?:vitest-launch|test-suite|graph-ready|prerequisites|storybook-play)\.mjs$/,
       /^scripts\/ci\/[^/]+\.json$/,
-      /^(?:\.npmrc|\.pnpmfile\.cjs)$/,
+      /^\.npmrc$/,
       /^patches\//,
-      /(?:^|\/)package\.(?:yaml|json5)$/,
       /^apps\/backend\/evals\/mcp\/(?:cases|gate)\.ts$/,
-      /^apps\/ui\/\.storybook\/(?:check-modules\.mjs|main\.ts)$/,
+      /^apps\/ui\/\.storybook\/check-modules\.mjs$/,
       /^apps\/codesearch\/scripts\/run-vitest-contracts\.mjs$/,
     ].some((input) => input.test(path)),
   )
@@ -486,26 +114,6 @@ export function decideMode({ config, event, fork, changed, read }) {
     return full(
       `gate inputs changed: ${inputs.slice(0, 5).join(", ")}${inputs.length > 5 ? ` and ${inputs.length - 5} more` : ""}`,
     )
-  const rules = (path) =>
-    path === "pnpm-lock.yaml"
-      ? lockfileCause
-      : path === "pnpm-workspace.yaml"
-        ? workspaceCause
-        : /(?:^|\/)package\.json$/.test(path)
-          ? packageJsonCause
-          : undefined
-  for (const path of changed) {
-    const rule = rules(path)
-    if (!rule) continue
-    if (!read) return full(`package file ${path} changed and cannot be read`)
-    let cause
-    try {
-      cause = rule(read(path, "base"), read(path, "head"), path)
-    } catch (error) {
-      cause = `cannot parse: ${error.message}`
-    }
-    if (cause) return full(`package file ${path}: ${cause}`)
-  }
   // Phase 1 has only the shadow mode: the full run gates.
   if (config.mode !== "shadow")
     return full("selector unavailable: merge-gate.json has no valid mode")
@@ -1107,27 +715,6 @@ export function comment(decision, runUrl) {
   return `${lines.join("\n")}\n`
 }
 
-// The text of `path` in the merge revision ("head") or its first parent
-// ("base"), or null when the file does not exist there. Any other git error
-// throws, and the gate gives the full run.
-function gitRead(path, side) {
-  try {
-    return execFileSync(
-      "git",
-      ["show", `${side === "base" ? "HEAD^1" : "HEAD"}:${path}`],
-      {
-        encoding: "utf8",
-        maxBuffer: 256 * 1024 * 1024,
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    )
-  } catch (error) {
-    if (/does not exist in|exists on disk, but not in/.test(error.stderr ?? ""))
-      return null
-    throw error
-  }
-}
-
 function args(list) {
   const out = {}
   for (let i = 0; i < list.length; i += 2) {
@@ -1154,7 +741,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
             event: options.event,
             fork: options.fork === "true",
             changed,
-            read: gitRead,
           }),
         )}\n`,
       )
