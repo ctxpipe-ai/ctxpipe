@@ -99,9 +99,8 @@ export const ConnectWithToken: Story = {
       "href",
       "https://buildkite.com/user/api-access-tokens/new",
     )
-    // Product links are teal, not the default blue.
-    await expect(tokenLink.className).toContain("text-teal-400")
-    await expect(tokenLink.className).not.toMatch(/blue/)
+    // The link opens Buildkite in a new tab.
+    await expect(tokenLink).toHaveAttribute("target", "_blank")
     await userEvent.type(slug, "acme")
     await userEvent.type(
       body.getByLabelText("API access token"),
@@ -209,8 +208,8 @@ export const SaveWebhookToken: Story = {
     // Each field of the Buildkite form has its own step.
     await expect(body.getByText(/Clear every event except/)).toBeVisible()
     await expect(
-      body.getByRole("link", { name: /Notification Services/ }).className,
-    ).toContain("text-teal-400")
+      body.getByRole("link", { name: /Notification Services/ }),
+    ).toHaveAttribute("target", "_blank")
     await userEvent.type(body.getByLabelText("Webhook token"), "hook-token")
     await userEvent.click(
       body.getByRole("button", { name: "Save webhook token" }),
