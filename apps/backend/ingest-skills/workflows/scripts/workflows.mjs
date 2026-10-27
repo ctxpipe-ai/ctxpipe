@@ -15,7 +15,10 @@
 import { createHash } from "node:crypto"
 import { posix } from "node:path"
 
-import { DENIED_HEADINGS } from "../../bin/guard-patterns.mjs"
+import {
+  DENIED_HEADINGS,
+  INJECTION_PHRASES,
+} from "../../bin/guard-patterns.mjs"
 import {
   findExisting,
   relativeTo,
@@ -167,10 +170,16 @@ for (const file of files.slice(0, MAX_WORKFLOWS)) {
   const triggers = [...new Set(workflow.triggers.filter((t) => EVENT.test(t)))]
   const jobs = workflow.jobs.filter((j) => JOB.test(j))
   const named = workflow.name?.trim() ?? ""
-  const name = NAME.test(named) ? named : posix.basename(file)
-  // The validator refuses a heading that addresses agents (ADR-052 section
-  // 5). Such a name stays in `name` only: workflows such as `claude.yml`
-  // are common.
+  // The validator refuses an instruction to an agent in the front matter
+  // and in the body (ADR-052 section 5), so a name with such a phrase does
+  // not stay in the file.
+  const name =
+    NAME.test(named) &&
+    !INJECTION_PHRASES.some((pattern) => pattern.test(named))
+      ? named
+      : posix.basename(file)
+  // The validator refuses a heading that addresses agents. Such a name stays
+  // in `name` only: workflows such as `claude.yml` are common.
   const heading = DENIED_HEADINGS.some((pattern) => pattern.test(name))
     ? `GitHub Actions workflow ${hash(file)}`
     : name
