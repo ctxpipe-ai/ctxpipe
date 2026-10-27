@@ -115,9 +115,9 @@ export const NoWorkspaces: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByText(/There are no Workspaces yet\./),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText(/There are no Workspaces yet\./)).toBeVisible(),
+    )
     await expect(canvas.getByText(/Add to a Workspace/)).toBeVisible()
     await expect(
       canvas.getByRole("button", { name: "Create a Workspace" }),
