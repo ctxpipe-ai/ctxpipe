@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
+import { useConnectionNextStep } from "@/features/workspace-sources/connection-next-step"
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
 import { useConnectorSync } from "@/features/workspace-sources/useConnectorSync"
 
@@ -76,13 +77,17 @@ export function ConfluenceConnectionCard({
     : 0
   const primary = getConfluenceCardPrimaryCta(currentIndex, stepDefs)
   // A connection holds auth only (ADR-050): it is connected once installed.
+  // The header follows the next step: a connection whose Workspaces
+  // wait for a source pull request shows "Awaiting merge".
+  const nextStep = useConnectionNextStep(orgSlug, connectionId)
   const health = resolveConnectorHealth({
     installationStatus: status?.installationStatus,
     statusError: isError,
-    checking: isPending || !status || oauthPending,
+    checking: isPending || !status || oauthPending || nextStep.isPending,
     setupPhase: status?.setupPhase,
     connected: Boolean(status?.isInstalled),
     draft: !status?.isInstalled,
+    awaitingMerge: nextStep.step?.kind === "merge",
   })
 
   const sync = useConnectorSync({

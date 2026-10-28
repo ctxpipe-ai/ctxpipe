@@ -13,7 +13,7 @@ import { type ConnectionUsageResponse, connectionUsageOptions } from "./queries"
  * The usage read has no sync time, so it cannot tell a first sync from a
  * later one: a merged source is `live` at once.
  */
-export type ConnectionNextStep =
+type ConnectionNextStep =
   | { kind: "add_to_workspace" }
   | {
       kind: "merge"

@@ -10,6 +10,7 @@ import {
   githubConnectorKeys,
   githubInstallationIsLinked,
 } from "@/features/connectors/queries/github-connector"
+import { useConnectionNextStep } from "@/features/workspace-sources/connection-next-step"
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
 import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
@@ -77,11 +78,15 @@ export function GithubConnectionCard({
   })
 
   const linked = githubInstallationIsLinked(installation)
+  // The header follows the next step: a connection whose Workspaces
+  // wait for a source pull request shows "Awaiting merge".
+  const nextStep = useConnectionNextStep(orgSlug, connectionId)
   const health = resolveConnectorHealth({
     statusError: isError,
-    checking: isPending,
+    checking: isPending || nextStep.isPending,
     connected: linked,
     draft: !linked,
+    awaitingMerge: nextStep.step?.kind === "merge",
   })
 
   return (
