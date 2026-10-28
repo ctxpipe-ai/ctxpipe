@@ -128,10 +128,10 @@ describe("Zendesk connector routes (Postgres + msw)", () => {
   const org = (path: string, init?: RequestInit) =>
     request(`/${seed.orgSlug}/api/v1/connectors/zendesk${path}`, init)
 
-  async function draft() {
+  async function draft(subdomain = "acme") {
     const res = await org("", {
       method: "POST",
-      body: JSON.stringify({ subdomain: "acme" }),
+      body: JSON.stringify({ subdomain }),
     })
     expect(res.status).toBe(200)
     return ((await res.json()) as { connectionId: string }).connectionId
@@ -275,6 +275,43 @@ describe("Zendesk connector routes (Postgres + msw)", () => {
     expect(JSON.stringify(await storedConfig(connectionId))).not.toContain(
       "local-client-secret",
     )
+  })
+
+  it("returns the saved OAuth client identifier, and a second save replaces the client", async () => {
+    // A subdomain of its own: a pending setup of "acme" may have a client.
+    const connectionId = await draft("fresh-client-setup")
+    expect(await status(connectionId)).toMatchObject({ oauthClientId: null })
+    await saveClient(connectionId)
+    expect(await status(connectionId)).toMatchObject({
+      oauthClientId: "local-client",
+    })
+
+    const res = await org("/oauth-client", {
+      method: "PUT",
+      body: JSON.stringify({
+        connectionId,
+        clientId: "corrected-client",
+        clientSecret: "corrected-client-secret",
+      }),
+    })
+    expect(res.status).toBe(204)
+
+    const after = await status(connectionId)
+    expect(after).toMatchObject({
+      oauthClientId: "corrected-client",
+      oauthClientConfigured: true,
+    })
+    expect(JSON.stringify(after)).not.toContain("secret")
+    // OAuth starts with the corrected client.
+    const start = (await (
+      await org(`/oauth/start?connectionId=${connectionId}`)
+    ).json()) as { authorizationUrl: string }
+    expect(new URL(start.authorizationUrl).searchParams.get("client_id")).toBe(
+      "corrected-client",
+    )
+    const config = JSON.stringify(await storedConfig(connectionId))
+    expect(config).not.toContain("corrected-client-secret")
+    expect(config).not.toContain("local-client-secret")
   })
 
   it("connects through OAuth, saves the tokens encrypted, and creates the webhook", async () => {

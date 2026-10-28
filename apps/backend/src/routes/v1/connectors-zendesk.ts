@@ -134,6 +134,8 @@ const statusRoute = createRoute({
             subdomain: z.string(),
             /** The row or the deployment has an OAuth client. */
             oauthClientConfigured: z.boolean(),
+            /** The identifier of the local client saved on the row. Never the secret. */
+            oauthClientId: z.string().nullable(),
             /** The deployment has a global OAuth client (hosted). */
             deploymentOAuthClient: z.boolean(),
             /** Register this redirect URL on a local OAuth client. */
@@ -308,6 +310,7 @@ export const zendeskConnectorRoutes = new OpenAPIHono<AppEnv>()
         status: connection.status,
         subdomain: connection.subdomain,
         oauthClientConfigured: Boolean(connection.oauthClient),
+        oauthClientId: connection.localOAuthClientId,
         deploymentOAuthClient: Boolean(
           c.var.env.ZENDESK_CLIENT_ID && c.var.env.ZENDESK_CLIENT_SECRET,
         ),

@@ -38,6 +38,8 @@ export type ZendeskConnection = {
   refreshTokenEnc: string | null
   /** The client that the token requests use: the row's, then the env's. */
   oauthClient: ZendeskOAuthClient | null
+  /** The identifier of the client saved on the row, not the deployment's. */
+  localOAuthClientId: string | null
   webhookId: string | null
   sourceSync: ZendeskConnectionConfigStored["sourceSync"]
 }
@@ -81,6 +83,10 @@ function toConnection(row: ConnectionRow, env: Env): ZendeskConnection {
     accessTokenEnc: config.accessTokenEnc ?? null,
     refreshTokenEnc: config.refreshTokenEnc ?? null,
     oauthClient: resolveZendeskOAuthClient(config, env),
+    localOAuthClientId:
+      config.oauthClientId && config.oauthClientSecretEnc
+        ? config.oauthClientId
+        : null,
     webhookId: config.webhookId ?? null,
     sourceSync: config.sourceSync,
   }
