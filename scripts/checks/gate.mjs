@@ -9,9 +9,17 @@ import {
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { schemaErrors } from "./schema.mjs"
+import {
+  accepted,
+  fallbackOf,
+  placeOf,
+  plan,
+  readStore,
+  withJobChecks,
+} from "./plan.mjs"
 import {
   checkJobs,
+  lintSteps,
   profiles,
   readTrace,
   runsInOf,
@@ -31,37 +39,28 @@ import {
 //     With `select`, "jobs" names the jobs of a ci.yaml change whose checks
 //     all run. It runs git on the checkout (HEAD^1 and HEAD).
 //
-//   gate.mjs shadow --config <merge-gate.json> --inputs <dir> --results <dir>
+//   gate.mjs plan --config <merge-gate.json> --inputs <dir> --needs <file>
+//                 --store <file> --fork <true|false> --out <dir>
+//                 [--github-output <file>]
+//     The plan of a PR run (plan.mjs): writes plan.json to <dir>, and the
+//     outputs of the plan job (`mode`, `config`, `deploy`, and the checks of
+//     each job that runs them) to <file>. <inputs> holds the artifacts of the
+//     manifest, select and LLM jobs, <store> the PR store.
+//
+//   gate.mjs decide --config <merge-gate.json> --inputs <dir> --results <dir>
 //                   --needs <file> [--jobs <file>] [--earlier <file>]
-//                   [--deploy <file>] --out <dir>
-//     The decision of a PR run in shadow mode. The full run gates; this
-//     computes what a gated run would decide from the same results, and
-//     writes decision.json, summary.md and comment.md to <dir>. <inputs>
-//     holds the artifacts of the manifest and select jobs, <results> the test
-//     artifacts, <needs> the `needs` context, <jobs> the jobs of this run
-//     attempt from the GitHub API, <earlier> the jobs of the earlier attempts
-//     of this run, <deploy> the jobs of the newest PR Deploy run of the PR
-//     head.
+//                   [--deploy <file>] [--store <file>] --out <dir>
+//     The decision of a PR run. In gate mode the gated run gates, and the
+//     exit code is 1 when its verdict is fail. In shadow mode the full run
+//     gates; this computes what a gated run would decide from the same
+//     results. In gate mode with a full run, the exit code is 1 when the full
+//     run fails. It writes decision.json, summary.md, comment.md and the next
+//     PR store (store.json) to <dir>. <inputs> holds the artifacts of the
+//     manifest, select, LLM and plan jobs, <results> the test artifacts,
+//     <needs> the `needs` context, <jobs> the jobs of this run attempt from
+//     the GitHub API, <earlier> the jobs of the earlier attempts of this
+//     run, <deploy> the jobs of the newest PR Deploy run of the PR head.
 
-// The steps of the Lint and format job that run one check each, by the
-// `<family>:<lane>:` prefix of its id. The step result is the check result.
-// A test keeps these names equal to the steps in ci.yaml.
-export const lintSteps = {
-  "Run pnpm lint": "lint:oxlint:",
-  "Run pnpm format:check": "lint:format:",
-  "Reject unused files, exports and dependencies": "lint:knip:",
-  "Run node scripts/ci/check-workflow-credentials.mjs":
-    "policy:workflow-credentials:",
-  "Run node scripts/ci/check-secret-jobs.mjs": "policy:secret-jobs:",
-  "Run node scripts/ci/check-agent-harness.mjs": "policy:agent-harness:",
-  "Reject skipped proof and owned mocks": "policy:test-policy:",
-  "Reject slow UI motion": "policy:ui-motion:",
-  "Reject racy Storybook play checks": "policy:story-play-timing:",
-  "Reject non-Blacksmith runners": "policy:runners:",
-  "Reject outside values in run scripts and workflows without permissions":
-    "policy:workflow-inputs:",
-  "Validate and install the Claude plugin": "policy:claude-plugin:",
-}
 // The steps of the job `Deploy PR environment (Railway + Neon)` of
 // pr-deploy.yaml that run one deploy check each. A test keeps these names
 // equal to the steps in pr-deploy.yaml.
@@ -121,26 +120,51 @@ export function stepResults(jobs, deploy) {
 
 // The job of line i of ci.yaml when the line is in the `steps` of a job that
 // a manifest check runs in (or in the Storybook build job, which they need);
-// null for a blank or comment line; else undefined. It reads the indents of
-// the workflow, not its YAML.
+// null for a blank or comment line; else undefined. A step or a job that
+// only a full run uses (its `if:` needs `mode != 'gate'` or a matrix lane
+// other than `selected`) is undefined too: a gated run does not run it, so
+// only a full run can prove its change. It reads the indents of the
+// workflow, not its YAML.
 function jobOf(lines, i) {
   if (/^\s*(?:#|$)/.test(lines[i])) return null
   let key
   let job
+  let header
   for (let j = i; j >= 0; j--) {
     const [, indent, name] = /^( *)([\w-]+):/.exec(lines[j]) ?? []
     if (name === undefined) continue
     if (indent.length === 4 && !job) key ??= name
-    else if (indent.length === 2) job ??= name
-    else if (indent.length === 0)
-      return name === "jobs" &&
-        job &&
-        key === "steps" &&
-        (checkJobs.has(job) || job === "storybook-build")
-        ? job
-        : undefined
+    else if (indent.length === 2) {
+      job ??= name
+      header ??= j
+    } else if (indent.length === 0) {
+      if (
+        name !== "jobs" ||
+        !job ||
+        key !== "steps" ||
+        !(checkJobs.has(job) || job === "storybook-build")
+      )
+        return undefined
+      break
+    }
   }
-  return undefined
+  if (header === undefined) return undefined
+  // The keys of the job before its steps, and the step of the line.
+  const steps = lines.findIndex(
+    (line, j) => j > header && /^ {4}steps:/.test(line),
+  )
+  const jobIf = lines.slice(header, steps).join("\n")
+  if (jobIf.includes("mode != 'gate'") && !jobIf.includes("mode != 'gate' ||"))
+    return undefined
+  let start = i
+  while (start > steps && !/^ {6}- /.test(lines[start])) start--
+  let end = i + 1
+  while (end < lines.length && !/^ {0,6}\S/.test(lines[end])) end++
+  if (
+    /mode != 'gate'|lane != 'selected'/.test(lines.slice(start, end).join("\n"))
+  )
+    return undefined
+  return job
 }
 
 // The jobs that a change to ci.yaml touches, from the line ranges of its
@@ -208,8 +232,9 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
     return full(
       `gate inputs changed: ${inputs.slice(0, 5).join(", ")}${inputs.length > 5 ? ` and ${inputs.length - 5} more` : ""}`,
     )
-  // Phase 1 has only the shadow mode: the full run gates.
-  if (config.mode !== "shadow")
+  // shadow: the full run gates and the gated verdict is beside it. gate: the
+  // gated run gates (gate.mjs plan).
+  if (!["shadow", "gate"].includes(config.mode))
     return full("selector unavailable: merge-gate.json has no valid mode")
   if (
     !/^[0-9a-f]{40}$/.test(config.factory?.version ?? "") ||
@@ -245,7 +270,13 @@ export function fullRunResults(records, needs, steps = new Map()) {
 // with a cancelled job has no verdict for the agreement metrics.
 export function fullVerdict(needs) {
   const jobs = Object.entries(needs).filter(
-    ([name]) => !["merge-gate-manifest", "merge-gate-select"].includes(name),
+    ([name]) =>
+      ![
+        "merge-gate-manifest",
+        "merge-gate-select",
+        "merge-gate-llm",
+        "merge-gate-plan",
+      ].includes(name),
   )
   const failed = jobs
     .filter(([, job]) => job.result === "failure" || job.result === "cancelled")
@@ -270,19 +301,11 @@ export function gatedVerdict({
   const hits = new Map(
     (selection.cache?.hits ?? []).map((hit) => [hit.id, hit]),
   )
-  // The vercel job sets lane variables that the manifest job does not set
-  // (GITHUB_TOKEN and VERCEL_TOKEN), so the key from the toolchain record does
-  // not describe the run of its checks: their agent hits are not accepted.
-  const accepted = (hit, lane) =>
-    hit.source === "ci" ||
-    (hit.source === "agent" &&
-      config.acceptAgentResults === true &&
-      lane !== "vercel")
   const ran = []
   const hit = []
   for (const check of selection.selected) {
     const found = hits.get(check.id)
-    if (found && accepted(found, check.lane))
+    if (found && accepted(found.source, check.lane, config))
       hit.push({
         id: check.id,
         class: found.source,
@@ -509,18 +532,28 @@ export function describe(reason) {
       return `reads ${reason.path}${share(reason)}`
     case "jobs":
       return `ci.yaml changed in job ${reason.jobs?.join(", ")}`
+    case "added":
+      return `added by the LLM: ${reason.why}`
+    case "contract":
+      return `contract test that executes ${reason.path}`
+    case "failedWith":
+      return `failed ${reason.times} times when ${reason.path} changed`
+    case "package":
+      return `package ${reason.package} changed (${reason.change})`
+    case "tools":
+      return `MCP tools ${reason.tools?.join(", ")} reach ${reason.path}`
     default:
       return String(reason?.kind ?? "unknown")
   }
 }
 
-function readRecords(directory) {
+function readRecords(directory, name = "records.ndjson") {
   const records = []
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = join(dir, entry.name)
       if (entry.isDirectory()) walk(path)
-      else if (entry.name === "records.ndjson")
+      else if (entry.name === name)
         for (const line of readFileSync(path, "utf8").split("\n")) {
           if (!line.trim()) continue
           const record = JSON.parse(line)
@@ -560,37 +593,6 @@ export function flakyJobs(jobs, earlier) {
   ].sort()
 }
 
-// The selection with each check of the jobs of a job-scoped ci.yaml change
-// (decideMode) selected and without a hit: no cache key holds ci.yaml. A
-// Storybook job runs on the Storybook build.
-function withJobChecks(selection, jobs) {
-  const reached = new Set(
-    jobs.flatMap((job) =>
-      job === "storybook-build"
-        ? ["storybook-golden", "storybook-plays"]
-        : [job],
-    ),
-  )
-  const runs = (check) => reached.has(runsInOf(check.id)?.job)
-  const reason = { kind: "jobs", jobs }
-  const added = selection.omitted
-    .filter(runs)
-    .map((check) => ({ ...check, reason }))
-  return {
-    ...selection,
-    selected: [...selection.selected, ...added],
-    omitted: selection.omitted.filter((check) => !runs(check)),
-    counts: {
-      ...selection.counts,
-      selected: selection.counts.selected + added.length,
-    },
-    cache: selection.cache && {
-      ...selection.cache,
-      hits: (selection.cache.hits ?? []).filter((hit) => !runs(hit)),
-    },
-  }
-}
-
 export function shadow({
   config,
   inputs,
@@ -601,28 +603,23 @@ export function shadow({
   deploy,
   run,
 }) {
-  const mode = readJson(join(inputs, "mode.json"))
-  let selection = readJson(join(inputs, "selection.json"))
-  const select = needs["merge-gate-select"]?.result
   const full = fullVerdict(needs)
   const steps = stepResults(jobs, deploy)
   const result = fullRunResults(records, needs, steps)
+  // The plan job combines the selection of the select job, the LLM job and
+  // the PR store. Without its record, the selection of the select job stays.
+  const planned = readJson(join(inputs, "plan.json"))
+  let selection
   let fallback
-  if (!mode)
-    fallback = `manifest job ${needs["merge-gate-manifest"]?.result ?? "did not run"}`
-  else if (mode.mode !== "select") fallback = mode.reason
-  else if (select !== "success" || !selection) {
-    // The select job writes why it failed: the download, the hash, the exit
-    // code of the selector, or a timeout.
-    const path = join(inputs, "select-cause.txt")
-    const cause = existsSync(path)
-      ? readFileSync(path, "utf8").trim().slice(0, 200)
-      : ""
-    fallback = `selector unavailable: ${cause || `select job ${select ?? "did not run"}`}`
+  if (planned) {
+    selection = planned.selection
+    fallback = selection ? undefined : planned.reason
   } else {
-    const errors = schemaErrors(selection, "selection.v1", 1)
-    if (errors.length)
-      fallback = `selector unavailable: the record does not match the schema (${errors[0]})`
+    const mode = readJson(join(inputs, "mode.json"))
+    selection = readJson(join(inputs, "selection.json"))
+    fallback = fallbackOf({ mode, selection, inputs, needs })
+    if (!fallback && mode.jobs?.length)
+      selection = withJobChecks(selection, mode.jobs)
   }
   const decision = {
     schemaVersion: 1,
@@ -639,7 +636,6 @@ export function shadow({
     decision.gatedRun = { verdict: full.verdict }
     return decision
   }
-  if (mode.jobs?.length) selection = withJobChecks(selection, mode.jobs)
   const gated = gatedVerdict({ selection, config, result, needs, steps })
   const trace = existsSync(join(inputs, "trace.json.gz"))
     ? readTrace(join(inputs, "trace.json.gz"))
@@ -716,6 +712,307 @@ export function shadow({
     },
   })
   return decision
+}
+
+// The decision of a PR run in gate mode: the gated run gates. Each check of
+// the plan ran in its job of this run, and each other selected check has an
+// accepted hit. A check that another workflow runs (the preview deploy, the
+// MCP evals, the Terraform plan) has the status of that workflow and is not
+// part of this verdict. `reruns` are the records of the one rerun of each
+// failed check whose key has a stored pass.
+export function gateDecision({
+  config,
+  planned,
+  records,
+  reruns = [],
+  needs,
+  jobs,
+  deploy,
+  run,
+  store,
+  seconds = new Map(),
+  now = new Date(),
+}) {
+  const steps = stepResults(jobs, deploy)
+  const result = fullRunResults(records, needs, steps)
+  const selection = planned.selection
+  const reasons = new Map(selection.selected.map((c) => [c.id, c.reason]))
+  const rerunOf = new Map(reruns.map((record) => [record.id, record.status]))
+  const ran = []
+  const external = []
+  for (const id of planned.ran) {
+    const reason = describe(reasons.get(id))
+    const { workflow } = placeOf(id)
+    if (workflow) external.push({ id, reason, workflow })
+    else
+      ran.push({
+        id,
+        reason,
+        result: result(id),
+        ...(rerunOf.has(id) && { rerun: rerunOf.get(id) }),
+      })
+  }
+  // The jobs that run on each gated run.
+  const failedAlwaysRun = ["lint", "terraform-validate", "migrate"].filter(
+    (job) => ["failure", "cancelled"].includes(needs[job]?.result),
+  )
+  if (steps.get(ciScriptTests) === "failed") failedAlwaysRun.push(ciScriptTests)
+  const bad = (status) =>
+    ["failed", "error"].includes(status) || status.startsWith("missing result")
+  const failedChecks = ran.filter((item) => bad(item.result))
+  // A failed check whose key has a stored pass contradicts that pass. Its
+  // job ran it once more: a second failure quarantines the key in the PR
+  // store, and a pass is a flake.
+  const contested = new Set(planned.rerun ?? [])
+  const contradictions = ran
+    .filter((item) => contested.has(item.id) && item.result === "failed")
+    .map((item) => ({
+      id: item.id,
+      rerun: item.rerun ?? "none",
+      confirmed: ["failed", "error"].includes(item.rerun),
+    }))
+  const next = nextStore({ store, selection, ran, contradictions, run, now })
+  const all = [...selection.selected, ...selection.omitted].map(({ id }) => id)
+  const measured = jobMinutes(jobs)
+  const round = (value) => Math.round(value * 10) / 10
+  const omittedByLane = {}
+  for (const item of selection.omitted) {
+    omittedByLane[item.lane] ??= {}
+    omittedByLane[item.lane][item.reason] =
+      (omittedByLane[item.lane][item.reason] ?? 0) + 1
+  }
+  return {
+    decision: {
+      schemaVersion: 1,
+      mode: "gate",
+      reason: "gate: the gated run gates",
+      factory: config.factory?.version ?? null,
+      acceptAgentResults: config.acceptAgentResults === true,
+      acceptPrResults: config.acceptPrResults === true,
+      run,
+      gatedRun: {
+        verdict:
+          failedChecks.length || failedAlwaysRun.length ? "fail" : "pass",
+        failedChecks: failedChecks.map((item) => item.id),
+        failedAlwaysRun,
+      },
+      selection: {
+        variant: selection.variant,
+        base: selection.base,
+        trace: selection.trace?.commit ?? null,
+        counts: selection.counts,
+        shared: selection.cache?.shared ?? false,
+        notes: selection.notes,
+        cacheNotes: selection.cache?.notes ?? [],
+        llm: selection.llm ?? null,
+      },
+      ran,
+      hits: planned.hits.map((hit) => ({
+        id: hit.id,
+        class: hit.source,
+        hostKind: hit.provenance.hostKind,
+        createdAt: hit.provenance.createdAt,
+        ...(hit.provenance.run && { run: hit.provenance.run }),
+      })),
+      external,
+      shards: planned.shards ?? {},
+      omitted: {
+        byLane: omittedByLane,
+        stochastic: selection.counts.stochasticOmitted ?? 0,
+      },
+      contradictions,
+      store: {
+        entries: next.entries.length,
+        quarantined: next.quarantined.length,
+      },
+      cost: {
+        // This run as measured, without the merge gate job, and the full
+        // run as estimated from the shards of every check of the manifest
+        // (tests and setup, without the builds).
+        gatedRunMinutes: round(
+          [...measured]
+            .filter(([name]) => !/^Merge gate$/.test(name))
+            .reduce((sum, [, value]) => sum + value, 0),
+        ),
+        fullRunMinutesEstimate: round(
+          shardMinutes(shard(all, seconds)) +
+            [...measured]
+              .filter(([name]) =>
+                /^(Lint and format|Migrations|Terraform)/.test(name),
+              )
+              .reduce((sum, [, value]) => sum + value, 0),
+        ),
+      },
+    },
+    store: next,
+  }
+}
+
+// The PR store after this run: the passes of the earlier runs, and each
+// check of this run that passed under a key. A check of this run that failed
+// under a key removes the stored pass of that key, so a later gated run runs
+// it again. A confirmed contradiction quarantines its
+// key: no gated run of this PR accepts a stored pass for it. The store keeps
+// the newest 5000 passes.
+export function nextStore({ store, selection, ran, contradictions, run, now }) {
+  const keys = new Map(
+    [...(selection.cache?.hits ?? []), ...(selection.cache?.misses ?? [])].map(
+      (item) => [item.id, item.key],
+    ),
+  )
+  const quarantined = new Set(store.quarantined)
+  for (const item of contradictions)
+    if (item.confirmed && keys.has(item.id)) quarantined.add(keys.get(item.id))
+  const entries = new Map(
+    store.entries.map((entry) => [`${entry.id}\0${entry.key}`, entry]),
+  )
+  for (const item of ran) {
+    const key = keys.get(item.id)
+    if (!key) continue
+    entries.delete(`${item.id}\0${key}`)
+    if (item.result !== "passed") continue
+    entries.set(`${item.id}\0${key}`, {
+      id: item.id,
+      key,
+      run: String(run.id),
+      createdAt: now.toISOString(),
+    })
+  }
+  return {
+    schemaVersion: 1,
+    entries: [...entries.values()]
+      .filter((entry) => !quarantined.has(entry.key))
+      .slice(-5000),
+    quarantined: [...quarantined].sort(),
+  }
+}
+
+// The text of a gate-mode decision: the job summary (`limit` rows for each
+// table) or the PR comment (fewer rows, in collapsed sections).
+export function gateText(
+  decision,
+  runUrl,
+  { limit = 300, comment = false } = {},
+) {
+  const s = decision.selection
+  const g = decision.gatedRun
+  const lines = comment ? [marker, "### Merge gate"] : ["## Merge gate"]
+  const classes = {}
+  for (const hit of decision.hits)
+    classes[hit.class] = (classes[hit.class] ?? 0) + 1
+  lines.push(
+    "",
+    `**Verdict:** ${g.verdict}${g.failedChecks.length ? ` (failed checks: ${g.failedChecks.slice(0, 10).map(code).join(", ")}${g.failedChecks.length > 10 ? " and more" : ""})` : ""}${g.failedAlwaysRun.length ? ` (failed always-run jobs: ${g.failedAlwaysRun.map(code).join(", ")})` : ""}.`,
+    "",
+    `Selected ${s.counts.selected} of ${s.counts.total} checks (variant ${s.variant}, factory ${code((decision.factory ?? "").slice(0, 12))}): ${decision.ran.length} ran, ${decision.hits.length} hits (${
+      Object.entries(classes)
+        .map(([k, v]) => `${k} ${v}`)
+        .join(", ") || "none"
+    }), ${decision.external.length} in other workflows, ${s.counts.total - s.counts.selected} omitted.`,
+    "",
+    `**Runner minutes:** this run ${decision.cost.gatedRunMinutes}; a full run about ${decision.cost.fullRunMinutesEstimate} (estimate of the tests and their setup, without builds).`,
+  )
+  const shards = Object.entries(decision.shards ?? {})
+  if (shards.length)
+    lines.push(
+      "",
+      `**Shards:** ${shards.map(([job, item]) => `${code(job)} ${item.shards} of ${item.fullShards} (about ${item.minutes} min of tests, longest shard ${item.longestMinutes} min)`).join("; ")}.`,
+    )
+  const llm = s.llm
+  if (llm)
+    lines.push(
+      "",
+      llm.fallback
+        ? `**LLM stage:** not used (${code(llm.fallback)}); the deterministic selection stays.`
+        : `**LLM stage:** ${code(llm.change ?? "")} (${code(llm.kind ?? "")}); kept ${llm.kept?.length ?? 0}, dropped ${llm.dropped?.length ?? 0}, added ${llm.added?.length ?? 0}, coverage floor ${llm.floor ?? 0}; ${llm.cached ? "cached answer" : `${Math.round((llm.latencyMs ?? 0) / 100) / 10} s`}, USD ${(llm.usage?.costUsd ?? 0).toFixed(4)}.${llm.behaviors?.length ? ` Behaviors: ${llm.behaviors.map(code).join(", ")}.` : ""}`,
+    )
+  if (decision.contradictions.length)
+    lines.push(
+      "",
+      `**Contradictions** (a stored pass, and the check failed): ${decision.contradictions.map((item) => `${code(item.id)} (rerun ${item.rerun}${item.confirmed ? ", quarantined in this PR" : ""})`).join(", ")}.`,
+    )
+  const table = (title, header, rows) => {
+    if (comment)
+      lines.push(
+        "",
+        `<details><summary>${title} (${rows.length})</summary>`,
+        "",
+      )
+    else lines.push("", `### ${title}`, "")
+    if (!rows.length) lines.push("None.")
+    else {
+      lines.push(header, header.replace(/[^|]+/g, " --- "))
+      for (const row of rows.slice(0, limit)) lines.push(row)
+      if (rows.length > limit)
+        lines.push(
+          "",
+          `And ${rows.length - limit} more: see the job summary or the artifact \`merge-gate-decision\`.`,
+        )
+    }
+    if (comment) lines.push("", "</details>")
+  }
+  const order = (item) =>
+    ["failed", "error"].includes(item.result) ||
+    item.result.startsWith("missing")
+      ? 0
+      : 1
+  table(
+    "Ran",
+    "| Check | Reason | Result |",
+    [...decision.ran]
+      .sort((a, b) => order(a) - order(b))
+      .map(
+        (item) =>
+          `| ${code(item.id)} | ${code(item.reason)} | ${item.result}${item.rerun ? ` (rerun ${item.rerun})` : ""} |`,
+      ),
+  )
+  table(
+    "Hits (not run)",
+    "| Check | Class | Host | Time |",
+    decision.hits.map(
+      (item) =>
+        `| ${code(item.id)} | ${item.class}${item.run ? ` (run ${item.run})` : ""} | ${item.hostKind} | ${code(item.createdAt)} |`,
+    ),
+  )
+  if (llm && !llm.fallback)
+    table("LLM decisions", "| Check | Decision | Reason |", [
+      ...(llm.dropped ?? []).map(
+        (item) => `| ${code(item.id)} | dropped | ${code(item.reason)} |`,
+      ),
+      ...(llm.added ?? []).map(
+        (item) => `| ${code(item.id)} | added | ${code(item.reason)} |`,
+      ),
+    ])
+  table(
+    "In other workflows",
+    "| Check | Reason | Workflow |",
+    decision.external.map(
+      (item) =>
+        `| ${code(item.id)} | ${code(item.reason)} | ${item.workflow} |`,
+    ),
+  )
+  table(
+    "Omitted",
+    "| Lane | Reason | Checks |",
+    Object.entries(decision.omitted.byLane).flatMap(([lane, reasons]) =>
+      Object.entries(reasons).map(
+        ([reason, count]) => `| ${code(lane)} | ${code(reason)} | ${count} |`,
+      ),
+    ),
+  )
+  if (!comment) {
+    const notes = [...s.notes, ...s.cacheNotes]
+    if (notes.length) {
+      lines.push("", "### Notes", "")
+      for (const note of notes.slice(0, 50)) lines.push(`- ${code(note)}`)
+    }
+  }
+  if (runUrl) lines.push("", `[Run](${runUrl})`)
+  const text = `${lines.join("\n")}\n`
+  // GitHub refuses a comment over 65536 characters.
+  return comment && text.length > 60000
+    ? `${text.slice(0, 60000)}\n\n</details>\n\nThe comment is cut: see the job summary.${runUrl ? ` [Run](${runUrl})` : ""}\n`
+    : text
 }
 
 export function summary(decision, runUrl) {
@@ -892,7 +1189,38 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
           }),
         )}\n`,
       )
-    } else if (command === "shadow") {
+    } else if (command === "plan") {
+      const planned = plan({
+        config,
+        inputs: options.inputs,
+        needs: JSON.parse(readFileSync(options.needs, "utf8")),
+        store: readStore(readJson(options.store)),
+        fork: options.fork === "true",
+      })
+      mkdirSync(options.out, { recursive: true })
+      writeFileSync(
+        join(options.out, "plan.json"),
+        `${JSON.stringify(planned, null, 2)}\n`,
+      )
+      // The outputs of the plan job: each value is one line of JSON.
+      const outputs = {
+        mode: planned.mode,
+        config: planned.config,
+        deploy: String(planned.deploy),
+        ...planned.outputs,
+      }
+      if (options["github-output"])
+        writeFileSync(
+          options["github-output"],
+          Object.entries(outputs)
+            .map(([name, value]) => `${name}=${value}\n`)
+            .join(""),
+          { flag: "a" },
+        )
+      process.stdout.write(
+        `Merge gate plan: mode ${planned.mode} (${planned.reason}); ${planned.ran?.length ?? "all"} checks run; jobs: ${Object.keys(planned.outputs).join(", ") || "none"}; deploy ${planned.deploy}\n`,
+      )
+    } else if (command === "decide") {
       const env = process.env
       const event = readJson(env.GITHUB_EVENT_PATH)
       const run = {
@@ -905,27 +1233,95 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
         env.GITHUB_SERVER_URL && env.GITHUB_RUN_ID
           ? `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`
           : undefined
-      const decision = shadow({
-        config,
-        inputs: options.inputs,
-        records: readRecords(options.results),
-        needs: JSON.parse(readFileSync(options.needs, "utf8")),
-        jobs: readJson(options.jobs),
-        earlier: readJson(options.earlier),
-        deploy: readJson(options.deploy),
-        run,
-      })
+      const planned = readJson(join(options.inputs, "plan.json"))
+      const needs = JSON.parse(readFileSync(options.needs, "utf8"))
+      const store = readStore(readJson(options.store))
+      const tracePath = join(options.inputs, "trace.json.gz")
+      let decision
+      let next = store
+      if (planned?.mode === "gate") {
+        const out = gateDecision({
+          config,
+          planned,
+          records: readRecords(options.results),
+          reruns: readRecords(options.results, "rerun.ndjson"),
+          needs,
+          jobs: readJson(options.jobs),
+          deploy: readJson(options.deploy),
+          run,
+          store,
+          seconds: existsSync(tracePath)
+            ? traceSeconds(readTrace(tracePath))
+            : new Map(),
+        })
+        decision = out.decision
+        next = out.store
+      } else {
+        const records = readRecords(options.results)
+        decision = shadow({
+          config,
+          inputs: options.inputs,
+          records,
+          needs,
+          jobs: readJson(options.jobs),
+          earlier: readJson(options.earlier),
+          deploy: readJson(options.deploy),
+          run,
+        })
+        // The full run proves each selected check that it ran, so its pass
+        // goes to the PR store too.
+        if (planned?.selection && decision.ran)
+          next = nextStore({
+            store,
+            selection: planned.selection,
+            ran: decision.ran,
+            contradictions: [],
+            run,
+            now: new Date(),
+          })
+        // A check that failed in the full run loses each stored pass, so a
+        // later gated run cannot accept it. After a selector outage the run
+        // has no keys, so the rule removes the passes of every key.
+        const failed = new Set(
+          records
+            .filter((record) => ["failed", "error"].includes(record.status))
+            .map((record) => record.id),
+        )
+        next = {
+          ...next,
+          entries: next.entries.filter((entry) => !failed.has(entry.id)),
+        }
+      }
       mkdirSync(options.out, { recursive: true })
       writeFileSync(
         join(options.out, "decision.json"),
         `${JSON.stringify(decision, null, 2)}\n`,
       )
-      writeFileSync(join(options.out, "summary.md"), summary(decision, runUrl))
-      writeFileSync(join(options.out, "comment.md"), comment(decision, runUrl))
-      process.stdout.write(
-        `Merge gate (shadow): mode ${decision.mode}; full run ${decision.fullRun.verdict}; gated run ${decision.gatedRun.verdict}\n`,
+      writeFileSync(
+        join(options.out, "store.json"),
+        `${JSON.stringify(next)}\n`,
       )
-    } else throw new Error("Usage: gate.mjs mode|shadow --config <file> …")
+      const gated = decision.mode === "gate"
+      writeFileSync(
+        join(options.out, "summary.md"),
+        gated ? gateText(decision, runUrl) : summary(decision, runUrl),
+      )
+      writeFileSync(
+        join(options.out, "comment.md"),
+        gated
+          ? gateText(decision, runUrl, { limit: 25, comment: true })
+          : comment(decision, runUrl),
+      )
+      // In gate mode this job is the required status: it fails with the
+      // gated verdict, or with the verdict of a full run.
+      const verdict = gated
+        ? decision.gatedRun.verdict
+        : decision.fullRun.verdict
+      process.stdout.write(
+        `Merge gate: config ${config.mode}; mode ${decision.mode}; verdict ${verdict}\n`,
+      )
+      if (config.mode === "gate" && verdict === "fail") process.exitCode = 1
+    } else throw new Error("Usage: gate.mjs mode|plan|decide --config <file> …")
   } catch (error) {
     process.stderr.write(`${error.message}\n`)
     process.exitCode = 1

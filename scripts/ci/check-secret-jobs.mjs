@@ -60,6 +60,16 @@
 //   through a read-only OIDC role of the factory account. It needs no secret
 //   and spends no money, so the rule for paid or outside checks does not
 //   apply.
+// - The merge gate LLM job (ci.yaml merge-gate-llm) holds the model key of
+//   `workbench` and no cloud role. It runs only the selector release that
+//   the select job downloaded, after it checks the pinned SHA-256 again.
+// - A step that lists the checks holds no secret and is in no job with an
+//   OIDC token: list.mjs or
+//   `checks:list`; run.mjs or `checks:run` without `--manifest`; and
+//   rerun-failed.mjs or selected.mjs without a non-empty `MANIFEST:` in the
+//   step env (a manifest that an earlier step listed). The discovery imports
+//   PR code (eval cases, the Storybook configuration), so a check step gets
+//   its credential only after the checks are listed.
 // The production jobs in productionJobs run only on a push to main, so the
 // rules for one job do not apply to them; the pin rule and the cache rule do.
 // Every other job of deploy.yaml gets all the rules.
@@ -336,6 +346,24 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     )
 
     for (const step of job.steps) {
+      const text = step.lines.map((line) => line.text).join("\n")
+      const manifest = /^\s+MANIFEST:\s*(?!(?:""|''|~|null)?\s*$)\S/m.test(text)
+      const discovers =
+        /(?<![\w-])list\.mjs\b|\bchecks:list\b/.test(text) ||
+        (/(?<![\w-])run\.mjs\b|\bchecks:run\b/.test(text) &&
+          !/--manifest\b/.test(text)) ||
+        (/\b(?:rerun-failed|selected)\.mjs\b/.test(text) && !manifest)
+      // An OIDC token of the job reaches each step of the job.
+      const secret =
+        step.lines.find((line) => secretUse.test(line.text)) ??
+        (hasOidc && step.lines[0])
+      if (discovers && secret)
+        failures.push(
+          `${file}:${secret.number}: job ${job.name} gives a secret or an OIDC token to a step that lists the checks. The discovery imports PR code: list the checks in an earlier step without the secret, and give the manifest to run.mjs in --manifest, or to selected.mjs and rerun-failed.mjs in MANIFEST.`,
+        )
+    }
+
+    for (const step of job.steps) {
       const access = cacheAccess(step.uses)
       if (!access) continue
       for (const key of step.keys) {
@@ -420,8 +448,7 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
             runLines
               .slice(0, -1)
               .some(
-                (text) =>
-                  !/^\s*echo\b/.test(text) || /\$\(|`/.test(text),
+                (text) => !/^\s*echo\b/.test(text) || /\$\(|`/.test(text),
               ) ||
             next.some(
               ({ text }) =>

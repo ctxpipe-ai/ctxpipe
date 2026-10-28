@@ -14,15 +14,11 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
 
-import {
-  deploySteps,
-  fullRunResults,
-  lintSteps,
-  stepResults,
-} from "../checks/gate.mjs"
+import { deploySteps, fullRunResults, stepResults } from "../checks/gate.mjs"
+import { jobOutputs } from "../checks/plan.mjs"
 import { prerequisites } from "../checks/prerequisites.mjs"
 import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
-import { runsInOf } from "../checks/shard.mjs"
+import { lintSteps, runsInOf } from "../checks/shard.mjs"
 import { requiredStories } from "../ci/storybook-golden-select.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -255,6 +251,31 @@ test("the runner runs exactly the given ids and writes one schema result for eac
     const none = node([script("run.mjs")], "\n\n")
     assert.equal(none.status, 1)
     assert.match(none.stderr, /no check ids given/)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("with --manifest, the runner reads the checks from that file and lists none", () => {
+  // A step with a credential runs the checks of a manifest that an earlier
+  // step listed without it. A check that is not in the manifest is unknown,
+  // even when the repository has it.
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-checks-"))
+  try {
+    const manifest = join(directory, "manifest.json")
+    writeFileSync(manifest, JSON.stringify({ schemaVersion: 1, checks: [] }))
+    const id = "vitest:ui:apps/ui/src/components/onboarding/org-name.test.ts"
+    const result = node([script("run.mjs"), "--manifest", manifest], `${id}\n`)
+    assert.equal(result.status, 1, result.stderr)
+    const [record] = result.stdout
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+    assert.deepEqual(
+      [record.id, record.status, record.message],
+      [id, "error", "Unknown check id"],
+    )
+    assert.equal(node([script("run.mjs"), "--manifest"], `${id}\n`).status, 1)
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
@@ -1019,14 +1040,23 @@ test("the manifest lists a build check for each production image and package of 
   // The Production build job has one matrix entry for each image check: the
   // merge gate takes the job `Production build (<name>)` as the result of
   // `build:image-<name>:`. Each entry builds the Dockerfile of its check.
-  const images = [
-    ...job("production-builds").matchAll(
-      /- name: (\S+)\n\s+dockerfile: (\S+)/g,
-    ),
-  ].map(([, name, file]) => `build:image-${name}:${file}`)
+  // The entries of the full run are the JSON fallback of the matrix; in gate
+  // mode the plan job gives the same entries for the selected images.
+  const entries = JSON.parse(
+    /production-builds \|\| '(\[[^']*\])'/.exec(job("production-builds"))[1],
+  )
+  const images = entries.map(
+    ({ name, dockerfile }) => `build:image-${name}:${dockerfile}`,
+  )
   assert.deepEqual(
     images.sort(),
     [...builds.keys()].filter((id) => id.startsWith("build:image-")),
+  )
+  assert.deepEqual(
+    JSON.parse(jobOutputs(images, new Map())["production-builds"]).sort(
+      (a, b) => a.name.localeCompare(b.name),
+    ),
+    entries.sort((a, b) => a.name.localeCompare(b.name)),
   )
   assert.ok(!job("production-builds").includes("pnpm install"))
   assert.equal(
@@ -1270,4 +1300,43 @@ test("the project check times job selects the typecheck, lint and policy checks 
       family,
     )
   assert.deepEqual(ids.sort(), expected.sort())
+})
+
+test("the rerun of selected.mjs reads MANIFEST and lists no checks", () => {
+  // selected.mjs calls rerun-failed.mjs in its own process, so the rerun
+  // has the MANIFEST of the step. A check that is not in that manifest is
+  // unknown, even when the repository has it: the rerun did not list.
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-rerun-"))
+  try {
+    const id = "vitest:ui:apps/ui/src/components/onboarding/org-name.test.ts"
+    const manifest = join(directory, "manifest.json")
+    writeFileSync(manifest, JSON.stringify({ schemaVersion: 1, checks: [] }))
+    writeFileSync(
+      join(directory, "records.ndjson"),
+      `${JSON.stringify({ id, status: "failed" })}\n`,
+    )
+    const run = spawnSync(
+      process.execPath,
+      [script("rerun-failed.mjs"), directory],
+      {
+        cwd: root,
+        encoding: "utf8",
+        env: { PATH: process.env.PATH, MANIFEST: manifest },
+      },
+    )
+    assert.equal(run.status, 0, run.stderr)
+    const [record] = readFileSync(
+      join(directory, "rerun", "rerun.ndjson"),
+      "utf8",
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+    assert.deepEqual(
+      [record.id, record.status, record.message],
+      [id, "error", "Unknown check id"],
+    )
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
 })
