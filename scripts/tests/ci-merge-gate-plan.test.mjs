@@ -537,6 +537,92 @@ test("the CLI plans a gated run and fails the merge gate on a failed verdict", (
     assert.ok(existsSync(join(out, file)), file)
 })
 
+test("a check that fails in a full run loses its stored pass: gated, full, gated", () => {
+  const directory = inputs({ "config.json": config() })
+  const gate = (args) =>
+    spawnSync(
+      process.execPath,
+      [join(root, "scripts/checks/gate.mjs"), ...args],
+      {
+        encoding: "utf8",
+        env: { PATH: process.env.PATH, GITHUB_RUN_ID: "42" },
+      },
+    )
+  // One run of the PR: plan, then decide with the given records. Each run
+  // reads the PR store of the run before it.
+  const runOnce = (name, files, runNeeds, status) => {
+    const at = join(directory, name)
+    mkdirSync(join(at, "results", "test-results-selected-1"), {
+      recursive: true,
+    })
+    for (const [file, value] of Object.entries(files))
+      writeFileSync(join(at, file), JSON.stringify(value))
+    writeFileSync(join(at, "needs.json"), JSON.stringify(runNeeds))
+    const store = join(directory, "store.json")
+    const planned = gate([
+      "plan",
+      "--config",
+      join(directory, "config.json"),
+      "--inputs",
+      at,
+      "--needs",
+      join(at, "needs.json"),
+      "--store",
+      store,
+      "--fork",
+      "false",
+      "--out",
+      at,
+    ])
+    assert.equal(planned.status, 0, planned.stderr)
+    writeFileSync(
+      join(at, "results", "test-results-selected-1", "records.ndjson"),
+      `${JSON.stringify({ id: ui, status })}\n`,
+    )
+    gate([
+      "decide",
+      "--config",
+      join(directory, "config.json"),
+      "--inputs",
+      at,
+      "--results",
+      join(at, "results"),
+      "--needs",
+      join(at, "needs.json"),
+      "--store",
+      store,
+      "--out",
+      join(at, "out"),
+    ])
+    writeFileSync(store, readFileSync(join(at, "out", "store.json")))
+    return JSON.parse(readFileSync(join(at, "plan.json"), "utf8"))
+  }
+  const selected = {
+    "mode.json": { mode: "select", reason: "gate" },
+    "selection.json": selectRecord(),
+    "llm-selection.json": llmRecord(),
+  }
+  const prHit = (planned) =>
+    planned.selection?.cache?.hits.some(
+      (item) => item.id === ui && item.source === "pr",
+    )
+  // Run 1 (gated): the UI test passes under its key and goes to the store.
+  assert.equal(runOnce("1", selected, needs, "passed").mode, "gate")
+  // Run 2 (full: the selector failed): the UI test fails.
+  const full = runOnce(
+    "2",
+    { "mode.json": { mode: "select", reason: "gate" } },
+    { ...needs, "merge-gate-select": { result: "failure" } },
+    "failed",
+  )
+  assert.equal(full.mode, "full")
+  // Run 3 (gated): the pass of run 1 is gone, so the UI test runs again.
+  const third = runOnce("3", selected, needs, "passed")
+  assert.equal(third.mode, "gate")
+  assert.ok(!prHit(third))
+  assert.ok(third.ran.includes(ui))
+})
+
 test("each job of the plan needs the plan job, starts only with its output, and runs the plan", () => {
   const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
   const job = (name) => {

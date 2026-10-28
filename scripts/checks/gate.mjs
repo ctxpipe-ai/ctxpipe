@@ -823,9 +823,11 @@ export function gateDecision({
 }
 
 // The PR store after this run: the passes of the earlier runs, and each
-// check of this run that passed under a key. A confirmed contradiction
-// quarantines its key: no gated run of this PR accepts a stored pass for
-// it. The store keeps the newest 5000 passes.
+// check of this run that passed under a key. A check of this run that failed
+// under a key removes the stored pass of that key, so a later gated run runs
+// it again. A confirmed contradiction quarantines its
+// key: no gated run of this PR accepts a stored pass for it. The store keeps
+// the newest 5000 passes.
 export function nextStore({ store, selection, ran, contradictions, run, now }) {
   const keys = new Map(
     [...(selection.cache?.hits ?? []), ...(selection.cache?.misses ?? [])].map(
@@ -840,8 +842,9 @@ export function nextStore({ store, selection, ran, contradictions, run, now }) {
   )
   for (const item of ran) {
     const key = keys.get(item.id)
-    if (item.result !== "passed" || !key) continue
+    if (!key) continue
     entries.delete(`${item.id}\0${key}`)
+    if (item.result !== "passed") continue
     entries.set(`${item.id}\0${key}`, {
       id: item.id,
       key,
@@ -1222,10 +1225,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
         decision = out.decision
         next = out.store
       } else {
+        const records = readRecords(options.results)
         decision = shadow({
           config,
           inputs: options.inputs,
-          records: readRecords(options.results),
+          records,
           needs,
           jobs: readJson(options.jobs),
           earlier: readJson(options.earlier),
@@ -1243,6 +1247,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
             run,
             now: new Date(),
           })
+        // A check that failed in the full run loses each stored pass, so a
+        // later gated run cannot accept it. After a selector outage the run
+        // has no keys, so the rule removes the passes of every key.
+        const failed = new Set(
+          records
+            .filter((record) => ["failed", "error"].includes(record.status))
+            .map((record) => record.id),
+        )
+        next = {
+          ...next,
+          entries: next.entries.filter((entry) => !failed.has(entry.id)),
+        }
       }
       mkdirSync(options.out, { recursive: true })
       writeFileSync(
