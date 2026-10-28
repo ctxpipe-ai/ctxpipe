@@ -815,6 +815,7 @@ export function gateDecision({
         ...(hit.provenance.run && { run: hit.provenance.run }),
       })),
       external,
+      shards: planned.shards ?? {},
       omitted: {
         byLane: omittedByLane,
         stochastic: selection.counts.stochasticOmitted ?? 0,
@@ -911,6 +912,12 @@ export function gateText(
     "",
     `**Runner minutes:** this run ${decision.cost.gatedRunMinutes}; a full run about ${decision.cost.fullRunMinutesEstimate} (estimate of the tests and their setup, without builds).`,
   )
+  const shards = Object.entries(decision.shards ?? {})
+  if (shards.length)
+    lines.push(
+      "",
+      `**Shards:** ${shards.map(([job, item]) => `${code(job)} ${item.shards} of ${item.fullShards} (about ${item.minutes} min of tests, longest shard ${item.longestMinutes} min)`).join("; ")}.`,
+    )
   const llm = s.llm
   if (llm)
     lines.push(

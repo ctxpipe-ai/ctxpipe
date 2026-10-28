@@ -216,6 +216,11 @@ test("each planned check goes to the job that runs it, and a job without one doe
       plan: { ids: [contract], rerun: [] },
     },
   ])
+  // The report of the shards: the selected contract fits one of the nine
+  // shards of a full run.
+  assert.deepEqual(Object.keys(planned.shards), ["test-shards"])
+  assert.equal(planned.shards["test-shards"].shards, 1)
+  assert.equal(planned.shards["test-shards"].fullShards, 9)
   assert.deepEqual(JSON.parse(planned.outputs["production-builds"]), [
     { name: "ui", dockerfile: "apps/ui/Dockerfile" },
   ])
@@ -242,6 +247,7 @@ test("shadow mode, a fork and a failed selector give a full run", () => {
   const shadow = planOf({ mode: "shadow" })
   assert.equal(shadow.mode, "full")
   assert.deepEqual(shadow.outputs, {})
+  assert.deepEqual(shadow.shards, {})
   assert.equal(shadow.deploy, false)
   // The shadow job still reads the combined selection.
   assert.ok(shadow.selection.llm)
@@ -479,6 +485,7 @@ test("the PR comment shows the selection, the hits, the LLM decisions and the mi
     "`same path`",
     "<summary>Omitted (2)</summary>",
     "a full run about",
+    "**Shards:** `test-shards` 1 of 9 (about",
   ])
     assert.ok(text.includes(part), part)
 })

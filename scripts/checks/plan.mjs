@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { schemaErrors } from "./schema.mjs"
 import {
   lintSteps,
+  profiles,
   readTrace,
   runsInOf,
   shard,
@@ -269,6 +270,26 @@ export function jobOutputs(ran, seconds, rerun = new Set()) {
   return outputs
 }
 
+// The shards of each sharded job of a gated run, for the merge gate report:
+// the shard count, the shard count of a full run, and the estimated minutes
+// of tests in all shards and in the longest shard.
+function packing(ran, seconds) {
+  const out = {}
+  for (const job of ["test-shards", "storybook-plays"]) {
+    const ids = ran.filter((id) => placeOf(id).job === job)
+    for (const [profile, list] of Object.entries(shard(ids, seconds))) {
+      const minutes = (value) => Math.round((value / 60) * 10) / 10
+      out[job] = {
+        shards: list.length,
+        fullShards: profiles[profile].maxShards,
+        minutes: minutes(list.reduce((sum, item) => sum + item.seconds, 0)),
+        longestMinutes: minutes(Math.max(...list.map((item) => item.seconds))),
+      }
+    }
+  }
+  return out
+}
+
 // Why the selector gave no selection for this run, or undefined when it did.
 // <inputs> holds the artifacts of the manifest and select jobs.
 export function fallbackOf({ mode, selection, inputs, needs }) {
@@ -337,7 +358,8 @@ export function plan({ config, inputs, needs, store, fork }) {
   const trace = existsSync(join(inputs, "trace.json.gz"))
     ? readTrace(join(inputs, "trace.json.gz"))
     : undefined
-  const outputs = gate ? jobOutputs(ran, traceSeconds(trace), rerun) : {}
+  const seconds = traceSeconds(trace)
+  const outputs = gate ? jobOutputs(ran, seconds, rerun) : {}
   return {
     schemaVersion: 1,
     config: config.mode,
@@ -348,6 +370,7 @@ export function plan({ config, inputs, needs, store, fork }) {
     ran,
     rerun: [...rerun].sort(),
     outputs,
+    shards: gate ? packing(ran, seconds) : {},
     deploy: gate && !fork && ran.some((id) => id.startsWith("deploy:")),
   }
 }
