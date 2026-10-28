@@ -732,18 +732,24 @@ test("rejects a secret in a step that lists the checks", () => {
       `  checks:\n    environment: workbench\n    steps:\n      - name: Checks\n        env:\n          VERCEL_TOKEN: \${{ secrets.VERCEL_ACCESS_TOKEN }}\n${env}        run: ${run}\n`,
     )
   const listed = /gives a secret to a step that lists the checks/
-  for (const run of [
-    "pnpm -s checks:list > manifest.json",
-    "node scripts/checks/plan.mjs",
-    "node scripts/checks/selected.mjs .ci-results/vercel",
+  const empty = '          MANIFEST: ""\n'
+  for (const [run, env] of [
+    ["pnpm -s checks:list > manifest.json", ""],
+    ["node scripts/checks/list.mjs > manifest.json", ""],
+    ["node scripts/checks/run.mjs ids.txt", ""],
+    ["pnpm -s checks:run < ids.txt", ""],
+    ["node scripts/checks/rerun-failed.mjs .ci-results", ""],
+    ["node scripts/checks/rerun-failed.mjs .ci-results", empty],
+    ["node scripts/checks/selected.mjs .ci-results/vercel", ""],
+    ["node scripts/checks/selected.mjs .ci-results/vercel", empty],
   ])
-    rejects(step(run), listed)
-  // With a manifest from an earlier step, selected.mjs lists nothing.
-  const result = check(
-    step(
-      "node scripts/checks/selected.mjs .ci-results/vercel",
-      "          MANIFEST: manifest.json\n",
-    ),
-  )
-  assert.doesNotMatch(result.stderr, listed)
+    rejects(step(run, env), listed)
+  // With a manifest from an earlier step, nothing lists the checks.
+  const manifest = "          MANIFEST: manifest.json\n"
+  for (const [run, env] of [
+    ["node scripts/checks/selected.mjs .ci-results/vercel", manifest],
+    ["node scripts/checks/rerun-failed.mjs .ci-results", manifest],
+    ["node scripts/checks/run.mjs --manifest manifest.json ids.txt", ""],
+  ])
+    assert.doesNotMatch(check(step(run, env)).stderr, listed, run)
 })

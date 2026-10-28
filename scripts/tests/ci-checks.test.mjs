@@ -1301,3 +1301,42 @@ test("the project check times job selects the typecheck, lint and policy checks 
     )
   assert.deepEqual(ids.sort(), expected.sort())
 })
+
+test("the rerun of selected.mjs reads MANIFEST and lists no checks", () => {
+  // selected.mjs calls rerun-failed.mjs in its own process, so the rerun
+  // has the MANIFEST of the step. A check that is not in that manifest is
+  // unknown, even when the repository has it: the rerun did not list.
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-rerun-"))
+  try {
+    const id = "vitest:ui:apps/ui/src/components/onboarding/org-name.test.ts"
+    const manifest = join(directory, "manifest.json")
+    writeFileSync(manifest, JSON.stringify({ schemaVersion: 1, checks: [] }))
+    writeFileSync(
+      join(directory, "records.ndjson"),
+      `${JSON.stringify({ id, status: "failed" })}\n`,
+    )
+    const run = spawnSync(
+      process.execPath,
+      [script("rerun-failed.mjs"), directory],
+      {
+        cwd: root,
+        encoding: "utf8",
+        env: { PATH: process.env.PATH, MANIFEST: manifest },
+      },
+    )
+    assert.equal(run.status, 0, run.stderr)
+    const [record] = readFileSync(
+      join(directory, "rerun", "rerun.ndjson"),
+      "utf8",
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+    assert.deepEqual(
+      [record.id, record.status, record.message],
+      [id, "error", "Unknown check id"],
+    )
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})

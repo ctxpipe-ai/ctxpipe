@@ -23,7 +23,13 @@ import {
 } from "../checks/gate.mjs"
 import { suiteRecord } from "../checks/lanes.mjs"
 import { schemaErrors } from "../checks/schema.mjs"
-import { estimate, runsInOf, shard, shardMinutes } from "../checks/shard.mjs"
+import {
+  checkJobs,
+  estimate,
+  runsInOf,
+  shard,
+  shardMinutes,
+} from "../checks/shard.mjs"
 import { hashed, toolchain } from "../checks/toolchain.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -278,6 +284,47 @@ test("a ci.yaml change only in the steps of check jobs runs the selector with th
     mode: "full",
     reason: `gate inputs changed: ${path}, .github/actions/a/action.yml`,
   })
+})
+
+test("each mode or lane condition of a check job has a form that the full-run rule reads", () => {
+  // gate.mjs finds a step or job that only a full run uses by its text. A
+  // new form of condition must get a rule there first, then a place here.
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const known = new Set([
+    "needs.merge-gate-plan.outputs.mode != 'gate'",
+    "needs.merge-gate-plan.outputs.mode == 'gate'",
+    "matrix.lane != 'selected'",
+    "matrix.lane == 'selected'",
+    // A step that runs in each mode: the selected lane is not backend.
+    "matrix.lane != 'backend'",
+  ])
+  for (const name of [...checkJobs, "storybook-build"].filter((job) =>
+    workflow.includes(`\n  ${job}:\n`),
+  )) {
+    const text = workflowJob(workflow, name).replace(/\n\s*#[^\n]*/g, "")
+    for (const [atom] of text.matchAll(
+      /[\w.-]*(?:outputs\.mode|matrix\.lane)\b(?:\s*[!=]=\s*'[^']*')?/g,
+    ))
+      if (!/^\S*matrix\.lane$/.test(atom) || /[!=]=/.test(atom))
+        assert.ok(known.has(atom), `${name}: ${atom}`)
+    // The job form `mode != 'gate' || <its output> != ''` runs in a gated
+    // run; any other alternative would hide a full-run-only job.
+    for (const [, rest] of text.matchAll(/mode != 'gate' \|\|([^)]*)\)/g))
+      assert.match(
+        rest,
+        /^ needs\.merge-gate-plan\.outputs\.[\w-]+ != ''$/,
+        name,
+      )
+    assert.equal(
+      (text.match(/mode != 'gate' \|\|/g) ?? []).length,
+      [
+        ...text.matchAll(
+          /\(needs\.merge-gate-plan\.outputs\.mode != 'gate' \|\|/g,
+        ),
+      ].length,
+      name,
+    )
+  }
 })
 
 test("the checks of the jobs of a job-scoped ci.yaml change run, without their hits", () => {

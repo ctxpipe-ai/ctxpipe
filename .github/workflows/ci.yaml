@@ -1591,6 +1591,7 @@ jobs:
     needs: merge-gate-plan
     if: |
       !cancelled() &&
+      github.actor != 'cursor[bot]' && github.actor != 'cursoragent' &&
       (needs.merge-gate-plan.outputs.deploy == 'true' ||
       needs.merge-gate-plan.outputs.mode == '') &&
       github.event.pull_request.head.repo.full_name == github.repository

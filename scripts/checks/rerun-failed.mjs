@@ -17,7 +17,7 @@ const root = fileURLToPath(new URL("../../", import.meta.url))
 // Reruns each failed check of a nightly job once, through the public runner
 // (run.mjs), so that the factory Results writer quarantines a key only when
 // its check fails again. Usage:
-//   rerun-failed.mjs <results dir>
+//   [MANIFEST=<file>] rerun-failed.mjs <results dir>
 // It reads each records.ndjson below the directory, and writes the records of
 // the rerun to <results dir>/rerun/rerun.ndjson, and the rerun logs to
 // <results dir>/rerun/checks. The logs of the first run stay in
@@ -88,7 +88,14 @@ export function main(directory, only) {
   try {
     const run = spawnSync(
       process.execPath,
-      [join(root, "scripts", "checks", "run.mjs")],
+      [
+        join(root, "scripts", "checks", "run.mjs"),
+        // A step with a credential lists the checks in an earlier step
+        // (selected.mjs, MANIFEST), so the rerun lists none either.
+        ...(process.env.MANIFEST
+          ? ["--manifest", resolve(process.env.MANIFEST)]
+          : []),
+      ],
       {
         cwd: root,
         input: `${ids.join("\n")}\n`,
