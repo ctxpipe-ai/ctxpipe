@@ -110,8 +110,35 @@ const weights = () =>
     readFileSync(new URL("../ci/test-weights.json", import.meta.url), "utf8"),
   )
 
+// The median seconds of the traced checks of each `<family>:<lane>`, for
+// each map of trace seconds.
+const lanesMedians = new WeakMap()
+function laneMedian(seconds, lane) {
+  if (!lanesMedians.has(seconds)) {
+    const byLane = new Map()
+    for (const [id, value] of seconds) {
+      const key = id.split(":").slice(0, 2).join(":")
+      byLane.set(key, [...(byLane.get(key) ?? []), value])
+    }
+    const medians = new Map()
+    for (const [key, values] of byLane) {
+      values.sort((a, b) => a - b)
+      const middle = values.length >> 1
+      medians.set(
+        key,
+        values.length % 2
+          ? values[middle]
+          : (values[middle - 1] + values[middle]) / 2,
+      )
+    }
+    lanesMedians.set(seconds, medians)
+  }
+  return lanesMedians.get(seconds).get(lane)
+}
+
 // The estimated seconds of one check: the trace, then the measured file
-// weights of CI (scripts/ci/test-weights.json), then a fixed guess.
+// weights of CI (scripts/ci/test-weights.json), then the median of the
+// traced checks of its lane, then a fixed guess.
 export function estimate(id, seconds, fileWeights = weights()) {
   if (seconds.has(id)) return seconds.get(id)
   const [family, lane, ...rest] = id.split(":")
@@ -119,11 +146,35 @@ export function estimate(id, seconds, fileWeights = weights()) {
   const directory = { backend: "apps/backend/", contracts: "apps/backend/" }
   const weight = fileWeights[lane]?.[file.replace(directory[lane] ?? "", "")]
   if (weight !== undefined) return weight
+  const median = laneMedian(seconds, `${family}:${lane}`)
+  if (median !== undefined) return median
   return family === "typecheck" ? 60 : family === "storybook" ? 3 : 10
 }
 
-// The shards of each profile: about `targetSeconds` of tests each, at most
-// `maxShards`, longest check first to the shard with the least time.
+// The test seconds that one shard of a gated run holds before the run adds
+// a shard. Each shard pays its setup again (runner, checkout, install,
+// services: 0.3 to 1.4 minutes, `profiles`), and runner minutes cost money.
+// A higher target gives fewer shards and fewer runner minutes, but a longer
+// wall time. A full run keeps the shard counts of ci.yaml.
+export const shardTargetSeconds = 600
+
+// The checks, longest first, in `count` shards: each check goes to the shard
+// with the least time.
+function pack(checks, count) {
+  const shards = Array.from({ length: count }, () => ({ ids: [], seconds: 0 }))
+  for (const check of checks) {
+    const least = shards.reduce((low, item) =>
+      item.seconds < low.seconds ? item : low,
+    )
+    least.ids.push(check.id)
+    least.seconds += check.seconds
+  }
+  return shards
+}
+
+// The shards of each profile: the fewest shards that hold at most
+// `shardTargetSeconds` of tests each, at least 1 and at most `maxShards`.
+// The longest check goes first, each to the shard with the least time.
 export function shard(ids, seconds, fileWeights = weights()) {
   const byProfile = new Map()
   for (const id of new Set(ids)) {
@@ -138,25 +189,22 @@ export function shard(ids, seconds, fileWeights = weights()) {
   for (const [profile, checks] of [...byProfile].sort(([a], [b]) =>
     a < b ? -1 : 1,
   )) {
-    const total = checks.reduce((sum, check) => sum + check.seconds, 0)
-    const count = Math.min(
-      profiles[profile].maxShards,
-      // About 300 s of tests for each shard.
-      Math.max(1, Math.ceil(total / 300)),
-      checks.length,
-    )
-    const shards = Array.from({ length: count }, () => ({
-      ids: [],
-      seconds: 0,
-    }))
     checks.sort((a, b) => b.seconds - a.seconds || (a.id < b.id ? -1 : 1))
-    for (const check of checks) {
-      const least = shards.reduce((low, item) =>
-        item.seconds < low.seconds ? item : low,
-      )
-      least.ids.push(check.id)
-      least.seconds += check.seconds
-    }
+    const total = checks.reduce((sum, check) => sum + check.seconds, 0)
+    const most = Math.min(profiles[profile].maxShards, checks.length)
+    let count = Math.min(
+      most,
+      Math.max(1, Math.ceil(total / shardTargetSeconds)),
+    )
+    let shards = pack(checks, count)
+    // Two long checks can put a shard over the target although the total
+    // fits. A check that alone is over the target gets no extra shards.
+    const limit = Math.max(shardTargetSeconds, checks[0].seconds)
+    while (
+      count < most &&
+      Math.max(...shards.map((item) => item.seconds)) > limit
+    )
+      shards = pack(checks, ++count)
     for (const item of shards) {
       item.ids.sort()
       item.seconds = Math.round(item.seconds)

@@ -26,9 +26,11 @@ import { schemaErrors } from "../checks/schema.mjs"
 import {
   checkJobs,
   estimate,
+  profiles,
   runsInOf,
   shard,
   shardMinutes,
+  shardTargetSeconds,
 } from "../checks/shard.mjs"
 import { hashed, toolchain } from "../checks/toolchain.mjs"
 
@@ -864,22 +866,67 @@ test("each selection reason has one line", () => {
   assert.equal(describe({ kind: "newKind" }), "newKind")
 })
 
-test("the shards of each profile hold about five minutes, up to today's shard count", () => {
+test("a gated run packs its checks into the fewest shards that hold the target, up to today's shard count", () => {
+  assert.equal(shardTargetSeconds, 600)
+  // A few short checks: one shard for each profile.
   const seconds = new Map([
     ["vitest:backend:apps/backend/a.test.ts", 200],
-    ["vitest:backend:apps/backend/b.test.ts", 200],
-    ["vitest:contracts:apps/backend/c.test.ts", 200],
+    ["vitest:backend:apps/backend/b.test.ts", 150],
+    ["vitest:contracts:apps/backend/c.test.ts", 100],
     ["vitest:ui:apps/ui/d.test.tsx", 5],
     ["vitest:ui:apps/ui/e.test.tsx", 5],
   ])
   const shards = shard([...seconds.keys(), "eval:mcp:x#y"], seconds, {})
   assert.deepEqual(Object.keys(shards), ["database", "node"])
-  assert.equal(shards.database.length, 2)
   assert.deepEqual(
     shards.database.map((item) => item.seconds),
-    [400, 200],
+    [450],
   )
   assert.equal(shards.node.length, 1)
+  // Long checks spread over today's shard count, and no more.
+  const long = new Map(
+    Array.from({ length: 30 }, (_, i) => [
+      `vitest:backend:apps/backend/${i}.test.ts`,
+      300,
+    ]),
+  )
+  const spread = shard([...long.keys()], long, {})
+  assert.equal(spread.database.length, profiles.database.maxShards)
+  // Longest first to the least-loaded shard: the shards are balanced.
+  const mixed = new Map(
+    [500, 400, 300, 300, 200, 200, 100].map((value, i) => [
+      `vitest:backend:apps/backend/m${i}.test.ts`,
+      value,
+    ]),
+  )
+  const balanced = shard([...mixed.keys()], mixed, {}).database
+  assert.deepEqual(
+    balanced.map((item) => item.seconds),
+    [500, 500, 500, 500],
+  )
+  // Two long checks that fit the target in total, but not in one shard.
+  const pair = new Map([
+    ["vitest:backend:apps/backend/p.test.ts", 590],
+    ["vitest:backend:apps/backend/q.test.ts", 20],
+  ])
+  assert.equal(shard([...pair.keys()], pair, {}).database.length, 2)
+  // A check that alone is over the target gets no extra shards.
+  const alone = new Map(
+    [900, 100, 100, 100].map((value, i) => [
+      `vitest:backend:apps/backend/r${i}.test.ts`,
+      value,
+    ]),
+  )
+  assert.deepEqual(
+    shard([...alone.keys()], alone, {}).database.map((item) => item.seconds),
+    [900, 300],
+  )
+  // A check without a trace duration or a file weight gets the median of
+  // its traced lane.
+  assert.equal(
+    estimate("vitest:backend:apps/backend/new.test.ts", mixed, {}),
+    300,
+  )
   const many = new Map(
     Array.from({ length: 40 }, (_, i) => [
       `vitest:ui:apps/ui/${i}.test.tsx`,
