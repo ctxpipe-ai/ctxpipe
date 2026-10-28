@@ -353,12 +353,13 @@ test("the checks of the jobs of a job-scoped ci.yaml change run, without their h
   assert.equal(decision.selection.counts.selected, 8)
 })
 
-test("the committed merge gate config is valid and in shadow mode", () => {
+test("the committed merge gate config is valid and in gate mode", () => {
   const config = JSON.parse(
     readFileSync(join(root, ".github/merge-gate.json"), "utf8"),
   )
-  assert.equal(config.mode, "shadow")
+  assert.equal(config.mode, "gate")
   assert.equal(config.acceptAgentResults, true)
+  assert.equal(config.acceptPrResults, true)
   assert.ok(
     config.factory.version === null ||
       /^[0-9a-f]{40}$/.test(config.factory.version),
