@@ -134,6 +134,8 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p .ci-results/typecheck
+          # A check with cacheable false reads outside state (Terraform, Docker, a
+          # PR deploy) that this job lacks, and its time is not the job's purpose.
           pnpm -s checks:list |
             jq -r '.checks[] | select(.family == "typecheck") | .id' > "$RUNNER_TEMP/typecheck.txt"
           node scripts/checks/run.mjs "$RUNNER_TEMP/typecheck.txt" |
@@ -482,8 +484,10 @@ jobs:
       - name: Project checks through the check runner
         run: |
           set -o pipefail
+          # A check with cacheable false reads outside state (Terraform, Docker, a
+          # PR deploy) that this job lacks, and its time is not the job's purpose.
           pnpm -s checks:list |
-            jq -r '.checks[] | select(.family == "typecheck" or .family == "lint" or .family == "policy") | .id' \
+            jq -r '.checks[] | select((.family == "typecheck" or .family == "lint" or .family == "policy") and .cacheable != false) | .id' \
             > "$RUNNER_TEMP/project-checks.txt"
           mkdir -p "$RUNNER_TEMP/project-trace"
           # The result records also go to the Results writer.
@@ -630,6 +634,8 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p .ci-results/build-packages
+          # A check with cacheable false reads outside state (Terraform, Docker, a
+          # PR deploy) that this job lacks, and its time is not the job's purpose.
           pnpm -s checks:list |
             jq -r '.checks[] | select(.family == "build" and (.lane | startswith("package-"))) | .id' |
             pnpm -s checks:run | tee .ci-results/build-packages/records.ndjson

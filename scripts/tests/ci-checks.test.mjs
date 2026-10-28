@@ -1231,3 +1231,29 @@ test("the manifest lists the preview deployment and its UI smoke test, and the g
   assert.equal(read(pending)(deploy.id), "pending")
   assert.equal(read(pending)(smoke.id), "pending")
 })
+
+test("the project check times job selects no check that is not cacheable", () => {
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const filter = workflow.match(
+    /jq -r '(\.checks\[\] \| select\(.*\) \| \.id)'/,
+  )
+  assert.ok(filter, "the job filters checks with jq")
+  const listed = spawnSync("node", ["scripts/checks/list.mjs"], {
+    maxBuffer: 1 << 28,
+    cwd: root,
+    encoding: "utf8",
+  })
+  assert.equal(listed.status, 0, listed.stderr)
+  const manifest = JSON.parse(listed.stdout)
+  const selected = spawnSync("jq", ["-r", filter[1]], {
+    maxBuffer: 1 << 28,
+    input: listed.stdout,
+    encoding: "utf8",
+  })
+  assert.equal(selected.status, 0, selected.stderr)
+  const ids = selected.stdout.split("\n").filter(Boolean)
+  const notCacheable = manifest.checks.filter((c) => c.cacheable === false)
+  assert.ok(notCacheable.some((c) => c.family === "policy"))
+  assert.ok(ids.length > 0)
+  for (const check of notCacheable) assert.ok(!ids.includes(check.id), check.id)
+})
