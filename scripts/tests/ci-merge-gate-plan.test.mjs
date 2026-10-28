@@ -600,10 +600,9 @@ test("each job of the plan needs the plan job, starts only with its output, and 
       name,
     )
   // The merge gate job gates only in gate mode.
-  assert.ok(
-    job("merge-gate").includes(
-      "continue-on-error: ${{ needs.merge-gate-plan.outputs.config != 'gate' }}",
-    ),
+  assert.match(
+    job("merge-gate"),
+    /continue-on-error: \$\{\{ needs\.merge-gate-plan\.outputs\.config != 'gate' \}\}/,
   )
 })
 
