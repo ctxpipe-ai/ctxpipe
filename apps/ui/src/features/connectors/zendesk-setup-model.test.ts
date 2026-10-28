@@ -4,17 +4,22 @@ import {
   getZendeskCardCtaLabel,
   getZendeskSetupStep,
   getZendeskSetupSteps,
+  zendeskUsesLocalClient,
 } from "./zendesk-setup-model"
 
 const status = (
   overrides: Partial<{
     status: "pending" | "installed" | "revoked"
     oauthClientConfigured: boolean
+    oauthClientId: string | null
+    deploymentOAuthClient: boolean
     webhookConfigured: boolean
   }> = {},
 ) => ({
   status: "installed" as const,
   oauthClientConfigured: true,
+  oauthClientId: "ctxpipe-dev" as string | null,
+  deploymentOAuthClient: false,
   webhookConfigured: true,
   ...overrides,
 })
@@ -35,8 +40,32 @@ describe("getZendeskSetupSteps", () => {
   })
 })
 
+describe("zendeskUsesLocalClient", () => {
+  it("is true for a saved local client, and false for the deployment client", () => {
+    expect(zendeskUsesLocalClient(status())).toBe(true)
+    expect(
+      zendeskUsesLocalClient(
+        status({ deploymentOAuthClient: true, oauthClientId: null }),
+      ),
+    ).toBe(false)
+    // A local client wins over the deployment client.
+    expect(
+      zendeskUsesLocalClient(status({ deploymentOAuthClient: true })),
+    ).toBe(true)
+    expect(
+      zendeskUsesLocalClient(
+        status({ oauthClientConfigured: false, oauthClientId: null }),
+      ),
+    ).toBe(true)
+  })
+})
+
 describe("getZendeskSetupStep", () => {
-  const notDone = { workspacesDone: false, reconnect: false }
+  const notDone = {
+    workspacesDone: false,
+    reconnect: false,
+    changingClient: false,
+  }
 
   it("starts at the account without a connection", () => {
     expect(getZendeskSetupStep(undefined, notDone)).toBe("account")
@@ -57,16 +86,35 @@ describe("getZendeskSetupStep", () => {
     )
   })
 
+  it("shows the OAuth client step again while the user changes the client", () => {
+    for (const overrides of [
+      { status: "pending" as const },
+      { status: "revoked" as const },
+      { status: "installed" as const },
+    ])
+      expect(
+        getZendeskSetupStep(status(overrides), {
+          ...notDone,
+          reconnect: true,
+          changingClient: true,
+        }),
+      ).toBe("register")
+    // Cancel or a save clears the flag, and the connect step comes back.
+    expect(getZendeskSetupStep(status({ status: "pending" }), notDone)).toBe(
+      "connect",
+    )
+  })
+
   it("connects again on a reconnect of a working connection", () => {
-    expect(
-      getZendeskSetupStep(status(), { workspacesDone: false, reconnect: true }),
-    ).toBe("connect")
+    expect(getZendeskSetupStep(status(), { ...notDone, reconnect: true })).toBe(
+      "connect",
+    )
   })
 
   it("adds to Workspaces once connected, then is done", () => {
     expect(getZendeskSetupStep(status(), notDone)).toBe("workspaces")
     expect(
-      getZendeskSetupStep(status(), { workspacesDone: true, reconnect: false }),
+      getZendeskSetupStep(status(), { ...notDone, workspacesDone: true }),
     ).toBe("done")
   })
 })

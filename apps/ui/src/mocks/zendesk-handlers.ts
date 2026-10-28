@@ -24,6 +24,7 @@ export const zendeskStoryStatus = (
   status: "installed",
   subdomain: "acme",
   oauthClientConfigured: true,
+  oauthClientId: "ctxpipe-dev",
   deploymentOAuthClient: false,
   redirectUri: "https://app.example.com/api/v1/integrations/zendesk/callback",
   webhookConfigured: true,

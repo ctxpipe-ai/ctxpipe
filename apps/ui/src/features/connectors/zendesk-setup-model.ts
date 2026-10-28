@@ -1,7 +1,17 @@
 type SetupStatus = {
   status: "pending" | "installed" | "revoked"
   oauthClientConfigured: boolean
+  /** The identifier of the local client saved on the connection. */
+  oauthClientId: string | null
+  deploymentOAuthClient: boolean
   webhookConfigured: boolean
+}
+
+/** A local OAuth client is in use, or is needed: the user can register one. */
+export function zendeskUsesLocalClient(
+  status: Pick<SetupStatus, "oauthClientId" | "deploymentOAuthClient">,
+): boolean {
+  return status.oauthClientId !== null || !status.deploymentOAuthClient
 }
 
 /**
@@ -32,9 +42,12 @@ export function getZendeskSetupStep(
     workspacesDone: boolean
     /** The admin opened setup to authorize again, to add the webhook. */
     reconnect: boolean
+    /** The user opened the OAuth client step to change the saved client. */
+    changingClient: boolean
   },
 ): ZendeskSetupStep {
   if (!status) return "account"
+  if (progress.changingClient) return "register"
   if (status.status !== "installed")
     return status.oauthClientConfigured ? "connect" : "register"
   if (progress.reconnect) return "connect"

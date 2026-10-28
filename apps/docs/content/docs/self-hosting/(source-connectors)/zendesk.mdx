@@ -90,6 +90,14 @@ The connection has no OAuth client, and the deployment has no
 client** in the setup, or set both variables on the backend and the worker and
 restart.
 
+### “Invalid Authorization Request — No such client”
+
+Zendesk shows this message on its own page, and it does not send the user back
+to ctxpipe. The saved identifier does not match an OAuth client in that Zendesk
+account. Open **Connectors**, select **Change OAuth client** in the Zendesk
+setup, and paste the correct identifier and secret. The setup shows the saved
+identifier, but never the secret, so paste the secret again.
+
 ### “Zendesk did not complete the authorization”
 
 Zendesk refused the code exchange. Make sure that the client is of the

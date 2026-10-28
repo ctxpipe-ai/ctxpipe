@@ -87,6 +87,7 @@ async function visible(element: HTMLElement) {
 const pending = zendeskStoryStatus({
   status: "pending",
   oauthClientConfigured: false,
+  oauthClientId: null,
   webhookConfigured: false,
 })
 
@@ -147,6 +148,7 @@ export const SaveOAuthClient: Story = {
             registerStatus.state.current = {
               ...pending,
               oauthClientConfigured: true,
+              oauthClientId: "ctx_local",
             }
             return new HttpResponse(null, { status: 204 })
           }),
@@ -175,6 +177,7 @@ export const SaveOAuthClient: Story = {
         body.getByRole("heading", { name: "Connect Zendesk" }),
       ).toBeVisible(),
     )
+    await expect(body.getByText("ctx_local")).toBeVisible()
     await expect(calls).toEqual([
       {
         method: "PUT",
@@ -201,6 +204,7 @@ export const HostedSkipsTheOAuthClient: Story = {
               status: "pending",
               deploymentOAuthClient: true,
               oauthClientConfigured: true,
+              oauthClientId: null,
             }),
           ),
         ],
@@ -211,10 +215,17 @@ export const HostedSkipsTheOAuthClient: Story = {
     const body = within(canvasElement.ownerDocument.body)
     await visible(await body.findByRole("heading", { name: "Connect Zendesk" }))
     await expect(body.queryByText("Register an OAuth client")).toBeNull()
+    await expect(
+      body.queryByRole("button", { name: "Change OAuth client" }),
+    ).toBeNull()
   },
 }
 
-const connectReady = { ...pending, oauthClientConfigured: true }
+const connectReady = {
+  ...pending,
+  oauthClientConfigured: true,
+  oauthClientId: "ctxpipe-dev",
+}
 const connectStatus = liveStatus(connectReady)
 export const ConnectThroughThePopup: Story = {
   args: { connectionId },
@@ -261,6 +272,92 @@ export const ConnectThroughThePopup: Story = {
         body.getByRole("heading", { name: "Add Zendesk to Workspaces" }),
       ).toBeVisible(),
     )
+  },
+}
+
+const changeStatus = liveStatus(connectReady)
+export const ChangeOAuthClient: Story = {
+  name: "Change a wrong OAuth client",
+  args: { connectionId },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          changeStatus.handler,
+          http.put(path("/oauth-client"), async ({ request }) => {
+            const body = (await request.clone().json()) as { clientId: string }
+            await record(request)
+            changeStatus.state.current = {
+              ...connectReady,
+              oauthClientId: body.clientId,
+            }
+            return new HttpResponse(null, { status: 204 })
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    calls.length = 0
+    changeStatus.state.current = connectReady
+    const body = within(canvasElement.ownerDocument.body)
+    await visible(await body.findByRole("heading", { name: "Connect Zendesk" }))
+    await expect(body.getByText("ctxpipe-dev")).toBeVisible()
+    await expect(body.getByText(/No such client/)).toBeVisible()
+    await expect(body.getByText(/acme\.zendesk\.com/)).toBeVisible()
+
+    // Change opens the register step: the identifier is filled in, the secret is empty.
+    await userEvent.click(
+      body.getByRole("button", { name: "Change OAuth client" }),
+    )
+    await visible(
+      await body.findByRole("heading", { name: "Register an OAuth client" }),
+    )
+    await expect(body.getByLabelText("Unique identifier")).toHaveValue(
+      "ctxpipe-dev",
+    )
+    await expect(body.getByLabelText("Secret")).toHaveValue("")
+    await expect(body.getAllByText("Register an OAuth client").length).toBe(2)
+
+    // Cancel goes back without a save.
+    await userEvent.click(body.getByRole("button", { name: "Cancel" }))
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Connect Zendesk" }),
+      ).toBeVisible(),
+    )
+    await expect(body.getByText("ctxpipe-dev")).toBeVisible()
+    await expect(calls).toEqual([])
+
+    // A save shows the new identifier on the connect step.
+    await userEvent.click(
+      body.getByRole("button", { name: "Change OAuth client" }),
+    )
+    const id = await body.findByLabelText("Unique identifier")
+    await userEvent.clear(id)
+    await userEvent.type(id, "ctxpipe-prod")
+    await userEvent.type(body.getByLabelText("Secret"), "new-secret")
+    await userEvent.click(
+      body.getByRole("button", { name: "Save OAuth client" }),
+    )
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Connect Zendesk" }),
+      ).toBeVisible(),
+    )
+    await expect(body.getByText("ctxpipe-prod")).toBeVisible()
+    await expect(body.queryByText("ctxpipe-dev")).toBeNull()
+    await expect(calls).toEqual([
+      {
+        method: "PUT",
+        path: `/${orgSlug}/api/v1/connectors/zendesk/oauth-client`,
+        body: {
+          connectionId,
+          clientId: "ctxpipe-prod",
+          clientSecret: "new-secret",
+        },
+      },
+    ])
   },
 }
 

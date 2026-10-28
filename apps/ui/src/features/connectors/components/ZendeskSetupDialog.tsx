@@ -28,6 +28,7 @@ import {
 import {
   getZendeskSetupStep,
   getZendeskSetupSteps,
+  zendeskUsesLocalClient,
 } from "../zendesk-setup-model"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { CopyableUrl } from "./notion-setup/CopyableUrl"
@@ -76,6 +77,7 @@ export function ZendeskSetupDialog({
   const workspacesDone = pullRequests.length > 0
   const [oauthError, setOauthError] = useState<string | null>(null)
   const [reconnecting, setReconnecting] = useState(reconnect)
+  const [changingClient, setChangingClient] = useState(false)
 
   const statusQuery = useQuery({
     queryKey: zendeskConnectorKeys.status(orgSlug, connectionId ?? ""),
@@ -87,8 +89,11 @@ export function ZendeskSetupDialog({
   const step = getZendeskSetupStep(status, {
     workspacesDone,
     reconnect: reconnecting,
+    changingClient,
   })
-  const steps = getZendeskSetupSteps(status?.deploymentOAuthClient ?? true)
+  const steps = getZendeskSetupSteps(
+    status ? !zendeskUsesLocalClient(status) : true,
+  )
   const stepIndex =
     step === "done"
       ? steps.length
@@ -178,7 +183,12 @@ export function ZendeskSetupDialog({
           orgSlug={orgSlug}
           connectionId={connectionId}
           status={status}
-          onSaved={() => void refreshStatus(connectionId)}
+          onSaved={async () => {
+            // Show the new identifier on the connect step, not the old one.
+            await refreshStatus(connectionId)
+            setChangingClient(false)
+          }}
+          onCancel={changingClient ? () => setChangingClient(false) : undefined}
         />
       )
     if (step === "connect")
@@ -188,6 +198,7 @@ export function ZendeskSetupDialog({
           connectionId={connectionId}
           status={status}
           error={oauthError}
+          onChangeClient={() => setChangingClient(true)}
           onSkip={
             // A connected account can go on without the webhook.
             status.status === "installed"
@@ -310,9 +321,11 @@ function RegisterStep(props: {
   orgSlug: string
   connectionId: string
   status: ZendeskConnectorStatus
-  onSaved: () => void
+  onSaved: () => Promise<unknown>
+  /** Go back to the connect step without a save. Set only on a change. */
+  onCancel?: () => void
 }) {
-  const [clientId, setClientId] = useState("")
+  const [clientId, setClientId] = useState(props.status.oauthClientId ?? "")
   const [clientSecret, setClientSecret] = useState("")
   const save = useMutation({
     mutationFn: () =>
@@ -321,9 +334,9 @@ function RegisterStep(props: {
         clientId: clientId.trim(),
         clientSecret: clientSecret.trim(),
       }),
-    onSuccess: () => {
+    onSuccess: async () => {
       setClientSecret("")
-      props.onSaved()
+      await props.onSaved()
     },
   })
   return (
@@ -333,8 +346,9 @@ function RegisterStep(props: {
           Register an OAuth client
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          This deployment has no Zendesk OAuth client. Add one in your Zendesk
-          account. Only this deployment uses it.
+          {props.onCancel
+            ? "Paste the unique identifier and the secret of the OAuth client in your Zendesk account. ctxpipe never shows the saved secret, so paste it again."
+            : "This deployment has no Zendesk OAuth client. Add one in your Zendesk account. Only this deployment uses it."}
         </p>
       </div>
       <ol className="list-decimal space-y-3 pl-5 text-sm text-muted-foreground">
@@ -377,15 +391,27 @@ function RegisterStep(props: {
       {save.isError ? (
         <InlineAlert variant="error">{save.error.message}</InlineAlert>
       ) : null}
-      <Button
-        variant="primary"
-        className="rounded-md"
-        isDisabled={!clientId.trim() || !clientSecret.trim()}
-        isPending={save.isPending}
-        onPress={() => save.mutate()}
-      >
-        Save OAuth client
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="primary"
+          className="rounded-md"
+          isDisabled={!clientId.trim() || !clientSecret.trim()}
+          isPending={save.isPending}
+          onPress={() => save.mutate()}
+        >
+          Save OAuth client
+        </Button>
+        {props.onCancel ? (
+          <Button
+            variant="secondary"
+            className="rounded-md"
+            isDisabled={save.isPending}
+            onPress={props.onCancel}
+          >
+            Cancel
+          </Button>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -395,6 +421,8 @@ function ConnectStep(props: {
   connectionId: string
   status: ZendeskConnectorStatus
   error: string | null
+  /** Show the OAuth client step to change the saved client. */
+  onChangeClient: () => void
   /** Go to the Workspaces step without a new authorization. */
   onSkip?: () => void
 }) {
@@ -423,6 +451,21 @@ function ConnectStep(props: {
               : "Approve read access to Help Center, tickets, views, and users. A Zendesk admin also lets ctxpipe add one webhook for Help Center changes."}
         </p>
       </div>
+      {props.status.oauthClientId ? (
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <p>
+            OAuth client:{" "}
+            <code className="font-mono text-foreground">
+              {props.status.oauthClientId}
+            </code>
+          </p>
+          <p>
+            If Zendesk says &quot;No such client&quot;, check that this
+            identifier matches the OAuth client in {props.status.subdomain}
+            .zendesk.com.
+          </p>
+        </div>
+      ) : null}
       {props.error ? (
         <InlineAlert variant="error">{props.error}</InlineAlert>
       ) : null}
@@ -438,6 +481,15 @@ function ConnectStep(props: {
         >
           Connect Zendesk
         </Button>
+        {props.status.oauthClientId ? (
+          <Button
+            variant="secondary"
+            className="rounded-md"
+            onPress={props.onChangeClient}
+          >
+            Change OAuth client
+          </Button>
+        ) : null}
         {props.onSkip ? (
           <Button
             variant="secondary"
