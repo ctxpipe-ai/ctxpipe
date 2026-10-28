@@ -35,6 +35,11 @@ Zendesk facts that set the design:
 ## Consequences
 
 - **Personal data:** ticket comments are free text from end customers. They go into git history, where a deletion request is hard to honor. The security owner must sign this off before tickets ship.
-- **Hosted availability:** hosted ctxpipe needs Zendesk's approval of a global OAuth client. Without the env client, the setup asks for a local client, which is right for self-host only.
+- **Hosted availability:** hosted ctxpipe needs Zendesk's approval of a global OAuth client. Without the env client, the setup asks for a local client, which is right for self-host only. Zendesk does not let a developer create a global client. The request steps (Zendesk developer docs, 2026-10-28):
+  1. Get a Zendesk developer (sponsored) account. Its subdomain starts with `d3v-`.
+  2. In that account, add a local OAuth client of the Confidential kind. Its identifier starts with `zdg-`. Fill in every field, also the optional ones. Add the production redirect URL `{AUTH_BASE_URL}/api/v1/integrations/zendesk/callback`.
+  3. Submit the Global OAuth Request form in the Zendesk Marketplace portal. Zendesk can limit the scopes, and can ask for a Marketplace review.
+  4. Record the identifier and the secret before the approval: after Zendesk converts the client, its admin page is no longer available.
+  5. Set `ZENDESK_CLIENT_ID` and `ZENDESK_CLIENT_SECRET` in the GitHub `Production` environment only (ADR-054).
 - **Freshness:** a published or unpublished article arrives within about 10 minutes with the webhook; an edit may wait for the daily sync. Tickets are at most a day old, or fresher on Sync now.
 - **Shared OAuth helpers:** the OAuth state, the PKCE cookie, and the popup relay are a third copy of the Linear and PagerDuty versions. A shared helper is a later change.
