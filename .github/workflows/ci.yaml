@@ -3,8 +3,9 @@ name: CI
 on:
   workflow_dispatch:
   # A nightly run of the tests on main records the trace of main with
-  # `--trace`. Only the test, Storybook, upgrade and Project check times jobs
-  # and the Trace job run on it.
+  # `--trace`. Only the test, Storybook, codesearch, upgrade, build and
+  # Project check times jobs and the Trace job run on it. It is the safety
+  # net of the merge gate.
   schedule:
     - cron: "23 2 * * *"
   pull_request:
@@ -544,10 +545,13 @@ jobs:
     name: Production build (${{ matrix.name }})
     # In gate mode it builds only the selected images. A person asks for
     # every build with Run workflow (workflow_dispatch) on the PR branch.
+    # The nightly run (schedule) builds every image: it is the safety net
+    # of the gate.
     needs: merge-gate-plan
     if: |
       !cancelled() &&
       (github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))) &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.production-builds != '')
@@ -650,10 +654,13 @@ jobs:
   packages:
     timeout-minutes: 20
     name: Runnable packages and examples
+    # The nightly run (schedule) builds every package: it is the safety net
+    # of the gate.
     needs: merge-gate-plan
     if: |
       !cancelled() &&
       (github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))) &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.packages != '')
