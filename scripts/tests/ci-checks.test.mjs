@@ -1231,3 +1231,43 @@ test("the manifest lists the preview deployment and its UI smoke test, and the g
   assert.equal(read(pending)(deploy.id), "pending")
   assert.equal(read(pending)(smoke.id), "pending")
 })
+
+test("the project check times job selects the typecheck, lint and policy checks that can be cached", () => {
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const step = workflow
+    .split("\n      - name: ")
+    .find((part) => part.startsWith("Project checks through the check runner"))
+  assert.ok(step, "the job has the check runner step")
+  const filter = step.match(/jq -r '([^']*)'/)
+  assert.ok(filter, "the step filters checks with jq")
+  const listed = spawnSync("node", ["scripts/checks/list.mjs"], {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 1 << 28,
+  })
+  assert.equal(listed.status, 0, listed.stderr)
+  const manifest = JSON.parse(listed.stdout)
+  const selected = spawnSync("jq", ["-r", filter[1]], {
+    input: listed.stdout,
+    encoding: "utf8",
+    maxBuffer: 1 << 28,
+  })
+  assert.equal(selected.status, 0, selected.stderr)
+  const ids = selected.stdout.split("\n").filter(Boolean)
+  const expected = manifest.checks
+    .filter(
+      (c) =>
+        ["typecheck", "lint", "policy"].includes(c.family) &&
+        c.cacheable !== false,
+    )
+    .map((c) => c.id)
+  assert.ok(
+    manifest.checks.some((c) => c.cacheable === false && c.family === "policy"),
+  )
+  for (const family of ["typecheck", "lint", "policy"])
+    assert.ok(
+      ids.some((id) => id.startsWith(`${family}:`)),
+      family,
+    )
+  assert.deepEqual(ids.sort(), expected.sort())
+})
