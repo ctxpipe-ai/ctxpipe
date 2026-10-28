@@ -447,6 +447,8 @@ test("the trace records the files that a case runs in a Bun child process", asyn
     // A Bun child with its own `env` cannot load the preload: no `children`,
     // and the other files of the worker keep theirs.
     assert.ok(!checks.get("env.fixture.mjs").recorded.includes("children"))
+    // A Node child that outlives its file writes its coverage after the part.
+    assert.ok(!checks.get("late.fixture.mjs").recorded.includes("children"))
     // known.mjs runs in a Bun child in one case and in process in another.
     // The Bun file must not change the exact ranges of the in-process case.
     assert.deepEqual(lines("mixed.fixture.mjs", "a Bun child"), [[1, 7]])

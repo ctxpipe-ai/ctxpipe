@@ -114,11 +114,15 @@ function watchChildren() {
     const owner = state.owner
     try {
       const name = basename(options.file)
-      if (options.file === process.execPath || name === "node")
+      if (owner && (options.file === process.execPath || name === "node")) {
+        // A child that still runs when the file writes its part has no
+        // coverage in it yet.
+        owner.live++
         this.once("exit", (_code, signal) => {
-          if (signal && owner) owner.lost = true
+          owner.live--
+          if (signal) owner.lost = true
         })
-      else if (
+      } else if (
         name === "bun" &&
         !options.envPairs?.some(
           (pair) => pair.startsWith("BUN_OPTIONS=") && pair.includes(preload),
@@ -348,7 +352,7 @@ const childrenOf = (name) => {
 let mark = state?.clock() ?? 0
 phase(collect)
 cases.clear()
-const owner = { lost: false }
+const owner = { lost: false, live: 0 }
 if (state) state.owner = owner
 childrenOf(collect)
 beforeEach((context) => {
@@ -383,7 +387,7 @@ afterAll((suite) => {
       JSON.stringify({
         file: suite.filepath,
         recorded:
-          reports && !owner.lost
+          reports && !owner.lost && !owner.live
             ? ["children", ...state.recorded]
             : state.recorded,
         cases: [...cases].map(([name, { lines, durationMs, edges }]) => {
