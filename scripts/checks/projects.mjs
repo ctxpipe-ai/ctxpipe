@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { dirname, join, posix } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { logFile, logged } from "./log.mjs"
@@ -25,6 +25,41 @@ const node = (script, ...args) => [process.execPath, script, ...args]
 const pnpm = (...args) => ["pnpm", ...args]
 
 const code = ["apps/**", "packages/**"]
+
+// The backend source files that the UI production build reads: each value
+// import (alias `backend/*` or a relative path) of a UI file that the build
+// bundles. The build erases an `import type`, and it bundles no test or story.
+// The selector follows the imports of a source input, so a change to a file
+// that one of them imports selects the UI image too.
+export const uiBackendImports = () => {
+  const files = readdirSync(join(root, "apps/ui/src"), { recursive: true })
+    .map((file) => posix.join("apps/ui/src", file.split("\\").join("/")))
+    .filter(
+      (file) =>
+        /\.(ts|tsx)$/.test(file) && !/\.(test|stories)\.tsx?$/.test(file),
+    )
+  const found = new Set()
+  for (const file of files) {
+    const text = readFileSync(join(root, file), "utf8")
+    for (const [, type, specifier] of text.matchAll(
+      /\b(?:import|export)(?:\s+(type\s+)?(?:[^;'"]*?\sfrom\s+)?|\s*\(\s*)["']([^"']+)["']/g,
+    )) {
+      if (type) continue
+      const base = specifier.startsWith("backend/")
+        ? posix.join("apps/backend/src", specifier.slice("backend/".length))
+        : specifier.startsWith(".")
+          ? posix.join(dirname(file), specifier)
+          : ""
+      if (!base.startsWith("apps/backend/src/")) continue
+      const resolved = ["", ".ts", ".tsx", "/index.ts"]
+        .map((suffix) => base + suffix)
+        .find((path) => /\.tsx?$/.test(path) && existsSync(join(root, path)))
+      if (!resolved) throw new Error(`${file}: cannot resolve ${specifier}`)
+      found.add(resolved)
+    }
+  }
+  return [...found].sort()
+}
 
 // Each check: lane, file (the config or script that defines it), root,
 // inputs and the commands to run.
@@ -187,7 +222,7 @@ const definitions = () => [
     [
       "ui",
       "apps/ui/Dockerfile",
-      ["apps/ui/**", "apps/backend/src/**", "apps/backend/package.json"],
+      ["apps/ui/**", ...uiBackendImports(), "apps/backend/package.json"],
     ],
     [
       "codesearch",
@@ -302,6 +337,7 @@ const definitions = () => [
       "scripts/preview-secrets.sh",
       "scripts/preview-service-vars.sh",
       "scripts/preview-ui-private.sh",
+      "scripts/railway-sync-variables.mjs",
       // The images, their start commands and the variables that they read.
       // No app source file other than env.ts: a selector follows the imports
       // of a source input, so an entry file would select on all app code.
