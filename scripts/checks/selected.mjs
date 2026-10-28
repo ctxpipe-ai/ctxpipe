@@ -15,8 +15,11 @@ const root = fileURLToPath(new URL("../../", import.meta.url))
 
 // Runs the checks that the merge gate planned for one job of a gated run
 // (scripts/checks/README.md, Merge gate), through the public runner. Usage:
-//   PLAN='{"ids": [...], "rerun": [...]}' selected.mjs <results dir>
-// PLAN is the output of the plan job for this job (or matrix entry). The
+//   PLAN='{"ids": [...], "rerun": [...]}' [MANIFEST=<file>] selected.mjs <results dir>
+// PLAN is the output of the plan job for this job (or matrix entry).
+// MANIFEST is a manifest that an earlier step listed (pnpm checks:list). A
+// step with a credential sets it, so that the check discovery (which imports
+// PR code) runs without the credential. The
 // script writes the result records to <results dir>/records.ndjson, prints
 // them, and prints the end of the log of each check that did not pass. Each
 // failed check in `rerun` runs once more (rerun-failed.mjs): a stored pass
@@ -36,7 +39,12 @@ try {
   try {
     run = spawnSync(
       process.execPath,
-      [join(root, "scripts", "checks", "run.mjs")],
+      [
+        join(root, "scripts", "checks", "run.mjs"),
+        ...(process.env.MANIFEST
+          ? ["--manifest", resolve(process.env.MANIFEST)]
+          : []),
+      ],
       {
         cwd: root,
         input: `${plan.ids.join("\n")}\n`,

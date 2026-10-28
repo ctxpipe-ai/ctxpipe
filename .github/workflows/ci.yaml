@@ -981,11 +981,18 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
           EVENT: ${{ github.event_name }}
         run: node scripts/ci/test-suite.mjs vercel $([ "$EVENT" = workflow_dispatch ] && echo --trace)
+      # The check discovery imports PR code (eval cases, the Storybook
+      # configuration), so it runs here, without the Vercel token. The next
+      # step runs only the Vercel lane with the token.
+      - name: List the checks (merge gate)
+        if: needs.merge-gate-plan.outputs.mode == 'gate'
+        run: pnpm -s checks:list > "$RUNNER_TEMP/manifest.json"
       - name: Selected Vercel sandbox contracts (merge gate)
         if: needs.merge-gate-plan.outputs.mode == 'gate'
         env:
           DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
           VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          MANIFEST: ${{ runner.temp }}/manifest.json
           PLAN: ${{ needs.merge-gate-plan.outputs.vercel-sandbox }}
         run: node scripts/checks/selected.mjs .ci-results/vercel
       - name: Preserve the Vercel results

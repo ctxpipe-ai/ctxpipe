@@ -63,6 +63,11 @@
 // - The merge gate LLM job (ci.yaml merge-gate-llm) holds the model key of
 //   `workbench` and no cloud role. It runs only the selector release that
 //   the select job downloaded, after it checks the pinned SHA-256 again.
+// - A step that lists the checks (`checks:list`, the merge gate
+//   scripts/checks/plan.mjs, or scripts/checks/selected.mjs without a
+//   `MANIFEST:` that an earlier step listed) holds no secret. The discovery
+//   imports PR code (eval cases, the Storybook configuration), so a check
+//   step gets its credential only after the checks are listed.
 // The production jobs in productionJobs run only on a push to main, so the
 // rules for one job do not apply to them; the pin rule and the cache rule do.
 // Every other job of deploy.yaml gets all the rules.
@@ -337,6 +342,19 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     const runsUntrusted = job.lines.some(({ text }) =>
       untrusted.some(([pattern]) => pattern.test(text)),
     )
+
+    for (const step of job.steps) {
+      const text = step.lines.map((line) => line.text).join("\n")
+      const discovers =
+        /\bchecks:list\b|scripts\/checks\/plan\.mjs/.test(text) ||
+        (/scripts\/checks\/selected\.mjs/.test(text) &&
+          !/^\s+MANIFEST:/m.test(text))
+      const secret = step.lines.find((line) => secretUse.test(line.text))
+      if (discovers && secret)
+        failures.push(
+          `${file}:${secret.number}: job ${job.name} gives a secret to a step that lists the checks. The discovery imports PR code: list the checks in an earlier step without the secret, and give the manifest to selected.mjs in MANIFEST.`,
+        )
+    }
 
     for (const step of job.steps) {
       const access = cacheAccess(step.uses)

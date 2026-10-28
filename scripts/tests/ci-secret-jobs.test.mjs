@@ -725,3 +725,25 @@ test("detects an OIDC token from write-all and from the flow form", () => {
       /job prerelease has an OIDC token and checks out another commit/,
     )
 })
+
+test("rejects a secret in a step that lists the checks", () => {
+  const step = (run, env = "") =>
+    workflow(
+      `  checks:\n    environment: workbench\n    steps:\n      - name: Checks\n        env:\n          VERCEL_TOKEN: \${{ secrets.VERCEL_ACCESS_TOKEN }}\n${env}        run: ${run}\n`,
+    )
+  const listed = /gives a secret to a step that lists the checks/
+  for (const run of [
+    "pnpm -s checks:list > manifest.json",
+    "node scripts/checks/plan.mjs",
+    "node scripts/checks/selected.mjs .ci-results/vercel",
+  ])
+    rejects(step(run), listed)
+  // With a manifest from an earlier step, selected.mjs lists nothing.
+  const result = check(
+    step(
+      "node scripts/checks/selected.mjs .ci-results/vercel",
+      "          MANIFEST: manifest.json\n",
+    ),
+  )
+  assert.doesNotMatch(result.stderr, listed)
+})

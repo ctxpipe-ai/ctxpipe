@@ -256,6 +256,32 @@ test("the runner runs exactly the given ids and writes one schema result for eac
   }
 })
 
+test("with --manifest, the runner reads the checks from that file and lists none", () => {
+  // A step with a credential runs the checks of a manifest that an earlier
+  // step listed without it. A check that is not in the manifest is unknown,
+  // even when the repository has it.
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-checks-"))
+  try {
+    const manifest = join(directory, "manifest.json")
+    writeFileSync(manifest, JSON.stringify({ schemaVersion: 1, checks: [] }))
+    const id = "vitest:ui:apps/ui/src/components/onboarding/org-name.test.ts"
+    const result = node([script("run.mjs"), "--manifest", manifest], `${id}\n`)
+    assert.equal(result.status, 1, result.stderr)
+    const [record] = result.stdout
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+    assert.deepEqual([record.id, record.status, record.message], [
+      id,
+      "error",
+      "Unknown check id",
+    ])
+    assert.equal(node([script("run.mjs"), "--manifest"], `${id}\n`).status, 1)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test("the runner traces the lines that each case executed", () => {
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
   try {
