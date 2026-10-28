@@ -50,6 +50,7 @@ import {
   workspaceSourcesOptions,
 } from "./queries"
 import { RenameSourceDialog } from "./RenameSourceDialog"
+import { ReviewPullRequestLink } from "./ReviewPullRequestLink"
 import {
   SOURCE_PROVIDER_UI,
   scrollToLinkedSource,
@@ -378,16 +379,10 @@ function PendingAddRow(props: {
         live={null}
         actions={[]}
         note={
-          <TextLink
-            href={props.change.pullRequestUrl}
-            target="_blank"
-            rel="noreferrer"
-            aria-label="Open the pull request. It opens on GitHub in a new tab."
-            className="inline-flex items-center gap-1 text-xs"
-          >
-            Open the pull request
-            <IconExternalLink className="size-3 shrink-0" aria-hidden />
-          </TextLink>
+          <ReviewPullRequestLink
+            url={props.change.pullRequestUrl}
+            className="text-xs"
+          />
         }
       />
     )
