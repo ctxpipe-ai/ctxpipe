@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
 
 import { deploySteps, fullRunResults, stepResults } from "../checks/gate.mjs"
+import { jobOutputs } from "../checks/plan.mjs"
 import { prerequisites } from "../checks/prerequisites.mjs"
 import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
 import { lintSteps, runsInOf } from "../checks/shard.mjs"
@@ -1014,14 +1015,23 @@ test("the manifest lists a build check for each production image and package of 
   // The Production build job has one matrix entry for each image check: the
   // merge gate takes the job `Production build (<name>)` as the result of
   // `build:image-<name>:`. Each entry builds the Dockerfile of its check.
-  const images = [
-    ...job("production-builds").matchAll(
-      /- name: (\S+)\n\s+dockerfile: (\S+)/g,
-    ),
-  ].map(([, name, file]) => `build:image-${name}:${file}`)
+  // The entries of the full run are the JSON fallback of the matrix; in gate
+  // mode the plan job gives the same entries for the selected images.
+  const entries = JSON.parse(
+    /production-builds \|\| '(\[[^']*\])'/.exec(job("production-builds"))[1],
+  )
+  const images = entries.map(
+    ({ name, dockerfile }) => `build:image-${name}:${dockerfile}`,
+  )
   assert.deepEqual(
     images.sort(),
     [...builds.keys()].filter((id) => id.startsWith("build:image-")),
+  )
+  assert.deepEqual(
+    JSON.parse(jobOutputs(images, new Map())["production-builds"]).sort(
+      (a, b) => a.name.localeCompare(b.name),
+    ),
+    entries.sort((a, b) => a.name.localeCompare(b.name)),
   )
   assert.ok(!job("production-builds").includes("pnpm install"))
   assert.equal(

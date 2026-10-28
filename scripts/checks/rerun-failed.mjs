@@ -58,8 +58,14 @@ export function failedChecks(directory, limit = 50) {
   }
 }
 
-function main(directory) {
-  const { total, ids, notRerun } = failedChecks(directory)
+// With `only`, it runs again only the failed checks in that set (the merge
+// gate passes the checks whose key has a stored pass).
+export function main(directory, only) {
+  const failed = failedChecks(directory, only ? Number.POSITIVE_INFINITY : 50)
+  const chosen = only ? failed.ids.filter((id) => only.has(id)) : failed.ids
+  const { total, notRerun } = failed
+  const ids = chosen.slice(0, 50)
+  if (only) notRerun.push(...chosen.slice(50))
   if (!ids.length) {
     console.error("No failed check: nothing to run again.")
     return 0

@@ -154,6 +154,18 @@ jobs:
           else
             PR_NUMBER="${EVENT_PR_NUMBER}"
             HEAD_SHA="${EVENT_HEAD_SHA}"
+            # In gate mode a push does not deploy: the merge gate of CI starts
+            # this workflow when it selects a deploy check, or when its run is
+            # full (scripts/checks/README.md, Merge gate). When the mode does
+            # not read, the push deploys.
+            MODE="$(gh api -H "Accept: application/vnd.github.raw+json" \
+              "repos/${REPO}/contents/.github/merge-gate.json?ref=${HEAD_SHA}" | jq -r .mode || true)"
+            if [[ "$MODE" == "gate" ]]; then
+              echo "Gate mode: the merge gate of CI starts PR Deploy when it selects a deploy check"
+              echo "pr_number=" >> "$GITHUB_OUTPUT"
+              echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"

@@ -220,8 +220,8 @@ test("a ci.yaml change only in the steps of check jobs runs the selector with th
   assert.deepEqual(
     mode(
       base.replace(
-        "    needs: storybook-build\n",
-        "    needs: [storybook-build, lint]\n",
+        "    needs: [merge-gate-plan, storybook-build]\n",
+        "    needs: [merge-gate-plan, storybook-build, lint]\n",
       ),
     ),
     full,

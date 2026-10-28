@@ -60,6 +60,9 @@
 //   through a read-only OIDC role of the factory account. It needs no secret
 //   and spends no money, so the rule for paid or outside checks does not
 //   apply.
+// - The merge gate LLM job (ci.yaml merge-gate-llm) holds the model key of
+//   `workbench` and no cloud role. It runs only the selector release that
+//   the select job downloaded, after it checks the pinned SHA-256 again.
 // The production jobs in productionJobs run only on a push to main, so the
 // rules for one job do not apply to them; the pin rule and the cache rule do.
 // Every other job of deploy.yaml gets all the rules.
@@ -420,8 +423,7 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
             runLines
               .slice(0, -1)
               .some(
-                (text) =>
-                  !/^\s*echo\b/.test(text) || /\$\(|`/.test(text),
+                (text) => !/^\s*echo\b/.test(text) || /\$\(|`/.test(text),
               ) ||
             next.some(
               ({ text }) =>

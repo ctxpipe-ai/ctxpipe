@@ -388,7 +388,18 @@ test("CI runs every story with a play function in shards", () => {
     workflow,
     /name: Storybook build\n(?:.*\n)*? {4}runs-on: blacksmith-4vcpu-ubuntu-2404/,
   )
-  assert.match(workflow, /STORYBOOK_SHARD: \$\{\{ matrix\.shard \}\}\/4/)
+  assert.match(
+    workflow,
+    /STORYBOOK_SHARD: \$\{\{ matrix\.shard \}\}\/\$\{\{ matrix\.count \}\}/,
+  )
+  // The full run has four shards; in gate mode the plan job gives the shards.
+  const shards = JSON.parse(
+    /storybook-plays \|\| '(\[[^']*\])'/.exec(workflow)[1],
+  )
+  assert.deepEqual(
+    shards.map(({ shard, count }) => `${shard}/${count}`),
+    ["1/4", "2/4", "3/4", "4/4"],
+  )
 })
 
 test("every required golden story is exported with the workspace-golden tag", () => {
