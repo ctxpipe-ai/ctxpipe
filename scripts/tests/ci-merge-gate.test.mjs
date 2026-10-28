@@ -240,8 +240,8 @@ test("a ci.yaml change only in the steps of check jobs runs the selector with th
   }
   for (const head of [
     once(
-      "node scripts/ci/test-suite.mjs ${{ matrix.lane }} --shard",
-      "node scripts/ci/test-suite.mjs ${{ matrix.lane }} --bail --shard",
+      `node scripts/ci/test-suite.mjs \${{ matrix.lane }} --shard`,
+      `node scripts/ci/test-suite.mjs \${{ matrix.lane }} --bail --shard`,
     ),
     once(
       "node scripts/ci/test-suite.mjs ui $(",
