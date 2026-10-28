@@ -973,7 +973,11 @@ export function gateText(
     }
   }
   if (runUrl) lines.push("", `[Run](${runUrl})`)
-  return `${lines.join("\n")}\n`
+  const text = `${lines.join("\n")}\n`
+  // GitHub refuses a comment over 65536 characters.
+  return comment && text.length > 60000
+    ? `${text.slice(0, 60000)}\n\n</details>\n\nThe comment is cut: see the job summary.${runUrl ? ` [Run](${runUrl})` : ""}\n`
+    : text
 }
 
 export function summary(decision, runUrl) {
@@ -1257,7 +1261,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
       writeFileSync(
         join(options.out, "comment.md"),
         gated
-          ? gateText(decision, runUrl, { limit: 40, comment: true })
+          ? gateText(decision, runUrl, { limit: 25, comment: true })
           : comment(decision, runUrl),
       )
       // In gate mode this job is the required status: it fails with the
