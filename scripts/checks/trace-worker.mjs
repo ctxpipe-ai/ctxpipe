@@ -1,6 +1,7 @@
+import { ChildProcess } from "node:child_process"
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { Session } from "node:inspector"
-import { join, resolve, sep } from "node:path"
+import { basename, join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterAll, afterEach, beforeEach } from "vitest"
@@ -20,13 +21,16 @@ import {
 // The code that runs before the first test and after the last test (module
 // evaluation, beforeAll and afterAll) goes to the pseudo-case `<collect>`.
 // A Node child process that a case starts writes its coverage to a directory
-// of that case (NODE_V8_COVERAGE), and its lines go to that case too. The
+// of that case (NODE_V8_COVERAGE), and its lines go to that case too. A Bun
+// child process writes the list of repo files that it loaded to the same
+// directory (trace-bun.mjs), and each file goes to that case as a whole. The
 // semantic edges come from trace-edges.mjs.
 
 // A string, not `new URL()`: under jsdom, `URL` is the jsdom class.
 const root = resolve(fileURLToPath(import.meta.url), "../../..")
 const rootUrl = pathToFileURL(root).href
 const collect = "<collect>"
+const preload = resolve(fileURLToPath(import.meta.url), "../trace-bun.mjs")
 const parts = process.env.CTXPIPE_TRACE_PARTS
 if (!parts) throw new Error("trace-worker.mjs runs only under the check runner")
 
@@ -92,6 +96,36 @@ function open() {
     code: new Map(),
     files: 0,
     recorded: undefined,
+    lost: false,
+  }
+}
+
+// Sets `state.lost` when a Node or Bun child process cannot give its data: a
+// signal stopped a Node child before it wrote its coverage, or a Bun child
+// started with an `env` without the preload. (Node adds NODE_V8_COVERAGE to
+// the `env` of each child itself.) A child that the test starts through a
+// shell or a script, or with a sync function (`spawnSync`), is not seen.
+function watchChildren() {
+  const spawn = ChildProcess.prototype.spawn
+  ChildProcess.prototype.spawn = function (options, ...rest) {
+    const result = spawn.call(this, options, ...rest)
+    try {
+      const name = basename(options.file)
+      if (options.file === process.execPath || name === "node")
+        this.once("exit", (_code, signal) => {
+          if (signal) state.lost = true
+        })
+      else if (
+        name === "bun" &&
+        !options.envPairs?.some(
+          (pair) => pair.startsWith("BUN_OPTIONS=") && pair.includes(preload),
+        )
+      )
+        state.lost = true
+    } catch {
+      // A failed check of a child turns the check off for that child only.
+    }
+    return result
   }
 }
 
@@ -100,6 +134,7 @@ function open() {
 // collected child coverage.
 if (state)
   try {
+    state.watched ??= (watchChildren(), true)
     state.recorded ??= await installEdges(root, `${resolve(parts)}${sep}`)
   } catch (error) {
     stop(error)
@@ -175,7 +210,9 @@ function childTable(url, cached) {
 }
 
 // The lines that the Node child processes wrote to `dir` (NODE_V8_COVERAGE),
-// and the number of coverage files that it read.
+// and the number of coverage files that it read. A Bun child gives no
+// lines, only the repo files that it loaded (trace-bun.mjs), so each line
+// with code of such a file counts as run.
 function childLines(dir) {
   const lines = new Map()
   let reports = 0
@@ -186,6 +223,20 @@ function childLines(dir) {
     return { lines, reports }
   }
   for (const name of names) {
+    if (name.startsWith("bun-") && name.endsWith(".txt")) {
+      reports++
+      for (const path of readFileSync(join(dir, name), "utf8").split("\n")) {
+        if (!path) continue
+        const positions = childTable(pathToFileURL(path).href)
+        if (!positions) continue
+        executed(
+          [{ startOffset: 0, endOffset: Infinity, count: 1 }],
+          positions,
+          lines,
+        )
+      }
+      continue
+    }
     if (!name.endsWith(".json")) continue
     let report
     try {
@@ -275,17 +326,20 @@ const children = join(
   `${process.pid}-${state ? ++state.files : 0}`,
 )
 const directories = new Map()
+const bunOptions = process.env.BUN_OPTIONS
 const childrenOf = (name) => {
   if (failed) return
   if (!directories.has(name))
     directories.set(name, join(children, String(directories.size)))
   process.env.NODE_V8_COVERAGE = directories.get(name)
+  process.env.BUN_OPTIONS = `${bunOptions ?? ""} --preload ${preload}`.trim()
 }
 // Counts and edges from before this file (an earlier file in the same
 // worker, Vitest itself) do not belong to it.
 let mark = state?.clock() ?? 0
 phase(collect)
 cases.clear()
+if (state) state.lost = false
 childrenOf(collect)
 beforeEach((context) => {
   phase(collect)
@@ -299,10 +353,13 @@ afterAll((suite) => {
   phase(collect)
   if (coverage === undefined) delete process.env.NODE_V8_COVERAGE
   else process.env.NODE_V8_COVERAGE = coverage
+  if (bunOptions === undefined) delete process.env.BUN_OPTIONS
+  else process.env.BUN_OPTIONS = bunOptions
   if (failed) return
   try {
-    // `children` only when a child wrote coverage: a check without it can
-    // have a child that gave none (its own `env`, a signal, Bun).
+    // `children` only when a child wrote coverage and no Node or Bun child
+    // that the worker saw lost its data. A check without it can have a child
+    // that gave none.
     let reports = 0
     for (const [name, directory] of directories) {
       const child = childLines(directory)
@@ -315,7 +372,10 @@ afterAll((suite) => {
       join(parts, `${process.pid}-${state.files}.json`),
       JSON.stringify({
         file: suite.filepath,
-        recorded: reports ? ["children", ...state.recorded] : state.recorded,
+        recorded:
+          reports && !state.lost
+            ? ["children", ...state.recorded]
+            : state.recorded,
         cases: [...cases].map(([name, { lines, durationMs, edges }]) => {
           const tables = {
             ...(edges.read.size ? { read: sorted(edges.read) } : {}),
