@@ -22,10 +22,11 @@ export const profiles = {
 export const storybookBuildMinutes = 1.2
 
 // Where each check runs, by `<family>:<lane>` or else `<family>`: `job` is
-// the job of today's full run, `profile` the profile job of a gated run.
+// the job of the full run, `profile` the setup that the shards of a gated run
+// share (plan.mjs puts each check in its job).
 // A check without an entry (an eval, the latency check) has its own workflow.
-// A build check has no profile: its job runs on each pull request whatever
-// the selection is, until the gate runs the selected builds (CTX-1054).
+// A build check has no profile: its job is a plain build, one matrix entry
+// for each image, or one runner step for each package.
 // A deploy check runs in the job `Deploy PR environment (Railway + Neon)` of
 // pr-deploy.yaml, not in ci.yaml, and has no profile.
 const runsIn = {

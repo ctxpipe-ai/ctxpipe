@@ -15,8 +15,16 @@ import {
 // other selected check reuses. It runs in a job without dependencies, so it
 // imports no package.
 
-const readJson = (path) =>
-  path && existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : undefined
+// A file that is absent or does not parse gives undefined.
+const readJson = (path) => {
+  try {
+    return path && existsSync(path)
+      ? JSON.parse(readFileSync(path, "utf8"))
+      : undefined
+  } catch {
+    return undefined
+  }
+}
 
 const readText = (path) =>
   existsSync(path) ? readFileSync(path, "utf8").trim().slice(0, 200) : ""
