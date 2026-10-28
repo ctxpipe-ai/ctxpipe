@@ -391,6 +391,73 @@ test("the trace records the lines that a case runs in a Node child process", () 
   }
 })
 
+test("the trace records the files that a case runs in a Bun child process", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
+  try {
+    // Each fixture case starts child.mjs, which runs known() from known.mjs.
+    const fixtures = join(root, "scripts/tests/fixtures/trace-children")
+    const parts = join(directory, "parts")
+    const vitest = join(root, "apps/backend/node_modules/vitest/vitest.mjs")
+    const result = spawnSync(
+      process.execPath,
+      [vitest, "run", `--reporter=${script("trace-reporter.mjs")}`],
+      {
+        cwd: fixtures,
+        encoding: "utf8",
+        env: { ...process.env, CTXPIPE_TRACE_PARTS: parts },
+      },
+    )
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    const { laneChecks } = await import("../checks/trace.mjs")
+    const checks = new Map(
+      laneChecks(parts, "fixture").map((check) => [
+        check.id.split("/").at(-1),
+        check,
+      ]),
+    )
+    const document = schema("trace")
+    validate(
+      {
+        schemaVersion: 1,
+        commit: "0".repeat(40),
+        checks: [...checks.values()],
+      },
+      document,
+      document,
+    )
+    const known = "scripts/tests/fixtures/trace-children/known.mjs"
+    const lines = (file, name) =>
+      checks.get(file).cases.find((c) => c.name === name).lines[known]
+    // A Node child gives the lines of known() only.
+    assert.deepEqual(lines("children.fixture.mjs", "a Node child"), [[1, 5]])
+    // A Bun child gives the whole files that it loaded, also when a signal
+    // stops it.
+    assert.deepEqual(
+      lines("children.fixture.mjs", "a Bun child that a signal stops"),
+      [[1, 7]],
+    )
+    assert.ok(checks.get("children.fixture.mjs").recorded.includes("children"))
+    // A signal stops a Node child before it writes its coverage: the lines
+    // are missing, and the check does not claim `children`.
+    assert.equal(
+      lines("lost.fixture.mjs", "a Node child that a signal stops"),
+      undefined,
+    )
+    assert.ok(!checks.get("lost.fixture.mjs").recorded.includes("children"))
+    // A Bun child with its own `env` cannot load the preload: no `children`,
+    // and the other files of the worker keep theirs.
+    assert.ok(!checks.get("env.fixture.mjs").recorded.includes("children"))
+    // A Node child that outlives its file writes its coverage after the part.
+    assert.ok(!checks.get("late.fixture.mjs").recorded.includes("children"))
+    // known.mjs runs in a Bun child in one case and in process in another.
+    // The Bun file must not change the exact ranges of the in-process case.
+    assert.deepEqual(lines("mixed.fixture.mjs", "a Bun child"), [[1, 7]])
+    assert.deepEqual(lines("mixed.fixture.mjs", "in process"), [[1, 3]])
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test("the edge hooks record names, never statement text or data", () => {
   // The hooks resolve the packages as the lane does, so run in apps/backend.
   const probe = `

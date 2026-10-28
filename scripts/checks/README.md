@@ -148,7 +148,7 @@ To add a lane, add it to `lanes` in `lanes.mjs` and add its inventory to `listVi
 
 ## Traces
 
-`pnpm -s checks:run --trace <dir>` also writes `<dir>/trace.json.gz`, a gzip-compressed JSON file. The schema is [`schema/trace.v1.schema.json`](schema/trace.v1.schema.json). For each check and each test case, the trace gives the source lines that the case executed (in the test process and in its Node child processes), the semantic edges that the case used, and the case duration. The line numbers are the lines at `commit`, the commit of the checkout. Thus, trace a clean working tree.
+`pnpm -s checks:run --trace <dir>` also writes `<dir>/trace.json.gz`, a gzip-compressed JSON file. The schema is [`schema/trace.v1.schema.json`](schema/trace.v1.schema.json). For each check and each test case, the trace gives the source lines that the case executed (in the test process and in its Node and Bun child processes), the semantic edges that the case used, and the case duration. The line numbers are the lines at `commit`, the commit of the checkout. Thus, trace a clean working tree.
 
 How it works:
 
@@ -163,9 +163,12 @@ How it works:
 
 Child processes:
 
-- Before each case, the worker sets `NODE_V8_COVERAGE` to a directory of that case (`<collect>` has one too). A Node child process that inherits the variable writes its V8 coverage there when it exits. After the file, the worker maps that coverage to source lines (with the source maps that Node writes into the coverage file, or the file itself) and adds the lines to the case.
-- A child gives no coverage when the test starts it with an `env` that does not copy `process.env`, when a signal stops it, or when it is not Node. The check's `recorded` holds `children` only when at least one child of the check wrote a coverage file. A check without `children` can still have started a child that gave no coverage, so a reader must treat its child lines as unknown. A check with `children` can also have a second child that gave none; the trace cannot show that.
-- Bun children give no coverage. These tests start Bun children: `apps/backend/src/domain/workspaces/sandbox-lock-native.contract.test.ts`, `apps/backend/src/domain/workspaces/write-worker-loss-native.contract.test.ts` and `apps/backend/src/openworkflow/workflows/repository-ingestion-v2.integration.test.ts`. The sandbox tests also run processes in Docker containers, which give no coverage.
+- Before each case, the worker sets `NODE_V8_COVERAGE` to a directory of that case (`<collect>` has one too). A Node child process writes its V8 coverage there when it exits. Node adds the variable to the `env` of each child, also when the test gives its own `env`. After the file, the worker maps that coverage to source lines (with the source maps that Node writes into the coverage file, or the file itself) and adds the lines to the case.
+- The worker also adds the preload [`trace-bun.mjs`](trace-bun.mjs) to `BUN_OPTIONS`. Bun runs JavaScriptCore, so a Bun child gives no V8 coverage, and the offsets that Bun can give are offsets in its own transpiled code, which has no source map. Thus the preload records the repo files that the Bun child loads, in the same directory. It writes each path at once, so the list stays when a signal stops the child. After the file, each line with code of each listed file goes to the case. For a Bun child, the case lines are whole files: they show that the case can run each line, not that it ran it.
+- `--preload` in `BUN_OPTIONS` reaches every Bun descendant. Thus `bun install`, `bun x`, or a repo path with a space fail under tracing. No traced test does this today. Loading the workspace-semantic-merge graph took 0.8 s with the preload and 1.1 s without.
+- A child gives no data when a Node child still runs when its test file ends, when a signal stops a Node child (Node writes its coverage only when it exits), when a Bun child gets an `env` without `BUN_OPTIONS`, or when it is not Node or Bun. The sandbox tests also run processes in Docker containers, which give no data.
+- The worker watches the Node and Bun children that the test starts with `spawn`, `execFile` or `fork`. The check's `recorded` holds `children` only when at least one child of the check wrote data and no watched child lost it. A child that the test starts through a shell or a script, or with a sync function (`spawnSync`), is not watched. Thus a reader must treat the child lines of a check without `children` as unknown, and a check with `children` can still have an unwatched child that gave no data.
+- The fixtures in [`scripts/tests/fixtures/trace-children`](../tests/fixtures/trace-children) test a Node child, a Bun child that a signal stops, and a Node child that a signal stops.
 
 Semantic edges ([`trace-edges.mjs`](trace-edges.mjs)): the worker installs hooks once in each Vitest worker. Each hook records names only, never statement text, request data, prompt text or arguments. A hook that fails while it records turns that edge off for the call. It never changes the call or its result.
 
@@ -201,9 +204,9 @@ In CI, `scripts/ci/test-suite.mjs <lane> --trace` and `scripts/ci/storybook-gold
 
 Gaps (no trace):
 
-- Bun lanes (`codesearch-bun`): Bun has no V8 inspector. Bun child processes (see Child processes).
+- Bun lanes (`codesearch-bun`): Bun has no V8 inspector. A Bun child process gives whole files, not lines (see Child processes).
 - The `vercel` lane in the nightly run (see above).
-- A Node child that a test starts with its own `env`, or that a signal stops.
+- A Node child that a signal stops gives no data.
 - Docker containers, sandboxes and separate servers. A test that reaches code through one of these does not record that code or its edges.
 - The evals and the latency check (no CI run traces them; the eval times come from the eval workflow).
 - Concurrent cases in one file (`test.concurrent`) mix their coverage and edges.
