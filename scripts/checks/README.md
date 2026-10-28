@@ -229,7 +229,7 @@ Overhead in CI was measured with the child-process coverage and the semantic edg
 The merge gate decides which checks a pull request must pass ([CTX-774](https://linear.app/ctxpipe/issue/CTX-774), [CTX-1054](https://linear.app/ctxpipe/issue/CTX-1054)). [`.github/merge-gate.json`](../../.github/merge-gate.json) holds the mode, the pinned selector release (the `factory` version and the SHA-256 of `factory-linux-x64.tar.gz`), `acceptAgentResults` and `acceptPrResults`. There are two modes:
 
 - **`gate`**: a same-repo pull request runs only the selected checks and their prerequisites. The job **Merge gate** is the verdict: it fails when the gated run fails. A full decision (see When the run is full), a fork PR, a push, the nightly run and a run by hand run every job, and then Merge gate fails when a job of that full run fails.
-- **`shadow`**: the full run gates each pull request, and the job **Merge gate** publishes beside it what a gated run would decide. In shadow mode the verdict does not fail that job, but it fails closed: an error in `gate.mjs decide` or a failed step (for example a download) fails it. Set `mode` back to `shadow` to stop the gate.
+- **`shadow`**: the full run gates each pull request, and the job **Merge gate** publishes beside it what a gated run would decide. In shadow mode the verdict does not fail that job, but it fails closed: an error in `gate.mjs decide` or a failed PR comment step fails it (the download steps continue on error). Set `mode` back to `shadow` to stop the gate.
 
 The jobs in `.github/workflows/ci.yaml`:
 

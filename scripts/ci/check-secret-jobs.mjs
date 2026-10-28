@@ -63,7 +63,8 @@
 // - The merge gate LLM job (ci.yaml merge-gate-llm) holds the model key of
 //   `workbench` and no cloud role. It runs only the selector release that
 //   the select job downloaded, after it checks the pinned SHA-256 again.
-// - A step that lists the checks holds no secret: list.mjs or
+// - A step that lists the checks holds no secret and is in no job with an
+//   OIDC token: list.mjs or
 //   `checks:list`; run.mjs or `checks:run` without `--manifest`; and
 //   rerun-failed.mjs or selected.mjs without a non-empty `MANIFEST:` in the
 //   step env (a manifest that an earlier step listed). The discovery imports
@@ -352,10 +353,13 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
         (/(?<![\w-])run\.mjs\b|\bchecks:run\b/.test(text) &&
           !/--manifest\b/.test(text)) ||
         (/\b(?:rerun-failed|selected)\.mjs\b/.test(text) && !manifest)
-      const secret = step.lines.find((line) => secretUse.test(line.text))
+      // An OIDC token of the job reaches each step of the job.
+      const secret =
+        step.lines.find((line) => secretUse.test(line.text)) ??
+        (hasOidc && step.lines[0])
       if (discovers && secret)
         failures.push(
-          `${file}:${secret.number}: job ${job.name} gives a secret to a step that lists the checks. The discovery imports PR code: list the checks in an earlier step without the secret, and give the manifest to run.mjs in --manifest, or to selected.mjs and rerun-failed.mjs in MANIFEST.`,
+          `${file}:${secret.number}: job ${job.name} gives a secret or an OIDC token to a step that lists the checks. The discovery imports PR code: list the checks in an earlier step without the secret, and give the manifest to run.mjs in --manifest, or to selected.mjs and rerun-failed.mjs in MANIFEST.`,
         )
     }
 

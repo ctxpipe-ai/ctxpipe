@@ -731,7 +731,8 @@ test("rejects a secret in a step that lists the checks", () => {
     workflow(
       `  checks:\n    environment: workbench\n    steps:\n      - name: Checks\n        env:\n          VERCEL_TOKEN: \${{ secrets.VERCEL_ACCESS_TOKEN }}\n${env}        run: ${run}\n`,
     )
-  const listed = /gives a secret to a step that lists the checks/
+  const listed =
+    /gives a secret or an OIDC token to a step that lists the checks/
   const empty = '          MANIFEST: ""\n'
   for (const [run, env] of [
     ["pnpm -s checks:list > manifest.json", ""],
@@ -752,4 +753,23 @@ test("rejects a secret in a step that lists the checks", () => {
     ["node scripts/checks/run.mjs --manifest manifest.json ids.txt", ""],
   ])
     assert.doesNotMatch(check(step(run, env)).stderr, listed, run)
+})
+
+test("rejects a step that lists the checks in a job with an OIDC token", () => {
+  const listed =
+    /gives a secret or an OIDC token to a step that lists the checks/
+  rejects(
+    workflow(
+      "  checks:\n    permissions:\n      id-token: write\n    steps:\n      - run: node scripts/checks/list.mjs\n",
+    ),
+    listed,
+  )
+  assert.doesNotMatch(
+    check(
+      workflow(
+        "  checks:\n    permissions:\n      contents: read\n    steps:\n      - run: node scripts/checks/list.mjs\n",
+      ),
+    ).stderr,
+    listed,
+  )
 })

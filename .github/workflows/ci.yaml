@@ -1618,8 +1618,10 @@ jobs:
   merge-gate:
     timeout-minutes: 10
     # A fixed name: this job is the required status, also when the plan job
-    # failed and gave no outputs (then the run is full). gate.mjs fails it
-    # only in gate mode, so it has no continue-on-error.
+    # failed and gave no outputs (then the run is full). It has no
+    # continue-on-error: a failed verdict fails it only in gate mode, but an
+    # error in gate.mjs decide or a failed PR comment step fails it in each
+    # mode.
     name: Merge gate
     needs:
       [
