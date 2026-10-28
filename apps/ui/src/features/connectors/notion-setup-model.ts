@@ -54,7 +54,6 @@ export function shouldShowNotionWebhookStep(
 export function getNotionSetupCurrentIndex(
   status: SetupStatus,
   oauthMeta?: NotionOauthMeta,
-  options: { workspacesDone?: boolean } = {},
 ): number {
   const steps = getNotionSetupSteps(oauthMeta)
   const selfHost = steps[0]?.id === "register"
@@ -64,7 +63,7 @@ export function getNotionSetupCurrentIndex(
     if (selfHost && !oauthMeta?.webhookConfigured) return 1
     return offset
   }
-  return options.workspacesDone ? steps.length : offset + 1
+  return offset + 1
 }
 
 /** The card action while setup is not done, or null once Notion is connected. */

@@ -44,14 +44,13 @@ export function shouldShowPagerdutyRegisterStep(
 export function getPagerdutySetupCurrentIndex(
   status: SetupStatus,
   oauth?: OAuthMeta,
-  options: { workspacesDone?: boolean } = {},
 ): number {
   const steps = getPagerdutySetupSteps(oauth)
   const offset = steps[0]?.id === "register" ? 1 : 0
   if (!status.isInstalled) {
     return shouldShowPagerdutyRegisterStep(status, oauth) ? 0 : offset
   }
-  return options.workspacesDone ? steps.length : offset + 1
+  return offset + 1
 }
 
 /** The card action while setup is not done, or null once PagerDuty is connected. */

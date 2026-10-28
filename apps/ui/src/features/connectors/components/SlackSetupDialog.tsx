@@ -10,7 +10,10 @@ import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
-import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
+import {
+  PullRequestsToMerge,
+  useMergeStep,
+} from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import { DOCS_URL } from "@/lib/docs-url"
 
@@ -151,6 +154,11 @@ export function SlackSetupDialog({
   })
 
   const status = statusQuery.data
+  const merge = useMergeStep({
+    orgSlug,
+    steps: SLACK_SETUP_STEPS,
+    pullRequests,
+  })
   const setupStepIndex = getSlackSetupStepIndex(status)
   const setupView = getSlackSetupView({
     status,
@@ -202,10 +210,8 @@ export function SlackSetupDialog({
         {status && !statusQuery.isPending && !statusQuery.isError ? (
           <div className="mb-6">
             <ConnectorSetupStepper
-              steps={SLACK_SETUP_STEPS}
-              currentIndex={
-                pullRequests.length ? SLACK_SETUP_STEPS.length : setupStepIndex
-              }
+              steps={merge.steps}
+              currentIndex={merge.currentIndex ?? setupStepIndex}
             />
           </div>
         ) : null}
@@ -277,20 +283,12 @@ export function SlackSetupDialog({
             }}
           />
         ) : setupView === "workspaces" && pullRequests.length ? (
-          <div className="space-y-4">
-            <PullRequestsToMerge
-              orgSlug={orgSlug}
-              pullRequests={pullRequests}
-              detail="The Slack source change applies after the merge. Until then, a mention in a new channel replies that no Workspace has the channel."
-            />
-            <Button
-              variant="secondary"
-              className="rounded-md"
-              onPress={() => onOpenChange(false)}
-            >
-              Close
-            </Button>
-          </div>
+          <PullRequestsToMerge
+            pullRequests={pullRequests}
+            merged={merge.merged}
+            detail="The Slack source change applies after the merge. Until then, a mention in a new channel replies that no Workspace has the channel."
+            onDone={() => onOpenChange(false)}
+          />
         ) : setupView === "workspaces" && connectionId ? (
           <div className="flex flex-col gap-5">
             <section
