@@ -12,6 +12,7 @@ import {
   lineRanges,
   lineStarts,
   positionsOf as positionsIn,
+  repoPath,
 } from "./trace-lines.mjs"
 
 // A Vitest setup file. trace-reporter.mjs adds it to each project only when
@@ -96,11 +97,12 @@ function open() {
     code: new Map(),
     files: 0,
     recorded: undefined,
-    lost: false,
+    owner: undefined,
   }
 }
 
-// Sets `state.lost` when a Node or Bun child process cannot give its data: a
+// Sets `lost` on the record of the test file that started the child (the
+// `state.owner` at the spawn) when a Node or Bun child process cannot give its data: a
 // signal stopped a Node child before it wrote its coverage, or a Bun child
 // started with an `env` without the preload. (Node adds NODE_V8_COVERAGE to
 // the `env` of each child itself.) A child that the test starts through a
@@ -109,11 +111,12 @@ function watchChildren() {
   const spawn = ChildProcess.prototype.spawn
   ChildProcess.prototype.spawn = function (options, ...rest) {
     const result = spawn.call(this, options, ...rest)
+    const owner = state.owner
     try {
       const name = basename(options.file)
       if (options.file === process.execPath || name === "node")
         this.once("exit", (_code, signal) => {
-          if (signal) state.lost = true
+          if (signal && owner) owner.lost = true
         })
       else if (
         name === "bun" &&
@@ -121,7 +124,7 @@ function watchChildren() {
           (pair) => pair.startsWith("BUN_OPTIONS=") && pair.includes(preload),
         )
       )
-        state.lost = true
+        if (owner) owner.lost = true
     } catch {
       // A failed check of a child turns the check off for that child only.
     }
@@ -227,13 +230,19 @@ function childLines(dir) {
       reports++
       for (const path of readFileSync(join(dir, name), "utf8").split("\n")) {
         if (!path) continue
-        const positions = childTable(pathToFileURL(path).href)
-        if (!positions) continue
-        executed(
-          [{ startOffset: 0, endOffset: Infinity, count: 1 }],
-          positions,
-          lines,
-        )
+        // The whole file: `state.code` is for exact ranges, and the raw
+        // text of a Bun file has no map to tell code from other lines.
+        const name = repoPath(root, path)
+        if (!name) continue
+        let text
+        try {
+          text = readFileSync(path, "utf8")
+        } catch {
+          continue
+        }
+        const last = lineStarts(text).length - (text.endsWith("\n") ? 1 : 0)
+        if (!lines.has(name)) lines.set(name, new Set())
+        for (let line = 1; line <= last; line++) lines.get(name).add(line)
       }
       continue
     }
@@ -339,7 +348,8 @@ const childrenOf = (name) => {
 let mark = state?.clock() ?? 0
 phase(collect)
 cases.clear()
-if (state) state.lost = false
+const owner = { lost: false }
+if (state) state.owner = owner
 childrenOf(collect)
 beforeEach((context) => {
   phase(collect)
@@ -373,7 +383,7 @@ afterAll((suite) => {
       JSON.stringify({
         file: suite.filepath,
         recorded:
-          reports && !state.lost
+          reports && !owner.lost
             ? ["children", ...state.recorded]
             : state.recorded,
         cases: [...cases].map(([name, { lines, durationMs, edges }]) => {
