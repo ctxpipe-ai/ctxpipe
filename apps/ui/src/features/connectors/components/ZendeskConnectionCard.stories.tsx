@@ -14,6 +14,10 @@ import {
 
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import {
+  playPendingSetup,
+  pendingSetupHandlers,
+} from "../mocks/pending-setup-stories"
 import { ZendeskConnectionCard } from "./ZendeskConnectionCard"
 
 const orgSlug = "acme"
@@ -143,6 +147,36 @@ export const RevokedOpensReconnect: Story = {
 }
 
 const deleted = fn()
+const statusReads = fn()
+
+export const PendingSetup: Story = {
+  render: card,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          ...pendingSetupHandlers({
+            orgSlug,
+            provider: "zendesk",
+            statusReads,
+            deleted,
+          }),
+          zendeskStatusHandler(
+            zendeskStoryStatus({ status: "pending", webhookConfigured: false }),
+          ),
+        ],
+      },
+    },
+  },
+  play: ({ canvasElement }) =>
+    playPendingSetup({
+      canvasElement,
+      name: "Zendesk",
+      onOpen: onOpenSetup,
+      statusReads,
+      deleted,
+    }),
+}
 
 export const Remove: Story = {
   render: card,

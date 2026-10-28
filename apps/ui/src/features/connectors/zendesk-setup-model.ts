@@ -61,6 +61,6 @@ export function getZendeskSetupStep(
  */
 export function getZendeskCardCtaLabel(status: SetupStatus): string | null {
   if (status.status === "revoked") return "Reconnect Zendesk"
-  if (status.status !== "installed") return null
+  if (status.status === "pending") return "Connect Zendesk"
   return status.webhookConfigured ? "Manage" : "Add the webhook"
 }

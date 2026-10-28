@@ -20,7 +20,10 @@ import { ZendeskMark } from "./ZendeskMark"
 type ZendeskConnectionCardProps = {
   orgSlug: string
   connectionId: string
-  /** With `reconnect`, the setup opens at the authorization. */
+  /**
+   * With `reconnect`, the setup opens at the authorization. Without it, the
+   * setup opens at the step that fits the connection.
+   */
   onOpenSetup: (options?: { reconnect: true }) => void
 }
 
@@ -43,9 +46,14 @@ export function ZendeskConnectionCard({
     mutationFn: () => deleteZendeskConnector(orgSlug, connectionId),
     onSuccess: async () => {
       toast.success("Zendesk connector removed.")
-      await queryClient.invalidateQueries({
-        queryKey: orgConnectionsKeys.list(orgSlug),
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: zendeskConnectorKeys.status(orgSlug, connectionId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: orgConnectionsKeys.list(orgSlug),
+        }),
+      ])
     },
     onError: (error: Error) => toast.error(error.message),
   })
@@ -85,7 +93,7 @@ export function ZendeskConnectionCard({
           ? () => void refetch()
           : actionLabel
             ? () =>
-                actionLabel === "Manage"
+                actionLabel === "Manage" || actionLabel === "Connect Zendesk"
                   ? onOpenSetup()
                   : onOpenSetup({ reconnect: true })
             : undefined

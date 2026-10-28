@@ -130,6 +130,24 @@ export async function getZendeskConnectionStatus(
 }
 
 /**
+ * A pending setup with nothing saved on it: no OAuth client, no tokens, and
+ * no webhook. The list leaves it out until the user saves something.
+ */
+export function isEmptyZendeskSetupDraft(
+  config: ZendeskConnectionConfigStored,
+): boolean {
+  return (
+    config.status === "pending" &&
+    !config.oauthClientId &&
+    !config.oauthClientSecretEnc &&
+    !config.accessTokenEnc &&
+    !config.refreshTokenEnc &&
+    !config.webhookId &&
+    !config.webhookSecretEnc
+  )
+}
+
+/**
  * Start a setup for a subdomain. A pending setup of the same subdomain in
  * the org is used again, so a retried setup adds no rows.
  */

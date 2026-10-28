@@ -11,6 +11,7 @@ import {
 import { isEmptyLinearSetupDraft } from "./linear-connector.js"
 import { isEmptyNotionSetupDraft } from "./notion-connector.js"
 import { isEmptyPagerdutySetupDraft } from "./pagerduty-connector.js"
+import { isEmptyZendeskSetupDraft } from "./zendesk-connector.js"
 
 type OrgConnectionListItem = {
   id: string
@@ -65,9 +66,8 @@ function isEmptySetupDraft(type: ConnectionType, config: unknown): boolean {
       return parsed.success && isEmptyPagerdutySetupDraft(parsed.data)
     }
     case "zendesk": {
-      // A setup that has not finished OAuth.
       const parsed = zendeskConnectionConfigStoredSchema.safeParse(config)
-      return parsed.success && parsed.data.status === "pending"
+      return parsed.success && isEmptyZendeskSetupDraft(parsed.data)
     }
     default:
       return false

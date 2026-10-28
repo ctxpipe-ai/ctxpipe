@@ -256,6 +256,21 @@ describe("Zendesk connector routes (Postgres + msw)", () => {
     ).toBe(400)
   })
 
+  it("lists a pending setup once it has a saved OAuth client", async () => {
+    const listedIds = async () =>
+      (
+        (await (
+          await request(`/${seed.orgSlug}/api/v1/connectors`)
+        ).json()) as {
+          items: Array<{ id: string }>
+        }
+      ).items.map((item) => item.id)
+    const connectionId = await draft("saved-client-setup")
+    expect(await listedIds()).not.toContain(connectionId)
+    await saveClient(connectionId)
+    expect(await listedIds()).toContain(connectionId)
+  })
+
   it("needs an OAuth client on a self-hosted deployment before OAuth starts", async () => {
     const connectionId = await draft()
     expect(await status(connectionId)).toMatchObject({

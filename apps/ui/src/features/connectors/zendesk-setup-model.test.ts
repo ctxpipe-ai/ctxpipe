@@ -129,5 +129,9 @@ describe("getZendeskCardCtaLabel", () => {
     )
     // As on the other cards: Manage opens the Workspaces step.
     expect(getZendeskCardCtaLabel(status())).toBe("Manage")
+    // An unfinished setup continues at its own step.
+    expect(getZendeskCardCtaLabel(status({ status: "pending" }))).toBe(
+      "Connect Zendesk",
+    )
   })
 })
