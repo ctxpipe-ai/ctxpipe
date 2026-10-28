@@ -13,6 +13,8 @@ export const runners = {
   typecheck: runProjects,
   lint: runProjects,
   policy: runProjects,
+  build: runProjects,
+  deploy: runProjects,
 }
 
 export async function listChecks() {

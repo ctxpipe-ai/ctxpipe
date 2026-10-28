@@ -156,8 +156,8 @@ describe("MCP conformance (Vitest-integrated)", () => {
     const result = spawnSync(
       "pnpm",
       [
-        "dlx",
-        "@mcpjam/cli@3.24.0",
+        "exec",
+        "mcpjam",
         "protocol",
         "conformance",
         "--url",

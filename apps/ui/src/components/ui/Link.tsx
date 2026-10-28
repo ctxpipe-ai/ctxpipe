@@ -18,8 +18,9 @@ const styles = tv({
   base: "underline disabled:no-underline disabled:cursor-default forced-colors:disabled:text-[GrayText] transition rounded-xs [-webkit-tap-highlight-color:transparent]",
   variants: {
     variant: {
+      // Teal is the one link accent (DESIGN.md). No blue.
       primary:
-        "text-blue-600 dark:text-blue-500 underline decoration-blue-600/60 hover:decoration-blue-600 dark:decoration-blue-500/60 dark:hover:decoration-blue-500",
+        "text-teal-700 dark:text-teal-400 underline decoration-teal-700/60 hover:decoration-teal-700 dark:decoration-teal-400/50 dark:hover:text-teal-300 dark:hover:decoration-teal-300",
       secondary:
         "text-neutral-700 dark:text-neutral-300 underline decoration-neutral-700/50 hover:decoration-neutral-700 dark:decoration-neutral-300/70 dark:hover:decoration-neutral-300",
     },

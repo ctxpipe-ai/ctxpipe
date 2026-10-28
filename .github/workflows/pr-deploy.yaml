@@ -40,17 +40,9 @@ on:
       - reopened
       - synchronize
       - closed
-  # Cloud Agent pushes sometimes skip pull_request synchronize. Keep push so
-  # resolve_pr can map the branch to an open PR. Agent jobs run on push only;
-  # humans on pull_request only. Ignore main (production Deploy) and tags.
-  # Manual fallback: Run workflow from the PR branch → PR number. A run
-  # from main fails: the Actions cache scope of main is readable by every
+  # Manual fallback: Run workflow from the PR branch, then enter the PR number.
+  # A run from main fails: the Actions cache scope of main is readable by every
   # branch (see prepare_pr_database).
-  push:
-    branches-ignore:
-      - main
-    tags-ignore:
-      - "**"
   workflow_dispatch:
     inputs:
       pr_number:
@@ -72,7 +64,7 @@ on:
 # cleanup. The cleanup jobs have a group of their own for each PR, and the
 # deploy jobs refuse a closed PR.
 concurrency:
-  group: ${{ (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')) || (github.event_name == 'pull_request' && github.event.action != 'closed' && github.actor != 'cursor[bot]' && github.actor != 'cursoragent' && github.event.pull_request.head.repo.full_name == github.repository)) && format('pr-deploy-{0}', github.head_ref || github.ref_name) || format('pr-deploy-skipped-{0}', github.run_id) }}
+  group: ${{ (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository)) && format('pr-deploy-{0}', github.head_ref || github.ref_name) || format('pr-deploy-skipped-{0}', github.run_id) }}
   cancel-in-progress: false
 
 permissions:
@@ -86,11 +78,7 @@ jobs:
     name: Resolve PR number and head SHA
     if: |
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' &&
-        (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')) ||
       (github.event_name == 'pull_request' &&
-        github.actor != 'cursor[bot]' &&
-        github.actor != 'cursoragent' &&
         (github.event.action == 'synchronize'
           || github.event.action == 'opened'
           || github.event.action == 'reopened') &&
@@ -154,6 +142,18 @@ jobs:
           else
             PR_NUMBER="${EVENT_PR_NUMBER}"
             HEAD_SHA="${EVENT_HEAD_SHA}"
+            # In gate mode a push does not deploy: the merge gate of CI starts
+            # this workflow when it selects a deploy check, or when its run is
+            # full (scripts/checks/README.md, Merge gate). When the mode does
+            # not read, the push deploys.
+            MODE="$(gh api -H "Accept: application/vnd.github.raw+json" \
+              "repos/${REPO}/contents/.github/merge-gate.json?ref=${HEAD_SHA}" | jq -r .mode || true)"
+            if [[ "$MODE" == "gate" ]]; then
+              echo "Gate mode: the merge gate of CI starts PR Deploy when it selects a deploy check"
+              echo "pr_number=" >> "$GITHUB_OUTPUT"
+              echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
@@ -1391,7 +1391,6 @@ jobs:
             update_ui_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
             deploy_service "$UI_SERVICE_ID" >/dev/null
             wait_for_image_deploy "ui" "$UI_SERVICE_ID" "$UI_IMAGE"
-            bash scripts/ci/smoke-preview-ui.sh "https://backend-pr-${PR_NUMBER}.up.railway.app"
 
             upsert_database_url_without_deploy "$CODESEARCH_SERVICE_ID" >/dev/null
             upsert_preview_codesearch_capacity "$CODESEARCH_SERVICE_ID" >/dev/null
@@ -1412,6 +1411,12 @@ jobs:
             fi
 
             echo "All services updated and deployed with a single deploy per service"
+
+      # The check deploy:preview-ui-smoke (scripts/checks/README.md, Preview
+      # deployment). It is a step of its own, so the merge gate reads its
+      # result apart from the deploy step (deploy:preview).
+      - name: Smoke-test the preview UI
+        run: bash scripts/ci/smoke-preview-ui.sh "https://backend-pr-${PR_NUMBER}.up.railway.app"
 
       - name: Get backend public URL
         id: backend_url

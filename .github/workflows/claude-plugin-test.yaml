@@ -56,7 +56,7 @@ jobs:
           src/auth/oauth-organization.test.ts
           src/auth/withAuth.test.ts
           src/routes/auth.test.ts
-          src/routes/mcp.test.ts
+          src/routes/mcp.integration.test.ts
           src/routes/mcp.conformance.test.ts
           src/mcp/transport.test.ts
 
@@ -78,33 +78,3 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: pnpm --filter @ctxpipe/ui test
-
-  package:
-    timeout-minutes: 15
-    name: Validate and install package
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-      - name: Validate plugin and marketplace
-        run: |
-          npx -y @anthropic-ai/claude-code@2.1.251 plugin validate ./plugins/ctxpipe --strict
-          npx -y @anthropic-ai/claude-code@2.1.251 plugin validate . --strict
-      - name: Install from the marketplace
-        run: |
-          config_dir="$(mktemp -d)"
-          export CLAUDE_CONFIG_DIR="$config_dir"
-          npx -y @anthropic-ai/claude-code@2.1.251 plugin marketplace add "$GITHUB_WORKSPACE" --scope user
-          npx -y @anthropic-ai/claude-code@2.1.251 plugin install ctxpipe@ctxpipe --scope user --yes
-          plugin_list="$(npx -y @anthropic-ai/claude-code@2.1.251 plugin list --json)"
-          PLUGIN_LIST="$plugin_list" node -e '
-            const plugins = JSON.parse(process.env.PLUGIN_LIST);
-            const installed = plugins.some((plugin) =>
-              plugin.id === "ctxpipe@ctxpipe" &&
-              plugin.enabled === true &&
-              plugin.mcpServers?.ctxpipe?.url === "https://app.ctxpipe.ai/mcp"
-            );
-            if (!installed) process.exit(1);
-          '
