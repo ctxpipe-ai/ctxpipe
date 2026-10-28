@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { dirname, join, posix } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -26,36 +26,47 @@ const pnpm = (...args) => ["pnpm", ...args]
 
 const code = ["apps/**", "packages/**"]
 
-// The backend source files that the UI production build reads: each value
-// import (alias `backend/*` or a relative path) of a UI file that the build
-// bundles. The build erases an `import type`, and it bundles no test or story.
-// The selector follows the imports of a source input, so a change to a file
-// that one of them imports selects the UI image too.
-export const uiBackendImports = () => {
-  const files = readdirSync(join(root, "apps/ui/src"), { recursive: true })
+// The files outside apps/ui that the UI production build bundles: the value
+// imports of each bundled UI file (alias `backend/*` or a relative path), and
+// then the value imports of those files, until no new file is found. The
+// build erases an `import type`, and it bundles no test or story. A package
+// import is not a file of the repository; the lockfile covers it.
+export const uiBundledImports = () => {
+  const queue = readdirSync(join(root, "apps/ui/src"), { recursive: true })
     .map((file) => posix.join("apps/ui/src", file.split("\\").join("/")))
     .filter(
       (file) =>
         /\.(ts|tsx)$/.test(file) && !/\.(test|stories)\.tsx?$/.test(file),
     )
   const found = new Set()
-  for (const file of files) {
+  const isFile = (path) =>
+    existsSync(join(root, path)) && statSync(join(root, path)).isFile()
+  while (queue.length > 0) {
+    const file = queue.pop()
     const text = readFileSync(join(root, file), "utf8")
     for (const [, type, specifier] of text.matchAll(
       /\b(?:import|export)(?:\s+(type\s+)?(?:[^;'"]*?\sfrom\s+)?|\s*\(\s*)["']([^"']+)["']/g,
     )) {
       if (type) continue
-      const base = specifier.startsWith("backend/")
-        ? posix.join("apps/backend/src", specifier.slice("backend/".length))
-        : specifier.startsWith(".")
-          ? posix.join(dirname(file), specifier)
-          : ""
-      if (!base.startsWith("apps/backend/src/")) continue
-      const resolved = ["", ".ts", ".tsx", "/index.ts"]
-        .map((suffix) => base + suffix)
-        .find((path) => /\.tsx?$/.test(path) && existsSync(join(root, path)))
+      const base =
+        specifier.startsWith("backend/") && file.startsWith("apps/ui/")
+          ? posix.join("apps/backend/src", specifier.slice("backend/".length))
+          : specifier.startsWith(".")
+            ? posix.join(dirname(file), specifier)
+            : ""
+      if (!base || base.startsWith("apps/ui/")) continue
+      const resolved = [
+        base,
+        `${base}.ts`,
+        `${base}.tsx`,
+        `${base}/index.ts`,
+        base.replace(/\.js$/, ".ts"),
+        base.replace(/\.js$/, ".tsx"),
+      ].find(isFile)
       if (!resolved) throw new Error(`${file}: cannot resolve ${specifier}`)
+      if (found.has(resolved)) continue
       found.add(resolved)
+      if (/\.(ts|tsx|js|mjs)$/.test(resolved)) queue.push(resolved)
     }
   }
   return [...found].sort()
@@ -222,7 +233,7 @@ const definitions = () => [
     [
       "ui",
       "apps/ui/Dockerfile",
-      ["apps/ui/**", ...uiBackendImports(), "apps/backend/package.json"],
+      ["apps/ui/**", ...uiBundledImports(), "apps/backend/package.json"],
     ],
     [
       "codesearch",

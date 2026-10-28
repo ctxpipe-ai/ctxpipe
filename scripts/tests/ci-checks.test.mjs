@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -17,7 +18,7 @@ import { gunzipSync } from "node:zlib"
 import { deploySteps, fullRunResults, stepResults } from "../checks/gate.mjs"
 import { jobOutputs } from "../checks/plan.mjs"
 import { prerequisites } from "../checks/prerequisites.mjs"
-import { uiBackendImports } from "../checks/projects.mjs"
+import { uiBundledImports } from "../checks/projects.mjs"
 import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
 import { lintSteps, runsInOf } from "../checks/shard.mjs"
 import { requiredStories } from "../ci/storybook-golden-select.mjs"
@@ -1139,7 +1140,7 @@ test("the manifest lists a build check for each production image and package of 
   )
 })
 
-test("the UI image selects on the backend files that the UI build imports, not on the whole backend", () => {
+test("the UI image selects on the backend files that the UI build bundles, not on the whole backend", () => {
   const result = node([script("list.mjs")])
   assert.equal(result.status, 0, result.stderr)
   const ui = JSON.parse(result.stdout).checks.find(
@@ -1152,12 +1153,22 @@ test("the UI image selects on the backend files that the UI build imports, not o
         ? path.startsWith(input.slice(0, -2))
         : input === path,
     )
-  assert.deepEqual(
-    ui.inputs.filter((input) => input.startsWith("apps/backend/")),
-    [...uiBackendImports(), "apps/backend/package.json"],
-  )
+  for (const file of [...uiBundledImports(), "apps/backend/package.json"])
+    assert.ok(ui.inputs.includes(file), file)
   // apps/ui/src/components/onboarding/org-name.ts imports it as a value.
   assert.ok(selects("apps/backend/src/domain/workspaces/slug.ts"))
+  // No UI file imports it, but sources-file.ts and providers/git.ts, which
+  // the UI imports, import it as a value: the build bundles it.
+  const github = "apps/backend/src/domain/workspace-sources/providers/github"
+  const uiFiles = readdirSync(join(root, "apps/ui/src"), { recursive: true })
+  for (const file of uiFiles.filter((file) => /\.tsx?$/.test(file)))
+    assert.ok(
+      !readFileSync(join(root, "apps/ui/src", file), "utf8").includes(
+        github.replace("apps/backend/src/", "backend/"),
+      ),
+      file,
+    )
+  assert.ok(selects(`${github}.ts`))
   // The UI imports it only as a type, which the build erases.
   assert.ok(
     !selects("apps/backend/src/routes/v1/workspace-sources-contract.ts"),
