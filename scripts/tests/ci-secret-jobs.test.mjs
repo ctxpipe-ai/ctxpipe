@@ -715,10 +715,10 @@ test("detects an OIDC token from write-all and from the flow form", () => {
     ["permissions: { id-token: write }\n", ""],
     ["", "    permissions: write-all\n"],
     ["", "    permissions: { contents: read, id-token: write }\n"],
-    ["permissions:\n  id-token: \"write\"\n", ""],
+    ['permissions:\n  id-token: "write"\n', ""],
     ["", "    permissions:\n      id-token: 'write'\n"],
-    ["permissions: { id-token: \"write\" }\n", ""],
-    ["permissions: \"write-all\"\n", ""],
+    ['permissions: { id-token: "write" }\n', ""],
+    ['permissions: "write-all"\n', ""],
   ])
     rejects(
       { ".github/workflows/deploy.yaml": jobs(workflow, job) },

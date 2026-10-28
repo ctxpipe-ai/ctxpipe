@@ -160,6 +160,13 @@ test("only a same-repo pull_request without gate input changes runs the selector
   })
 })
 
+// The text of one job of a workflow, from its key to the next job.
+const workflowJob = (workflow, name) => {
+  const start = workflow.indexOf(`\n  ${name}:\n`)
+  assert.ok(start > 0, name)
+  return workflow.slice(start, workflow.indexOf("\n\n  ", start + 1))
+}
+
 test("a ci.yaml change only in the steps of check jobs runs the selector with those jobs", () => {
   const path = ".github/workflows/ci.yaml"
   const base = readFileSync(join(root, path), "utf8")
@@ -225,6 +232,46 @@ test("a ci.yaml change only in the steps of check jobs runs the selector with th
       ),
     ),
     full,
+  )
+  // A step or a job that only a full run uses: a gated run would skip it.
+  const once = (from, to) => {
+    assert.equal(base.split(from).length, 2, from)
+    return base.replace(from, to)
+  }
+  for (const head of [
+    once(
+      "node scripts/ci/test-suite.mjs ${{ matrix.lane }} --shard",
+      "node scripts/ci/test-suite.mjs ${{ matrix.lane }} --bail --shard",
+    ),
+    once(
+      "node scripts/ci/test-suite.mjs ui $(",
+      "node scripts/ci/test-suite.mjs ui --bail $(",
+    ),
+    once(
+      "      - name: UI tests\n",
+      "      - name: UI tests\n        timeout-minutes: 20\n",
+    ),
+  ])
+    assert.deepEqual(mode(head), full)
+  const golden = workflowJob(base, "storybook-golden")
+  assert.deepEqual(
+    mode(
+      base.replace(
+        golden,
+        golden.replace(/\n {6}- /, "\n      - run: true\n      - "),
+      ),
+    ),
+    full,
+  )
+  // The gated step of the same job stays scoped.
+  assert.deepEqual(
+    mode(
+      once(
+        "      - name: Selected UI, CLI and CDK tests (merge gate)\n",
+        "      - name: Selected UI, CLI and CDK tests (merge gate)\n        timeout-minutes: 20\n",
+      ),
+    ).jobs,
+    ["package-tests"],
   )
   // A changed action is a gate input of its own.
   assert.deepEqual(mode(lintStep, [path, ".github/actions/a/action.yml"]), {

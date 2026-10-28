@@ -271,11 +271,10 @@ test("with --manifest, the runner reads the checks from that file and lists none
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line))
-    assert.deepEqual([record.id, record.status, record.message], [
-      id,
-      "error",
-      "Unknown check id",
-    ])
+    assert.deepEqual(
+      [record.id, record.status, record.message],
+      [id, "error", "Unknown check id"],
+    )
     assert.equal(node([script("run.mjs"), "--manifest"], `${id}\n`).status, 1)
   } finally {
     rmSync(directory, { recursive: true, force: true })

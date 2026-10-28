@@ -120,26 +120,51 @@ export function stepResults(jobs, deploy) {
 
 // The job of line i of ci.yaml when the line is in the `steps` of a job that
 // a manifest check runs in (or in the Storybook build job, which they need);
-// null for a blank or comment line; else undefined. It reads the indents of
-// the workflow, not its YAML.
+// null for a blank or comment line; else undefined. A step or a job that
+// only a full run uses (its `if:` needs `mode != 'gate'` or a matrix lane
+// other than `selected`) is undefined too: a gated run does not run it, so
+// only a full run can prove its change. It reads the indents of the
+// workflow, not its YAML.
 function jobOf(lines, i) {
   if (/^\s*(?:#|$)/.test(lines[i])) return null
   let key
   let job
+  let header
   for (let j = i; j >= 0; j--) {
     const [, indent, name] = /^( *)([\w-]+):/.exec(lines[j]) ?? []
     if (name === undefined) continue
     if (indent.length === 4 && !job) key ??= name
-    else if (indent.length === 2) job ??= name
-    else if (indent.length === 0)
-      return name === "jobs" &&
-        job &&
-        key === "steps" &&
-        (checkJobs.has(job) || job === "storybook-build")
-        ? job
-        : undefined
+    else if (indent.length === 2) {
+      job ??= name
+      header ??= j
+    } else if (indent.length === 0) {
+      if (
+        name !== "jobs" ||
+        !job ||
+        key !== "steps" ||
+        !(checkJobs.has(job) || job === "storybook-build")
+      )
+        return undefined
+      break
+    }
   }
-  return undefined
+  if (header === undefined) return undefined
+  // The keys of the job before its steps, and the step of the line.
+  const steps = lines.findIndex(
+    (line, j) => j > header && /^ {4}steps:/.test(line),
+  )
+  const jobIf = lines.slice(header, steps).join("\n")
+  if (jobIf.includes("mode != 'gate'") && !jobIf.includes("mode != 'gate' ||"))
+    return undefined
+  let start = i
+  while (start > steps && !/^ {6}- /.test(lines[start])) start--
+  let end = i + 1
+  while (end < lines.length && !/^ {0,6}\S/.test(lines[end])) end++
+  if (
+    /mode != 'gate'|lane != 'selected'/.test(lines.slice(start, end).join("\n"))
+  )
+    return undefined
+  return job
 }
 
 // The jobs that a change to ci.yaml touches, from the line ranges of its
