@@ -100,6 +100,7 @@
     "@graphql-codegen/cli": "^7.4.3",
     "@graphql-codegen/typed-document-node": "^7.1.0",
     "@graphql-codegen/typescript-operations": "^6.1.7",
+    "@mcpjam/cli": "3.24.0",
     "@mcpjam/sdk": "9.3.0",
     "@modelcontextprotocol/conformance": "^0.1.15",
     "@opentelemetry/core": "2.6.0",
