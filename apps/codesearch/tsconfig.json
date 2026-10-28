@@ -7,7 +7,6 @@
     "strict": true,
     "strictNullChecks": true,
     "noUncheckedIndexedAccess": true,
-    "baseUrl": ".",
     "noEmit": true,
     "noErrorTruncation": true,
     "skipLibCheck": true
