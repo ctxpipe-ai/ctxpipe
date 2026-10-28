@@ -14,15 +14,10 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
 
-import {
-  deploySteps,
-  fullRunResults,
-  lintSteps,
-  stepResults,
-} from "../checks/gate.mjs"
+import { deploySteps, fullRunResults, stepResults } from "../checks/gate.mjs"
 import { prerequisites } from "../checks/prerequisites.mjs"
 import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
-import { runsInOf } from "../checks/shard.mjs"
+import { lintSteps, runsInOf } from "../checks/shard.mjs"
 import { requiredStories } from "../ci/storybook-golden-select.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))

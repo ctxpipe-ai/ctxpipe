@@ -153,8 +153,11 @@ test("only a same-repo pull_request without gate input changes runs the selector
     { mode: "full", reason: "selector unavailable: no pinned factory release" },
   )
   assert.equal(mode({ config: { ...pinned, mode: "off" } }).mode, "full")
-  // Phase 1 has no gate mode: only shadow selects.
-  assert.equal(mode({ config: { ...pinned, mode: "gate" } }).mode, "full")
+  // Both the shadow and the gate mode select.
+  assert.deepEqual(mode({ config: { ...pinned, mode: "gate" } }), {
+    mode: "select",
+    reason: "gate",
+  })
 })
 
 test("a ci.yaml change only in the steps of check jobs runs the selector with those jobs", () => {
@@ -911,7 +914,7 @@ test("the CLI writes the decision files from artifacts", () => {
     process.execPath,
     [
       join(root, "scripts/checks/gate.mjs"),
-      "shadow",
+      "decide",
       "--config",
       join(directory, "config.json"),
       "--inputs",
@@ -986,7 +989,7 @@ test("a lint or policy check takes the result of its step in the Lint and format
 })
 
 test("the step names of the Lint and format job are the steps in ci.yaml", async () => {
-  const { lintSteps } = await import("../checks/gate.mjs")
+  const { lintSteps } = await import("../checks/shard.mjs")
   const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
   const lint = workflow.slice(
     workflow.indexOf("  lint:\n"),
