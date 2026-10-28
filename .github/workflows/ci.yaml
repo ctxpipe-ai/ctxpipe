@@ -1469,21 +1469,28 @@ jobs:
           echo "$sha256  $RUNNER_TEMP/release/factory.tar.gz" | sha256sum --check --strict
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/release/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
+      # A slow model call delays every check job, so the selector has 75
+      # seconds. The plan keeps the deterministic selection when this step
+      # fails or times out.
       - name: Select with the LLM stage
-        timeout-minutes: 3
+        timeout-minutes: 2
         env:
           OPENROUTER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
           XDG_CACHE_HOME: ${{ runner.temp }}/cache
         run: |
           out="$RUNNER_TEMP/out"
-          echo "the selector did not finish in 3 minutes" > "$out/llm-cause.txt"
+          echo "the selector did not finish in 2 minutes" > "$out/llm-cause.txt"
           trace=()
           [ ! -f "$RUNNER_TEMP/selection/trace.json.gz" ] || trace=(--trace "$RUNNER_TEMP/selection/trace.json.gz")
           code=0
-          "$RUNNER_TEMP/bin/factory" check --repo . --base HEAD^1 --k 3 \
+          timeout 75 "$RUNNER_TEMP/bin/factory" check --repo . --base HEAD^1 --k 3 \
             --manifest "$RUNNER_TEMP/inputs/manifest.json" "${trace[@]}" \
             --include-stochastic --llm-select --llm-provider openrouter \
             --dry-run --json > "$RUNNER_TEMP/raw.json" || code=$?
+          if [ "$code" = 124 ]; then
+            echo "the selector did not finish in 75 seconds" > "$out/llm-cause.txt"
+            exit 1
+          fi
           if [ "$code" -gt 1 ]; then
             echo "the selector failed with exit code $code" > "$out/llm-cause.txt"
             exit 1
@@ -1524,7 +1531,6 @@ jobs:
       actions: read
     outputs:
       mode: ${{ steps.plan.outputs.mode }}
-      config: ${{ steps.plan.outputs.config }}
       deploy: ${{ steps.plan.outputs.deploy }}
       typecheck: ${{ steps.plan.outputs.typecheck }}
       test-shards: ${{ steps.plan.outputs.test-shards }}
@@ -1576,14 +1582,17 @@ jobs:
           if-no-files-found: ignore
 
   # In gate mode PR Deploy does not start on a push: this job starts it when
-  # the plan selects a deploy check, or when the run is full. A person can
+  # the plan selects a deploy check, or when the run is full. A failed plan
+  # job gives no `mode`: that run is full, so this job starts PR Deploy too. A person can
   # start it with Run workflow on the PR branch. It runs no repository code.
   merge-gate-deploy:
     timeout-minutes: 5
     name: Merge gate starts PR Deploy
     needs: merge-gate-plan
     if: |
-      !cancelled() && needs.merge-gate-plan.outputs.deploy == 'true' &&
+      !cancelled() &&
+      (needs.merge-gate-plan.outputs.deploy == 'true' ||
+      needs.merge-gate-plan.outputs.mode == '') &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
@@ -1607,7 +1616,10 @@ jobs:
   # with no package.
   merge-gate:
     timeout-minutes: 10
-    name: ${{ needs.merge-gate-plan.outputs.config == 'gate' && 'Merge gate' || 'Merge gate (shadow)' }}
+    # A fixed name: this job is the required status, also when the plan job
+    # failed and gave no outputs (then the run is full). gate.mjs fails it
+    # only in gate mode, so it has no continue-on-error.
+    name: Merge gate
     needs:
       [
         merge-gate-manifest,
@@ -1633,7 +1645,6 @@ jobs:
     if: |
       always() && github.event_name == 'pull_request' &&
       github.actor != 'cursor[bot]' && github.actor != 'cursoragent'
-    continue-on-error: ${{ needs.merge-gate-plan.outputs.config != 'gate' }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read

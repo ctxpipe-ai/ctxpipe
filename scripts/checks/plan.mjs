@@ -87,15 +87,25 @@ export function withJobChecks(selection, jobs) {
 // (the deterministic layers, then the LLM stage), with the cache lookup of
 // the select job. A check that only the LLM job selected (the LLM added it,
 // or the package intent step widened to it) has no lookup, so it runs.
-// Without a valid LLM record, the selection of the select job stays, with a
-// note that says why.
+// A failed LLM job, an invalid LLM record or a provider fallback (the LLM
+// stage did not decide) keeps the selection of the select job, with a note
+// that says why. That selection is a superset of what the LLM stage keeps,
+// so the run stays gated. Only a failed select job or plan job gives a full
+// run.
 export function combine(select, llm, llmCause) {
-  if (!llm || schemaErrors(llm, "selection.v1", 1).length)
+  const cause = !llm
+    ? llmCause || "no valid selection record"
+    : schemaErrors(llm, "selection.v1", 1).length
+      ? "no valid selection record"
+      : llm.llm?.fallback
+        ? `provider fallback (${llm.llm.fallback})`
+        : undefined
+  if (cause)
     return {
       ...select,
       notes: [
         ...select.notes,
-        `llm job: ${llmCause || "no valid selection record"}; the deterministic selection stays`,
+        `llm job: ${cause}; the deterministic selection stays`,
       ],
     }
   const chosen = new Set(llm.selected.map((check) => check.id))

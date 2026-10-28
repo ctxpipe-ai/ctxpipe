@@ -158,20 +158,43 @@ test("the plan takes the LLM selection with the cache lookup of the select job",
   assert.equal(planned.selection.llm.change, "renames a UI prop")
   // The LLM added the deployment, so the merge gate starts PR Deploy.
   assert.equal(planned.deploy, true)
-  // A failed LLM job leaves the deterministic selection, with the cause.
-  const fallback = planOf({
-    files: {
-      "llm-selection.json": "",
-      "llm-cause.txt": "the selector did not finish in 3 minutes",
-    },
-  })
-  assert.ok(fallback.ran.includes(backend))
-  assert.ok(!fallback.ran.includes(deploy))
-  assert.ok(
-    fallback.selection.notes.some((note) =>
-      note.includes("llm job: the selector did not finish in 3 minutes"),
-    ),
-  )
+})
+
+test("a failed LLM job, an invalid LLM record or a provider fallback keeps the deterministic selection", () => {
+  for (const [files, cause] of [
+    [
+      {
+        "llm-selection.json": "",
+        "llm-cause.txt": "the selector did not finish in 75 seconds",
+      },
+      "the selector did not finish in 75 seconds",
+    ],
+    [
+      { "llm-selection.json": { ...llmRecord(), selected: "all" } },
+      "no valid selection record",
+    ],
+    [
+      {
+        "llm-selection.json": {
+          ...llmRecord(),
+          llm: { ...llmRecord().llm, fallback: "provider error 503" },
+        },
+      },
+      "provider fallback (provider error 503)",
+    ],
+  ]) {
+    const kept = planOf({ files })
+    // The run stays gated, with the selection of the select job.
+    assert.equal(kept.mode, "gate", cause)
+    assert.ok(kept.ran.includes(backend), cause)
+    assert.ok(!kept.ran.includes(deploy), cause)
+    assert.ok(
+      kept.selection.notes.includes(
+        `llm job: ${cause}; the deterministic selection stays`,
+      ),
+      cause,
+    )
+  }
 })
 
 test("each planned check goes to the job that runs it, and a job without one does not start", () => {
@@ -685,11 +708,69 @@ test("each job of the plan needs the plan job, starts only with its output, and 
       job(name).includes("needs.merge-gate-plan.outputs.mode != 'gate'"),
       name,
     )
-  // The merge gate job gates only in gate mode.
-  assert.match(
-    job("merge-gate"),
-    /continue-on-error: \$\{\{ needs\.merge-gate-plan\.outputs\.config != 'gate' \}\}/,
+  // The merge gate job is the required status: a fixed name, it runs after
+  // a failed plan job, and only gate.mjs decides whether it fails.
+  const gate = job("merge-gate")
+  assert.match(gate, /\n {4}name: Merge gate\n/)
+  assert.doesNotMatch(gate, /\n {4}continue-on-error:/)
+  assert.match(gate, /\n {4}if: \|\n {6}always\(\) && /)
+  // A failed plan job gives no mode: the run is full, so PR Deploy starts.
+  assert.ok(
+    job("merge-gate-deploy").includes(
+      "needs.merge-gate-plan.outputs.mode == ''",
+    ),
   )
+})
+
+test("a failed plan job gives a full run, and the merge gate reports its verdict", () => {
+  // The plan job failed before it wrote plan.json or any output: each check
+  // job runs in full, and the merge gate fails with the full run.
+  const decide = (result) => {
+    const directory = inputs({
+      "mode.json": { mode: "select", reason: "gate" },
+      "selection.json": selectRecord(),
+      "llm-selection.json": llmRecord(),
+      "config.json": config(),
+      "needs.json": {
+        ...needs,
+        "merge-gate-plan": { result: "failure", outputs: {} },
+        lint: { result: "success" },
+        "test-shards": { result },
+      },
+    })
+    const run = spawnSync(
+      process.execPath,
+      [
+        join(root, "scripts/checks/gate.mjs"),
+        "decide",
+        "--config",
+        join(directory, "config.json"),
+        "--inputs",
+        directory,
+        "--results",
+        join(directory, "results"),
+        "--needs",
+        join(directory, "needs.json"),
+        "--out",
+        join(directory, "out"),
+      ],
+      {
+        encoding: "utf8",
+        env: { PATH: process.env.PATH, GITHUB_RUN_ID: "42" },
+      },
+    )
+    const decision = JSON.parse(
+      readFileSync(join(directory, "out", "decision.json"), "utf8"),
+    )
+    return { status: run.status, decision }
+  }
+  const failed = decide("failure")
+  assert.equal(failed.status, 1)
+  assert.notEqual(failed.decision.mode, "gate")
+  assert.equal(failed.decision.fullRun.verdict, "fail")
+  const passed = decide("success")
+  assert.equal(passed.status, 0)
+  assert.equal(passed.decision.fullRun.verdict, "pass")
 })
 
 test("the selected checks of a job run through the public runner, with records", () => {
