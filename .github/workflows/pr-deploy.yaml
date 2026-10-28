@@ -40,17 +40,9 @@ on:
       - reopened
       - synchronize
       - closed
-  # Cloud Agent pushes sometimes skip pull_request synchronize. Keep push so
-  # resolve_pr can map the branch to an open PR. Agent jobs run on push only;
-  # humans on pull_request only. Ignore main (production Deploy) and tags.
-  # Manual fallback: Run workflow from the PR branch → PR number. A run
-  # from main fails: the Actions cache scope of main is readable by every
+  # Manual fallback: Run workflow from the PR branch, then enter the PR number.
+  # A run from main fails: the Actions cache scope of main is readable by every
   # branch (see prepare_pr_database).
-  push:
-    branches-ignore:
-      - main
-    tags-ignore:
-      - "**"
   workflow_dispatch:
     inputs:
       pr_number:
@@ -72,7 +64,7 @@ on:
 # cleanup. The cleanup jobs have a group of their own for each PR, and the
 # deploy jobs refuse a closed PR.
 concurrency:
-  group: ${{ (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')) || (github.event_name == 'pull_request' && github.event.action != 'closed' && github.actor != 'cursor[bot]' && github.actor != 'cursoragent' && github.event.pull_request.head.repo.full_name == github.repository)) && format('pr-deploy-{0}', github.head_ref || github.ref_name) || format('pr-deploy-skipped-{0}', github.run_id) }}
+  group: ${{ (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository)) && format('pr-deploy-{0}', github.head_ref || github.ref_name) || format('pr-deploy-skipped-{0}', github.run_id) }}
   cancel-in-progress: false
 
 permissions:
@@ -86,11 +78,7 @@ jobs:
     name: Resolve PR number and head SHA
     if: |
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' &&
-        (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')) ||
       (github.event_name == 'pull_request' &&
-        github.actor != 'cursor[bot]' &&
-        github.actor != 'cursoragent' &&
         (github.event.action == 'synchronize'
           || github.event.action == 'opened'
           || github.event.action == 'reopened') &&

@@ -16,13 +16,9 @@ on:
       - reopened
       - synchronize
       - ready_for_review
-  # Cloud Agent pushes sometimes skip pull_request synchronize. Keep push so
-  # those commits still get CI. Jobs XOR: agents run on push only; everyone
-  # else on pull_request only. Do not rely on concurrency to hide the twin.
-  # branches must be listed (not only tags-ignore) or GitHub skips branch pushes.
   push:
     branches:
-      - "**"
+      - main
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
@@ -31,16 +27,13 @@ concurrency:
 permissions:
   contents: read
 
-# Cloud Agent (`cursor[bot]` / `cursoragent`): push only.
-# Humans: pull_request only.
 jobs:
   lint:
     timeout-minutes: 15
     name: Lint and format
     if: |
       github.event_name == 'workflow_dispatch' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      github.event_name == 'pull_request'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -102,8 +95,7 @@ jobs:
       !cancelled() &&
       (github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))) &&
+      github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.typecheck != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
@@ -183,8 +175,7 @@ jobs:
       !cancelled() &&
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))) &&
+      github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.test-shards != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
@@ -360,8 +351,7 @@ jobs:
       !cancelled() &&
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))) &&
+      github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.package-tests != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
@@ -419,8 +409,7 @@ jobs:
     if: |
       always() && (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))) &&
+      github.event_name == 'pull_request') &&
       needs.merge-gate-plan.outputs.mode != 'gate'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
@@ -552,8 +541,7 @@ jobs:
       !cancelled() &&
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))) &&
+      github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.production-builds != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
@@ -661,8 +649,7 @@ jobs:
       !cancelled() &&
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))) &&
+      github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.packages != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
@@ -714,8 +701,7 @@ jobs:
       !cancelled() &&
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))) &&
+      github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-build != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
@@ -745,8 +731,7 @@ jobs:
     if: |
       !cancelled() && needs.storybook-build.result == 'success' &&
       (github.event_name == 'workflow_dispatch' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))) &&
+      github.event_name == 'pull_request') &&
       needs.merge-gate-plan.outputs.mode != 'gate'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
@@ -789,8 +774,7 @@ jobs:
       !cancelled() && needs.storybook-build.result == 'success' &&
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))) &&
+      github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-plays != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
@@ -873,8 +857,7 @@ jobs:
       !cancelled() &&
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))) &&
+      github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.codesearch != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
@@ -928,8 +911,7 @@ jobs:
     if: |
       !cancelled() &&
       (github.event_name == 'workflow_dispatch' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))) &&
+      github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.vercel-sandbox != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     # The workbench VERCEL_ACCESS_TOKEN is a test-scoped value for the
@@ -1020,8 +1002,7 @@ jobs:
     name: Terraform configuration
     if: |
       github.event_name == 'workflow_dispatch' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      github.event_name == 'pull_request'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -1055,8 +1036,7 @@ jobs:
     name: Migrations (fresh schema)
     if: |
       github.event_name == 'workflow_dispatch' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      github.event_name == 'pull_request'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     services:
       postgres:
@@ -1113,8 +1093,7 @@ jobs:
       !cancelled() &&
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))) &&
+      github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.upgrade-from-previous-release != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     services:
@@ -1265,8 +1244,7 @@ jobs:
     name: Merge gate manifest
     if: |
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' &&
-      github.actor != 'cursor[bot]' && github.actor != 'cursoragent')
+      github.event_name == 'pull_request'
     continue-on-error: true
     runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
@@ -1522,8 +1500,7 @@ jobs:
     name: Merge gate plan
     needs: [merge-gate-manifest, merge-gate-select, merge-gate-llm]
     if: |
-      !cancelled() && github.event_name == 'pull_request' &&
-      github.actor != 'cursor[bot]' && github.actor != 'cursoragent'
+      !cancelled() && github.event_name == 'pull_request'
     continue-on-error: true
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
@@ -1591,7 +1568,6 @@ jobs:
     needs: merge-gate-plan
     if: |
       !cancelled() &&
-      github.actor != 'cursor[bot]' && github.actor != 'cursoragent' &&
       (needs.merge-gate-plan.outputs.deploy == 'true' ||
       needs.merge-gate-plan.outputs.mode == '') &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -1646,8 +1622,7 @@ jobs:
         upgrade-from-previous-release,
       ]
     if: |
-      always() && github.event_name == 'pull_request' &&
-      github.actor != 'cursor[bot]' && github.actor != 'cursoragent'
+      always() && github.event_name == 'pull_request'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
