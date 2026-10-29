@@ -49,6 +49,7 @@ import { readWorkspaceFormatAt } from "../../domain/workspaces/workspace-format-
 import {
   deleteWorkspaceIngestRefs,
   pushWorkspaceIngestAssemble,
+  readWorkspaceIngestRunTip,
 } from "../../domain/workspaces/write-broker.js"
 import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
@@ -513,9 +514,13 @@ export function defineRepositoryIngestionV2Workflow(
                         workspaceId: destination.workspaceId,
                         generation: destination.generation,
                       },
-                      shards: parts.flatMap((p) =>
-                        p.tip ? [{ shard: String(p.shard), tip: p.tip }] : [],
-                      ),
+                      // Each shard, also one whose output has no tip:
+                      // assemble takes the tips from the shard refs, which
+                      // another execution of a child can move (CTX-1073).
+                      shards: parts.map((p) => ({
+                        shard: String(p.shard),
+                        tip: p.tip,
+                      })),
                       // The shard refs start at the run base, which is
                       // the assembled ref's tip after the repository step.
                       pinnedRevision: base,
@@ -646,7 +651,7 @@ export function defineRepositoryIngestionV2Workflow(
             const { workspaceId } = destination
             const entry = workspaces.find((w) => w.workspaceId === workspaceId)
             if (entry?.assembled) {
-              const assembled = entry.assembled
+              const given = entry.assembled
               const target = await step.run(
                 { name: `publish-target:${workspaceId}` },
                 async () => {
@@ -676,6 +681,38 @@ export function defineRepositoryIngestionV2Workflow(
               )
               const revision = "revision" in target ? target.revision : null
               if (revision) {
+                // Another execution of the repository child can push after
+                // its output took the tip (CTX-1073). Publish takes the ref's
+                // tip, so it keeps those commits. A refused read keeps the
+                // output's tip, which is a commit of the run.
+                const assembled = await step.run(
+                  { name: `publish-tip:${workspaceId}` },
+                  () =>
+                    withIngestionOrg(input.orgId, () =>
+                      readWorkspaceIngestRunTip(
+                        {
+                          orgId: input.orgId,
+                          job: {
+                            runId: run.id,
+                            workspaceId,
+                            generation: destination.generation,
+                          },
+                          ref: ingestRefName({ runId: run.id, workspaceId }),
+                          given,
+                        },
+                        env(),
+                      ),
+                    ).catch((error: unknown) => {
+                      if (!(error instanceof IngestRefRefusedError)) throw error
+                      logIngestEvent("warn", "ingestion-v2.publish-tip-kept", {
+                        ingestionRunId: run.id,
+                        workspaceId,
+                        reason: capIngestText(error.message),
+                      })
+                      return given
+                    }),
+                )
+                entry.assembled = assembled
                 const published = await step.runWorkflow(
                   workspaceExtractIngest.spec,
                   {

@@ -11,14 +11,18 @@ import {
   useSkeletonHold,
 } from "@/components/ui/Skeleton"
 import {
+  AddBuildkiteConnectorButton,
   AddConfluenceConnectorButton,
   AddConnectorCatalogDialog,
   AddGithubConnectorButton,
   AddLinearConnectorButton,
   AddNotionConnectorButton,
   AddPagerdutyConnectorButton,
+  AddPlainConnectorButton,
   AddSlackConnectorButton,
   AddZendeskConnectorButton,
+  BuildkiteConnectionCard,
+  BuildkiteSetupDialog,
   ConfluenceConnectionCard,
   ConnectorSetupDialog,
   ConnectorsEmptyState,
@@ -29,6 +33,8 @@ import {
   NotionSetupDialog,
   PagerdutyConnectionCard,
   PagerdutySetupDialog,
+  PlainConnectionCard,
+  PlainSetupDialog,
   SlackConnectionCard,
   ZendeskConnectionCard,
   ZendeskSetupDialog,
@@ -135,6 +141,16 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const [pagerdutyConnectionId, setPagerdutyConnectionId] = useState<
     string | null
   >(null)
+  const [buildkiteSetupOpen, setBuildkiteSetupOpen] = useState(false)
+  const [buildkiteConnectionId, setBuildkiteConnectionId] = useState<
+    string | null
+  >(null)
+  const [buildkiteReplaceWebhook, setBuildkiteReplaceWebhook] = useState(false)
+  const [plainSetupOpen, setPlainSetupOpen] = useState(false)
+  const [plainConnectionId, setPlainConnectionId] = useState<string | null>(
+    null,
+  )
+  const [plainReconnect, setPlainReconnect] = useState(false)
   const [zendeskSetupOpen, setZendeskSetupOpen] = useState(false)
   const [zendeskConnectionId, setZendeskConnectionId] = useState<string | null>(
     null,
@@ -327,6 +343,34 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 />
               )
             }
+            if (row.type === "buildkite") {
+              return (
+                <BuildkiteConnectionCard
+                  key={row.id}
+                  orgSlug={orgSlug}
+                  connectionId={row.id}
+                  onOpenSetup={(options) => {
+                    setBuildkiteConnectionId(row.id)
+                    setBuildkiteReplaceWebhook(Boolean(options?.replaceWebhook))
+                    setBuildkiteSetupOpen(true)
+                  }}
+                />
+              )
+            }
+            if (row.type === "plain") {
+              return (
+                <PlainConnectionCard
+                  key={row.id}
+                  orgSlug={orgSlug}
+                  connectionId={row.id}
+                  onOpenSetup={(options) => {
+                    setPlainConnectionId(row.id)
+                    setPlainReconnect(Boolean(options?.reconnect))
+                    setPlainSetupOpen(true)
+                  }}
+                />
+              )
+            }
             if (row.type === "zendesk") {
               return (
                 <ZendeskConnectionCard
@@ -423,6 +467,26 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             onStart={({ connectionId }) => {
               setPagerdutyConnectionId(connectionId ?? null)
               setPagerdutySetupOpen(true)
+              setCatalogOpen(false)
+            }}
+          />
+        </li>
+        <li>
+          <AddBuildkiteConnectorButton
+            onStart={() => {
+              setBuildkiteConnectionId(null)
+              setBuildkiteReplaceWebhook(false)
+              setBuildkiteSetupOpen(true)
+              setCatalogOpen(false)
+            }}
+          />
+        </li>
+        <li>
+          <AddPlainConnectorButton
+            onStart={() => {
+              setPlainConnectionId(null)
+              setPlainReconnect(false)
+              setPlainSetupOpen(true)
               setCatalogOpen(false)
             }}
           />
@@ -591,6 +655,32 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           if (!open) {
             setPagerdutyConnectionId(null)
           }
+        }}
+      />
+
+      <BuildkiteSetupDialog
+        key={buildkiteConnectionId ?? "buildkite-setup"}
+        orgSlug={orgSlug}
+        connectionId={buildkiteConnectionId ?? undefined}
+        replaceWebhook={buildkiteReplaceWebhook}
+        isOpen={buildkiteSetupOpen}
+        onConnectionIdChange={setBuildkiteConnectionId}
+        onOpenChange={(open) => {
+          setBuildkiteSetupOpen(open)
+          if (!open) setBuildkiteConnectionId(null)
+        }}
+      />
+
+      <PlainSetupDialog
+        key={plainConnectionId ?? "plain-setup"}
+        orgSlug={orgSlug}
+        connectionId={plainConnectionId ?? undefined}
+        reconnect={plainReconnect}
+        isOpen={plainSetupOpen}
+        onConnectionIdChange={setPlainConnectionId}
+        onOpenChange={(open) => {
+          setPlainSetupOpen(open)
+          if (!open) setPlainConnectionId(null)
         }}
       />
 

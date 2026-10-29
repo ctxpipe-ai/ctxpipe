@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { parseSourceEntry } from "../sources-file.js"
+import { BUILDKITE_SOURCE_MAX_PIPELINES } from "./buildkite.js"
 import {
   CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE,
   CONFLUENCE_SOURCE_MAX_SPACES,
@@ -15,6 +16,7 @@ import {
   NOTION_SOURCE_MAX_PAGES,
 } from "./notion.js"
 import { PAGERDUTY_SOURCE_MAX_SERVICES } from "./pagerduty.js"
+import { PLAIN_SOURCE_MAX_ITEMS } from "./plain.js"
 import { SLACK_SOURCE_MAX_CHANNELS } from "./slack.js"
 import { ZENDESK_SOURCE_MAX_ITEMS } from "./zendesk.js"
 
@@ -34,6 +36,24 @@ const lists = [
     max: PAGERDUTY_SOURCE_MAX_SERVICES,
     scope: (n: number) => ({ services: ids(n, (i) => `PSVC${i}`) }),
     message: `services: Select at most ${PAGERDUTY_SOURCE_MAX_SERVICES} PagerDuty services`,
+  },
+  {
+    provider: "buildkite",
+    max: BUILDKITE_SOURCE_MAX_PIPELINES,
+    scope: (n: number) => ({ pipelines: ids(n, (i) => `pipeline-${i}`) }),
+    message: `pipelines: Select at most ${BUILDKITE_SOURCE_MAX_PIPELINES} Buildkite pipelines`,
+  },
+  {
+    provider: "plain",
+    max: PLAIN_SOURCE_MAX_ITEMS,
+    scope: (n: number) => ({ helpCenters: ids(n, (i) => `hc_${i}`) }),
+    message: `helpCenters: Select at most ${PLAIN_SOURCE_MAX_ITEMS} Help Centers`,
+  },
+  {
+    provider: "plain",
+    max: PLAIN_SOURCE_MAX_ITEMS,
+    scope: (n: number) => ({ labels: ids(n, (i) => `lt_${i}`) }),
+    message: `labels: Select at most ${PLAIN_SOURCE_MAX_ITEMS} labels`,
   },
   {
     provider: "zendesk",

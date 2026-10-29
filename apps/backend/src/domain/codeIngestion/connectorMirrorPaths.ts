@@ -6,6 +6,8 @@ export const CONNECTOR_MIRROR_ROOTS = [
   "slack",
   "confluence",
   "pagerduty",
+  "buildkite",
+  "plain",
   "zendesk",
 ] as const
 

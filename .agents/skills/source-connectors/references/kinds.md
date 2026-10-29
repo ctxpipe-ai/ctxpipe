@@ -20,6 +20,10 @@ Notion: pages as Markdown; databases as `index.md` + `table.csv` + `rows/<row>/i
 
 PagerDuty (ADR-034): selected services in `pagerduty/config.yaml`; one Markdown file per in-scope incident. v3 webhook HMAC is verified then bound to the one connection whose stored secret matches.
 
+Buildkite (ADR-057) is the first connector that starts on Workspace sources (ADR-050): scope in a source file `sources/buildkite/<name>.md`, no `<slug>/config.yaml`, no sync repository on the connection. It is the anchor for a new token-auth scoped mirror.
+
+Plain (ADR-059) uses Workspace sources (ADR-050): scope in `sources/plain/<name>.md`, with no `<slug>/config.yaml` or sync repository on the connection. This scoped mirror uses a pasted GraphQL API key. ctxpipe checks its permissions at connect and creates a webhook target with a write-only token header. Plain signs with one secret for the whole workspace.
+
 Zendesk (ADR-058) starts on Workspace sources (ADR-050): scope in a source file under `sources/`, no `<slug>/config.yaml`, no sync repository on the connection. It is the anchor for an OAuth connector on sources: PKCE, the row's client then the env's, a webhook that ctxpipe creates, and a token refresh outside any transaction that saves with compare-and-set (the provider rotates the refresh token).
 
 Live updates: signed provider webhook → `*-sync-entity` OpenWorkflow → `commitFiles` to the target branch → ingest. Events during `initial_sync` / non-live are skipped.

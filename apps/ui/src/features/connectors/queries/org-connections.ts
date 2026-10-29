@@ -18,6 +18,8 @@ const TYPE_ORDER: Record<OrgConnectionListItem["type"], number> = {
   notion: 3,
   slack: 4,
   pagerduty: 5,
+  buildkite: 6,
+  plain: 6,
   zendesk: 6,
 }
 

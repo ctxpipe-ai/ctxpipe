@@ -3,9 +3,11 @@ import { and, eq, sql } from "drizzle-orm"
 import { withOrgDbContext } from "../db/client.js"
 import { connections } from "../db/schema/connections.js"
 import type {
+  BuildkiteSourceSync,
   ForgeSourceSync,
   NotionSourceSync,
   PagerdutySourceSync,
+  PlainSourceSync,
   ZendeskSourceSync,
 } from "../lib/connection-config.js"
 
@@ -19,6 +21,8 @@ export async function saveConnectionSourceSync(
     | { type: "forge"; sourceSync: ForgeSourceSync }
     | { type: "notion"; sourceSync: NotionSourceSync }
     | { type: "pagerduty"; sourceSync: PagerdutySourceSync }
+    | { type: "buildkite"; sourceSync: BuildkiteSourceSync }
+    | { type: "plain"; sourceSync: PlainSourceSync }
     | { type: "zendesk"; sourceSync: ZendeskSourceSync }
   ),
 ): Promise<void> {

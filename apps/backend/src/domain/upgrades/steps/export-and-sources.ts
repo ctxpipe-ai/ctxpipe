@@ -152,6 +152,8 @@ const PROVIDER_NAMES: Record<SourceProvider, string> = {
   slack: "Slack",
   confluence: "Confluence",
   pagerduty: "PagerDuty",
+  buildkite: "Buildkite",
+  plain: "Plain",
   zendesk: "Zendesk",
   git: "Git",
 }

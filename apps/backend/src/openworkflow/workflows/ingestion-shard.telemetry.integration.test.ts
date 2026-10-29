@@ -122,7 +122,8 @@ async function runStep(
   options: { runtime?: IngestShardRuntime; ref?: string } = {},
 ) {
   const broker: SkillStepBroker = {
-    find: (ref, step) => findStepCommit({ remote, ref, step, runId }),
+    find: (ref, step, since) =>
+      findStepCommit({ remote, ref, step, runId, since }),
     listFiles: (pinnedRevision, tip) =>
       listStepFiles({ remote, runId, pinnedRevision, tip }),
     push: (input) =>

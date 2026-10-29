@@ -6,12 +6,14 @@ import type { ComponentType } from "react"
 
 import { scrollToPaneTop } from "@/lib/scroll-pane"
 
+import { buildkiteSourceUi } from "./providers/buildkite"
 import { confluenceSourceUi } from "./providers/confluence"
 import { gitSourceUi } from "./providers/git"
 import { githubSourceUi } from "./providers/github"
 import { linearSourceUi } from "./providers/linear"
 import { notionSourceUi } from "./providers/notion"
 import { pagerdutySourceUi } from "./providers/pagerduty"
+import { plainSourceUi } from "./providers/plain"
 import { slackSourceUi } from "./providers/slack"
 import { zendeskSourceUi } from "./providers/zendesk"
 
@@ -55,6 +57,8 @@ export const SOURCE_PROVIDER_UI: Record<SourceProvider, SourceProviderUi> = {
   notion: notionSourceUi,
   slack: slackSourceUi,
   pagerduty: pagerdutySourceUi,
+  buildkite: buildkiteSourceUi,
+  plain: plainSourceUi,
   zendesk: zendeskSourceUi,
   git: gitSourceUi,
 }

@@ -18,6 +18,8 @@ const ConnectorListItemSchema = z
       "linear",
       "notion",
       "pagerduty",
+      "buildkite",
+      "plain",
       "zendesk",
     ]),
     /** The account, site, or workspace name that the provider gives. */

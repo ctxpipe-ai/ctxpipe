@@ -39,9 +39,11 @@ The Compose deploy profile binds `ui` (`3002`) and `codesearch` (`3001`) to
 `127.0.0.1` only. Do not change them to all interfaces.
 
 The backend refuses a webhook body above its limit with `413`: 25 MiB for
-GitHub, 5 MiB for Linear, and 1 MiB for Slack, Notion, PagerDuty, Zendesk,
-and Atlassian. If your proxy has a lower body limit, set it to at least 25 MiB
-for `/api/v1/webhook/github` and 5 MiB for `/api/v1/webhook/linear`.
+GitHub, 5 MiB for Linear, Buildkite, and Plain, and 1 MiB for Slack, Notion,
+PagerDuty, Zendesk, and Atlassian. If your proxy has a lower body limit, set it
+to at least 25 MiB for `/api/v1/webhook/github`, and to 5 MiB for
+`/api/v1/webhook/linear`, `/api/v1/webhook/buildkite/*`, and
+`/api/v1/webhook/plain/*`.
 
 Telemetry export is outbound only. There is no collector to expose. Set
 `OTEL_EXPORTER_OTLP_*` to your own endpoint when you want traces, logs, or
@@ -63,6 +65,8 @@ Register callback and webhook URLs against your public origin.
 | Notion webhook | `{AUTH_BASE_URL}/api/v1/webhook/notion?provisioningToken=...` |
 | PagerDuty OAuth | `{AUTH_BASE_URL}/api/v1/integrations/pagerduty/callback` |
 | PagerDuty webhook | `{AUTH_BASE_URL}/api/v1/webhook/pagerduty` |
+| Buildkite webhook | `{AUTH_BASE_URL}/api/v1/webhook/buildkite/<connectionId>` |
+| Plain webhook (ctxpipe creates the target) | `{AUTH_BASE_URL}/api/v1/webhook/plain/<connectionId>` |
 | Zendesk OAuth | `{AUTH_BASE_URL}/api/v1/integrations/zendesk/callback` |
 | Zendesk webhook | `{AUTH_BASE_URL}/api/v1/webhook/zendesk/<connectionId>` |
 | MCP | `{AUTH_BASE_URL}/mcp` |
@@ -160,8 +164,14 @@ Before inviting users:
   client id and secret in the connector wizard, or configure
   `PAGERDUTY_CLIENT_ID` and `PAGERDUTY_CLIENT_SECRET` on backend and worker.
   ctxpipe creates the webhook subscription after authorization.
+- If you use Buildkite, confirm that the backend and worker can reach
+  `api.buildkite.com`. Confirm that the backend can reach
+  `graphql.buildkite.com`, which the connect check uses.
 - Confirm backend and worker can reach `identity.pagerduty.com` and
   `api.pagerduty.com` or `api.eu.pagerduty.com`.
+- If you use Plain, confirm backend and worker can reach
+  `core-api.uk.plain.com`. Plain posts webhooks only to a public HTTPS URL.
+  Without one, Plain sources use the daily sync and **Sync now**.
 - If using Zendesk, register a local OAuth client in Zendesk with the exact
   OAuth callback, and save it in the connector setup. Or configure
   `ZENDESK_CLIENT_ID` and `ZENDESK_CLIENT_SECRET` on backend and worker. ctxpipe
@@ -196,4 +206,5 @@ Before inviting users:
   <Card title="Linear" href="/docs/self-hosting/linear" description="Linear OAuth, signed webhooks, and end-to-end verification." />
   <Card title="Notion" href="/docs/self-hosting/notion" description="Notion OAuth, webhook signing, and end-to-end verification." />
   <Card title="PagerDuty" href="/docs/self-hosting/pagerduty" description="PagerDuty OAuth, automatic webhooks, and end-to-end verification." />
+  <Card title="Buildkite" href="/docs/self-hosting/buildkite" description="API access token, the webhook of each connection, and end-to-end verification." />
 </Cards>

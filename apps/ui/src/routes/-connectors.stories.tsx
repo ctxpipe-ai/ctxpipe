@@ -3,6 +3,11 @@ import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
+import {
+  buildkiteStatusHandler,
+  buildkiteStoryStatus,
+} from "@/mocks/buildkite-handlers"
+import { plainStatusHandler, plainStoryStatus } from "@/mocks/plain-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
   activeMemberRoleHandler,
@@ -656,6 +661,98 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
         ],
       },
     },
+  },
+}
+
+/** A Buildkite row shows its own card, and the catalog opens its setup. */
+export const BuildkiteFromCatalog: Story = {
+  render: pageRender,
+  parameters: pageHandlers([
+    http.get(
+      ({ request }) =>
+        new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+      () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "conn_buildkite_1",
+              type: "buildkite",
+              displayName: "acme",
+              createdAt: "2025-01-01T00:00:00.000Z",
+              updatedAt: "2025-01-02T00:00:00.000Z",
+            },
+          ],
+        }),
+    ),
+    buildkiteStatusHandler(buildkiteStoryStatus({ webhookConfigured: true })),
+    // The org shell lists the Workspaces.
+    workspaceListHandler([]),
+  ]),
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await waitFor(() =>
+      expect(
+        body.getByRole("button", { name: "Buildkite connector actions" }),
+      ).toBeVisible(),
+    )
+    await expect(body.queryByText("GitHub")).toBeNull()
+    await userEvent.click(body.getByRole("button", { name: "Add connection" }))
+    await userEvent.click(
+      await body.findByRole("button", {
+        name: /^Buildkite Sync the latest builds/,
+      }),
+    )
+    const setup = await body.findByRole("heading", {
+      name: "Set up Buildkite connector",
+    })
+    // The modal fades in; wait until the setup is visible.
+    await waitFor(() => expect(setup).toBeVisible())
+    await expect(body.getByLabelText("Organization slug")).toHaveValue("")
+  },
+}
+
+/** A Plain row shows its own card, and the catalog opens its setup. */
+export const PlainFromCatalog: Story = {
+  render: pageRender,
+  parameters: pageHandlers([
+    http.get(
+      ({ request }) =>
+        new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+      () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "conn_plain_1",
+              type: "plain",
+              displayName: "Acme Support",
+              createdAt: "2025-01-01T00:00:00.000Z",
+              updatedAt: "2025-01-02T00:00:00.000Z",
+            },
+          ],
+        }),
+    ),
+    plainStatusHandler(plainStoryStatus()),
+    // The org shell lists the Workspaces.
+    workspaceListHandler([]),
+  ]),
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await waitFor(() =>
+      expect(
+        body.getByRole("button", { name: "Plain connector actions" }),
+      ).toBeVisible(),
+    )
+    await expect(body.queryByText("GitHub")).toBeNull()
+    await userEvent.click(body.getByRole("button", { name: "Add connection" }))
+    await userEvent.click(
+      await body.findByRole("button", { name: /^Plain Sync Help Center/ }),
+    )
+    const setup = await body.findByRole("heading", {
+      name: "Set up Plain connector",
+    })
+    // The modal fades in; wait until the setup is visible.
+    await waitFor(() => expect(setup).toBeVisible())
+    await expect(body.getByLabelText("API key")).toHaveValue("")
   },
 }
 
