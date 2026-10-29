@@ -50,11 +50,7 @@ export type IngestRemote = { url: string; env?: NodeJS.ProcessEnv }
  * validator, or a check of the broker. The message can hold model or
  * customer text; the code holds none.
  */
-export type IngestRefusalRule =
-  | PatchRule
-  | "admission"
-  | "run_tip"
-  | "merge_paths"
+type IngestRefusalRule = PatchRule | "admission" | "run_tip" | "merge_paths"
 
 /** The broker refused the job. Do not retry the same job. */
 export class IngestRefRefusedError extends Error {
