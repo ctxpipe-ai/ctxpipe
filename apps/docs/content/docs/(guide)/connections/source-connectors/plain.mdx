@@ -170,8 +170,8 @@ on each sync. When an article is unpublished, or a thread leaves the newest
    Help Center or label.
 3. Merge the pull request that adds `sources/plain/<name>.md`.
 4. Confirm that the Workspace repository has files under `plain/`.
-5. Add a note to a thread with a selected label. Confirm that the thread file
-   changes after the 10-minute window.
+5. Add a note to a real thread with a selected label, not a Plain test
+   thread. Confirm that the thread file changes after the 10-minute window.
 6. Confirm that the Workspace index is ready in its **Settings**.
 
 Steps 3 and 4 test the GitHub push webhook and the first sync. Step 5 tests
@@ -225,9 +225,10 @@ helps when someone deleted the target in Plain.
 
 ### The card shows “Needs reconnect”
 
-Plain refused the saved key, for example because someone deleted it or
-removed a permission. ctxpipe keeps the files and stops the sync. Select
-**Reconnect Plain** on the card and paste a new key.
+Plain refused the saved key, for example because someone deleted it.
+ctxpipe keeps the files and stops the sync. Select **Reconnect Plain** on
+the card and paste a new key. A missing permission does not show here: see
+[A label or a Help Center does not sync](#a-label-or-a-help-center-does-not-sync).
 
 ### Removing the connector
 
