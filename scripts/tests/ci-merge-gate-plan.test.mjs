@@ -12,8 +12,11 @@ import { join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 
+import { parse as parseYaml } from "yaml"
+
 import { gateDecision, gateText, marker } from "../checks/gate.mjs"
 import { jobOutputs, plan, placeOf, readStore } from "../checks/plan.mjs"
+import { runsInOf } from "../checks/shard.mjs"
 
 // The gate mode of the merge gate (scripts/checks/README.md, Merge gate):
 // the plan of a PR run, the gated verdict, the PR store and the CI jobs that
@@ -727,6 +730,91 @@ test("each job of the plan needs the plan job, starts only with its output, and 
       "needs.merge-gate-plan.outputs.mode == ''",
     ),
   )
+})
+
+test("a gated step has the setup of its full-run step and of the prerequisites of its checks", () => {
+  // In gate mode, scripts/checks/run.mjs makes or verifies the prerequisites
+  // of each check (prerequisites.mjs). The full-run step can use another
+  // command that does not verify them, so a gated step can lack setup that
+  // no full run shows.
+  const { jobs } = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  const listed = spawnSync(
+    process.execPath,
+    [join(root, "scripts/checks/list.mjs")],
+    { cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 },
+  )
+  assert.equal(listed.status, 0, listed.stderr)
+  const runsChecks = (step) =>
+    /scripts\/checks\/(?:selected|run)\.mjs/.test(step.run ?? "")
+  const gated = (step) =>
+    /mode == 'gate'|matrix\.lane == 'selected'/.test(step.if ?? "")
+  // A step of the full run only, or any step of a job of the full run only.
+  const fullRun = (job, step) =>
+    /mode != 'gate'|matrix\.lane != 'selected'/.test(step.if ?? "") ||
+    /mode != 'gate'$/.test((job.if ?? "").trim())
+  const envNames = (job, step) =>
+    new Set([...Object.keys(job.env ?? {}), ...Object.keys(step.env ?? {})])
+  // The names that only select the full set or switch on the trace, and the
+  // names that only give a gated step its plan.
+  const fullOnly = new Set(["EVENT", "STORYBOOK_PLAYS", "STORYBOOK_SHARD"])
+  // The setup that a prerequisite needs from the job and the step.
+  const setup = {
+    postgres: (job, env) =>
+      Boolean(job.services?.postgres) && env.has("DATABASE_URL"),
+    migrations: (job) =>
+      job.steps.some((step) => (step.run ?? "").includes("src/db/migrate.ts")),
+    falkordb: (job, env) =>
+      job.steps.some((step) => step.uses === "./.github/actions/falkordb") &&
+      env.has("GRAPH_DB_URI"),
+  }
+  const pairs = new Map()
+  for (const check of JSON.parse(listed.stdout).checks) {
+    const gateJob = placeOf(check.id).job
+    if (!jobs[gateJob]) continue
+    const fullJob = runsInOf(check.id)?.job
+    const pair = pairs.get(`${fullJob} ${gateJob}`) ?? {
+      fullJob,
+      gateJob,
+      prerequisites: new Set(),
+    }
+    for (const name of check.prerequisites ?? []) pair.prerequisites.add(name)
+    pairs.set(`${fullJob} ${gateJob}`, pair)
+  }
+  let compared = 0
+  for (const { fullJob, gateJob, prerequisites } of pairs.values()) {
+    const job = jobs[gateJob]
+    for (const step of job.steps.filter(runsChecks)) {
+      const env = envNames(job, step)
+      for (const name of prerequisites)
+        if (setup[name])
+          assert.ok(
+            setup[name](job, env),
+            `${gateJob} / ${step.name}: no setup for the prerequisite ${name}`,
+          )
+      if (!gated(step) || !jobs[fullJob]) continue
+      const full = jobs[fullJob]
+      for (const service of Object.keys(full.services ?? {}))
+        assert.ok(
+          job.services?.[service],
+          `${gateJob} has no service ${service} of ${fullJob}`,
+        )
+      for (const fullStep of full.steps.filter(
+        (s) => s.run && fullRun(full, s),
+      ))
+        for (const name of envNames(full, fullStep))
+          if (!fullOnly.has(name))
+            assert.ok(
+              env.has(name),
+              `${gateJob} / ${step.name} has no ${name} of ${fullJob} / ${fullStep.name ?? fullStep.run}`,
+            )
+      compared++
+    }
+  }
+  // typecheck, test-shards, package-tests, packages, storybook-plays (for its
+  // own stories and the golden ones), vercel-sandbox.
+  assert.ok(compared >= 6, `${compared} gated steps compared`)
 })
 
 test("a failed plan job gives a full run, and the merge gate reports its verdict", () => {
