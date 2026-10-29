@@ -201,4 +201,15 @@ describe("withExistingRootFiles", () => {
       ]).roots[0]?.files,
     ).toEqual([LIBRARY])
   })
+
+  it("gives no old package file to a root that has more than one", () => {
+    // Two earlier ingests classified the root in two ways. The map cannot
+    // know which file is current, so it adds neither.
+    expect(
+      withExistingRootFiles(map([]), [
+        { path: SERVICE, kind: "Service", root: "services/api" },
+        { path: LIBRARY, kind: "Library", root: "services/api" },
+      ]).roots[0]?.files,
+    ).toEqual([])
+  })
 })

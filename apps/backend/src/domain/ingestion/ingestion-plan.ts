@@ -176,6 +176,9 @@ export function ingestRootMap(
  * run wrote come first: when this run wrote a package file of a root, no
  * other package file of that root goes into the map. Thus an old Service
  * file of a root that this run classified as a Library gets no claim.
+ * When this run wrote no package file of a root and the root has more than
+ * one old package file, no old file goes into the map, because the map
+ * cannot know which one is current.
  */
 export function withExistingRootFiles(
   map: IngestRootMap,
@@ -186,9 +189,10 @@ export function withExistingRootFiles(
       const mine = existing.filter((file) => file.root === root.path)
       // Each file of `existing` is a package file.
       const written = mine.some((file) => root.files.includes(file.path))
-      const added = written
-        ? []
-        : mine.map((file) => file.path).filter((p) => !root.files.includes(p))
+      const added =
+        written || mine.length > 1
+          ? []
+          : mine.map((file) => file.path).filter((p) => !root.files.includes(p))
       return { ...root, files: [...root.files, ...added].sort() }
     }),
   }
