@@ -146,7 +146,7 @@ it("logs a lease extension that fails because the worker does not own the run", 
       "Failed to extend lease for workflow run",
     )
     expect(
-      events.filter((e) => e.step === "openworkflow.lease-extend-failed"),
+      events.filter((e) => e.step === "openworkflow.lease_extend_failed"),
     ).toEqual([
       expect.objectContaining({
         level: "warn",

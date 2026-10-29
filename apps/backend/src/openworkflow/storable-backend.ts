@@ -81,14 +81,18 @@ export async function connectOpenWorkflowBackend(
     try {
       return await extendLease(params)
     } catch (error) {
-      log.warn({
-        step: "openworkflow.lease-extend-failed",
-        message:
-          "The worker could not extend the lease of the workflow run; another execution can own the run",
-        workflowRunId: params.workflowRunId,
-        workerId: params.workerId,
-        errorClass: error instanceof Error ? error.name : typeof error,
-      })
+      try {
+        log.warn({
+          step: "openworkflow.lease_extend_failed",
+          message:
+            "The worker could not extend the lease of the workflow run; another execution can own the run",
+          workflowRunId: params.workflowRunId,
+          workerId: params.workerId,
+          errorClass: error instanceof Error ? error.name : typeof error,
+        })
+      } catch {
+        // A failed warning must not replace the error of the extension.
+      }
       throw error
     }
   }
