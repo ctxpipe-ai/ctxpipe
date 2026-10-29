@@ -5,12 +5,12 @@ import { log } from "../observability/logger.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
 
 /**
- * One OpenWorkflow execution of a workflow run (CTX-1080). When the worker
- * does not extend the lease of a run in 30 s (for example, its event loop
- * stalls), another worker claims the run again, and a second execution
- * starts. The first execution does not stop: OpenWorkflow refuses only its
- * next write to the run. Long step bodies use `ownsRun` to stop before costly
- * work.
+ * One OpenWorkflow execution of a workflow run (CTX-1080). A worker must
+ * extend the lease of a run in 30 s. When it does not (for example, its
+ * event loop stalls), another worker claims the run again, and a second
+ * execution starts. The first execution does not stop: OpenWorkflow refuses
+ * only its next write to the run. Long step bodies use `ownsRun` to stop
+ * before costly work.
  */
 export type WorkflowExecution = {
   workflowRunId: string
