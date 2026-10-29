@@ -15,7 +15,7 @@
 
 import { scriptStep } from "../../bin/knowledge-lib.mjs"
 import { writePatch } from "../../bin/stage-lib.mjs"
-import { scan, stepCandidates } from "./scan-lib.mjs"
+import { scan, stepCandidates, stepStats } from "./scan-lib.mjs"
 
 const { step, source, roots, rootPath, index, skipped } = scriptStep()
 const scanRoot = (root) =>
@@ -29,28 +29,17 @@ const scanRoot = (root) =>
 
 // --gate: the host runs this before the model. It prints `needsModel`, true
 // when a claim is possible: a candidate of this step, in a root with a Service
-// file. When it is false, the script writes patch.json with the counts, and
-// the host runs no model.
+// file. The script writes the counts to patch.json. When the model runs and
+// does not run apply.mjs, ctxpipe-finish keeps these counts. When
+// `needsModel` is false, the host runs no model.
 if (process.argv.includes("--gate")) {
-  const stats = {}
-  const count = (name) => {
-    stats[name] = (stats[name] ?? 0) + 1
-  }
-  let needsModel = false
-  for (const root of rootPath === null
-    ? roots
-    : roots.filter((r) => r.path === rootPath)) {
-    const mine = stepCandidates(scanRoot(root).candidates, rootPath === null)
-    for (const candidate of mine) count(`candidates.${candidate.type}`)
-    if (!mine.length) continue
-    if (root.files.some((f) => f.kind === "Service")) needsModel = true
-    else count("roots.no_service")
-  }
-  if (!needsModel) {
-    count(stats["roots.no_service"] ? "gate.no_service" : "gate.no_candidates")
-    writePatch(step, { stats })
-  }
-  process.stdout.write(`${JSON.stringify({ needsModel })}\n`)
+  const { stats, claimable } = stepStats(roots, rootPath, scanRoot)
+  if (!claimable)
+    stats[
+      stats["roots.no_service"] ? "gate.no_service" : "gate.no_candidates"
+    ] = 1
+  writePatch(step, { stats })
+  process.stdout.write(`${JSON.stringify({ needsModel: claimable })}\n`)
 } else if (rootPath !== null) {
   const current = roots.find((r) => r.path === rootPath) ?? {
     path: rootPath,

@@ -620,10 +620,15 @@ describe("dependencies scan gate", { timeout: 60_000 }, () => {
     })
   })
 
-  it("says that the model is needed, and writes nothing, for a root with candidates and a Service file", async () => {
+  it("says that the model is needed for a root with candidates and a Service file, and keeps the counts when the model runs no apply", async () => {
     const s = await step(withCalls, {})
     expect(s.gate()).toMatchObject({ needsModel: true })
-    expect(existsSync(s.patchFile)).toBe(false)
+    const counts = { "candidates.http": 2, "candidates.config": 2 }
+    expect(s.patch()).toEqual({ ops: [], stats: counts })
+    // The model ends with ctxpipe-finish and no apply.mjs: the span still
+    // gets the counts of the scan.
+    s.finish()
+    expect(s.patch().stats).toEqual(counts)
   })
 
   it("gates the repository-wide step on the stream candidates of the roots that have a Service file", async () => {

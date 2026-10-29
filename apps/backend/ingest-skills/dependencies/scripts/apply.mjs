@@ -28,7 +28,7 @@ import {
   writeStep,
 } from "../../bin/knowledge-lib.mjs"
 import { fail } from "../../bin/stage-lib.mjs"
-import { scan, stepCandidates } from "./scan-lib.mjs"
+import { scan, stepStats } from "./scan-lib.mjs"
 
 const MAX_RESOLUTIONS = 300
 const MAX_STREAM_FILES = 28
@@ -281,13 +281,8 @@ for (const resolution of resolutions) {
 
 // The candidates of each root of the step, by type, also for a root that no
 // resolution reached.
-for (const current of repositoryStep
-  ? roots
-  : roots.filter((r) => r.path === rootPath)) {
-  const found = scanOf(current)
-  const mine = stepCandidates(found.candidates, repositoryStep)
-  for (const candidate of mine) count(`candidates.${candidate.type}`)
-  if (mine.length && !current.files.some((f) => f.kind === "Service"))
-    count("roots.no_service")
-}
+for (const [name, value] of Object.entries(
+  stepStats(roots, rootPath, scanOf).stats,
+))
+  count(name, value)
 writeStep(step, plans, skipped, { stats })
