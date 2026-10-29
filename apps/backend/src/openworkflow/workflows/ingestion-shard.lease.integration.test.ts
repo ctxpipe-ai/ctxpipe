@@ -538,3 +538,36 @@ it(
     await releaseShardScratch()
   },
 )
+
+it(
+  "releases its scratch when the run is canceled during the step",
+  { timeout: 60_000 },
+  async () => {
+    // This execution holds the index repositories and the source tree.
+    const own = mkdtempSync(join(folder, "own-"))
+    for (const key of scratchKeys)
+      await holdScratch(key, async () => ({ dir: own }))
+    let runId = ""
+    const runtime: IngestShardRuntime = {
+      ensure: async () => {},
+      discoverRoots: async () => ({}),
+      runStep: async () => {
+        await backend.cancelWorkflowRun({ workflowRunId: runId })
+        throw new Error("Sandbox lock ownership expired")
+      },
+    }
+    await runOnWorker(
+      runtime,
+      (id) => {
+        runId = id
+      },
+      releaseShardScratch,
+    )
+    expect(
+      events.filter((e) => e.step === "ingestion-v2.execution-lease-lost"),
+    ).toHaveLength(1)
+    expect(existsSync(own)).toBe(false)
+    expect(heldScratch(`index:${ingestionRunId}:0:`)).toBe(0)
+    expect(heldScratch(`tree:${ingestionRunId}:`)).toBe(0)
+  },
+)
