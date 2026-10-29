@@ -261,13 +261,17 @@ function ingestStepPrompt(
   ].join(" ")
 }
 
-/** True when the last line of the scan output says `needsModel: false`. */
-function scanNeedsNoModel(stdout: string): boolean {
+/**
+ * True when the gate scan starts the model: the scan failed, or the last
+ * line of its output is not `needsModel: false`.
+ */
+function scanStartsModel(scan: { exitCode: number; stdout: string }): boolean {
+  if (scan.exitCode !== 0) return true
   try {
-    const last = stdout.trim().split("\n").at(-1) ?? ""
-    return (JSON.parse(last) as { needsModel?: unknown }).needsModel === false
+    const last = scan.stdout.trim().split("\n").at(-1) ?? ""
+    return (JSON.parse(last) as { needsModel?: unknown }).needsModel !== false
   } catch {
-    return false
+    return true
   }
 }
 
@@ -336,7 +340,7 @@ export async function runIngestShardStep(
       }),
       { signal: step.signal },
     )
-    skipModel = scan.exitCode === 0 && scanNeedsNoModel(scan.stdout)
+    skipModel = !scanStartsModel(scan)
   }
   let usage: IngestStepUsage | undefined
   for (const part of skipModel
