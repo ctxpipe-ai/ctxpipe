@@ -231,3 +231,27 @@ it(
     })
   },
 )
+
+it(
+  "logs the lease loss with the run and the stale execution",
+  { timeout: 60_000 },
+  async () => {
+    const { claimed, runId } = await runStaleExecution()
+    expect(
+      events.filter((e) => e.step === "ingestion-v2.execution-lease-lost"),
+    ).toEqual([
+      expect.objectContaining({
+        level: "warn",
+        ingestionRunId: "run_lease",
+        shard: 0,
+        workspaceId,
+        ingestStep: "skill:repository:apis:ws_lease",
+        attempt: 2,
+        workflowRunId: runId,
+        workerBootId: WORKER_BOOT_ID,
+        workflowWorkerId: claimed?.worker_id,
+        executionAttempt: 1,
+      }),
+    ])
+  },
+)

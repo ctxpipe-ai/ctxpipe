@@ -680,8 +680,18 @@ async function attemptSkillStep(
   for (let attempt = 1; attempt <= STEP_ATTEMPTS; attempt++) {
     // After a lease loss, another execution runs the same steps. This one
     // stops before it makes model calls of its own.
-    if (ctx.execution && !(await ctx.execution.ownsRun()))
+    if (ctx.execution && !(await ctx.execution.ownsRun())) {
+      logIngestEvent("warn", "ingestion-v2.execution-lease-lost", {
+        ingestionRunId: run.runId,
+        ...(run.shard === undefined ? {} : { shard: run.shard }),
+        workspaceId: destination.workspaceId,
+        ingestStep: ctx.name,
+        attempt,
+        workflowRunId: ctx.execution.workflowRunId,
+        ...executionFields(ctx.execution),
+      })
       throw new WorkflowLeaseLostError(ctx.execution)
+    }
     const execution = executionFields(ctx.execution)
     span.setAttributes({
       "ctxpipe.ingest.attempts": attempt,
