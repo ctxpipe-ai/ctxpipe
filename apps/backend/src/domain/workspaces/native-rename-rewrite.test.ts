@@ -81,6 +81,44 @@ it("rewrites the sources list of each unit that names a renamed source file", as
   ])
 })
 
+it("returns no changes when the revision renames no file", async () => {
+  const repo = repository()
+  repo.write("knowledge/a.md", "# A\n\n[B](./b.md)\n")
+  repo.write("knowledge/b.md", "# B\n")
+  const before = repo.commit("Add the two notes")
+  repo.write("knowledge/b.md", "# B\n\nA new paragraph about the note.\n")
+  const after = repo.commit("Edit the second note")
+
+  const changes = await nativeRenameRewriteFiles(
+    await captureGitPack(repo.directory, after, null, [before]),
+    before,
+    null,
+  )
+
+  expect(changes).toEqual([])
+})
+
+it("rewrites a link in another file to the new path of a renamed file", async () => {
+  const repo = repository()
+  repo.write("knowledge/a.md", "# A\n\n[B](./b.md)\n")
+  repo.write("knowledge/b.md", "# B\n")
+  const before = repo.commit("Add the two notes")
+  repo.git("mv", "knowledge/b.md", "knowledge/c.md")
+  const after = repo.commit("Rename the second note")
+
+  const changes = await nativeRenameRewriteFiles(
+    await captureGitPack(repo.directory, after, null, [before]),
+    before,
+    null,
+  )
+
+  // The relative link drops its `./` prefix, as `posix.relative` builds it.
+  expect(changes).toHaveLength(1)
+  expect(changes[0]?.path).toBe("knowledge/a.md")
+  expect(changes[0]?.content).toContain("](c.md)")
+  expect(changes[0]?.content).not.toContain("b.md")
+})
+
 // CTX-1009: the rewrite of a large Workspace held the worker event loop for
 // more than half of the OpenWorkflow lease, so the worker lost the lease.
 it("does not hold the event loop for most of the rewrite of a large Workspace", async () => {
