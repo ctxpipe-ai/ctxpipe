@@ -26,10 +26,15 @@ import {
   listStepFiles,
   pushIngestStep,
 } from "../../domain/ingestion/ingest-refs.js"
+import { closeDb, initDb } from "../../db/client.js"
 import { IngestStepCommandError } from "../../domain/ingestion/ingest-shard-ops.js"
 import type { IngestShardRuntime } from "../../domain/ingestion/ingest-shard-runtime.js"
 import { skillStepName } from "../../domain/ingestion/ingestion-plan.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
+import {
+  openWorkflowExecution,
+  type WorkflowExecution,
+} from "../execution-lease.js"
 import {
   type IngestionShardWorkspace,
   runSkillPages,
@@ -125,7 +130,11 @@ afterAll(async () => {
 
 async function runStep(
   files: Record<string, string>,
-  options: { runtime?: IngestShardRuntime; ref?: string } = {},
+  options: {
+    runtime?: IngestShardRuntime
+    ref?: string
+    execution?: WorkflowExecution
+  } = {},
 ) {
   const broker: SkillStepBroker = {
     find: (ref, step, since) =>
@@ -153,6 +162,7 @@ async function runStep(
   await withLogger(createLogger({ workflow: "test" }), () =>
     runSkillPages({
       step: (_name, fn) => fn(),
+      ...(options.execution ? { execution: options.execution } : {}),
       run: {
         runId,
         shard: 2,
@@ -464,6 +474,35 @@ describe("ingestion step telemetry with the local git broker", () => {
       "ctxpipe.ingest.adopted.ops": 1,
       "ctxpipe.ingest.ref.base": pinned,
     })
+  })
+  it("goes on with the step when the worker cannot read the lease of the run", async () => {
+    // A database that refuses the connection: the read of the run fails.
+    // That is not a lease loss, so the live execution must not stop.
+    initDb("postgresql://ctxpipe:ctxpipe@127.0.0.1:1/unreachable")
+    try {
+      const state = await runStep(
+        { "knowledge/services/orders.md": service },
+        { execution: openWorkflowExecution({ workerId: "worker-1" }, "wr_1") },
+      )
+      expect(state).toMatchObject({ ops: 1, partial: 0 })
+      expect(
+        events.filter(
+          (e) => e.step === "ingestion-v2.execution-lease-check-failed",
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          level: "warn",
+          ingestStep: skillStepName("services/api", "apis", workspaceId, 1),
+          attempt: 1,
+          workflowRunId: "wr_1",
+        }),
+      ])
+      expect(
+        events.filter((e) => e.step === "ingestion-v2.execution-lease-lost"),
+      ).toEqual([])
+    } finally {
+      await closeDb()
+    }
   })
   it("makes the step span a child of the active shard span", async () => {
     await trace

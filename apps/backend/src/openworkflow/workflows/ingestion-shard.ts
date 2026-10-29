@@ -680,20 +680,32 @@ async function attemptSkillStep(
     // After a lease loss, another execution runs the same steps. This one
     // stops before it makes model calls of its own.
     if (ctx.execution) {
-      const owned = await ctx.execution.ownsRun()
-      if (owned === undefined) {
-        logIngestEvent("warn", "ingestion-v2.execution-lease-lost", {
-          ingestionRunId: run.runId,
-          ...(run.shard === undefined ? {} : { shard: run.shard }),
-          workspaceId: destination.workspaceId,
-          ingestStep: ctx.name,
-          attempt,
-          workflowRunId: ctx.execution.workflowRunId,
-          ...executionFields(executionAttempt),
+      const lease = {
+        ingestionRunId: run.runId,
+        ...(run.shard === undefined ? {} : { shard: run.shard }),
+        workspaceId: destination.workspaceId,
+        ingestStep: ctx.name,
+        attempt,
+        workflowRunId: ctx.execution.workflowRunId,
+        ...executionFields(executionAttempt),
+      }
+      // A failed read of the run is not a lease loss. The execution goes on
+      // as the owner, so that a database error does not stop a live
+      // execution.
+      const owned = await ctx.execution
+        .ownsRun()
+        .catch((error: unknown) => {
+          logIngestEvent("warn", "ingestion-v2.execution-lease-check-failed", {
+            ...lease,
+            ...ingestErrorFields(error),
+          })
+          return "unknown" as const
         })
+      if (owned === undefined) {
+        logIngestEvent("warn", "ingestion-v2.execution-lease-lost", lease)
         throw new WorkflowLeaseLostError(ctx.execution.workflowRunId)
       }
-      executionAttempt = owned
+      if (owned !== "unknown") executionAttempt = owned
     }
     const execution = executionFields(executionAttempt)
     span.setAttribute("ctxpipe.ingest.attempts", attempt)
