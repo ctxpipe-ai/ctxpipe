@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm"
 
 import { getSystemDb } from "../db/client.js"
+import { log } from "../observability/logger.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
 
 /**
@@ -28,16 +29,25 @@ export type WorkflowExecution = {
 
 /**
  * The execution of the workflow body that got `step`. OpenWorkflow 0.10 gives
- * the worker id of the execution only on its step executor. When the field is
- * not there (another OpenWorkflow version), the result is undefined and no
- * step checks the lease.
+ * the worker id of the execution only on its step executor, and its types do
+ * not show it. When the field is not there (another OpenWorkflow version),
+ * the result is undefined and no step checks the lease. A warn event then
+ * shows that the check is off.
  */
 export function openWorkflowExecution(
   step: object,
   workflowRunId: string,
 ): WorkflowExecution | undefined {
   const workerId = (step as { workerId?: unknown }).workerId
-  if (typeof workerId !== "string") return undefined
+  if (typeof workerId !== "string") {
+    log.warn({
+      step: "openworkflow.worker_id_missing",
+      message:
+        "The OpenWorkflow step executor has no worker id; no step checks the lease of its run",
+      workflowRunId,
+    })
+    return undefined
+  }
   return {
     workflowRunId,
     workerId,

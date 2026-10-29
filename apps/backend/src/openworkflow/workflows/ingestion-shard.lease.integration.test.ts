@@ -318,6 +318,45 @@ it(
   },
 )
 
+it(
+  "reads the worker id of the execution on the installed OpenWorkflow",
+  { timeout: 30_000 },
+  async () => {
+    let workerId: string | undefined
+    let row: RunRow | undefined
+    workflows++
+    const workflow = defineWorkflow(
+      {
+        name: `ingest-lease-${pr}-${workflows}`,
+        schema: z.object({}),
+        retryPolicy: once,
+      },
+      async ({ step, run }) => {
+        workerId = openWorkflowExecution(step, run.id)?.workerId
+        row = await runRow(run.id)
+        return null
+      },
+    )
+    ow.implementWorkflow(workflow.spec, workflow.fn)
+    await ow.runWorkflow(workflow.spec, {})
+    const worker = ow.newWorker({ concurrency: 1 })
+    await worker.start()
+    await vi.waitFor(() => expect(row).toBeDefined(), { timeout: 15_000 })
+    await worker.stop()
+    expect(
+      workerId,
+      "OpenWorkflow no longer gives the worker id on its step executor (StepExecutor.workerId), so no step checks the lease of its run",
+    ).toBe(row?.worker_id)
+  },
+)
+
+it("logs a step executor that has no worker id", () => {
+  expect(openWorkflowExecution({}, "wr_1")).toBeUndefined()
+  expect(
+    events.filter((e) => e.step === "openworkflow.worker_id_missing"),
+  ).toEqual([expect.objectContaining({ level: "warn", workflowRunId: "wr_1" })])
+})
+
 /** The tar of a step output with one Service file. */
 function serviceArchive() {
   const out = mkdtempSync(join(folder, "out-"))
