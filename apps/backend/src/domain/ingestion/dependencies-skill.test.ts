@@ -1,6 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process"
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -249,7 +248,6 @@ async function step(
     expect(result.status, `${result.stdout}${result.stderr}`).toBe(0)
     return JSON.parse(result.stdout) as { needsModel: boolean }
   }
-  const patchFile = join(root, "out", "patch.json")
   /** `ctxpipe-finish`, which the model runs last. */
   const finish = () =>
     execFileSync(
@@ -269,7 +267,6 @@ async function step(
     patch,
     finish,
     gate,
-    patchFile,
   }
 }
 
