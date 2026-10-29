@@ -1581,7 +1581,25 @@ jobs:
           REPO: ${{ github.repository }}
           BRANCH: ${{ github.head_ref }}
           PR: ${{ github.event.pull_request.number }}
-        run: gh workflow run pr-deploy.yaml --repo "$REPO" --ref "$BRANCH" -f pr_number="$PR"
+        run: |
+          # The PR can merge and lose its branch while this run goes on.
+          # Skip only on a definite answer; any other failure fails the step.
+          state=$(gh pr view "$PR" --repo "$REPO" --json state --jq .state)
+          if [ "$state" != "OPEN" ]; then
+            echo "::notice::PR is closed or its branch is gone; no preview deploy"
+            exit 0
+          fi
+          if ! out=$(gh api "repos/$REPO/branches/$BRANCH" --silent 2>&1); then
+            case "$out" in
+              *"HTTP 404"*)
+                echo "::notice::PR is closed or its branch is gone; no preview deploy"
+                exit 0
+                ;;
+            esac
+            echo "$out" >&2
+            exit 1
+          fi
+          gh workflow run pr-deploy.yaml --repo "$REPO" --ref "$BRANCH" -f pr_number="$PR"
 
   # Publishes the decision of each PR run: the job summary, the artifact
   # merge-gate-decision, and one PR comment that it updates. In gate mode
