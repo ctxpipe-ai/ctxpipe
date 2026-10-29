@@ -10,6 +10,7 @@ import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import {
   disallowedPathReason,
   MAX_WORKSPACE_OPS,
+  type PatchRejection,
   type PatchRule,
   type PatchStepInput,
   type PatchStepResult,
@@ -51,6 +52,13 @@ export type IngestRemote = { url: string; env?: NodeJS.ProcessEnv }
  * customer text; the code holds none.
  */
 type IngestRefusalRule = PatchRule | "admission" | "run_tip" | "merge_paths"
+
+/**
+ * A merged file that a publish withholds (CTX-1081): the file keeps its
+ * version on the default tip. `rules` holds each validator rule that
+ * rejected it, sorted.
+ */
+export type WithheldFile = { path: string; rules: PatchRule[] }
 
 /** The broker refused the job. Do not retry the same job. */
 export class IngestRefRefusedError extends Error {
@@ -354,19 +362,26 @@ export async function pushIngestAssemble(input: {
     let tree = (await runGit(repoDir, ["write-tree"], { env: indexEnv }))
       .toString()
       .trim()
-    if (conflicts.length && input.semanticMerge)
-      tree = (
-        await mergeConflicts(repoDir, {
-          pinnedRevision: input.pinnedRevision,
-          tree,
-          conflicts,
-          opsBefore: opsBefore + changes.size - conflicts.length,
-          bundle: input.commit.bundle,
-          merge: input.semanticMerge,
-          rootPath,
-          withhold: false,
-        })
-      ).tree
+    if (conflicts.length && input.semanticMerge) {
+      const merged = await mergeConflicts(repoDir, {
+        pinnedRevision: input.pinnedRevision,
+        tree,
+        conflicts,
+        opsBefore: opsBefore + changes.size - conflicts.length,
+        bundle: input.commit.bundle,
+        merge: input.semanticMerge,
+        rootPath,
+      })
+      if (merged.rejections.length)
+        throw new IngestRefRefusedError(
+          `The semantic merge result fails the patch validator: ${merged.rejections
+            .slice(0, 5)
+            .map((r) => `${r.path}: ${r.rule}: ${r.reason}`)
+            .join("; ")}`,
+          [...new Set(merged.rejections.map((r) => r.rule))].sort(),
+        )
+      tree = merged.tree
+    }
     const sha = await commitStep(repoDir, {
       tree,
       parents: tips.length ? tips : [input.pinnedRevision],
@@ -407,7 +422,7 @@ export async function mergeIngestPublish(input: {
 }): Promise<{
   files: Array<{ path: string; content: string; encoding?: "base64" }>
   deletePaths: string[]
-  withheld: Array<{ path: string; rule: PatchRule }>
+  withheld: WithheldFile[]
 }> {
   return withScratchRepository(async (repoDir) => {
     await fetchCommits(
@@ -465,9 +480,9 @@ export async function mergeIngestPublish(input: {
     let tree = (await runGit(repoDir, ["write-tree"], { env: indexEnv }))
       .toString()
       .trim()
-    let withheldFiles: Array<{ path: string; rule: PatchRule }> = []
-    if (conflicts.length)
-      ({ tree, withheld: withheldFiles } = await mergeConflicts(repoDir, {
+    const withheldFiles: WithheldFile[] = []
+    if (conflicts.length) {
+      const merged = await mergeConflicts(repoDir, {
         pinnedRevision: input.pinnedRevision,
         tree,
         conflicts,
@@ -477,8 +492,14 @@ export async function mergeIngestPublish(input: {
         merge: input.semanticMerge,
         // The publish reads whole-repository paths.
         rootPath: "",
-        withhold: true,
-      }))
+      })
+      tree = merged.tree
+      const rulesOf = new Map<string, Set<PatchRule>>()
+      for (const { path, rule } of merged.rejections)
+        rulesOf.set(path, (rulesOf.get(path) ?? new Set()).add(rule))
+      for (const [path, rules] of rulesOf)
+        withheldFiles.push({ path, rules: [...rules].sort() })
+    }
 
     const files: Array<{ path: string; content: string; encoding?: "base64" }> =
       []
@@ -966,8 +987,9 @@ export type IngestConflictResolver = (
  * (the pinned revision plus the other shards' ops): a model wrote them, so
  * they get the same checks as a step's files. The host fields go back to
  * their pinned values first, and the validator stamps them again. Returns
- * the validated tree. With `withhold`, a rejected file keeps its version on
- * `tree` and the result names it; else one rejected file refuses the job.
+ * the validated tree and the rejections. A rejected file keeps its version
+ * on `tree`; the caller decides whether a rejection refuses the job or
+ * withholds the file.
  */
 async function mergeConflicts(
   repoDir: string,
@@ -981,12 +1003,8 @@ async function mergeConflicts(
       Parameters<typeof pushIngestAssemble>[0]["semanticMerge"]
     >
     rootPath: string
-    withhold: boolean
   },
-): Promise<{
-  tree: string
-  withheld: Array<{ path: string; rule: PatchRule }>
-}> {
+): Promise<{ tree: string; rejections: PatchRejection[] }> {
   const text = async (spec: string | null) =>
     spec === null
       ? null
@@ -1043,7 +1061,7 @@ async function mergeConflicts(
   }
   let tree = input.tree
   let opsBefore = input.opsBefore
-  const withheld = new Map<string, { path: string; rule: PatchRule }>()
+  const rejections: PatchRejection[] = []
   for (const [root, conflicts] of groups) {
     const baseCommit = (
       await runGit(
@@ -1110,24 +1128,14 @@ async function mergeConflicts(
         rootPath: input.rootPath,
         ...(root === undefined ? {} : { root }),
       })
-      if (input.withhold)
-        for (const { path, rule } of result.rejections)
-          withheld.set(`${path}\0${rule}`, { path, rule })
-      else if (result.rejections.length)
-        throw new IngestRefRefusedError(
-          `The semantic merge result fails the patch validator: ${result.rejections
-            .slice(0, 5)
-            .map((r) => `${r.path}: ${r.rule}: ${r.reason}`)
-            .join("; ")}`,
-          [...new Set(result.rejections.map((r) => r.rule))].sort(),
-        )
+      rejections.push(...result.rejections)
       tree = result.tree
       opsBefore += ops.length
     } finally {
       await rm(stagedDir, { recursive: true, force: true })
     }
   }
-  return { tree, withheld: [...withheld.values()] }
+  return { tree, rejections }
 }
 
 /** The fields that only the host sets (patch validator, concept section 4.3). */
