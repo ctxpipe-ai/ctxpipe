@@ -20,13 +20,13 @@ import {
   it,
 } from "vitest"
 
+import { closeDb, initDb } from "../../db/client.js"
 import {
   findStepCommit,
   ingestRefName,
   listStepFiles,
   pushIngestStep,
 } from "../../domain/ingestion/ingest-refs.js"
-import { closeDb, initDb } from "../../db/client.js"
 import { IngestStepCommandError } from "../../domain/ingestion/ingest-shard-ops.js"
 import type { IngestShardRuntime } from "../../domain/ingestion/ingest-shard-runtime.js"
 import { skillStepName } from "../../domain/ingestion/ingestion-plan.js"
