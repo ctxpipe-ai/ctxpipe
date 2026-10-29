@@ -757,13 +757,22 @@ export function defineRepositoryIngestionV2Workflow(
                       ? published.refused
                       : published.failed
                   entry.partial += 1
-                  getLogger().warn("ingestion-v2.partial", {
-                    ingestionRunId: run.id,
-                    step: `publish:${workspaceId}`,
-                    workspaceId,
-                    // A fixed code: the cause text can hold model or customer text.
-                    reason: published.reason,
-                  })
+                  // A step, so that a replay of the run logs no second event.
+                  await step.run(
+                    { name: `log-partial:${workspaceId}` },
+                    async () =>
+                      logIngestEvent("warn", "ingestion-v2.partial", {
+                        ingestionRunId: run.id,
+                        ingestStep: "publish",
+                        workspaceId,
+                        // Fixed codes: the cause text can hold model or
+                        // customer text.
+                        reason: published.reason,
+                        ...(published.reason === "refused"
+                          ? { rules: published.rules }
+                          : {}),
+                      }),
+                  )
                 }
               } else if ("skip" in target && target.skip === "below_format") {
                 entry.published = null
@@ -776,12 +785,16 @@ export function defineRepositoryIngestionV2Workflow(
               } else {
                 entry.refused = "The Workspace binding changed before publish"
                 entry.partial += 1
-                getLogger().warn("ingestion-v2.partial", {
-                  ingestionRunId: run.id,
-                  step: `publish:${workspaceId}`,
-                  workspaceId,
-                  reason: entry.refused,
-                })
+                await step.run(
+                  { name: `log-partial:${workspaceId}` },
+                  async () =>
+                    logIngestEvent("warn", "ingestion-v2.partial", {
+                      ingestionRunId: run.id,
+                      ingestStep: "publish",
+                      workspaceId,
+                      reason: "relinked",
+                    }),
+                )
               }
             }
           }

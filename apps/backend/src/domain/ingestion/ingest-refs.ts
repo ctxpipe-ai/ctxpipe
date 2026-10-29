@@ -10,6 +10,7 @@ import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import {
   disallowedPathReason,
   MAX_WORKSPACE_OPS,
+  type PatchRule,
   type PatchStepInput,
   type PatchStepResult,
   validatePatchStep,
@@ -44,9 +45,24 @@ type IngestRefTarget = {
 /** A remote and the git environment (credentials) to reach it. */
 export type IngestRemote = { url: string; env?: NodeJS.ProcessEnv }
 
+/**
+ * A fixed code of the cause of a refusal, for the logs: a rule of the patch
+ * validator, or a check of the broker. The message can hold model or
+ * customer text; the code holds none.
+ */
+export type IngestRefusalRule =
+  | PatchRule
+  | "admission"
+  | "run_tip"
+  | "merge_paths"
+
 /** The broker refused the job. Do not retry the same job. */
 export class IngestRefRefusedError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /** The codes of the causes; empty when no code applies. */
+    readonly rules: readonly IngestRefusalRule[] = [],
+  ) {
     super(message)
     this.name = "IngestRefRefusedError"
   }
@@ -401,6 +417,7 @@ export async function mergeIngestPublish(input: {
     if ((await stepTrailers(repoDir, input.tip)).run !== input.runId)
       throw new IngestRefRefusedError(
         "The assembled tip is not a commit of the ingestion run",
+        ["run_tip"],
       )
     const text = async (spec: string) =>
       (await runGit(repoDir, ["cat-file", "blob", spec])).toString("utf8")
@@ -419,7 +436,8 @@ export async function mergeIngestPublish(input: {
       input.tip,
     )) {
       const reason = disallowedPathReason(change.path)
-      if (reason) throw new IngestRefRefusedError(`${change.path}: ${reason}`)
+      if (reason)
+        throw new IngestRefRefusedError(`${change.path}: ${reason}`, ["path"])
       if (change.blob === null && withheld.size) {
         const front = splitFrontMatter(
           await text(`${input.pinnedRevision}:${change.path}`),
@@ -993,6 +1011,7 @@ async function mergeConflicts(
     )
       throw new IngestRefRefusedError(
         "The semantic merge did not resolve exactly the conflicting paths",
+        ["merge_paths"],
       )
     for (const file of resolved) current.set(file.path, file.content)
   }
@@ -1087,6 +1106,7 @@ async function mergeConflicts(
             .slice(0, 5)
             .map((r) => `${r.path}: ${r.rule}: ${r.reason}`)
             .join("; ")}`,
+          [...new Set(result.rejections.map((r) => r.rule))].sort(),
         )
       tree = result.tree
       opsBefore += ops.length

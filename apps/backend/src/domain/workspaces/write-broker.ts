@@ -614,20 +614,28 @@ async function admitIngestJob(
     if (!run?.unfinished)
       throw new IngestRefRefusedError(
         "The job's run is not an unfinished ingestion run of the org",
+        ["admission"],
       )
   }
   const workspace = await getWorkspaceWriteAdmission(workspaceId, orgId)
   if (!workspace)
-    throw new IngestRefRefusedError("The Workspace is not bound in the org")
+    throw new IngestRefRefusedError("The Workspace is not bound in the org", [
+      "admission",
+    ])
   if (workspace.writeStatus !== "writable")
-    throw new IngestRefRefusedError("The Workspace is not writable")
+    throw new IngestRefRefusedError("The Workspace is not writable", [
+      "admission",
+    ])
   if (job && workspace.revision.generation !== job.generation)
-    throw new IngestRefRefusedError("The Workspace binding changed")
+    throw new IngestRefRefusedError("The Workspace binding changed", [
+      "admission",
+    ])
   const { url, connectionId } = workspace.revision.remote
   const repositoryName = githubRepoFullNameFromWorkspaceUrl(url)
   if (!repositoryName || !connectionId)
     throw new IngestRefRefusedError(
       "Ingest refs require a connected GitHub repository",
+      ["admission"],
     )
   return {
     url,

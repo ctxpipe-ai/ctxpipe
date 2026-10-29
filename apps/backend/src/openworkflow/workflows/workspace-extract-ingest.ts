@@ -246,7 +246,10 @@ export function defineWorkspaceExtractIngestWorkflow() {
                   // A merge that fails the patch validator: the Workspace
                   // is `partial`, and the publish writes nothing.
                   if (error instanceof IngestRefRefusedError)
-                    return { refused: error.message.slice(0, 300) }
+                    return {
+                      refused: error.message.slice(0, 300),
+                      rules: error.rules,
+                    }
                   // A failed semantic merge model: the same, but the run
                   // keeps the refs.
                   if (error instanceof SemanticResolveError)
@@ -267,6 +270,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
                 committed: false as const,
                 reason: "refused" as const,
                 refused: transformed.refused,
+                rules: transformed.rules,
               }
             }
             if ("failed" in transformed) {

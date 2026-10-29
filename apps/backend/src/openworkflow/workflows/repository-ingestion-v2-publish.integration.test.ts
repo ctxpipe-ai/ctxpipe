@@ -968,6 +968,21 @@ describe("ingestion v2 publish", () => {
     },
   )
 
+  /**
+   * The `ingestion-v2.partial` events of the publish to context A. The event
+   * name is in `step`, as for each other `ingestion-v2.*` event.
+   */
+  function partialLogsOf(runId: string) {
+    return loggedEvents.filter(
+      (event) =>
+        event.level === "warn" &&
+        event.step === "ingestion-v2.partial" &&
+        event.ingestionRunId === runId &&
+        event.workspaceId === workspaceIds[0] &&
+        event.ingestStep === "publish",
+    )
+  }
+
   /** A git wrapper: each tip read of context A comes after one more commit of a person, while `flag` exists. */
   function raceContextA(flag: string): string {
     const bare = join(remotes, contexts[0] ?? "")
@@ -1007,13 +1022,7 @@ describe("ingestion v2 publish", () => {
       const entry = expectOnlyContextBPublished(result, runId)
       expect(entry?.refused).toMatch(/default branch kept changing/)
       // The partial log names a fixed cause, not model or customer text.
-      const partialLogs = loggedEvents.filter(
-        (event) =>
-          event.level === "warn" &&
-          event.ingestionRunId === runId &&
-          event.workspaceId === workspaceIds[0] &&
-          String(event.step).startsWith("publish:"),
-      )
+      const partialLogs = partialLogsOf(runId)
       expect(partialLogs).not.toEqual([])
       expect(partialLogs.map((event) => event.reason)).toEqual(
         partialLogs.map(() => "failed"),
@@ -1087,6 +1096,10 @@ describe("ingestion v2 publish", () => {
       expect(entry?.refused).toMatch(
         /knowledge\/services\/billing-api\.md: human_section/,
       )
+      // The log names the rule of the validator, not the text of the file.
+      expect(
+        partialLogsOf(handle.workflowRun.id).map((event) => event.rules),
+      ).toEqual([["human_section"]])
       const bare = join(remotes, contexts[0] ?? "")
       expect(git(bare, "rev-parse", "main")).toBe(sameFile.sha)
       expect(
