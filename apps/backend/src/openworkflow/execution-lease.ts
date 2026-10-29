@@ -27,8 +27,9 @@ export type WorkflowExecution = {
   ownsRun(): Promise<number | undefined>
   /**
    * Who has the run now. `owned`: this execution owns it. `taken`: another
-   * execution owns it (the run is `running` with another worker id), or
-   * another execution parked it (`sleeping`) or set it back to `pending`.
+   * execution owns the run (`running` with another worker id). Or another
+   * execution parked it (`running` with no worker id in OpenWorkflow 0.10),
+   * or set it back to `pending`. The old `sleeping` status counts the same.
    * `ended`: the run has a terminal status, or it is not there. A failed
    * read of the run throws.
    */
@@ -88,6 +89,8 @@ export function openWorkflowExecution(
         return row.worker_id === workerId ? "owned" : "taken"
       // While this execution runs, only another execution can park the run
       // or set it back to `pending`. That execution continues the run later.
+      // OpenWorkflow 0.10 parks a run as `running` with no worker id (above);
+      // `sleeping` is the status of older versions.
       if (row?.status === "sleeping" || row?.status === "pending")
         return "taken"
       return "ended"
