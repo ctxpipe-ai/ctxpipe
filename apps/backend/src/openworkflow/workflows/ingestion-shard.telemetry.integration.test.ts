@@ -23,6 +23,7 @@ import {
 import {
   findStepCommit,
   ingestRefName,
+  ingestRunRefTip,
   listStepFiles,
   pushIngestStep,
 } from "../../domain/ingestion/ingest-refs.js"
@@ -127,6 +128,7 @@ async function runStep(
       listStepFiles({ remote, runId, pinnedRevision, tip }),
     push: (input) =>
       pushIngestStep({ ...input, remote, job: { runId, workspaceId } }),
+    runTip: (ref, given) => ingestRunRefTip({ remote, ref, runId, given }),
     sourcePathExists: async () => false,
     readSourceFile: async () => null,
   }

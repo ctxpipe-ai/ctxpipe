@@ -14,6 +14,7 @@ import {
   type IngestConflictResolver,
   IngestRefRefusedError,
   ingestRefName,
+  ingestRunRefTip,
   listStepFiles,
   mergeIngestPublish,
   parseIngestRef,
@@ -821,7 +822,7 @@ describe("pushIngestAssemble", () => {
   }
 
   function assemble(
-    tips: Array<{ shard: string; tip: string }>,
+    tips: Array<{ shard: string; tip: string | null }>,
     remoteUrl = remote,
     rootPath?: string,
   ) {
@@ -1070,15 +1071,127 @@ describe("pushIngestAssemble", () => {
     ])
   })
 
-  it("refuses a shard tip that is not the shard ref's tip", async () => {
+  /**
+   * A second execution of the same shard child pushed the next step on the
+   * shard ref after the first execution's output took its tip (CTX-1073).
+   */
+  async function movedPast(tip: string, shard = "0") {
+    return step({
+      ref: ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard }),
+      oldTip: tip,
+      step: `skill:root-${shard}:dependencies:ws_alpha`,
+      files: { "knowledge/services/later.md": service("Later") },
+    })
+  }
+
+  it("takes the tip of a shard ref that another execution of the run moved past the given tip", async () => {
     const tips = await shards([{ "knowledge/services/a.md": service("A") }])
+    const moved = await movedPast(tips[0]?.tip ?? "")
+    const result = await assemble(tips)
+    const parents = git(remote, [
+      "rev-list",
+      "--parents",
+      "-n",
+      "1",
+      result.sha,
+    ])
+      .split(" ")
+      .slice(1)
+    expect(parents).toEqual([moved.sha])
+    expect(result.ops).toBe(2)
+    expect(remoteRefs(remote).get(ASSEMBLED)).toBe(result.sha)
+  })
+
+  it("takes the tip of a shard ref when the shard output has no tip", async () => {
+    const tips = await shards([
+      { "knowledge/services/a.md": service("A") },
+      { "knowledge/services/b.md": service("B") },
+    ])
+    const result = await assemble([
+      tips[0] ?? { shard: "0", tip: null },
+      { shard: "1", tip: null },
+      // A shard that pushed nothing, in no execution: no ref, no part.
+      { shard: "2", tip: null },
+    ])
+    expect(result.ops).toBe(2)
+  })
+
+  it("refuses a shard ref whose tip is not a commit of the run", async () => {
+    const tips = await shards([{ "knowledge/services/a.md": service("A") }])
+    const work = join(root, `clone-foreign-${++fixtureCount}`)
+    git(root, ["clone", "-q", remote, work])
+    git(work, ["checkout", "-q", "--detach", tips[0]?.tip ?? ""])
+    writeTree(work, { "knowledge/services/z.md": service("Z") })
+    git(work, ["add", "-A"])
+    git(work, ["commit", "-q", "-m", "Edit by a person"])
+    git(work, [
+      "push",
+      "-q",
+      "origin",
+      `HEAD:${ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard: "0" })}`,
+    ])
+    await expect(assemble(tips)).rejects.toThrow(
+      "The tip of shard ref 0 is not a commit of the run",
+    )
+    expect(remoteRefs(remote).has(ASSEMBLED)).toBe(false)
+  })
+
+  it("refuses a shard tip that the shard ref does not hold, and a missing shard ref", async () => {
+    const tips = await shards([
+      { "knowledge/services/a.md": service("A") },
+      { "knowledge/services/b.md": service("B") },
+    ])
+    // The tip of shard 1 is not on the ref of shard 0.
     await expect(
-      assemble([{ shard: "0", tip: pinned }]),
-    ).rejects.toBeInstanceOf(IngestRefRefusedError)
+      assemble([{ shard: "0", tip: tips[1]?.tip ?? "" }]),
+    ).rejects.toThrow("The shard ref 0 does not hold the given tip")
     await expect(
       assemble([...tips, { shard: "7", tip: tips[0]?.tip ?? "" }]),
-    ).rejects.toBeInstanceOf(IngestRefRefusedError)
+    ).rejects.toThrow("The shard ref 7 is missing")
     expect(remoteRefs(remote).has(ASSEMBLED)).toBe(false)
+  })
+})
+
+describe("ingestRunRefTip", () => {
+  const REF = ingestRefName({ runId: RUN, workspaceId: WORKSPACE })
+
+  function runTip(given: string | null) {
+    return ingestRunRefTip({
+      remote: { url: remote },
+      ref: REF,
+      runId: RUN,
+      given,
+    })
+  }
+
+  it("gives the given tip when the ref is at it, and when the ref is missing", async () => {
+    expect(await runTip(null)).toBeNull()
+    const first = await step({ ref: REF, step: "skill:repository:a:ws_alpha" })
+    expect(await runTip(first.sha)).toBe(first.sha)
+  })
+
+  it("gives a later commit of the run that another execution pushed on the ref", async () => {
+    const first = await step({ ref: REF, step: "skill:repository:a:ws_alpha" })
+    const later = await step({
+      ref: REF,
+      oldTip: first.sha,
+      step: "skill:repository:b:ws_alpha",
+      files: { "knowledge/services/later.md": service("Later") },
+    })
+    expect(await runTip(first.sha)).toBe(later.sha)
+  })
+
+  it("refuses a tip that does not descend from the given tip", async () => {
+    const first = await step({ ref: REF, step: "skill:repository:a:ws_alpha" })
+    const other = await step({
+      ref: ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard: "3" }),
+      step: "skill:root-3:apis:ws_alpha",
+      files: { "knowledge/services/other.md": service("Other") },
+    })
+    await expect(runTip(other.sha)).rejects.toThrow(
+      `The ref ${REF} does not hold the given tip`,
+    )
+    expect(first.sha).not.toBe(other.sha)
   })
 })
 

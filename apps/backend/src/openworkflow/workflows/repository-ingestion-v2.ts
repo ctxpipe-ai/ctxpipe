@@ -49,6 +49,7 @@ import { readWorkspaceFormatAt } from "../../domain/workspaces/workspace-format-
 import {
   deleteWorkspaceIngestRefs,
   pushWorkspaceIngestAssemble,
+  readWorkspaceIngestRunTip,
 } from "../../domain/workspaces/write-broker.js"
 import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
@@ -513,9 +514,13 @@ export function defineRepositoryIngestionV2Workflow(
                         workspaceId: destination.workspaceId,
                         generation: destination.generation,
                       },
-                      shards: parts.flatMap((p) =>
-                        p.tip ? [{ shard: String(p.shard), tip: p.tip }] : [],
-                      ),
+                      // Each shard, also one whose output has no tip:
+                      // assemble takes the tips from the shard refs, which
+                      // another execution of a child can move (CTX-1073).
+                      shards: parts.map((p) => ({
+                        shard: String(p.shard),
+                        tip: p.tip,
+                      })),
                       // The shard refs start at the run base, which is
                       // the assembled ref's tip after the repository step.
                       pinnedRevision: base,
@@ -636,6 +641,39 @@ export function defineRepositoryIngestionV2Workflow(
               entry.stepFailures,
               done.stepFailures,
             )
+          }
+          // Another execution of the repository child can push after the
+          // output took its tip (CTX-1073). Publish takes the ref's tip, so
+          // it does not drop those commits.
+          for (const destination of ready) {
+            const entry = workspaces.find(
+              (w) => w.workspaceId === destination.workspaceId,
+            )
+            if (!entry?.assembled) continue
+            const given = entry.assembled
+            entry.assembled =
+              (await step.run(
+                { name: `repository-tip:${destination.workspaceId}` },
+                () =>
+                  withIngestionOrg(input.orgId, () =>
+                    readWorkspaceIngestRunTip(
+                      {
+                        orgId: input.orgId,
+                        job: {
+                          runId: run.id,
+                          workspaceId: destination.workspaceId,
+                          generation: destination.generation,
+                        },
+                        ref: ingestRefName({
+                          runId: run.id,
+                          workspaceId: destination.workspaceId,
+                        }),
+                        given,
+                      },
+                      env(),
+                    ),
+                  ),
+              )) ?? given
           }
         }
 

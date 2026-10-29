@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { type Env, parseEnv } from "../../config/env.js"
 import {
+  IngestRefMovedError,
   IngestRefRefusedError,
   ingestRefName,
   type PushIngestStepInput,
@@ -57,6 +58,7 @@ import {
   findWorkspaceStepCommit,
   listWorkspaceIngestStepFiles,
   pushWorkspaceIngestStep,
+  readWorkspaceIngestRunTip,
 } from "../../domain/workspaces/write-broker.js"
 import { WORKER_BOOT_ID, withCrashLoopGuard } from "../crash-loop.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
@@ -200,7 +202,15 @@ type StepResult = (
       more: boolean
       partial?: undefined
     }
-  | { partial: true; failed?: IngestStepFailureKind }
+  | {
+      partial: true
+      failed?: IngestStepFailureKind
+      /**
+       * The ref tip after another execution of the same child moved the ref
+       * (CTX-1073): the next step starts from it, not from the stale tip.
+       */
+      tip?: string
+    }
 ) & {
   /** The model usage of the step's attempts, when the runtime reports it (the recorded spend reads it). */
   usage?: IngestStepUsage
@@ -414,6 +424,11 @@ export type SkillStepBroker = {
   push(
     input: Omit<PushIngestStepInput, "remote" | "job">,
   ): Promise<{ sha: string; validation: PatchStepResult; more: boolean }>
+  /**
+   * The ref tip: `given`, or a later commit of the run that another
+   * execution of the same child pushed (CTX-1073).
+   */
+  runTip(ref: string, given: string | null): Promise<string | null>
   /** True when `path` exists in the source at the run's SHA. */
   sourcePathExists(path: string): Promise<boolean>
   /** The text of `path` in the source at the run's SHA, or null. */
@@ -456,6 +471,11 @@ export function workspaceSkillBroker(input: {
       ),
     push: (push) =>
       pushWorkspaceIngestStep({ ...push, orgId: input.orgId, job }, input.env),
+    runTip: (ref, given) =>
+      readWorkspaceIngestRunTip(
+        { orgId: input.orgId, job, ref, given },
+        input.env,
+      ),
     sourcePathExists: (path) => source.exists(path),
     readSourceFile: (path) => source.read(path),
   }
@@ -542,6 +562,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     )
     if (result.partial) {
       failed()
+      if (result.tip) state.tip = result.tip
       if (result.failed)
         state.stepFailures = addStepFailures(state.stepFailures, {
           [result.failed]: 1,
@@ -629,6 +650,10 @@ async function attemptSkillStep(
   span: Span,
 ): Promise<StepResult> {
   const { run, destination, ref, runBase, broker } = ctx
+  // The ref tip that the step starts from. Another execution of the same
+  // child can move the ref (CTX-1073); then the next attempt starts from its
+  // tip, and its `find` takes the step when that execution pushed it.
+  let oldTip = ctx.oldTip
   let reason = ""
   let failed: IngestStepFailureKind = "other"
   let usage: IngestStepUsage | undefined
@@ -660,9 +685,9 @@ async function attemptSkillStep(
           rejects: found.rejects,
           more: found.more,
         })
-      const baseCommit = ctx.oldTip ?? runBase
+      const baseCommit = oldTip ?? runBase
       // A new shard ref starts at the run base, which is on the assembled ref.
-      const fetchRef = ctx.oldTip
+      const fetchRef = oldTip
         ? ref
         : runBase !== destination.pinnedRevision
           ? ingestRefName({
@@ -712,7 +737,7 @@ async function attemptSkillStep(
       const pushed = await withIngestStepOutput(stepRun.tar, (stagedDir) =>
         broker.push({
           ref,
-          oldTip: ctx.oldTip,
+          oldTip,
           pinnedRevision: runBase,
           baseCommit,
           commit: {
@@ -792,6 +817,13 @@ async function attemptSkillStep(
         "error.type",
         refused ? "IngestRefRefusedError" : "Error",
       )
+      if (error instanceof IngestRefMovedError) {
+        const tip = await broker.runTip(ref, oldTip).catch(() => null)
+        if (tip && tip !== oldTip) {
+          oldTip = tip
+          continue
+        }
+      }
       if (refused) break
       if (attempt < STEP_ATTEMPTS) await delay(attempt * 5_000)
     }
@@ -800,6 +832,7 @@ async function attemptSkillStep(
   return withUsage({
     partial: true as const,
     ...(reason === "step_failed" ? { failed } : {}),
+    ...(oldTip && oldTip !== ctx.oldTip ? { tip: oldTip } : {}),
   })
 }
 

@@ -23,6 +23,7 @@ import {
   findStepCommit,
   IngestRefRefusedError,
   type IngestRemote,
+  ingestRunRefTip,
   listStepFiles,
   mergeIngestPublish,
   type PushIngestStepInput,
@@ -763,6 +764,41 @@ export async function findWorkspaceStepCommit(
     ref: input.ref,
     runId: input.job.runId,
     step: input.step,
+  })
+}
+
+/**
+ * The tip of the job's ref (read only): `given`, or a later commit of the run
+ * that another execution of the same child pushed (CTX-1073). A missing ref
+ * gives `given`.
+ */
+export async function readWorkspaceIngestRunTip(
+  input: {
+    orgId: string
+    job: IngestBrokerJob
+    ref: string
+    given: string | null
+  },
+  env: Env,
+): Promise<string | null> {
+  const target = parseIngestRef(input.ref)
+  if (
+    target?.runId !== input.job.runId ||
+    target.workspaceId !== input.job.workspaceId
+  )
+    throw new IngestRefRefusedError(
+      "The ref is not an ingest ref of the job's run and Workspace",
+    )
+  const admitted = await admitIngestJob(
+    input.orgId,
+    input.job.workspaceId,
+    input.job,
+  )
+  return ingestRunRefTip({
+    remote: await ingestReadRemote(input.orgId, admitted, env),
+    ref: input.ref,
+    runId: input.job.runId,
+    given: input.given,
   })
 }
 
