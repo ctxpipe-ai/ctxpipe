@@ -83,8 +83,8 @@ scope.
     `helpCenter:read`, `helpCenterArticle:read`,
     `helpCenterArticleGroup:read`, `labelType:read`, `label:read`,
     `thread:read`, `timeline:read`, `customer:read`, `user:read`,
-    `webhookTarget:create`, and `webhookTarget:delete`. Copy the key: Plain
-    shows it one time.
+    `machineUser:read`, `webhookTarget:create`, and `webhookTarget:delete`.
+    Copy the key: Plain shows it one time.
   </Step>
 
   <Step>
@@ -178,6 +178,18 @@ Steps 3 and 4 test the GitHub push webhook and the first sync. Step 5 tests
 the Plain webhook delivery.
 
 ## Troubleshooting
+
+### A test thread does not sync
+
+Plain shows a test thread only to the person who created it, so the API key
+cannot read it. To test the thread sync, send an email to your support
+address, and add a selected label to the new thread.
+
+### A label or a Help Center does not sync
+
+Plain refuses a read when the key does not have a permission in the list
+above. The source can still show OK. Add the missing permission to the key
+in Plain, then select **Sync now** in the menu of the connector card.
 
 ### The setup names missing permissions
 

@@ -17,6 +17,7 @@ export const PLAIN_REQUIRED_PERMISSIONS = [
   "timeline:read",
   "customer:read",
   "user:read",
+  "machineUser:read",
   "webhookTarget:create",
   "webhookTarget:delete",
 ]
