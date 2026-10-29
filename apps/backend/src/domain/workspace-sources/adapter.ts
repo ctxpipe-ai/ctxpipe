@@ -5,6 +5,7 @@ import type { GitFileChange } from "../../services/git/file-change.js"
 import { linearSourceAdapter } from "../../services/linear/source-adapter.js"
 import { notionSourceAdapter } from "../../services/notion/workspace-source-adapter.js"
 import { pagerdutySourceAdapter } from "../../services/pagerduty/workspace-source-adapter.js"
+import { plainSourceAdapter } from "../../services/plain/workspace-source-adapter.js"
 import { slackSourceAdapter } from "../../services/slack/source-adapter.js"
 import type { SourceProvider } from "./sources-file.js"
 
@@ -133,6 +134,7 @@ export const SOURCE_ADAPTERS: Partial<Record<SourceProvider, SourceAdapter>> = {
   linear: linearSourceAdapter,
   notion: notionSourceAdapter as SourceAdapter,
   pagerduty: pagerdutySourceAdapter as SourceAdapter,
+  plain: plainSourceAdapter as SourceAdapter,
   slack: slackSourceAdapter,
   buildkite: buildkiteSourceAdapter as SourceAdapter,
 }

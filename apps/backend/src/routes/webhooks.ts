@@ -9,6 +9,7 @@ import { registerGithubWebhookRoute } from "./webhooks/github/github.js"
 import { registerLinearWebhookRoute } from "./webhooks/linear/linear.js"
 import { registerNotionWebhookRoute } from "./webhooks/notion/notion.js"
 import { registerPagerdutyWebhookRoute } from "./webhooks/pagerduty/pagerduty.js"
+import { registerPlainWebhookRoute } from "./webhooks/plain/plain.js"
 import { registerSlackWebhookRoute } from "./webhooks/slack/slack.js"
 
 export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
@@ -36,6 +37,9 @@ export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
     // A Buildkite build event holds the build and all its jobs, with no
     // stated maximum.
     ["/api/v1/webhook/buildkite/*", 5 * MiB],
+    // A Plain timeline event can hold a long email, and the route reads none
+    // of it.
+    ["/api/v1/webhook/plain/*", 5 * MiB],
     // Forge reads only the event envelope; token refresh reads only headers.
     ["/api/v1/webhook/atlassian/*", 1 * MiB],
   ] as const)
@@ -53,4 +57,5 @@ export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
   registerNotionWebhookRoute(app)
   registerPagerdutyWebhookRoute(app)
   registerBuildkiteWebhookRoute(app)
+  registerPlainWebhookRoute(app)
 }

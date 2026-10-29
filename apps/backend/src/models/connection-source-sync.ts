@@ -7,6 +7,7 @@ import type {
   ForgeSourceSync,
   NotionSourceSync,
   PagerdutySourceSync,
+  PlainSourceSync,
 } from "../lib/connection-config.js"
 
 /**
@@ -20,6 +21,7 @@ export async function saveConnectionSourceSync(
     | { type: "notion"; sourceSync: NotionSourceSync }
     | { type: "pagerduty"; sourceSync: PagerdutySourceSync }
     | { type: "buildkite"; sourceSync: BuildkiteSourceSync }
+    | { type: "plain"; sourceSync: PlainSourceSync }
   ),
 ): Promise<void> {
   await withOrgDbContext(input.orgId, (db) =>

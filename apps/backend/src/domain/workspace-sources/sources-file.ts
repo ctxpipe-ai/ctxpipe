@@ -10,6 +10,7 @@ import {
 import { linearSourceScope } from "./providers/linear.js"
 import { notionSourceScope } from "./providers/notion.js"
 import { pagerdutySourceScope } from "./providers/pagerduty.js"
+import { plainSourceScope } from "./providers/plain.js"
 import type { SourceScopeDefinition } from "./providers/scope.js"
 import { slackSourceScope } from "./providers/slack.js"
 
@@ -29,6 +30,7 @@ export const SOURCE_PROVIDERS = [
   "slack",
   "pagerduty",
   "buildkite",
+  "plain",
   "git",
 ] as const
 
@@ -44,6 +46,7 @@ export const SOURCE_SCOPES: Record<SourceProvider, SourceScopeDefinition> = {
   slack: slackSourceScope,
   pagerduty: pagerdutySourceScope,
   buildkite: buildkiteSourceScope,
+  plain: plainSourceScope,
   git: gitSourceScope,
 }
 

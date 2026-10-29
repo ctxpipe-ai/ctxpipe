@@ -7,6 +7,7 @@ export const CONNECTOR_MIRROR_ROOTS = [
   "confluence",
   "pagerduty",
   "buildkite",
+  "plain",
 ] as const
 
 type ConnectorMirrorRoot = (typeof CONNECTOR_MIRROR_ROOTS)[number]

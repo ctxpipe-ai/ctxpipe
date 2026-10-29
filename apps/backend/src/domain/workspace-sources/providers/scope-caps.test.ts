@@ -16,6 +16,7 @@ import {
   NOTION_SOURCE_MAX_PAGES,
 } from "./notion.js"
 import { PAGERDUTY_SOURCE_MAX_SERVICES } from "./pagerduty.js"
+import { PLAIN_SOURCE_MAX_ITEMS } from "./plain.js"
 import { SLACK_SOURCE_MAX_CHANNELS } from "./slack.js"
 
 const ids = (count: number, make: (i: number) => string) =>
@@ -40,6 +41,18 @@ const lists = [
     max: BUILDKITE_SOURCE_MAX_PIPELINES,
     scope: (n: number) => ({ pipelines: ids(n, (i) => `pipeline-${i}`) }),
     message: `pipelines: Select at most ${BUILDKITE_SOURCE_MAX_PIPELINES} Buildkite pipelines`,
+  },
+  {
+    provider: "plain",
+    max: PLAIN_SOURCE_MAX_ITEMS,
+    scope: (n: number) => ({ helpCenters: ids(n, (i) => `hc_${i}`) }),
+    message: `helpCenters: Select at most ${PLAIN_SOURCE_MAX_ITEMS} Help Centers`,
+  },
+  {
+    provider: "plain",
+    max: PLAIN_SOURCE_MAX_ITEMS,
+    scope: (n: number) => ({ labels: ids(n, (i) => `lt_${i}`) }),
+    message: `labels: Select at most ${PLAIN_SOURCE_MAX_ITEMS} labels`,
   },
   {
     provider: "slack",

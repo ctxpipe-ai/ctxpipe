@@ -167,7 +167,7 @@ test("the manifest matches its schema and lists each check of each family", asyn
       .tools,
     ["search_code", "search_knowledge"],
   )
-  assert.equal(count("vitest", "latency"), 1)
+  assert.equal(count("vitest", "latency"), 2)
   assert.equal(count("vitest", "upgrade"), 1)
   // The required golden stories are tagged (ci-storybook-golden.test.mjs),
   // so the golden lane holds at least them.

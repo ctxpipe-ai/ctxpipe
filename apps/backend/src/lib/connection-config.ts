@@ -865,3 +865,32 @@ export const buildkiteConnectionConfigStoredSchema = z.object({
 export type BuildkiteConnectionConfigStored = z.infer<
   typeof buildkiteConnectionConfigStoredSchema
 >
+
+/**
+ * The Workspace sources sync state of a Plain connection (ADR-059). It
+ * counts the sync cycles in which a Help Center or a label failed for good.
+ */
+export const plainSourceSyncSchema = z.object({
+  /** Keyed `helpCenter:<id>` or `label:<id>`. */
+  failures: sourceSyncFailuresSchema,
+})
+export type PlainSourceSync = z.infer<typeof plainSourceSyncSchema>
+
+/**
+ * Stored in `connections.config` for `type === "plain"` (ADR-059). The
+ * machine-user API key and the token of the webhook target that ctxpipe
+ * created are encrypted.
+ */
+export const plainConnectionConfigStoredSchema = z.object({
+  workspaceId: z.string().min(1),
+  workspaceName: z.string(),
+  apiKeyEnc: z.string().min(1),
+  status: z.enum(["installed", "revoked"]),
+  webhookTargetId: z.string().min(1).optional(),
+  webhookTokenEnc: z.string().min(1).optional(),
+  sourceSync: plainSourceSyncSchema.optional(),
+})
+
+export type PlainConnectionConfigStored = z.infer<
+  typeof plainConnectionConfigStoredSchema
+>

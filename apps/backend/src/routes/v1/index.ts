@@ -28,6 +28,7 @@ import {
   pagerdutyConnectorRoutes,
   pagerdutyOauthCallbackRoutes,
 } from "./connectors-pagerduty.js"
+import { plainConnectorRoutes } from "./connectors-plain.js"
 import {
   slackConnectorRoutes,
   slackOAuthCallbackRoutes,
@@ -107,6 +108,10 @@ const buildkiteConnectorScoped = buildkiteConnectorScopedGate.route(
   buildkiteConnectorRoutes,
 )
 
+const plainConnectorScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", plainConnectorRoutes)
+
 // Only the sync path: this app mounts on "/connectors" beside other routes.
 const connectionSyncScopedGate = new OpenAPIHono<AppEnv>()
 connectionSyncScopedGate.use("/:connectionId/sync", requireOrgAdminOrOwner)
@@ -139,6 +144,7 @@ function createOrgScopedV1<BasePath extends string>(
     .route("/connectors/notion", notionConnectorScoped)
     .route("/connectors/pagerduty", pagerdutyConnectorScoped)
     .route("/connectors/buildkite", buildkiteConnectorScoped)
+    .route("/connectors/plain", plainConnectorScoped)
     .route("/connectors/atlassian/pending-claim", pendingAtlassianClaimRoutes)
     .route("/connectors/slack", slackConnectorScoped)
     .route("/org/atlassian-oauth", orgAtlassianOauthReadRoutes)

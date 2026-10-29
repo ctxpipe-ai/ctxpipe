@@ -153,6 +153,7 @@ const PROVIDER_NAMES: Record<SourceProvider, string> = {
   confluence: "Confluence",
   pagerduty: "PagerDuty",
   buildkite: "Buildkite",
+  plain: "Plain",
   git: "Git",
 }
 

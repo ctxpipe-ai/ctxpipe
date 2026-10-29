@@ -18,6 +18,7 @@ import {
   AddLinearConnectorButton,
   AddNotionConnectorButton,
   AddPagerdutyConnectorButton,
+  AddPlainConnectorButton,
   AddSlackConnectorButton,
   BuildkiteConnectionCard,
   BuildkiteSetupDialog,
@@ -31,6 +32,8 @@ import {
   NotionSetupDialog,
   PagerdutyConnectionCard,
   PagerdutySetupDialog,
+  PlainConnectionCard,
+  PlainSetupDialog,
   SlackConnectionCard,
 } from "@/features/connectors"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
@@ -140,6 +143,11 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
     string | null
   >(null)
   const [buildkiteReplaceWebhook, setBuildkiteReplaceWebhook] = useState(false)
+  const [plainSetupOpen, setPlainSetupOpen] = useState(false)
+  const [plainConnectionId, setPlainConnectionId] = useState<string | null>(
+    null,
+  )
+  const [plainReconnect, setPlainReconnect] = useState(false)
   const [githubSelfHostedWizardOpen, setGithubSelfHostedWizardOpen] =
     useState(false)
   const [slackSetupOpen, setSlackSetupOpen] = useState(false)
@@ -341,6 +349,20 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 />
               )
             }
+            if (row.type === "plain") {
+              return (
+                <PlainConnectionCard
+                  key={row.id}
+                  orgSlug={orgSlug}
+                  connectionId={row.id}
+                  onOpenSetup={(options) => {
+                    setPlainConnectionId(row.id)
+                    setPlainReconnect(Boolean(options?.reconnect))
+                    setPlainSetupOpen(true)
+                  }}
+                />
+              )
+            }
             if (row.type === "pagerduty") {
               return (
                 <PagerdutyConnectionCard
@@ -433,6 +455,16 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
               setBuildkiteConnectionId(null)
               setBuildkiteReplaceWebhook(false)
               setBuildkiteSetupOpen(true)
+              setCatalogOpen(false)
+            }}
+          />
+        </li>
+        <li>
+          <AddPlainConnectorButton
+            onStart={() => {
+              setPlainConnectionId(null)
+              setPlainReconnect(false)
+              setPlainSetupOpen(true)
               setCatalogOpen(false)
             }}
           />
@@ -604,6 +636,19 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         onOpenChange={(open) => {
           setBuildkiteSetupOpen(open)
           if (!open) setBuildkiteConnectionId(null)
+        }}
+      />
+
+      <PlainSetupDialog
+        key={plainConnectionId ?? "plain-setup"}
+        orgSlug={orgSlug}
+        connectionId={plainConnectionId ?? undefined}
+        reconnect={plainReconnect}
+        isOpen={plainSetupOpen}
+        onConnectionIdChange={setPlainConnectionId}
+        onOpenChange={(open) => {
+          setPlainSetupOpen(open)
+          if (!open) setPlainConnectionId(null)
         }}
       />
     </main>

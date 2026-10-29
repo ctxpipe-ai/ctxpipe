@@ -237,6 +237,7 @@ source also has `connection`. An unknown key makes the file **Not valid**.
 | Slack | `sources/slack/<name>.md` | `channels`: a list of channel ids |
 | PagerDuty | `sources/pagerduty/<name>.md` | `services`: a list of service ids |
 | Buildkite | `sources/buildkite/<name>.md` | `pipelines`: a list of pipeline slugs |
+| Plain | `sources/plain/<name>.md` | `helpCenters` (Help Center ids) and `labels` (label type ids). At least one of them. |
 | Plain git | `sources/git/<host>/<name>.md` | `url` only |
 
 Each path segment after the provider folder matches

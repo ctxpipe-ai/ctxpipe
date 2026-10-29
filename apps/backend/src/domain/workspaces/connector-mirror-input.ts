@@ -28,6 +28,7 @@ const githubMirrorSourceSchema = z
   .strict()
 
 const workspaceSourcesProviderSchema = z.enum([
+  "plain",
   "github",
   "linear",
   "notion",

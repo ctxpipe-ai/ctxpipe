@@ -21,6 +21,7 @@ export type SourceScopeDefinition<
     | "notion"
     | "pagerduty"
     | "buildkite"
+    | "plain"
     | null
   /** The label for one provider, for example "Confluence". */
   label: string

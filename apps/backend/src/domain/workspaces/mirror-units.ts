@@ -41,7 +41,8 @@ const LINEAR_KINDS: Record<string, string> = {
  * `linear/projects/<id>/<dir>/…`, `slack/channels/<channel>/…`,
  * `pagerduty/incidents/…`, `github/pulls/<owner>/<repo>/<file>.md`,
  * `github/issues/<owner>/<repo>/<number>.md`,
- * `buildkite/pipelines/<slug>/…`.
+ * `buildkite/pipelines/<slug>/…`, `plain/help-centers/<id>/…`,
+ * `plain/threads/labels/<id>/…`.
  */
 export function mirrorUnitKind(path: string): string | null {
   const parts = path.split("/")
@@ -74,6 +75,13 @@ export function mirrorUnitKind(path: string): string | null {
       if (parts[1] !== "pipelines" || parts.length < 4) return null
       if (parts.length === 4 && file === "pipeline.md") return "Pipeline"
       return parts.length === 5 && parts[3] === "builds" ? "Build" : null
+    case "plain":
+      if (parts[1] === "help-centers" && parts.length === 4) return "Article"
+      return parts[1] === "threads" &&
+        parts[2] === "labels" &&
+        parts.length === 5
+        ? "Ticket"
+        : null
     default:
       return null
   }

@@ -13,6 +13,7 @@ import { githubSourceUi } from "./providers/github"
 import { linearSourceUi } from "./providers/linear"
 import { notionSourceUi } from "./providers/notion"
 import { pagerdutySourceUi } from "./providers/pagerduty"
+import { plainSourceUi } from "./providers/plain"
 import { slackSourceUi } from "./providers/slack"
 
 /**
@@ -56,6 +57,7 @@ export const SOURCE_PROVIDER_UI: Record<SourceProvider, SourceProviderUi> = {
   slack: slackSourceUi,
   pagerduty: pagerdutySourceUi,
   buildkite: buildkiteSourceUi,
+  plain: plainSourceUi,
   git: gitSourceUi,
 }
 

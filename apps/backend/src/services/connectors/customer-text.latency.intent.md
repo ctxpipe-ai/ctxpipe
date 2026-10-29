@@ -1,0 +1,1 @@
+The redaction and the Markdown parser check stay in bounded time on the slowest known hostile shapes: no shape takes more than 10 seconds. Catches a parse-cost estimate that lets a slow shape through. Not for redaction output or link safety.

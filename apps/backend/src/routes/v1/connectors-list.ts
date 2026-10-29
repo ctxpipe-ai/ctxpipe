@@ -19,6 +19,7 @@ const ConnectorListItemSchema = z
       "notion",
       "pagerduty",
       "buildkite",
+      "plain",
     ]),
     /** The account, site, or workspace name that the provider gives. */
     displayName: z.string().nullable(),
