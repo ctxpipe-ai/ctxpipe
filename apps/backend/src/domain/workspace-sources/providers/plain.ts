@@ -9,6 +9,8 @@ import type { SourceScopeDefinition } from "./scope.js"
  */
 export const PLAIN_REQUIRED_PERMISSIONS = [
   "helpCenter:read",
+  "helpCenterArticle:read",
+  "helpCenterArticleGroup:read",
   "labelType:read",
   "thread:read",
   "timeline:read",
