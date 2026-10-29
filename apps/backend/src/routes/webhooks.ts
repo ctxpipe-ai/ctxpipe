@@ -4,6 +4,7 @@ import { bodyLimit } from "hono/body-limit"
 import type { AppEnv } from "../app/env.js"
 import { applyAttribution } from "../observability/attribution.js"
 import { registerAtlassianWebhookRoute } from "./webhooks/atlassian/atlassian.js"
+import { registerBuildkiteWebhookRoute } from "./webhooks/buildkite/buildkite.js"
 import { registerGithubWebhookRoute } from "./webhooks/github/github.js"
 import { registerLinearWebhookRoute } from "./webhooks/linear/linear.js"
 import { registerNotionWebhookRoute } from "./webhooks/notion/notion.js"
@@ -33,6 +34,9 @@ export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
     ["/api/v1/webhook/notion/*", 1 * MiB],
     // A PagerDuty V3 event holds one incident summary.
     ["/api/v1/webhook/pagerduty/*", 1 * MiB],
+    // A Buildkite build event holds the build and all its jobs, with no
+    // stated maximum.
+    ["/api/v1/webhook/buildkite/*", 5 * MiB],
     // A Plain timeline event can hold a long email, and the route reads none
     // of it.
     ["/api/v1/webhook/plain/*", 5 * MiB],
@@ -52,5 +56,6 @@ export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
   registerLinearWebhookRoute(app)
   registerNotionWebhookRoute(app)
   registerPagerdutyWebhookRoute(app)
+  registerBuildkiteWebhookRoute(app)
   registerPlainWebhookRoute(app)
 }

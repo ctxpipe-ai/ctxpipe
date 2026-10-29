@@ -1,0 +1,87 @@
+---
+title: Buildkite
+description: Use the Buildkite connector on a self-hosted ctxpipe. It needs no environment variables.
+---
+
+## Overview
+
+A self-hosted ctxpipe uses the same Buildkite connector flow as hosted ctxpipe.
+Buildkite has no OAuth application for other products, so an organization owner
+or admin pastes a Buildkite API access token in the setup. The webhook token is
+also connection-specific.
+ctxpipe encrypts both tokens on the connection with the connection secret key
+of the deployment.
+
+There is no `BUILDKITE_*` environment variable. You do not need to change
+Compose, Railway, or CDK settings.
+
+## What you need
+
+- A public HTTPS `AUTH_BASE_URL` for the webhook. Without the webhook, the
+  connector syncs once a day and on **Sync now**.
+- A ctxpipe GitHub App connection with write access to each Workspace repository
+  that syncs Buildkite builds.
+- The backend and worker able to reach `api.buildkite.com` over HTTPS. The
+  backend also reaches `graphql.buildkite.com`, only when someone connects.
+
+## Webhook URL
+
+Each connection has its own webhook URL, because each webhook has its own
+token:
+
+```text
+{AUTH_BASE_URL}/api/v1/webhook/buildkite/{connectionId}
+```
+
+The webhook step of the setup shows the full URL. ctxpipe verifies the
+`X-Buildkite-Signature` HMAC-SHA256 of the timestamp and the raw request body,
+and refuses a signature older than five minutes. A webhook that sends the plain
+`X-Buildkite-Token` is refused. A failed enqueue returns `503`. The next event
+in the window or the daily sync then gets the build.
+
+All traffic stays on your deployment. Buildkite sends the webhook to your
+`AUTH_BASE_URL`, and your backend and worker call `api.buildkite.com`. When
+someone connects Buildkite, your backend also calls `graphql.buildkite.com`
+once.
+
+## Verify the connector
+
+1. Open **Connectors → Add connection → Buildkite**.
+2. Paste an API access token with only `read_pipelines` and `read_builds`, and
+   the organization slug. ctxpipe refuses a token with any other scope or with
+   GraphQL API access.
+3. Add the webhook in Buildkite with the signature option and the
+   `build.finished` event, then save its token in the setup.
+4. In **Add Buildkite to Workspaces**, select a Workspace and at least one
+   pipeline. Merge the pull request that adds the source file
+   under `sources/buildkite/`.
+5. Confirm that the source shows **OK** in the Workspace settings and files appear
+   under `buildkite/pipelines/<slug>/`.
+6. Finish a build in a selected pipeline. Confirm that
+   `POST /api/v1/webhook/buildkite/{connectionId}` returns `200`, and that the
+   build file appears after the 10-minute window.
+
+## Troubleshooting
+
+### Builds do not arrive
+
+- Confirm that Buildkite can reach `AUTH_BASE_URL` over public HTTPS. With a
+  private URL, no webhook arrives, and the connector syncs once a day and on
+  **Sync now**.
+- A `401` answer has three causes: the webhook sends the plain
+  `X-Buildkite-Token`, the token in the setup is not the token of this
+  webhook, or the clock of the backend is more than five minutes off. Select
+  the signature option in Buildkite, paste the webhook token again in the
+  setup, and check the time of the backend host.
+- A `503` answer means that ctxpipe could not queue the sync. Check the backend
+  logs. The next event in the window or the daily sync gets the build.
+
+### The setup cannot check GraphQL access
+
+The setup shows "ctxpipe cannot make sure that the token has no GraphQL API
+access. Try again later." when the backend cannot reach
+`graphql.buildkite.com`. Allow outbound HTTPS from the backend to that host,
+then connect again.
+
+See [Buildkite connector](/docs/connections/source-connectors/buildkite) for
+the files, the sync, and product troubleshooting.

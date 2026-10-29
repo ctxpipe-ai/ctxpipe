@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { buildkiteSourceScope } from "./providers/buildkite.js"
 import { confluenceSourceScope } from "./providers/confluence.js"
 import { gitSourceScope } from "./providers/git.js"
 import {
@@ -28,6 +29,7 @@ export const SOURCE_PROVIDERS = [
   "notion",
   "slack",
   "pagerduty",
+  "buildkite",
   "plain",
   "git",
 ] as const
@@ -43,6 +45,7 @@ export const SOURCE_SCOPES: Record<SourceProvider, SourceScopeDefinition> = {
   notion: notionSourceScope,
   slack: slackSourceScope,
   pagerduty: pagerdutySourceScope,
+  buildkite: buildkiteSourceScope,
   plain: plainSourceScope,
   git: gitSourceScope,
 }

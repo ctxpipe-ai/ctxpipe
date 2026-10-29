@@ -1,3 +1,4 @@
+export { AddBuildkiteConnectorButton } from "./components/AddBuildkiteConnectorButton"
 export { AddConfluenceConnectorButton } from "./components/AddConfluenceConnectorButton"
 export { AddConnectorCatalogDialog } from "./components/AddConnectorCatalogDialog"
 export { AddGithubConnectorButton } from "./components/AddGithubConnectorButton"
@@ -6,6 +7,8 @@ export { AddNotionConnectorButton } from "./components/AddNotionConnectorButton"
 export { AddPagerdutyConnectorButton } from "./components/AddPagerdutyConnectorButton"
 export { AddPlainConnectorButton } from "./components/AddPlainConnectorButton"
 export { AddSlackConnectorButton } from "./components/AddSlackConnectorButton"
+export { BuildkiteConnectionCard } from "./components/BuildkiteConnectionCard"
+export { BuildkiteSetupDialog } from "./components/BuildkiteSetupDialog"
 export { ConfluenceConnectionCard } from "./components/ConfluenceConnectionCard"
 export { ConnectorSetupDialog } from "./components/ConnectorSetupDialog"
 

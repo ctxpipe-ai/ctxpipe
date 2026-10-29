@@ -20,6 +20,7 @@ export type SourceScopeDefinition<
     | "linear"
     | "notion"
     | "pagerduty"
+    | "buildkite"
     | "plain"
     | null
   /** The label for one provider, for example "Confluence". */
