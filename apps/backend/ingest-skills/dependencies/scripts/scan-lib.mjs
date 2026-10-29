@@ -356,7 +356,6 @@ export function stepStats(roots, rootPath, scanRoot) {
  * context file paths of this root (a hint never names them).
  * Returns { candidates, skipped, truncated }.
  */
-
 export function scan({
   source,
   path,
