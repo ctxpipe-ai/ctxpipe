@@ -48,7 +48,7 @@
     "oxlint": "1.89.0",
     "portless": "^0.9.4",
     "turbo": "^2.10.9",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.3",
     "yaml": "2.8.2"
   },
   "pnpm": {

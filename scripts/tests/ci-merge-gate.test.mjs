@@ -4,7 +4,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs"
@@ -24,7 +23,15 @@ import {
 } from "../checks/gate.mjs"
 import { suiteRecord } from "../checks/lanes.mjs"
 import { schemaErrors } from "../checks/schema.mjs"
-import { estimate, runsInOf, shard, shardMinutes } from "../checks/shard.mjs"
+import {
+  checkJobs,
+  estimate,
+  profiles,
+  runsInOf,
+  shard,
+  shardMinutes,
+  shardTargetSeconds,
+} from "../checks/shard.mjs"
 import { hashed, toolchain } from "../checks/toolchain.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -50,9 +57,11 @@ function listTimeFiles() {
       ...[...text.matchAll(/(?:from\s+|import\()\s*["'](\.[^"']+)["']/g)].map(
         (match) => relative(root, resolve(root, dirname(file), match[1])),
       ),
-      ...[...text.matchAll(/(?:json\(|readFileSync\(\s*join\(root,\s*)"([^"]+\.(?:mjs|json))"/g)].map(
-        (match) => match[1],
-      ),
+      ...[
+        ...text.matchAll(
+          /(?:json\(|readFileSync\(\s*join\(root,\s*)"([^"]+\.(?:mjs|json))"/g,
+        ),
+      ].map((match) => match[1]),
     ]
     for (const path of found)
       for (const candidate of [path, `${path}.ts`, `${path}.mjs`])
@@ -77,13 +86,7 @@ test("a file that list.mjs runs outside scripts/checks forces a full run", () =>
   ])
     assert.ok(files.includes(known), `walk reaches ${known}`)
   const outside = files.filter((file) => !file.startsWith("scripts/checks/"))
-  for (const file of [
-    ...outside,
-    "package.json",
-    "pnpm-lock.yaml",
-    "pnpm-workspace.yaml",
-    ...readdirSync(join(root, "apps")).map((name) => `apps/${name}/package.json`),
-  ])
+  for (const file of [...outside, ".npmrc"])
     if (existsSync(join(root, file)))
       assert.equal(
         decideMode({
@@ -113,18 +116,25 @@ test("only a same-repo pull_request without gate input changes runs the selector
   })
   assert.deepEqual(mode({ fork: true }), { mode: "full", reason: "fork PR" })
   for (const path of [
-    ".github/workflows/ci.yaml",
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "apps/ui/package.json",
+    "packages/cli/package.json",
+  ])
+    assert.deepEqual(mode({ changed: [path] }), {
+      mode: "select",
+      reason: "shadow",
+    })
+  for (const path of [
     ".github/merge-gate.json",
     "scripts/checks/gate.mjs",
     "scripts/checks/schema/result.v1.schema.json",
     ".github/actions/setup/action.yml",
     "scripts/ci/test-suite.mjs",
     "scripts/ci/vitest-launch.mjs",
-    "package.json",
-    "pnpm-lock.yaml",
-    "pnpm-workspace.yaml",
-    "apps/ui/package.json",
-    "packages/cli/package.json",
+    ".npmrc",
+    "patches/a.patch",
   ])
     assert.deepEqual(mode({ changed: ["apps/a.ts", path] }), {
       mode: "full",
@@ -151,16 +161,207 @@ test("only a same-repo pull_request without gate input changes runs the selector
     { mode: "full", reason: "selector unavailable: no pinned factory release" },
   )
   assert.equal(mode({ config: { ...pinned, mode: "off" } }).mode, "full")
-  // Phase 1 has no gate mode: only shadow selects.
-  assert.equal(mode({ config: { ...pinned, mode: "gate" } }).mode, "full")
+  // Both the shadow and the gate mode select.
+  assert.deepEqual(mode({ config: { ...pinned, mode: "gate" } }), {
+    mode: "select",
+    reason: "gate",
+  })
 })
 
-test("the committed merge gate config is valid and in shadow mode", () => {
+// The text of one job of a workflow, from its key to the next job.
+const workflowJob = (workflow, name) => {
+  const start = workflow.indexOf(`\n  ${name}:\n`)
+  assert.ok(start > 0, name)
+  return workflow.slice(start, workflow.indexOf("\n\n  ", start + 1))
+}
+
+test("a ci.yaml change only in the steps of check jobs runs the selector with those jobs", () => {
+  const path = ".github/workflows/ci.yaml"
+  const base = readFileSync(join(root, path), "utf8")
+  // The hunks come from git, as in CI: `git diff -U0` of the two sides.
+  const mode = (head, changed = [path]) => {
+    const directory = mkdtempSync(join(tmpdir(), "ctxpipe-ci-yaml-"))
+    writeFileSync(join(directory, "base"), base)
+    writeFileSync(join(directory, "head"), head)
+    return decideMode({
+      config: pinned,
+      event: "pull_request",
+      fork: false,
+      changed,
+      read: (_, side) => (side === "base" ? base : head),
+      diff: () =>
+        spawnSync("git", ["diff", "--no-index", "-U0", "base", "head"], {
+          cwd: directory,
+          encoding: "utf8",
+        }).stdout,
+    })
+  }
+  const lintStep = base.replace(
+    "      - run: pnpm lint\n",
+    "      - run: pnpm lint\n      - run: pnpm lint:extra\n",
+  )
+  assert.deepEqual(mode(lintStep), {
+    mode: "select",
+    reason: "shadow",
+    jobs: ["lint"],
+  })
+  assert.deepEqual(
+    mode(
+      lintStep.replace(
+        "run: node --test apps/codesearch/scripts/fetch-releases.test.mjs",
+        "run: node --test apps/codesearch/scripts/*.test.mjs",
+      ),
+    ).jobs,
+    ["codesearch", "lint"],
+  )
+  const full = { mode: "full", reason: `gate inputs changed: ${path}` }
+  // A hunk before `jobs:`.
+  assert.deepEqual(mode(base.replace("name: CI\n", "name: CI checks\n")), full)
+  // A merge gate job.
+  assert.deepEqual(
+    mode(base.replace("did not finish in 3 minutes", "did not finish")),
+    full,
+  )
+  // A job that runs no check, and a job `name`.
+  assert.deepEqual(
+    mode(base.replace('echo "Test shards:', 'echo "Shards:')),
+    full,
+  )
+  assert.deepEqual(
+    mode(base.replace("name: Lint and format\n", "name: Lint\n")),
+    full,
+  )
+  // A `needs` line of a check job.
+  assert.deepEqual(
+    mode(
+      base.replace(
+        "    needs: [merge-gate-plan, storybook-build]\n",
+        "    needs: [merge-gate-plan, storybook-build, lint]\n",
+      ),
+    ),
+    full,
+  )
+  // A step or a job that only a full run uses: a gated run would skip it.
+  const once = (from, to) => {
+    assert.equal(base.split(from).length, 2, from)
+    return base.replace(from, to)
+  }
+  for (const head of [
+    once(
+      `node scripts/ci/test-suite.mjs \${{ matrix.lane }} --shard`,
+      `node scripts/ci/test-suite.mjs \${{ matrix.lane }} --bail --shard`,
+    ),
+    once(
+      "node scripts/ci/test-suite.mjs ui $(",
+      "node scripts/ci/test-suite.mjs ui --bail $(",
+    ),
+    once(
+      "      - name: UI tests\n",
+      "      - name: UI tests\n        timeout-minutes: 20\n",
+    ),
+  ])
+    assert.deepEqual(mode(head), full)
+  const golden = workflowJob(base, "storybook-golden")
+  assert.deepEqual(
+    mode(
+      base.replace(
+        golden,
+        golden.replace(/\n {6}- /, "\n      - run: true\n      - "),
+      ),
+    ),
+    full,
+  )
+  // The gated step of the same job stays scoped.
+  assert.deepEqual(
+    mode(
+      once(
+        "      - name: Selected UI, CLI and CDK tests (merge gate)\n",
+        "      - name: Selected UI, CLI and CDK tests (merge gate)\n        timeout-minutes: 20\n",
+      ),
+    ).jobs,
+    ["package-tests"],
+  )
+  // A changed action is a gate input of its own.
+  assert.deepEqual(mode(lintStep, [path, ".github/actions/a/action.yml"]), {
+    mode: "full",
+    reason: `gate inputs changed: ${path}, .github/actions/a/action.yml`,
+  })
+})
+
+test("each mode or lane condition of a check job has a form that the full-run rule reads", () => {
+  // gate.mjs finds a step or job that only a full run uses by its text. A
+  // new form of condition must get a rule there first, then a place here.
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const known = new Set([
+    "needs.merge-gate-plan.outputs.mode != 'gate'",
+    "needs.merge-gate-plan.outputs.mode == 'gate'",
+    "matrix.lane != 'selected'",
+    "matrix.lane == 'selected'",
+    // A step that runs in each mode: the selected lane is not backend.
+    "matrix.lane != 'backend'",
+  ])
+  for (const name of [...checkJobs, "storybook-build"].filter((job) =>
+    workflow.includes(`\n  ${job}:\n`),
+  )) {
+    const text = workflowJob(workflow, name).replace(/\n\s*#[^\n]*/g, "")
+    for (const [atom] of text.matchAll(
+      /[\w.-]*(?:outputs\.mode|matrix\.lane)\b(?:\s*[!=]=\s*'[^']*')?/g,
+    ))
+      if (!/^\S*matrix\.lane$/.test(atom) || /[!=]=/.test(atom))
+        assert.ok(known.has(atom), `${name}: ${atom}`)
+    // The job form `mode != 'gate' || <its output> != ''` runs in a gated
+    // run; any other alternative would hide a full-run-only job.
+    for (const [, rest] of text.matchAll(/mode != 'gate' \|\|([^)]*)\)/g))
+      assert.match(
+        rest,
+        /^ needs\.merge-gate-plan\.outputs\.[\w-]+ != ''$/,
+        name,
+      )
+    assert.equal(
+      (text.match(/mode != 'gate' \|\|/g) ?? []).length,
+      [
+        ...text.matchAll(
+          /\(needs\.merge-gate-plan\.outputs\.mode != 'gate' \|\|/g,
+        ),
+      ].length,
+      name,
+    )
+  }
+})
+
+test("the checks of the jobs of a job-scoped ci.yaml change run, without their hits", () => {
+  const decision = decide({
+    files: {
+      "mode.json": {
+        mode: "select",
+        reason: "shadow",
+        jobs: ["lint", "test-shards"],
+      },
+    },
+  })
+  const ran = Object.fromEntries(
+    decision.ran.map((item) => [item.id, item.reason]),
+  )
+  assert.equal(ran["lint:oxlint:.oxlintrc.json"], "lane input apps/**")
+  assert.equal(
+    ran["vitest:backend:apps/backend/src/f.test.ts"],
+    "ci.yaml changed in job lint, test-shards",
+  )
+  assert.ok("vitest:backend:apps/backend/src/g.test.ts" in ran)
+  assert.deepEqual(
+    decision.hits.map((item) => item.id),
+    ["storybook:golden:apps/ui/src/c.stories.tsx#c--one"],
+  )
+  assert.equal(decision.selection.counts.selected, 8)
+})
+
+test("the committed merge gate config is valid and in gate mode", () => {
   const config = JSON.parse(
     readFileSync(join(root, ".github/merge-gate.json"), "utf8"),
   )
-  assert.equal(config.mode, "shadow")
+  assert.equal(config.mode, "gate")
   assert.equal(config.acceptAgentResults, true)
+  assert.equal(config.acceptPrResults, true)
   assert.ok(
     config.factory.version === null ||
       /^[0-9a-f]{40}$/.test(config.factory.version),
@@ -666,22 +867,67 @@ test("each selection reason has one line", () => {
   assert.equal(describe({ kind: "newKind" }), "newKind")
 })
 
-test("the shards of each profile hold about five minutes, up to today's shard count", () => {
+test("a gated run packs its checks into the fewest shards that hold the target, up to today's shard count", () => {
+  assert.equal(shardTargetSeconds, 600)
+  // A few short checks: one shard for each profile.
   const seconds = new Map([
     ["vitest:backend:apps/backend/a.test.ts", 200],
-    ["vitest:backend:apps/backend/b.test.ts", 200],
-    ["vitest:contracts:apps/backend/c.test.ts", 200],
+    ["vitest:backend:apps/backend/b.test.ts", 150],
+    ["vitest:contracts:apps/backend/c.test.ts", 100],
     ["vitest:ui:apps/ui/d.test.tsx", 5],
     ["vitest:ui:apps/ui/e.test.tsx", 5],
   ])
   const shards = shard([...seconds.keys(), "eval:mcp:x#y"], seconds, {})
   assert.deepEqual(Object.keys(shards), ["database", "node"])
-  assert.equal(shards.database.length, 2)
   assert.deepEqual(
     shards.database.map((item) => item.seconds),
-    [400, 200],
+    [450],
   )
   assert.equal(shards.node.length, 1)
+  // Long checks spread over today's shard count, and no more.
+  const long = new Map(
+    Array.from({ length: 30 }, (_, i) => [
+      `vitest:backend:apps/backend/${i}.test.ts`,
+      300,
+    ]),
+  )
+  const spread = shard([...long.keys()], long, {})
+  assert.equal(spread.database.length, profiles.database.maxShards)
+  // Longest first to the least-loaded shard: the shards are balanced.
+  const mixed = new Map(
+    [500, 400, 300, 300, 200, 200, 100].map((value, i) => [
+      `vitest:backend:apps/backend/m${i}.test.ts`,
+      value,
+    ]),
+  )
+  const balanced = shard([...mixed.keys()], mixed, {}).database
+  assert.deepEqual(
+    balanced.map((item) => item.seconds),
+    [500, 500, 500, 500],
+  )
+  // Two long checks that fit the target in total, but not in one shard.
+  const pair = new Map([
+    ["vitest:backend:apps/backend/p.test.ts", 590],
+    ["vitest:backend:apps/backend/q.test.ts", 20],
+  ])
+  assert.equal(shard([...pair.keys()], pair, {}).database.length, 2)
+  // A check that alone is over the target gets no extra shards.
+  const alone = new Map(
+    [900, 100, 100, 100].map((value, i) => [
+      `vitest:backend:apps/backend/r${i}.test.ts`,
+      value,
+    ]),
+  )
+  assert.deepEqual(
+    shard([...alone.keys()], alone, {}).database.map((item) => item.seconds),
+    [900, 300],
+  )
+  // A check without a trace duration or a file weight gets the median of
+  // its traced lane.
+  assert.equal(
+    estimate("vitest:backend:apps/backend/new.test.ts", mixed, {}),
+    300,
+  )
   const many = new Map(
     Array.from({ length: 40 }, (_, i) => [
       `vitest:ui:apps/ui/${i}.test.tsx`,
@@ -810,7 +1056,7 @@ test("the CLI writes the decision files from artifacts", () => {
     process.execPath,
     [
       join(root, "scripts/checks/gate.mjs"),
-      "shadow",
+      "decide",
       "--config",
       join(directory, "config.json"),
       "--inputs",
@@ -885,7 +1131,7 @@ test("a lint or policy check takes the result of its step in the Lint and format
 })
 
 test("the step names of the Lint and format job are the steps in ci.yaml", async () => {
-  const { lintSteps } = await import("../checks/gate.mjs")
+  const { lintSteps } = await import("../checks/shard.mjs")
   const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
   const lint = workflow.slice(
     workflow.indexOf("  lint:\n"),

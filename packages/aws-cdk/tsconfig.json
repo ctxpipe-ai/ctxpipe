@@ -2,7 +2,6 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "CommonJS",
-    "moduleResolution": "Node",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
@@ -10,6 +9,7 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
+    "types": ["node"],
     "outDir": "lib",
     "rootDir": "src"
   },

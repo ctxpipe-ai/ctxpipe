@@ -26,7 +26,7 @@ const ui = join(root, "apps/ui")
 // The files that change the result of every story but that a story does not
 // import: the Storybook and Vite configs, the static files, the lockfile and
 // the runner.
-const inputs = [
+export const inputs = [
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
@@ -38,6 +38,11 @@ const inputs = [
   "apps/ui/public/**",
   "scripts/checks/run.mjs",
   "scripts/checks/storybook.mjs",
+  "scripts/ci/storybook-golden.mjs",
+  "scripts/ci/check-allowlist-history.mjs",
+  "scripts/ci/check-test-report.mjs",
+  "scripts/ci/failures/storybook-golden.json",
+  "scripts/ci/storybook-golden-select.mjs",
   "scripts/ci/storybook-play.mjs",
 ]
 

@@ -3,8 +3,9 @@ name: CI
 on:
   workflow_dispatch:
   # A nightly run of the tests on main records the trace of main with
-  # `--trace`. Only the test, Storybook, upgrade and Project check times jobs
-  # and the Trace job run on it.
+  # `--trace`. Only the test, Storybook, codesearch, upgrade, build and
+  # Project check times jobs and the Trace job run on it. It is the safety
+  # net of the merge gate.
   schedule:
     - cron: "23 2 * * *"
   pull_request:
@@ -15,13 +16,9 @@ on:
       - reopened
       - synchronize
       - ready_for_review
-  # Cloud Agent pushes sometimes skip pull_request synchronize. Keep push so
-  # those commits still get CI. Jobs XOR: agents run on push only; everyone
-  # else on pull_request only. Do not rely on concurrency to hide the twin.
-  # branches must be listed (not only tags-ignore) or GitHub skips branch pushes.
   push:
     branches:
-      - "**"
+      - main
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
@@ -30,16 +27,13 @@ concurrency:
 permissions:
   contents: read
 
-# Cloud Agent (`cursor[bot]` / `cursoragent`): push only.
-# Humans: pull_request only.
 jobs:
   lint:
     timeout-minutes: 15
     name: Lint and format
     if: |
       github.event_name == 'workflow_dispatch' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      github.event_name == 'pull_request'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -51,6 +45,10 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The trace tests start a Bun child process.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
       - run: pnpm lint
       - run: pnpm format:check
       - name: Reject unused files, exports and dependencies
@@ -70,6 +68,8 @@ jobs:
         run: node scripts/ci/check-runners.mjs
       - name: Reject outside values in run scripts and workflows without permissions
         run: node scripts/ci/check-workflow-inputs.mjs
+      - name: Validate and install the Claude plugin
+        run: node scripts/ci/check-claude-plugin.mjs
       - name: CI command regression tests
         run: |
           node --test scripts/tests/ci-*.test.mjs
@@ -87,10 +87,16 @@ jobs:
   typecheck:
     timeout-minutes: 30
     name: Typecheck
+    # A push to main also runs this job, so that the cache has the build info
+    # of main for each pull request. In gate mode it runs only when the plan
+    # selects a typecheck check (scripts/checks/README.md, Merge gate).
+    needs: merge-gate-plan
     if: |
-      github.event_name == 'workflow_dispatch' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'pull_request') &&
+      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.typecheck != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -102,10 +108,27 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The build info of the last typecheck (scripts/ci/typecheck.mjs). The
+      # newest one with the same lockfile and tsconfig files comes first. A
+      # pull request without its own entry gets the entry of main. A build
+      # info from a different TypeScript version is not used. A push to main
+      # does not restore it: that run is cold, so a bad merge fails on main.
+      - name: Compute the typecheck cache key
+        id: typecheck-cache
+        run: echo "prefix=${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json', 'apps/*/tsconfig.json', 'packages/*/tsconfig.json', 'examples/*/tsconfig.json') }}-" >> "$GITHUB_OUTPUT"
+      - name: Restore the typecheck build info
+        if: github.event_name != 'push'
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules/.cache/typecheck
+          key: typecheck-${{ steps.typecheck-cache.outputs.prefix }}${{ github.sha }}
+          restore-keys: |
+            typecheck-${{ steps.typecheck-cache.outputs.prefix }}
       # The check runner runs each project with its diagnostic allowance and
       # writes one result record for each, for the merge gate. The output of
       # each project is in .ci-results/checks (the next step prints it).
       - name: Full projects with shrinking diagnostic allowances
+        if: needs.merge-gate-plan.outputs.mode != 'gate'
         run: |
           set -o pipefail
           mkdir -p .ci-results/typecheck
@@ -113,6 +136,19 @@ jobs:
             jq -r '.checks[] | select(.family == "typecheck") | .id' > "$RUNNER_TEMP/typecheck.txt"
           node scripts/checks/run.mjs "$RUNNER_TEMP/typecheck.txt" |
             tee .ci-results/typecheck/records.ndjson
+      - name: Selected projects (merge gate)
+        if: needs.merge-gate-plan.outputs.mode == 'gate'
+        env:
+          PLAN: ${{ needs.merge-gate-plan.outputs.typecheck }}
+        run: node scripts/checks/selected.mjs .ci-results/typecheck
+      # A failed typecheck also writes the build info: it holds the result of
+      # each file, and the next run checks only the changed files again.
+      - name: Save the typecheck build info
+        if: always()
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: node_modules/.cache/typecheck
+          key: typecheck-${{ steps.typecheck-cache.outputs.prefix }}${{ github.sha }}
       - name: Typecheck output
         if: always()
         run: cat .ci-results/checks/*.log || true
@@ -129,33 +165,38 @@ jobs:
     # The runner's own limit (scripts/ci/test-suite.mjs) is 30 min for backend
     # and 45 min for contracts. The job limit adds 15 min for setup, so the
     # named runner timeout fires before the job is cancelled.
-    timeout-minutes: ${{ matrix.lane == 'contracts' && 60 || 45 }}
+    timeout-minutes: ${{ matrix.lane != 'backend' && 60 || 45 }}
     # One shard runs its files in series in its own database, so a worker in
     # one shard cannot claim a run that a file in another shard opened.
     name: ${{ matrix.lane }} tests (shard ${{ matrix.shard }}/${{ matrix.count }})
     # The nightly run (schedule) also runs the tests, to record the trace of main.
+    needs: merge-gate-plan
     if: |
-      github.event_name == 'workflow_dispatch' ||
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      github.event_name == 'pull_request') &&
+      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.test-shards != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       fail-fast: false
       matrix:
-        # Shard counts come from the measured file times in
-        # scripts/ci/test-weights.json: about 200 s of backend test time and
-        # 240 s of contract test time per shard.
-        include:
-          - { lane: backend, shard: 1, count: 4 }
-          - { lane: backend, shard: 2, count: 4 }
-          - { lane: backend, shard: 3, count: 4 }
-          - { lane: backend, shard: 4, count: 4 }
-          - { lane: contracts, shard: 1, count: 5 }
-          - { lane: contracts, shard: 2, count: 5 }
-          - { lane: contracts, shard: 3, count: 5 }
-          - { lane: contracts, shard: 4, count: 5 }
-          - { lane: contracts, shard: 5, count: 5 }
+        # The full run: shard counts come from the measured file times in
+        # scripts/ci/test-weights.json, about 200 s of backend test time and
+        # 240 s of contract test time per shard. In gate mode the plan job
+        # gives the shards of the selected checks (lane `selected`).
+        include: >-
+          ${{ fromJSON(needs.merge-gate-plan.outputs.test-shards || '[
+          {"lane": "backend", "shard": 1, "count": 4},
+          {"lane": "backend", "shard": 2, "count": 4},
+          {"lane": "backend", "shard": 3, "count": 4},
+          {"lane": "backend", "shard": 4, "count": 4},
+          {"lane": "contracts", "shard": 1, "count": 5},
+          {"lane": "contracts", "shard": 2, "count": 5},
+          {"lane": "contracts", "shard": 3, "count": 5},
+          {"lane": "contracts", "shard": 4, "count": 5},
+          {"lane": "contracts", "shard": 5, "count": 5}
+          ]') }}
     services:
       postgres:
         # Same pgvector image as the migrate job so default-suite persist tests
@@ -192,7 +233,7 @@ jobs:
       # can time out, so pull each image once here, with retries, before the
       # tests start.
       - name: Required test container images
-        if: matrix.lane == 'contracts'
+        if: matrix.lane != 'backend'
         run: |
           for image in infisical/agent-vault:latest alpine:3.22 node:24 curlimages/curl:8.17.0; do
             n=0
@@ -252,6 +293,7 @@ jobs:
           load: true
           cache-from: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox
       - name: Required ${{ matrix.lane }} tests
+        if: matrix.lane != 'selected'
         env:
           GRAPH_DB_URI: redis://127.0.0.1:6379
           AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
@@ -261,6 +303,14 @@ jobs:
         run: |
           node scripts/ci/test-suite.mjs ${{ matrix.lane }} --shard=${{ matrix.shard }}/${{ matrix.count }} \
             $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
+      - name: Selected tests (merge gate)
+        if: matrix.lane == 'selected'
+        env:
+          GRAPH_DB_URI: redis://127.0.0.1:6379
+          AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
+          DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
+          PLAN: ${{ toJSON(matrix.plan) }}
+        run: node scripts/checks/selected.mjs .ci-results/selected
       - name: FalkorDB diagnostics
         if: failure()
         continue-on-error: true
@@ -296,11 +346,13 @@ jobs:
     timeout-minutes: 30
     name: UI, CLI and CDK tests
     # The nightly run (schedule) also runs the tests, to record the trace of main.
+    needs: merge-gate-plan
     if: |
-      github.event_name == 'workflow_dispatch' ||
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      github.event_name == 'pull_request') &&
+      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.package-tests != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       EVENT: ${{ github.event_name }}
@@ -318,11 +370,19 @@ jobs:
         with:
           bun-version: 1.4.4
       - name: UI tests
+        if: needs.merge-gate-plan.outputs.mode != 'gate'
         run: node scripts/ci/test-suite.mjs ui $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       - name: CLI tests
+        if: needs.merge-gate-plan.outputs.mode != 'gate'
         run: node scripts/ci/test-suite.mjs cli $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       - name: CDK tests
+        if: needs.merge-gate-plan.outputs.mode != 'gate'
         run: node scripts/ci/test-suite.mjs aws-cdk $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
+      - name: Selected UI, CLI and CDK tests (merge gate)
+        if: needs.merge-gate-plan.outputs.mode == 'gate'
+        env:
+          PLAN: ${{ needs.merge-gate-plan.outputs.package-tests }}
+        run: node scripts/checks/selected.mjs .ci-results/selected
       # The Results writer quarantines a key only when its check fails again
       # in this one rerun through the public runner (scripts/checks/README.md).
       - name: Run the failed checks again
@@ -344,12 +404,13 @@ jobs:
     # Keeps the single "Tests" check: it passes only when every shard and
     # package job passed and the shard union matches each full inventory.
     name: Tests
-    needs: [test-shards, package-tests]
+    # A gated run has no full inventory: the merge gate is its check.
+    needs: [merge-gate-plan, test-shards, package-tests]
     if: |
       always() && (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')))
+      github.event_name == 'pull_request') &&
+      needs.merge-gate-plan.outputs.mode != 'gate'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Require every test job
@@ -449,8 +510,10 @@ jobs:
       - name: Project checks through the check runner
         run: |
           set -o pipefail
+          # A check with cacheable false reads outside state (Terraform, Docker, a
+          # PR deploy) that this job lacks, and its time is not the job's purpose.
           pnpm -s checks:list |
-            jq -r '.checks[] | select(.family == "typecheck" or .family == "lint" or .family == "policy") | .id' \
+            jq -r '.checks[] | select((.family == "typecheck" or .family == "lint" or .family == "policy") and .cacheable != false) | .id' \
             > "$RUNNER_TEMP/project-checks.txt"
           mkdir -p "$RUNNER_TEMP/project-trace"
           # The result records also go to the Results writer.
@@ -469,31 +532,39 @@ jobs:
   production-builds:
     timeout-minutes: 45
     name: Production build (${{ matrix.name }})
+    # In gate mode it builds only the selected images. A person asks for
+    # every build with Run workflow (workflow_dispatch) on the PR branch.
+    # The nightly run (schedule) builds every image: it is the safety net
+    # of the gate.
+    needs: merge-gate-plan
     if: |
-      github.event_name == 'workflow_dispatch' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'pull_request') &&
+      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.production-builds != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: backend
-            dockerfile: apps/backend/Dockerfile
-          - name: worker
-            dockerfile: apps/backend/Dockerfile.worker
-          - name: ui
-            dockerfile: apps/ui/Dockerfile
-          - name: codesearch
-            dockerfile: apps/codesearch/Dockerfile
-          - name: docs
-            dockerfile: apps/docs/Dockerfile
-          # deploy.yaml publishes this image for arm64 (the AWS sandbox host is
-          # Graviton). No other job builds it for arm64 before release.
-          - name: chat-sandbox
-            dockerfile: scripts/chat-sandbox/Dockerfile
-            context: scripts/chat-sandbox
-            platforms: linux/arm64
+        # Each entry is the check `build:image-<name>:` of the manifest
+        # (scripts/checks/projects.mjs). The merge gate takes the result of
+        # the job `Production build (<name>)` as the check result, so this
+        # job needs no workspace install. deploy.yaml publishes the
+        # chat-sandbox image for arm64 (the AWS sandbox host is Graviton). No
+        # other job builds it for arm64 before release. In gate mode the plan
+        # job gives the entries of the selected images (plan.mjs keeps the
+        # same options).
+        include: >-
+          ${{ fromJSON(needs.merge-gate-plan.outputs.production-builds || '[
+          {"name": "backend", "dockerfile": "apps/backend/Dockerfile"},
+          {"name": "worker", "dockerfile": "apps/backend/Dockerfile.worker"},
+          {"name": "ui", "dockerfile": "apps/ui/Dockerfile"},
+          {"name": "codesearch", "dockerfile": "apps/codesearch/Dockerfile"},
+          {"name": "docs", "dockerfile": "apps/docs/Dockerfile"},
+          {"name": "chat-sandbox", "dockerfile": "scripts/chat-sandbox/Dockerfile",
+          "context": "scripts/chat-sandbox", "platforms": "linux/arm64"}
+          ]') }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
@@ -571,10 +642,15 @@ jobs:
   packages:
     timeout-minutes: 20
     name: Runnable packages and examples
+    # The nightly run (schedule) builds every package: it is the safety net
+    # of the gate.
+    needs: merge-gate-plan
     if: |
-      github.event_name == 'workflow_dispatch' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'pull_request') &&
+      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.packages != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -587,21 +663,46 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @ctxpipe/backend build
-      - run: pnpm --filter @ctxpipe/codesearch build
-      - run: pnpm --filter @ctxpipe/aws-cdk build
-      - run: pnpm --filter ctxpipe build
+      # Each package build is one check of the manifest. The record goes to
+      # the merge gate.
+      - name: Build the packages through the check runner
+        if: needs.merge-gate-plan.outputs.mode != 'gate'
+        run: |
+          set -o pipefail
+          mkdir -p .ci-results/build-packages
+          pnpm -s checks:list |
+            jq -r '.checks[] | select(.family == "build" and (.lane | startswith("package-"))) | .id' |
+            pnpm -s checks:run | tee .ci-results/build-packages/records.ndjson
+      - name: Show the build log
+        if: failure()
+        run: cat .ci-results/checks/*.log
       - run: pnpm --filter @ctxpipe/aws-cdk-self-host typecheck
+        if: needs.merge-gate-plan.outputs.mode != 'gate'
+      - name: Selected builds (merge gate)
+        if: needs.merge-gate-plan.outputs.mode == 'gate'
+        env:
+          PLAN: ${{ needs.merge-gate-plan.outputs.packages }}
+        run: node scripts/checks/selected.mjs .ci-results/build-packages
+      - name: Preserve the build results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-results-build-packages
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   storybook-build:
     timeout-minutes: 20
     name: Storybook build
+    needs: merge-gate-plan
     # The nightly run (schedule) also plays the stories, to record the trace.
     if: |
-      github.event_name == 'workflow_dispatch' ||
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      github.event_name == 'pull_request') &&
+      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-build != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -624,11 +725,14 @@ jobs:
   storybook-golden:
     timeout-minutes: 30
     name: Storybook Playwright golden journey
-    needs: storybook-build
+    # In gate mode the Storybook plays shards run each selected story, the
+    # golden ones too.
+    needs: [merge-gate-plan, storybook-build]
     if: |
-      github.event_name == 'workflow_dispatch' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      !cancelled() && needs.storybook-build.result == 'success' &&
+      (github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request') &&
+      needs.merge-gate-plan.outputs.mode != 'gate'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -663,19 +767,25 @@ jobs:
 
   storybook-plays:
     timeout-minutes: 45
-    name: Storybook Playwright all plays (${{ matrix.shard }}/4)
-    needs: storybook-build
+    name: Storybook Playwright all plays (${{ matrix.shard }}/${{ matrix.count }})
+    needs: [merge-gate-plan, storybook-build]
     # The nightly run (schedule) also plays the stories, to record the trace.
     if: |
-      github.event_name == 'workflow_dispatch' ||
+      !cancelled() && needs.storybook-build.result == 'success' &&
+      (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      github.event_name == 'pull_request') &&
+      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-plays != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        # In gate mode the plan job gives the shards of the selected stories.
+        include: >-
+          ${{ fromJSON(needs.merge-gate-plan.outputs.storybook-plays || '[
+          {"shard": 1, "count": 4}, {"shard": 2, "count": 4},
+          {"shard": 3, "count": 4}, {"shard": 4, "count": 4}
+          ]') }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -695,15 +805,22 @@ jobs:
           name: storybook-static
           path: apps/ui/storybook-static
       - name: Every Storybook story with a play function
+        if: matrix.lane != 'selected'
         env:
           SKIP_STORYBOOK_BUILD: "1"
           STORYBOOK_PLAYS: all
-          STORYBOOK_SHARD: ${{ matrix.shard }}/4
+          STORYBOOK_SHARD: ${{ matrix.shard }}/${{ matrix.count }}
           EVENT: ${{ github.event_name }}
         # The trace (scripts/checks/README.md) is data only; PR runs skip it.
         run: |
           node scripts/ci/storybook-golden.mjs \
             $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
+      - name: Selected stories (merge gate)
+        if: matrix.lane == 'selected'
+        env:
+          SKIP_STORYBOOK_BUILD: "1"
+          PLAN: ${{ toJSON(matrix.plan) }}
+        run: node scripts/checks/selected.mjs .ci-results/storybook-plays
       # The Results writer quarantines a key only when its check fails again
       # in this one rerun through the public runner (scripts/checks/README.md).
       - name: Run the failed checks again
@@ -733,11 +850,15 @@ jobs:
     timeout-minutes: 30
     name: Codesearch real toolchain contracts
     # The nightly run (schedule) also runs the tests, to record the trace of main.
+    # In gate mode the whole job runs when the plan selects one of its checks:
+    # one image build serves all of them.
+    needs: merge-gate-plan
     if: |
-      github.event_name == 'workflow_dispatch' ||
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      github.event_name == 'pull_request') &&
+      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.codesearch != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -786,10 +907,12 @@ jobs:
   vercel-sandbox:
     timeout-minutes: 30
     name: Hosted sandbox (Vercel) contracts
+    needs: merge-gate-plan
     if: |
-      github.event_name == 'workflow_dispatch' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request') &&
+      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.vercel-sandbox != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     # The workbench VERCEL_ACCESS_TOKEN is a test-scoped value for the
     # preview Vercel project, never production.
@@ -834,11 +957,26 @@ jobs:
       # The nightly run does not start this job (it needs the workbench
       # environment), so only a workflow_dispatch run traces it.
       - name: Required real Vercel sandbox contracts
+        if: needs.merge-gate-plan.outputs.mode != 'gate'
         env:
           DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
           VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
           EVENT: ${{ github.event_name }}
         run: node scripts/ci/test-suite.mjs vercel $([ "$EVENT" = workflow_dispatch ] && echo --trace)
+      # The check discovery imports PR code (eval cases, the Storybook
+      # configuration), so it runs here, without the Vercel token. The next
+      # step runs only the Vercel lane with the token.
+      - name: List the checks (merge gate)
+        if: needs.merge-gate-plan.outputs.mode == 'gate'
+        run: pnpm -s checks:list > "$RUNNER_TEMP/manifest.json"
+      - name: Selected Vercel sandbox contracts (merge gate)
+        if: needs.merge-gate-plan.outputs.mode == 'gate'
+        env:
+          DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
+          VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          MANIFEST: ${{ runner.temp }}/manifest.json
+          PLAN: ${{ needs.merge-gate-plan.outputs.vercel-sandbox }}
+        run: node scripts/checks/selected.mjs .ci-results/vercel
       - name: Preserve the Vercel results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -864,8 +1002,7 @@ jobs:
     name: Terraform configuration
     if: |
       github.event_name == 'workflow_dispatch' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      github.event_name == 'pull_request'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -899,8 +1036,7 @@ jobs:
     name: Migrations (fresh schema)
     if: |
       github.event_name == 'workflow_dispatch' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      github.event_name == 'pull_request'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     services:
       postgres:
@@ -951,11 +1087,14 @@ jobs:
     name: Upgrade from the previous release
     timeout-minutes: 15
     # The nightly run (schedule) also runs it, to record its time and trace.
+    # In gate mode the whole job runs when the plan selects one of its checks.
+    needs: merge-gate-plan
     if: |
-      github.event_name == 'workflow_dispatch' ||
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
-      ((github.event_name == 'pull_request') !=
-      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+      github.event_name == 'pull_request') &&
+      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.upgrade-from-previous-release != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     services:
       postgres:
@@ -1105,8 +1244,7 @@ jobs:
     name: Merge gate manifest
     if: |
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' &&
-      github.actor != 'cursor[bot]' && github.actor != 'cursoragent')
+      github.event_name == 'pull_request'
     continue-on-error: true
     runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
@@ -1216,7 +1354,16 @@ jobs:
           echo "the selector release did not unpack" > "$cause"
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
-      - name: Select (variant B, k = 3, no model step)
+      # The LLM job runs the same release with the model key; it gets the
+      # release from this job, because only this job holds the role.
+      - name: Keep the selector release for the LLM job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: factory-release
+          path: ${{ runner.temp }}/factory.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+      - name: Select and look up the cache (variant B, k = 3, no model step)
         timeout-minutes: 3
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1231,7 +1378,7 @@ jobs:
           "$RUNNER_TEMP/bin/factory" check --repo . --base HEAD^1 --k 3 \
             --manifest "$RUNNER_TEMP/inputs/manifest.json" \
             --toolchain "$RUNNER_TEMP/inputs/toolchain.json" \
-            --cache-only --json > "$RUNNER_TEMP/raw.json" || code=$?
+            --include-stochastic --cache-only --json > "$RUNNER_TEMP/raw.json" || code=$?
           # 0: every selected check is a hit. 1: a check must run. 2: the
           # selection failed.
           if [ "$code" -gt 1 ]; then
@@ -1253,18 +1400,211 @@ jobs:
           path: ${{ runner.temp }}/out/
           if-no-files-found: ignore
 
+  # The LLM stage of the selection (`factory check --llm-select`, Claude
+  # Haiku 5.5 through OpenRouter) for the select job's run. It holds the
+  # model key of the workbench environment and no cloud role. It runs only
+  # the selector release of the select job, after it checks the pinned
+  # SHA-256 again, on a checkout without credentials. It runs no package
+  # manager and no repository script. It makes no cache lookup (the select
+  # job did that), so a check that only it selects runs. When it fails, the
+  # deterministic selection of the select job stays, and the plan says why.
+  merge-gate-llm:
+    timeout-minutes: 5
+    name: Merge gate LLM selection
+    needs: merge-gate-select
+    if: needs.merge-gate-select.result == 'success'
+    continue-on-error: true
+    environment: workbench
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Start the cause record
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          echo "the inputs of the select job did not download" > "$RUNNER_TEMP/out/llm-cause.txt"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: merge-gate-inputs
+          path: ${{ runner.temp }}/inputs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: merge-gate-selection
+          path: ${{ runner.temp }}/selection
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: factory-release
+          path: ${{ runner.temp }}/release
+      - name: Selector release, checked against the pin
+        run: |
+          echo "the selector release does not match the pinned SHA-256" > "$RUNNER_TEMP/out/llm-cause.txt"
+          sha256="$(jq -er .factory.sha256 .github/merge-gate.json)"
+          echo "$sha256  $RUNNER_TEMP/release/factory.tar.gz" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/release/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
+      # A slow model call delays every check job, so the selector has 75
+      # seconds. The plan keeps the deterministic selection when this step
+      # fails or times out.
+      - name: Select with the LLM stage
+        timeout-minutes: 2
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          XDG_CACHE_HOME: ${{ runner.temp }}/cache
+        run: |
+          out="$RUNNER_TEMP/out"
+          echo "the selector did not finish in 2 minutes" > "$out/llm-cause.txt"
+          trace=()
+          [ ! -f "$RUNNER_TEMP/selection/trace.json.gz" ] || trace=(--trace "$RUNNER_TEMP/selection/trace.json.gz")
+          code=0
+          timeout 75 "$RUNNER_TEMP/bin/factory" check --repo . --base HEAD^1 --k 3 \
+            --manifest "$RUNNER_TEMP/inputs/manifest.json" "${trace[@]}" \
+            --include-stochastic --llm-select --llm-provider openrouter \
+            --dry-run --json > "$RUNNER_TEMP/raw.json" || code=$?
+          if [ "$code" = 124 ]; then
+            echo "the selector did not finish in 75 seconds" > "$out/llm-cause.txt"
+            exit 1
+          fi
+          if [ "$code" -gt 1 ]; then
+            echo "the selector failed with exit code $code" > "$out/llm-cause.txt"
+            exit 1
+          fi
+          # The audit field is a path on this runner.
+          echo "the selection record did not parse" > "$out/llm-cause.txt"
+          head -n 1 "$RUNNER_TEMP/raw.json" | jq -c 'del(.llm.audit)' > "$RUNNER_TEMP/llm-selection.json"
+          mv "$RUNNER_TEMP/llm-selection.json" "$out/llm-selection.json"
+          rm "$out/llm-cause.txt"
+          jq -c '.llm | {fallback, cached, latencyMs, usage, kept: (.kept | length), dropped: (.dropped | length), added: (.added | length)}' "$out/llm-selection.json"
+      - name: Preserve the LLM selection
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: merge-gate-llm
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: ignore
+
+  # The plan of a PR run (gate.mjs plan): in gate mode, the checks that each
+  # job runs, and the stored passes that the other selected checks reuse (the
+  # `ci` and `agent` classes from the select job, the `pr` class from the PR
+  # store). A job of the plan output starts; another check job does not. In
+  # shadow mode, on a fork PR, or when the selector failed, the plan says
+  # full and every job runs. It runs only the public gate.mjs, with no
+  # package and no credential. The PR store is in the GitHub Actions cache of
+  # the PR: only a run of this PR writes there (the merge gate job).
+  merge-gate-plan:
+    timeout-minutes: 5
+    name: Merge gate plan
+    needs: [merge-gate-manifest, merge-gate-select, merge-gate-llm]
+    if: |
+      !cancelled() && github.event_name == 'pull_request'
+    continue-on-error: true
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      deploy: ${{ steps.plan.outputs.deploy }}
+      typecheck: ${{ steps.plan.outputs.typecheck }}
+      test-shards: ${{ steps.plan.outputs.test-shards }}
+      package-tests: ${{ steps.plan.outputs.package-tests }}
+      production-builds: ${{ steps.plan.outputs.production-builds }}
+      packages: ${{ steps.plan.outputs.packages }}
+      storybook-build: ${{ steps.plan.outputs.storybook-build }}
+      storybook-plays: ${{ steps.plan.outputs.storybook-plays }}
+      codesearch: ${{ steps.plan.outputs.codesearch }}
+      vercel-sandbox: ${{ steps.plan.outputs.vercel-sandbox }}
+      upgrade-from-previous-release: ${{ steps.plan.outputs.upgrade-from-previous-release }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          pattern: merge-gate-*
+          path: ${{ runner.temp }}/inputs
+          merge-multiple: true
+      - name: Restore the PR store
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .merge-gate-store
+          key: merge-gate-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            merge-gate-pr-${{ github.event.pull_request.number }}-
+      - name: Plan
+        id: plan
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
+          node scripts/checks/gate.mjs plan --config .github/merge-gate.json \
+            --inputs "$RUNNER_TEMP/inputs" --needs "$RUNNER_TEMP/needs.json" \
+            --store .merge-gate-store/store.json --fork "$FORK" \
+            --out "$RUNNER_TEMP/plan" --github-output "$GITHUB_OUTPUT"
+      - name: Preserve the plan
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: merge-gate-plan
+          path: ${{ runner.temp }}/plan/plan.json
+          if-no-files-found: ignore
+
+  # In gate mode PR Deploy does not start on a push: this job starts it when
+  # the plan selects a deploy check, or when the run is full. A failed plan
+  # job gives no `mode`: that run is full, so this job starts PR Deploy too. A person can
+  # start it with Run workflow on the PR branch. It runs no repository code.
+  merge-gate-deploy:
+    timeout-minutes: 5
+    name: Merge gate starts PR Deploy
+    needs: merge-gate-plan
+    if: |
+      !cancelled() &&
+      (needs.merge-gate-plan.outputs.deploy == 'true' ||
+      needs.merge-gate-plan.outputs.mode == '') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      actions: write
+    steps:
+      - name: Start PR Deploy on the PR branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.head_ref }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh workflow run pr-deploy.yaml --repo "$REPO" --ref "$BRANCH" -f pr_number="$PR"
+
   # Publishes the decision of each PR run: the job summary, the artifact
-  # merge-gate-decision, and one PR comment that it updates. In shadow mode
-  # the full run gates; this job computes what a gated run would decide from
-  # the same results, and the agreement record (scripts/checks/README.md).
-  # It runs only the public gate.mjs, with no package.
+  # merge-gate-decision, and one PR comment that it updates. In gate mode
+  # this job is the verdict: it fails when the gated run fails (or, on a
+  # full run, when the full run fails), and it writes the passes of this run
+  # to the PR store. In shadow mode the full run gates; this job computes
+  # what a gated run would decide from the same results, and the agreement
+  # record (scripts/checks/README.md). It runs only the public gate.mjs,
+  # with no package.
   merge-gate:
     timeout-minutes: 10
-    name: Merge gate (shadow)
+    # A fixed name: this job is the required status, also when the plan job
+    # failed and gave no outputs (then the run is full). It has no
+    # continue-on-error: a failed verdict fails it only in gate mode, but an
+    # error in gate.mjs decide or a failed PR comment step fails it in each
+    # mode.
+    name: Merge gate
     needs:
       [
         merge-gate-manifest,
         merge-gate-select,
+        merge-gate-llm,
+        merge-gate-plan,
         lint,
         typecheck,
         test-shards,
@@ -1282,9 +1622,7 @@ jobs:
         upgrade-from-previous-release,
       ]
     if: |
-      always() && github.event_name == 'pull_request' &&
-      github.actor != 'cursor[bot]' && github.actor != 'cursoragent'
-    continue-on-error: true
+      always() && github.event_name == 'pull_request'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -1320,8 +1658,10 @@ jobs:
           REPO: ${{ github.repository }}
           RUN: ${{ github.run_id }}
           ATTEMPT: ${{ github.run_attempt }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         # The jobs of the earlier attempts show the flakes: a job that failed
-        # in an earlier attempt and passed in this one.
+        # in an earlier attempt and passed in this one. The jobs of the newest
+        # PR Deploy run of the PR head give the deploy checks their results.
         run: |
           gh api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" --paginate \
             --jq '.jobs[]' | jq -s '{jobs: .}' > "$RUNNER_TEMP/jobs.json"
@@ -1329,17 +1669,60 @@ jobs:
             gh api "repos/$REPO/actions/runs/$RUN/attempts/$attempt/jobs?per_page=100" --paginate \
               --jq '.jobs[]'
           done | jq -s '{jobs: .}' > "$RUNNER_TEMP/earlier.json"
+          # The newest PR Deploy run of the head whose deploy job did not
+          # skip. A run that a newer push cancelled early has no deploy job.
+          gh api "repos/$REPO/actions/workflows/pr-deploy.yaml/runs?head_sha=$HEAD_SHA&per_page=20" \
+            --jq '.workflow_runs[] | [.id, .status] | @tsv' > "$RUNNER_TEMP/deploy-runs.tsv"
+          echo '{"jobs": []}' > "$RUNNER_TEMP/deploy.json"
+          while read -r id status; do
+            gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" --paginate \
+              --jq '.jobs[]' | jq -s --arg status "$status" '{status: $status, jobs: .}' > "$RUNNER_TEMP/candidate.json"
+            if [[ -z "$(jq -r '.jobs[] | select(.name == "Deploy PR environment (Railway + Neon)" and .conclusion != "skipped") | .name' "$RUNNER_TEMP/candidate.json")" ]]; then
+              # Keep the first run as the answer if no run has a deploy job.
+              [[ "$(jq '.jobs | length' "$RUNNER_TEMP/deploy.json")" == 0 ]] && cp "$RUNNER_TEMP/candidate.json" "$RUNNER_TEMP/deploy.json"
+              continue
+            fi
+            cp "$RUNNER_TEMP/candidate.json" "$RUNNER_TEMP/deploy.json"
+            break
+          done < "$RUNNER_TEMP/deploy-runs.tsv"
+      - name: Restore the PR store
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .merge-gate-store
+          key: merge-gate-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            merge-gate-pr-${{ github.event.pull_request.number }}-
+      # In gate mode a failed verdict fails this step; the next steps still
+      # publish the decision and keep the PR store.
       - name: Decision
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
-          node scripts/checks/gate.mjs shadow --config .github/merge-gate.json \
+          code=0
+          node scripts/checks/gate.mjs decide --config .github/merge-gate.json \
             --inputs "$RUNNER_TEMP/inputs" --results "$RUNNER_TEMP/results" \
             --needs "$RUNNER_TEMP/needs.json" --jobs "$RUNNER_TEMP/jobs.json" \
-            --earlier "$RUNNER_TEMP/earlier.json" --out "$RUNNER_TEMP/decision"
-          cat "$RUNNER_TEMP/decision/summary.md" >> "$GITHUB_STEP_SUMMARY"
+            --earlier "$RUNNER_TEMP/earlier.json" --deploy "$RUNNER_TEMP/deploy.json" \
+            --store .merge-gate-store/store.json --out "$RUNNER_TEMP/decision" || code=$?
+          cat "$RUNNER_TEMP/decision/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
+          exit "$code"
+      - name: Keep the PR store
+        id: store
+        if: always()
+        run: |
+          [ -f "$RUNNER_TEMP/decision/store.json" ] || exit 0
+          mkdir -p .merge-gate-store
+          cp "$RUNNER_TEMP/decision/store.json" .merge-gate-store/store.json
+          echo "kept=true" >> "$GITHUB_OUTPUT"
+      - name: Save the PR store
+        if: always() && steps.store.outputs.kept == 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .merge-gate-store
+          key: merge-gate-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Preserve the decision
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: merge-gate-decision
@@ -1349,7 +1732,7 @@ jobs:
           if-no-files-found: warn
       # A fork PR has a read-only token, so it gets only the summary.
       - name: Post or update the PR comment
-        if: github.event.pull_request.head.repo.full_name == github.repository
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}

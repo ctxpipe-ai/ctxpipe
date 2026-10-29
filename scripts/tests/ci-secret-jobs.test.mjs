@@ -715,13 +715,61 @@ test("detects an OIDC token from write-all and from the flow form", () => {
     ["permissions: { id-token: write }\n", ""],
     ["", "    permissions: write-all\n"],
     ["", "    permissions: { contents: read, id-token: write }\n"],
-    ["permissions:\n  id-token: \"write\"\n", ""],
+    ['permissions:\n  id-token: "write"\n', ""],
     ["", "    permissions:\n      id-token: 'write'\n"],
-    ["permissions: { id-token: \"write\" }\n", ""],
-    ["permissions: \"write-all\"\n", ""],
+    ['permissions: { id-token: "write" }\n', ""],
+    ['permissions: "write-all"\n', ""],
   ])
     rejects(
       { ".github/workflows/deploy.yaml": jobs(workflow, job) },
       /job prerelease has an OIDC token and checks out another commit/,
     )
+})
+
+test("rejects a secret in a step that lists the checks", () => {
+  const step = (run, env = "") =>
+    workflow(
+      `  checks:\n    environment: workbench\n    steps:\n      - name: Checks\n        env:\n          VERCEL_TOKEN: \${{ secrets.VERCEL_ACCESS_TOKEN }}\n${env}        run: ${run}\n`,
+    )
+  const listed =
+    /gives a secret or an OIDC token to a step that lists the checks/
+  const empty = '          MANIFEST: ""\n'
+  for (const [run, env] of [
+    ["pnpm -s checks:list > manifest.json", ""],
+    ["node scripts/checks/list.mjs > manifest.json", ""],
+    ["node scripts/checks/run.mjs ids.txt", ""],
+    ["pnpm -s checks:run < ids.txt", ""],
+    ["node scripts/checks/rerun-failed.mjs .ci-results", ""],
+    ["node scripts/checks/rerun-failed.mjs .ci-results", empty],
+    ["node scripts/checks/selected.mjs .ci-results/vercel", ""],
+    ["node scripts/checks/selected.mjs .ci-results/vercel", empty],
+  ])
+    rejects(step(run, env), listed)
+  // With a manifest from an earlier step, nothing lists the checks.
+  const manifest = "          MANIFEST: manifest.json\n"
+  for (const [run, env] of [
+    ["node scripts/checks/selected.mjs .ci-results/vercel", manifest],
+    ["node scripts/checks/rerun-failed.mjs .ci-results", manifest],
+    ["node scripts/checks/run.mjs --manifest manifest.json ids.txt", ""],
+  ])
+    assert.doesNotMatch(check(step(run, env)).stderr, listed, run)
+})
+
+test("rejects a step that lists the checks in a job with an OIDC token", () => {
+  const listed =
+    /gives a secret or an OIDC token to a step that lists the checks/
+  rejects(
+    workflow(
+      "  checks:\n    permissions:\n      id-token: write\n    steps:\n      - run: node scripts/checks/list.mjs\n",
+    ),
+    listed,
+  )
+  assert.doesNotMatch(
+    check(
+      workflow(
+        "  checks:\n    permissions:\n      contents: read\n    steps:\n      - run: node scripts/checks/list.mjs\n",
+      ),
+    ).stderr,
+    listed,
+  )
 })

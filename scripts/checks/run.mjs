@@ -7,9 +7,12 @@ import { writeTrace } from "./trace.mjs"
 
 // Runs the given check ids and writes one result record per id
 // (schema/result.v1.schema.json) as NDJSON to stdout. Usage:
-//   run.mjs [--trace <dir>] [ids-file]
+//   run.mjs [--trace <dir>] [--manifest <file>] [ids-file]
 // Without ids-file, the ids come from stdin, one per line. With --trace, it
-// also writes <dir>/trace.json.gz (schema/trace.v1.schema.json).
+// also writes <dir>/trace.json.gz (schema/trace.v1.schema.json). With
+// --manifest, it reads the checks from that manifest (the output of
+// list.mjs) and does not list them. Thus a step that holds a credential for
+// its checks can list them in an earlier step, without the credential.
 // It first makes or verifies the prerequisites of the checks
 // (prerequisites.mjs). A check whose prerequisite fails does not run.
 // This is the subset path. It does not compare the executed files with the
@@ -19,8 +22,17 @@ try {
   const traceAt = args.indexOf("--trace")
   const trace = traceAt === -1 ? undefined : resolve(args[traceAt + 1] ?? "")
   if (traceAt !== -1) args.splice(traceAt, 2)
-  if (args.length > 1 || (traceAt !== -1 && !trace.length))
-    throw new Error("Usage: run.mjs [--trace <dir>] [ids-file]")
+  const manifestAt = args.indexOf("--manifest")
+  const manifest = manifestAt === -1 ? undefined : args[manifestAt + 1]
+  if (manifestAt !== -1) args.splice(manifestAt, 2)
+  if (
+    args.length > 1 ||
+    (traceAt !== -1 && !trace.length) ||
+    (manifestAt !== -1 && !manifest)
+  )
+    throw new Error(
+      "Usage: run.mjs [--trace <dir>] [--manifest <file>] [ids-file]",
+    )
   const ids = [
     ...new Set(
       readFileSync(args[0] ?? 0, "utf8")
@@ -37,7 +49,10 @@ try {
   }
   const unrun = (id, message, origin) =>
     emit({ id, status: "error", durationMs: 0, cases: [], origin, message })
-  const known = new Map((await listChecks()).checks.map((c) => [c.id, c]))
+  const { checks } = manifest
+    ? JSON.parse(readFileSync(manifest, "utf8"))
+    : await listChecks()
+  const known = new Map(checks.map((c) => [c.id, c]))
   const selected = []
   for (const id of ids) {
     if (known.has(id)) selected.push(known.get(id))
