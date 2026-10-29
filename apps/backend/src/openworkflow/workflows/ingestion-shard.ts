@@ -588,24 +588,19 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
 }
 
 /**
- * The execution that writes a step event (CTX-1080). After a lease loss, two
- * executions of one child write events; a query keeps the events of the
- * newest `executionAttempt`.
+ * The execution that writes a step event (CTX-1080): the worker process and,
+ * when the step checked the lease, the execution attempt of the run.
  */
-function executionFields(
-  execution: WorkflowExecution | undefined,
-  executionAttempt?: number,
-) {
+function executionFields(executionAttempt: number | undefined) {
   return {
     workerBootId: WORKER_BOOT_ID,
-    ...(execution ? { workflowWorkerId: execution.workerId } : {}),
     ...(executionAttempt === undefined ? {} : { executionAttempt }),
   }
 }
 
 /** One log event for a step that ends `partial`, with its reason. */
 function logStepPartial(
-  ctx: Pick<SkillPages, "run" | "destination" | "execution">,
+  ctx: Pick<SkillPages, "run" | "destination">,
   step: string,
   reason: string,
   executionAttempt?: number,
@@ -616,7 +611,7 @@ function logStepPartial(
     workspaceId: ctx.destination.workspaceId,
     ingestStep: step,
     reason: capIngestText(reason),
-    ...executionFields(ctx.execution, executionAttempt),
+    ...executionFields(executionAttempt),
   })
 }
 
@@ -694,23 +689,16 @@ async function attemptSkillStep(
           ingestStep: ctx.name,
           attempt,
           workflowRunId: ctx.execution.workflowRunId,
-          ...executionFields(ctx.execution, executionAttempt),
+          ...executionFields(executionAttempt),
         })
         throw new WorkflowLeaseLostError(ctx.execution.workflowRunId)
       }
       executionAttempt = owned
     }
-    const execution = executionFields(ctx.execution, executionAttempt)
-    span.setAttributes({
-      "ctxpipe.ingest.attempts": attempt,
-      "ctxpipe.worker.boot_id": execution.workerBootId,
-      ...(execution.workflowWorkerId === undefined
-        ? {}
-        : { "ctxpipe.openworkflow.worker.id": execution.workflowWorkerId }),
-      ...(execution.executionAttempt === undefined
-        ? {}
-        : { "openworkflow.execution.attempt": execution.executionAttempt }),
-    })
+    const execution = executionFields(executionAttempt)
+    span.setAttribute("ctxpipe.ingest.attempts", attempt)
+    if (executionAttempt !== undefined)
+      span.setAttribute("openworkflow.execution.attempt", executionAttempt)
     // The span of a step that stops the worker is never exported; this
     // event names the step that was in progress (CTX-971).
     logIngestEvent("info", "ingestion-v2.step-attempt-started", {

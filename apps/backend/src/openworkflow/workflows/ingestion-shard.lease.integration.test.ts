@@ -289,24 +289,24 @@ it(
   "names the execution on the step events and the step span",
   { timeout: 60_000 },
   async () => {
-    const { claimed } = await runStaleExecution()
-    expect(claimed?.worker_id).toEqual(expect.any(String))
-    const identity = {
-      workerBootId: WORKER_BOOT_ID,
-      workflowWorkerId: claimed?.worker_id,
-      executionAttempt: 1,
-    }
-    expect(
-      events.filter((e) => e.step === "ingestion-v2.step-attempt-started"),
-    ).toEqual([expect.objectContaining({ attempt: 1, ...identity })])
+    await runStaleExecution()
+    const identity = { workerBootId: WORKER_BOOT_ID, executionAttempt: 1 }
+    const started = events.filter(
+      (e) => e.step === "ingestion-v2.step-attempt-started",
+    )
+    expect(started).toEqual([
+      expect.objectContaining({ attempt: 1, ...identity }),
+    ])
     expect(
       events.filter((e) => e.step === "ingestion-v2.step-attempt-failed"),
     ).toEqual([expect.objectContaining({ attempt: 1, ...identity })])
-    expect(spans.spanNamed("ingestion.step")?.attributes).toMatchObject({
-      "ctxpipe.worker.boot_id": WORKER_BOOT_ID,
-      "ctxpipe.openworkflow.worker.id": claimed?.worker_id,
-      "openworkflow.execution.attempt": 1,
-    })
+    // One key for each concept: the OpenWorkflow worker id is only on the
+    // lease extension event of the backend.
+    expect(started[0]).not.toHaveProperty("workflowWorkerId")
+    const attributes = spans.spanNamed("ingestion.step")?.attributes ?? {}
+    expect(attributes["openworkflow.execution.attempt"]).toBe(1)
+    expect(attributes).not.toHaveProperty("ctxpipe.worker.boot_id")
+    expect(attributes).not.toHaveProperty("ctxpipe.openworkflow.worker.id")
   },
 )
 
@@ -314,7 +314,7 @@ it(
   "logs the lease loss with the run and the stale execution",
   { timeout: 60_000 },
   async () => {
-    const { claimed, runId } = await runStaleExecution()
+    const { runId } = await runStaleExecution()
     expect(
       events.filter((e) => e.step === "ingestion-v2.execution-lease-lost"),
     ).toEqual([
@@ -327,9 +327,11 @@ it(
         attempt: 2,
         workflowRunId: runId,
         workerBootId: WORKER_BOOT_ID,
-        workflowWorkerId: claimed?.worker_id,
         executionAttempt: 1,
       }),
     ])
+    expect(
+      events.find((e) => e.step === "ingestion-v2.execution-lease-lost"),
+    ).not.toHaveProperty("workflowWorkerId")
   },
 )
