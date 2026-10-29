@@ -8,7 +8,7 @@ one [Workspace](/docs/workspaces) what to read through a connection. ctxpipe
 writes the content into the Workspace repository as Markdown files, so you can
 read, review, and keep each file that ctxpipe and your agents use.
 
-- A **connection** holds only the authorization: the OAuth grant or the GitHub
+- A **connection** holds only the authorization: the OAuth grant, API access token, or GitHub
   App installation, and its webhooks. An organization owner or admin adds it
   one time for the organization, on **Connectors**.
 - A **source** is one Markdown file in a Workspace, at
@@ -27,6 +27,7 @@ and its own scope.
 | [Notion](/docs/connections/source-connectors/notion) | Scoped mirror | Pages and databases | Pages and databases |
 | [Confluence](/docs/connections/source-connectors/confluence) | Scoped mirror | Spaces and pages | Spaces, with all pages or a page list |
 | [PagerDuty](/docs/connections/source-connectors/pagerduty) | Scoped mirror | Incidents of the selected services | Services |
+| [Buildkite](/docs/connections/source-connectors/buildkite) | Scoped mirror | The latest 25 finished builds of the selected pipelines | Pipelines |
 | [Slack](/docs/connections/source-connectors/slack) | Capture on request | One thread at a time, when someone mentions the bot | Channels |
 | [Plain git](/docs/workspaces/linked-repositories#plain-git-repositories) | Git source | A public repository on any git host, with no connection | A URL |
 
@@ -60,8 +61,8 @@ Before you start, make sure that:
     ### Connect the tool
 
     Open **Connectors**, choose **Add connection**, then choose the tool.
-    Authorize ctxpipe in the popup of the tool. The connector page has the
-    details for each tool.
+    Follow the authorization steps for the tool. Buildkite uses an API access
+    token. The connector page has the details for each tool.
   </Step>
 
   <Step>
@@ -101,11 +102,13 @@ To change what a Workspace reads, edit, rename, or remove its source. See
 - **Webhooks.** Linear, Notion, Confluence, and PagerDuty tell ctxpipe when
   content changes. ctxpipe updates the files of the sources whose scope
   includes the change. Events that arrive before a source is live are skipped.
+- **Buildkite webhooks.** A finished build starts a full sync after a 10-minute
+  window. More events in that window share the same sync.
 - **Daily full sync.** Once a day, ctxpipe syncs each connection that has a
   source with the status **OK**. This sync finds content that the provider
   deleted, and content that a webhook missed.
 - **Sync now.** The menu of the connector on **Connectors** has **Sync now** for
-  Confluence, Linear, Notion, and PagerDuty. It starts the same full sync at
+  Confluence, Linear, Notion, PagerDuty, and Buildkite. It starts the same full sync at
   once. Only an owner or admin sees it.
 
 Do not edit mirrored files by hand. The next sync overwrites them. When you
@@ -145,6 +148,7 @@ same connection.
 | **Linear** | 50 teams and 100 projects |
 | **Notion** | 100 root pages and 100 databases |
 | **PagerDuty** | 100 services |
+| **Buildkite** | 50 pipelines |
 
 A GitHub source holds one repository, so it has no limit.
 
@@ -165,7 +169,8 @@ A GitHub source holds one repository, so it has no limit.
 We plan more connectors for engineering systems, for example Jira and Sentry.
 On a self-hosted deployment, the operator must configure the OAuth app and the
 webhooks of a provider before its connector works. See the source connector
-pages under [Self-hosting](/docs/self-hosting).
+pages under [Self-hosting](/docs/self-hosting). Buildkite uses a token for each
+connection. See [Self-host Buildkite](/docs/self-hosting/buildkite).
 
 ## Agent access is separate
 

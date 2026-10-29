@@ -10,7 +10,8 @@
  * - verify-email, magic link, device/OAuth/MCP — token is a query param or
  *   body, not a path segment. Magic link is not enabled.
  * - `/callback/:id` is the provider name. OAuth client ids are public.
- * - GitHub webhook `/:connectionId` is an id, not the HMAC secret.
+ * - GitHub and Buildkite webhook `/:connectionId` is an id, not the HMAC
+ *   secret.
  * - Forge, Slack, Linear, Notion, and PagerDuty webhook URLs have no secret
  *   segment. Invitation acceptance emails use query params. No share-link
  *   route puts a secret in the path.

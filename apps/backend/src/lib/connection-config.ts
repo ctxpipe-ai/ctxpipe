@@ -836,3 +836,32 @@ export function pagerdutyOauthConfigured(
 ): boolean {
   return resolvePagerdutyOAuthAppCreds(stored, env) != null
 }
+
+/**
+ * The Workspace sources sync state of a Buildkite connection (ADR-057). It
+ * counts the sync cycles in which a selected pipeline failed for good.
+ */
+export const buildkiteSourceSyncSchema = z.object({
+  /** Keyed `pipeline:<slug>`. */
+  failures: sourceSyncFailuresSchema,
+})
+export type BuildkiteSourceSync = z.infer<typeof buildkiteSourceSyncSchema>
+
+/**
+ * Stored in `connections.config` for `type === "buildkite"` (ADR-057).
+ * Buildkite has no OAuth app for other products, so an organization owner or
+ * admin pastes an API access token. The webhook token is the one that
+ * Buildkite shows for the webhook that the admin adds. Both are
+ * connection-specific secrets.
+ */
+export const buildkiteConnectionConfigStoredSchema = z.object({
+  organizationSlug: z.string().min(1),
+  apiTokenEnc: z.string().min(1),
+  webhookTokenEnc: z.string().min(1).optional(),
+  status: z.enum(["installed", "revoked"]),
+  sourceSync: buildkiteSourceSyncSchema.optional(),
+})
+
+export type BuildkiteConnectionConfigStored = z.infer<
+  typeof buildkiteConnectionConfigStoredSchema
+>

@@ -14,7 +14,7 @@ A **git-native** source connector authorises the provider on **this** deployment
 
 The store is **git**. Rich operations (open a config PR, `commitFiles`) are implemented today only for **GitHub**. Design against git paths; call the GitHub App for those operations. Do not invent a second git host’s PR API unless you are implementing it.
 
-For new connectors, inherit Linear/Notion’s thin control plane (`connections.config` + `<slug>/config.yaml` via PR). Slack shows **intent capture** as a content kind, not a licence to skip config-in-git. Consult Confluence only when maintaining Confluence.
+For new connectors, inherit Linear/Notion’s thin control plane (`connections.config` + `<slug>/config.yaml` via PR). A connector on Workspace sources ([ADR-050](../../../.ai/memory/decisions/ADR-050-workspace-sources-config-file.md)) may have no config file: its scope is a source file in each Workspace. Buildkite ([ADR-057](../../../.ai/memory/decisions/ADR-057-buildkite-connector-sources-only.md)) is the example. Slack shows **intent capture** as a content kind, not a licence to skip config-in-git. Consult Confluence only when maintaining Confluence.
 
 Canonical decisions: [ADR-018](../../../.ai/memory/decisions/ADR-018-unified-connections-table.md), [ADR-022](../../../.ai/memory/decisions/ADR-022-linear-connector-git-native-mirror.md), [ADR-023](../../../.ai/memory/decisions/ADR-023-notion-connector-git-native-mirror.md), [ADR-031](../../../.ai/memory/decisions/ADR-031-github-pr-scoped-mirror.md), [ADR-034](../../../.ai/memory/decisions/ADR-034-pagerduty-connector-git-native-mirror.md). Slack intent-capture (existing, not a template for skipping config): [ADR-025 on PR #267](https://github.com/ctxpipe-ai/ctxpipe/blob/slack-connector/.ai/memory/decisions/ADR-025-slack-connector-git-native-mirror.md). Self-host Atlassian exception: [ADR-019](../../../.ai/memory/decisions/ADR-019-confluence-forge-self-host-and-per-org-atlassian-3lo.md).
 
@@ -30,7 +30,7 @@ Read [connector kinds](references/kinds.md), then name the **kind** before any s
 
 MCP is not a source connector. Query-time provider MCP can complement capture; it does not replace git-native durability.
 
-**Done when:** the kind is named, the anchor is named, kinds.md was read, and a config PR is in the plan unless the kind is native git.
+**Done when:** the kind is named, the anchor is named, kinds.md was read, and a config PR is in the plan unless the kind is native git or the connector uses Workspace sources with no config file.
 
 ## 2. Thin control plane
 
@@ -38,7 +38,7 @@ One `connections` row (`con_*`, `type = <slug>`). **`connections.config` jsonb**
 
 Keep in git or OpenWorkflow, not Postgres:
 
-- draft or live connector config / scope → `<slug>/config.yaml` in the context repo
+- draft or live connector config / scope → `<slug>/config.yaml` in the context repo (a Workspace-sources connector: the source file in each Workspace)
 - dirty-entity / job queues → OpenWorkflow
 - binding (`repositoryId` / branch / enabled) → `connections.config`
 

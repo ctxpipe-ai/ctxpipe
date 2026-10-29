@@ -19,6 +19,7 @@ export const CONNECTION_TYPE_SLACK = "slack" as const
 export const CONNECTION_TYPE_LINEAR = "linear" as const
 export const CONNECTION_TYPE_NOTION = "notion" as const
 export const CONNECTION_TYPE_PAGERDUTY = "pagerduty" as const
+export const CONNECTION_TYPE_BUILDKITE = "buildkite" as const
 
 export type ConnectionType =
   | typeof CONNECTION_TYPE_GITHUB
@@ -27,6 +28,7 @@ export type ConnectionType =
   | typeof CONNECTION_TYPE_LINEAR
   | typeof CONNECTION_TYPE_NOTION
   | typeof CONNECTION_TYPE_PAGERDUTY
+  | typeof CONNECTION_TYPE_BUILDKITE
 
 export const connections = pgTable.withRLS(
   "connections",

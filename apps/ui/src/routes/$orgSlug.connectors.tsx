@@ -11,6 +11,7 @@ import {
   useSkeletonHold,
 } from "@/components/ui/Skeleton"
 import {
+  AddBuildkiteConnectorButton,
   AddConfluenceConnectorButton,
   AddConnectorCatalogDialog,
   AddGithubConnectorButton,
@@ -18,6 +19,8 @@ import {
   AddNotionConnectorButton,
   AddPagerdutyConnectorButton,
   AddSlackConnectorButton,
+  BuildkiteConnectionCard,
+  BuildkiteSetupDialog,
   ConfluenceConnectionCard,
   ConnectorSetupDialog,
   ConnectorsEmptyState,
@@ -132,6 +135,11 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const [pagerdutyConnectionId, setPagerdutyConnectionId] = useState<
     string | null
   >(null)
+  const [buildkiteSetupOpen, setBuildkiteSetupOpen] = useState(false)
+  const [buildkiteConnectionId, setBuildkiteConnectionId] = useState<
+    string | null
+  >(null)
+  const [buildkiteReplaceWebhook, setBuildkiteReplaceWebhook] = useState(false)
   const [githubSelfHostedWizardOpen, setGithubSelfHostedWizardOpen] =
     useState(false)
   const [slackSetupOpen, setSlackSetupOpen] = useState(false)
@@ -319,6 +327,20 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 />
               )
             }
+            if (row.type === "buildkite") {
+              return (
+                <BuildkiteConnectionCard
+                  key={row.id}
+                  orgSlug={orgSlug}
+                  connectionId={row.id}
+                  onOpenSetup={(options) => {
+                    setBuildkiteConnectionId(row.id)
+                    setBuildkiteReplaceWebhook(Boolean(options?.replaceWebhook))
+                    setBuildkiteSetupOpen(true)
+                  }}
+                />
+              )
+            }
             if (row.type === "pagerduty") {
               return (
                 <PagerdutyConnectionCard
@@ -401,6 +423,16 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             onStart={({ connectionId }) => {
               setPagerdutyConnectionId(connectionId ?? null)
               setPagerdutySetupOpen(true)
+              setCatalogOpen(false)
+            }}
+          />
+        </li>
+        <li>
+          <AddBuildkiteConnectorButton
+            onStart={() => {
+              setBuildkiteConnectionId(null)
+              setBuildkiteReplaceWebhook(false)
+              setBuildkiteSetupOpen(true)
               setCatalogOpen(false)
             }}
           />
@@ -559,6 +591,19 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           if (!open) {
             setPagerdutyConnectionId(null)
           }
+        }}
+      />
+
+      <BuildkiteSetupDialog
+        key={buildkiteConnectionId ?? "buildkite-setup"}
+        orgSlug={orgSlug}
+        connectionId={buildkiteConnectionId ?? undefined}
+        replaceWebhook={buildkiteReplaceWebhook}
+        isOpen={buildkiteSetupOpen}
+        onConnectionIdChange={setBuildkiteConnectionId}
+        onOpenChange={(open) => {
+          setBuildkiteSetupOpen(open)
+          if (!open) setBuildkiteConnectionId(null)
         }}
       />
     </main>

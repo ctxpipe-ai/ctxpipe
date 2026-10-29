@@ -137,6 +137,14 @@ const routes: Array<{
     },
   },
   {
+    path: "/api/v1/webhook/buildkite/con_limit_test",
+    limit: 5 * MiB,
+    headers: {
+      "x-buildkite-signature": "timestamp=1,signature=00",
+      "x-buildkite-event": "build.finished",
+    },
+  },
+  {
     path: "/api/v1/webhook/atlassian/forge",
     limit: 1 * MiB,
     headers: { authorization: "Bearer not-a-token" },
