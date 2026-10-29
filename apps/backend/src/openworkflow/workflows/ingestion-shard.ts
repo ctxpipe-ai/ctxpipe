@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { type Env, parseEnv } from "../../config/env.js"
 import {
+  IngestRefMovedError,
   IngestRefRefusedError,
   ingestRefName,
   type PushIngestStepInput,
@@ -396,16 +397,20 @@ type SkillRun = Pick<
  * write broker (`workspaceSkillBroker`); a contract test gives a local remote.
  */
 export type SkillStepBroker = {
-  /** The step's commit on the ref tip after a crash after the push, or null. */
+  /**
+   * The step's commit on the ref after `since` (a crash after the push, or
+   * another execution of the same child), else the tip that another
+   * execution moved the ref to, else null.
+   */
   find(
     ref: string,
     step: string,
-  ): Promise<{
-    sha: string
-    ops: number
-    rejects: number
-    more: boolean
-  } | null>
+    since: string,
+  ): Promise<
+    | { sha: string; ops: number; rejects: number; more: boolean }
+    | { tip: string; ops: number }
+    | null
+  >
   /** The files of each step commit from the pinned revision to `tip`. */
   listFiles(
     pinnedRevision: string,
@@ -444,9 +449,9 @@ export function workspaceSkillBroker(input: {
     ...(input.holder ? { holder: input.holder } : {}),
   })
   return {
-    find: (ref, step) =>
+    find: (ref, step, since) =>
       findWorkspaceStepCommit(
-        { orgId: input.orgId, job, ref, step },
+        { orgId: input.orgId, job, ref, step, since },
         input.env,
       ),
     listFiles: (pinnedRevision, tip) =>
@@ -629,6 +634,13 @@ async function attemptSkillStep(
   span: Span,
 ): Promise<StepResult> {
   const { run, destination, ref, runBase, broker } = ctx
+  // The ref tip that the step starts from. Another execution of the same
+  // child can move the ref (CTX-1073): `find` then gives its commit of this
+  // step, or its tip, from which the step continues.
+  let oldTip = ctx.oldTip
+  // The ops of the other execution's commits that the step continues from.
+  // The step result counts them, so the run cap of later steps holds them.
+  let adopted = 0
   let reason = ""
   let failed: IngestStepFailureKind = "other"
   let usage: IngestStepUsage | undefined
@@ -650,19 +662,23 @@ async function attemptSkillStep(
     let stage: "find" | "list-files" | "runtime" | "push" = "find"
     const signal = ingestStepSignal()
     try {
-      // A crash after the push: the step's commit is the ref tip, and its
+      // A crash after the push: the step's commit is on the ref, and its
       // `Ctxpipe-More` trailer says whether a next page waits.
-      const found = await broker.find(ref, ctx.name)
-      if (found)
+      const found = await broker.find(ref, ctx.name, oldTip ?? runBase)
+      if (found && "sha" in found)
         return withUsage({
           tip: found.sha,
-          ops: found.ops,
+          ops: adopted + found.ops,
           rejects: found.rejects,
           more: found.more,
         })
-      const baseCommit = ctx.oldTip ?? runBase
+      if (found) {
+        oldTip = found.tip
+        adopted += found.ops
+      }
+      const baseCommit = oldTip ?? runBase
       // A new shard ref starts at the run base, which is on the assembled ref.
-      const fetchRef = ctx.oldTip
+      const fetchRef = oldTip
         ? ref
         : runBase !== destination.pinnedRevision
           ? ingestRefName({
@@ -712,7 +728,7 @@ async function attemptSkillStep(
       const pushed = await withIngestStepOutput(stepRun.tar, (stagedDir) =>
         broker.push({
           ref,
-          oldTip: ctx.oldTip,
+          oldTip,
           pinnedRevision: runBase,
           baseCommit,
           commit: {
@@ -727,7 +743,7 @@ async function attemptSkillStep(
             skill: ctx.skill.name,
             sourcePathExists: (path) => broker.sourcePathExists(path),
             readSourceFile: (path) => broker.readSourceFile(path),
-            workspaceOpsBefore: ctx.opsBefore,
+            workspaceOpsBefore: ctx.opsBefore + adopted,
             // The host root of the package units of a root step (CTX-657).
             ...(ctx.root === null ? {} : { root: ctx.root }),
           },
@@ -755,7 +771,7 @@ async function attemptSkillStep(
         })
       return withUsage({
         tip: pushed.sha,
-        ops: pushed.validation.accepted.length,
+        ops: adopted + pushed.validation.accepted.length,
         rejects: pushed.validation.rejections.length,
         more: pushed.more,
       })
@@ -788,10 +804,9 @@ async function attemptSkillStep(
           : {}),
         ...ingestErrorFields(error),
       })
-      span.setAttribute(
-        "error.type",
-        refused ? "IngestRefRefusedError" : "Error",
-      )
+      span.setAttribute("error.type", refused ? error.name : "Error")
+      // The next attempt's `find` reads the ref that another execution moved.
+      if (error instanceof IngestRefMovedError) continue
       if (refused) break
       if (attempt < STEP_ATTEMPTS) await delay(attempt * 5_000)
     }

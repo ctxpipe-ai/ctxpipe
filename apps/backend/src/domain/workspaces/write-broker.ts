@@ -23,6 +23,7 @@ import {
   findStepCommit,
   IngestRefRefusedError,
   type IngestRemote,
+  ingestRunRefTip,
   listStepFiles,
   mergeIngestPublish,
   type PushIngestStepInput,
@@ -732,19 +733,11 @@ export async function pushWorkspaceIngestAssemble(
   return pushIngestAssemble({ ...input, rootPath: admitted.rootPath, remote })
 }
 
-/**
- * Resume: the commit of `step` on the tip of `ref`, when a step crashed after
- * its push; else null. T09 calls it before the model run of each step.
- */
-export async function findWorkspaceStepCommit(
-  input: { orgId: string; job: IngestBrokerJob; ref: string; step: string },
+/** The read remote of an ingest ref, after the check that the ref is the job's. */
+async function ingestRefReadRemote(
+  input: { orgId: string; job: IngestBrokerJob; ref: string },
   env: Env,
-): Promise<{
-  sha: string
-  ops: number
-  rejects: number
-  more: boolean
-} | null> {
+): Promise<IngestRemote> {
   const target = parseIngestRef(input.ref)
   if (
     target?.runId !== input.job.runId ||
@@ -758,11 +751,48 @@ export async function findWorkspaceStepCommit(
     input.job.workspaceId,
     input.job,
   )
+  return ingestReadRemote(input.orgId, admitted, env)
+}
+
+/**
+ * Resume: the commit of `step` on `ref` after `since`, when a step crashed
+ * after its push or another execution pushed it; else the tip that another
+ * execution moved the ref to, or null. T09 calls it before the model run of
+ * each step.
+ */
+export async function findWorkspaceStepCommit(
+  input: {
+    orgId: string
+    job: IngestBrokerJob
+    ref: string
+    step: string
+    since: string
+  },
+  env: Env,
+): ReturnType<typeof findStepCommit> {
   return findStepCommit({
-    remote: await ingestReadRemote(input.orgId, admitted, env),
+    remote: await ingestRefReadRemote(input, env),
     ref: input.ref,
     runId: input.job.runId,
     step: input.step,
+    since: input.since,
+  })
+}
+
+/**
+ * The tip of the job's ref (read only): `given`, or a later commit of the run
+ * that another execution of the same child pushed (CTX-1073). A missing ref
+ * gives `given`.
+ */
+export async function readWorkspaceIngestRunTip(
+  input: { orgId: string; job: IngestBrokerJob; ref: string; given: string },
+  env: Env,
+): Promise<string> {
+  return ingestRunRefTip({
+    remote: await ingestRefReadRemote(input, env),
+    ref: input.ref,
+    runId: input.job.runId,
+    given: input.given,
   })
 }
 
