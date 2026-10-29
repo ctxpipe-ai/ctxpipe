@@ -185,10 +185,9 @@ export function writePatch(step, options = {}) {
   const earlier = earlierPatch(step)
   const more = options.more === true || earlier.more === true
   // `stats` are counts that the host puts on its step span. A later
-  // `ctxpipe-finish` keeps the counts of a script.
-  const stats = options.stats
-    ? { ...options.stats, ops: ops.length }
-    : earlier.stats
+  // `ctxpipe-finish` keeps the counts of a script. The span has the number of
+  // accepted ops as `ctxpipe.ingest.ops`, so `stats` does not count ops.
+  const stats = options.stats ?? earlier.stats
   writeJson(join(step.stepDir, "patch.json"), {
     ops,
     ...(more ? { more } : {}),

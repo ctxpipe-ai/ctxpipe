@@ -594,7 +594,7 @@ describe("dependencies scan gate", { timeout: 60_000 }, () => {
     expect(s.gate()).toMatchObject({ needsModel: false })
     expect(s.patch()).toEqual({
       ops: [],
-      stats: { "gate.no_candidates": 1, ops: 0 },
+      stats: { "gate.no_candidates": 1 },
     })
   })
 
@@ -617,7 +617,6 @@ describe("dependencies scan gate", { timeout: 60_000 }, () => {
       "candidates.http": 2,
       "candidates.config": 2,
       "roots.no_service": 1,
-      ops: 0,
     })
   })
 
@@ -813,7 +812,6 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
       "resolutions.ignore": 1,
       "skipped.unknown_id": 1,
       "skipped.unknown_path": 1,
-      ops: 1,
     }
     expect(s.patch().stats).toEqual(expected)
     // ctxpipe-finish writes patch.json again and keeps the counts.
