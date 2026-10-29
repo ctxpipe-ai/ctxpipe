@@ -1,4 +1,7 @@
-import { resolve } from "node:path"
+import { execFileSync } from "node:child_process"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { config } from "dotenv"
@@ -20,6 +23,12 @@ import { z } from "zod"
 import { recordSpans } from "../../../test/spans.js"
 import { closeDb, getSystemDb, initDb } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
+import {
+  findStepCommit,
+  ingestRefName,
+  listStepFiles,
+  pushIngestStep,
+} from "../../domain/ingestion/ingest-refs.js"
 import type { IngestShardRuntime } from "../../domain/ingestion/ingest-shard-runtime.js"
 import { WORKER_BOOT_ID } from "../crash-loop.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
@@ -29,13 +38,15 @@ import {
   guardedSkillStep,
   type IngestionShardWorkspace,
   runSkillPages,
+  type SkillStepBroker,
 } from "./ingestion-shard.js"
 
 /*
  * A shard child whose OpenWorkflow lease another execution took (CTX-1080).
  * The worker is a real OpenWorkflow worker on Postgres. The test takes the
  * run as a second worker claim does: it sets another `worker_id` and adds
- * one to `attempts`.
+ * one to `attempts`. The step broker is a local git remote; only the model
+ * call of the sandbox is a stand-in.
  */
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
@@ -46,6 +57,8 @@ const pr = `pr-${Date.now()}${Math.floor(Math.random() * 1000)}`
 const namespace = `preview-${pr}`
 const orgId = `org_lease_${pr}`
 const workspaceId = "ws_lease"
+const ingestionRunId = "run_lease"
+const ref = ingestRefName({ runId: ingestionRunId, workspaceId, shard: "0" })
 const once = { maximumAttempts: 1 }
 const spans = recordSpans()
 const events: Array<Record<string, unknown>> = []
@@ -53,6 +66,23 @@ const events: Array<Record<string, unknown>> = []
 let backend: BackendPostgres
 let ow: OpenWorkflow
 let workflows = 0
+let folder: string
+let pinned: string
+let remote: { url: string }
+
+function git(cwd: string, ...args: string[]) {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Fixture",
+      GIT_AUTHOR_EMAIL: "fixture@example.com",
+      GIT_COMMITTER_NAME: "Fixture",
+      GIT_COMMITTER_EMAIL: "fixture@example.com",
+    },
+  }).trim()
+}
 
 beforeAll(async () => {
   const connectionString = process.env.DATABASE_URL
@@ -68,6 +98,16 @@ beforeAll(async () => {
 
 beforeEach(() => {
   events.length = 0
+  folder = mkdtempSync(join(tmpdir(), "ingest-lease-"))
+  const work = join(folder, "work")
+  mkdirSync(work)
+  git(work, "init", "-q", "-b", "main")
+  writeFileSync(join(work, "README.md"), "# Context\n")
+  git(work, "add", "-A")
+  git(work, "commit", "-q", "-m", "seed")
+  pinned = git(work, "rev-parse", "HEAD")
+  remote = { url: join(folder, "remote.git") }
+  git(folder, "clone", "-q", "--bare", work, remote.url)
   initLogger({
     pretty: false,
     silent: true,
@@ -80,6 +120,7 @@ beforeEach(() => {
 
 afterEach(() => {
   initLogger({ enabled: false, env: { service: "ctxpipe-backend-test" } })
+  rmSync(folder, { recursive: true, force: true })
 })
 
 afterAll(async () => {
@@ -135,7 +176,9 @@ async function runStaleExecution() {
   const calls: number[] = []
   let runId = ""
   let claimed: RunRow | undefined
-  const runtime = {
+  const runtime: IngestShardRuntime = {
+    ensure: async () => {},
+    discoverRoots: async () => ({}),
     runStep: async () => {
       calls.push(calls.length + 1)
       if (calls.length === 1) {
@@ -144,7 +187,22 @@ async function runStaleExecution() {
       }
       throw new Error("Sandbox lock ownership expired")
     },
-  } as unknown as IngestShardRuntime
+  }
+  // The other execution has not pushed: the ref has no commit.
+  const broker: SkillStepBroker = {
+    find: (ref, step, since) =>
+      findStepCommit({ remote, ref, step, runId: ingestionRunId, since }),
+    listFiles: (pinnedRevision, tip) =>
+      listStepFiles({ remote, runId: ingestionRunId, pinnedRevision, tip }),
+    push: (input) =>
+      pushIngestStep({
+        ...input,
+        remote,
+        job: { runId: ingestionRunId, workspaceId },
+      }),
+    sourcePathExists: async () => false,
+    readSourceFile: async () => null,
+  }
   workflows++
   const workflow = defineWorkflow(
     {
@@ -165,15 +223,35 @@ async function runStaleExecution() {
       await runSkillPages({
         step: guardedSkillStep(step, run.id, orgId),
         execution: openWorkflowExecution(step, run.id),
-        run: { runId: "run_lease", shard: 0, roots: [] } as never,
-        // The other execution has not pushed: the ref has no commit.
-        broker: { find: async () => null } as never,
+        run: {
+          runId: ingestionRunId,
+          shard: 0,
+          bundle: "bundle-1",
+          source: {
+            kind: "github",
+            url: "https://github.com/example-org/shop",
+            githubConnectionId: "con_source",
+            sha: "a".repeat(40),
+            repositoryId: null,
+          },
+          authorTime: "2026-10-01T00:00:00Z",
+          roots: [],
+        },
+        broker,
         runtime,
         root: null,
-        skill: { name: "apis", run: "model" } as never,
-        destination: { workspaceId, pinnedRevision: "0".repeat(40) } as never,
-        ref: "refs/ctxpipe/ingest/lease",
-        runBase: "0".repeat(40),
+        skill: { name: "apis", scope: "repository", run: "model" },
+        destination: {
+          workspaceId,
+          url: "https://github.com/example-org/context",
+          githubConnectionId: "con_test",
+          generation: 1,
+          pinnedRevision: pinned,
+          repositoryId: null,
+          sourcePath: "sources/github/example-org/shop.md",
+        },
+        ref,
+        runBase: pinned,
         state,
       })
       return state
@@ -242,7 +320,7 @@ it(
     ).toEqual([
       expect.objectContaining({
         level: "warn",
-        ingestionRunId: "run_lease",
+        ingestionRunId,
         shard: 0,
         workspaceId,
         ingestStep: "skill:repository:apis:ws_lease",
