@@ -257,6 +257,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
       schema: ingestionShardInputSchema,
     },
     async ({ input, step, run }) => {
+      const execution = openWorkflowExecution(step, run.id)
       const runShard = async (): Promise<IngestionShardOutput> => {
         const bundle = await deps.bundle()
         if (bundle.name !== input.bundle)
@@ -303,7 +304,6 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
             ]
           }),
         )
-        const execution = openWorkflowExecution(step, run.id)
         const roots =
           input.mode === "roots"
             ? shardRoots(input.roots, input.shard).map((r) => r.path)
@@ -377,15 +377,20 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
         )
       // The child's own copy of the source tree and its index
       // repositories go when the child ends, also when it fails. A sibling
-      // child has its own copies.
-      return cleanUpUnlessParked(runShardSpan, async () => {
-        await releaseIngestSourceTree(
-          input.runId,
-          input.source.sha,
-          shardTreeHolder(input),
-        )
-        await releaseIngestStepIndexes(input.runId, input.shard)
-      })
+      // child has its own copies. A stale execution keeps them while another
+      // execution has the run (CTX-1080).
+      return cleanUpUnlessParked(
+        runShardSpan,
+        async () => {
+          await releaseIngestSourceTree(
+            input.runId,
+            input.source.sha,
+            shardTreeHolder(input),
+          )
+          await releaseIngestStepIndexes(input.runId, input.shard)
+        },
+        execution,
+      )
     },
   )
 }
@@ -489,32 +494,15 @@ export function guardedSkillStep(
   workflowRunId: string,
   orgId: string,
 ): SkillPages["step"] {
-  return async (name, fn) => {
-    let lost: WorkflowLeaseLostError | undefined
-    try {
-      return await step.run({ name, retryPolicy: { maximumAttempts: 1 } }, () =>
-        withCrashLoopGuard(
-          workflowRunId,
-          name,
-          async () => {
-            try {
-              return await withIngestionOrg(orgId, fn)
-            } catch (error) {
-              if (error instanceof WorkflowLeaseLostError) lost = error
-              throw error
-            }
-          },
-          (): StepResult => ({ partial: true, failed: "crashLoop" }),
-        ),
-      )
-    } catch (error) {
-      // OpenWorkflow refuses to record the failure of a step of a run that
-      // another execution owns, and its error replaces the lease loss. The
-      // workflow gets the lease loss, so that it does not clean up the
-      // resources of the live execution.
-      throw lost ?? error
-    }
-  }
+  return (name, fn) =>
+    step.run({ name, retryPolicy: { maximumAttempts: 1 } }, () =>
+      withCrashLoopGuard(
+        workflowRunId,
+        name,
+        () => withIngestionOrg(orgId, fn),
+        (): StepResult => ({ partial: true, failed: "crashLoop" }),
+      ),
+    )
 }
 
 type SkillPages = {

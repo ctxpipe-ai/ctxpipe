@@ -165,7 +165,9 @@ export function defineRepositoryIngestionV2Workflow(
       // A failed run also deletes the worker's copy of the source tree,
       // and the index repositories of its repository step (shard 0). Each
       // run that ends deletes its codesearch checkout, unless it is the
-      // published revision.
+      // published revision. A stale execution keeps them while another
+      // execution has the run (CTX-1080).
+      const execution = openWorkflowExecution(step, run.id)
       return cleanUpUnlessParked(
         () => ingestWithSpan(),
         async () => {
@@ -177,6 +179,7 @@ export function defineRepositoryIngestionV2Workflow(
             runId: run.id,
           })
         },
+        execution,
       )
 
       // Export one summary for the terminal execution. Shards run in separate
@@ -418,7 +421,6 @@ export function defineRepositoryIngestionV2Workflow(
           partial: 0,
           partialRoots: [],
         }))
-        const execution = openWorkflowExecution(step, run.id)
         for (const skill of plannedIngestSkills(bundle.skills, "first"))
           for (const [i, destination] of destinations.entries()) {
             const state = first[i]

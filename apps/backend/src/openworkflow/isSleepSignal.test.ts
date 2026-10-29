@@ -90,20 +90,46 @@ describe("cleanUpUnlessParked", () => {
     expect(cleaned).toEqual([])
   })
 
-  it("keeps the resources of a stale execution for the live execution", async () => {
+  it("keeps the resources of a failed execution while another execution has the run", async () => {
     const cleaned: string[] = []
-    const lost = new WorkflowLeaseLostError("wr_1")
+    const refused = new Error("Failed to complete step attempt")
     await expect(
       cleanUpUnlessParked(
         async () => {
-          throw lost
+          throw refused
         },
         async () => {
           cleaned.push("tree")
         },
+        { leaseState: async () => "taken" },
       ),
-    ).rejects.toBe(lost)
+    ).rejects.toBe(refused)
     expect(cleaned).toEqual([])
+  })
+
+  it("cleans up after a failed execution when the run ended or the read fails", async () => {
+    const cleaned: string[] = []
+    for (const execution of [
+      { leaseState: async () => "ended" as const },
+      { leaseState: async () => "owned" as const },
+      {
+        leaseState: async (): Promise<"owned"> => {
+          throw new Error("connect ECONNREFUSED")
+        },
+      },
+    ])
+      await expect(
+        cleanUpUnlessParked(
+          async () => {
+            throw new WorkflowLeaseLostError("wr_1")
+          },
+          async () => {
+            cleaned.push("tree")
+          },
+          execution,
+        ),
+      ).rejects.toThrow(WorkflowLeaseLostError)
+    expect(cleaned).toEqual(["tree", "tree", "tree"])
   })
 })
 

@@ -25,7 +25,17 @@ export type WorkflowExecution = {
    * read of the run throws.
    */
   ownsRun(): Promise<number | undefined>
+  /**
+   * Who has the run now. `owned`: this execution owns it. `taken`: another
+   * execution owns it (the run is `running` with another worker id), or
+   * another execution parked it (`sleeping`) or set it back to `pending`.
+   * `ended`: the run has a terminal status, or it is not there. A failed
+   * read of the run throws.
+   */
+  leaseState(): Promise<LeaseState>
 }
+
+type LeaseState = "owned" | "taken" | "ended"
 
 /**
  * The execution of the workflow body that got `step`. OpenWorkflow 0.10 gives
@@ -48,26 +58,39 @@ export function openWorkflowExecution(
     })
     return undefined
   }
+  const readRun = async () => {
+    const result = await getSystemDb().execute<{
+      status: string
+      worker_id: string | null
+      attempts: number
+    }>(sql`
+      select status, worker_id, attempts
+      from openworkflow.workflow_runs
+      where namespace_id = ${openWorkflowNamespaceId()}
+        and id = ${workflowRunId}
+    `)
+    return result.rows[0]
+  }
   return {
     workflowRunId,
     workerId,
     async ownsRun() {
-      const result = await getSystemDb().execute<{
-        status: string
-        worker_id: string | null
-        attempts: number
-      }>(sql`
-        select status, worker_id, attempts
-        from openworkflow.workflow_runs
-        where namespace_id = ${openWorkflowNamespaceId()}
-          and id = ${workflowRunId}
-      `)
-      const row = result.rows[0]
+      const row = await readRun()
       if (row?.status !== "running" || row.worker_id !== workerId)
         return undefined
       // Only the claim of this execution set its worker id on the run, so
       // the `attempts` of the row is the attempt of this execution.
       return Number(row.attempts)
+    },
+    async leaseState() {
+      const row = await readRun()
+      if (row?.status === "running")
+        return row.worker_id === workerId ? "owned" : "taken"
+      // While this execution runs, only another execution can park the run
+      // or set it back to `pending`. That execution continues the run later.
+      if (row?.status === "sleeping" || row?.status === "pending")
+        return "taken"
+      return "ended"
     },
   }
 }

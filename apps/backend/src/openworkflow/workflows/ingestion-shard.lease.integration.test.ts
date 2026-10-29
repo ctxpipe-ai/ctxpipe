@@ -248,10 +248,11 @@ async function runOnWorker(
         partial: 0,
         partialRoots: [],
       }
+      const execution = openWorkflowExecution(step, run.id)
       const body = async () => {
         await runSkillPages({
           step: guardedSkillStep(step, run.id, orgId),
-          execution: openWorkflowExecution(step, run.id),
+          execution,
           run: {
             runId: ingestionRunId,
             shard: 0,
@@ -286,7 +287,9 @@ async function runOnWorker(
         return state
       }
       try {
-        return await (cleanUp ? cleanUpUnlessParked(body, cleanUp) : body())
+        return await (cleanUp
+          ? cleanUpUnlessParked(body, cleanUp, execution)
+          : body())
       } finally {
         ended = true
       }
@@ -483,5 +486,55 @@ it(
     expect(
       events.find((e) => e.step === "ingestion-v2.execution-lease-lost"),
     ).not.toHaveProperty("workflowWorkerId")
+  },
+)
+
+/** The scratch keys of the shard child: its index repositories and tree. */
+const scratchKeys = [
+  `index:${ingestionRunId}:0:${workspaceId}`,
+  `tree:${ingestionRunId}:${"a".repeat(40)}:roots:0`,
+]
+
+/** The cleanup of the shard child. */
+async function releaseShardScratch() {
+  await releaseIngestSourceTree(ingestionRunId, "a".repeat(40), "roots:0")
+  await releaseIngestStepIndexes(ingestionRunId, 0)
+}
+
+it(
+  "leaves the scratch of the live execution when the lease goes during the model call",
+  { timeout: 60_000 },
+  async () => {
+    // The live execution of the same child, in this process, holds the
+    // index repositories and the source tree of the shard.
+    const live = mkdtempSync(join(folder, "live-"))
+    for (const key of scratchKeys)
+      await holdScratch(key, async () => ({ dir: live }))
+    let runId = ""
+    const calls: number[] = []
+    const runtime: IngestShardRuntime = {
+      ensure: async () => {},
+      discoverRoots: async () => ({}),
+      // The lease goes while the model call is in progress. The call then
+      // returns, and OpenWorkflow refuses the completion of the step.
+      runStep: async () => {
+        calls.push(calls.length + 1)
+        await anotherExecutionTakes(runId)
+        return { tar: serviceArchive() }
+      },
+    }
+    await runOnWorker(
+      runtime,
+      (id) => {
+        runId = id
+      },
+      releaseShardScratch,
+    )
+    expect(calls).toEqual([1])
+    expect(await stepStatuses(runId)).toEqual(["running"])
+    expect(existsSync(live)).toBe(true)
+    expect(heldScratch(`index:${ingestionRunId}:0:`)).toBe(1)
+    expect(heldScratch(`tree:${ingestionRunId}:`)).toBe(1)
+    await releaseShardScratch()
   },
 )
