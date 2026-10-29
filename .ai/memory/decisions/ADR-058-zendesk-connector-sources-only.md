@@ -1,6 +1,6 @@
 # ADR-058: Zendesk connector, Workspace sources only
 
-**Status:** Proposed (the connectors area owner accepts or changes it in the pull request review; the security owner signs off the ticket data handling) | **Date:** 2026-10-14 | **Tags:** connectors, zendesk, oauth, webhooks, git, workspace-sources, personal-data
+**Status:** Accepted (the connectors area owner, 2026-10-29; the ticket data handling and the article link policy, CTX-840, stay open with the security owner; hosted Zendesk needs the global OAuth client, see Consequences) | **Date:** 2026-10-14 | **Tags:** connectors, zendesk, oauth, webhooks, git, workspace-sources, personal-data
 
 ## Context
 

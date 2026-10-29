@@ -65,7 +65,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-055](ADR-055-harness-agnostic-agent-setup.md) | Harness-agnostic agent setup: shared `.agents/`, one `AGENTS.md`, thin harness adapters, MCP parity in CI | Accepted |
 | [ADR-056](ADR-056-oxlint-and-oxfmt-replace-biome.md) | Oxlint and Oxfmt replace Biome: one Oxc parser ecosystem, lint and format checked in CI, recorded rule gaps | Accepted |
 | [ADR-057](ADR-057-buildkite-connector-sources-only.md) | Buildkite connector, Workspace sources only | Accepted |
-| [ADR-058](ADR-058-zendesk-connector-sources-only.md) | Zendesk connector, Workspace sources only | Proposed |
+| [ADR-058](ADR-058-zendesk-connector-sources-only.md) | Zendesk connector, Workspace sources only | Accepted |
 | [ADR-059](ADR-059-plain-connector-sources-only.md) | Plain connector, Workspace sources only | Accepted |
 
 Numbers 035 and 036 are unused. The next new ADR is 060.
