@@ -14,9 +14,12 @@
 // the Stream files that more than one root can share (ADR-052 section 6).
 
 import { scriptStep } from "../../bin/knowledge-lib.mjs"
+import { addIndexedServices } from "./root-services.mjs"
 import { scan, stepCandidates } from "./scan-lib.mjs"
 
-const { source, roots, rootPath, index, skipped } = scriptStep()
+const { source, sourcePath, repository, roots, rootPath, index, skipped } =
+  scriptStep()
+addIndexedServices({ roots, source, sourcePath, repository, index })
 const scanRoot = (root) =>
   scan({
     source,

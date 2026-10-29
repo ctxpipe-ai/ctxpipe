@@ -725,6 +725,100 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(s.patch().stats).toEqual(expected)
   })
 
+  // CTX-1083: on a later ingest, classify-kind finds its file and changes
+  // nothing, so no step commit of the root lists a file, and the host roots
+  // map has `files: []` for a root that has a Service file. The scripts take
+  // the Service file from the context index, as classify-kind does.
+  describe("a root whose Service file an earlier ingest wrote", () => {
+    const shopApi = {
+      "package.json": JSON.stringify({
+        name: "shop-api",
+        dependencies: { express: "4.0.0" },
+      }),
+      "src/service.ts": SERVICE_TS,
+    }
+
+    it("writes DEPENDS_ON in the root step", async () => {
+      const s = await step(shopApi, context(), [{ path: ".", files: [] }])
+      const call = s
+        .candidates()
+        .find((c) => c.target.text.endsWith("/invoices"))
+      const out = s.apply([{ id: call?.id, kind: "service", path: BILLING }])
+      expect(out.skipped.map((x) => x.reason).join()).not.toContain(
+        "no Service file",
+      )
+      expect(out.ops).toEqual([{ op: "update", path: OWN }])
+      const result = await s.validate()
+      expect(result.rejections).toEqual([])
+      expect(s.show(result.tree, OWN)).toContain("predicate: DEPENDS_ON")
+    })
+
+    it("writes PRODUCES_TO for a Python worker in the repository-wide step", async () => {
+      const worker = front(
+        {
+          kind: "Service",
+          name: "mail-worker",
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH],
+        },
+        "# mail-worker\n",
+      )
+      const s = await step(
+        {
+          "worker/pyproject.toml":
+            '[project]\nname = "mail-worker"\ndependencies = ["pika"]\n',
+          "worker/main.py": [
+            "import pika",
+            "ch = pika.BlockingConnection().channel()",
+            'ch.basic_publish(exchange="", routing_key="emails", body=b"x")',
+          ].join("\n"),
+        },
+        { "knowledge/services/mail-worker.md": worker },
+        [{ path: "worker", files: [] }],
+      )
+      const queue = s.candidates("worker").find((c) => c.type === "queue")
+      expect(queue).toBeDefined()
+      const out = s.apply(
+        [{ root: "worker", id: queue?.id, kind: "stream", name: "emails" }],
+        null,
+      )
+      expect(out.ops.map((o) => o.path)).toEqual([
+        "knowledge/services/mail-worker.md",
+        "knowledge/streams/emails.md",
+      ])
+      const result = await s.validate()
+      expect(result.rejections).toEqual([])
+      expect(
+        s.show(result.tree, "knowledge/services/mail-worker.md"),
+      ).toContain("predicate: PRODUCES_TO")
+    })
+
+    it("still writes no claim for a root that is a Library", async () => {
+      const s = await step(
+        {
+          "package.json": JSON.stringify({
+            name: "shop-lib",
+            main: "index.js",
+          }),
+          "src/service.ts": SERVICE_TS,
+        },
+        {
+          ...context(),
+          "knowledge/libraries/shop-lib.md": front(
+            { kind: "Library", name: "shop-lib", sources: [SOURCE_PATH] },
+            "# shop-lib\n",
+          ),
+        },
+        [{ path: ".", files: [] }],
+      )
+      const call = s
+        .candidates()
+        .find((c) => c.target.text.endsWith("/invoices"))
+      const out = s.apply([{ id: call?.id, kind: "service", path: BILLING }])
+      expect(out.ops).toEqual([])
+    })
+  })
+
   it("does nothing on a second run on the new base", async () => {
     const s = await step({ "src/service.ts": SERVICE_TS }, context())
     const call = s.candidates().find((c) => c.target.text.endsWith("/invoices"))

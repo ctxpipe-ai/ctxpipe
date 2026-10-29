@@ -28,6 +28,7 @@ import {
   writeStep,
 } from "../../bin/knowledge-lib.mjs"
 import { fail } from "../../bin/stage-lib.mjs"
+import { addIndexedServices } from "./root-services.mjs"
 import { scan, stepCandidates } from "./scan-lib.mjs"
 
 const MAX_RESOLUTIONS = 300
@@ -35,8 +36,18 @@ const MAX_STREAM_FILES = 28
 const MAX_RESOLUTIONS_BYTES = 256 * 1024
 const STREAM_NAME = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/
 
-const { step, source, repository, roots, rootPath, index, skipped, value } =
-  scriptStep()
+const {
+  step,
+  source,
+  sourcePath,
+  repository,
+  roots,
+  rootPath,
+  index,
+  skipped,
+  value,
+} = scriptStep()
+addIndexedServices({ roots, source, sourcePath, repository, index })
 const resolutionsFile =
   value("--resolutions") ?? fail("Give --resolutions <file>")
 // A root step (--path) writes the claims of its root and claims only a
