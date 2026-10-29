@@ -52,6 +52,18 @@ export class IngestRefRefusedError extends Error {
   }
 }
 
+/**
+ * The ref is not at the old tip that the push expected: another push moved
+ * it. Another execution of the same child can move the ref (CTX-1073). The
+ * next attempt of the step reads the ref again and continues from its tip.
+ */
+export class IngestRefMovedError extends IngestRefRefusedError {
+  constructor() {
+    super("The ref is not at the expected old tip")
+    this.name = "IngestRefMovedError"
+  }
+}
+
 /** Two shards change the same path. The semantic merge child resolves it. */
 export class IngestAssembleConflictError extends IngestRefRefusedError {
   constructor(readonly paths: string[]) {
@@ -170,8 +182,12 @@ export async function pushIngestStep(
 export async function pushIngestAssemble(input: {
   job: IngestJob
   pinnedRevision: string
-  /** The shard tips from the step outputs. */
-  shards: Array<{ shard: string; tip: string }>
+  /**
+   * The shard tips from the step outputs; null when the output has no tip.
+   * Assemble takes each tip from the shard ref: another execution of the same
+   * shard child can move the ref past the output tip (CTX-1073).
+   */
+  shards: Array<{ shard: string; tip: string | null }>
   /** The assembled ref tip that the job expects; null for a new ref. */
   oldTip: string | null
   /** The accepted ops of the run in the Workspace before the shards. */
@@ -209,14 +225,26 @@ export async function pushIngestAssemble(input: {
     const listed = new Map(
       (await listIngestRefs(repoDir, input.remote)).map((r) => [r.name, r.sha]),
     )
+    const resolved: Array<{ shard: string; tip: string }> = []
     for (const { shard, tip } of shards) {
       const name = ingestRefName({ ...input.job, shard })
-      if (listed.get(name) !== tip)
-        throw new IngestRefRefusedError(
-          `The shard ref ${shard} is not at the given tip`,
-        )
+      const onRemote = listed.get(name)
+      if (!onRemote) {
+        // A shard that pushed nothing, in any execution, has no ref.
+        if (tip === null) continue
+        throw new IngestRefRefusedError(`The shard ref ${shard} is missing`)
+      }
+      resolved.push({
+        shard,
+        tip: await checkedRunTip(repoDir, input.remote, {
+          runId: input.job.runId,
+          label: `shard ref ${shard}`,
+          given: tip,
+          onRemote,
+        }),
+      })
     }
-    const tips = shards.map((s) => s.tip)
+    const tips = resolved.map((s) => s.tip)
     await fetchCommits(repoDir, input.remote, [input.pinnedRevision], {
       blobs: true,
     })
@@ -258,7 +286,7 @@ export async function pushIngestAssemble(input: {
       string,
       { path: string; line: string; versions: Array<string | null> }
     >()
-    for (const { shard, tip } of shards) {
+    for (const { shard, tip } of resolved) {
       const descends = await runGit(repoDir, [
         "merge-base",
         "--is-ancestor",
@@ -455,47 +483,159 @@ export async function mergeIngestPublish(input: {
 }
 
 /**
- * Resume: the commit on the ref tip when it is this run's commit for `step`
- * (a crash after the push), else null.
+ * The tip of an ingest ref of the run, read from the remote: `given`, or a
+ * later commit of the run that another execution of the same child pushed
+ * (CTX-1073). A missing ref gives `given`. A tip that is not a commit of the
+ * run, or that does not hold `given`, refuses the job.
+ */
+export async function ingestRunRefTip(input: {
+  remote: IngestRemote
+  ref: string
+  runId: string
+  given: string
+}): Promise<string> {
+  return withScratchRepository(async (repoDir) => {
+    const onRemote = await remoteTip(repoDir, input.remote, input.ref)
+    if (!onRemote) return input.given
+    return checkedRunTip(repoDir, input.remote, {
+      runId: input.runId,
+      label: `ref ${input.ref}`,
+      given: input.given,
+      onRemote,
+    })
+  })
+}
+
+/**
+ * The remote tip of an ingest ref, when it is `given` or a later commit of
+ * the run. `label` names the ref in a refusal.
+ */
+async function checkedRunTip(
+  repoDir: string,
+  remote: IngestRemote,
+  input: {
+    runId: string
+    label: string
+    given: string | null
+    /** The tip of the ref on the remote. */
+    onRemote: string
+  },
+): Promise<string> {
+  if (input.onRemote === input.given) return input.onRemote
+  await runGit(
+    repoDir,
+    [
+      "fetch",
+      "--quiet",
+      "--no-tags",
+      "--filter=blob:none",
+      "--",
+      remote.url,
+      input.onRemote,
+    ],
+    { env: remote.env },
+  )
+  await assertRunTip(repoDir, {
+    runId: input.runId,
+    label: input.label,
+    since: input.given,
+    tip: input.onRemote,
+  })
+  return input.onRemote
+}
+
+/**
+ * Refuses `tip` unless it is a commit of the run that holds `since`. The ref
+ * moves only by leased fast-forward pushes, so a later tip of the run holds
+ * each earlier tip. Both commits must be in `repoDir`.
+ */
+async function assertRunTip(
+  repoDir: string,
+  input: { runId: string; label: string; since: string | null; tip: string },
+): Promise<void> {
+  if ((await stepTrailers(repoDir, input.tip)).run !== input.runId)
+    throw new IngestRefRefusedError(
+      `The tip of ${input.label} is not a commit of the run`,
+    )
+  if (input.since === null) return
+  const holds = await runGit(repoDir, [
+    "merge-base",
+    "--is-ancestor",
+    input.since,
+    input.tip,
+  ]).then(
+    () => true,
+    () => false,
+  )
+  if (!holds)
+    throw new IngestRefRefusedError(
+      `The ${input.label} does not hold the given tip`,
+    )
+}
+
+/**
+ * Resume: the run's commits on the ref after `since`, the tip that the step
+ * starts from. When one of them is the commit of `step` (a crash after the
+ * push, or another execution of the same child that pushed the step,
+ * CTX-1073), it gives that commit. Else it gives the tip that another
+ * execution moved the ref to. It gives null when the ref is at `since` or
+ * missing. `ops` counts the paths that changed after `since`.
  */
 export async function findStepCommit(input: {
   remote: IngestRemote
   ref: string
   runId: string
   step: string
-}): Promise<{
-  sha: string
-  ops: number
-  rejects: number
-  more: boolean
-} | null> {
+  since: string
+}): Promise<
+  | { sha: string; ops: number; rejects: number; more: boolean }
+  | { tip: string; ops: number }
+  | null
+> {
   return withScratchRepository(async (repoDir) => {
     const tip = await remoteTip(repoDir, input.remote, input.ref)
-    if (!tip) return null
-    // The tip and its parent, with their trees: the ops are the diff.
-    await runGit(
-      repoDir,
-      [
-        "fetch",
-        "--quiet",
-        "--no-tags",
-        "--depth=2",
-        "--filter=blob:none",
-        "--",
-        input.remote.url,
-        tip,
-      ],
-      { env: input.remote.env },
+    if (!tip || tip === input.since) return null
+    const fetch = (sha: string, depth: string[]) =>
+      runGit(
+        repoDir,
+        [
+          "fetch",
+          "--quiet",
+          "--no-tags",
+          ...depth,
+          "--filter=blob:none",
+          "--",
+          input.remote.url,
+          sha,
+        ],
+        { env: input.remote.env },
+      )
+    // `since` is the shallow boundary: the second fetch stops there.
+    await fetch(input.since, ["--depth=1"])
+    await fetch(tip, [])
+    await assertRunTip(repoDir, {
+      runId: input.runId,
+      label: `ref ${input.ref}`,
+      since: input.since,
+      tip,
+    })
+    const commits = (
+      await runGit(repoDir, ["rev-list", "--reverse", `${input.since}..${tip}`])
     )
-    const trailers = await stepTrailers(repoDir, tip)
-    if (trailers.run !== input.runId || trailers.step !== input.step)
-      return null
-    return {
-      sha: tip,
-      ops: (await diffTree(repoDir, `${tip}^`, tip)).length,
-      more: trailers.more,
-      rejects: trailers.rejects,
+      .toString()
+      .split("\n")
+      .filter(Boolean)
+    for (const sha of commits) {
+      const trailers = await stepTrailers(repoDir, sha)
+      if (trailers.run === input.runId && trailers.step === input.step)
+        return {
+          sha,
+          ops: (await diffTree(repoDir, input.since, sha)).length,
+          rejects: trailers.rejects,
+          more: trailers.more,
+        }
     }
+    return { tip, ops: (await diffTree(repoDir, input.since, tip)).length }
   })
 }
 
@@ -712,10 +852,7 @@ async function pushWithLease(
     } catch (error) {
       const tip = await remoteTip(repoDir, remote, ref)
       if (tip === sha) return
-      if (tip !== oldTip)
-        throw new IngestRefRefusedError(
-          "The ref is not at the expected old tip",
-        )
+      if (tip !== oldTip) throw new IngestRefMovedError()
       // The ref did not move: a rival push held the ref lock, or the remote
       // failed. Try again; the lease still guards the ref.
       if (attempt >= PUSH_ATTEMPTS) throw error
