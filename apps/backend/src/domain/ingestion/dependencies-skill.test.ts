@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process"
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -230,6 +231,17 @@ async function step(
       ops: unknown[]
       stats?: Record<string, number>
     }
+  /** `scan --gate`, which the host runs before the model. */
+  const gate = (path: string | null = ".") => {
+    const result = script(
+      "scan",
+      ...(path === null ? [] : ["--path", path]),
+      "--gate",
+    )
+    expect(result.status, `${result.stdout}${result.stderr}`).toBe(0)
+    return JSON.parse(result.stdout) as { needsModel: boolean }
+  }
+  const patchFile = join(root, "out", "patch.json")
   /** `ctxpipe-finish`, which the model runs last. */
   const finish = () =>
     execFileSync(
@@ -248,6 +260,8 @@ async function step(
     show,
     patch,
     finish,
+    gate,
+    patchFile,
   }
 }
 
@@ -555,6 +569,66 @@ describe("dependencies scan", { timeout: 60_000 }, () => {
       expect(result.status).toBe(1)
       expect(result.stderr).toContain("not a safe root path")
     })
+  })
+})
+
+describe("dependencies scan gate", { timeout: 60_000 }, () => {
+  const shopApi = {
+    "package.json": JSON.stringify({
+      name: "shop-api",
+      dependencies: { express: "4.0.0" },
+    }),
+  }
+  const withCalls = { ...shopApi, "src/service.ts": SERVICE_TS }
+
+  it("says that no model is needed for a root with no candidate, and writes the counts", async () => {
+    const s = await step({ ...shopApi, "src/a.ts": "export const a = 1\n" }, {})
+    expect(s.gate()).toMatchObject({ needsModel: false })
+    expect(s.patch()).toEqual({
+      ops: [],
+      stats: { "gate.no_candidates": 1, ops: 0 },
+    })
+  })
+
+  it("says that no model is needed for a root with candidates and no Service file", async () => {
+    const library = front(
+      { kind: "Library", name: "shop-lib", sources: [SOURCE_PATH] },
+      "# shop-lib\n",
+    )
+    const s = await step(
+      {
+        "package.json": JSON.stringify({ name: "shop-lib", main: "x.js" }),
+        "src/service.ts": SERVICE_TS,
+      },
+      { "knowledge/libraries/shop-lib.md": library },
+      [{ path: ".", files: [] }],
+    )
+    expect(s.gate()).toMatchObject({ needsModel: false })
+    expect(s.patch().stats).toEqual({
+      "gate.no_service": 1,
+      "candidates.http": 2,
+      "candidates.config": 2,
+      "roots.no_service": 1,
+      ops: 0,
+    })
+  })
+
+  it("says that the model is needed, and writes nothing, for a root with candidates and a Service file", async () => {
+    const s = await step(withCalls, {}, [{ path: ".", files: [] }])
+    expect(s.gate()).toMatchObject({ needsModel: true })
+    expect(existsSync(s.patchFile)).toBe(false)
+  })
+
+  it("gates the repository-wide step on the stream candidates of the roots that have a Service file", async () => {
+    const queue = 'channel.sendToQueue("tasks", Buffer.from("x"))\n'
+    // An HTTP candidate is for the root step: no stream candidate is left.
+    const none = await step(
+      { ...shopApi, "src/a.ts": 'fetch("http://billing/x")\n' },
+      {},
+    )
+    expect(none.gate(null)).toMatchObject({ needsModel: false })
+    const some = await step({ ...shopApi, "src/q.ts": queue }, {})
+    expect(some.gate(null)).toMatchObject({ needsModel: true })
   })
 })
 
