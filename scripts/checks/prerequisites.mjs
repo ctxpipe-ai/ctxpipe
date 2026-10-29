@@ -206,13 +206,48 @@ export const prerequisites = {
       required("MODEL_PROVIDER", workbenchFix)
       required("MODEL_PROVIDER_API_KEY", workbenchFix)
       const models = required("MCP_EVAL_MODELS", workbenchFix)
-      const { gateThresholds } = await import("../../apps/backend/evals/mcp/gate.ts")
+      const { gateThresholds } =
+        await import("../../apps/backend/evals/mcp/gate.ts")
       if (
         new Set(models.split(",").filter(Boolean)).size <
         gateThresholds.minModels
       )
         throw new Error(
           `MCP_EVAL_MODELS names fewer than ${gateThresholds.minModels} models. ${workbenchFix}`,
+        )
+    },
+  },
+  // The environment of terraform-plan-pr.yaml: the Terraform CLI and the
+  // keys of the remote state.
+  "terraform-plan": {
+    prepare: () => {
+      quiet("terraform", ["version"], "Install Terraform 1.14.7.")
+      for (const name of ["R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"])
+        required(
+          name,
+          "Set the state keys of the terraform-plan environment (GitHub Environment terraform-plan).",
+        )
+    },
+  },
+  // The open pull request of this checkout (PR_NUMBER), at the pushed head.
+  // The preview deploy runs pr-deploy.yaml on GitHub, which deploys the PR
+  // head, not the local tree.
+  "preview-pr": {
+    prepare: () => {
+      const pr = required(
+        "PR_NUMBER",
+        "Push the branch, open its pull request and set PR_NUMBER to its number.",
+      )
+      const head = quiet(
+        "gh",
+        ["pr", "view", pr, "--json", "headRefOid", "--jq", ".headRefOid"],
+        "Install the GitHub CLI and run gh auth login.",
+      )
+      if (
+        head !== quiet("git", ["rev-parse", "HEAD"], "Run in a git checkout.")
+      )
+        throw new Error(
+          `PR #${pr} head is ${head}, not the local HEAD. Push the branch first.`,
         )
     },
   },

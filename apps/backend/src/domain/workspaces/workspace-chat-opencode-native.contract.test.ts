@@ -1113,6 +1113,8 @@ http
         const part = { id: "prt_fixture", messageID: info.id, sessionID, type: "text", text: "Turn complete." }
         send({ type: "message.updated", properties: { info } })
         send({ type: "message.part.updated", properties: { part } })
+        // As OpenCode does, the session goes idle after its run.
+        send({ type: "session.status", properties: { sessionID, status: { type: "idle" } } })
         json(res, { info, parts: [part] })
       })
       return

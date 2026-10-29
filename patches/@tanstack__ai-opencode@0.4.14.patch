@@ -19,20 +19,37 @@ index d11df14ae2159d0558a0f928b72c3d24867b164a..18095baa3b8dd18fd811f7b8f692d129
  	}
  	structuredOutput(_options) {
 diff --git a/dist/esm/process/server.js b/dist/esm/process/server.js
-index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..f4d454927c272641ae9c6ef81d885aae8393a17c 100644
+index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..ab391533644188a48a47dea71a89ac9df81537ca 100644
 --- a/dist/esm/process/server.js
 +++ b/dist/esm/process/server.js
-@@ -54,6 +54,18 @@ async function startOpencodeSession(options) {
+@@ -54,6 +54,35 @@ async function startOpencodeSession(options) {
  		ownedServer = result.server;
  	}
  	const lifecycle = { disposed: false };
 +	// ctxpipe patch (upstream PR pending): wait for the event stream before the
-+	// first prompt, wait for each assistant's terminal update before resolving
-+	// it, and never let disposal wait on a pending stream read. The event
-+	// stream ends when its connection drops: by default the SDK reconnects
-+	// without end, also to a stopped server, and that keeps the process alive.
-+	const terminal = new Set();
-+	const terminalWaiters = new Map();
++	// first prompt. Do not resolve a prompt before the stream sent all events
++	// of its reply. Do not let disposal wait on a pending stream read. By
++	// default, the SDK connects to the event stream again without a limit,
++	// also to a stopped server, and this keeps the process alive. Thus the
++	// stream stops when its connection drops.
++	// CTX-1061: OpenCode serializes a message.updated event when it writes the
++	// event to the stream, not when it publishes the event. On a slow stream,
++	// the first update of a reply can thus show that the reply is finished.
++	// The text of the reply comes after that update. OpenCode sets the session
++	// idle after the run, and the stream sends the idle event after all events
++	// of the run. Thus a prompt resolves at the first idle event that comes
++	// after an update with a completion time or an error for its reply. An
++	// error or an abort can set the session idle before the update with the
++	// error. OpenCode then sets the session idle again when the run stops, and
++	// the prompt resolves at that second idle event.
++	// finishedAwaitingIdle holds the ids of the finished assistant messages of
++	// this session until the next idle event. readyToResolve holds the ids of
++	// the finished assistant messages that an idle event came after. When a
++	// prompt stops waiting, it removes all ids from readyToResolve. The other
++	// ids in that set are ids of earlier steps, and no prompt waits for them.
++	const finishedAwaitingIdle = new Set();
++	const readyToResolve = new Set();
++	const replyWaiters = new Map();
 +	let subscriptionFailure;
 +	const waitFor = (ready, what) => new Promise((resolve, reject) => {
 +		const timer = setTimeout(() => reject(new Error(`OpenCode ${what} was not observed within 10000ms`)), 1e4);
@@ -41,7 +58,7 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..f4d454927c272641ae9c6ef81d885aae
  	const teardown = async () => {
  		if (lifecycle.disposed) return;
  		lifecycle.disposed = true;
-@@ -78,16 +90,18 @@ async function startOpencodeSession(options) {
+@@ -78,16 +107,18 @@ async function startOpencodeSession(options) {
  			throwOnError: true
  		})).data.id;
  		const resolvedSessionId = sessionId;
@@ -63,7 +80,7 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..f4d454927c272641ae9c6ef81d885aae
  					path: {
  						id: permission.sessionID,
  						permissionID: permission.id
-@@ -100,23 +114,57 @@ async function startOpencodeSession(options) {
+@@ -100,23 +131,61 @@ async function startOpencodeSession(options) {
  				if (!lifecycle.disposed) options.onError?.(error);
  			}
  		};
@@ -78,12 +95,16 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..f4d454927c272641ae9c6ef81d885aae
  				for await (const event of stream) {
  					if (lifecycle.disposed) break;
 +					connected();
-+					if (event.type === "message.updated" && event.properties.info.role === "assistant" && (event.properties.info.time?.completed !== void 0 || event.properties.info.error !== void 0)) {
-+						terminal.add(event.properties.info.id);
-+						terminalWaiters.get(event.properties.info.id)?.();
-+					}
  					const sid = sessionIdOf(event);
  					if (sid !== void 0 && sid !== resolvedSessionId) continue;
++					if (event.type === "message.updated" && event.properties.info.role === "assistant" && (event.properties.info.time?.completed !== void 0 || event.properties.info.error !== void 0)) finishedAwaitingIdle.add(event.properties.info.id);
++					if (event.type === "session.status" && event.properties.status?.type === "idle") {
++						for (const id of finishedAwaitingIdle) {
++							readyToResolve.add(id);
++							replyWaiters.get(id)?.();
++						}
++						finishedAwaitingIdle.clear();
++					}
  					if (event.type === "permission.updated") {
  						handlePermission(event.properties);
  						continue;
@@ -122,17 +143,21 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..f4d454927c272641ae9c6ef81d885aae
  		return {
  			sessionId: resolvedSessionId,
  			resumed,
-@@ -136,6 +184,9 @@ async function startOpencodeSession(options) {
+@@ -136,6 +205,13 @@ async function startOpencodeSession(options) {
  					},
  					throwOnError: true
  				})).data;
 +				if (subscriptionFailure) throw subscriptionFailure;
-+				if (!terminal.has(data.info.id)) await waitFor(new Promise((resolve) => terminalWaiters.set(data.info.id, resolve)), "assistant completion").finally(() => terminalWaiters.delete(data.info.id));
-+				terminal.delete(data.info.id);
++				try {
++					if (!readyToResolve.has(data.info.id)) await waitFor(new Promise((resolve) => replyWaiters.set(data.info.id, resolve)), "assistant completion");
++				} finally {
++					replyWaiters.delete(data.info.id);
++					readyToResolve.clear();
++				}
  				return {
  					message: data.info,
  					text: data.parts.filter((part) => part.type === "text").map((part) => part.text).join("")
-@@ -151,9 +202,7 @@ async function startOpencodeSession(options) {
+@@ -151,9 +227,7 @@ async function startOpencodeSession(options) {
  			},
  			dispose: async () => {
  				lifecycle.disposed = true;

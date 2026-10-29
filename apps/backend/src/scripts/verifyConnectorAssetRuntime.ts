@@ -237,9 +237,12 @@ if (
   throw new Error("Connector asset authentication header was not delivered")
 }
 
+// httpbin.org redirects only to the hosts on its own allowlist, so the echo
+// on the other host is httpbin.hbin.postmanlabs.com, not postman-echo.com.
+const REDIRECT_ECHO_HOST = "httpbin.hbin.postmanlabs.com"
 const { result: redirected, budget: redirectBudget } = await downloadWithRetry({
   url: `https://httpbin.org/redirect-to?url=${encodeURIComponent(
-    "https://postman-echo.com/headers",
+    `https://${REDIRECT_ECHO_HOST}/headers`,
   )}`,
   headers: { authorization: "Bearer must-not-cross-hosts" },
   authenticatedHosts: ["httpbin.org"],
@@ -250,13 +253,22 @@ if (redirected.status !== "downloaded") {
   )
 }
 const redirectedHeaders = JSON.parse(redirected.bytes.toString("utf8")) as {
-  headers?: { host?: unknown; authorization?: unknown; Authorization?: unknown }
+  headers?: {
+    host?: unknown
+    Host?: unknown
+    authorization?: unknown
+    Authorization?: unknown
+  }
 }
-if (redirectedHeaders.headers?.host !== "postman-echo.com") {
+const echoedHeaders = redirectedHeaders.headers
+if (
+  !echoedHeaders ||
+  (echoedHeaders.host ?? echoedHeaders.Host) !== REDIRECT_ECHO_HOST
+) {
   throw new Error("Redirect echo did not observe the destination request")
 }
 if (
-  Object.keys(redirectedHeaders.headers).some(
+  Object.keys(echoedHeaders).some(
     (header) => header.toLowerCase() === "authorization",
   )
 ) {

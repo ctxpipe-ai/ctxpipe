@@ -40,7 +40,8 @@
         "@forge/cli",
         "@graphql-codegen/typed-document-node",
         "@graphql-codegen/typescript-operations",
-        "@modelcontextprotocol/conformance"
+        "@modelcontextprotocol/conformance",
+        "@mcpjam/cli"
       ]
     },
     "apps/ui": {
