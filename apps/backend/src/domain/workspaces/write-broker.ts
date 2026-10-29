@@ -733,19 +733,11 @@ export async function pushWorkspaceIngestAssemble(
   return pushIngestAssemble({ ...input, rootPath: admitted.rootPath, remote })
 }
 
-/**
- * Resume: the commit of `step` on the tip of `ref`, when a step crashed after
- * its push; else null. T09 calls it before the model run of each step.
- */
-export async function findWorkspaceStepCommit(
-  input: { orgId: string; job: IngestBrokerJob; ref: string; step: string },
+/** The read remote of an ingest ref, after the check that the ref is the job's. */
+async function ingestRefReadRemote(
+  input: { orgId: string; job: IngestBrokerJob; ref: string },
   env: Env,
-): Promise<{
-  sha: string
-  ops: number
-  rejects: number
-  more: boolean
-} | null> {
+): Promise<IngestRemote> {
   const target = parseIngestRef(input.ref)
   if (
     target?.runId !== input.job.runId ||
@@ -759,11 +751,31 @@ export async function findWorkspaceStepCommit(
     input.job.workspaceId,
     input.job,
   )
+  return ingestReadRemote(input.orgId, admitted, env)
+}
+
+/**
+ * Resume: the commit of `step` on `ref` after `since`, when a step crashed
+ * after its push or another execution pushed it; else the tip that another
+ * execution moved the ref to, or null. T09 calls it before the model run of
+ * each step.
+ */
+export async function findWorkspaceStepCommit(
+  input: {
+    orgId: string
+    job: IngestBrokerJob
+    ref: string
+    step: string
+    since: string
+  },
+  env: Env,
+): ReturnType<typeof findStepCommit> {
   return findStepCommit({
-    remote: await ingestReadRemote(input.orgId, admitted, env),
+    remote: await ingestRefReadRemote(input, env),
     ref: input.ref,
     runId: input.job.runId,
     step: input.step,
+    since: input.since,
   })
 }
 
@@ -773,29 +785,11 @@ export async function findWorkspaceStepCommit(
  * gives `given`.
  */
 export async function readWorkspaceIngestRunTip(
-  input: {
-    orgId: string
-    job: IngestBrokerJob
-    ref: string
-    given: string | null
-  },
+  input: { orgId: string; job: IngestBrokerJob; ref: string; given: string },
   env: Env,
-): Promise<string | null> {
-  const target = parseIngestRef(input.ref)
-  if (
-    target?.runId !== input.job.runId ||
-    target.workspaceId !== input.job.workspaceId
-  )
-    throw new IngestRefRefusedError(
-      "The ref is not an ingest ref of the job's run and Workspace",
-    )
-  const admitted = await admitIngestJob(
-    input.orgId,
-    input.job.workspaceId,
-    input.job,
-  )
+): Promise<string> {
   return ingestRunRefTip({
-    remote: await ingestReadRemote(input.orgId, admitted, env),
+    remote: await ingestRefReadRemote(input, env),
     ref: input.ref,
     runId: input.job.runId,
     given: input.given,

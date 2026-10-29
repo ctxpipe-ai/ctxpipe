@@ -642,39 +642,6 @@ export function defineRepositoryIngestionV2Workflow(
               done.stepFailures,
             )
           }
-          // Another execution of the repository child can push after the
-          // output took its tip (CTX-1073). Publish takes the ref's tip, so
-          // it does not drop those commits.
-          for (const destination of ready) {
-            const entry = workspaces.find(
-              (w) => w.workspaceId === destination.workspaceId,
-            )
-            if (!entry?.assembled) continue
-            const given = entry.assembled
-            entry.assembled =
-              (await step.run(
-                { name: `repository-tip:${destination.workspaceId}` },
-                () =>
-                  withIngestionOrg(input.orgId, () =>
-                    readWorkspaceIngestRunTip(
-                      {
-                        orgId: input.orgId,
-                        job: {
-                          runId: run.id,
-                          workspaceId: destination.workspaceId,
-                          generation: destination.generation,
-                        },
-                        ref: ingestRefName({
-                          runId: run.id,
-                          workspaceId: destination.workspaceId,
-                        }),
-                        given,
-                      },
-                      env(),
-                    ),
-                  ),
-              )) ?? given
-          }
         }
 
         await release()
@@ -684,7 +651,7 @@ export function defineRepositoryIngestionV2Workflow(
             const { workspaceId } = destination
             const entry = workspaces.find((w) => w.workspaceId === workspaceId)
             if (entry?.assembled) {
-              const assembled = entry.assembled
+              const given = entry.assembled
               const target = await step.run(
                 { name: `publish-target:${workspaceId}` },
                 async () => {
@@ -714,6 +681,38 @@ export function defineRepositoryIngestionV2Workflow(
               )
               const revision = "revision" in target ? target.revision : null
               if (revision) {
+                // Another execution of the repository child can push after
+                // its output took the tip (CTX-1073). Publish takes the ref's
+                // tip, so it keeps those commits. A refused read keeps the
+                // output's tip, which is a commit of the run.
+                const assembled = await step.run(
+                  { name: `publish-tip:${workspaceId}` },
+                  () =>
+                    withIngestionOrg(input.orgId, () =>
+                      readWorkspaceIngestRunTip(
+                        {
+                          orgId: input.orgId,
+                          job: {
+                            runId: run.id,
+                            workspaceId,
+                            generation: destination.generation,
+                          },
+                          ref: ingestRefName({ runId: run.id, workspaceId }),
+                          given,
+                        },
+                        env(),
+                      ),
+                    ).catch((error: unknown) => {
+                      if (!(error instanceof IngestRefRefusedError)) throw error
+                      logIngestEvent("warn", "ingestion-v2.publish-tip-kept", {
+                        ingestionRunId: run.id,
+                        workspaceId,
+                        reason: capIngestText(error.message),
+                      })
+                      return given
+                    }),
+                )
+                entry.assembled = assembled
                 const published = await step.runWorkflow(
                   workspaceExtractIngest.spec,
                   {

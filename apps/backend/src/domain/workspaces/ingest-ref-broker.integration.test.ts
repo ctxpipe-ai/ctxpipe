@@ -227,6 +227,7 @@ describe("ingest ref broker jobs", () => {
               job: { runId, workspaceId: org.workspaceId, generation: 4 },
               ref: ingestRefName({ runId, workspaceId: org.workspaceId }),
               step: "s",
+              since: "0".repeat(40),
             },
             env,
           ),

@@ -9,7 +9,6 @@ import { stringify } from "yaml"
 import {
   findStepCommit,
   ingestRefName,
-  ingestRunRefTip,
   listStepFiles,
   pushIngestStep,
 } from "../../domain/ingestion/ingest-refs.js"
@@ -193,8 +192,8 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
   }
 
   const broker: SkillStepBroker = {
-    find: (ref, step) =>
-      findStepCommit({ remote: { url: remote }, ref, runId: RUN, step }),
+    find: (ref, step, since) =>
+      findStepCommit({ remote: { url: remote }, ref, runId: RUN, step, since }),
     listFiles: (pinnedRevision, tip) =>
       listStepFiles({
         remote: { url: remote },
@@ -208,8 +207,6 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
         job: { runId: RUN, workspaceId: WS },
         remote: { url: remote },
       }),
-    runTip: (ref, given) =>
-      ingestRunRefTip({ remote: { url: remote }, ref, runId: RUN, given }),
     sourcePathExists: async () => true,
     readSourceFile: async () => null,
   }
@@ -285,7 +282,7 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
     partialRoots: [],
   })
 
-  it("goes on from the other execution's commit, with no refusal and no partial step", async () => {
+  it("continues from the other execution's commit, with no refusal and no partial step", async () => {
     freshRemote()
     const state = workspace()
     await runSkill(
@@ -298,14 +295,38 @@ describe("runSkillPages on a shard ref that another execution moved", () => {
     const other = await otherExecutionPushes("apis", ownTip, {
       "knowledge/services/api.md": service("Api"),
     })
-    await runSkill(
-      "dependencies",
-      state,
-      sandbox({ "knowledge/services/deps.md": service("Deps") }).runtime,
-    )
-    expect(state.partial).toBe(0)
+    const { runtime, calls } = sandbox({
+      "knowledge/services/deps.md": service("Deps"),
+    })
+    await runSkill("dependencies", state, runtime)
+    expect(state).toMatchObject({ partial: 0, ops: 3 })
+    expect(calls).toHaveLength(1)
     expect(git(remote, ["rev-parse", REF])).toBe(state.tip)
     expect(git(remote, ["rev-parse", `${state.tip}^`])).toBe(other.sha)
+  })
+
+  it("takes each step that the other execution pushed ahead of it, with no model run", async () => {
+    freshRemote()
+    const state = workspace()
+    await runSkill(
+      "classify-kind",
+      state,
+      sandbox({ "knowledge/services/a.md": service("A") }).runtime,
+    )
+    const apis = await otherExecutionPushes("apis", state.tip ?? "", {
+      "knowledge/services/api.md": service("Api"),
+    })
+    const deps = await otherExecutionPushes("dependencies", apis.sha, {
+      "knowledge/services/deps.md": service("Deps"),
+    })
+    const { runtime, calls } = sandbox({
+      "knowledge/services/none.md": service("None"),
+    })
+    await runSkill("apis", state, runtime)
+    expect(state.tip).toBe(apis.sha)
+    await runSkill("dependencies", state, runtime)
+    expect(state).toMatchObject({ partial: 0, ops: 3, tip: deps.sha })
+    expect(calls).toHaveLength(0)
   })
 
   it("takes the other execution's commit of the same step and does not run the step again", async () => {

@@ -291,6 +291,7 @@ describe("pushIngestStep", () => {
         ref: ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard: "0" }),
         runId: RUN,
         step: "skill:services:apis:ws_alpha",
+        since: pinned,
       }),
     ).toMatchObject({ ops: 1, rejects: 1 })
   })
@@ -441,6 +442,7 @@ describe("step paging (patch.json more)", () => {
         ref,
         runId: RUN,
         step: "skill:services:apis:ws_alpha",
+        since: pinned,
       }),
     ).resolves.toEqual({ sha: pushed.sha, ops: 1, rejects: 0, more: true })
   })
@@ -460,46 +462,83 @@ describe("step paging (patch.json more)", () => {
 })
 
 describe("findStepCommit", () => {
+  const REF = ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard: "0" })
+  const find = (step: string, since: string, ref = REF) =>
+    findStepCommit({ remote: { url: remote }, ref, runId: RUN, step, since })
+
   it("finds a step's commit on the tip after a crash after the push", async () => {
-    const ref = ingestRefName({
-      runId: RUN,
-      workspaceId: WORKSPACE,
-      shard: "0",
-    })
     const pushed = await step()
     // The worker died before the step output was recorded. The retry asks the ref.
+    await expect(find("skill:services:apis:ws_alpha", pinned)).resolves.toEqual(
+      { sha: pushed.sha, ops: 1, rejects: 0, more: false },
+    )
+    // The ref is at the tip that the step starts from.
     await expect(
-      findStepCommit({
-        remote: { url: remote },
-        ref,
-        runId: RUN,
-        step: "skill:services:apis:ws_alpha",
-      }),
-    ).resolves.toEqual({ sha: pushed.sha, ops: 1, rejects: 0, more: false })
-    await expect(
-      findStepCommit({
-        remote: { url: remote },
-        ref,
-        runId: RUN,
-        step: "skill:services:libraries:ws_alpha",
-      }),
+      find("skill:services:libraries:ws_alpha", pushed.sha),
     ).resolves.toBeNull()
     await expect(
-      findStepCommit({
-        remote: { url: remote },
-        ref,
-        runId: "run_other",
-        step: "skill:services:apis:ws_alpha",
-      }),
+      find(
+        "skill:services:apis:ws_alpha",
+        pinned,
+        ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard: "9" }),
+      ),
     ).resolves.toBeNull()
+  })
+
+  it("finds the steps that another execution pushed, and else the tip it moved the ref to", async () => {
+    const first = await step({ step: "skill:services:classify-kind:ws_alpha" })
+    // Another execution of the child pushed two more steps after `first`.
+    const apis = await step({
+      oldTip: first.sha,
+      step: "skill:services:apis:ws_alpha",
+      files: { "knowledge/services/api.md": service("Api") },
+    })
+    const deps = await step({
+      oldTip: apis.sha,
+      step: "skill:services:dependencies:ws_alpha",
+      files: {
+        "knowledge/services/deps.md": service("Deps"),
+        "knowledge/services/deps-two.md": service("Deps two"),
+      },
+    })
     await expect(
-      findStepCommit({
-        remote: { url: remote },
-        ref: ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard: "9" }),
-        runId: RUN,
-        step: "skill:services:apis:ws_alpha",
-      }),
-    ).resolves.toBeNull()
+      find("skill:services:apis:ws_alpha", first.sha),
+    ).resolves.toEqual({ sha: apis.sha, ops: 1, rejects: 0, more: false })
+    await expect(
+      find("skill:services:dependencies:ws_alpha", apis.sha),
+    ).resolves.toEqual({ sha: deps.sha, ops: 2, rejects: 0, more: false })
+    // A step that the other execution did not push continues from its tip.
+    await expect(
+      find("skill:services:libraries:ws_alpha", first.sha),
+    ).resolves.toEqual({ tip: deps.sha, ops: 3 })
+  })
+
+  it("refuses a ref tip that is not a commit of the run, or that does not hold the start tip", async () => {
+    const first = await step()
+    const work = join(root, `clone-foreign-${++fixtureCount}`)
+    git(root, ["clone", "-q", remote, work])
+    git(work, ["checkout", "-q", "--detach", first.sha])
+    writeTree(work, { "knowledge/services/z.md": service("Z") })
+    git(work, ["add", "-A"])
+    git(work, ["commit", "-q", "-m", "Edit by a person"])
+    git(work, ["push", "-q", "origin", `HEAD:${REF}`])
+    await expect(
+      find("skill:services:libraries:ws_alpha", first.sha),
+    ).rejects.toThrow(`The tip of ref ${REF} is not a commit of the run`)
+
+    // The ref of shard 3 starts at the pinned revision, not at `first`.
+    const shard3 = ingestRefName({
+      runId: RUN,
+      workspaceId: WORKSPACE,
+      shard: "3",
+    })
+    await step({
+      ref: shard3,
+      files: { "knowledge/services/other.md": service("Other") },
+    })
+    await expect(
+      find("skill:services:libraries:ws_alpha", first.sha, shard3),
+    ).rejects.toThrow(`The ref ${shard3} does not hold the given tip`)
   })
 })
 
@@ -1155,7 +1194,7 @@ describe("pushIngestAssemble", () => {
 describe("ingestRunRefTip", () => {
   const REF = ingestRefName({ runId: RUN, workspaceId: WORKSPACE })
 
-  function runTip(given: string | null) {
+  function runTip(given: string) {
     return ingestRunRefTip({
       remote: { url: remote },
       ref: REF,
@@ -1165,7 +1204,7 @@ describe("ingestRunRefTip", () => {
   }
 
   it("gives the given tip when the ref is at it, and when the ref is missing", async () => {
-    expect(await runTip(null)).toBeNull()
+    expect(await runTip(pinned)).toBe(pinned)
     const first = await step({ ref: REF, step: "skill:repository:a:ws_alpha" })
     expect(await runTip(first.sha)).toBe(first.sha)
   })

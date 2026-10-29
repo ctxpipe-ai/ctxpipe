@@ -54,8 +54,8 @@ export class IngestRefRefusedError extends Error {
 
 /**
  * The ref is not at the old tip that the push expected: another push moved
- * it. When the ref's tip is a later commit of the same run (another
- * execution of the same child, CTX-1073), the step can go on from that tip.
+ * it. Another execution of the same child can move the ref (CTX-1073). The
+ * next attempt of the step reads the ref again and continues from its tip.
  */
 export class IngestRefMovedError extends IngestRefRefusedError {
   constructor() {
@@ -236,7 +236,7 @@ export async function pushIngestAssemble(input: {
       }
       resolved.push({
         shard,
-        tip: await runTipFrom(repoDir, input.remote, {
+        tip: await checkedRunTip(repoDir, input.remote, {
           runId: input.job.runId,
           label: `shard ref ${shard}`,
           given: tip,
@@ -492,12 +492,12 @@ export async function ingestRunRefTip(input: {
   remote: IngestRemote
   ref: string
   runId: string
-  given: string | null
-}): Promise<string | null> {
+  given: string
+}): Promise<string> {
   return withScratchRepository(async (repoDir) => {
     const onRemote = await remoteTip(repoDir, input.remote, input.ref)
     if (!onRemote) return input.given
-    return runTipFrom(repoDir, input.remote, {
+    return checkedRunTip(repoDir, input.remote, {
       runId: input.runId,
       label: `ref ${input.ref}`,
       given: input.given,
@@ -508,10 +508,9 @@ export async function ingestRunRefTip(input: {
 
 /**
  * The remote tip of an ingest ref, when it is `given` or a later commit of
- * the run. The ref moves only by leased fast-forward pushes, so a later tip
- * holds `given` in its history. `label` names the ref in a refusal.
+ * the run. `label` names the ref in a refusal.
  */
-async function runTipFrom(
+async function checkedRunTip(
   repoDir: string,
   remote: IngestRemote,
   input: {
@@ -536,70 +535,107 @@ async function runTipFrom(
     ],
     { env: remote.env },
   )
-  if ((await stepTrailers(repoDir, input.onRemote)).run !== input.runId)
-    throw new IngestRefRefusedError(
-      `The tip of ${input.label} is not a commit of the run`,
-    )
-  if (input.given) {
-    const holds = await runGit(repoDir, [
-      "merge-base",
-      "--is-ancestor",
-      input.given,
-      input.onRemote,
-    ]).then(
-      () => true,
-      () => false,
-    )
-    if (!holds)
-      throw new IngestRefRefusedError(
-        `The ${input.label} does not hold the given tip`,
-      )
-  }
+  await assertRunTip(repoDir, {
+    runId: input.runId,
+    label: input.label,
+    since: input.given,
+    tip: input.onRemote,
+  })
   return input.onRemote
 }
 
 /**
- * Resume: the commit on the ref tip when it is this run's commit for `step`
- * (a crash after the push), else null.
+ * Refuses `tip` unless it is a commit of the run that holds `since`. The ref
+ * moves only by leased fast-forward pushes, so a later tip of the run holds
+ * each earlier tip. Both commits must be in `repoDir`.
+ */
+async function assertRunTip(
+  repoDir: string,
+  input: { runId: string; label: string; since: string | null; tip: string },
+): Promise<void> {
+  if ((await stepTrailers(repoDir, input.tip)).run !== input.runId)
+    throw new IngestRefRefusedError(
+      `The tip of ${input.label} is not a commit of the run`,
+    )
+  if (input.since === null) return
+  const holds = await runGit(repoDir, [
+    "merge-base",
+    "--is-ancestor",
+    input.since,
+    input.tip,
+  ]).then(
+    () => true,
+    () => false,
+  )
+  if (!holds)
+    throw new IngestRefRefusedError(
+      `The ${input.label} does not hold the given tip`,
+    )
+}
+
+/**
+ * Resume: the run's commits on the ref after `since`, the tip that the step
+ * starts from. When one of them is the commit of `step` (a crash after the
+ * push, or another execution of the same child that pushed the step,
+ * CTX-1073), it gives that commit. Else it gives the tip that another
+ * execution moved the ref to. It gives null when the ref is at `since` or
+ * missing. `ops` counts the paths that changed after `since`.
  */
 export async function findStepCommit(input: {
   remote: IngestRemote
   ref: string
   runId: string
   step: string
-}): Promise<{
-  sha: string
-  ops: number
-  rejects: number
-  more: boolean
-} | null> {
+  since: string
+}): Promise<
+  | { sha: string; ops: number; rejects: number; more: boolean }
+  | { tip: string; ops: number }
+  | null
+> {
   return withScratchRepository(async (repoDir) => {
     const tip = await remoteTip(repoDir, input.remote, input.ref)
-    if (!tip) return null
-    // The tip and its parent, with their trees: the ops are the diff.
-    await runGit(
-      repoDir,
-      [
-        "fetch",
-        "--quiet",
-        "--no-tags",
-        "--depth=2",
-        "--filter=blob:none",
-        "--",
-        input.remote.url,
-        tip,
-      ],
-      { env: input.remote.env },
+    if (!tip || tip === input.since) return null
+    const fetch = (sha: string, depth: string[]) =>
+      runGit(
+        repoDir,
+        [
+          "fetch",
+          "--quiet",
+          "--no-tags",
+          ...depth,
+          "--filter=blob:none",
+          "--",
+          input.remote.url,
+          sha,
+        ],
+        { env: input.remote.env },
+      )
+    // `since` is the shallow boundary: the second fetch stops there.
+    await fetch(input.since, ["--depth=1"])
+    await fetch(tip, [])
+    await assertRunTip(repoDir, {
+      runId: input.runId,
+      label: `ref ${input.ref}`,
+      since: input.since,
+      tip,
+    })
+    const commits = (
+      await runGit(repoDir, ["rev-list", "--reverse", `${input.since}..${tip}`])
     )
-    const trailers = await stepTrailers(repoDir, tip)
-    if (trailers.run !== input.runId || trailers.step !== input.step)
-      return null
-    return {
-      sha: tip,
-      ops: (await diffTree(repoDir, `${tip}^`, tip)).length,
-      more: trailers.more,
-      rejects: trailers.rejects,
+      .toString()
+      .split("\n")
+      .filter(Boolean)
+    for (const sha of commits) {
+      const trailers = await stepTrailers(repoDir, sha)
+      if (trailers.run === input.runId && trailers.step === input.step)
+        return {
+          sha,
+          ops: (await diffTree(repoDir, input.since, sha)).length,
+          rejects: trailers.rejects,
+          more: trailers.more,
+        }
     }
+    return { tip, ops: (await diffTree(repoDir, input.since, tip)).length }
   })
 }
 

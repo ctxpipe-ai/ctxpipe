@@ -22,7 +22,6 @@ import {
   findStepCommit,
   type IngestRemote,
   ingestRefName,
-  ingestRunRefTip,
   listStepFiles,
   pushIngestAssemble,
   pushIngestStep,
@@ -443,12 +442,11 @@ beforeAll(async () => {
   }
   const job = { runId: RUN_ID, workspaceId: WORKSPACE_ID }
   broker = {
-    find: (ref, step) => findStepCommit({ remote, ref, runId: RUN_ID, step }),
+    find: (ref, step, since) =>
+      findStepCommit({ remote, ref, runId: RUN_ID, step, since }),
     listFiles: (pinnedRevision, tip) =>
       listStepFiles({ remote, runId: RUN_ID, pinnedRevision, tip }),
     push: (push) => pushIngestStep({ ...push, job, remote }),
-    runTip: (ref, given) =>
-      ingestRunRefTip({ remote, ref, runId: RUN_ID, given }),
     ...gitSource(source.dir, source.sha),
   }
   // The step index of the host path: the projection at the pinned revision
