@@ -12,6 +12,7 @@ export const PLAIN_REQUIRED_PERMISSIONS = [
   "helpCenterArticle:read",
   "helpCenterArticleGroup:read",
   "labelType:read",
+  "label:read",
   "thread:read",
   "timeline:read",
   "customer:read",
