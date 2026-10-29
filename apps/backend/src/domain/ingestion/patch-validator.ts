@@ -1830,31 +1830,33 @@ export function normalizeSourceUrl(url: string): string {
 
 /**
  * Gives the field and the issue code only, so no staged text goes into a
- * reason. For a union, the reason uses the first issue of the member that has
- * the fewest issues. For unknown keys, it gives the count of keys, not their
- * names: a key can hold model text.
+ * reason. For the claims union, the reason uses the first issue of the member
+ * that has the fewest issues (the first member wins a tie). For unknown keys,
+ * it gives the count of keys, not their names, because a key can hold model
+ * text. The path holds schema keys and array indexes only. Do not add a
+ * `z.record` to these schemas: its keys would go into the reason.
  */
 function zodReason(error: z.ZodError): string {
-  let issue: z.ZodIssue | undefined = error.issues[0]
-  if (!issue) return "The front matter does not match the schema"
-  const path: PropertyKey[] = [...issue.path]
-  for (let depth = 0; depth < 3; depth++) {
-    if (issue.code !== "invalid_union") break
-    let chosen: z.ZodIssue[] | undefined
-    for (const member of issue.errors)
-      if (!chosen || member.length < chosen.length) chosen = member
-    const inner: z.ZodIssue | undefined = chosen?.[0]
-    if (!inner) break
-    path.push(...inner.path)
-    issue = inner
+  const outer = error.issues[0]
+  if (!outer) return "The front matter does not match the schema"
+  let issue: z.core.$ZodIssue = outer
+  let path = outer.path
+  if (outer.code === "invalid_union") {
+    let closest: z.core.$ZodIssue[] | undefined
+    for (const member of outer.errors)
+      if (!closest || member.length < closest.length) closest = member
+    const inner = closest?.[0]
+    if (inner) {
+      issue = inner
+      path = [...outer.path, ...inner.path]
+    }
   }
   const at = path.length
     ? `${path.map((p) => String(p).slice(0, 40)).join(".")}: `
     : ""
-  const keys = issue.code === "unrecognized_keys" ? issue.keys : undefined
   const count =
-    keys && keys.length > 0
-      ? ` (${keys.length} key${keys.length === 1 ? "" : "s"})`
+    issue.code === "unrecognized_keys"
+      ? ` (${issue.keys.length} key${issue.keys.length === 1 ? "" : "s"})`
       : ""
   return `${at}${issue.code}${count}`
 }
