@@ -16,6 +16,11 @@ export type WorkflowExecution = {
   /** The OpenWorkflow worker id of the execution (one for each worker slot). */
   workerId: string
   /**
+   * The execution attempt of the run (its `attempts` at the claim of this
+   * execution). `ownsRun` sets it when it finds the lease.
+   */
+  attempt?: number
+  /**
    * True while this execution owns the run: the run is `running` and its
    * `worker_id` is the worker id of this execution. This is the condition
    * that OpenWorkflow uses for each write of the run.
@@ -35,23 +40,29 @@ export function openWorkflowExecution(
 ): WorkflowExecution | undefined {
   const workerId = (step as { workerId?: unknown }).workerId
   if (typeof workerId !== "string") return undefined
-  return {
+  const execution: WorkflowExecution = {
     workflowRunId,
     workerId,
     async ownsRun() {
       const result = await getSystemDb().execute<{
         status: string
         worker_id: string | null
+        attempts: number
       }>(sql`
-        select status, worker_id
+        select status, worker_id, attempts
         from openworkflow.workflow_runs
         where namespace_id = ${openWorkflowNamespaceId()}
           and id = ${workflowRunId}
       `)
       const row = result.rows[0]
-      return row?.status === "running" && row.worker_id === workerId
+      if (row?.status !== "running" || row.worker_id !== workerId) return false
+      // Only the claim of this execution set its worker id on the run, so
+      // the `attempts` of the row is the attempt of this execution.
+      execution.attempt = Number(row.attempts)
+      return true
     },
   }
+  return execution
 }
 
 /** Another execution owns the workflow run; this execution must stop. */

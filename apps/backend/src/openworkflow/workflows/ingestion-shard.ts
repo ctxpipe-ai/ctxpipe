@@ -587,9 +587,24 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
   )
 }
 
+/**
+ * The execution that writes a step event (CTX-1080). After a lease loss, two
+ * executions of one child write events; a query keeps the events of the
+ * newest `executionAttempt`.
+ */
+function executionFields(execution: WorkflowExecution | undefined) {
+  return {
+    workerBootId: WORKER_BOOT_ID,
+    ...(execution ? { workflowWorkerId: execution.workerId } : {}),
+    ...(execution?.attempt === undefined
+      ? {}
+      : { executionAttempt: execution.attempt }),
+  }
+}
+
 /** One log event for a step that ends `partial`, with its reason. */
 function logStepPartial(
-  ctx: Pick<SkillPages, "run" | "destination">,
+  ctx: Pick<SkillPages, "run" | "destination" | "execution">,
   step: string,
   reason: string,
 ): void {
@@ -599,6 +614,7 @@ function logStepPartial(
     workspaceId: ctx.destination.workspaceId,
     ingestStep: step,
     reason: capIngestText(reason),
+    ...executionFields(ctx.execution),
   })
 }
 
@@ -663,7 +679,17 @@ async function attemptSkillStep(
     // stops before it makes model calls of its own.
     if (ctx.execution && !(await ctx.execution.ownsRun()))
       throw new WorkflowLeaseLostError(ctx.execution)
-    span.setAttribute("ctxpipe.ingest.attempts", attempt)
+    const execution = executionFields(ctx.execution)
+    span.setAttributes({
+      "ctxpipe.ingest.attempts": attempt,
+      "ctxpipe.worker.boot_id": execution.workerBootId,
+      ...(execution.workflowWorkerId === undefined
+        ? {}
+        : { "ctxpipe.openworkflow.worker.id": execution.workflowWorkerId }),
+      ...(execution.executionAttempt === undefined
+        ? {}
+        : { "openworkflow.execution.attempt": execution.executionAttempt }),
+    })
     // The span of a step that stops the worker is never exported; this
     // event names the step that was in progress (CTX-971).
     logIngestEvent("info", "ingestion-v2.step-attempt-started", {
@@ -672,7 +698,7 @@ async function attemptSkillStep(
       workspaceId: destination.workspaceId,
       ingestStep: ctx.name,
       attempt,
-      workerBootId: WORKER_BOOT_ID,
+      ...execution,
     })
     // Where the attempt is, for the log of a failed attempt.
     let stage: "find" | "list-files" | "runtime" | "push" = "find"
@@ -738,6 +764,7 @@ async function attemptSkillStep(
           ingestStep: ctx.name,
           reason:
             "The model step reported no usage, or the worker kept only a part of it: the spend of the run is unknown, and the recorded spend counts only the known part",
+          ...execution,
         })
       usage = addIngestUsage(usage, stepUsage)
       stage = "push"
@@ -775,6 +802,7 @@ async function attemptSkillStep(
           rule: rejection.rule,
           path: capIngestText(rejection.path),
           reason: capIngestText(rejection.reason),
+          ...execution,
         })
       span.setAttribute("ctxpipe.ingest.validation", pushed.validation.status)
       if (pushed.validation.status === "partial")
@@ -784,6 +812,7 @@ async function attemptSkillStep(
           workspaceId: destination.workspaceId,
           ingestStep: ctx.name,
           reason: `The validator rejected ${pushed.validation.rejections.length} ops and accepted ${pushed.validation.accepted.length}`,
+          ...execution,
         })
       return withUsage({
         tip: pushed.sha,
@@ -819,6 +848,7 @@ async function attemptSkillStep(
             }
           : {}),
         ...ingestErrorFields(error),
+        ...execution,
       })
       span.setAttribute("error.type", refused ? error.name : "Error")
       // The next attempt's `find` reads the ref that another execution moved.
