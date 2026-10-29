@@ -318,6 +318,57 @@ it(
   },
 )
 
+/** The tar of a step output with one Service file. */
+function serviceArchive() {
+  const out = mkdtempSync(join(folder, "out-"))
+  mkdirSync(join(out, "files/knowledge/services"), { recursive: true })
+  writeFileSync(
+    join(out, "files/knowledge/services/orders.md"),
+    "---\nkind: Service\nname: Orders\n---\n# Orders\n\nThe orders service.\n",
+  )
+  writeFileSync(
+    join(out, "patch.json"),
+    JSON.stringify({
+      ops: [{ op: "create", path: "knowledge/services/orders.md" }],
+    }),
+  )
+  return execFileSync("tar", ["-cf", "-", "-C", out, "patch.json", "files"], {
+    env: { ...process.env, COPYFILE_DISABLE: "1" },
+  })
+}
+
+it(
+  "makes each model call that a live execution needs",
+  { timeout: 60_000 },
+  async () => {
+    const calls: number[] = []
+    const runtime: IngestShardRuntime = {
+      ensure: async () => {},
+      discoverRoots: async () => ({}),
+      runStep: async () => {
+        calls.push(calls.length + 1)
+        if (calls.length < 3) throw new Error("Sandbox lock ownership expired")
+        return { tar: serviceArchive() }
+      },
+    }
+    const { runId } = await runOnWorker(runtime, () => {})
+    expect(calls).toEqual([1, 2, 3])
+    expect(
+      events.filter((e) => e.step === "ingestion-v2.execution-lease-lost"),
+    ).toEqual([])
+    expect(
+      events
+        .filter((e) => e.step === "ingestion-v2.step-attempt-started")
+        .map((e) => [e.attempt, e.executionAttempt]),
+    ).toEqual([
+      [1, 1],
+      [2, 1],
+      [3, 1],
+    ])
+    expect(await stepStatuses(runId)).toEqual(["completed"])
+  },
+)
+
 it(
   "leaves the scratch of the live execution when the stale execution stops",
   { timeout: 60_000 },
