@@ -243,8 +243,9 @@ export function defineWorkspaceExtractIngestWorkflow() {
                     )),
                   }
                 } catch (error) {
-                  // A merge that fails the patch validator: the Workspace
-                  // is `partial`, and the publish writes nothing.
+                  // A refused publish (not a validator rejection of a
+                  // merged file, which is withheld): the Workspace is
+                  // `partial`, and the publish writes nothing.
                   if (error instanceof IngestRefRefusedError)
                     return {
                       refused: error.message.slice(0, 300),
@@ -284,6 +285,9 @@ export function defineWorkspaceExtractIngestWorkflow() {
               }
             }
             const { files, deletePaths } = transformed
+            // The merged files that fail the patch validator. A step output
+            // from before CTX-1081 has no list.
+            const withheld = transformed.withheld ?? []
             if (!files.length && !deletePaths.length) {
               // The delta is from the pinned revision, so a later tip cannot
               // add to it: there is nothing to confirm.
@@ -293,6 +297,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
               return {
                 committed: false as const,
                 reason: "no_changes" as const,
+                withheld: withheld.length ? withheld : undefined,
               }
             }
             const staged = await step.run({ name: "stage" }, () =>
@@ -404,7 +409,11 @@ export function defineWorkspaceExtractIngestWorkflow() {
             await step.run({ name: "complete" }, () =>
               persistWriteJobCommitSha(input.jobId, committed.sha),
             )
-            return { committed: true as const, commitSha: committed.sha }
+            return {
+              committed: true as const,
+              commitSha: committed.sha,
+              withheld: withheld.length ? withheld : undefined,
+            }
           }
           // Each attempt lost the push race: publish nothing, and let the
           // run publish its other Workspaces.

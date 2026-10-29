@@ -94,8 +94,9 @@ import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
  * `workspace-write-extract-ingest`, which replays the delta from the pinned
  * revision on the current default tip as one commit. A path that a person
  * also changed after the pin goes through the semantic merge and the patch
- * validator; a rejected merge publishes nothing and makes the Workspace
- * `partial`. A `partial` Workspace publishes its accepted ops, but the
+ * validator; a merged file that fails it is withheld (it keeps the
+ * version of the default tip), the other files publish, and each withheld
+ * file makes the Workspace `partial`. A `partial` Workspace publishes its accepted ops, but the
  * deletes of a failed root stay out: a failed root gets no retraction. A
  * refused assemble publishes the run base; so does an assemble whose merge
  * model fails. A publish that fails (the merge model fails, or the default
@@ -133,6 +134,8 @@ export type IngestionV2Output =
         /** The steps that failed after their retries, by cause (CTX-896). */
         stepFailures?: IngestStepFailures
         refused?: string
+        /** The merged files that the publish withheld, with the validator rule. */
+        withheld?: Array<{ path: string; rule: string }>
         /** The commit on the default branch; null for no change. */
         published?: string | null
       }>
@@ -747,6 +750,26 @@ export function defineRepositoryIngestionV2Workflow(
                   : null
                 if (!published.committed && published.reason === "failed")
                   keepRefs.add(workspaceId)
+                const withheld =
+                  "withheld" in published ? (published.withheld ?? []) : []
+                if (withheld.length) {
+                  entry.withheld = withheld
+                  entry.partial += withheld.length
+                  // A step, so that a replay of the run logs no second event.
+                  await step.run(
+                    { name: `log-partial:${workspaceId}` },
+                    async () =>
+                      logIngestEvent("warn", "ingestion-v2.partial", {
+                        ingestionRunId: run.id,
+                        ingestStep: "publish",
+                        workspaceId,
+                        // Fixed codes and a count: a path can hold model text.
+                        reason: "withheld",
+                        rules: [...new Set(withheld.map((w) => w.rule))].sort(),
+                        withheld: withheld.length,
+                      }),
+                  )
+                }
                 if (
                   !published.committed &&
                   (published.reason === "refused" ||
