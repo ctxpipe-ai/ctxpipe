@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -17,6 +18,7 @@ import { gunzipSync } from "node:zlib"
 import { deploySteps, fullRunResults, stepResults } from "../checks/gate.mjs"
 import { jobOutputs } from "../checks/plan.mjs"
 import { prerequisites } from "../checks/prerequisites.mjs"
+import { uiBundledImports } from "../checks/projects.mjs"
 import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
 import { lintSteps, runsInOf } from "../checks/shard.mjs"
 import { requiredStories } from "../ci/storybook-golden-select.mjs"
@@ -1081,7 +1083,10 @@ test("the manifest lists a build check for each production image and package of 
       "apps/backend/**",
       "shared/**",
     ],
-    "build:image-ui:apps/ui/Dockerfile": ["apps/ui/**", "apps/backend/src/**"],
+    "build:image-ui:apps/ui/Dockerfile": [
+      "apps/ui/**",
+      "apps/backend/package.json",
+    ],
     "build:image-codesearch:apps/codesearch/Dockerfile": [
       "apps/codesearch/**",
       "shared/**",
@@ -1135,6 +1140,43 @@ test("the manifest lists a build check for each production image and package of 
   )
 })
 
+test("the UI image selects on the backend files that the UI build bundles, not on the whole backend", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const ui = JSON.parse(result.stdout).checks.find(
+    (check) => check.id === "build:image-ui:apps/ui/Dockerfile",
+  )
+  // A plain path or a `/**` directory: the only input forms of this check.
+  const selects = (path) =>
+    ui.inputs.some((input) =>
+      input.endsWith("/**")
+        ? path.startsWith(input.slice(0, -2))
+        : input === path,
+    )
+  for (const file of [...uiBundledImports(), "apps/backend/package.json"])
+    assert.ok(ui.inputs.includes(file), file)
+  // apps/ui/src/components/onboarding/org-name.ts imports it as a value.
+  assert.ok(selects("apps/backend/src/domain/workspaces/slug.ts"))
+  // No UI file imports it, but sources-file.ts and providers/git.ts, which
+  // the UI imports, import it as a value: the build bundles it.
+  const github = "apps/backend/src/domain/workspace-sources/providers/github"
+  const uiFiles = readdirSync(join(root, "apps/ui/src"), { recursive: true })
+  for (const file of uiFiles.filter((file) => /\.tsx?$/.test(file)))
+    assert.ok(
+      !readFileSync(join(root, "apps/ui/src", file), "utf8").includes(
+        github.replace("apps/backend/src/", "backend/"),
+      ),
+      file,
+    )
+  assert.ok(selects(`${github}.ts`))
+  // The UI imports it only as a type, which the build erases.
+  assert.ok(
+    !selects("apps/backend/src/routes/v1/workspace-sources-contract.ts"),
+  )
+  // The UI does not import it.
+  assert.ok(!selects("apps/backend/src/app/app.ts"))
+})
+
 test("the manifest lists the preview deployment and its UI smoke test, and the gate reads their PR Deploy steps", () => {
   const result = node([script("list.mjs")])
   assert.equal(result.status, 0, result.stderr)
@@ -1157,7 +1199,7 @@ test("the manifest lists the preview deployment and its UI smoke test, and the g
     "utf8",
   )
   // The deployment selects on each script that the workflow or a sourced
-  // script sources, and on each image that it builds.
+  // script sources or runs, and on each image that it builds.
   const sourced = new Set(
     [
       ...workflow.matchAll(/\$\{GITHUB_WORKSPACE\}\/(scripts\/[\w./-]+\.sh)/g),
@@ -1165,7 +1207,7 @@ test("the manifest lists the preview deployment and its UI smoke test, and the g
   )
   for (const file of [...sourced])
     for (const [, name] of readFileSync(join(root, file), "utf8").matchAll(
-      /source "\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)\/([\w.-]+\.sh)"/g,
+      /"\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)\/([\w.-]+\.(?:sh|mjs))"/g,
     ))
       sourced.add(`scripts/${name}`)
   assert.ok(sourced.size >= 10)
