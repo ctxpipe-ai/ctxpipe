@@ -16,16 +16,14 @@ export type WorkflowExecution = {
   /** The OpenWorkflow worker id of the execution (one for each worker slot). */
   workerId: string
   /**
-   * The execution attempt of the run (its `attempts` at the claim of this
-   * execution). `ownsRun` sets it when it finds the lease.
-   */
-  attempt?: number
-  /**
-   * True while this execution owns the run: the run is `running` and its
+   * The execution attempt of the run while this execution owns the run, else
+   * undefined. The execution owns the run when the run is `running` and its
    * `worker_id` is the worker id of this execution. This is the condition
-   * that OpenWorkflow uses for each write of the run.
+   * that OpenWorkflow uses for each write of the run. The execution attempt
+   * is the `attempts` of the run at the claim of this execution. A failed
+   * read of the run throws.
    */
-  ownsRun(): Promise<boolean>
+  ownsRun(): Promise<number | undefined>
 }
 
 /**
@@ -40,7 +38,7 @@ export function openWorkflowExecution(
 ): WorkflowExecution | undefined {
   const workerId = (step as { workerId?: unknown }).workerId
   if (typeof workerId !== "string") return undefined
-  const execution: WorkflowExecution = {
+  return {
     workflowRunId,
     workerId,
     async ownsRun() {
@@ -55,21 +53,20 @@ export function openWorkflowExecution(
           and id = ${workflowRunId}
       `)
       const row = result.rows[0]
-      if (row?.status !== "running" || row.worker_id !== workerId) return false
+      if (row?.status !== "running" || row.worker_id !== workerId)
+        return undefined
       // Only the claim of this execution set its worker id on the run, so
       // the `attempts` of the row is the attempt of this execution.
-      execution.attempt = Number(row.attempts)
-      return true
+      return Number(row.attempts)
     },
   }
-  return execution
 }
 
 /** Another execution owns the workflow run; this execution must stop. */
 export class WorkflowLeaseLostError extends Error {
-  constructor(readonly execution: WorkflowExecution) {
+  constructor(workflowRunId: string) {
     super(
-      `Another execution owns the workflow run ${execution.workflowRunId}; this execution stops`,
+      `Another execution owns the workflow run ${workflowRunId}; this execution stops`,
     )
     this.name = "WorkflowLeaseLostError"
   }

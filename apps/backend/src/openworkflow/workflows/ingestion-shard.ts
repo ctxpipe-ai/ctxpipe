@@ -592,13 +592,14 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
  * executions of one child write events; a query keeps the events of the
  * newest `executionAttempt`.
  */
-function executionFields(execution: WorkflowExecution | undefined) {
+function executionFields(
+  execution: WorkflowExecution | undefined,
+  executionAttempt?: number,
+) {
   return {
     workerBootId: WORKER_BOOT_ID,
     ...(execution ? { workflowWorkerId: execution.workerId } : {}),
-    ...(execution?.attempt === undefined
-      ? {}
-      : { executionAttempt: execution.attempt }),
+    ...(executionAttempt === undefined ? {} : { executionAttempt }),
   }
 }
 
@@ -607,6 +608,7 @@ function logStepPartial(
   ctx: Pick<SkillPages, "run" | "destination" | "execution">,
   step: string,
   reason: string,
+  executionAttempt?: number,
 ): void {
   logIngestEvent("warn", "ingestion-v2.step-partial", {
     ingestionRunId: ctx.run.runId,
@@ -614,7 +616,7 @@ function logStepPartial(
     workspaceId: ctx.destination.workspaceId,
     ingestStep: step,
     reason: capIngestText(reason),
-    ...executionFields(ctx.execution),
+    ...executionFields(ctx.execution, executionAttempt),
   })
 }
 
@@ -677,22 +679,28 @@ async function attemptSkillStep(
   let usage: IngestStepUsage | undefined
   const withUsage = <T extends object>(result: T) =>
     usage ? { ...result, usage } : result
+  // The execution attempt from the last ownership check.
+  let executionAttempt: number | undefined
   for (let attempt = 1; attempt <= STEP_ATTEMPTS; attempt++) {
     // After a lease loss, another execution runs the same steps. This one
     // stops before it makes model calls of its own.
-    if (ctx.execution && !(await ctx.execution.ownsRun())) {
-      logIngestEvent("warn", "ingestion-v2.execution-lease-lost", {
-        ingestionRunId: run.runId,
-        ...(run.shard === undefined ? {} : { shard: run.shard }),
-        workspaceId: destination.workspaceId,
-        ingestStep: ctx.name,
-        attempt,
-        workflowRunId: ctx.execution.workflowRunId,
-        ...executionFields(ctx.execution),
-      })
-      throw new WorkflowLeaseLostError(ctx.execution)
+    if (ctx.execution) {
+      const owned = await ctx.execution.ownsRun()
+      if (owned === undefined) {
+        logIngestEvent("warn", "ingestion-v2.execution-lease-lost", {
+          ingestionRunId: run.runId,
+          ...(run.shard === undefined ? {} : { shard: run.shard }),
+          workspaceId: destination.workspaceId,
+          ingestStep: ctx.name,
+          attempt,
+          workflowRunId: ctx.execution.workflowRunId,
+          ...executionFields(ctx.execution, executionAttempt),
+        })
+        throw new WorkflowLeaseLostError(ctx.execution.workflowRunId)
+      }
+      executionAttempt = owned
     }
-    const execution = executionFields(ctx.execution)
+    const execution = executionFields(ctx.execution, executionAttempt)
     span.setAttributes({
       "ctxpipe.ingest.attempts": attempt,
       "ctxpipe.worker.boot_id": execution.workerBootId,
@@ -883,7 +891,7 @@ async function attemptSkillStep(
     }
   }
   if (errorType) span.setAttribute("error.type", errorType)
-  logStepPartial(ctx, ctx.name, reason)
+  logStepPartial(ctx, ctx.name, reason, executionAttempt)
   return withUsage({
     partial: true as const,
     ...(reason === "step_failed" ? { failed } : {}),
