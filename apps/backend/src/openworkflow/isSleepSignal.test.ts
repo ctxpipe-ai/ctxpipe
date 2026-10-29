@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 
+import { WorkflowLeaseLostError } from "./execution-lease.js"
 import {
   cleanUpUnlessParked,
   isWorkflowControlSignal,
@@ -86,6 +87,22 @@ describe("cleanUpUnlessParked", () => {
         },
       ),
     ).rejects.toBe(park)
+    expect(cleaned).toEqual([])
+  })
+
+  it("keeps the resources of a stale execution for the live execution", async () => {
+    const cleaned: string[] = []
+    const lost = new WorkflowLeaseLostError("wr_1")
+    await expect(
+      cleanUpUnlessParked(
+        async () => {
+          throw lost
+        },
+        async () => {
+          cleaned.push("tree")
+        },
+      ),
+    ).rejects.toBe(lost)
     expect(cleaned).toEqual([])
   })
 })

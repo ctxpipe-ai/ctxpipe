@@ -1,3 +1,5 @@
+import { WorkflowLeaseLostError } from "./execution-lease.js"
+
 /**
  * OpenWorkflow parks or finalizes an execution branch by throwing internal
  * control signals. They must reach the worker runtime instead of being handled
@@ -15,7 +17,9 @@ export function isWorkflowControlSignal(err: unknown): boolean {
 /**
  * Run `fn`, then `cleanUp` when the execution ends: it returns or it fails.
  * A control signal only parks the execution (for example to wait for a
- * child), and the run continues later, so it keeps its resources.
+ * child), and the run continues later, so it keeps its resources. A stale
+ * execution that stops because another execution owns the run also keeps
+ * them: the live execution uses the same resources and cleans them up.
  */
 export async function cleanUpUnlessParked<T>(
   fn: () => Promise<T>,
@@ -25,7 +29,8 @@ export async function cleanUpUnlessParked<T>(
   try {
     return await fn()
   } catch (error) {
-    parked = isWorkflowControlSignal(error)
+    parked =
+      isWorkflowControlSignal(error) || error instanceof WorkflowLeaseLostError
     throw error
   } finally {
     if (!parked) await cleanUp()

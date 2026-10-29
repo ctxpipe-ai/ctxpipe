@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -24,15 +30,22 @@ import { recordSpans } from "../../../test/spans.js"
 import { closeDb, getSystemDb, initDb } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import {
+  heldScratch,
+  holdScratch,
+} from "../../domain/ingestion/held-scratch.js"
+import {
   findStepCommit,
   ingestRefName,
   listStepFiles,
   pushIngestStep,
 } from "../../domain/ingestion/ingest-refs.js"
 import type { IngestShardRuntime } from "../../domain/ingestion/ingest-shard-runtime.js"
+import { releaseIngestStepIndexes } from "../../domain/ingestion/ingest-shard-sandbox.js"
+import { releaseIngestSourceTree } from "../../domain/ingestion/ingest-source-tree.js"
 import { WORKER_BOOT_ID } from "../crash-loop.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { openWorkflowExecution } from "../execution-lease.js"
+import { cleanUpUnlessParked } from "../isSleepSignal.js"
 import { connectOpenWorkflowBackend } from "../storable-backend.js"
 import {
   guardedSkillStep,
@@ -169,25 +182,39 @@ async function stepStatuses(runId: string) {
 /**
  * Run one skill step on a real worker. The first attempt fails after
  * another execution took the run (the worker stalled; for example, the
- * sandbox lock went to the other execution). `claimed` is the run row at
- * the claim of this execution, read in the first attempt.
+ * sandbox lock went to the other execution). `cleanUp` runs as the cleanup
+ * of an ingestion workflow does.
  */
-async function runStaleExecution() {
+async function runStaleExecution(
+  options: { cleanUp?: () => Promise<void> } = {},
+) {
   const calls: number[] = []
   let runId = ""
-  let claimed: RunRow | undefined
   const runtime: IngestShardRuntime = {
     ensure: async () => {},
     discoverRoots: async () => ({}),
     runStep: async () => {
       calls.push(calls.length + 1)
-      if (calls.length === 1) {
-        claimed = await runRow(runId)
-        await anotherExecutionTakes(runId)
-      }
+      if (calls.length === 1) await anotherExecutionTakes(runId)
       throw new Error("Sandbox lock ownership expired")
     },
   }
+  const result = await runOnWorker(
+    runtime,
+    (id) => {
+      runId = id
+    },
+    options.cleanUp,
+  )
+  return { calls, runId: result.runId }
+}
+
+/** Run one skill step with `runtime` on a real OpenWorkflow worker. */
+async function runOnWorker(
+  runtime: IngestShardRuntime,
+  started: (workflowRunId: string) => void,
+  cleanUp?: () => Promise<void>,
+) {
   // The other execution has not pushed: the ref has no commit.
   const broker: SkillStepBroker = {
     find: (ref, step, since) =>
@@ -203,6 +230,7 @@ async function runStaleExecution() {
     sourcePathExists: async () => false,
     readSourceFile: async () => null,
   }
+  let ended = false
   workflows++
   const workflow = defineWorkflow(
     {
@@ -211,7 +239,7 @@ async function runStaleExecution() {
       retryPolicy: once,
     },
     async ({ step, run }) => {
-      runId = run.id
+      started(run.id)
       const state: IngestionShardWorkspace = {
         workspaceId,
         tip: null,
@@ -220,53 +248,58 @@ async function runStaleExecution() {
         partial: 0,
         partialRoots: [],
       }
-      await runSkillPages({
-        step: guardedSkillStep(step, run.id, orgId),
-        execution: openWorkflowExecution(step, run.id),
-        run: {
-          runId: ingestionRunId,
-          shard: 0,
-          bundle: "bundle-1",
-          source: {
-            kind: "github",
-            url: "https://github.com/example-org/shop",
-            githubConnectionId: "con_source",
-            sha: "a".repeat(40),
-            repositoryId: null,
+      const body = async () => {
+        await runSkillPages({
+          step: guardedSkillStep(step, run.id, orgId),
+          execution: openWorkflowExecution(step, run.id),
+          run: {
+            runId: ingestionRunId,
+            shard: 0,
+            bundle: "bundle-1",
+            source: {
+              kind: "github",
+              url: "https://github.com/example-org/shop",
+              githubConnectionId: "con_source",
+              sha: "a".repeat(40),
+              repositoryId: null,
+            },
+            authorTime: "2026-10-01T00:00:00Z",
+            roots: [],
           },
-          authorTime: "2026-10-01T00:00:00Z",
-          roots: [],
-        },
-        broker,
-        runtime,
-        root: null,
-        skill: { name: "apis", scope: "repository", run: "model" },
-        destination: {
-          workspaceId,
-          url: "https://github.com/example-org/context",
-          githubConnectionId: "con_test",
-          generation: 1,
-          pinnedRevision: pinned,
-          repositoryId: null,
-          sourcePath: "sources/github/example-org/shop.md",
-        },
-        ref,
-        runBase: pinned,
-        state,
-      })
-      return state
+          broker,
+          runtime,
+          root: null,
+          skill: { name: "apis", scope: "repository", run: "model" },
+          destination: {
+            workspaceId,
+            url: "https://github.com/example-org/context",
+            githubConnectionId: "con_test",
+            generation: 1,
+            pinnedRevision: pinned,
+            repositoryId: null,
+            sourcePath: "sources/github/example-org/shop.md",
+          },
+          ref,
+          runBase: pinned,
+          state,
+        })
+        return state
+      }
+      try {
+        return await (cleanUp ? cleanUpUnlessParked(body, cleanUp) : body())
+      } finally {
+        ended = true
+      }
     },
   )
   ow.implementWorkflow(workflow.spec, workflow.fn)
   const handle = await ow.runWorkflow(workflow.spec, {})
   const worker = ow.newWorker({ concurrency: 1 })
   await worker.start()
-  await vi.waitFor(() => expect(calls.length).toBeGreaterThan(0), {
-    timeout: 15_000,
-  })
+  await vi.waitFor(() => expect(ended).toBe(true), { timeout: 45_000 })
   // `stop` waits until the execution of this worker ends.
   await worker.stop()
-  return { calls, claimed, runId: handle.workflowRun.id }
+  return { runId: handle.workflowRun.id }
 }
 
 it(
@@ -282,6 +315,33 @@ it(
       attempts: 2,
     })
     expect(await stepStatuses(runId)).toEqual(["running"])
+  },
+)
+
+it(
+  "leaves the scratch of the live execution when the stale execution stops",
+  { timeout: 60_000 },
+  async () => {
+    // The live execution of the same child, in this process, holds the
+    // index repositories and the source tree of the shard.
+    const live = mkdtempSync(join(folder, "live-"))
+    const keys = [
+      `index:${ingestionRunId}:0:${workspaceId}`,
+      `tree:${ingestionRunId}:${"a".repeat(40)}:roots:0`,
+    ]
+    for (const key of keys) await holdScratch(key, async () => ({ dir: live }))
+    await runStaleExecution({
+      // The cleanup of the shard child.
+      cleanUp: async () => {
+        await releaseIngestSourceTree(ingestionRunId, "a".repeat(40), "roots:0")
+        await releaseIngestStepIndexes(ingestionRunId, 0)
+      },
+    })
+    expect(existsSync(live)).toBe(true)
+    expect(heldScratch(`index:${ingestionRunId}:0:`)).toBe(1)
+    expect(heldScratch(`tree:${ingestionRunId}:`)).toBe(1)
+    await releaseIngestSourceTree(ingestionRunId, "a".repeat(40), "roots:0")
+    await releaseIngestStepIndexes(ingestionRunId, 0)
   },
 )
 

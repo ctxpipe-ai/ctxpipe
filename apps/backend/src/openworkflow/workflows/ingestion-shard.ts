@@ -489,15 +489,32 @@ export function guardedSkillStep(
   workflowRunId: string,
   orgId: string,
 ): SkillPages["step"] {
-  return (name, fn) =>
-    step.run({ name, retryPolicy: { maximumAttempts: 1 } }, () =>
-      withCrashLoopGuard(
-        workflowRunId,
-        name,
-        () => withIngestionOrg(orgId, fn),
-        (): StepResult => ({ partial: true, failed: "crashLoop" }),
-      ),
-    )
+  return async (name, fn) => {
+    let lost: WorkflowLeaseLostError | undefined
+    try {
+      return await step.run({ name, retryPolicy: { maximumAttempts: 1 } }, () =>
+        withCrashLoopGuard(
+          workflowRunId,
+          name,
+          async () => {
+            try {
+              return await withIngestionOrg(orgId, fn)
+            } catch (error) {
+              if (error instanceof WorkflowLeaseLostError) lost = error
+              throw error
+            }
+          },
+          (): StepResult => ({ partial: true, failed: "crashLoop" }),
+        ),
+      )
+    } catch (error) {
+      // OpenWorkflow refuses to record the failure of a step of a run that
+      // another execution owns, and its error replaces the lease loss. The
+      // workflow gets the lease loss, so that it does not clean up the
+      // resources of the live execution.
+      throw lost ?? error
+    }
+  }
 }
 
 type SkillPages = {
@@ -692,15 +709,13 @@ async function attemptSkillStep(
       // A failed read of the run is not a lease loss. The execution goes on
       // as the owner, so that a database error does not stop a live
       // execution.
-      const owned = await ctx.execution
-        .ownsRun()
-        .catch((error: unknown) => {
-          logIngestEvent("warn", "ingestion-v2.execution-lease-check-failed", {
-            ...lease,
-            ...ingestErrorFields(error),
-          })
-          return "unknown" as const
+      const owned = await ctx.execution.ownsRun().catch((error: unknown) => {
+        logIngestEvent("warn", "ingestion-v2.execution-lease-check-failed", {
+          ...lease,
+          ...ingestErrorFields(error),
         })
+        return "unknown" as const
+      })
       if (owned === undefined) {
         logIngestEvent("warn", "ingestion-v2.execution-lease-lost", lease)
         throw new WorkflowLeaseLostError(ctx.execution.workflowRunId)
