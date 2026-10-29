@@ -28,7 +28,10 @@ import {
   ingestSourceTree,
   releaseIngestSourceTree,
 } from "../../domain/ingestion/ingest-source-tree.js"
-import { withIngestStepOutput } from "../../domain/ingestion/ingest-step-output.js"
+import {
+  readStepStats,
+  withIngestStepOutput,
+} from "../../domain/ingestion/ingest-step-output.js"
 import {
   capIngestText,
   ingestErrorFields,
@@ -725,29 +728,37 @@ async function attemptSkillStep(
         })
       usage = addIngestUsage(usage, stepUsage)
       stage = "push"
-      const pushed = await withIngestStepOutput(stepRun.tar, (stagedDir) =>
-        broker.push({
-          ref,
-          oldTip,
-          pinnedRevision: runBase,
-          baseCommit,
-          commit: {
-            step: ctx.name,
-            bundle: run.bundle,
-            authorTime: new Date(run.authorTime),
-          },
-          patch: {
-            stagedDir,
-            source: { url: run.source.url, sha: run.source.sha },
-            sourcePath: destination.sourcePath,
-            skill: ctx.skill.name,
-            sourcePathExists: (path) => broker.sourcePathExists(path),
-            readSourceFile: (path) => broker.readSourceFile(path),
-            workspaceOpsBefore: ctx.opsBefore + adopted,
-            // The host root of the package units of a root step (CTX-657).
-            ...(ctx.root === null ? {} : { root: ctx.root }),
-          },
-        }),
+      const pushed = await withIngestStepOutput(
+        stepRun.tar,
+        async (stagedDir) => {
+          // The counts of a skill script (CTX-1083), for the step span.
+          for (const [name, value] of Object.entries(
+            await readStepStats(stagedDir),
+          ))
+            span.setAttribute(`ctxpipe.ingest.stat.${name}`, value)
+          return broker.push({
+            ref,
+            oldTip,
+            pinnedRevision: runBase,
+            baseCommit,
+            commit: {
+              step: ctx.name,
+              bundle: run.bundle,
+              authorTime: new Date(run.authorTime),
+            },
+            patch: {
+              stagedDir,
+              source: { url: run.source.url, sha: run.source.sha },
+              sourcePath: destination.sourcePath,
+              skill: ctx.skill.name,
+              sourcePathExists: (path) => broker.sourcePathExists(path),
+              readSourceFile: (path) => broker.readSourceFile(path),
+              workspaceOpsBefore: ctx.opsBefore + adopted,
+              // The host root of the package units of a root step (CTX-657).
+              ...(ctx.root === null ? {} : { root: ctx.root }),
+            },
+          })
+        },
       )
       // The step output keeps counts; each rejected op is its own log event.
       for (const rejection of pushed.validation.rejections)

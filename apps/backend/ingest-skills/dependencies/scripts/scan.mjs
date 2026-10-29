@@ -14,7 +14,7 @@
 // the Stream files that more than one root can share (ADR-052 section 6).
 
 import { scriptStep } from "../../bin/knowledge-lib.mjs"
-import { scan } from "./scan-lib.mjs"
+import { scan, stepCandidates } from "./scan-lib.mjs"
 
 const { source, roots, rootPath, index, skipped } = scriptStep()
 const scanRoot = (root) =>
@@ -36,9 +36,7 @@ if (rootPath !== null) {
     `${JSON.stringify({
       root: rootPath,
       ...result,
-      candidates: result.candidates.filter(
-        (c) => c.type !== "stream" && c.type !== "queue",
-      ),
+      candidates: stepCandidates(result.candidates, false),
       skipped: [...skipped, ...result.skipped],
     })}\n`,
   )
@@ -47,7 +45,7 @@ if (rootPath !== null) {
     const result = scanRoot(root)
     return {
       root: root.path,
-      candidates: result.candidates.filter((c) => c.type !== "http"),
+      candidates: stepCandidates(result.candidates, true),
       skipped: result.skipped,
       truncated: result.truncated,
     }

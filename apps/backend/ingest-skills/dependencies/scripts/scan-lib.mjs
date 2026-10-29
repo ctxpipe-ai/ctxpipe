@@ -319,6 +319,18 @@ function hints(target, type, index, own) {
  * context file paths of this root (a hint never names them).
  * Returns { candidates, skipped, truncated }.
  */
+/**
+ * The candidates that one step resolves: the root step the HTTP and config
+ * candidates, the repository-wide step the others (stream, queue, config).
+ */
+export function stepCandidates(candidates, repositoryStep) {
+  return candidates.filter((c) =>
+    repositoryStep
+      ? c.type !== "http"
+      : c.type !== "stream" && c.type !== "queue",
+  )
+}
+
 export function scan({
   source,
   path,

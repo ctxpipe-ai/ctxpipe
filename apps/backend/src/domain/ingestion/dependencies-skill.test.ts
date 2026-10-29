@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process"
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -223,7 +224,31 @@ async function step(
     ]
     return [...new Map(all.map((c) => [c.id, c])).values()]
   }
-  return { root, sourceDir, scan, candidates, apply, validate, advance, show }
+  /** patch.json of the step, as the host reads it. */
+  const patch = () =>
+    JSON.parse(readFileSync(join(root, "out", "patch.json"), "utf8")) as {
+      ops: unknown[]
+      stats?: Record<string, number>
+    }
+  /** `ctxpipe-finish`, which the model runs last. */
+  const finish = () =>
+    execFileSync(
+      process.execPath,
+      [join(INGEST_SKILLS_DIR, "bin/ctxpipe-finish"), "--root", root],
+      { env: GIT_ENV },
+    )
+  return {
+    root,
+    sourceDir,
+    scan,
+    candidates,
+    apply,
+    validate,
+    advance,
+    show,
+    patch,
+    finish,
+  }
 }
 
 const SERVICE_TS = `
@@ -667,6 +692,37 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
       null,
     )
     expect(out.ops).toEqual([])
+  })
+
+  it("counts the candidates, resolutions, and skipped choices in patch.json, with no path or text", async () => {
+    const s = await step({ "src/service.ts": SERVICE_TS }, context())
+    const candidates = s.candidates()
+    const id = (text: string) =>
+      candidates.find((c) => c.target.text === text)?.id
+    s.apply([
+      {
+        id: id("http://billing.internal:8080/invoices"),
+        kind: "service",
+        path: BILLING,
+      },
+      { id: id("BILLING_SERVICE_URL"), kind: "ignore" },
+      { id: "c0000000000", kind: "service", path: BILLING },
+      { id: id("https://users.example.com/me"), kind: "api", path: BILLING },
+    ])
+    const expected = {
+      "candidates.http": 2,
+      "candidates.config": 2,
+      "resolutions.service": 2,
+      "resolutions.api": 1,
+      "resolutions.ignore": 1,
+      "skipped.unknown_id": 1,
+      "skipped.unknown_path": 1,
+      ops: 1,
+    }
+    expect(s.patch().stats).toEqual(expected)
+    // ctxpipe-finish writes patch.json again and keeps the counts.
+    s.finish()
+    expect(s.patch().stats).toEqual(expected)
   })
 
   it("does nothing on a second run on the new base", async () => {
