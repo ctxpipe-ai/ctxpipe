@@ -622,7 +622,7 @@ describe("dependencies scan gate", { timeout: 60_000 }, () => {
   })
 
   it("says that the model is needed, and writes nothing, for a root with candidates and a Service file", async () => {
-    const s = await step(withCalls, {}, [{ path: ".", files: [] }])
+    const s = await step(withCalls, {})
     expect(s.gate()).toMatchObject({ needsModel: true })
     expect(existsSync(s.patchFile)).toBe(false)
   })
@@ -923,6 +923,20 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
         .find((c) => c.target.text.endsWith("/invoices"))
       const out = s.apply([{ id: call?.id, kind: "service", path: BILLING }])
       expect(out.ops).toEqual([])
+    })
+
+    it("does not take a Service file with no root because its name is the package name", async () => {
+      // OWN is "Shop API", of this source, with no front matter `root`.
+      const s = await step(shopApi, context(), [{ path: ".", files: [] }])
+      expect(s.gate()).toMatchObject({ needsModel: false })
+      const call = s
+        .candidates()
+        .find((c) => c.target.text.endsWith("/invoices"))
+      const out = s.apply([{ id: call?.id, kind: "service", path: BILLING }])
+      expect(out.ops).toEqual([])
+      expect(out.skipped.map((x) => x.reason)).toContain(
+        "The root . has no Service file in the context, so it has no claims",
+      )
     })
 
     it("writes no claim to the old Service file of a root that this run classified as a Library", async () => {

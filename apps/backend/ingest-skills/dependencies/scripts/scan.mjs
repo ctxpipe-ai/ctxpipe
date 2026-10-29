@@ -15,20 +15,9 @@
 
 import { scriptStep } from "../../bin/knowledge-lib.mjs"
 import { writePatch } from "../../bin/stage-lib.mjs"
-import { addIndexedServices } from "./root-services.mjs"
 import { scan, stepCandidates } from "./scan-lib.mjs"
 
-const {
-  step,
-  source,
-  sourcePath,
-  repository,
-  roots,
-  rootPath,
-  index,
-  skipped,
-} = scriptStep()
-addIndexedServices({ roots, source, sourcePath, repository, index })
+const { step, source, roots, rootPath, index, skipped } = scriptStep()
 const scanRoot = (root) =>
   scan({
     source,
