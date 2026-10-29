@@ -35,6 +35,21 @@ const graphqlErrorsSchema = z
   )
   .nullish()
 
+/** The GraphQL error messages of a refused request, or "" when it has none. */
+async function refusalMessages(response: Response): Promise<string> {
+  try {
+    const body = (await readBoundedJson(response, 64 * 1024)) as {
+      errors?: unknown
+    }
+    return (graphqlErrorsSchema.parse(body.errors) ?? [])
+      .map((error) => error.message)
+      .join("; ")
+      .slice(0, 500)
+  } catch {
+    return ""
+  }
+}
+
 /**
  * One GraphQL operation. On a rate limit, wait for `Retry-After` and send
  * the same request again, so the caller's sync still succeeds. An
@@ -81,8 +96,14 @@ async function plainRequest<T extends z.ZodTypeAny>(
       await new Promise((resolve) => setTimeout(resolve, delayMs))
       continue
     }
-    if (!response.ok)
-      throw new Error(`Plain ${operation.name} failed (${response.status})`)
+    if (!response.ok) {
+      // A key without a permission gets 403, and Plain names the permission
+      // in the GraphQL errors of the body.
+      const detail = await refusalMessages(response)
+      throw new Error(
+        `Plain ${operation.name} failed (${response.status})${detail ? `: ${detail}` : ""}`,
+      )
+    }
     // A page of threads with their messages is far below 32 MiB.
     const body = (await readBoundedJson(response, 32 * 1024 * 1024)) as {
       data?: unknown

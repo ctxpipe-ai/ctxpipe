@@ -536,6 +536,40 @@ describe("plainRequest", () => {
       "Plain PlainHelpCenters failed: Boom",
     )
   })
+
+  // A key without a permission for one read gets HTTP 403, and the body
+  // names the permission. The log must show it.
+  it("keeps Plain's message of a refused request", async () => {
+    plain({
+      PlainHelpCenterArticles: () =>
+        HttpResponse.json(
+          {
+            errors: [
+              {
+                message: "Missing permission: articles:read",
+                extensions: { code: "FORBIDDEN" },
+              },
+            ],
+          },
+          { status: 403 },
+        ),
+    })
+    await expect(
+      listPlainHelpCenterArticles({ apiKey: "key", helpCenterId: "hc_1" }),
+    ).rejects.toThrow(
+      "Plain PlainHelpCenterArticles failed (403): Missing permission: articles:read",
+    )
+  })
+
+  it("names only the status when a refused request has no GraphQL errors", async () => {
+    plain({
+      PlainHelpCenterArticles: () =>
+        new HttpResponse("Forbidden", { status: 403 }),
+    })
+    await expect(
+      listPlainHelpCenterArticles({ apiKey: "key", helpCenterId: "hc_1" }),
+    ).rejects.toThrow(/^Plain PlainHelpCenterArticles failed \(403\)$/)
+  })
 })
 
 describe("text that goes into a heading", () => {
