@@ -540,6 +540,7 @@ type SkillPages = {
  */
 export async function runSkillPages(ctx: SkillPages): Promise<void> {
   const { state } = ctx
+  const seen: SkillStep["seen"] = {}
   const failed = () => {
     state.partial++
     if (ctx.root !== null && !state.partialRoots.includes(ctx.root))
@@ -560,7 +561,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     const oldTip = state.tip
     const opsBefore = state.ops
     const result = await ctx.step(name, () =>
-      runSkillStep({ ...ctx, name, oldTip, opsBefore }),
+      runSkillStep({ ...ctx, name, oldTip, opsBefore, seen }),
     )
     if (result.partial) {
       failed()
@@ -580,6 +581,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
         ctx,
         label,
         `Page ${page} said more but the validator accepted no op`,
+        seen.executionAttempt,
       )
       return
     }
@@ -589,7 +591,20 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     ctx,
     label,
     `The skill still had files after ${INGEST_MAX_PAGES} pages`,
+    seen.executionAttempt,
   )
+}
+
+/** One page of a skill, with the page fields of `runSkillPages`. */
+type SkillStep = SkillPages & {
+  name: string
+  oldTip: string | null
+  opsBefore: number
+  /**
+   * The execution attempt from the last ownership check of a step of this
+   * execution, for the page events (CTX-1080). A cached step does not check.
+   */
+  seen: { executionAttempt?: number }
 }
 
 /**
@@ -625,9 +640,7 @@ function logStepPartial(
  * failed attempt, or at once when the broker refuses the job: the root keeps
  * what the earlier steps wrote, and the run goes on (no retraction).
  */
-function runSkillStep(
-  ctx: SkillPages & { name: string; oldTip: string | null; opsBefore: number },
-): Promise<StepResult> {
+function runSkillStep(ctx: SkillStep): Promise<StepResult> {
   return withIngestSpan(
     "ingestion.step",
     {
@@ -660,7 +673,7 @@ function runSkillStep(
 }
 
 async function attemptSkillStep(
-  ctx: SkillPages & { name: string; oldTip: string | null; opsBefore: number },
+  ctx: SkillStep,
   span: Span,
 ): Promise<StepResult> {
   const { run, destination, ref, runBase, broker } = ctx
@@ -708,7 +721,10 @@ async function attemptSkillStep(
         logIngestEvent("warn", "ingestion-v2.execution-lease-lost", lease)
         throw new WorkflowLeaseLostError(ctx.execution.workflowRunId)
       }
-      if (owned !== "unknown") executionAttempt = owned
+      if (owned !== "unknown") {
+        executionAttempt = owned
+        ctx.seen.executionAttempt = owned
+      }
     }
     const execution = executionFields(executionAttempt)
     span.setAttribute("ctxpipe.ingest.attempts", attempt)

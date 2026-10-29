@@ -571,3 +571,44 @@ it(
     expect(heldScratch(`tree:${ingestionRunId}:`)).toBe(0)
   },
 )
+
+it(
+  "names the execution on the page event of a skill that stops",
+  { timeout: 60_000 },
+  async () => {
+    // The page says `more`, but the validator rejects its only op.
+    const runtime: IngestShardRuntime = {
+      ensure: async () => {},
+      discoverRoots: async () => ({}),
+      runStep: async () => {
+        const out = mkdtempSync(join(folder, "out-"))
+        mkdirSync(join(out, "files"))
+        writeFileSync(join(out, "files/AGENTS.md"), "Not a context file.\n")
+        writeFileSync(
+          join(out, "patch.json"),
+          JSON.stringify({
+            ops: [{ op: "create", path: "AGENTS.md" }],
+            more: true,
+          }),
+        )
+        return {
+          tar: execFileSync(
+            "tar",
+            ["-cf", "-", "-C", out, "patch.json", "files"],
+            { env: { ...process.env, COPYFILE_DISABLE: "1" } },
+          ),
+        }
+      },
+    }
+    await runOnWorker(runtime, () => {})
+    expect(
+      events.filter((e) => e.step === "ingestion-v2.step-partial"),
+    ).toEqual([
+      expect.objectContaining({
+        reason: "Page 1 said more but the validator accepted no op",
+        workerBootId: WORKER_BOOT_ID,
+        executionAttempt: 1,
+      }),
+    ])
+  },
+)
