@@ -116,15 +116,17 @@ export async function nativeRenameRewriteFiles(
         }
         if (!ambiguous) renames.push(candidate)
       }
+      // With no rename, no link, claim, or source can change.
+      if (!renames.length) return []
       const changes: Array<{ path: string; content: string }> = []
-      let turn = performance.now()
+      let lastYield = performance.now()
       for (const [path, content] of current) {
         // The rewrite of thousands of files is seconds of CPU. Give the
-        // event loop a turn often, so that the OpenWorkflow lease heartbeat
-        // runs on time (CTX-1009).
-        if (performance.now() - turn > 50) {
+        // event loop a turn every 50 ms, so that the OpenWorkflow lease
+        // heartbeat runs on time.
+        if (performance.now() - lastYield >= 50) {
           await setImmediate()
-          turn = performance.now()
+          lastYield = performance.now()
         }
         const rewritten = rewriteDocument(
           path,
@@ -186,8 +188,11 @@ function rewriteDocument(
     )
   const body = frontMatter?.[4] ?? content
   const edits: Array<{ start: number; end: number; value: string }> = []
-  const original = parseSimpleFrontMatter(previous.get(oldPath) ?? "")
-  const originalLinks = markdownDestinations(original.body)
+  const original =
+    oldPath !== path
+      ? parseSimpleFrontMatter(previous.get(oldPath) ?? "")
+      : undefined
+  const originalLinks = original ? markdownDestinations(original.body) : []
   for (const link of markdownDestinations(body)) {
     if (oldPath !== path) {
       const matches = originalLinks.filter(
@@ -206,7 +211,7 @@ function rewriteDocument(
   let next = frontMatter
     ? content.slice(0, content.length - body.length) + nextBody
     : nextBody
-  const originalClaims = original.attributes.claims
+  const originalClaims = original?.attributes.claims
   const claimTarget = (url: string, index: number) =>
     oldPath !== path &&
     (!Array.isArray(originalClaims) || originalClaims[index]?.to !== url)
