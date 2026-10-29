@@ -106,7 +106,9 @@ const lanes = {
     inputs: backendInputs,
     traceInputs: backendTraceInputs,
     env: [...backendEnv, { name: "VERCEL_TOKEN", mode: "presence" }],
-    prerequisites: databases,
+    // The Vercel contracts do not use the graph, and the CI job has no
+    // FalkorDB.
+    prerequisites: ["postgres", "migrations"],
   },
   // The files that do not end in `.test.ts` have their own Vitest config,
   // so the PR suite never runs them. Wall-clock bounds vary on shared
