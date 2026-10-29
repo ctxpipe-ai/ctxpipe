@@ -1,5 +1,6 @@
 import { isUtf8 } from "node:buffer"
 import { posix } from "node:path"
+import { setImmediate } from "node:timers/promises"
 
 import { fromMarkdown } from "mdast-util-from-markdown"
 import { isAlias, isMap, isScalar, isSeq } from "yaml"
@@ -116,7 +117,15 @@ export async function nativeRenameRewriteFiles(
         if (!ambiguous) renames.push(candidate)
       }
       const changes: Array<{ path: string; content: string }> = []
+      let turn = performance.now()
       for (const [path, content] of current) {
+        // The rewrite of thousands of files is seconds of CPU. Give the
+        // event loop a turn often, so that the OpenWorkflow lease heartbeat
+        // runs on time (CTX-1009).
+        if (performance.now() - turn > 50) {
+          await setImmediate()
+          turn = performance.now()
+        }
         const rewritten = rewriteDocument(
           path,
           content,
