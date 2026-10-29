@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { gunzipSync, gzipSync } from "node:zlib"
 
 import type { ModelTier } from "../../retrieval/services/providers/providerTypes.js"
+import type { RootFile } from "./context-index.js"
 import {
   type DiscoveredRoot,
   type RefusedRoot,
@@ -143,7 +144,8 @@ export function skillStepName(
 /**
  * The `--roots` file of each step: each root of the run and the context
  * files that the root's steps wrote, read from the step commits between the
- * pinned revision and the step base.
+ * pinned revision and the step base. The runtime adds the existing files of
+ * each root (`withExistingRootFiles`).
  */
 export function ingestRootMap(
   roots: readonly DiscoveredRoot[],
@@ -163,6 +165,32 @@ export function ingestRootMap(
       evidence: r.evidence,
       files: [...(files.get(skillStepRootKey(r.path)) ?? [])].sort(),
     })),
+  }
+}
+
+/**
+ * The root-to-file map with the existing package files of each root (ADR-052
+ * section 6, revision 2026-10-29): a later ingest writes no new file for a
+ * root whose file exists, so the map would else have no file for it.
+ * `existing` comes from the step index (`rootFiles`). The files that this
+ * run wrote come first: when this run wrote a package file of a root, no
+ * other package file of that root goes into the map. Thus an old Service
+ * file of a root that this run classified as a Library gets no claim.
+ */
+export function withExistingRootFiles(
+  map: IngestRootMap,
+  existing: readonly RootFile[],
+): IngestRootMap {
+  return {
+    roots: map.roots.map((root) => {
+      const mine = existing.filter((file) => file.root === root.path)
+      // Each file of `existing` is a package file.
+      const written = mine.some((file) => root.files.includes(file.path))
+      const added = written
+        ? []
+        : mine.map((file) => file.path).filter((p) => !root.files.includes(p))
+      return { ...root, files: [...root.files, ...added].sort() }
+    }),
   }
 }
 

@@ -15,6 +15,7 @@ import { afterAll, describe, expect, it } from "vitest"
 import { stringify } from "yaml"
 
 import { writeStepIndex } from "../../test/ingest-step-index.js"
+import { withExistingRootFiles } from "./ingestion-plan.js"
 import { gitSource, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
 
@@ -130,23 +131,30 @@ async function step(
       base,
       sourcePath: SOURCE_PATH,
     })
-  await index(baseCommit)
+  const { rootFiles } = await index(baseCommit)
   writeFileSync(
     join(root, "step.json"),
     JSON.stringify({ workspaceId: WORKSPACE_ID, baseCommit }),
   )
   mkdirSync(join(root, "out", "files"), { recursive: true })
+  // The host map: the files that this run wrote (`files`), and the existing
+  // files of each root at the step base.
   const rootsFile = join(root, "roots.json")
   writeFileSync(
     join(rootsFile),
-    JSON.stringify({
-      roots: roots.map((r) => ({
-        path: r.path,
-        manifests: [],
-        evidence: [],
-        files: r.files ?? [],
-      })),
-    }),
+    JSON.stringify(
+      withExistingRootFiles(
+        {
+          roots: roots.map((r) => ({
+            path: r.path,
+            manifests: [],
+            evidence: [],
+            files: r.files ?? [],
+          })),
+        },
+        rootFiles,
+      ),
+    ),
   )
   const script = (name: string, ...args: string[]) =>
     spawnSync(
@@ -814,9 +822,9 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
   })
 
   // CTX-1083: on a later ingest, classify-kind finds its file and changes
-  // nothing, so no step commit of the root lists a file, and the host roots
-  // map has `files: []` for a root that has a Service file. The scripts take
-  // the Service file from the context index, as classify-kind does.
+  // nothing, so no step commit of the root lists a file. The host adds the
+  // file of an earlier ingest to the roots map: its front matter `root` is
+  // the root, and its `sources` hold the source path.
   describe("a root whose Service file an earlier ingest wrote", () => {
     const shopApi = {
       "package.json": JSON.stringify({
@@ -825,9 +833,27 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
       }),
       "src/service.ts": SERVICE_TS,
     }
+    // The name is not the package name: the host matches the root, not the name.
+    const STOREFRONT = "knowledge/services/storefront.md"
+    const earlier = (root: string, name = "Storefront") =>
+      front(
+        {
+          kind: "Service",
+          name,
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH],
+          root,
+        },
+        `# ${name}\n`,
+      )
 
     it("writes DEPENDS_ON in the root step", async () => {
-      const s = await step(shopApi, context(), [{ path: ".", files: [] }])
+      const s = await step(
+        shopApi,
+        { ...context(), [STOREFRONT]: earlier(".") },
+        [{ path: ".", files: [] }],
+      )
+      expect(s.gate()).toMatchObject({ needsModel: true })
       const call = s
         .candidates()
         .find((c) => c.target.text.endsWith("/invoices"))
@@ -835,22 +861,13 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
       expect(out.skipped.map((x) => x.reason).join()).not.toContain(
         "no Service file",
       )
-      expect(out.ops).toEqual([{ op: "update", path: OWN }])
+      expect(out.ops).toEqual([{ op: "update", path: STOREFRONT }])
       const result = await s.validate()
       expect(result.rejections).toEqual([])
-      expect(s.show(result.tree, OWN)).toContain("predicate: DEPENDS_ON")
+      expect(s.show(result.tree, STOREFRONT)).toContain("predicate: DEPENDS_ON")
     })
 
     it("writes PRODUCES_TO for a Python worker in the repository-wide step", async () => {
-      const worker = front(
-        {
-          kind: "Service",
-          name: "mail-worker",
-          generated_by: "ctxpipe-extract",
-          sources: [SOURCE_PATH],
-        },
-        "# mail-worker\n",
-      )
       const s = await step(
         {
           "worker/pyproject.toml":
@@ -861,7 +878,7 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
             'ch.basic_publish(exchange="", routing_key="emails", body=b"x")',
           ].join("\n"),
         },
-        { "knowledge/services/mail-worker.md": worker },
+        { "knowledge/services/mailer.md": earlier("worker", "Mailer") },
         [{ path: "worker", files: [] }],
       )
       const queue = s.candidates("worker").find((c) => c.type === "queue")
@@ -871,34 +888,67 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
         null,
       )
       expect(out.ops.map((o) => o.path)).toEqual([
-        "knowledge/services/mail-worker.md",
+        "knowledge/services/mailer.md",
         "knowledge/streams/emails.md",
       ])
       const result = await s.validate()
       expect(result.rejections).toEqual([])
-      expect(
-        s.show(result.tree, "knowledge/services/mail-worker.md"),
-      ).toContain("predicate: PRODUCES_TO")
+      expect(s.show(result.tree, "knowledge/services/mailer.md")).toContain(
+        "predicate: PRODUCES_TO",
+      )
     })
 
-    it("still writes no claim for a root that is a Library", async () => {
+    it("writes no claim to a Service file of another root or another source", async () => {
       const s = await step(
-        {
-          "package.json": JSON.stringify({
-            name: "shop-lib",
-            main: "index.js",
-          }),
-          "src/service.ts": SERVICE_TS,
-        },
+        shopApi,
         {
           ...context(),
-          "knowledge/libraries/shop-lib.md": front(
-            { kind: "Library", name: "shop-lib", sources: [SOURCE_PATH] },
-            "# shop-lib\n",
+          [STOREFRONT]: earlier("apps/web"),
+          "knowledge/services/shop-api.md": front(
+            {
+              kind: "Service",
+              name: "shop-api",
+              generated_by: "ctxpipe-extract",
+              sources: ["sources/github/example-org/other.md"],
+              root: ".",
+            },
+            "# shop-api\n",
           ),
         },
         [{ path: ".", files: [] }],
       )
+      expect(s.gate()).toMatchObject({ needsModel: false })
+      const call = s
+        .candidates()
+        .find((c) => c.target.text.endsWith("/invoices"))
+      const out = s.apply([{ id: call?.id, kind: "service", path: BILLING }])
+      expect(out.ops).toEqual([])
+    })
+
+    it("writes no claim to the old Service file of a root that this run classified as a Library", async () => {
+      const LIBRARY = "knowledge/libraries/shop-lib.md"
+      const s = await step(
+        {
+          "package.json": JSON.stringify({ name: "shop-lib", main: "x.js" }),
+          "src/service.ts": SERVICE_TS,
+        },
+        {
+          ...context(),
+          [STOREFRONT]: earlier("."),
+          [LIBRARY]: front(
+            {
+              kind: "Library",
+              name: "shop-lib",
+              generated_by: "ctxpipe-extract",
+              sources: [SOURCE_PATH],
+              root: ".",
+            },
+            "# shop-lib\n",
+          ),
+        },
+        [{ path: ".", files: [LIBRARY] }],
+      )
+      expect(s.gate()).toMatchObject({ needsModel: false })
       const call = s
         .candidates()
         .find((c) => c.target.text.endsWith("/invoices"))

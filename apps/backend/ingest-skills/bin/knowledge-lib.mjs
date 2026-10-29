@@ -92,9 +92,10 @@ const SOURCE_PATH =
  *
  * The roots file is the host's root-to-file map (ADR-052 section 6):
  *   { "roots": [{ "path", "manifests", "evidence", "files": ["knowledge/..."] }] }
- * `files` are the context files that the root steps of the root wrote. Only
- * a file that exists at the base commit and whose `sources` hold the source
- * path counts. Each root in the result has `files: [{ path, kind }]`.
+ * `files` are the context files of the root: the files that the root steps
+ * of this run wrote, and the existing files whose front matter `root` is the
+ * root. Only a file that exists at the base commit and whose `sources` hold
+ * the source path counts. Each root in the result has `files: [{ path, kind }]`.
  */
 export function scriptStep(argv = process.argv.slice(2)) {
   const {
