@@ -57,6 +57,13 @@ const repositoryStep = rootPath === null
 if (!repositoryStep && !roots.some((r) => r.path === rootPath))
   fail(`${rootPath} is not a root in the roots file`)
 
+// The counts go to patch.json for the host: a name and a whole number, with no
+// path and no text of the source or the context.
+const stats = {}
+const count = (name, by = 1) => {
+  stats[name] = (stats[name] ?? 0) + by
+}
+
 let resolutions = []
 try {
   if (statSync(resolutionsFile).size > MAX_RESOLUTIONS_BYTES)
@@ -102,12 +109,6 @@ const slug = (text) =>
 
 const plans = []
 const streams = new Set()
-// The counts go to patch.json for the host: a name and a whole number, with no
-// path and no text of the source or the context.
-const stats = {}
-const count = (name, by = 1) => {
-  stats[name] = (stats[name] ?? 0) + by
-}
 const skip = (id, reason, code) => {
   count(`skipped.${code}`)
   skipped.push({ path: null, reason: `${id}: ${reason}` })

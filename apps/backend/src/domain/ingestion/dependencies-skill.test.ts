@@ -661,6 +661,20 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(own).toContain("kind: model")
   })
 
+  it("reads only the first 300 resolutions, counts the others, and still writes the claims", async () => {
+    const s = await step({ "src/service.ts": SERVICE_TS }, context())
+    const call = s.candidates().find((c) => c.target.text.endsWith("/invoices"))
+    const out = s.apply([
+      { id: call?.id, kind: "service", path: BILLING },
+      ...Array.from({ length: 302 }, () => ({ id: call?.id, kind: "ignore" })),
+    ])
+    expect(out.ops).toEqual([{ op: "update", path: OWN }])
+    expect(out.skipped.map((x) => x.reason)).toContain(
+      "The script read only the first 300 resolutions",
+    )
+    expect(s.patch().stats?.["skipped.too_many"]).toBe(3)
+  })
+
   it("creates a Stream file for a new stream and links the producer", async () => {
     const s = await step({ "src/service.ts": SERVICE_TS }, context())
     const produce = s
