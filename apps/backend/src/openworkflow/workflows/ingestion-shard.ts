@@ -747,8 +747,8 @@ async function attemptSkillStep(
       // A crash after the push: the step's commit is on the ref, and its
       // `Ctxpipe-More` trailer says whether a next page waits.
       const found = await broker.find(ref, ctx.name, oldTip ?? runBase)
-      // The span names the adoption (CTX-1080): `commit` when the step takes
-      // a commit of this step that is on the ref, `tip` when it continues
+      // The span names the adoption (CTX-1080). `commit`: the step takes a
+      // commit of this step that is on the ref. `tip`: the step continues
       // from a tip that another execution moved the ref to.
       if (found && "sha" in found) {
         span.setAttributes({
