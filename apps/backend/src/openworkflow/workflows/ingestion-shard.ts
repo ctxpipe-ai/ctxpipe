@@ -671,6 +671,9 @@ async function attemptSkillStep(
   let adopted = 0
   let reason = ""
   let failed: IngestStepFailureKind = "other"
+  // The error type of the last failed attempt. The span gets it only when
+  // the step ends `partial`: a later attempt can adopt or succeed.
+  let errorType = ""
   let usage: IngestStepUsage | undefined
   const withUsage = <T extends object>(result: T) =>
     usage ? { ...result, usage } : result
@@ -707,16 +710,28 @@ async function attemptSkillStep(
       // A crash after the push: the step's commit is on the ref, and its
       // `Ctxpipe-More` trailer says whether a next page waits.
       const found = await broker.find(ref, ctx.name, oldTip ?? runBase)
-      if (found && "sha" in found)
+      // The span names the adoption (CTX-1080): `commit` when the step takes
+      // a commit of this step that is on the ref, `tip` when it continues
+      // from a tip that another execution moved the ref to.
+      if (found && "sha" in found) {
+        span.setAttributes({
+          "ctxpipe.ingest.adopted": "commit",
+          "ctxpipe.ingest.adopted.ops": adopted + found.ops,
+        })
         return withUsage({
           tip: found.sha,
           ops: adopted + found.ops,
           rejects: found.rejects,
           more: found.more,
         })
+      }
       if (found) {
         oldTip = found.tip
         adopted += found.ops
+        span.setAttributes({
+          "ctxpipe.ingest.adopted": "tip",
+          "ctxpipe.ingest.adopted.ops": adopted,
+        })
       }
       const baseCommit = oldTip ?? runBase
       // A new shard ref starts at the run base, which is on the assembled ref.
@@ -850,13 +865,14 @@ async function attemptSkillStep(
         ...ingestErrorFields(error),
         ...execution,
       })
-      span.setAttribute("error.type", refused ? error.name : "Error")
+      errorType = refused ? error.name : "Error"
       // The next attempt's `find` reads the ref that another execution moved.
       if (error instanceof IngestRefMovedError) continue
       if (refused) break
       if (attempt < STEP_ATTEMPTS) await delay(attempt * 5_000)
     }
   }
+  if (errorType) span.setAttribute("error.type", errorType)
   logStepPartial(ctx, ctx.name, reason)
   return withUsage({
     partial: true as const,

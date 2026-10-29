@@ -28,6 +28,7 @@ import {
 } from "../../domain/ingestion/ingest-refs.js"
 import { IngestStepCommandError } from "../../domain/ingestion/ingest-shard-ops.js"
 import type { IngestShardRuntime } from "../../domain/ingestion/ingest-shard-runtime.js"
+import { skillStepName } from "../../domain/ingestion/ingestion-plan.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
 import {
   type IngestionShardWorkspace,
@@ -64,7 +65,8 @@ function write(dir: string, path: string, text: string) {
   mkdirSync(dirname(join(dir, path)), { recursive: true })
   writeFileSync(join(dir, path), text)
 }
-function archive(files: Record<string, string>) {
+/** A staged step output (`files/<path>` and `patch.json`). */
+function staged(files: Record<string, string>) {
   const out = mkdtempSync(join(folder, "out-"))
   mkdirSync(join(out, "files"))
   for (const [path, text] of Object.entries(files))
@@ -76,6 +78,10 @@ function archive(files: Record<string, string>) {
       ops: Object.keys(files).map((path) => ({ op: "create", path })),
     }),
   )
+  return out
+}
+function archive(files: Record<string, string>) {
+  const out = staged(files)
   return execFileSync("tar", ["-cf", "-", "-C", out, "patch.json", "files"], {
     env: { ...process.env, COPYFILE_DISABLE: "1" },
   })
@@ -253,6 +259,8 @@ describe("ingestion step telemetry with the local git broker", () => {
       expect(
         events.find((e) => e.step === "ingestion-v2.step-partial")?.reason,
       ).toBe("step_failed")
+      // A step that stays `partial` keeps the error type of its last attempt.
+      expect(stepSpan()?.attributes["error.type"]).toBe("Error")
       // Each failed attempt logs where it failed and the error class, with
       // no error text.
       expect(
@@ -373,6 +381,90 @@ describe("ingestion step telemetry with the local git broker", () => {
       )
     },
   )
+  /** Another execution of the child pushes `step` on the ref from `oldTip`. */
+  async function otherExecutionPushes(
+    step: string,
+    oldTip: string | null,
+    files: Record<string, string>,
+  ) {
+    return pushIngestStep({
+      job: { runId, workspaceId },
+      ref,
+      oldTip,
+      pinnedRevision: pinned,
+      baseCommit: oldTip ?? pinned,
+      remote,
+      commit: {
+        step,
+        bundle: "bundle-1",
+        authorTime: new Date("2026-10-01T00:00:00Z"),
+      },
+      patch: {
+        stagedDir: staged(files),
+        source: {
+          url: "https://github.com/example-org/shop",
+          sha: "a".repeat(40),
+        },
+        sourcePath: "sources/github/example-org/shop.md",
+        skill: "apis",
+        sourcePathExists: async () => false,
+        readSourceFile: async () => null,
+      },
+    })
+  }
+  it(
+    "records the adopted commit of another execution, with no error type after the adoption",
+    { timeout: 25000 },
+    async () => {
+      let other = ""
+      const runtime = {
+        ensure: async () => {},
+        discoverRoots: async () => ({}),
+        runStep: async () => {
+          // The other execution pushes this step while this one runs it:
+          // the push of this attempt fails, and the next attempt adopts.
+          if (!other)
+            other = (
+              await otherExecutionPushes(
+                skillStepName("services/api", "apis", workspaceId),
+                null,
+                { "knowledge/services/orders.md": service },
+              )
+            ).sha
+          return { tar: archive({ "knowledge/services/orders.md": service }) }
+        },
+      }
+      const state = await runStep({}, { runtime })
+      expect(state).toMatchObject({ tip: other, ops: 1, partial: 0 })
+      const attributes = stepSpan()?.attributes ?? {}
+      expect(attributes).toMatchObject({
+        "ctxpipe.ingest.attempts": 2,
+        "ctxpipe.ingest.adopted": "commit",
+        "ctxpipe.ingest.adopted.ops": 1,
+      })
+      expect(attributes["error.type"]).toBeUndefined()
+    },
+  )
+  it("records the adopted tip of another execution and its ops", async () => {
+    await otherExecutionPushes(
+      skillStepName("services/api", "classify-kind", workspaceId),
+      null,
+      { "knowledge/services/orders.md": service },
+    )
+    const state = await runStep({
+      "knowledge/services/payments.md": service.replaceAll(
+        "Orders",
+        "Payments",
+      ),
+    })
+    expect(state).toMatchObject({ ops: 2, partial: 0 })
+    expect(stepSpan()?.attributes).toMatchObject({
+      "ctxpipe.ingest.attempts": 1,
+      "ctxpipe.ingest.adopted": "tip",
+      "ctxpipe.ingest.adopted.ops": 1,
+      "ctxpipe.ingest.ref.base": pinned,
+    })
+  })
   it("makes the step span a child of the active shard span", async () => {
     await trace
       .getTracer("test")
