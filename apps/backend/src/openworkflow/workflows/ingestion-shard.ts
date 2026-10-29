@@ -62,6 +62,11 @@ import {
 import { WORKER_BOOT_ID, withCrashLoopGuard } from "../crash-loop.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import {
+  openWorkflowExecution,
+  type WorkflowExecution,
+  WorkflowLeaseLostError,
+} from "../execution-lease.js"
+import {
   cleanUpUnlessParked,
   isWorkflowControlSignal,
 } from "../isSleepSignal.js"
@@ -298,6 +303,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
             ]
           }),
         )
+        const execution = openWorkflowExecution(step, run.id)
         const roots =
           input.mode === "roots"
             ? shardRoots(input.roots, input.shard).map((r) => r.path)
@@ -309,6 +315,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
               if (!current) continue
               await runSkillPages({
                 step: guardedSkillStep(step, run.id, input.orgId),
+                execution,
                 run: input,
                 broker: workspaceSkillBroker({
                   orgId: input.orgId,
@@ -496,6 +503,11 @@ export function guardedSkillStep(
 type SkillPages = {
   /** One workflow step: `step.run` with no OpenWorkflow retry. */
   step: (name: string, fn: () => Promise<StepResult>) => Promise<StepResult>
+  /**
+   * The OpenWorkflow execution that runs the steps. Each attempt first
+   * makes sure that the execution still owns the run (CTX-1080).
+   */
+  execution?: WorkflowExecution
   run: SkillRun
   broker: SkillStepBroker
   runtime: IngestShardRuntime
@@ -647,6 +659,10 @@ async function attemptSkillStep(
   const withUsage = <T extends object>(result: T) =>
     usage ? { ...result, usage } : result
   for (let attempt = 1; attempt <= STEP_ATTEMPTS; attempt++) {
+    // After a lease loss, another execution runs the same steps. This one
+    // stops before it makes model calls of its own.
+    if (ctx.execution && !(await ctx.execution.ownsRun()))
+      throw new WorkflowLeaseLostError(ctx.execution)
     span.setAttribute("ctxpipe.ingest.attempts", attempt)
     // The span of a step that stops the worker is never exported; this
     // event names the step that was in progress (CTX-971).

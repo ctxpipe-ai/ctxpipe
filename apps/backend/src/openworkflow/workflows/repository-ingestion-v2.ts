@@ -55,6 +55,7 @@ import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import { withCrashLoopGuard } from "../crash-loop.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { openWorkflowExecution } from "../execution-lease.js"
 import { cleanUpUnlessParked, settledChildren } from "../isSleepSignal.js"
 import {
   addStepFailures,
@@ -417,12 +418,14 @@ export function defineRepositoryIngestionV2Workflow(
           partial: 0,
           partialRoots: [],
         }))
+        const execution = openWorkflowExecution(step, run.id)
         for (const skill of plannedIngestSkills(bundle.skills, "first"))
           for (const [i, destination] of destinations.entries()) {
             const state = first[i]
             if (!state) continue
             await runSkillPages({
               step: guardedSkillStep(step, run.id, input.orgId),
+              execution,
               run: {
                 runId: run.id,
                 shard: 0,
