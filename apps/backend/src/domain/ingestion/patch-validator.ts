@@ -182,8 +182,8 @@ const ClaimSchema = z
     predicate: z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/),
     evidence: EvidenceSchema,
     confidence: z.number().min(0).max(1).optional(),
-    // Only the host sets valid_from (hydrate, at format 3 or more). A step can
-    // only keep it: see `validFromProblem`.
+    // A host field, like confidence: hydrate sets it at format 3 or more. The
+    // value of a step is ignored: see `datedClaim`.
     valid_from: z.string().min(1).max(64).optional(),
   })
   .strict()
@@ -203,7 +203,9 @@ const LegacyClaimSchema = z
   })
   .passthrough()
 
-const isLegacyClaim = (claim: unknown) =>
+type LegacyClaim = z.infer<typeof LegacyClaimSchema>
+
+const isLegacyClaim = (claim: unknown): claim is LegacyClaim =>
   LegacyClaimSchema.safeParse(claim).success
 
 const FrontMatterSchema = z
@@ -1020,10 +1022,8 @@ async function checkFullWrite(
   // A claim that is in the base stays as the base has it, with its
   // confidence. A closed legacy claim is history: it stays also when the
   // step leaves it out.
-  const kept = (claim: unknown) =>
-    baseClaims.find((b) =>
-      isDeepStrictEqual(withoutConfidence(b), withoutConfidence(claim)),
-    )
+  const kept = (claim: unknown) => baseClaims.find((b) => sameClaim(b, claim))
+  const baseStepClaims = stepClaims(baseClaims)
   // A step cannot replace, rewrite, or re-label a legacy claim: a new claim
   // with the target and predicate of a base legacy claim is refused.
   const legacyKeys = new Set(
@@ -1037,21 +1037,25 @@ async function checkFullWrite(
         rule: "front_matter",
         reason: "Only the host sets or changes a legacy claim",
       }
-    const validFrom = validFromProblem(claim as Claim, baseClaims)
-    if (validFrom) return validFrom
-    fresh.push(claim as Claim)
+    fresh.push(claim)
   }
   const evidence = await evidenceProblem(fresh, context)
   if (evidence) return evidence
   const outClaims = [
-    ...claims.map((claim) => kept(claim) ?? stampClaim(claim as Claim)),
+    ...claims.map((claim) =>
+      isLegacyClaim(claim)
+        ? kept(claim)
+        : datedClaim(
+            baseStepClaims.find((b) => sameClaim(b, claim)) ??
+              stampClaim(claim),
+            baseStepClaims,
+          ),
+    ),
     ...baseClaims.filter(
       (b) =>
         isLegacyClaim(b) &&
-        (b as { valid_to?: unknown }).valid_to != null &&
-        !claims.some((claim) =>
-          isDeepStrictEqual(withoutConfidence(b), withoutConfidence(claim)),
-        ),
+        b.valid_to != null &&
+        !claims.some((claim) => sameClaim(b, claim)),
     ),
   ]
 
@@ -1131,9 +1135,6 @@ async function checkAdditiveWrite(
     const parsed = ClaimSchema.safeParse(claim)
     if (!parsed.success)
       return { rule: "front_matter", reason: zodReason(parsed.error) }
-    // An added claim is new, so no base claim can give it a valid_from.
-    const validFrom = validFromProblem(parsed.data, [])
-    if (validFrom) return validFrom
     added.push(parsed.data)
   }
 
@@ -1176,7 +1177,11 @@ async function checkAdditiveWrite(
     const document = parseDocument(baseFront.yaml)
     if (!document.has("claims")) document.set("claims", document.createNode([]))
     const seq = document.get("claims", true) as YAMLSeq
-    for (const claim of added) seq.add(document.createNode(stampClaim(claim)))
+    const baseStepClaims = stepClaims(baseClaims)
+    for (const claim of added)
+      seq.add(
+        document.createNode(datedClaim(stampClaim(claim), baseStepClaims)),
+      )
     header = `---\n${document.toString({ lineWidth: 0 })}---\n`
   }
   return {
@@ -1187,39 +1192,45 @@ async function checkAdditiveWrite(
   }
 }
 
-function stampClaim(claim: Claim) {
+function stampClaim(claim: Claim): Claim {
   return {
     to: claim.to,
     predicate: claim.predicate,
     evidence: { path: claim.evidence.path, kind: claim.evidence.kind },
     confidence: CONFIDENCE[claim.evidence.kind],
-    ...(claim.valid_from === undefined ? {} : { valid_from: claim.valid_from }),
   }
 }
 
+/** The claims of a base file that are not legacy claims. */
+function stepClaims(claims: readonly unknown[]): Claim[] {
+  return claims.flatMap((claim) => {
+    const parsed = ClaimSchema.safeParse(claim)
+    return parsed.success ? [parsed.data] : []
+  })
+}
+
 /**
- * A claim can keep the `valid_from` that the host set (ADR-052, revision
- * 2026-10-30): the base must have a claim with the same target, predicate,
- * and `valid_from`. The evidence can change, because `valid_from` dates the
- * edge, not its evidence.
+ * The claim with the `valid_from` of the host (ADR-052, revision 2026-10-30).
+ * The value of the step is ignored. The value comes from the base claim with
+ * the same target and predicate, because a step can change the evidence. When
+ * more base claims have that key, the evidence must also be the same. When no
+ * single base claim agrees, the claim gets no value, and hydrate sets it again.
  */
-function validFromProblem(
-  claim: Claim,
-  baseClaims: readonly unknown[],
-): CheckFailure | null {
-  if (claim.valid_from === undefined) return null
-  const key = claimKey(claim)
-  const known = baseClaims.some(
-    (b) =>
-      claimKey(b) === key &&
-      (b as { valid_from?: unknown }).valid_from === claim.valid_from,
+function datedClaim(claim: Claim, baseClaims: readonly Claim[]): Claim {
+  const { valid_from: _stepValidFrom, ...rest } = claim
+  const sameKey = baseClaims.filter(
+    (b) => b.to === claim.to && b.predicate === claim.predicate,
   )
-  return known
-    ? null
-    : {
-        rule: "front_matter",
-        reason: "Only the host sets valid_from on a claim",
-      }
+  const matches =
+    sameKey.length > 1
+      ? sameKey.filter(
+          (b) =>
+            b.evidence.path === claim.evidence.path &&
+            b.evidence.kind === claim.evidence.kind,
+        )
+      : sameKey
+  const validFrom = matches.length === 1 ? matches[0]?.valid_from : undefined
+  return validFrom === undefined ? rest : { ...rest, valid_from: validFrom }
 }
 
 /** The target and predicate of a claim. */
@@ -1228,9 +1239,18 @@ function claimKey(claim: unknown): string {
   return JSON.stringify([to, predicate])
 }
 
-function withoutConfidence(claim: unknown): unknown {
+/** Two claims are the same when they differ only in the host fields. */
+function sameClaim(a: unknown, b: unknown): boolean {
+  return isDeepStrictEqual(withoutHostFields(a), withoutHostFields(b))
+}
+
+function withoutHostFields(claim: unknown): unknown {
   if (!claim || typeof claim !== "object") return claim
-  const { confidence: _confidence, ...rest } = claim as Record<string, unknown>
+  const {
+    confidence: _confidence,
+    valid_from: _validFrom,
+    ...rest
+  } = claim as Record<string, unknown>
   return rest
 }
 
