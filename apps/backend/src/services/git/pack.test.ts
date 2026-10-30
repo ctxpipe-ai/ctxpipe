@@ -5,7 +5,8 @@ import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { expect, it, vi } from "vitest"
+import { initLogger } from "evlog"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   captureGitPack,
@@ -378,3 +379,114 @@ it.each([
   },
   30_000,
 )
+
+describe("Git answer exit codes are not failures (CTX-1089)", () => {
+  afterEach(() => {
+    initLogger({ enabled: false })
+  })
+
+  /** Drain evlog into an array while the test runs. */
+  function captureEvents(): Record<string, unknown>[] {
+    const events: Record<string, unknown>[] = []
+    initLogger({
+      pretty: false,
+      silent: true,
+      drain: (ctx) => {
+        for (const item of Array.isArray(ctx) ? ctx : [ctx])
+          events.push(item.event as Record<string, unknown>)
+      },
+    })
+    return events
+  }
+
+  /** A commit that replaces `f.txt` with `content`; returns its SHA. */
+  async function commitFile(
+    directory: string,
+    content: string,
+  ): Promise<string> {
+    await writeFile(join(directory, "f.txt"), content)
+    await nativeGit(directory, ["add", "-A"])
+    await nativeGit(directory, [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-q",
+      "-m",
+      content,
+    ])
+    return (await nativeGit(directory, ["rev-parse", "HEAD"])).toString().trim()
+  }
+
+  it("merge-base --is-ancestor answers no with exit code 1 and logs no failure", async () => {
+    const events = captureEvents()
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-git-answer-"))
+    try {
+      await nativeGit(directory, ["init", "-q"])
+      const a = await commitFile(directory, "a")
+      const b = await commitFile(directory, "b")
+
+      await expect(
+        nativeGit(directory, ["merge-base", "--is-ancestor", b, a]),
+      ).rejects.toHaveProperty("code", 1)
+      expect(
+        events.filter((event) => event.step === "git.command_failed"),
+      ).toEqual([])
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("merge-tree answers a conflict with exit code 1 and logs no failure", async () => {
+    const events = captureEvents()
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-git-answer-"))
+    try {
+      await nativeGit(directory, ["init", "-q"])
+      const x = await commitFile(directory, "base")
+      const y = await commitFile(directory, "one")
+      await nativeGit(directory, ["checkout", "-q", "--detach", x])
+      const z = await commitFile(directory, "two")
+
+      await expect(
+        nativeGit(directory, [
+          "merge-tree",
+          "--write-tree",
+          "--name-only",
+          "-z",
+          `--merge-base=${x}`,
+          y,
+          z,
+        ]),
+      ).rejects.toHaveProperty("code", 1)
+      expect(
+        events.filter((event) => event.step === "git.command_failed"),
+      ).toEqual([])
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("a real merge-base failure still logs", async () => {
+    const events = captureEvents()
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-git-answer-"))
+    try {
+      await nativeGit(directory, ["init", "-q"])
+      const a = await commitFile(directory, "a")
+
+      await expect(
+        nativeGit(directory, [
+          "merge-base",
+          "--is-ancestor",
+          "0".repeat(40),
+          a,
+        ]),
+      ).rejects.toHaveProperty("code", 128)
+      expect(events.some((event) => event.step === "git.command_failed")).toBe(
+        true,
+      )
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+})
