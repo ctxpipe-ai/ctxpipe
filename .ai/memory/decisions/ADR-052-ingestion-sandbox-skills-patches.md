@@ -159,3 +159,4 @@ In a publish, a merged file that fails the patch validator is withheld at its de
 - **What `valid_from` dates.** Hydrate writes the time of the commit that added the file. Thus `valid_from` dates the claims of the file, not the edge or its evidence.
 - **Why the key is the target and the predicate.** A step can update the evidence of a claim when the source changes. The claim stays the same claim, so it keeps its date. The evidence is a tie-breaker only when two base claims have the same target and predicate.
 - **The published file keeps `valid_from`.** The output has the base value, so that hydrate does not set it again on each run. Hydrate does not change.
+- **A `legacy` claim keeps its `valid_from` too.** When a step changes or removes the `valid_from` of a `legacy` claim, the output keeps the base claim. Before this revision, the validator refused that step. A step that changes the `valid_to` or the evidence of a `legacy` claim is still refused.
