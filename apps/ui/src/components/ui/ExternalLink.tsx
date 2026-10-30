@@ -8,6 +8,7 @@ export function ExternalLink(props: { href: string; children: ReactNode }) {
     <Link href={props.href} target="_blank" rel="noreferrer">
       {props.children}
       <IconExternalLink className="ml-1 inline size-3.5" aria-hidden />
+      <span className="sr-only"> (opens in a new tab)</span>
     </Link>
   )
 }

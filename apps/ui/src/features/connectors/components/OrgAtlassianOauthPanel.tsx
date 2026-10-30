@@ -183,7 +183,10 @@ export function OrgAtlassianOauthPanel({
 
   const save = useMutation({
     mutationFn: () =>
-      saveOrgAtlassianOauth(orgSlug, connectionId, { clientId, clientSecret }),
+      saveOrgAtlassianOauth(orgSlug, connectionId, {
+        clientId: clientId.trim(),
+        clientSecret: clientSecret.trim(),
+      }),
     onSuccess: async () => {
       setClientSecret("")
       await queryClient.invalidateQueries({
@@ -248,9 +251,8 @@ export function OrgAtlassianOauthPanel({
         variant="primary"
         className="rounded-md"
         isPending={save.isPending}
-        isDisabled={meta.isPending || !clientId || !clientSecret}
+        isDisabled={meta.isPending || !clientId.trim() || !clientSecret.trim()}
         onPress={() => {
-          if (!clientId || !clientSecret) return
           void save.mutateAsync()
         }}
       >

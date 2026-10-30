@@ -9,7 +9,7 @@ import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entr
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { PlainScopeEditor } from "./plain"
 
-/** The editor with the scope it reports, as the Choose Workspaces step holds it. */
+/** The editor with the scope it reports, as the Add to Workspaces step holds it. */
 function EditorWithOutput(props: {
   initialScope: Record<string, unknown>
   label?: string

@@ -7,13 +7,11 @@ import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/Button"
-import { ExternalLink } from "@/components/ui/ExternalLink"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
-import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
-import { DOCS_URL } from "@/lib/docs-url"
 
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
@@ -32,8 +30,6 @@ import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
 
 export const SLACK_SETUP_RESULT_KEY = "slack-setup-result"
-
-const SLACK_DOCS_URL = `${DOCS_URL}/docs/connections/source-connectors/slack`
 
 const SLACK_SETUP_STEPS = [
   { id: "authorize", label: "Connect Slack" },
@@ -203,10 +199,7 @@ export function SlackSetupDialog({
         ) : null}
 
         {setupView === "loading" ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Spinner className="size-4" />
-            Loading…
-          </div>
+          <InlineLoader label="Loading the Slack connector" />
         ) : setupView === "error" ? (
           <div className="space-y-4">
             <div>
@@ -247,10 +240,7 @@ export function SlackSetupDialog({
                 Connect Slack
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Install the ctxpipe Slack app into your workspace to continue.{" "}
-                <ExternalLink href={SLACK_DOCS_URL}>
-                  Slack connector docs
-                </ExternalLink>
+                Install the ctxpipe Slack app into your workspace to continue.
               </p>
             </div>
             <Button

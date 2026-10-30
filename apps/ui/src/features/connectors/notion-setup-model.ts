@@ -76,6 +76,6 @@ export function getNotionCardCtaLabel(
   if (status.isInstalled) return "Manage"
   if (shouldShowNotionRegisterStep(oauthMeta)) return "Register OAuth app"
   if (shouldShowNotionWebhookStep(oauthMeta) && !oauthMeta?.webhookConfigured)
-    return "Add webhook"
+    return "Add the webhook"
   return "Connect Notion"
 }

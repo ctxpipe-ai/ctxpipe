@@ -154,6 +154,9 @@ export const ConnectAccount: Story = {
     const connect = body.getByRole("button", { name: "Connect PagerDuty" })
     // The modal fades in; wait until the step is visible.
     await waitFor(() => expect(connect).toBeVisible())
+    const stepper = within(body.getByRole("list"))
+    expect(stepper.getByText("Connect PagerDuty")).toBeVisible()
+    expect(stepper.getByText("Add to Workspaces")).toBeVisible()
   },
 }
 

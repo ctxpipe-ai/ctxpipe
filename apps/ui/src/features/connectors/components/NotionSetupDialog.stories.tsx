@@ -151,7 +151,7 @@ export const RegisterNotionOauth: Story = {
 }
 
 export const AddNotionWebhookWaiting: Story = {
-  name: "Add webhook (waiting for token)",
+  name: "Add the webhook (waiting for token)",
   render: () => dialog(),
   parameters: {
     msw: {
@@ -179,7 +179,7 @@ export const AddNotionWebhookWaiting: Story = {
 }
 
 export const AddNotionWebhookToken: Story = {
-  name: "Add webhook (verification token received)",
+  name: "Add the webhook (verification token received)",
   render: () => dialog(),
   parameters: {
     msw: {

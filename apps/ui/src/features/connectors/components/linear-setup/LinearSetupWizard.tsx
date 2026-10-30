@@ -6,8 +6,8 @@ import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/Button"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
-import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
@@ -170,10 +170,7 @@ export function LinearSetupWizard({
         ) : null}
 
         {loading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Spinner className="size-4" />
-            Loading…
-          </div>
+          <InlineLoader label="Loading the Linear connector" />
         ) : connectionId && statusQuery.isError ? (
           <div className="space-y-3 text-sm">
             <p className="text-destructive">

@@ -7,8 +7,8 @@ import { useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { ExternalLink } from "@/components/ui/ExternalLink"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
-import { Spinner } from "@/components/ui/spinner"
 import { TextField } from "@/components/ui/TextField"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
@@ -70,12 +70,7 @@ export function PlainSetupDialog({
 
   const body = (() => {
     if (connectionId && statusQuery.isPending) {
-      return (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner className="size-4" />
-          Loading…
-        </div>
-      )
+      return <InlineLoader label="Loading the Plain connector" />
     }
     if (connectionId && (statusQuery.isError || !status)) {
       return (
