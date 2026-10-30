@@ -291,8 +291,8 @@ export async function scanWorkspaceUpgrade(input: {
 /**
  * Find the fresh re-ingestion of one Workspace and record it (ADR-053
  * section 5, G1). Every Workspace with a GitHub source repository needs it
- * once for each skill bundle: the key names the bundle, so a completed row
- * keeps it done until a release ships a new bundle. The scan never starts
+ * once for each re-ingestion version: the key names the version, so a
+ * completed row keeps it done until a release sets a new version. The scan never starts
  * it. It records `awaiting_operator` with the estimate, or `blocked` with
  * the reason of {@link reingestBlock}. A format that the scan cannot read now
  * leaves the row as it is, and a format that is newer than this code gets no
@@ -376,7 +376,7 @@ async function reingestRepositories(input: {
 export async function scanWorkspaceReingest(input: {
   orgId: string
   workspace: ScannedWorkspace
-  bundle: { name: string; skills: readonly string[] }
+  bundle: { version: string; skills: readonly string[] }
   /** {@link currentWorkspaceFormat}: the scan reads it once for each Workspace. */
   format: number | null
   env: Env
@@ -386,7 +386,7 @@ export async function scanWorkspaceReingest(input: {
   if (!repositories.length) return { kind: "none", reason: "not_upgradable" }
   if (format === null) return { kind: "none", reason: "unknown_format" }
   if (format > CODE_FORMAT) return { kind: "none", reason: "not_upgradable" }
-  const key = reingestUpgradeKey(input.bundle.name)
+  const key = reingestUpgradeKey(input.bundle.version)
   await failStoppedUpgradeRun(workspace.id, key)
   const blocked = reingestBlock({ ...workspace, format })
   const estimate = await estimateReingest({

@@ -204,15 +204,15 @@ export function upgradeJobId(workspaceId: string, key: string): string {
 
 /**
  * Names the set of upgrades that this code knows: the git steps and the
- * ingest skill bundle (`bundleName`) that the re-ingestion offers. The
- * worker-start scan runs once for each org and release, so a release with a
- * new step or a new bundle scans again.
+ * re-ingestion version that the re-ingestion offers. The worker-start scan
+ * runs once for each org and release, so a release with a new step or a new
+ * re-ingestion version scans again.
  */
 export function upgradeRelease(
   steps: readonly GitUpgradeStep[],
-  bundleName: string,
+  reingestVersion: string,
 ): string {
-  return `code-${CODE_FORMAT}.steps-${upgradeTargetFormat(steps)}.${bundleName}`
+  return `code-${CODE_FORMAT}.steps-${upgradeTargetFormat(steps)}.${reingestVersion}`
 }
 
 /**

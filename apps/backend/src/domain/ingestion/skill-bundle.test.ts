@@ -1,10 +1,23 @@
-import { chmodSync, cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import {
+  appendFileSync,
+  chmodSync,
+  cpSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { INGEST_SKILLS_DIR, readIngestSkillBundle } from "./skill-bundle.js"
+import { reingestUpgradeKey } from "../upgrades/keys.js"
+import {
+  assertSameReingestVersion,
+  INGEST_SKILLS_DIR,
+  readIngestSkillBundle,
+} from "./skill-bundle.js"
 
 const copies: string[] = []
 
@@ -85,5 +98,72 @@ describe("readIngestSkillBundle", () => {
     const before = await readIngestSkillBundle(dir)
     writeFileSync(join(dir, "discover-roots/notes.md"), "More notes\n")
     expect((await readIngestSkillBundle(dir)).name).not.toBe(before.name)
+  })
+
+  it("keeps the re-ingestion version when only the format changes", async () => {
+    const dir = copyBundle()
+    const before = await readIngestSkillBundle(dir)
+    appendFileSync(join(dir, "discover-roots/SKILL.md"), "\n")
+    const after = await readIngestSkillBundle(dir)
+    expect(after.name).not.toBe(before.name)
+    expect(reingestUpgradeKey(after.version)).toBe(
+      reingestUpgradeKey(before.version),
+    )
+    expect(() =>
+      assertSameReingestVersion(
+        { bundle: before.name, version: before.version },
+        after,
+      ),
+    ).not.toThrow()
+  })
+
+  it("gives a new re-ingestion key when the version changes", async () => {
+    const dir = copyBundle()
+    const before = await readIngestSkillBundle(dir)
+    writeFileSync(
+      join(dir, "version.json"),
+      JSON.stringify({ version: "ingest-1111111111111111", hash: before.name }),
+    )
+    const after = await readIngestSkillBundle(dir)
+    expect(reingestUpgradeKey(after.version)).toBe(
+      "reingest-ingest-1111111111111111",
+    )
+    expect(() =>
+      assertSameReingestVersion(
+        { bundle: before.name, version: before.version },
+        after,
+      ),
+    ).toThrow(/changed during the run/)
+  })
+
+  it("compares the content hash for a run planned with no version", async () => {
+    const dir = copyBundle()
+    const before = await readIngestSkillBundle(dir)
+    expect(() =>
+      assertSameReingestVersion({ bundle: before.name }, before),
+    ).not.toThrow()
+    appendFileSync(join(dir, "discover-roots/SKILL.md"), "\n")
+    const after = await readIngestSkillBundle(dir)
+    expect(() =>
+      assertSameReingestVersion({ bundle: before.name }, after),
+    ).toThrow(/changed during the run/)
+  })
+
+  it("keeps the re-ingestion key of the 2026-10-21 re-ingestion", async () => {
+    const bundle = await readIngestSkillBundle()
+    expect(reingestUpgradeKey(bundle.version)).toBe(
+      "reingest-ingest-5a5590e43c073b46",
+    )
+  })
+
+  it("has a version file that covers the content of the folder", async () => {
+    const { hash } = JSON.parse(
+      readFileSync(join(INGEST_SKILLS_DIR, "version.json"), "utf8"),
+    ) as { hash: string }
+    const { name } = await readIngestSkillBundle()
+    expect(
+      hash,
+      `The content of apps/backend/ingest-skills changed. In apps/backend/ingest-skills/version.json, set "hash" to "${name}". Set "version" to "${name}" too only when the change can change the knowledge that ingestion writes: a new version offers each Workspace a paid re-ingestion. A format, lint, or comment change keeps the version.`,
+    ).toBe(name)
   })
 })

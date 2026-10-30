@@ -237,7 +237,7 @@ it(
 
           // The release has a new skill bundle: the scan replaces the row.
           const bundle = await readIngestSkillBundle()
-          expect(bundle.name).not.toBe("ingest-old")
+          expect(bundle.version).not.toBe("ingest-old")
           await withOrgIdContext(f.org, async () => {
             const [workspace] = (await listOrgWorkspaces(f.org.id)).filter(
               (row) => row.id === f.workspaceId,
@@ -251,7 +251,7 @@ it(
                 format: 3,
                 env: parseEnv(process.env),
               })
-            const newKey = reingestUpgradeKey(bundle.name)
+            const newKey = reingestUpgradeKey(bundle.version)
             // The insert of the new row fails after the delete of the old
             // row. The old row and its done mark stay.
             const { default: postgres } = await import("postgres")

@@ -7,7 +7,10 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { workspaces } from "../../db/schema/workspaces.js"
-import { getWorkspaceUpgradeRow } from "../../models/workspace-upgrades.js"
+import {
+  getWorkspaceUpgradeRow,
+  insertWorkspaceUpgradeRow,
+} from "../../models/workspace-upgrades.js"
 import {
   listOrgWorkspaces,
   persistOrgFirstWorkspace,
@@ -126,7 +129,7 @@ it(
         const row = await withOrgIdContext(f.org, () =>
           getWorkspaceUpgradeRow(
             f.workspaceId,
-            reingestUpgradeKey(bundle.name),
+            reingestUpgradeKey(bundle.version),
           ),
         )
         expect(row?.upgrade.blockedReason).toBe("needs_format")
@@ -182,6 +185,73 @@ it(
             blockedReason: "write_access",
             note: WRITE_STATUS_REASONS.nonGithubHost,
           },
+        })
+      },
+    )
+  },
+)
+
+it(
+  "keeps a completed re-ingestion of the same version and drops the waiting row of another version",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        format: 3,
+        files: [
+          {
+            path: "sources/github/example/tools.md",
+            body: "---\nprovider: github\nconnection: {{connectionId}}\nrepository: example/tools\n---\nThe tools repository.\n",
+          },
+        ],
+      },
+      async (f) => {
+        // Hydration records the source repository of the Workspace.
+        await f.worker.start()
+        await f.handle.result({ timeoutMs: 60_000 })
+        const bundle = await readIngestSkillBundle()
+        const doneKey = reingestUpgradeKey(bundle.version)
+        const waitingKey = reingestUpgradeKey("ingest-5e55efbeee7bd96b")
+        expect(doneKey).not.toBe(waitingKey)
+        const [workspace] = (
+          await withOrgDbContext(f.org.id, () => listOrgWorkspaces(f.org.id))
+        ).filter((row) => row.id === f.workspaceId)
+        if (!workspace) throw new Error("The fixture Workspace is missing")
+        const result = await withOrgIdContext(f.org, async () => {
+          for (const [key, status, generation] of [
+            [doneKey, "completed", 1],
+            [waitingKey, "awaiting_operator", 2],
+          ] as const)
+            await insertWorkspaceUpgradeRow({
+              workspaceId: f.workspaceId,
+              generation,
+              status,
+              upgrade: {
+                key,
+                fromFormat: 3,
+                targetFormat: 3,
+                repositories: [],
+              },
+            })
+          return scanWorkspaceReingest({
+            orgId: f.org.id,
+            workspace,
+            bundle,
+            format: 3,
+            env: parseEnv(process.env),
+          })
+        })
+        expect(result).toMatchObject({ kind: "pending", status: "completed" })
+        await withOrgIdContext(f.org, async () => {
+          expect(await getWorkspaceUpgradeRow(f.workspaceId, waitingKey)).toBe(
+            null,
+          )
+          expect(
+            (await getWorkspaceUpgradeRow(f.workspaceId, doneKey))?.status,
+          ).toBe("completed")
         })
       },
     )
