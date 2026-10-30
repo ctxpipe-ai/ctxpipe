@@ -2546,3 +2546,141 @@ describe("validatePatchStep claim rejection reasons (CTX-1082)", () => {
     expect(result.rejections[0]?.reason).toBe("claims.0.evidence: invalid_type")
   })
 })
+
+describe("validatePatchStep claims with the host field valid_from (CTX-1090)", () => {
+  const path = "knowledge/services/hydrated.md"
+  const VALID_FROM = "2026-02-03T04:05:06.000Z"
+  // A claim as hydrate leaves it: the validator stamped the confidence, and
+  // the valid_from_persist write job added valid_from.
+  const hydratedClaim = {
+    to: "./billing.md",
+    predicate: "CALLS",
+    evidence: EVIDENCE,
+    confidence: 0.7,
+    valid_from: VALID_FROM,
+  }
+  const hydratedBase = () =>
+    commitOn(baseCommit, {
+      [path]: doc(
+        {
+          kind: "Service",
+          name: "Hydrated",
+          claims: [hydratedClaim],
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH],
+          source_sha: "0".repeat(40),
+          skill: "dependencies",
+          bundle: "bundle-0",
+        },
+        "# Hydrated\n\nOld text.\n",
+      ),
+    })
+  const write = (base: string, claims: unknown[]) =>
+    run(
+      stage({
+        files: {
+          [path]: doc(
+            { kind: "Service", name: "Hydrated", claims },
+            "# Hydrated\n\nNew text.\n",
+          ),
+        },
+        base,
+      }),
+      { baseCommit: base },
+    )
+  const claimsOut = (tree: string) => {
+    const out = readTree(tree, path)
+    return parseYaml(out.slice(4, out.indexOf("\n---\n"))).claims as unknown[]
+  }
+  const refused = (file: string) => [
+    {
+      path: file,
+      rule: "front_matter",
+      reason: "Only the host sets valid_from on a claim",
+    },
+  ]
+
+  it("accepts a step that keeps a claim with valid_from, and keeps valid_from", async () => {
+    const base = hydratedBase()
+    const result = await write(base, [hydratedClaim])
+    expect(result.rejections).toEqual([])
+    expect(claimsOut(result.tree)).toEqual([hydratedClaim])
+  })
+
+  it("accepts a step that changes only the evidence of a claim with valid_from", async () => {
+    const base = hydratedBase()
+    const result = await write(base, [
+      {
+        to: "./billing.md",
+        predicate: "CALLS",
+        evidence: { path: "package.json", kind: "model" },
+        valid_from: VALID_FROM,
+      },
+    ])
+    expect(result.rejections).toEqual([])
+    expect(claimsOut(result.tree)).toEqual([
+      {
+        to: "./billing.md",
+        predicate: "CALLS",
+        evidence: { path: "package.json", kind: "model" },
+        confidence: 0.5,
+        valid_from: VALID_FROM,
+      },
+    ])
+  })
+
+  it.each([
+    [
+      "a new claim with valid_from",
+      [
+        hydratedClaim,
+        {
+          to: "./ledger.md",
+          predicate: "READS",
+          evidence: EVIDENCE,
+          valid_from: VALID_FROM,
+        },
+      ],
+    ],
+    [
+      "a changed valid_from on a kept claim",
+      [{ ...hydratedClaim, valid_from: "2026-05-06T00:00:00.000Z" }],
+    ],
+    [
+      "valid_from on a claim with another predicate",
+      [{ ...hydratedClaim, predicate: "READS" }],
+    ],
+  ])("rejects %s", async (_name, claims) => {
+    const base = hydratedBase()
+    const result = await write(base, claims)
+    expect(result.rejections).toEqual(refused(path))
+  })
+
+  it("rejects valid_from on a claim that a step adds to a file of another source", async () => {
+    const shared = "knowledge/libraries/shared.md"
+    const result = await run(
+      stage({
+        files: {
+          [shared]: doc(
+            {
+              kind: "Library",
+              name: "Shared",
+              generated_by: "ctxpipe-extract",
+              sources: [OTHER_SOURCE_PATH],
+              claims: [
+                {
+                  to: "../services/billing.md",
+                  predicate: "CALLS",
+                  evidence: EVIDENCE,
+                  valid_from: VALID_FROM,
+                },
+              ],
+            },
+            "# Shared\n\nOther source prose.\n",
+          ),
+        },
+      }),
+    )
+    expect(result.rejections).toEqual(refused(shared))
+  })
+})

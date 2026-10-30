@@ -182,6 +182,9 @@ const ClaimSchema = z
     predicate: z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/),
     evidence: EvidenceSchema,
     confidence: z.number().min(0).max(1).optional(),
+    // Only the host sets valid_from (hydrate, at format 3 or more). A step can
+    // only keep it: see `validFromProblem`.
+    valid_from: z.string().min(1).max(64).optional(),
   })
   .strict()
 
@@ -1034,6 +1037,8 @@ async function checkFullWrite(
         rule: "front_matter",
         reason: "Only the host sets or changes a legacy claim",
       }
+    const validFrom = validFromProblem(claim as Claim, baseClaims)
+    if (validFrom) return validFrom
     fresh.push(claim as Claim)
   }
   const evidence = await evidenceProblem(fresh, context)
@@ -1126,6 +1131,9 @@ async function checkAdditiveWrite(
     const parsed = ClaimSchema.safeParse(claim)
     if (!parsed.success)
       return { rule: "front_matter", reason: zodReason(parsed.error) }
+    // An added claim is new, so no base claim can give it a valid_from.
+    const validFrom = validFromProblem(parsed.data, [])
+    if (validFrom) return validFrom
     added.push(parsed.data)
   }
 
@@ -1185,7 +1193,33 @@ function stampClaim(claim: Claim) {
     predicate: claim.predicate,
     evidence: { path: claim.evidence.path, kind: claim.evidence.kind },
     confidence: CONFIDENCE[claim.evidence.kind],
+    ...(claim.valid_from === undefined ? {} : { valid_from: claim.valid_from }),
   }
+}
+
+/**
+ * A claim can keep the `valid_from` that the host set (ADR-052, revision
+ * 2026-10-30): the base must have a claim with the same target, predicate,
+ * and `valid_from`. The evidence can change, because `valid_from` dates the
+ * edge, not its evidence.
+ */
+function validFromProblem(
+  claim: Claim,
+  baseClaims: readonly unknown[],
+): CheckFailure | null {
+  if (claim.valid_from === undefined) return null
+  const key = claimKey(claim)
+  const known = baseClaims.some(
+    (b) =>
+      claimKey(b) === key &&
+      (b as { valid_from?: unknown }).valid_from === claim.valid_from,
+  )
+  return known
+    ? null
+    : {
+        rule: "front_matter",
+        reason: "Only the host sets valid_from on a claim",
+      }
 }
 
 /** The target and predicate of a claim. */
