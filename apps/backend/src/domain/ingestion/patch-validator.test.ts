@@ -2693,6 +2693,14 @@ describe("validatePatchStep claims with the host field valid_from (CTX-1090)", (
     expect(claimsOut(swapped.tree)).toEqual([hydratedClaim, modelClaim])
   })
 
+  it("keeps the valid_from of a claim that the base file has twice", async () => {
+    // Hydrate gives each claim of a file the same time, so the copies agree.
+    const base = hydratedBase([hydratedClaim, hydratedClaim])
+    const result = await write(base, [hydratedClaim, hydratedClaim])
+    expect(result.rejections).toEqual([])
+    expect(claimsOut(result.tree)).toEqual([hydratedClaim, hydratedClaim])
+  })
+
   it("writes no valid_from of the step on a claim that it adds to a file of another source", async () => {
     const shared = "knowledge/libraries/shared.md"
     const sharedFile = (claims: unknown[]) =>

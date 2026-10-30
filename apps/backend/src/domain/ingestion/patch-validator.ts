@@ -1211,26 +1211,29 @@ function stepClaims(claims: readonly unknown[]): Claim[] {
 
 /**
  * The claim with the `valid_from` of the host (ADR-052, revision 2026-10-30).
- * The value of the step is ignored. The value comes from the base claim with
+ * The value of the step is ignored. The value comes from the base claims with
  * the same target and predicate, because a step can change the evidence. When
- * more base claims have that key, the evidence must also be the same. When no
- * single base claim agrees, the claim gets no value, and hydrate sets it again.
+ * they do not agree on one value, the base claims that also have the same
+ * evidence must agree. Else the claim gets no value, and hydrate sets it again.
  */
 function datedClaim(claim: Claim, baseClaims: readonly Claim[]): Claim {
   const { valid_from: _stepValidFrom, ...rest } = claim
   const sameKey = baseClaims.filter(
     (b) => b.to === claim.to && b.predicate === claim.predicate,
   )
-  const matches =
-    sameKey.length > 1
-      ? sameKey.filter(
-          (b) =>
-            b.evidence.path === claim.evidence.path &&
-            b.evidence.kind === claim.evidence.kind,
-        )
-      : sameKey
-  const validFrom = matches.length === 1 ? matches[0]?.valid_from : undefined
+  const sameEvidence = sameKey.filter(
+    (b) =>
+      b.evidence.path === claim.evidence.path &&
+      b.evidence.kind === claim.evidence.kind,
+  )
+  const validFrom = agreedValidFrom(sameKey) ?? agreedValidFrom(sameEvidence)
   return validFrom === undefined ? rest : { ...rest, valid_from: validFrom }
+}
+
+/** The `valid_from` of the claims when they all have the same one. */
+function agreedValidFrom(claims: readonly Claim[]): string | undefined {
+  const values = new Set(claims.map((claim) => claim.valid_from))
+  return values.size === 1 ? [...values][0] : undefined
 }
 
 /** The target and predicate of a claim. */
