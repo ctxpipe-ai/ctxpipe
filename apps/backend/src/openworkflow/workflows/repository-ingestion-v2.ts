@@ -55,6 +55,7 @@ import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import { withCrashLoopGuard } from "../crash-loop.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { openWorkflowExecution } from "../execution-lease.js"
 import { cleanUpUnlessParked, settledChildren } from "../isSleepSignal.js"
 import {
   addStepFailures,
@@ -164,7 +165,9 @@ export function defineRepositoryIngestionV2Workflow(
       // A failed run also deletes the worker's copy of the source tree,
       // and the index repositories of its repository step (shard 0). Each
       // run that ends deletes its codesearch checkout, unless it is the
-      // published revision.
+      // published revision. A stale execution keeps them while another
+      // execution has the run (CTX-1080).
+      const execution = openWorkflowExecution(step, run.id)
       return cleanUpUnlessParked(
         () => ingestWithSpan(),
         async () => {
@@ -176,6 +179,7 @@ export function defineRepositoryIngestionV2Workflow(
             runId: run.id,
           })
         },
+        execution,
       )
 
       // Export one summary for the terminal execution. Shards run in separate
@@ -423,6 +427,7 @@ export function defineRepositoryIngestionV2Workflow(
             if (!state) continue
             await runSkillPages({
               step: guardedSkillStep(step, run.id, input.orgId),
+              execution,
               run: {
                 runId: run.id,
                 shard: 0,

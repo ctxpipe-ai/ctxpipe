@@ -62,6 +62,11 @@ import {
 import { WORKER_BOOT_ID, withCrashLoopGuard } from "../crash-loop.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import {
+  openWorkflowExecution,
+  type WorkflowExecution,
+  WorkflowLeaseLostError,
+} from "../execution-lease.js"
+import {
   cleanUpUnlessParked,
   isWorkflowControlSignal,
 } from "../isSleepSignal.js"
@@ -252,6 +257,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
       schema: ingestionShardInputSchema,
     },
     async ({ input, step, run }) => {
+      const execution = openWorkflowExecution(step, run.id)
       const runShard = async (): Promise<IngestionShardOutput> => {
         const bundle = await deps.bundle()
         if (bundle.name !== input.bundle)
@@ -309,6 +315,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
               if (!current) continue
               await runSkillPages({
                 step: guardedSkillStep(step, run.id, input.orgId),
+                execution,
                 run: input,
                 broker: workspaceSkillBroker({
                   orgId: input.orgId,
@@ -370,15 +377,20 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
         )
       // The child's own copy of the source tree and its index
       // repositories go when the child ends, also when it fails. A sibling
-      // child has its own copies.
-      return cleanUpUnlessParked(runShardSpan, async () => {
-        await releaseIngestSourceTree(
-          input.runId,
-          input.source.sha,
-          shardTreeHolder(input),
-        )
-        await releaseIngestStepIndexes(input.runId, input.shard)
-      })
+      // child has its own copies. A stale execution keeps them while another
+      // execution has the run (CTX-1080).
+      return cleanUpUnlessParked(
+        runShardSpan,
+        async () => {
+          await releaseIngestSourceTree(
+            input.runId,
+            input.source.sha,
+            shardTreeHolder(input),
+          )
+          await releaseIngestStepIndexes(input.runId, input.shard)
+        },
+        execution,
+      )
     },
   )
 }
@@ -496,6 +508,11 @@ export function guardedSkillStep(
 type SkillPages = {
   /** One workflow step: `step.run` with no OpenWorkflow retry. */
   step: (name: string, fn: () => Promise<StepResult>) => Promise<StepResult>
+  /**
+   * The OpenWorkflow execution that runs the steps. Each attempt first
+   * makes sure that the execution still owns the run (CTX-1080).
+   */
+  execution?: WorkflowExecution
   run: SkillRun
   broker: SkillStepBroker
   runtime: IngestShardRuntime
@@ -523,6 +540,7 @@ type SkillPages = {
  */
 export async function runSkillPages(ctx: SkillPages): Promise<void> {
   const { state } = ctx
+  const seen: SkillStep["seen"] = {}
   const failed = () => {
     state.partial++
     if (ctx.root !== null && !state.partialRoots.includes(ctx.root))
@@ -543,7 +561,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     const oldTip = state.tip
     const opsBefore = state.ops
     const result = await ctx.step(name, () =>
-      runSkillStep({ ...ctx, name, oldTip, opsBefore }),
+      runSkillStep({ ...ctx, name, oldTip, opsBefore, seen }),
     )
     if (result.partial) {
       failed()
@@ -563,6 +581,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
         ctx,
         label,
         `Page ${page} said more but the validator accepted no op`,
+        seen.executionAttempt,
       )
       return
     }
@@ -572,7 +591,31 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     ctx,
     label,
     `The skill still had files after ${INGEST_MAX_PAGES} pages`,
+    seen.executionAttempt,
   )
+}
+
+/** One page of a skill, with the page fields of `runSkillPages`. */
+type SkillStep = SkillPages & {
+  name: string
+  oldTip: string | null
+  opsBefore: number
+  /**
+   * The execution attempt from the last ownership check of a step of this
+   * execution, for the page events (CTX-1080). A cached step does not check.
+   */
+  seen: { executionAttempt?: number }
+}
+
+/**
+ * The execution that writes a step event (CTX-1080): the worker process and,
+ * when the step checked the lease, the execution attempt of the run.
+ */
+function executionFields(executionAttempt: number | undefined) {
+  return {
+    workerBootId: WORKER_BOOT_ID,
+    ...(executionAttempt === undefined ? {} : { executionAttempt }),
+  }
 }
 
 /** One log event for a step that ends `partial`, with its reason. */
@@ -580,6 +623,7 @@ function logStepPartial(
   ctx: Pick<SkillPages, "run" | "destination">,
   step: string,
   reason: string,
+  executionAttempt?: number,
 ): void {
   logIngestEvent("warn", "ingestion-v2.step-partial", {
     ingestionRunId: ctx.run.runId,
@@ -587,6 +631,7 @@ function logStepPartial(
     workspaceId: ctx.destination.workspaceId,
     ingestStep: step,
     reason: capIngestText(reason),
+    ...executionFields(executionAttempt),
   })
 }
 
@@ -595,9 +640,7 @@ function logStepPartial(
  * failed attempt, or at once when the broker refuses the job: the root keeps
  * what the earlier steps wrote, and the run goes on (no retraction).
  */
-function runSkillStep(
-  ctx: SkillPages & { name: string; oldTip: string | null; opsBefore: number },
-): Promise<StepResult> {
+function runSkillStep(ctx: SkillStep): Promise<StepResult> {
   return withIngestSpan(
     "ingestion.step",
     {
@@ -630,7 +673,7 @@ function runSkillStep(
 }
 
 async function attemptSkillStep(
-  ctx: SkillPages & { name: string; oldTip: string | null; opsBefore: number },
+  ctx: SkillStep,
   span: Span,
 ): Promise<StepResult> {
   const { run, destination, ref, runBase, broker } = ctx
@@ -643,11 +686,50 @@ async function attemptSkillStep(
   let adopted = 0
   let reason = ""
   let failed: IngestStepFailureKind = "other"
+  // The error type of the last failed attempt. The span gets it only when
+  // the step ends `partial`: a later attempt can adopt or succeed.
+  let errorType = ""
   let usage: IngestStepUsage | undefined
   const withUsage = <T extends object>(result: T) =>
     usage ? { ...result, usage } : result
+  // The execution attempt from the last ownership check.
+  let executionAttempt: number | undefined
   for (let attempt = 1; attempt <= STEP_ATTEMPTS; attempt++) {
+    // After a lease loss, another execution runs the same steps. This one
+    // stops before it makes model calls of its own.
+    if (ctx.execution) {
+      const lease = {
+        ingestionRunId: run.runId,
+        ...(run.shard === undefined ? {} : { shard: run.shard }),
+        workspaceId: destination.workspaceId,
+        ingestStep: ctx.name,
+        attempt,
+        workflowRunId: ctx.execution.workflowRunId,
+        ...executionFields(executionAttempt),
+      }
+      // A failed read of the run is not a lease loss. The execution goes on
+      // as the owner, so that a database error does not stop a live
+      // execution.
+      const owned = await ctx.execution.ownsRun().catch((error: unknown) => {
+        logIngestEvent("warn", "ingestion-v2.execution-lease-check-failed", {
+          ...lease,
+          ...ingestErrorFields(error),
+        })
+        return "unknown" as const
+      })
+      if (owned === undefined) {
+        logIngestEvent("warn", "ingestion-v2.execution-lease-lost", lease)
+        throw new WorkflowLeaseLostError(ctx.execution.workflowRunId)
+      }
+      if (owned !== "unknown") {
+        executionAttempt = owned
+        ctx.seen.executionAttempt = owned
+      }
+    }
+    const execution = executionFields(executionAttempt)
     span.setAttribute("ctxpipe.ingest.attempts", attempt)
+    if (executionAttempt !== undefined)
+      span.setAttribute("openworkflow.execution.attempt", executionAttempt)
     // The span of a step that stops the worker is never exported; this
     // event names the step that was in progress (CTX-971).
     logIngestEvent("info", "ingestion-v2.step-attempt-started", {
@@ -656,7 +738,7 @@ async function attemptSkillStep(
       workspaceId: destination.workspaceId,
       ingestStep: ctx.name,
       attempt,
-      workerBootId: WORKER_BOOT_ID,
+      ...execution,
     })
     // Where the attempt is, for the log of a failed attempt.
     let stage: "find" | "list-files" | "runtime" | "push" = "find"
@@ -665,16 +747,28 @@ async function attemptSkillStep(
       // A crash after the push: the step's commit is on the ref, and its
       // `Ctxpipe-More` trailer says whether a next page waits.
       const found = await broker.find(ref, ctx.name, oldTip ?? runBase)
-      if (found && "sha" in found)
+      // The span names the adoption (CTX-1080). `commit`: the step takes a
+      // commit of this step that is on the ref. `tip`: the step continues
+      // from a tip that another execution moved the ref to.
+      if (found && "sha" in found) {
+        span.setAttributes({
+          "ctxpipe.ingest.adopted": "commit",
+          "ctxpipe.ingest.adopted.ops": adopted + found.ops,
+        })
         return withUsage({
           tip: found.sha,
           ops: adopted + found.ops,
           rejects: found.rejects,
           more: found.more,
         })
+      }
       if (found) {
         oldTip = found.tip
         adopted += found.ops
+        span.setAttributes({
+          "ctxpipe.ingest.adopted": "tip",
+          "ctxpipe.ingest.adopted.ops": adopted,
+        })
       }
       const baseCommit = oldTip ?? runBase
       // A new shard ref starts at the run base, which is on the assembled ref.
@@ -722,6 +816,7 @@ async function attemptSkillStep(
           ingestStep: ctx.name,
           reason:
             "The model step reported no usage, or the worker kept only a part of it: the spend of the run is unknown, and the recorded spend counts only the known part",
+          ...execution,
         })
       usage = addIngestUsage(usage, stepUsage)
       stage = "push"
@@ -759,6 +854,7 @@ async function attemptSkillStep(
           rule: rejection.rule,
           path: capIngestText(rejection.path),
           reason: capIngestText(rejection.reason),
+          ...execution,
         })
       span.setAttribute("ctxpipe.ingest.validation", pushed.validation.status)
       if (pushed.validation.status === "partial")
@@ -768,6 +864,7 @@ async function attemptSkillStep(
           workspaceId: destination.workspaceId,
           ingestStep: ctx.name,
           reason: `The validator rejected ${pushed.validation.rejections.length} ops and accepted ${pushed.validation.accepted.length}`,
+          ...execution,
         })
       return withUsage({
         tip: pushed.sha,
@@ -803,15 +900,17 @@ async function attemptSkillStep(
             }
           : {}),
         ...ingestErrorFields(error),
+        ...execution,
       })
-      span.setAttribute("error.type", refused ? error.name : "Error")
+      errorType = refused ? error.name : "Error"
       // The next attempt's `find` reads the ref that another execution moved.
       if (error instanceof IngestRefMovedError) continue
       if (refused) break
       if (attempt < STEP_ATTEMPTS) await delay(attempt * 5_000)
     }
   }
-  logStepPartial(ctx, ctx.name, reason)
+  if (errorType) span.setAttribute("error.type", errorType)
+  logStepPartial(ctx, ctx.name, reason, executionAttempt)
   return withUsage({
     partial: true as const,
     ...(reason === "step_failed" ? { failed } : {}),
