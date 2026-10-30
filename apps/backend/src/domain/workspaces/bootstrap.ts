@@ -23,8 +23,9 @@ ctxpipe ingests source repositories into this repository. A file with \`generate
 - **Shared area files.** \`knowledge/instructions/<area>.md\` describes one area of practice (for example \`unit-testing.md\`). Many sources share one file. A codebase file links to each area that applies with a \`FOLLOWS\` claim. Do not make a file for one repository.
 - **Repository units.** Each source repository has one file in \`knowledge/codebases/\` (kind \`Repository\`, \`root: .\`). The files of its code roots link to it with \`IMPLEMENTED_IN\` claims.
 - **Shared files.** One file describes one stream, store, or piece of infrastructure, also when many roots use it. Link to that file; do not make a second one.
+- **Workflows.** Each GitHub Actions workflow file of a source repository has one file in \`knowledge/workflows/\` (kind \`Workflow\`). Its \`workflow_file\` names the workflow file. It lists the triggers and the job ids, and it does not hold the commands of the workflow.
 
-Kinds that ingestion writes, by folder: \`knowledge/codebases/\`, \`services/\`, \`apps/\`, \`libraries/\`, \`apis/\`, \`operations/\`, \`databases/\`, \`infrastructure/\`, \`streams/\`, \`decisions/\`, \`teams/\`, \`instructions/\`. A folder can be empty.
+Kinds that ingestion writes, by folder: \`knowledge/codebases/\`, \`services/\`, \`apps/\`, \`libraries/\`, \`apis/\`, \`operations/\`, \`databases/\`, \`infrastructure/\`, \`streams/\`, \`decisions/\`, \`teams/\`, \`instructions/\`, \`workflows/\`. A folder can be empty.
 `
 
 const DEFAULT_SKILL = `---

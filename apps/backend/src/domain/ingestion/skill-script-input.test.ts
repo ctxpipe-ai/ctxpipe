@@ -5,7 +5,7 @@ import { join } from "node:path"
 
 import { afterAll, describe, expect, it } from "vitest"
 
-import { yamlEntry } from "../../../ingest-skills/apis/scripts/apis-lib.mjs"
+import { yamlEntry } from "../../../ingest-skills/bin/yaml-lib.mjs"
 import { classifyRoot } from "../../../ingest-skills/classify-kind/scripts/kind-rules.mjs"
 import {
   headingText,
@@ -13,6 +13,7 @@ import {
   parseDecision,
 } from "../../../ingest-skills/decisions/scripts/decision-parse.mjs"
 import { classifyTarget } from "../../../ingest-skills/dependencies/scripts/scan-lib.mjs"
+import { readWorkflow } from "../../../ingest-skills/workflows/scripts/workflow-parse.mjs"
 
 /**
  * Hostile input to the skill scripts: each reader cuts a long line or file
@@ -135,5 +136,185 @@ describe("dependency targets", () => {
     ['"https://api.example.com/users"', "https://api.example.com/users"],
   ])("gives %s to the model as %s", (raw, text) => {
     expect(classifyTarget(raw)?.text).toBe(text)
+  })
+})
+
+describe("hostile workflow files", () => {
+  // Each file holds the word "leak" only where the reader must not read:
+  // a value outside the 7 key paths, a block scalar, a comment, a second
+  // document, or a form that the reader cannot follow. The reader gives a
+  // skip, or a result with no "leak" in it. A case is in one list only.
+  const JOB = "jobs:\n  a:\n    runs-on: x\n"
+  const STEP = (lines: string) => `on: push\njobs:\n  a:\n    steps:\n${lines}`
+  const deep = Array.from(
+    { length: 70 },
+    (_, i) => `${"  ".repeat(i + 2)}k${i}:\n`,
+  ).join("")
+  it.each([
+    ["a duplicate key", `on: push\n${JOB}jobs:\n  leak:\n    runs-on: x\n`],
+    [
+      "a duplicate key in a job",
+      STEP("      - working-directory: leak/a\n    steps:\n      - run: x\n"),
+    ],
+    [
+      "a second document",
+      `on: push\n${JOB}---\njobs:\n  leak:\n    runs-on: x\n`,
+    ],
+    ["a document end", `on: push\n${JOB}...\njobs:\n  leak: {}\n`],
+    [
+      "a directive",
+      `%YAML 1.2\n---\non: push\njobs:\n  leak:\n    runs-on: x\n`,
+    ],
+    [
+      "a lone carriage return",
+      STEP("      - run: echo\r          working-directory: leak\n"),
+    ],
+    [
+      "a line separator",
+      STEP("      - run: x\u2028        working-directory: leak\n"),
+    ],
+    [
+      "a paragraph separator",
+      STEP("      - run: x\u2029        working-directory: leak\n"),
+    ],
+    [
+      "a next line character",
+      STEP("      - run: x\u0085        working-directory: leak\n"),
+    ],
+    [
+      "a no-break space as indent",
+      "on: push\njobs:\n  a:\n\u00a0   working-directory: leak\n",
+    ],
+    ["a tab as indent", "on: push\njobs:\n  a:\n\tleak:\n\t\truns-on: x\n"],
+    [
+      "nesting deeper than 64 levels",
+      `on: push\njobs:\n  a:\n${deep}${"  ".repeat(72)}working-directory: leak\n`,
+    ],
+    [
+      "jobs in a double-quoted value",
+      `name: "x\njobs:\n  leak: y"\non: push\n${JOB}`,
+    ],
+    [
+      "jobs in a single-quoted value",
+      `name: 'x\n  jobs: leak'\non: push\n${JOB}`,
+    ],
+    ["a flow map on more lines", "on: push\njobs: {\n  leak: {}\n}\n"],
+    [
+      "a flow list on more lines",
+      "on: [push,\n  leak]\njobs:\n  a:\n    runs-on: x\n",
+    ],
+    ["a complex key", `? jobs\n: leak\non: push\n${JOB}`],
+    ["a long line", `${JOB}on: push\nname: ${"leak ".repeat(1000)}\n`],
+    ["too many lines", `on: push\n${JOB}${"# x\n".repeat(30_000)}`],
+  ])("skips the file: %s", (_, text) => {
+    expect(readWorkflow(text)).toHaveProperty("skip")
+  })
+
+  it.each([
+    [
+      "a multi-line plain scalar",
+      STEP("      - run: echo\n          working-directory: leak/a\n"),
+    ],
+    [
+      "a multi-line plain scalar in a list",
+      `on:\n  push:\n    paths:\n      - apps/api\n        leak/b\n${JOB}`,
+    ],
+    [
+      "a key with a space before the colon",
+      STEP("      - run : |\n          working-directory: leak/a\n"),
+    ],
+    [
+      "a quoted key",
+      STEP('      - "run": |\n          working-directory: leak/a\n'),
+    ],
+    [
+      "comments",
+      "on: push # jobs: leak\njobs: # leak: x\n  a: # working-directory: leak\n    runs-on: x\n#  leak:\n",
+    ],
+    [
+      "CRLF line ends",
+      STEP("      - run: |\r\n          working-directory: leak\r\n").replace(
+        /(?<!\r)\n/g,
+        "\r\n",
+      ),
+    ],
+    [
+      "a byte order mark",
+      `\uFEFF${STEP("      - run: |\n          jobs: leak\n")}`,
+    ],
+    [
+      "a block scalar with an indent indicator",
+      STEP("      - run: |2\n            working-directory: leak/a\n"),
+    ],
+    [
+      "a block scalar with an anchor",
+      STEP("      - run: &a |\n          working-directory: leak/a\n"),
+    ],
+    [
+      "a block scalar with a tag",
+      STEP("      - run: !!str |\n          working-directory: leak/a\n"),
+    ],
+    [
+      "a folded block scalar",
+      STEP("      - run: >-\n          working-directory: leak/a\n"),
+    ],
+    [
+      "a block scalar in a list",
+      `on:\n  push:\n    paths:\n      - |\n        leak/a\n${JOB}`,
+    ],
+    [
+      "jobs in a block scalar",
+      `on: push\nenv:\n  X: |\n    jobs:\n      leak:\n        runs-on: x\n${JOB}`,
+    ],
+    [
+      "a flow map",
+      "on: push\njobs:\n  a:\n    defaults: {run: {working-directory: leak}}\n",
+    ],
+    [
+      "a merge key",
+      "on: push\njobs:\n  a: &j\n    defaults:\n      run:\n        working-directory: leak\n  b:\n    <<: *j\n",
+    ],
+    [
+      "an alias and a tag as values",
+      STEP(
+        "      - working-directory: *leak\n      - working-directory: !!str leak\n",
+      ),
+    ],
+    [
+      "a unicode key",
+      `on: push\nj\u043ebs:\n  leak: {}\n${STEP("      - w\u00f6rking-directory: leak\n").slice(9)}`,
+    ],
+    [
+      "a key at the wrong depth",
+      `${STEP(
+        "      - uses: x\n        with:\n          working-directory: leak\n        env:\n          working-directory: leak\n",
+      )}    env:\n      defaults:\n        run:\n          working-directory: leak\n`,
+    ],
+    ["a nested list", STEP("      - - working-directory: leak\n")],
+  ])("reads no hostile text: %s", (_, text) => {
+    const result = readWorkflow(text)
+    expect(result).not.toHaveProperty("skip")
+    expect(JSON.stringify(result).toLowerCase()).not.toContain("leak")
+  })
+
+  it("reads the key next to a block scalar at the column of the key", () => {
+    expect(
+      readWorkflow(
+        STEP(
+          "      -   run: |\n            working-directory: leak/a\n          working-directory: apps/api\n",
+        ),
+      ),
+    ).toEqual({
+      name: null,
+      triggers: ["push"],
+      jobs: ["a"],
+      locations: [
+        {
+          where: "jobs.a.steps.working-directory",
+          job: "a",
+          value: "apps/api",
+        },
+      ],
+    })
   })
 })

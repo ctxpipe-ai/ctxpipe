@@ -24,6 +24,7 @@ export const KNOWLEDGE_KIND_FOLDERS: Readonly<Record<string, string>> = {
   Repository: "codebases",
   Decision: "decisions",
   Team: "teams",
+  Workflow: "workflows",
 }
 
 export function knowledgeAreaFromObjectKind(kind: string): string {

@@ -13,6 +13,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { posix } from "node:path"
 
 import { MAX_ROOTS, safePath } from "../discover-roots/scripts/roots-lib.mjs"
+import { fileHasInstructionWithoutSource } from "./guard-patterns.mjs"
 import {
   baseBlob,
   blobContent,
@@ -20,6 +21,7 @@ import {
   ensureParent,
   fail,
   parseArgs,
+  readDeletes,
   stagedFile,
   writePatch,
 } from "./stage-lib.mjs"
@@ -268,12 +270,62 @@ function claimYaml(claim, indent) {
   ].join("\n")
 }
 
-/** Text of a new file. */
-function newFile({ kind, name, summary, intro, claims, related }) {
+/**
+ * Text of a new file. `heading` replaces the name as the first heading, and
+ * `fields` are more front matter scalars after the summary ([key, value]
+ * pairs). `intro` is the Markdown before the Related section.
+ */
+function newFile({
+  kind,
+  name,
+  heading = name,
+  summary,
+  intro,
+  fields = [],
+  claims,
+  related,
+}) {
   const yaml = [`kind: ${kind}`, `name: ${q(name)}`, `summary: ${q(summary)}`]
+  for (const [key, value] of fields) yaml.push(`${key}: ${q(value)}`)
   if (claims.length) yaml.push("claims:", ...claims.map((c) => claimYaml(c, 2)))
   const lines = related.slice(0, MAX_RELATED_LINES)
-  return `---\n${yaml.join("\n")}\n---\n\n# ${name}\n\n${intro}\n\n## Related\n\n${lines.join("\n")}\n`
+  return `---\n${yaml.join("\n")}\n---\n\n# ${heading}\n\n${intro}\n\n## Related\n\n${lines.join("\n")}\n`
+}
+
+/** True when the validator would refuse the text for an instruction to an agent. */
+const refusedText = (text) =>
+  fileHasInstructionWithoutSource(frontMatter(text) ?? "", bodyOf(text) ?? "")
+
+/** The body of a file after its front matter, or null. */
+function bodyOf(text) {
+  const front = /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)
+  return front ? text.slice(front[0].length) : null
+}
+
+const hasHumanSection = (text) => text.includes("<!-- ctxpipe:human -->")
+
+/**
+ * The full text of a file that the source owns alone, as `newFile` writes
+ * it. Returns the text before when only the host fields would change (the
+ * same body, the same claims, and the same front matter values that
+ * `create` sets), so a second run and a next page make no op. Returns null
+ * when the file has a human section: then the caller adds to it only.
+ */
+function replaceFile(before, plan, claims, related) {
+  if (hasHumanSection(before)) return null
+  const { kind, name, summary, fields = [] } = plan.create
+  const text = newFile({ ...plan.create, claims, related })
+  const yaml = frontMatter(before) ?? ""
+  const known = existingClaims(yaml)
+  const same =
+    known !== null &&
+    known.size === claims.length &&
+    claims.every((c) => known.has(`${c.to} ${c.predicate}`)) &&
+    [["kind", kind], ["name", name], ["summary", summary], ...fields].every(
+      ([key, value]) => frontValue(yaml, key) === String(value),
+    ) &&
+    bodyOf(before) === bodyOf(text)
+  return same ? before : text
 }
 
 const YAML_ESCAPES = {
@@ -596,16 +648,25 @@ function mergeFile(text, { claims, related }) {
 
 /**
  * Write the planned files to the staged tree and write patch.json. A plan is
- * { path, create, claims, related, expectName?, exactName? }. `create` is
- * { kind, name, summary, intro } for a new file, or null when the script
- * only adds to an existing file. When `expectName` is set, an existing file
- * at the path must have that name; letters and digits only, unless
- * `exactName` is set (then the same text, in any letter case). Plans for one path are joined.
+ * { path, create, claims, related, expectName?, exactName?, replace? }.
+ * `create` is { kind, name, heading?, summary, intro, fields? } for a new
+ * file, or null when the script only adds to an existing file. When
+ * `expectName` is set, an existing file at the path must have that name;
+ * letters and digits only, unless `exactName` is set (then the same text, in
+ * any letter case). Plans for one path are joined. `replace` says that the
+ * source owns the existing file alone: the script then writes it again in
+ * full from `create`, except when it has a human section.
+ *
+ * `fallbacks` is a list of `create` values with plainer text. A file that
+ * the script writes in full uses the first one that the validator would not
+ * refuse as an instruction to an agent when it would refuse the text of
+ * `create`. The script skips the file when it would refuse each of them.
  *
  * A step writes at most MAX_STEP_OPS files. `more` is true when a plan waits
  * for the next page: the host runs the skill again on the new base until
  * `more` is false. A file that already has a claim or a line does not
  * change again, so each page continues where the last one stopped.
+ * The deletes that the caller recorded before count against MAX_STEP_OPS.
  * `options.more` adds a page that the caller knows of. patch.json holds
  * `more` for the host. Prints and returns { ops, skipped, more }.
  */
@@ -625,6 +686,8 @@ export function writeStep(step, plans, skipped = [], options = {}) {
       })
   }
   let changed = 0
+  // The deletes that the caller recorded are ops of the step too.
+  const deletes = Object.keys(readDeletes(step)).length
   let more = false
   const sorted = [...byPath.values()].sort((a, b) => (a.path < b.path ? -1 : 1))
   for (const plan of sorted) {
@@ -657,16 +720,42 @@ export function writeStep(step, plans, skipped = [], options = {}) {
       })
       continue
     }
-    const text =
+    const render = (create) =>
       before === null
-        ? newFile({ ...plan.create, claims, related })
-        : mergeFile(before, { claims, related })
+        ? newFile({ ...create, claims, related })
+        : ((plan.replace && create
+            ? replaceFile(before, { ...plan, create }, claims, related)
+            : null) ?? mergeFile(before, { claims, related }))
+    // The validator refuses the whole step for an instruction to an agent in
+    // the text of a file that the script writes in full. Test the final text
+    // as it does. When it would refuse, try each plain `fallbacks` create in
+    // order, and skip the file when the validator would refuse the last one
+    // too. A merge adds only claims and Related lines, which the validator
+    // scans by another rule.
+    let text = null
+    let refused = false
+    for (const create of [plan.create, ...(plan.fallbacks ?? [])]) {
+      text = render(create)
+      refused =
+        typeof text === "string" &&
+        text !== before &&
+        (before === null || (plan.replace && !hasHumanSection(before))) &&
+        refusedText(text)
+      if (!refused) break
+    }
+    if (refused) {
+      skipped.push({
+        path: null,
+        reason: "The text of the file has an instruction to an agent",
+      })
+      continue
+    }
     if (typeof text !== "string") {
       skipped.push({ path: plan.path, reason: text.skip })
       continue
     }
     if (text === before) continue
-    if (changed >= MAX_STEP_OPS) {
+    if (changed + deletes >= MAX_STEP_OPS) {
       more = true
       break
     }

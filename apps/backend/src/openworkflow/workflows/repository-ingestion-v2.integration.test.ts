@@ -253,6 +253,8 @@ beforeAll(async () => {
     "services/orders/package.json": '{ "name": "orders" }\n',
     "services/orders/src/index.ts": "export const orders = []\n",
     "README.md": "# Checkout API\n",
+    ".github/workflows/orders.yml":
+      "name: Orders\non:\n  push:\n    paths: [services/orders/**]\njobs:\n  test:\n    steps:\n      - run: pnpm test\n",
   })
   for (const name of contexts)
     pinned.push(remote(name, { "README.md": "# Context\n" }))
@@ -277,7 +279,14 @@ beforeAll(async () => {
   // model skill of the plan.
   const real = await readIngestSkillBundle()
   bundleDir = join(folder, "bundle")
-  const kept = ["bin", "discover-roots", "repository", "libraries", "ownership"]
+  const kept = [
+    "bin",
+    "discover-roots",
+    "repository",
+    "libraries",
+    "ownership",
+    "workflows",
+  ]
   for (const file of real.files.filter((f) =>
     kept.includes(f.path.split("/")[0] ?? ""),
   )) {
@@ -568,6 +577,21 @@ describe("ingestion v2 in shadow mode", () => {
         expect(unit).toContain("kind: Repository")
         expect(unit).toContain("root: .")
         expect(unit).toContain(`- ${sourcePathOf(sourceName)}`)
+        // The last repository-wide step: the Workflow file of the workflow,
+        // with a MENTIONS claim to the root step's package unit.
+        const workflow = git(
+          join(remotes, name),
+          "show",
+          `${assembled}:knowledge/workflows/acme-checkout-api-${suffix}-orders.md`,
+        )
+        expect(workflow).toContain("kind: Workflow")
+        expect(workflow).toContain(
+          "workflow_file: .github/workflows/orders.yml",
+        )
+        expect(workflow).toMatch(
+          /- to: \.\.\/services\/orders\.md\n\s+predicate: MENTIONS/,
+        )
+        expect(workflow).not.toContain("pnpm test")
         // Shadow mode publishes nothing: the default branch did not move.
         expect(git(join(remotes, name), "rev-parse", "main")).toBe(pinned[i])
       }

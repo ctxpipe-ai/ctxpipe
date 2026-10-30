@@ -14,6 +14,16 @@ import { fromMarkdown } from "mdast-util-from-markdown"
 import { parseDocument, stringify, type YAMLSeq } from "yaml"
 import { z } from "zod"
 
+import {
+  codeSpans,
+  DENIED_HEADINGS,
+  fileHasInstruction,
+  hasInstruction,
+  hasInstructionIn,
+  INJECTION_PHRASES,
+  WORKFLOW_FILE_PATTERN,
+  withoutCode,
+} from "../../../ingest-skills/bin/guard-patterns.mjs"
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { isHostOnlyPath } from "../workspaces/host-only.js"
 import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
@@ -83,8 +93,11 @@ export type PatchStepInput = {
   sourcePath: string
   skill: string
   bundle: string
-  /** True when `path` exists in the source repository at `source.sha`. */
-  sourcePathExists: (path: string) => Promise<boolean>
+  /**
+   * True when `path` exists in the source repository at `source.sha`. With
+   * `"blob"`, true only when it is a file: a folder or a gitlink is not.
+   */
+  sourcePathExists: (path: string, type?: "blob") => Promise<boolean>
   /**
    * The text of the file `path` in the source repository at `source.sha`, or
    * null when it is not a file or is too large to read.
@@ -112,7 +125,7 @@ export type PatchStepInput = {
   rootPath?: string
 }
 
-/** The 12 allowlist folders and their kinds. Patterns are not extracted (ADR-052). */
+/** The 13 allowlist folders and their kinds. Patterns are not extracted (ADR-052). */
 const FOLDER_KINDS: ReadonlyMap<string, string> = new Map(
   Object.entries(KNOWLEDGE_KIND_FOLDERS)
     .filter(([kind]) => kind !== "Pattern")
@@ -215,6 +228,8 @@ const FrontMatterSchema = z
         "A file has at most 200 claims",
       )
       .optional(),
+    /** The workflow file that a Workflow file describes, and no other kind. */
+    workflow_file: z.string().optional(),
     generated_by: z.string().optional(),
     sources: z.array(z.string()).optional(),
     root: z.string().optional(),
@@ -333,17 +348,40 @@ export function gitSource(
 }
 
 /**
- * Checks paths in the source repository. One `git ls-tree` reads the files
- * and folders at `sha` once; each check is then a set lookup. When the
- * listing is larger than the limit of `runGit`, each check fails with that
- * reason, so the step stops.
+ * Checks paths in the source repository. A check of a file (`blob`) runs one
+ * `git ls-tree` for that path. A check of another type reads the files and
+ * folders at `sha` with one `git ls-tree` for the whole step; each such check
+ * is then a set lookup. When the output is larger than the limit of
+ * `runGit`, the check fails with that reason, so the step stops.
  */
 function gitSourcePathExists(
   repoDir: string,
   sha: string,
-): (path: string) => Promise<boolean> {
+): PatchStepInput["sourcePathExists"] {
   let paths: Promise<Set<string>> | undefined
-  return async (path) => {
+  return async (path, type) => {
+    if (type === "blob") {
+      // A blob lookup reads the one tree entry and no content.
+      const out = await git(repoDir, [
+        "--literal-pathspecs",
+        "ls-tree",
+        "-z",
+        sha,
+        "--",
+        path,
+      ]).catch((error: unknown) => {
+        if (error instanceof GitOutputTooLargeError) throw error
+        return Buffer.alloc(0)
+      })
+      return out
+        .toString("utf8")
+        .split("\0")
+        .some(
+          (r) =>
+            r.split("\t")[0]?.split(" ")[1] === "blob" &&
+            r.slice(r.indexOf("\t") + 1) === path,
+        )
+    }
     paths ??= git(repoDir, ["ls-tree", "-r", "-t", "-z", "--name-only", sha])
       .then((out) => new Set(out.toString("utf8").split("\0")))
       .catch((error: unknown) => {
@@ -538,6 +576,8 @@ export async function validatePatchStep(
     root: input.root,
     meter,
     evidenceExists,
+    // The lookup reads no content, so it uses no read or byte budget.
+    sourceFileExists: (path) => input.sourcePathExists(path, "blob"),
     quoteInSource: (path, quote) =>
       sourceIncludes(quotableSource(path), quotableText(quote)),
     patternInSource: (path, pattern) =>
@@ -741,6 +781,8 @@ type CheckContext = {
   root: string | undefined
   meter: WorkMeter
   evidenceExists: (path: string) => Promise<boolean>
+  /** True when the path is a file (a blob) of the source. */
+  sourceFileExists: (path: string) => Promise<boolean>
   /** True when the quote, whitespace normalized, is text of the source file. */
   quoteInSource: (path: string, quote: string) => Promise<boolean | "spent">
   /** True when the source file holds the pattern of an inferred rule. */
@@ -994,6 +1036,27 @@ async function checkFullWrite(
       return { rule: "front_matter", reason: `Only the host sets ${field}` }
   }
 
+  if (attributes.kind !== "Workflow" && attributes.workflow_file !== undefined)
+    return {
+      rule: "front_matter",
+      reason: "Only a Workflow file has workflow_file",
+    }
+  // A GitHub Actions workflow file of the source: GitHub runs only the
+  // files directly in `.github/workflows/`. It must be a file, not a
+  // folder. Hydrate joins a merged pull request that changes it to the
+  // Workflow file (`PullRequest CHANGED Workflow`).
+  if (
+    attributes.kind === "Workflow" &&
+    !(
+      WORKFLOW_FILE_PATTERN.test(attributes.workflow_file ?? "") &&
+      (await context.sourceFileExists(attributes.workflow_file ?? ""))
+    )
+  )
+    return {
+      rule: "front_matter",
+      reason: "workflow_file must name a workflow file of the source",
+    }
+
   const human = humanSectionProblem(front, before)
   if (human) return human
 
@@ -1004,9 +1067,7 @@ async function checkFullWrite(
   const body = withoutHumanText(front.body, context.meter)
   const heading = deniedHeading(body)
   if (heading) return heading
-  const injection =
-    injectionProblem(front.yaml, { everywhere: true }) ?? injectionProblem(body)
-  if (injection) return injection
+  if (fileHasInstruction(front.yaml, body)) return SUSPECTED_INJECTION
   const quote = await unsourcedQuoteProblem(body, context)
   if (quote) return quote
 
@@ -1065,6 +1126,9 @@ async function checkFullWrite(
     ...(attributes.summary === undefined
       ? {}
       : { summary: attributes.summary }),
+    ...(attributes.workflow_file === undefined
+      ? {}
+      : { workflow_file: attributes.workflow_file }),
     ...(outClaims.length ? { claims: outClaims } : {}),
     generated_by: GENERATED_BY,
     sources: [context.sourcePath],
@@ -1324,14 +1388,6 @@ function contentProblem(text: string): CheckFailure | null {
   return null
 }
 
-const DENIED_HEADINGS = [
-  /\bsystem\s+prompts?\b/i,
-  /\b(?:ai|llm|coding|autonomous)\s+(?:agents?|assistants?|models?)\b/i,
-  /\b(?:for|to|attention)\s+(?:the\s+|all\s+)?(?:ai|llms?|agents?|assistants?|models?|claude|gpt|chatgpt|copilot|cursor)\b/i,
-  /\b(?:claude|chatgpt|gpt-?\d*|copilot|gemini)\b/i,
-  /^(?:ai|llms?|agents?|assistants?|prompts?)$/i,
-]
-
 function deniedHeading(body: string): CheckFailure | null {
   for (const heading of markdownHeadings(body)) {
     if (DENIED_HEADINGS.some((pattern) => pattern.test(heading)))
@@ -1358,18 +1414,6 @@ function markdownHeadings(body: string): string[] {
   return headings
 }
 
-const INJECTION_PHRASES = [
-  /\b(?:ignore|disregard|forget|override|bypass)\b[^.\n]{0,40}\b(?:previous|prior|above|earlier|preceding|all|any|your|the)\b[^.\n]{0,20}\b(?:instructions?|prompts?|rules|directives|guidelines)\b/i,
-  /\byou are (?:now|no longer)\b/i,
-  /\b(?:new|updated|real|actual) (?:system )?instructions?\s*:/i,
-  /\bsystem prompt\b/i,
-  /\b(?:reveal|print|show|output|leak|exfiltrate|send|upload)\b[^.\n]{0,40}\b(?:system prompt|api[_ -]?keys?|credentials?|secrets?|access tokens?|passwords?)\b/i,
-  /\b(?:do not|don't|never) (?:tell|inform|alert) (?:the )?(?:user|human|operator)\b/i,
-  /\bas an ai\b/i,
-  /\b(?:ai|llm|coding) (?:agents?|assistants?|models?)\b[,:]?\s*(?:must|should|need to|are required to|please)\b/i,
-  /<\|?(?:im_start|im_end|endoftext)\|?>|\[\/?INST\]|<<\/?SYS>>/i,
-]
-
 /**
  * Scans text outside fenced code, block quotes, and inline code (concept
  * section 6). `inlineCode` scans the text of code spans too, and
@@ -1379,24 +1423,12 @@ function injectionProblem(
   text: string,
   options: { everywhere?: boolean; inlineCode?: boolean } = {},
 ): CheckFailure | null {
-  const outside = (
-    options.everywhere
-      ? text
-      : withoutCode(text, options.inlineCode ?? false)
-          .split("\n")
-          .filter((line) => !/^ {0,3}>/.test(line))
-          .join("\n")
-  ).replace(/\s+/g, " ")
-  if (hasInstruction(outside))
-    return {
-      rule: "suspected_injection",
-      reason: "The text looks like an instruction to an agent",
-    }
-  return null
+  return hasInstructionIn(text, options) ? SUSPECTED_INJECTION : null
 }
 
-function hasInstruction(text: string): boolean {
-  return INJECTION_PHRASES.some((pattern) => pattern.test(text))
+const SUSPECTED_INJECTION: CheckFailure = {
+  rule: "suspected_injection",
+  reason: "The text looks like an instruction to an agent",
 }
 
 /**
@@ -1629,82 +1661,6 @@ function secretProblem(
     rule: "suspected_secret",
     reason: finding.reason.replace(" on line", ` on ${where}line`),
   }
-}
-
-/**
- * Removes fenced code blocks and inline code spans. With `keepSpanText`, a
- * code span keeps its text and loses only its backticks. Without it, a
- * span becomes one space, so the words at its two sides stay apart.
- */
-function withoutCode(text: string, keepSpanText: boolean): string {
-  const out: string[] = []
-  let fence: string | null = null
-  for (const line of text.split("\n")) {
-    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
-    if (fence) {
-      if (
-        marker &&
-        marker[0] === fence[0] &&
-        marker.length >= fence.length &&
-        line.trim() === marker
-      )
-        fence = null
-      out.push("")
-      continue
-    }
-    if (marker) {
-      fence = marker
-      out.push("")
-      continue
-    }
-    let kept = ""
-    let at = 0
-    for (const span of codeSpans(line)) {
-      kept += line.slice(at, span.start) + (keepSpanText ? span.text : " ")
-      at = span.end
-    }
-    out.push(kept + line.slice(at))
-  }
-  return out.join("\n")
-}
-
-/**
- * The code spans of one line, in linear time: a run of n backticks opens a
- * span that the next run of exactly n backticks closes.
- */
-function codeSpans(
-  line: string,
-): Array<{ start: number; end: number; text: string }> {
-  const runs: Array<{ at: number; length: number }> = []
-  for (let i = line.indexOf("`"); i !== -1; i = line.indexOf("`", i)) {
-    let j = i
-    while (line[j] === "`") j++
-    runs.push({ at: i, length: j - i })
-    i = j
-  }
-  const next: number[] = []
-  const later = new Map<number, number>()
-  for (let k = runs.length - 1; k >= 0; k--) {
-    const length = runs[k]?.length ?? 0
-    next[k] = later.get(length) ?? -1
-    later.set(length, k)
-  }
-  const spans: Array<{ start: number; end: number; text: string }> = []
-  for (let k = 0; k < runs.length;) {
-    const open = runs[k]
-    const close = runs[next[k] ?? -1]
-    if (!open || !close) {
-      k++
-      continue
-    }
-    spans.push({
-      start: open.at,
-      end: close.at + close.length,
-      text: line.slice(open.at + open.length, close.at),
-    })
-    k = (next[k] ?? k) + 1
-  }
-  return spans
 }
 
 function markdownLinks(body: string): string[] {

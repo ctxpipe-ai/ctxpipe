@@ -808,6 +808,80 @@ describe("hydrateKnowledgeTree pull request changes", () => {
     )
   })
 
+  it("writes a CHANGED claim to the Workflow file of each workflow file that the pull request changes", () => {
+    const mirror = pullRequest([]).path
+    const workflow = (path: string, extra: Record<string, unknown>) =>
+      unitFile(path, "Workflow", extra)
+    expect(
+      changedEdges(
+        [
+          ".github/workflows/ci.yml",
+          {
+            path: ".github/workflows/deploy.yml",
+            previousPath: ".github/workflows/release.yml",
+          },
+        ],
+        undefined,
+        [
+          ...PACKAGES,
+          workflow("knowledge/workflows/shop-ci.md", {
+            workflow_file: ".github/workflows/ci.yml",
+          }),
+          workflow("knowledge/workflows/shop-release.md", {
+            workflow_file: ".github/workflows/release.yml",
+          }),
+          workflow("knowledge/workflows/shop-lint.md", {
+            workflow_file: ".github/workflows/lint.yml",
+          }),
+          // A file of another repository, and a file that a human wrote.
+          workflow("knowledge/workflows/other-ci.md", {
+            workflow_file: ".github/workflows/ci.yml",
+            sources: ["https://github.com/acme/other"],
+          }),
+          workflow("knowledge/workflows/manual-ci.md", {
+            workflow_file: ".github/workflows/ci.yml",
+            generated_by: undefined,
+          }),
+        ],
+      ),
+    ).toEqual([
+      { from: mirror, to: "knowledge/codebases/shop.md", validFrom: MERGED_AT },
+      {
+        from: mirror,
+        to: "knowledge/workflows/shop-ci.md",
+        validFrom: MERGED_AT,
+      },
+      {
+        from: mirror,
+        to: "knowledge/workflows/shop-release.md",
+        validFrom: MERGED_AT,
+      },
+    ])
+  })
+
+  it("writes no CHANGED claim to a Workflow file outside knowledge/workflows/, with another workflow_file, or with two sources", () => {
+    const mirror = pullRequest([]).path
+    const workflow = (path: string, extra: Record<string, unknown>) =>
+      unitFile(path, "Workflow", extra)
+    expect(
+      changedEdges([".github/workflows/ci.yml", "package.json"], undefined, [
+        ...PACKAGES,
+        workflow("knowledge/services/ci.md", {
+          workflow_file: ".github/workflows/ci.yml",
+        }),
+        workflow("knowledge/workflows/manifest.md", {
+          workflow_file: "package.json",
+        }),
+        workflow("knowledge/workflows/shared-ci.md", {
+          workflow_file: ".github/workflows/ci.yml",
+          sources: [SHOP, "https://github.com/acme/other"],
+        }),
+      ]),
+    ).toEqual([
+      { from: mirror, to: "knowledge/codebases/shop.md", validFrom: MERGED_AT },
+    ])
+  })
+
   it("writes no CHANGED claim for a pull request that is not merged", () => {
     expect(
       changedEdges(["apps/api/src/checkout.ts"], {

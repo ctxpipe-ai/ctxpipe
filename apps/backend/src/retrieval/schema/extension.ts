@@ -13,6 +13,7 @@ export const ExtensionNodeType = z.enum([
   "Issue",
   "Team",
   "Thread",
+  "Workflow",
 ])
 
 /**

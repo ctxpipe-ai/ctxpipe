@@ -64,7 +64,7 @@ export type IngestSkillPlan = {
  * also runs once on the assembled ref for the Stream files, and
  * `datasources-infra` runs only there: a root step could only link a store
  * file that exists already, and there is none on a first run. Its
- * repository-wide step links every root.
+ * repository-wide step links every root. `workflows` runs last.
  */
 const INGEST_SKILLS: readonly IngestSkillPlan[] = [
   // The repository unit, which every later step can link to.
@@ -89,6 +89,9 @@ const INGEST_SKILLS: readonly IngestSkillPlan[] = [
     run: "model",
     tier: "medium",
   },
+  // Last: no step links to a Workflow file, and when the run cap of a
+  // Workspace stops a step, it stops this free script, not a model step.
+  { name: "workflows", scope: "repository", run: "script" },
 ]
 
 const DISCOVER_ROOTS_SKILL = "discover-roots"

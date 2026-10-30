@@ -61,8 +61,9 @@ describe("ingestion v2 plan", () => {
     })
   })
 
-  it("runs the repository unit first, dependencies also on the assembled ref, and datasources-infra only there", () => {
+  it("runs the repository unit first, dependencies also on the assembled ref, datasources-infra only there, and workflows last", () => {
     const bundle = [
+      "workflows",
       "repository",
       "classify-kind",
       "apis",
@@ -90,7 +91,13 @@ describe("ingestion v2 plan", () => {
       "datasources-infra",
       "decisions",
       "instruction-areas",
+      "workflows",
     ])
+    expect(plannedIngestSkills(bundle, "repository").at(-1)).toEqual({
+      name: "workflows",
+      scope: "repository",
+      run: "script",
+    })
   })
 
   it("refuses a bundle skill that the plan does not know", () => {

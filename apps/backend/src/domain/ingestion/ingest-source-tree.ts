@@ -33,8 +33,11 @@ import { GitOutputTooLargeError, runGit } from "./run-git.js"
 type SourceTree = {
   /** Each file path at the SHA. */
   paths(): Promise<string[]>
-  /** True when `path` (a file or a folder) exists at the SHA. */
-  exists(path: string): Promise<boolean>
+  /**
+   * True when `path` (a file or a folder) exists at the SHA. With `"blob"`,
+   * true only for a file; the check reads the tree and fetches no blob.
+   */
+  exists(path: string, type?: "blob"): Promise<boolean>
   /**
    * The text of the file `path` at the SHA (a symlink gives its target), or
    * null when the path is not exactly a file or is larger than the read
@@ -148,6 +151,32 @@ export function ingestSourceTree(input: {
 }): SourceTree {
   const key = treeKey(input.runId, input.sha, input.holder)
   const dir = async () => (await holdScratch(key, () => fetchTree(input))).dir
+  // `ls-tree` reads the tree only, so a folder or a gitlink gets no blob
+  // fetch. It matches a path as a prefix, so keep only the entry whose path
+  // is the requested path.
+  const entryOf = async (repo: string, path: string) => {
+    if (!path) return undefined
+    const listed = (
+      await runGit(repo, [
+        "--no-lazy-fetch",
+        "--literal-pathspecs",
+        "ls-tree",
+        "-z",
+        input.sha,
+        "--",
+        path,
+      ])
+    )
+      .toString("utf8")
+      .split("\0")
+      .filter(Boolean)
+      .map((line) => {
+        const [meta = "", name] = line.split("\t")
+        const [mode, type, oid] = meta.split(" ")
+        return { mode, type, oid, name }
+      })
+    return listed.find((e) => e.name === path)
+  }
   return {
     async paths() {
       const out = await runGit(await dir(), [
@@ -160,7 +189,9 @@ export function ingestSourceTree(input: {
       ])
       return out.toString("utf8").split("\0").filter(Boolean)
     },
-    async exists(path) {
+    async exists(path, type) {
+      if (type === "blob")
+        return (await entryOf(await dir(), path))?.type === "blob"
       const out = await runGit(await dir(), [
         "--no-lazy-fetch",
         "ls-tree",
@@ -174,29 +205,7 @@ export function ingestSourceTree(input: {
     async read(path) {
       const repo = await dir()
       if (!path) return null
-      // `ls-tree` reads the tree only, so a folder or a gitlink gets no blob
-      // fetch. It matches a path as a prefix, so keep only the entry whose
-      // path is the requested path.
-      const listed = (
-        await runGit(repo, [
-          "--no-lazy-fetch",
-          "--literal-pathspecs",
-          "ls-tree",
-          "-z",
-          input.sha,
-          "--",
-          path,
-        ])
-      )
-        .toString("utf8")
-        .split("\0")
-        .filter(Boolean)
-        .map((line) => {
-          const [meta = "", name] = line.split("\t")
-          const [mode, type, oid] = meta.split(" ")
-          return { mode, type, oid, name }
-        })
-      const entry = listed.find((e) => e.name === path)
+      const entry = await entryOf(repo, path)
       // A symlink is a blob whose text is its target, as in `gitSource`.
       if (!entry || entry.type !== "blob" || !entry.oid) return null
       const { oid } = entry

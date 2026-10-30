@@ -25,6 +25,22 @@ Workspace re-indexes.
 Use the canvas controls to zoom, reset the view, pause or play the layout,
 lasso-select a group of nodes, or capture a screenshot.
 
+## Workflow nodes
+
+A **Workflow** node is a GitHub Actions workflow file of a linked
+repository. It lists the triggers and the job ids of the workflow. Its file is
+in `knowledge/workflows/`.
+
+- A `MENTIONS` edge goes from a Workflow node to each service, app, or library
+  file whose folder a path filter or a working directory of the workflow
+  names.
+- A `CHANGED` edge goes from a merged pull request to a Workflow node when the
+  pull request changed the workflow file.
+
+A `MENTIONS` edge shows that the workflow names a folder. It does not show
+that the workflow builds, tests, or deploys that package. Open the workflow
+file to check.
+
 ## Inspect a node
 
 Click a node to open its details:

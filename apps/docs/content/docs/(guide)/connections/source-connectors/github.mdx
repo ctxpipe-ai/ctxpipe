@@ -106,6 +106,11 @@ changed, removed, or renamed. It **resolves** an issue when its branch names the
 issue, or when a closing word such as `fixes` or `closes` comes before the
 issue identifier. A GitHub issue links to the pull requests that closed it.
 
+A merged pull request that changes a workflow file in `.github/workflows/` also
+links to the Workflow knowledge file of that workflow file. See
+[Linked repositories](/docs/workspaces/linked-repositories) for the files that
+ctxpipe writes for workflows.
+
 <Cards>
   <Card title="Create a Workspace" href="/docs/workspaces/create-workspace" description="Choose or create the Workspace repository." />
   <Card title="Linked repositories" href="/docs/workspaces/linked-repositories" description="Add code repositories for search and extraction." />
