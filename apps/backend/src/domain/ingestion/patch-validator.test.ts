@@ -2477,3 +2477,72 @@ describe("validatePatchStep after the ownership migration", () => {
     ])
   })
 })
+
+describe("validatePatchStep claim rejection reasons (CTX-1082)", () => {
+  it("names the failing field inside the claim of a rejected union", async () => {
+    const result = await run(
+      stage({
+        files: {
+          "knowledge/services/bad-kind.md": service("Bad kind", undefined, {
+            claims: [
+              {
+                to: "./billing.md",
+                predicate: "CALLS",
+                evidence: { path: EVIDENCE.path, kind: "manifest" },
+              },
+            ],
+          }),
+        },
+      }),
+    )
+    expect(result.rejections).toHaveLength(1)
+    expect(result.rejections[0]?.rule).toBe("front_matter")
+    expect(result.rejections[0]?.reason).toBe(
+      "claims.0.evidence.kind: invalid_value",
+    )
+  })
+
+  it("counts unrecognized claim keys without naming them", async () => {
+    const result = await run(
+      stage({
+        files: {
+          "knowledge/services/extra-key.md": service("Extra key", undefined, {
+            claims: [
+              {
+                to: "./billing.md",
+                predicate: "CALLS",
+                evidence: EVIDENCE,
+                zqxjnote: "x",
+              },
+            ],
+          }),
+        },
+      }),
+    )
+    expect(result.rejections).toHaveLength(1)
+    expect(result.rejections[0]?.rule).toBe("front_matter")
+    expect(result.rejections[0]?.reason).toBe(
+      "claims.0: unrecognized_keys (1 key)",
+    )
+    expect(result.rejections[0]?.reason.toLowerCase()).not.toContain("zqxj")
+  })
+
+  it("names the missing field when no union member gets further", async () => {
+    const result = await run(
+      stage({
+        files: {
+          "knowledge/services/no-evidence.md": service(
+            "No evidence",
+            undefined,
+            {
+              claims: [{ to: "./billing.md", predicate: "CALLS" }],
+            },
+          ),
+        },
+      }),
+    )
+    expect(result.rejections).toHaveLength(1)
+    expect(result.rejections[0]?.rule).toBe("front_matter")
+    expect(result.rejections[0]?.reason).toBe("claims.0.evidence: invalid_type")
+  })
+})
