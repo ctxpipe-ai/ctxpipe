@@ -61,7 +61,10 @@ const withVariant: Decorator = function WithVariant(Story, context) {
 const meta = {
   title: "Pages/Prototype/Connector catalog",
   render: () => <ConnectorsPageContent orgSlug={ORG} />,
-  decorators: [withVariant, ...orgPageDecorators],
+  // The last decorator wraps the others. withVariant must be outside the page
+  // shell, whose main element is its own stacking layer (z-10): else the
+  // toasts and the switcher sit under each dialog (z-20).
+  decorators: [...orgPageDecorators, withVariant],
   parameters: {
     layout: "fullscreen",
     storyRoute: {
