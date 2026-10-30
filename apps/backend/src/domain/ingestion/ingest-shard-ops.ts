@@ -262,6 +262,20 @@ function ingestStepPrompt(
 }
 
 /**
+ * True when the gate scan starts the model: the scan failed, or the last
+ * line of its output is not `needsModel: false`.
+ */
+function scanStartsModel(scan: { exitCode: number; stdout: string }): boolean {
+  if (scan.exitCode !== 0) return true
+  try {
+    const last = scan.stdout.trim().split("\n").at(-1) ?? ""
+    return (JSON.parse(last) as { needsModel?: unknown }).needsModel !== false
+  } catch {
+    return true
+  }
+}
+
+/**
  * Run one skill step: root starts the step (fetch the ref, put the context
  * checkout at the base commit, place the index, write the root-to-file map),
  * the agent runs the skill, then `ctxpipe-finish` writes patch.json. A model
@@ -314,8 +328,24 @@ export async function runIngestShardStep(
           ...(input.model ? { model: input.model } : {}),
         })
       : `node ${INGEST_SKILLS_ROOT}/${step.skill}/scripts/${step.skill}.mjs ${ingestSkillArguments({ root: step.root, sourceUrl: input.sourceUrl, sourcePath: input.sourcePath })}`
+  // The host runs the scan of `dependencies` first. When no claim is
+  // possible, the script has written patch.json with the counts, and the
+  // model does not run (CTX-1083). A scan that fails starts the model.
+  let skipModel = false
+  if (step.run === "model" && step.skill === "dependencies") {
+    const scan = await root(
+      ingestAgentCommand({
+        env,
+        command: `node ${INGEST_SKILLS_ROOT}/dependencies/scripts/scan.mjs ${ingestSkillArguments({ root: step.root, sourceUrl: input.sourceUrl, sourcePath: input.sourcePath })} --gate`,
+      }),
+      { signal: step.signal },
+    )
+    skipModel = !scanStartsModel(scan)
+  }
   let usage: IngestStepUsage | undefined
-  for (const part of [command, "ctxpipe-finish"]) {
+  for (const part of skipModel
+    ? ["ctxpipe-finish"]
+    : [command, "ctxpipe-finish"]) {
     const result = await root(ingestAgentCommand({ env, command: part }), {
       signal: step.signal,
     })

@@ -127,7 +127,7 @@ const GENERATED_BY = "ctxpipe-extract"
 const SHARED_FOLDER =
   /^knowledge\/(?:streams|databases|infrastructure|instructions)\//
 /** The kinds whose files get the host `root` (CTX-657). */
-const PACKAGE_KINDS: ReadonlySet<string> = new Set([
+export const PACKAGE_KINDS: ReadonlySet<string> = new Set([
   "Service",
   "App",
   "Library",

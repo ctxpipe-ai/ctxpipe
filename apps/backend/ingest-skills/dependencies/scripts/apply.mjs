@@ -28,7 +28,7 @@ import {
   writeStep,
 } from "../../bin/knowledge-lib.mjs"
 import { fail } from "../../bin/stage-lib.mjs"
-import { scan } from "./scan-lib.mjs"
+import { scan, stepStats } from "./scan-lib.mjs"
 
 const MAX_RESOLUTIONS = 300
 const MAX_STREAM_FILES = 28
@@ -46,6 +46,13 @@ const repositoryStep = rootPath === null
 if (!repositoryStep && !roots.some((r) => r.path === rootPath))
   fail(`${rootPath} is not a root in the roots file`)
 
+// The counts go to patch.json for the host: a name and a whole number, with no
+// path and no text of the source or the context.
+const stats = {}
+const count = (name, by = 1) => {
+  stats[name] = (stats[name] ?? 0) + by
+}
+
 let resolutions = []
 try {
   if (statSync(resolutionsFile).size > MAX_RESOLUTIONS_BYTES)
@@ -60,6 +67,7 @@ if (resolutions.length > MAX_RESOLUTIONS) {
     path: null,
     reason: `The script read only the first ${MAX_RESOLUTIONS} resolutions`,
   })
+  count("skipped.too_many", resolutions.length - MAX_RESOLUTIONS)
   resolutions = resolutions.slice(0, MAX_RESOLUTIONS)
 }
 
@@ -90,8 +98,10 @@ const slug = (text) =>
 
 const plans = []
 const streams = new Set()
-const skip = (id, reason) =>
+const skip = (id, reason, code) => {
+  count(`skipped.${code}`)
   skipped.push({ path: null, reason: `${id}: ${reason}` })
+}
 const noService = new Set()
 
 for (const resolution of resolutions) {
@@ -101,12 +111,23 @@ for (const resolution of resolutions) {
   const at = repositoryStep ? resolution.root : rootPath
   const current = roots.find((r) => r.path === at)
   if (!current) {
-    skip(id, "give the root of the candidate (a root of the roots file)")
+    skip(
+      id,
+      "give the root of the candidate (a root of the roots file)",
+      "no_root",
+    )
     continue
   }
   // Only a Service can DEPENDS_ON, CONSUMES_API, PRODUCES_TO, or CONSUMES_FROM.
   const users = current.files.filter((f) => f.kind === "Service")
+  const kindName = ["service", "api", "stream", "ignore"].includes(
+    resolution.kind,
+  )
+    ? resolution.kind
+    : "other"
+  count(`resolutions.${kindName}`)
   if (!users.length) {
+    if (resolution.kind !== "ignore") count("skipped.no_service")
     if (resolution.kind !== "ignore" && !noService.has(current.path)) {
       noService.add(current.path)
       skipped.push({
@@ -120,7 +141,7 @@ for (const resolution of resolutions) {
     (c) => c.id === resolution.id,
   )
   if (!candidate) {
-    skip(id, "no candidate has this id")
+    skip(id, "no candidate has this id", "unknown_id")
     continue
   }
   const kind = resolution.kind
@@ -129,11 +150,15 @@ for (const resolution of resolutions) {
   let predicate = null
   if (kind === "service" || kind === "api") {
     if (repositoryStep) {
-      skip(id, "the root step resolves services and APIs")
+      skip(id, "the root step resolves services and APIs", "wrong_step")
       continue
     }
     if (candidate.type === "queue" || candidate.type === "stream") {
-      skip(id, "a queue or stream candidate needs a stream target")
+      skip(
+        id,
+        "a queue or stream candidate needs a stream target",
+        "wrong_target_kind",
+      )
       continue
     }
     const entry = entryAt(resolution.path)
@@ -142,22 +167,27 @@ for (const resolution of resolutions) {
       skip(
         id,
         `${String(resolution.path).slice(0, 100)} is not a ${kind} file of the context`,
+        "unknown_path",
       )
       continue
     }
     if (current.files.some((f) => f.path === entry.path)) {
-      skip(id, "a root does not depend on itself")
+      skip(id, "a root does not depend on itself", "self")
       continue
     }
     target = { path: entry.path }
     predicate = kind === "service" ? "DEPENDS_ON" : "CONSUMES_API"
   } else if (kind === "stream") {
     if (!repositoryStep) {
-      skip(id, "the repository-wide step resolves streams")
+      skip(id, "the repository-wide step resolves streams", "wrong_step")
       continue
     }
     if (candidate.type === "http") {
-      skip(id, "an HTTP candidate needs a service or API target")
+      skip(
+        id,
+        "an HTTP candidate needs a service or API target",
+        "wrong_target_kind",
+      )
       continue
     }
     const direction =
@@ -165,7 +195,11 @@ for (const resolution of resolutions) {
         ? resolution.direction
         : candidate.direction
     if (direction !== "produce" && direction !== "consume") {
-      skip(id, "give direction produce or consume for a config candidate")
+      skip(
+        id,
+        "give direction produce or consume for a config candidate",
+        "no_direction",
+      )
       continue
     }
     predicate = direction === "produce" ? "PRODUCES_TO" : "CONSUMES_FROM"
@@ -176,6 +210,7 @@ for (const resolution of resolutions) {
         skip(
           id,
           `${String(resolution.path).slice(0, 100)} is not a Stream file of the context`,
+          "unknown_path",
         )
         continue
       }
@@ -196,11 +231,16 @@ for (const resolution of resolutions) {
       skip(
         id,
         "give the path of a Stream file, or a stream name of letters, digits, and . _ : -",
+        "no_stream_name",
       )
       continue
     }
     if (!streams.has(target.path) && streams.size >= MAX_STREAM_FILES) {
-      skip(id, `the step writes at most ${MAX_STREAM_FILES} stream files`)
+      skip(
+        id,
+        `the step writes at most ${MAX_STREAM_FILES} stream files`,
+        "stream_cap",
+      )
       continue
     }
     streams.add(target.path)
@@ -221,7 +261,7 @@ for (const resolution of resolutions) {
       },
     })
   } else {
-    skip(id, "kind must be service, api, stream, or ignore")
+    skip(id, "kind must be service, api, stream, or ignore", "bad_kind")
     continue
   }
   for (const user of users)
@@ -239,4 +279,10 @@ for (const resolution of resolutions) {
     })
 }
 
-writeStep(step, plans, skipped)
+// The candidates of each root of the step, by type, also for a root that no
+// resolution reached.
+for (const [name, value] of Object.entries(
+  stepStats(roots, rootPath, scanOf).stats,
+))
+  count(name, value)
+writeStep(step, plans, skipped, { stats })

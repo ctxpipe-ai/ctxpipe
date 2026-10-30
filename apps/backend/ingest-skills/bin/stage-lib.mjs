@@ -182,19 +182,28 @@ export function writePatch(step, options = {}) {
     })
   }
   ops.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-  const more = options.more === true || earlierMore(step)
-  writeJson(join(step.stepDir, "patch.json"), more ? { ops, more } : { ops })
+  const earlier = earlierPatch(step)
+  const more = options.more === true || earlier.more === true
+  // `stats` are counts that the host puts on its step span. A later
+  // `ctxpipe-finish` keeps the counts of a script. The span has the number of
+  // accepted ops as `ctxpipe.ingest.ops`, so `stats` does not count ops.
+  const stats = options.stats ?? earlier.stats
+  writeJson(join(step.stepDir, "patch.json"), {
+    ops,
+    ...(more ? { more } : {}),
+    ...(stats ? { stats } : {}),
+  })
   return ops
 }
 
-/** True when patch.json of this step already says `more`. */
-function earlierMore(step) {
+/** The `more` and `stats` that patch.json of this step already has. */
+function earlierPatch(step) {
   try {
     const earlier = JSON.parse(
       readFileSync(join(step.stepDir, "patch.json"), "utf8"),
     )
-    return earlier?.more === true
+    return { more: earlier?.more === true, stats: earlier?.stats }
   } catch {
-    return false
+    return { more: false, stats: undefined }
   }
 }

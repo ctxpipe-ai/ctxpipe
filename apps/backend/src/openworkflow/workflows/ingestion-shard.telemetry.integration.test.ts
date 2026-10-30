@@ -71,7 +71,7 @@ function write(dir: string, path: string, text: string) {
   writeFileSync(join(dir, path), text)
 }
 /** A staged step output (`files/<path>` and `patch.json`). */
-function staged(files: Record<string, string>) {
+function staged(files: Record<string, string>, stats?: object) {
   const out = mkdtempSync(join(folder, "out-"))
   mkdirSync(join(out, "files"))
   for (const [path, text] of Object.entries(files))
@@ -81,12 +81,13 @@ function staged(files: Record<string, string>) {
     "patch.json",
     JSON.stringify({
       ops: Object.keys(files).map((path) => ({ op: "create", path })),
+      ...(stats ? { stats } : {}),
     }),
   )
   return out
 }
-function archive(files: Record<string, string>) {
-  const out = staged(files)
+function archive(files: Record<string, string>, stats?: object) {
+  const out = staged(files, stats)
   return execFileSync("tar", ["-cf", "-", "-C", out, "patch.json", "files"], {
     env: { ...process.env, COPYFILE_DISABLE: "1" },
   })
@@ -226,6 +227,38 @@ describe("ingestion step telemetry with the local git broker", () => {
     exporter.reset()
     expect(await runStep(files)).toEqual(first)
     expect(stepSpan()?.attributes["ctxpipe.ingest.rejects"]).toBe(1)
+  })
+  it("puts the counts of the step output on the step span, and drops a count with a bad name or value", async () => {
+    await runStep(
+      {},
+      {
+        runtime: {
+          ensure: async () => {},
+          discoverRoots: async () => ({}),
+          runStep: async () => ({
+            tar: archive(
+              {},
+              {
+                "candidates.http": 2,
+                "skipped.no_service": 1,
+                "private sentinel": 3,
+                "resolutions.ignore": "private sentinel",
+                "ops.negative": -1,
+              },
+            ),
+          }),
+        },
+      },
+    )
+    const attributes = stepSpan()?.attributes ?? {}
+    expect(attributes["ctxpipe.ingest.stat.candidates.http"]).toBe(2)
+    expect(attributes["ctxpipe.ingest.stat.skipped.no_service"]).toBe(1)
+    expect(
+      Object.keys(attributes).filter((k) =>
+        k.startsWith("ctxpipe.ingest.stat."),
+      ),
+    ).toHaveLength(2)
+    expect(JSON.stringify(spans())).not.toContain("private sentinel")
   })
   it("exports each rejection and the partial validation result", async () => {
     await runStep({

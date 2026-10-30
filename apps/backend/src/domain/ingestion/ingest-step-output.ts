@@ -1,4 +1,12 @@
-import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -132,4 +140,36 @@ export async function withIngestStepOutput<T>(
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+}
+
+/**
+ * The counts that a skill script put in `patch.json` (`stats`): a name and a
+ * whole number. A script writes a name from a fixed list, never a path or
+ * source text. The agent can change the file, so the reader keeps only a
+ * short name of lowercase words and a whole number, at most 40 of them.
+ */
+export async function readStepStats(
+  stagedDir: string,
+): Promise<Record<string, number>> {
+  let stats: unknown
+  try {
+    stats = JSON.parse(
+      await readFile(join(stagedDir, "patch.json"), "utf8"),
+    ).stats
+  } catch {
+    return {}
+  }
+  if (!stats || typeof stats !== "object" || Array.isArray(stats)) return {}
+  const kept: Record<string, number> = {}
+  for (const [name, value] of Object.entries(stats)) {
+    if (Object.keys(kept).length >= 40) break
+    if (
+      /^[a-z_]{1,30}(\.[a-z_]{1,30}){0,2}$/.test(name) &&
+      typeof value === "number" &&
+      Number.isSafeInteger(value) &&
+      value >= 0
+    )
+      kept[name] = value
+  }
+  return kept
 }

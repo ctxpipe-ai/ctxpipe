@@ -73,6 +73,7 @@ import {
   INGEST_TOOL_BRIDGE_PATH,
   workspaceCheckoutLabel,
 } from "./ingest-tools.js"
+import { withExistingRootFiles } from "./ingestion-plan.js"
 import { ingestionOrg } from "./ingestion-v2-resolve.js"
 import { runGit } from "./run-git.js"
 
@@ -442,7 +443,7 @@ function shardRuntime(
       sourcePath: destination.sourcePath,
       rootPath: destination.rootPath,
     })
-    return (await held.index.at(step.baseCommit, step.fetchRef)).json
+    return held.index.at(step.baseCommit, step.fetchRef)
   }
 
   /**
@@ -561,13 +562,18 @@ function shardRuntime(
           )
           if (!destination)
             throw new Error("The step's Workspace is not in the shard")
+          const { json, rootFiles } = await indexOf(step)
           const { usage } = await runIngestShardStep(root, {
-            step: { ...step, signal },
+            step: {
+              ...step,
+              rootMap: withExistingRootFiles(step.rootMap, rootFiles),
+              signal,
+            },
             agentEnv,
             remote: sandboxFetchUrl(destination),
             sourceUrl: spec.source.url,
             sourcePath: destination.sourcePath,
-            index: await indexOf(step),
+            index: json,
             ...(models
               ? {
                   model: `ctxpipe/${step.tier === "fast" ? models.fast : models.medium}`,
