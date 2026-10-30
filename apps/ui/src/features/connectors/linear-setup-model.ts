@@ -5,8 +5,8 @@ import type { LinearConnectorStatus } from "./queries/linear-connector"
  * Each Workspace keeps its teams and projects in a source file under `sources/linear/`.
  */
 export const LINEAR_SETUP_STEPS = [
-  { id: "connect", label: "Connect Linear workspace" },
-  { id: "workspaces", label: "Choose Workspaces" },
+  { id: "connect", label: "Connect Linear" },
+  { id: "workspaces", label: "Add to Workspaces" },
 ] as const
 
 export const SELF_HOSTED_LINEAR_SETUP_STEPS = [

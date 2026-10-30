@@ -142,7 +142,7 @@ export function PagerdutySetupDialog({
       return (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
-          Loading PagerDuty connector...
+          Loading…
         </div>
       )
     }
@@ -238,7 +238,7 @@ export function PagerdutySetupDialog({
             Close
           </Button>
         </div>
-        {status ? (
+        {status || !connectionId ? (
           <div className="mb-6">
             <ConnectorSetupStepper
               steps={setupSteps}

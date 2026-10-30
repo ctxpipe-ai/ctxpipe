@@ -1,11 +1,11 @@
 "use client"
 
-import { IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { PLAIN_REQUIRED_PERMISSIONS } from "backend/domain/workspace-sources/providers/plain"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/Button"
+import { ExternalLink } from "@/components/ui/ExternalLink"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
@@ -24,21 +24,6 @@ import {
 } from "../queries/plain-connector"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { PlainMark } from "./PlainMark"
-
-/** A link out of the product: teal, as the other setup dialogs show it. */
-function ExternalLink(props: { href: string; children: string }) {
-  return (
-    <a
-      href={props.href}
-      target="_blank"
-      rel="noreferrer"
-      className="inline-flex items-center gap-1 font-medium text-teal-400 hover:text-teal-300"
-    >
-      {props.children}
-      <IconExternalLink className="size-3.5" aria-hidden />
-    </a>
-  )
-}
 
 type PlainSetupDialogProps = {
   orgSlug: string
@@ -88,7 +73,7 @@ export function PlainSetupDialog({
       return (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
-          Loading the Plain connector
+          Loading…
         </div>
       )
     }

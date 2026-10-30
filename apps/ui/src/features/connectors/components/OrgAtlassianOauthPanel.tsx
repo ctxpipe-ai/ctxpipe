@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/Button"
+import { ExternalLink } from "@/components/ui/ExternalLink"
 import { TextField } from "@/components/ui/TextField"
 
 import { displayOAuthCallbackUrl } from "../lib/display-oauth-callback-url"
@@ -60,14 +61,9 @@ function AtlassianThreeLoSetupGuide({
       <ol className={`list-decimal space-y-3 pl-5 ${mutedClass}`}>
         <li>
           Go to the{" "}
-          <a
-            href="https://developer.atlassian.com/console/myapps/create-3lo-app"
-            className="text-primary underline-offset-2 hover:underline"
-            target="_blank"
-            rel="noreferrer"
-          >
+          <ExternalLink href="https://developer.atlassian.com/console/myapps/create-3lo-app">
             Atlassian developer console
-          </a>{" "}
+          </ExternalLink>{" "}
           and create an OAuth 2.0 (3LO) app with a name you prefer.
         </li>
         <li>
@@ -226,7 +222,7 @@ export function OrgAtlassianOauthPanel({
       }
     >
       {embedded ? null : (
-        <h3 className="text-sm font-semibold text-foreground">
+        <h3 className="text-sm font-medium text-foreground">
           Atlassian OAuth (3LO)
         </h3>
       )}
@@ -252,7 +248,7 @@ export function OrgAtlassianOauthPanel({
         variant="primary"
         className="rounded-md"
         isPending={save.isPending}
-        isDisabled={meta.isPending}
+        isDisabled={meta.isPending || !clientId || !clientSecret}
         onPress={() => {
           if (!clientId || !clientSecret) return
           void save.mutateAsync()

@@ -1,12 +1,13 @@
 "use client"
 
 import HyperDX from "@hyperdx/browser"
-import { IconBrandSlack, IconExternalLink } from "@tabler/icons-react"
+import { IconBrandSlack } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/Button"
+import { ExternalLink } from "@/components/ui/ExternalLink"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
@@ -35,9 +36,9 @@ export const SLACK_SETUP_RESULT_KEY = "slack-setup-result"
 const SLACK_DOCS_URL = `${DOCS_URL}/docs/connections/source-connectors/slack`
 
 const SLACK_SETUP_STEPS = [
-  { id: "authorize", label: "Authorize Slack workspace" },
+  { id: "authorize", label: "Connect Slack" },
   { id: "github", label: "Connect GitHub" },
-  { id: "workspaces", label: "Choose Workspaces" },
+  { id: "workspaces", label: "Add to Workspaces" },
 ] as const
 
 type SlackSetupDialogProps = {
@@ -179,15 +180,6 @@ export function SlackSetupDialog({
                 Save a Slack thread to your Workspaces when someone mentions the
                 ctxpipe bot in it. The bot reads nothing else.
               </p>
-              <a
-                href={SLACK_DOCS_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-2 inline-flex items-center gap-1 text-sm text-teal-400 hover:text-teal-300"
-              >
-                Slack connector docs
-                <IconExternalLink className="size-3.5" aria-hidden />
-              </a>
             </div>
           </div>
           <Button
@@ -213,7 +205,7 @@ export function SlackSetupDialog({
         {setupView === "loading" ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Spinner className="size-4" />
-            Loading Slack connector…
+            Loading…
           </div>
         ) : setupView === "error" ? (
           <div className="space-y-4">
@@ -252,10 +244,13 @@ export function SlackSetupDialog({
           <div className="space-y-4">
             <div>
               <h3 className="text-base font-medium text-foreground">
-                Authorize Slack workspace
+                Connect Slack
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Install the ctxpipe Slack app into your workspace to continue.
+                Install the ctxpipe Slack app into your workspace to continue.{" "}
+                <ExternalLink href={SLACK_DOCS_URL}>
+                  Slack connector docs
+                </ExternalLink>
               </p>
             </div>
             <Button

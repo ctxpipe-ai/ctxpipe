@@ -55,7 +55,7 @@ export function LinkAtlassianStep({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-semibold text-foreground">
+        <h3 className="text-base font-medium text-foreground">
           Link Atlassian account
         </h3>
         {useGlobalOauth ? (
@@ -99,7 +99,7 @@ export function LinkAtlassianStep({
               })
             }}
           >
-            Connect Atlassian account
+            Link Atlassian account
           </Button>
         </div>
       ) : null}
@@ -133,7 +133,7 @@ export function LinkAtlassianStep({
               window.location.assign(u.toString())
             }}
           >
-            Connect Atlassian account
+            Link Atlassian account
           </Button>
         </div>
       ) : null}

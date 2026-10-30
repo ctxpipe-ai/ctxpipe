@@ -40,7 +40,9 @@ export function AddNotionWebhookStep({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-medium text-foreground">Add webhook</h3>
+        <h3 className="text-base font-medium text-foreground">
+          Add the webhook
+        </h3>
         <p className="mt-2 text-sm text-muted-foreground">
           In the same Notion OAuth app, open the{" "}
           <strong className="font-medium text-foreground">Webhooks</strong> tab

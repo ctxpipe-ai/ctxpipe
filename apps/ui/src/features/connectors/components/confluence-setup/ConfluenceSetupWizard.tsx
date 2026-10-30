@@ -225,7 +225,8 @@ export function ConfluenceSetupWizard({
                 Set up Confluence connector
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Complete each step to connect Confluence to this organization.
+                Connect Confluence, then select the spaces and pages for each
+                Workspace.
               </p>
             </div>
           </div>
@@ -258,9 +259,9 @@ export function ConfluenceSetupWizard({
         ) : null}
 
         {statusPending ? (
-          <div className="mt-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Spinner className="text-muted-foreground" />
-            Loading connector status...
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Spinner className="size-4" />
+            Loading…
           </div>
         ) : statusError ? (
           <div className="mt-6 space-y-3 text-sm text-muted-foreground">

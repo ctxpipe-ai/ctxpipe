@@ -1,10 +1,10 @@
 "use client"
 
-import { IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/Button"
+import { ExternalLink } from "@/components/ui/ExternalLink"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
@@ -79,7 +79,7 @@ export function BuildkiteSetupDialog({
       return (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
-          Loading the Buildkite connector
+          Loading…
         </div>
       )
     }
@@ -235,15 +235,9 @@ function ConnectStep(props: {
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
           Create an{" "}
-          <a
-            href="https://buildkite.com/user/api-access-tokens/new"
-            className="font-medium text-teal-400 underline decoration-teal-400/50 underline-offset-4 hover:text-teal-300 hover:decoration-teal-300"
-            target="_blank"
-            rel="noreferrer"
-          >
+          <ExternalLink href="https://buildkite.com/user/api-access-tokens/new">
             API access token
-            <IconExternalLink className="ml-1 inline size-3.5" aria-hidden />
-          </a>{" "}
+          </ExternalLink>{" "}
           for your organization with only the{" "}
           <code className="font-mono text-xs text-foreground">
             read_pipelines
@@ -332,15 +326,11 @@ function WebhookStep(props: {
       <ol className="list-decimal space-y-3 pl-5 text-sm text-muted-foreground">
         <li>
           In Buildkite, open{" "}
-          <a
+          <ExternalLink
             href={`https://buildkite.com/organizations/${encodeURIComponent(props.status.organizationSlug)}/services`}
-            className="font-medium text-teal-400 underline decoration-teal-400/50 underline-offset-4 hover:text-teal-300 hover:decoration-teal-300"
-            target="_blank"
-            rel="noreferrer"
           >
             Notification Services
-            <IconExternalLink className="ml-1 inline size-3.5" aria-hidden />
-          </a>{" "}
+          </ExternalLink>{" "}
           and add a{" "}
           <strong className="font-medium text-foreground">Webhook</strong>.
         </li>

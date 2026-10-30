@@ -20,7 +20,7 @@ export const NOTION_SETUP_STEPS = [
 
 export const SELF_HOSTED_NOTION_SETUP_STEPS = [
   { id: "register", label: "Register Notion OAuth app" },
-  { id: "webhook", label: "Add webhook" },
+  { id: "webhook", label: "Add the webhook" },
   ...NOTION_SETUP_STEPS,
 ] as const
 

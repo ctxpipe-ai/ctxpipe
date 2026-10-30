@@ -99,7 +99,7 @@ export function NotionSetupDialog({
       return (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-4" />
-          Loading Notion connector...
+          Loading…
         </div>
       )
     }
@@ -216,7 +216,8 @@ export function NotionSetupDialog({
                 Set up Notion connector
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Complete each step to connect Notion to this organization.
+                Connect Notion, then select the pages and databases for each
+                Workspace.
               </p>
             </div>
           </div>

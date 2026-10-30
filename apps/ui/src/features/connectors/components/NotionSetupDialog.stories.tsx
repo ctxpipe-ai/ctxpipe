@@ -144,7 +144,7 @@ export const RegisterNotionOauth: Story = {
       "client_123",
     )
     await userEvent.type(body.getByLabelText("Client secret"), "secret_abc")
-    await userEvent.click(body.getByRole("button", { name: "Save" }))
+    await userEvent.click(body.getByRole("button", { name: "Save OAuth app" }))
     await body.findByText(/Waiting for Notion to send a verification token/)
     await expect(body.queryByRole("textbox", { name: "Client ID" })).toBeNull()
   },

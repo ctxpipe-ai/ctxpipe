@@ -150,7 +150,7 @@ export const ConnectAccount: Story = {
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
-    await body.findByRole("heading", { name: "Connect PagerDuty account" })
+    await body.findByRole("heading", { name: "Connect PagerDuty" })
     const connect = body.getByRole("button", { name: "Connect PagerDuty" })
     // The modal fades in; wait until the step is visible.
     await waitFor(() => expect(connect).toBeVisible())

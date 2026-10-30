@@ -1,10 +1,10 @@
 "use client"
 
-import { IconExternalLink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/Button"
+import { ExternalLink } from "@/components/ui/ExternalLink"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { TextField } from "@/components/ui/TextField"
 
@@ -74,15 +74,9 @@ export function RegisterNotionOauthStep({
             Create an{" "}
             <strong className="font-medium text-foreground">OAuth app</strong>{" "}
             in the{" "}
-            <a
-              href="https://www.notion.so/profile/integrations"
-              className="text-teal-400 underline underline-offset-4 hover:text-teal-300"
-              target="_blank"
-              rel="noreferrer"
-            >
+            <ExternalLink href="https://www.notion.so/profile/integrations">
               Notion integrations
-              <IconExternalLink className="ml-1 inline size-3.5" aria-hidden />
-            </a>{" "}
+            </ExternalLink>{" "}
             portal.
           </li>
           <li>
@@ -132,7 +126,7 @@ export function RegisterNotionOauthStep({
               void save.mutateAsync()
             }}
           >
-            Save
+            Save OAuth app
           </Button>
         </div>
         {save.error ? (

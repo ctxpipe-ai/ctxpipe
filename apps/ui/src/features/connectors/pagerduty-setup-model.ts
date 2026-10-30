@@ -13,7 +13,7 @@ type OAuthMeta = {
  * Workspaces. Each Workspace keeps its services in its sources.
  */
 export const PAGERDUTY_SETUP_STEPS = [
-  { id: "connect", label: "Connect PagerDuty account" },
+  { id: "connect", label: "Connect PagerDuty" },
   { id: "workspaces", label: "Add to Workspaces" },
 ] as const
 

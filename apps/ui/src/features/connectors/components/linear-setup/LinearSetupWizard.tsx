@@ -146,8 +146,8 @@ export function LinearSetupWizard({
                 Set up Linear connector
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Authorize Linear, then choose the Workspaces that sync its teams
-                and projects.
+                Connect Linear, then select the teams and projects for each
+                Workspace.
               </p>
             </div>
           </div>
@@ -170,9 +170,9 @@ export function LinearSetupWizard({
         ) : null}
 
         {loading ? (
-          <div className="mt-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Spinner className="size-4" />
-            Loading connector status...
+            Loading…
           </div>
         ) : connectionId && statusQuery.isError ? (
           <div className="space-y-3 text-sm">
