@@ -301,6 +301,9 @@ export function referenceLinks(input: {
     }
     const urls = extractUrls(unit.body)
     for (const url of urls) {
+      // Text that only looks like a URL (a template or a placeholder host)
+      // cannot name a unit: skip it with no warning (CTX-1088).
+      if (!URL.canParse(url)) continue
       guarded("URL", () => {
         for (const key of urlKeys(url, sites)) addKey(key)
         const blob = workspaceBlobPath(url, workspaceRepository, paths)
