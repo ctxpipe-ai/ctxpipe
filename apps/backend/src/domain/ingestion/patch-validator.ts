@@ -1828,14 +1828,37 @@ export function normalizeSourceUrl(url: string): string {
   return normalizeWorkspaceRepositoryUrl(url).replace(/\.git$/i, "")
 }
 
-/** Gives the field and the issue code only, so no staged text goes into a reason. */
+/**
+ * Gives the field and the issue code only, so no staged text goes into a
+ * reason. For the claims union, the reason uses the first issue of the member
+ * that has the fewest issues (the first member wins a tie). For unknown keys,
+ * it gives the count of keys, not their names, because a key can hold model
+ * text. The path holds schema keys and array indexes only. Do not add a
+ * `z.record` to these schemas: its keys would go into the reason.
+ */
 function zodReason(error: z.ZodError): string {
-  const issue = error.issues[0]
-  if (!issue) return "The front matter does not match the schema"
-  const at = issue.path.length
-    ? `${issue.path.map((p) => String(p).slice(0, 40)).join(".")}: `
+  const outer = error.issues[0]
+  if (!outer) return "The front matter does not match the schema"
+  let issue: z.core.$ZodIssue = outer
+  let path = outer.path
+  if (outer.code === "invalid_union") {
+    let closest: z.core.$ZodIssue[] | undefined
+    for (const member of outer.errors)
+      if (!closest || member.length < closest.length) closest = member
+    const inner = closest?.[0]
+    if (inner) {
+      issue = inner
+      path = [...outer.path, ...inner.path]
+    }
+  }
+  const at = path.length
+    ? `${path.map((p) => String(p).slice(0, 40)).join(".")}: `
     : ""
-  return `${at}${issue.code}`
+  const count =
+    issue.code === "unrecognized_keys"
+      ? ` (${issue.keys.length} key${issue.keys.length === 1 ? "" : "s"})`
+      : ""
+  return `${at}${issue.code}${count}`
 }
 
 async function readPatchJson(
