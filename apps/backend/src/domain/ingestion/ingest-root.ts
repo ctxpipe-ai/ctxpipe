@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { PassThrough } from "node:stream"
 
 import type { ExecResult } from "@tanstack/ai-sandbox"
+import { APIError } from "@vercel/sandbox"
 import Docker from "dockerode"
 
 import {
@@ -69,8 +70,11 @@ if [ -n "$(found)" ]; then echo "Agent processes are left: $(found)" >&2; exit 1
 /** Root-only folder for the process group id of each signalled exec. */
 const EXEC_GROUPS = "/run/ctxpipe-exec"
 
-/** Runs one command (no shell) as root in the sandbox. */
-type RootCommand = (cmd: string[]) => Promise<RootResult>
+/**
+ * Runs one command (no shell) as root in the sandbox. A `signal` can stop the
+ * wait for the command; the abort of `signalledRootExec` ends its processes.
+ */
+type RootCommand = (cmd: string[], signal?: AbortSignal) => Promise<RootResult>
 
 /**
  * A `RootExec` from a root command. With a `signal`, the script runs in its
@@ -109,7 +113,10 @@ function signalledRootExec(exec: RootCommand): RootExec {
       ])
     }
     signal.addEventListener("abort", onAbort, { once: true })
-    const running = exec(["setsid", "-w", "sh", "-c", wrapper, "sh", script])
+    const running = exec(
+      ["setsid", "-w", "sh", "-c", wrapper, "sh", script],
+      signal,
+    )
     try {
       const result = await running
       if (killed) {
@@ -158,30 +165,127 @@ export function dockerRootExec(
   })
 }
 
+type VercelCommand = {
+  cmdId: string
+  exitCode: number | null
+  logs: (options: {
+    signal?: AbortSignal
+  }) => AsyncIterable<{ stream: "stdout" | "stderr"; data: string }>
+  kill: () => Promise<void>
+}
+
 type VercelCommandSandbox = {
   runCommand: (input: {
     cmd: string
     args: string[]
-    sudo: boolean
-  }) => Promise<{
-    exitCode: number | null
-    logs: () => AsyncIterable<{ stream: "stdout" | "stderr"; data: string }>
-  }>
+    sudo: true
+    detached: true
+  }) => Promise<VercelCommand>
+  getCommand: (
+    cmdId: string,
+    options: { signal?: AbortSignal },
+  ) => Promise<VercelCommand>
 }
 
 /**
  * Root through the Vercel SDK's `sudo` option; the same scripts as Docker.
+ *
+ * Only short requests (CTX-1094): the command starts detached, short reads
+ * of the command find its end, and then one request reads its logs. The SDK
+ * can also keep one request open for the whole command, but a connection
+ * that stays open for minutes can close in the middle (undici `terminated`,
+ * `UND_ERR_SOCKET`), and that fails the step. The SDK's `wait()` also keeps
+ * one request open, until the headers timeout of undici (300 s).
+ *
  * The SDK's `output()` keeps the full stdout, the full stderr, and both
  * together in the heap. A command that writes much can fill the worker heap
  * (CTX-971), so this reads the log stream and keeps only the bounded part.
  */
 export function vercelRootExec(sandbox: VercelCommandSandbox): RootExec {
-  return signalledRootExec(async ([cmd = "sh", ...args]) => {
-    const finished = await sandbox.runCommand({ cmd, args, sudo: true })
-    const output = boundedRootOutput()
-    for await (const line of finished.logs()) output.add(line.stream, line.data)
-    return { ...output.result(), exitCode: finished.exitCode ?? -1 }
+  return signalledRootExec(async ([cmd = "sh", ...args], signal) => {
+    const started = await sandbox.runCommand({
+      cmd,
+      args,
+      sudo: true,
+      detached: true,
+    })
+    // The abort of `signalledRootExec` ends the processes; this also stops
+    // the command itself.
+    const kill = () => void started.kill().catch(() => undefined)
+    if (signal?.aborted) kill()
+    else signal?.addEventListener("abort", kill, { once: true })
+    try {
+      const ended = await waitForVercelCommand(sandbox, started, signal)
+      for (let attempt = 1; ; attempt++) {
+        // A dropped log read starts again from the first line.
+        const output = boundedRootOutput()
+        try {
+          for await (const line of ended.logs({ signal }))
+            output.add(line.stream, line.data)
+          return { ...output.result(), exitCode: ended.exitCode ?? -1 }
+        } catch (error) {
+          if (attempt >= 3 || signal?.aborted || !isTransientVercelError(error))
+            throw error
+        }
+      }
+    } finally {
+      signal?.removeEventListener("abort", kill)
+    }
   })
+}
+
+/**
+ * Reads the command again and again until it has an exit code. The first
+ * wait is short, so a short command ends soon; the wait grows to 2 seconds.
+ * A read that fails with a transient error is tried again; the 6th such
+ * failure in sequence fails the command. An abort stops the wait at once.
+ */
+async function waitForVercelCommand(
+  sandbox: VercelCommandSandbox,
+  started: VercelCommand,
+  signal: AbortSignal | undefined,
+): Promise<VercelCommand> {
+  let command = started
+  let delay = 100
+  let failures = 0
+  while (command.exitCode === null) {
+    await abortableDelay(delay, signal)
+    delay = Math.min(delay * 2, 2_000)
+    try {
+      command = await sandbox.getCommand(started.cmdId, { signal })
+      failures = 0
+    } catch (error) {
+      if (signal?.aborted || !isTransientVercelError(error) || ++failures > 5)
+        throw error
+    }
+  }
+  return command
+}
+
+/** Waits `ms`; rejects with the signal's reason at the abort. */
+function abortableDelay(ms: number, signal: AbortSignal | undefined) {
+  return new Promise<void>((resolve, reject) => {
+    signal?.throwIfAborted()
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal?.reason)
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener("abort", onAbort, { once: true })
+  })
+}
+
+/**
+ * A dropped connection (undici `fetch failed` or `terminated`) or a 5xx
+ * answer of the Vercel API. The next request can work.
+ */
+function isTransientVercelError(error: unknown): boolean {
+  if (error instanceof TypeError)
+    return error.message === "fetch failed" || error.message === "terminated"
+  return error instanceof APIError && error.response.status >= 500
 }
 
 /** The stdout that a root command keeps from its start, up to this cap. */

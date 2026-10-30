@@ -1,7 +1,15 @@
-import { Sandbox } from "@vercel/sandbox"
+import { APIError, Sandbox } from "@vercel/sandbox"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
 import { ingestAgentCommand } from "./ingest-opencode.js"
 import { assertIngestProvider } from "./ingest-prepare.js"
@@ -22,51 +30,206 @@ import {
  * (`ingest-root.contract.test.ts`).
  */
 
-type Call = { cmd: string; args?: string[]; sudo?: boolean }
+type Call = { cmd: string; args?: string[]; sudo?: boolean; detached?: boolean }
 
 type LogLine = { stream: "stdout" | "stderr"; data: string }
 
+/**
+ * An in-memory Vercel sandbox. The first command starts with no exit code;
+ * each `getCommand` read takes the next item of `reads` (an exit code, `null`
+ * while it runs, or an error to throw). Each later command (the stop script
+ * of an abort) ends at once with exit 0.
+ */
 function fakeSandbox(
-  exitCode: number,
-  stderr = "",
-  lines: () => Iterable<LogLine> = () => [
-    { stream: "stdout", data: "out" },
-    ...(stderr ? [{ stream: "stderr" as const, data: stderr }] : []),
-  ],
+  reads: (number | null | Error)[],
+  lines: () => Iterable<LogLine> = () => [{ stream: "stdout", data: "out" }],
 ) {
   const calls: Call[] = []
+  const killed: string[] = []
+  let readCount = 0
+  let logReads = 0
+  const command = (cmdId: string, exitCode: number | null) => ({
+    cmdId,
+    exitCode,
+    logs: async function* () {
+      logReads++
+      yield* lines()
+    },
+    kill: async () => {
+      killed.push(cmdId)
+    },
+  })
   return {
     calls,
+    killed,
+    reads: () => readCount,
+    logReads: () => logReads,
     sandbox: {
-      runCommand: async (input: Call) => {
+      runCommand: async (input: Call & { detached: true }) => {
         calls.push(input)
-        return {
-          exitCode,
-          logs: async function* () {
-            yield* lines()
-          },
-        }
+        return calls.length === 1
+          ? command("cmd_1", null)
+          : command(`cmd_${calls.length}`, 0)
+      },
+      getCommand: async (cmdId: string) => {
+        readCount++
+        const next = reads.shift()
+        if (next instanceof Error) throw next
+        return command(cmdId, next ?? null)
       },
     },
   }
 }
 
+/** A dropped connection, as undici reports it in production. */
+const terminated = () =>
+  new TypeError("terminated", { cause: { code: "UND_ERR_SOCKET" } })
+
 describe("vercelRootExec", () => {
-  it("runs the script with sudo through sh", async () => {
-    const { calls, sandbox } = fakeSandbox(0)
-    expect(await vercelRootExec(sandbox)("mkdir -p /ctxpipe")).toEqual({
-      stdout: "out",
-      stderr: "",
-      exitCode: 0,
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** Run `promise` to its end while the fake timers run. */
+  const settle = async <T>(promise: Promise<T>) => {
+    const outcome = promise.then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    )
+    await vi.runAllTimersAsync()
+    return outcome
+  }
+
+  it("starts the script detached with sudo through sh", async () => {
+    vi.useFakeTimers()
+    const { calls, sandbox } = fakeSandbox([0])
+    expect(await settle(vercelRootExec(sandbox)("mkdir -p /ctxpipe"))).toEqual({
+      value: { stdout: "out", stderr: "", exitCode: 0 },
     })
     expect(calls).toEqual([
-      { cmd: "sh", args: ["-c", "mkdir -p /ctxpipe"], sudo: true },
+      {
+        cmd: "sh",
+        args: ["-c", "mkdir -p /ctxpipe"],
+        sudo: true,
+        detached: true,
+      },
     ])
   })
 
+  it("reads the command again with short requests until it ends, then reads its logs once", async () => {
+    vi.useFakeTimers()
+    const fake = fakeSandbox([null, null, null, null, 3], () => [
+      { stream: "stdout", data: "line 1\n" },
+      { stream: "stderr", data: "warn" },
+      { stream: "stdout", data: "line 2" },
+    ])
+    expect(await settle(vercelRootExec(fake.sandbox)("step"))).toEqual({
+      value: { stdout: "line 1\nline 2", stderr: "warn", exitCode: 3 },
+    })
+    expect(fake.reads()).toBe(5)
+    expect(fake.logReads()).toBe(1)
+  })
+
+  it("waits at most a few seconds between two reads", async () => {
+    vi.useFakeTimers()
+    const fake = fakeSandbox([])
+    void vercelRootExec(fake.sandbox)("long step").catch(() => undefined)
+    await vi.advanceTimersByTimeAsync(60_000)
+    const before = fake.reads()
+    await vi.advanceTimersByTimeAsync(60_000)
+    // One minute of a long command: at least one read each 2 seconds.
+    expect(fake.reads() - before).toBeGreaterThanOrEqual(30)
+  })
+
+  it("does not fail the command on a few dropped reads", async () => {
+    vi.useFakeTimers()
+    const fake = fakeSandbox([
+      null,
+      terminated(),
+      new TypeError("fetch failed"),
+      null,
+      terminated(),
+      0,
+    ])
+    expect(await settle(vercelRootExec(fake.sandbox)("step"))).toEqual({
+      value: { stdout: "out", stderr: "", exitCode: 0 },
+    })
+  })
+
+  it("does not fail the command on a 5xx answer to a read", async () => {
+    vi.useFakeTimers()
+    const fake = fakeSandbox([
+      new APIError(new Response(null, { status: 502 })),
+      0,
+    ])
+    expect(await settle(vercelRootExec(fake.sandbox)("step"))).toEqual({
+      value: { stdout: "out", stderr: "", exitCode: 0 },
+    })
+  })
+
+  it("fails the command when too many reads in sequence fail", async () => {
+    vi.useFakeTimers()
+    const fake = fakeSandbox([null, ...Array.from({ length: 6 }, terminated)])
+    const outcome = await settle(vercelRootExec(fake.sandbox)("step"))
+    expect(outcome).toEqual({ error: expect.any(TypeError) })
+    expect(fake.reads()).toBe(7)
+  })
+
+  it("fails the command at once on an error that is not transient", async () => {
+    vi.useFakeTimers()
+    const fake = fakeSandbox([
+      new APIError(new Response(null, { status: 404 })),
+      0,
+    ])
+    const outcome = await settle(vercelRootExec(fake.sandbox)("step"))
+    expect(outcome).toEqual({ error: expect.any(APIError) })
+    expect(fake.reads()).toBe(1)
+  })
+
+  it("reads the logs again from the start when the log read drops", async () => {
+    vi.useFakeTimers()
+    let attempt = 0
+    const fake = fakeSandbox([0], function* () {
+      attempt++
+      yield { stream: "stdout", data: "part\n" }
+      if (attempt === 1) throw terminated()
+      yield { stream: "stdout", data: "end" }
+    })
+    expect(await settle(vercelRootExec(fake.sandbox)("step"))).toEqual({
+      value: { stdout: "part\nend", stderr: "", exitCode: 0 },
+    })
+    expect(fake.logReads()).toBe(2)
+  })
+
+  it("on abort, stops the wait at once and kills the command", async () => {
+    vi.useFakeTimers()
+    const fake = fakeSandbox([])
+    const controller = new AbortController()
+    const running = vercelRootExec(fake.sandbox)("sleep 600", {
+      signal: controller.signal,
+    }).then(
+      () => "finished",
+      (error: Error) => error.message,
+    )
+    await vi.advanceTimersByTimeAsync(10_000)
+    controller.abort(new Error("step limit"))
+    // The stop script ends at once; no timer has to run for the abort.
+    expect(await running).toBe("step limit")
+    expect(fake.killed).toEqual(["cmd_1"])
+    const reads = fake.reads()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fake.reads()).toBe(reads)
+    // The command, then the stop script of the abort.
+    expect(fake.calls[1]?.args?.[1]).toContain("kill -TERM")
+  })
+
   it("throws with the stderr when a root script fails", async () => {
-    const { sandbox } = fakeSandbox(1, "sudo: not allowed")
-    await expect(runAsRoot(vercelRootExec(sandbox), "true")).rejects.toThrow(
+    vi.useFakeTimers()
+    const { sandbox } = fakeSandbox([1], () => [
+      { stream: "stderr", data: "sudo: not allowed" },
+    ])
+    const outcome = await settle(runAsRoot(vercelRootExec(sandbox), "true"))
+    expect(String((outcome as { error: unknown }).error)).toMatch(
       /exit 1.*sudo: not allowed/,
     )
   })
@@ -77,6 +240,7 @@ describe("vercelRootExec through the Vercel SDK", () => {
   type Log = { stream: "stdout" | "stderr"; data: string }
   let logs: () => Generator<Log> = function* () {}
   let streamedLines = 0
+  let reads = 0
   const session = {
     id: "ses_root",
     memory: 2048,
@@ -89,6 +253,14 @@ describe("vercelRootExec through the Vercel SDK", () => {
     createdAt: 1,
     cwd: "/vercel/sandbox",
     updatedAt: 1,
+  }
+  const command = {
+    id: "cmd_root",
+    name: "sh",
+    args: [],
+    cwd: "/vercel/sandbox",
+    sessionId: session.id,
+    startedAt: 1,
   }
   const ndjson = (lines: () => Generator<unknown>) => {
     const encoder = new TextEncoder()
@@ -122,20 +294,21 @@ describe("vercelRootExec through the Vercel SDK", () => {
         routes: [],
       }),
     ),
-    http.post("https://vercel.com/api/v2/sandboxes/sessions/:id/cmd", () => {
-      const command = {
-        id: "cmd_root",
-        name: "sh",
-        args: [],
-        cwd: "/vercel/sandbox",
-        sessionId: session.id,
-        startedAt: 1,
-      }
-      return ndjson(function* () {
-        yield { command: { ...command, exitCode: null } }
-        yield { command: { ...command, exitCode: 0 } }
-      })
-    }),
+    http.post(
+      "https://vercel.com/api/v2/sandboxes/sessions/:id/cmd",
+      async ({ request }) => {
+        // Detached: the start answers at once, with no exit code yet.
+        expect(await request.json()).not.toHaveProperty("wait")
+        reads = 0
+        return HttpResponse.json({ command: { ...command, exitCode: null } })
+      },
+    ),
+    // A short read of the command: it runs on the first read, then ends.
+    http.get("https://vercel.com/api/v2/sandboxes/sessions/:id/cmd/:cmd", () =>
+      HttpResponse.json({
+        command: { ...command, exitCode: reads++ === 0 ? null : 0 },
+      }),
+    ),
     http.get(
       "https://vercel.com/api/v2/sandboxes/sessions/:id/cmd/:cmd/logs",
       () =>
@@ -183,6 +356,7 @@ describe("vercelRootExec through the Vercel SDK", () => {
     const result = await (await root())("noisy")
 
     expect(streamedLines).toBe(32 * 3 + 2)
+    expect(reads).toBe(2)
     expect(result.exitCode).toBe(0)
     expect(result.stdoutTruncated).toBe(true)
     expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(
