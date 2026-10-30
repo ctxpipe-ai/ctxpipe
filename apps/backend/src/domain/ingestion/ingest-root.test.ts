@@ -38,6 +38,7 @@ function fakeSandbox(
 ) {
   const calls: Call[] = []
   const killed: string[] = []
+  const killOptions: ({ abortSignal?: AbortSignal } | undefined)[] = []
   let readCount = 0
   let logReads = 0
   const command = (cmdId: string, exitCode: number | null) => ({
@@ -47,13 +48,18 @@ function fakeSandbox(
       logReads++
       yield* lines()
     },
-    kill: async () => {
+    kill: async (
+      _signal?: undefined,
+      options?: { abortSignal?: AbortSignal },
+    ) => {
       killed.push(cmdId)
+      killOptions.push(options)
     },
   })
   return {
     calls,
     killed,
+    killOptions,
     reads: () => readCount,
     logReads: () => logReads,
     sandbox: {
@@ -122,10 +128,11 @@ describe("vercelRootExec", () => {
     const running = settle(
       vercelRootExec(fake.sandbox)("long step", { signal: controller.signal }),
     )
-    await new Promise((resolve) => setTimeout(resolve, 3_700))
+    await new Promise((resolve) => setTimeout(resolve, 4_500))
     controller.abort(new Error("test end"))
     await running
-    // Waits of 100 ms, 200 ms, 400 ms, 800 ms, and 1.6 s: five reads in 3.7 s.
+    // Waits of 100 ms, 200 ms, 400 ms, 800 ms, and 1.6 s: five reads in
+    // about 3.1 s. The end at 4.5 s gives a slow runner time to spare.
     expect(fake.reads()).toBeGreaterThanOrEqual(5)
   }, 10_000)
 
@@ -161,6 +168,13 @@ describe("vercelRootExec", () => {
     expect(outcome).toEqual({ error: expect.any(TypeError) })
     expect(fake.reads()).toBe(7)
     expect(fake.killed).toEqual(["cmd_1"])
+  })
+
+  it("gives the kill of a failed command a time limit", async () => {
+    // A stalled Vercel API must not hold the step after its time limit.
+    const fake = fakeSandbox([null, ...Array.from({ length: 6 }, terminated)])
+    await settle(vercelRootExec(fake.sandbox)("step"))
+    expect(fake.killOptions).toEqual([{ abortSignal: expect.any(AbortSignal) }])
   })
 
   it("counts only failures in sequence", async () => {

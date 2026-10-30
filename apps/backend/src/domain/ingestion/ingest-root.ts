@@ -171,7 +171,10 @@ type VercelCommand = {
   logs: (options: {
     signal?: AbortSignal
   }) => AsyncIterable<{ stream: "stdout" | "stderr"; data: string }>
-  kill: () => Promise<void>
+  kill: (
+    signal?: undefined,
+    options?: { abortSignal?: AbortSignal },
+  ) => Promise<void>
 }
 
 type VercelCommandSandbox = {
@@ -228,8 +231,12 @@ export function vercelRootExec(sandbox: VercelCommandSandbox): RootExec {
       return { ...output, exitCode: ended.exitCode ?? -1 }
     } catch (error) {
       // The abort of `signalledRootExec` ends the processes; this also
-      // stops the command itself.
-      await started.kill().catch(() => undefined)
+      // stops the command itself. With no abort, `kill` stops only the top
+      // process: the prepare of the next step stops the agent processes.
+      // The time limit keeps a stalled API from holding the step.
+      await started
+        .kill(undefined, { abortSignal: AbortSignal.timeout(10_000) })
+        .catch(() => undefined)
       throw error
     }
   })
