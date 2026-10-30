@@ -36,6 +36,9 @@ import {
   PlainSetupDialog,
   SlackConnectionCard,
 } from "@/features/connectors"
+import type { CatalogStartHandlers } from "@/features/connectors/catalog-prototype/catalog-start"
+import { ConnectorCatalogPrototype } from "@/features/connectors/catalog-prototype/ConnectorCatalogPrototype"
+import { useCatalogPrototype } from "@/features/connectors/catalog-prototype/prototype-variant"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
 import { ConnectorListSkeleton } from "@/features/connectors/components/ConnectorListItem"
 import { ConnectorsOAuthErrorBanner } from "@/features/connectors/components/ConnectorsOAuthErrorBanner"
@@ -239,237 +242,279 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
     })
   }, [search.error, search.error_description, navigate, orgSlug])
 
+  // The start of each catalog entry, by connector. The catalog buttons below
+  // and the catalog prototype call the same handlers.
+  const catalogStart: CatalogStartHandlers = {
+    github: () => {
+      setCatalogOpen(false)
+      setGithubSelfHostedWizardOpen(true)
+    },
+    confluence: ({ connectionId }) => {
+      setWizardAtlassianConnectionId(connectionId)
+      setWizardOpen(true)
+      setCatalogOpen(false)
+    },
+    slack: () => {
+      setCatalogOpen(false)
+      setSlackSetupOpen(true)
+    },
+    linear: (connectionId) => {
+      setLinearConnectionId(connectionId)
+      setLinearWizardOpen(true)
+      setCatalogOpen(false)
+    },
+    notion: ({ connectionId }) => {
+      setNotionConnectionId(connectionId)
+      setNotionSetupOpen(true)
+      setCatalogOpen(false)
+    },
+    pagerduty: ({ connectionId }) => {
+      setPagerdutyConnectionId(connectionId ?? null)
+      setPagerdutySetupOpen(true)
+      setCatalogOpen(false)
+    },
+    buildkite: () => {
+      setBuildkiteConnectionId(null)
+      setBuildkiteReplaceWebhook(false)
+      setBuildkiteSetupOpen(true)
+      setCatalogOpen(false)
+    },
+    plain: () => {
+      setPlainConnectionId(null)
+      setPlainReconnect(false)
+      setPlainSetupOpen(true)
+      setCatalogOpen(false)
+    },
+  }
+  // PROTOTYPE (branch prototype/connector-catalog): null outside its stories.
+  const prototype = useCatalogPrototype()
+  const catalogVariant =
+    prototype && prototype.variant !== "current" ? prototype.variant : null
+  const catalogPage = catalogVariant === "C" && catalogOpen
+  const prototypeCatalog = catalogVariant ? (
+    <ConnectorCatalogPrototype
+      variant={catalogVariant}
+      facts={prototype?.facts}
+      orgSlug={orgSlug}
+      connections={items}
+      isOpen={catalogOpen}
+      onOpenChange={setCatalogOpen}
+      start={catalogStart}
+    />
+  ) : null
+
   return (
-    <main className="mx-auto box-border flex min-h-full w-full max-w-2xl flex-col p-8 text-foreground">
-      {errorBanner ? (
-        <ConnectorsOAuthErrorBanner
-          title={errorBanner.title}
-          description={errorBanner.description}
-        />
-      ) : null}
-      <ConnectorsHeader
-        actions={
-          showEmptyState ? null : (
-            <Button
-              variant="secondary"
-              size="icon"
-              className="rounded-md"
-              aria-label="Add connection"
-              isDisabled={connectBlocked}
-              onPress={() => setCatalogOpen(true)}
-            >
-              <IconPlus className="size-5" aria-hidden />
-            </Button>
-          )
-        }
-      />
-
-      {connectBlocked ? (
-        <div className="mt-8">
-          <FormatUpgradeWorkspacesNotice
-            orgSlug={orgSlug}
-            workspaces={needUpgrade}
+    <main
+      className={`mx-auto box-border flex min-h-full w-full flex-col p-8 text-foreground ${
+        catalogPage ? "max-w-5xl" : "max-w-2xl"
+      }`}
+    >
+      {catalogPage ? prototypeCatalog : null}
+      {catalogPage ? null : (
+        <>
+          {errorBanner ? (
+            <ConnectorsOAuthErrorBanner
+              title={errorBanner.title}
+              description={errorBanner.description}
+            />
+          ) : null}
+          <ConnectorsHeader
+            actions={
+              showEmptyState ? null : (
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="rounded-md"
+                  aria-label="Add connection"
+                  isDisabled={connectBlocked}
+                  onPress={() => setCatalogOpen(true)}
+                >
+                  <IconPlus className="size-5" aria-hidden />
+                </Button>
+              )
+            }
           />
-        </div>
-      ) : null}
 
-      <section
-        className={`mt-12 flex min-h-0 flex-col ${
-          showEmptyState ? "" : "border-t border-white/[0.06]"
-        }`}
-      >
-        {showPageLoading ? (
-          <ConnectorListSkeleton />
-        ) : showEmptyState ? (
-          <ConnectorsEmptyState
-            isDisabled={connectBlocked}
-            onAddConnection={() => setCatalogOpen(true)}
-          />
-        ) : (
-          items.map((row) => {
-            if (row.type === "forge") {
-              return (
-                <ConfluenceConnectionCard
-                  key={row.id}
-                  orgSlug={orgSlug}
-                  connectionId={row.id}
-                  onOpenWizard={() => {
-                    setWizardAtlassianConnectionId(row.id)
-                    setWizardOpen(true)
-                  }}
-                />
-              )
-            }
-            if (row.type === "slack") {
-              return (
-                <SlackConnectionCard
-                  key={row.id}
-                  orgSlug={orgSlug}
-                  connectionId={row.id}
-                />
-              )
-            }
-            if (row.type === "linear") {
-              return (
-                <LinearConnectionCard
-                  key={row.id}
-                  orgSlug={orgSlug}
-                  connectionId={row.id}
-                  onOpenWizard={() => {
-                    setLinearConnectionId(row.id)
-                    setLinearWizardOpen(true)
-                  }}
-                />
-              )
-            }
-            if (row.type === "notion") {
-              return (
-                <NotionConnectionCard
-                  key={row.id}
-                  orgSlug={orgSlug}
-                  connectionId={row.id}
-                  onOpenSetup={() => {
-                    setNotionConnectionId(row.id)
-                    setNotionSetupOpen(true)
-                  }}
-                />
-              )
-            }
-            if (row.type === "buildkite") {
-              return (
-                <BuildkiteConnectionCard
-                  key={row.id}
-                  orgSlug={orgSlug}
-                  connectionId={row.id}
-                  onOpenSetup={(options) => {
-                    setBuildkiteConnectionId(row.id)
-                    setBuildkiteReplaceWebhook(Boolean(options?.replaceWebhook))
-                    setBuildkiteSetupOpen(true)
-                  }}
-                />
-              )
-            }
-            if (row.type === "plain") {
-              return (
-                <PlainConnectionCard
-                  key={row.id}
-                  orgSlug={orgSlug}
-                  connectionId={row.id}
-                  onOpenSetup={(options) => {
-                    setPlainConnectionId(row.id)
-                    setPlainReconnect(Boolean(options?.reconnect))
-                    setPlainSetupOpen(true)
-                  }}
-                />
-              )
-            }
-            if (row.type === "pagerduty") {
-              return (
-                <PagerdutyConnectionCard
-                  key={row.id}
-                  orgSlug={orgSlug}
-                  connectionId={row.id}
-                  onOpenSetup={() => {
-                    setPagerdutyConnectionId(row.id)
-                    setPagerdutySetupOpen(true)
-                  }}
-                />
-              )
-            }
-            return (
-              <GithubConnectionCard
-                key={row.id}
+          {connectBlocked ? (
+            <div className="mt-8">
+              <FormatUpgradeWorkspacesNotice
                 orgSlug={orgSlug}
-                connectionId={row.id}
+                workspaces={needUpgrade}
               />
-            )
-          })
-        )}
-      </section>
+            </div>
+          ) : null}
 
-      <AddConnectorCatalogDialog
-        isOpen={catalogOpen}
-        onOpenChange={setCatalogOpen}
-      >
-        <li>
-          <AddGithubConnectorButton
-            orgSlug={orgSlug}
-            onRequestSelfHostedWizard={() => {
-              setCatalogOpen(false)
-              setGithubSelfHostedWizardOpen(true)
-            }}
-          />
-        </li>
-        <li>
-          <AddConfluenceConnectorButton
-            orgSlug={orgSlug}
-            onInstallIntentRegistered={({ connectionId }) => {
-              setWizardAtlassianConnectionId(connectionId)
-              setWizardOpen(true)
-              setCatalogOpen(false)
-            }}
-          />
-        </li>
-        <li>
-          <AddSlackConnectorButton
-            orgSlug={orgSlug}
-            onOpenSetup={() => {
-              setCatalogOpen(false)
-              setSlackSetupOpen(true)
-            }}
-          />
-        </li>
-        <li>
-          <AddLinearConnectorButton
-            orgSlug={orgSlug}
-            onStart={(connectionId) => {
-              setLinearConnectionId(connectionId)
-              setLinearWizardOpen(true)
-              setCatalogOpen(false)
-            }}
-          />
-        </li>
-        <li>
-          <AddNotionConnectorButton
-            orgSlug={orgSlug}
-            onStart={({ connectionId }) => {
-              setNotionConnectionId(connectionId)
-              setNotionSetupOpen(true)
-              setCatalogOpen(false)
-            }}
-          />
-        </li>
-        <li>
-          <AddPagerdutyConnectorButton
-            orgSlug={orgSlug}
-            onStart={({ connectionId }) => {
-              setPagerdutyConnectionId(connectionId ?? null)
-              setPagerdutySetupOpen(true)
-              setCatalogOpen(false)
-            }}
-          />
-        </li>
-        <li>
-          <AddBuildkiteConnectorButton
-            onStart={() => {
-              setBuildkiteConnectionId(null)
-              setBuildkiteReplaceWebhook(false)
-              setBuildkiteSetupOpen(true)
-              setCatalogOpen(false)
-            }}
-          />
-        </li>
-        <li>
-          <AddPlainConnectorButton
-            onStart={() => {
-              setPlainConnectionId(null)
-              setPlainReconnect(false)
-              setPlainSetupOpen(true)
-              setCatalogOpen(false)
-            }}
-          />
-        </li>
-      </AddConnectorCatalogDialog>
+          <section
+            className={`mt-12 flex min-h-0 flex-col ${
+              showEmptyState ? "" : "border-t border-white/[0.06]"
+            }`}
+          >
+            {showPageLoading ? (
+              <ConnectorListSkeleton />
+            ) : showEmptyState ? (
+              <ConnectorsEmptyState
+                isDisabled={connectBlocked}
+                onAddConnection={() => setCatalogOpen(true)}
+              />
+            ) : (
+              items.map((row) => {
+                if (row.type === "forge") {
+                  return (
+                    <ConfluenceConnectionCard
+                      key={row.id}
+                      orgSlug={orgSlug}
+                      connectionId={row.id}
+                      onOpenWizard={() => {
+                        setWizardAtlassianConnectionId(row.id)
+                        setWizardOpen(true)
+                      }}
+                    />
+                  )
+                }
+                if (row.type === "slack") {
+                  return (
+                    <SlackConnectionCard
+                      key={row.id}
+                      orgSlug={orgSlug}
+                      connectionId={row.id}
+                    />
+                  )
+                }
+                if (row.type === "linear") {
+                  return (
+                    <LinearConnectionCard
+                      key={row.id}
+                      orgSlug={orgSlug}
+                      connectionId={row.id}
+                      onOpenWizard={() => {
+                        setLinearConnectionId(row.id)
+                        setLinearWizardOpen(true)
+                      }}
+                    />
+                  )
+                }
+                if (row.type === "notion") {
+                  return (
+                    <NotionConnectionCard
+                      key={row.id}
+                      orgSlug={orgSlug}
+                      connectionId={row.id}
+                      onOpenSetup={() => {
+                        setNotionConnectionId(row.id)
+                        setNotionSetupOpen(true)
+                      }}
+                    />
+                  )
+                }
+                if (row.type === "buildkite") {
+                  return (
+                    <BuildkiteConnectionCard
+                      key={row.id}
+                      orgSlug={orgSlug}
+                      connectionId={row.id}
+                      onOpenSetup={(options) => {
+                        setBuildkiteConnectionId(row.id)
+                        setBuildkiteReplaceWebhook(
+                          Boolean(options?.replaceWebhook),
+                        )
+                        setBuildkiteSetupOpen(true)
+                      }}
+                    />
+                  )
+                }
+                if (row.type === "plain") {
+                  return (
+                    <PlainConnectionCard
+                      key={row.id}
+                      orgSlug={orgSlug}
+                      connectionId={row.id}
+                      onOpenSetup={(options) => {
+                        setPlainConnectionId(row.id)
+                        setPlainReconnect(Boolean(options?.reconnect))
+                        setPlainSetupOpen(true)
+                      }}
+                    />
+                  )
+                }
+                if (row.type === "pagerduty") {
+                  return (
+                    <PagerdutyConnectionCard
+                      key={row.id}
+                      orgSlug={orgSlug}
+                      connectionId={row.id}
+                      onOpenSetup={() => {
+                        setPagerdutyConnectionId(row.id)
+                        setPagerdutySetupOpen(true)
+                      }}
+                    />
+                  )
+                }
+                return (
+                  <GithubConnectionCard
+                    key={row.id}
+                    orgSlug={orgSlug}
+                    connectionId={row.id}
+                  />
+                )
+              })
+            )}
+          </section>
+        </>
+      )}
+
+      {catalogVariant ? (
+        catalogPage ? null : (
+          prototypeCatalog
+        )
+      ) : (
+        <AddConnectorCatalogDialog
+          isOpen={catalogOpen}
+          onOpenChange={setCatalogOpen}
+        >
+          <li>
+            <AddGithubConnectorButton
+              orgSlug={orgSlug}
+              onRequestSelfHostedWizard={catalogStart.github}
+            />
+          </li>
+          <li>
+            <AddConfluenceConnectorButton
+              orgSlug={orgSlug}
+              onInstallIntentRegistered={catalogStart.confluence}
+            />
+          </li>
+          <li>
+            <AddSlackConnectorButton
+              orgSlug={orgSlug}
+              onOpenSetup={catalogStart.slack}
+            />
+          </li>
+          <li>
+            <AddLinearConnectorButton
+              orgSlug={orgSlug}
+              onStart={catalogStart.linear}
+            />
+          </li>
+          <li>
+            <AddNotionConnectorButton
+              orgSlug={orgSlug}
+              onStart={catalogStart.notion}
+            />
+          </li>
+          <li>
+            <AddPagerdutyConnectorButton
+              orgSlug={orgSlug}
+              onStart={catalogStart.pagerduty}
+            />
+          </li>
+          <li>
+            <AddBuildkiteConnectorButton onStart={catalogStart.buildkite} />
+          </li>
+          <li>
+            <AddPlainConnectorButton onStart={catalogStart.plain} />
+          </li>
+        </AddConnectorCatalogDialog>
+      )}
 
       <GithubSelfHostedWizardModal
         orgSlug={orgSlug}
