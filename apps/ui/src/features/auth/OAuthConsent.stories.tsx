@@ -23,7 +23,7 @@ const meta = {
   },
   args: {
     clientId: "claude-plugin",
-    scopes: ["ctxpipe:read", "ctxpipe:write", "offline_access"],
+    scopes: ["ctxpipe:read", "offline_access"],
     organizations,
     defaultOrganizationIds: ["org_north"],
     onAllow: fn(),
@@ -78,61 +78,12 @@ export const ConsentNeedsOneOrg: Story = {
   },
 }
 
-export const ConsentWriteOffByDefault: Story = {
-  parameters: {
-    intent:
-      "Catches consent that grants write access by default. Write stays off until the user ticks it, then it joins the scopes. Not for organization choice.",
-  },
-  tags: ["workspace-golden"],
-  play: async ({ canvasElement, args }) => {
-    const canvas = within(canvasElement)
-    const write = await canvas.findByRole("checkbox", {
-      name: /Also allow changes/,
-    })
-    await expect(write).not.toBeChecked()
-    await userEvent.click(canvas.getByRole("button", { name: "Allow" }))
-    await expect(args.onAllow).toHaveBeenLastCalledWith(
-      ["ctxpipe:read", "offline_access"],
-      ["org_north"],
-    )
-    await userEvent.click(write)
-    await userEvent.click(canvas.getByRole("button", { name: "Allow" }))
-    await expect(args.onAllow).toHaveBeenLastCalledWith(
-      ["ctxpipe:read", "ctxpipe:write", "offline_access"],
-      ["org_north"],
-    )
-  },
-}
-
 export const ConsentReadOnly: Story = {
   args: { scopes: ["ctxpipe:read"] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
       expect(canvas.getByRole("button", { name: "Allow" })).toBeEnabled(),
-    )
-    await expect(
-      canvas.queryByRole("checkbox", { name: /Also allow changes/ }),
-    ).toBeNull()
-  },
-}
-
-export const ConsentWriteOnly: Story = {
-  args: { scopes: ["ctxpipe:write"] },
-  play: async ({ canvasElement, args }) => {
-    const canvas = within(canvasElement)
-    const allow = await canvas.findByRole("button", { name: "Allow" })
-    await expect(allow).toBeDisabled()
-    await userEvent.click(
-      canvas.getByRole("checkbox", { name: /Also allow changes/ }),
-    )
-    await waitFor(() =>
-      expect(canvas.getByRole("button", { name: "Allow" })).toBeEnabled(),
-    )
-    await userEvent.click(allow)
-    await expect(args.onAllow).toHaveBeenCalledWith(
-      ["ctxpipe:write"],
-      ["org_north"],
     )
   },
 }

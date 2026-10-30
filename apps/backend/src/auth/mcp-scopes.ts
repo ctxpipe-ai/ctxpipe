@@ -10,25 +10,15 @@ export const MCP_READ_SCOPE = "ctxpipe:read"
 export const MCP_WRITE_SCOPE = "ctxpipe:write"
 type McpScope = typeof MCP_READ_SCOPE | typeof MCP_WRITE_SCOPE
 
-/** Scopes that `/mcp` advertises in its protected resource metadata. */
-export const MCP_SCOPES: readonly McpScope[] = [MCP_READ_SCOPE, MCP_WRITE_SCOPE]
-
 /**
- * MCP scopes of the request principal.
- *
- * - An OAuth grant with `ctxpipe:write` gets read and write.
- * - An OAuth grant with `ctxpipe:read` gets read.
- * - An OAuth grant from before the ctxpipe scopes (no `ctxpipe:*` scope) gets read.
- * - A session, a personal API key and an org API key get read.
+ * Scopes that `/mcp` advertises in its protected resource metadata. No MCP
+ * tool writes yet, so ctxpipe offers only `ctxpipe:read`. A stored grant from
+ * before can still list `ctxpipe:write`; nothing reads that as write.
  */
-export function grantedMcpScopes(
-  oauthScopes: readonly string[] | null,
-): McpScope[] {
-  if (oauthScopes?.includes(MCP_WRITE_SCOPE)) {
-    return [MCP_READ_SCOPE, MCP_WRITE_SCOPE]
-  }
-  return [MCP_READ_SCOPE]
-}
+export const MCP_SCOPES: readonly McpScope[] = [MCP_READ_SCOPE]
+
+/** MCP scopes of each request principal. Every principal gets read only. */
+export const GRANTED_MCP_SCOPES: readonly McpScope[] = [MCP_READ_SCOPE]
 
 /**
  * A tool with `readOnlyHint: true` needs `ctxpipe:read`. Each other tool
@@ -87,9 +77,7 @@ export function insufficientMcpScopeResponse(
     resourceMetadataUrl: string
   },
 ): Response {
-  const needed = MCP_SCOPES.filter(
-    (scope) => input.granted.includes(scope) || scope === input.required,
-  ).join(" ")
+  const needed = [...input.granted, input.required].join(" ")
   const description = `The tool ${input.tool} needs the ${input.required} scope`
   return c.json(
     {
