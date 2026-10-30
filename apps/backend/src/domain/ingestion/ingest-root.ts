@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { PassThrough } from "node:stream"
+import { setTimeout as delay } from "node:timers/promises"
 
 import type { ExecResult } from "@tanstack/ai-sandbox"
-import { APIError } from "@vercel/sandbox"
 import Docker from "dockerode"
 
 import {
@@ -192,14 +192,17 @@ type VercelCommandSandbox = {
  *
  * Only short requests (CTX-1094): the command starts detached, short reads
  * of the command find its end, and then one request reads its logs. The SDK
- * can also keep one request open for the whole command, but a connection
- * that stays open for minutes can close in the middle (undici `terminated`,
+ * can also keep one request open for the whole command. A connection that
+ * stays open for minutes can close in the middle (undici `terminated`,
  * `UND_ERR_SOCKET`), and that fails the step. The SDK's `wait()` also keeps
  * one request open, until the headers timeout of undici (300 s).
  *
  * The SDK's `output()` keeps the full stdout, the full stderr, and both
  * together in the heap. A command that writes much can fill the worker heap
  * (CTX-971), so this reads the log stream and keeps only the bounded part.
+ *
+ * When the wait or the log read fails, for any reason, the command is
+ * stopped. An abort also ends the wait at once.
  */
 export function vercelRootExec(sandbox: VercelCommandSandbox): RootExec {
   return signalledRootExec(async ([cmd = "sh", ...args], signal) => {
@@ -209,36 +212,55 @@ export function vercelRootExec(sandbox: VercelCommandSandbox): RootExec {
       sudo: true,
       detached: true,
     })
-    // The abort of `signalledRootExec` ends the processes; this also stops
-    // the command itself.
-    const kill = () => void started.kill().catch(() => undefined)
-    if (signal?.aborted) kill()
-    else signal?.addEventListener("abort", kill, { once: true })
     try {
       const ended = await waitForVercelCommand(sandbox, started, signal)
-      for (let attempt = 1; ; attempt++) {
-        // A dropped log read starts again from the first line.
-        const output = boundedRootOutput()
-        try {
+      // A dropped log read starts again from the first line.
+      const output = await readAgain(
+        async () => {
+          const bounded = boundedRootOutput()
           for await (const line of ended.logs({ signal }))
-            output.add(line.stream, line.data)
-          return { ...output.result(), exitCode: ended.exitCode ?? -1 }
-        } catch (error) {
-          if (attempt >= 3 || signal?.aborted || !isTransientVercelError(error))
-            throw error
-        }
-      }
-    } finally {
-      signal?.removeEventListener("abort", kill)
+            bounded.add(line.stream, line.data)
+          return bounded.result()
+        },
+        2,
+        signal,
+      )
+      return { ...output, exitCode: ended.exitCode ?? -1 }
+    } catch (error) {
+      // The abort of `signalledRootExec` ends the processes; this also
+      // stops the command itself.
+      await started.kill().catch(() => undefined)
+      throw error
     }
   })
 }
 
 /**
+ * Calls `read` again when it throws, so one failed request does not fail the
+ * command. Any error counts: a dropped connection, a 5xx or 429 answer, or
+ * a body that breaks. After `retries` failures in sequence, the error goes
+ * to the caller. An abort also goes to the caller at once.
+ */
+async function readAgain<T>(
+  read: () => Promise<T>,
+  retries: number,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  for (let failures = 0; ; failures++) {
+    try {
+      return await read()
+    } catch (error) {
+      if (signal?.aborted || failures >= retries) throw error
+      await delay(250, undefined, { signal })
+    }
+  }
+}
+
+/**
  * Reads the command again and again until it has an exit code. The first
  * wait is short, so a short command ends soon; the wait grows to 2 seconds.
- * A read that fails with a transient error is tried again; the 6th such
- * failure in sequence fails the command. An abort stops the wait at once.
+ * A failed read is tried again (see `readAgain`); the 6th failure in
+ * sequence fails the command. An abort stops the wait at once.
  */
 async function waitForVercelCommand(
   sandbox: VercelCommandSandbox,
@@ -246,46 +268,17 @@ async function waitForVercelCommand(
   signal: AbortSignal | undefined,
 ): Promise<VercelCommand> {
   let command = started
-  let delay = 100
-  let failures = 0
+  let wait = 100
   while (command.exitCode === null) {
-    await abortableDelay(delay, signal)
-    delay = Math.min(delay * 2, 2_000)
-    try {
-      command = await sandbox.getCommand(started.cmdId, { signal })
-      failures = 0
-    } catch (error) {
-      if (signal?.aborted || !isTransientVercelError(error) || ++failures > 5)
-        throw error
-    }
+    await delay(wait, undefined, { signal })
+    wait = Math.min(wait * 2, 2_000)
+    command = await readAgain(
+      () => sandbox.getCommand(started.cmdId, { signal }),
+      5,
+      signal,
+    )
   }
   return command
-}
-
-/** Waits `ms`; rejects with the signal's reason at the abort. */
-function abortableDelay(ms: number, signal: AbortSignal | undefined) {
-  return new Promise<void>((resolve, reject) => {
-    signal?.throwIfAborted()
-    const onAbort = () => {
-      clearTimeout(timer)
-      reject(signal?.reason)
-    }
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort)
-      resolve()
-    }, ms)
-    signal?.addEventListener("abort", onAbort, { once: true })
-  })
-}
-
-/**
- * A dropped connection (undici `fetch failed` or `terminated`) or a 5xx
- * answer of the Vercel API. The next request can work.
- */
-function isTransientVercelError(error: unknown): boolean {
-  if (error instanceof TypeError)
-    return error.message === "fetch failed" || error.message === "terminated"
-  return error instanceof APIError && error.response.status >= 500
 }
 
 /** The stdout that a root command keeps from its start, up to this cap. */
