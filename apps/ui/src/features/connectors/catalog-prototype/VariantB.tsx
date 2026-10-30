@@ -190,6 +190,11 @@ export function VariantB(
                       showGroup={view === "all" || view === "connected"}
                       pending={props.pendingId === entry.id}
                       onStart={() => props.onStart(entry.id)}
+                      onFix={() => {
+                        props.onOpenChange(false)
+                        // Let the dialog close before the page scrolls.
+                        window.setTimeout(() => showCard(entry.name), 250)
+                      }}
                     />
                   ))}
                 </ul>
@@ -202,14 +207,38 @@ export function VariantB(
   )
 }
 
+/**
+ * Fix: the catalog shows one state for each provider; the detail of each
+ * connection is on its card. Scroll to the first card of the provider and
+ * mark it for a moment. (Prototype: the real build names the connection
+ * that needs the fix, and can open its setup when only one does.)
+ */
+function showCard(name: string) {
+  // A card with an unfinished setup has no actions menu: find its name.
+  const start =
+    document.querySelector(`[aria-label="${name} connector actions"]`) ??
+    [...document.querySelectorAll("main p")].find(
+      (node) => node.textContent?.trim() === name,
+    )
+  let card = start?.parentElement ?? null
+  while (card && !card.className.includes("border-b")) card = card.parentElement
+  if (!card) return
+  card.scrollIntoView({ block: "center", behavior: "smooth" })
+  const mark = ["rounded-lg", "bg-amber-400/10", "ring-1", "ring-amber-400/60"]
+  card.classList.add(...mark)
+  window.setTimeout(() => card?.classList.remove(...mark), 2400)
+}
+
 function Row(props: {
   entry: CatalogEntry
   state: EntryState
   showGroup: boolean
   pending: boolean
   onStart: () => void
+  onFix: () => void
 }) {
   const { entry, state } = props
+  const needsFix = state.reconnect > 0 || state.setupPending > 0
   const dim = state.kind !== "available"
   const groupName = CATALOG_GROUPS.find((g) => g.id === entry.group)?.name
   return (
@@ -237,7 +266,17 @@ function Row(props: {
         </p>
       </div>
       <CatalogStatus state={state} />
-      <div className="flex w-28 shrink-0 justify-end">
+      <div className="flex w-44 shrink-0 justify-end gap-1">
+        {needsFix ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            aria-label={`Fix ${entry.name}`}
+            onPress={props.onFix}
+          >
+            Fix
+          </Button>
+        ) : null}
         {canStart(state) ? (
           <Button
             variant={connectionCount(state) > 0 ? "ghost" : "secondary"}
