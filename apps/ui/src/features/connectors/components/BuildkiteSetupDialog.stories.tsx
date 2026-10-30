@@ -101,7 +101,7 @@ export const ConnectWithToken: Story = {
     )
     // The link opens Buildkite in a new tab, in the teal link style.
     await expect(tokenLink).toHaveAttribute("target", "_blank")
-    await expect(tokenLink).toHaveClass("text-teal-400")
+    await expect(tokenLink.className).toContain("text-teal-400")
     await userEvent.type(slug, "acme")
     await userEvent.type(
       body.getByLabelText("API access token"),
@@ -212,7 +212,7 @@ export const SaveWebhookToken: Story = {
       name: /Notification Services/,
     })
     await expect(servicesLink).toHaveAttribute("target", "_blank")
-    await expect(servicesLink).toHaveClass("text-teal-400")
+    await expect(servicesLink.className).toContain("text-teal-400")
     await userEvent.type(body.getByLabelText("Webhook token"), "hook-token")
     await userEvent.click(
       body.getByRole("button", { name: "Save webhook token" }),

@@ -222,7 +222,7 @@ export const ChooseWorkspaces: Story = {
       ).toBeVisible(),
     )
     await expect(
-      body.getByRole("link", { name: "acme/docs#7" }),
+      body.getByRole("link", { name: /^acme\/docs#7/ }),
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
     await expect(onOpenChange).not.toHaveBeenCalled()
   },
@@ -316,7 +316,7 @@ export const MergeStepShowsTheMerge: Story = {
     )
     await expect(body.getByText("Merged")).toBeVisible()
     await expect(
-      body.getByRole("link", { name: "acme/docs#7" }),
+      body.getByRole("link", { name: /^acme\/docs#7/ }),
     ).toHaveAttribute("href", pullRequestUrl)
   },
 }

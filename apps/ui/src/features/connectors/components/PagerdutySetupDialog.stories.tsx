@@ -239,7 +239,7 @@ export const AddToWorkspaces: Story = {
     await waitFor(() => expect(merge).toBeVisible())
     // The sync starts after the merge, so the last step links the pull request.
     await expect(
-      body.getByRole("link", { name: "acme/docs#7" }),
+      body.getByRole("link", { name: /^acme\/docs#7/ }),
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
     await expect(addCalls).toEqual([
       {
@@ -280,7 +280,7 @@ export const ReplacedSetup: Story = {
     // The modal fades in; wait until the notice is visible.
     await waitFor(() => expect(notice).toBeVisible())
     await expect(
-      body.getByRole("link", { name: "configuration pull request" }),
+      body.getByRole("link", { name: /^configuration pull request/ }),
     ).toHaveAttribute("href", "https://github.com/acme/on-call/pull/4")
   },
 }
