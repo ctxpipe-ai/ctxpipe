@@ -52,7 +52,7 @@ describe("the scan gate of the dependencies step", () => {
     expect(s.ran("--gate")).toBe(true)
     expect(s.ran("opencode")).toBe(false)
     expect(s.ran("ctxpipe-finish")).toBe(true)
-    expect(result).toEqual({})
+    expect(result).toEqual({ usage: { inputTokens: 0, outputTokens: 0 } })
   })
 
   it("runs the model when the scan finds work", async () => {
