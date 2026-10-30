@@ -1,3 +1,4 @@
+import { initLogger } from "evlog"
 import { OpenWorkflow, type Workflow } from "openworkflow"
 import type { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, expect, it } from "vitest"
@@ -114,4 +115,47 @@ it("stores the error of a workflow body that holds a NUL character", async () =>
 
   expect(failure).toContain("body failed")
   expect(failure).not.toContain("unsupported Unicode escape sequence")
+})
+
+// OpenWorkflow writes a failed heartbeat only to `console.error`. The
+// backend logs it with the run and the worker (CTX-1080).
+it("logs a lease extension that fails because the worker does not own the run", async () => {
+  const events: Array<Record<string, unknown>> = []
+  initLogger({
+    pretty: false,
+    silent: true,
+    env: { service: "ctxpipe-backend-test" },
+    drain: (ctx) => {
+      events.push(ctx.event as Record<string, unknown>)
+    },
+  })
+  try {
+    const workflow = defineWorkflow(
+      { name: `lease-${suffix}`, schema: z.object({}), retryPolicy: once },
+      async () => "done",
+    )
+    ow.implementWorkflow(workflow.spec, workflow.fn)
+    // No worker claims the run: the stale worker does not own it.
+    const handle = await ow.runWorkflow(workflow.spec, {})
+    const params = {
+      workflowRunId: handle.workflowRun.id,
+      workerId: "stale-worker",
+      leaseDurationMs: 30_000,
+    }
+    await expect(backend.extendWorkflowRunLease(params)).rejects.toThrow(
+      "Failed to extend lease for workflow run",
+    )
+    expect(
+      events.filter((e) => e.step === "openworkflow.lease_extend_failed"),
+    ).toEqual([
+      expect.objectContaining({
+        level: "warn",
+        workflowRunId: handle.workflowRun.id,
+        workerId: "stale-worker",
+      }),
+    ])
+    await handle.cancel()
+  } finally {
+    initLogger({ enabled: false, env: { service: "ctxpipe-backend-test" } })
+  }
 })

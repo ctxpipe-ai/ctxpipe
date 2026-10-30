@@ -10,6 +10,8 @@ import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import {
   disallowedPathReason,
   MAX_WORKSPACE_OPS,
+  type PatchRejection,
+  type PatchRule,
   type PatchStepInput,
   type PatchStepResult,
   validatePatchStep,
@@ -44,9 +46,27 @@ type IngestRefTarget = {
 /** A remote and the git environment (credentials) to reach it. */
 export type IngestRemote = { url: string; env?: NodeJS.ProcessEnv }
 
+/**
+ * A fixed code of the cause of a refusal, for the logs: a rule of the patch
+ * validator, or a check of the broker. The message can hold model or
+ * customer text; the code holds none.
+ */
+type IngestRefusalRule = PatchRule | "admission" | "run_tip" | "merge_paths"
+
+/**
+ * A merged file that a publish withholds (CTX-1081): the file keeps its
+ * version on the default tip. `rules` holds each validator rule that
+ * rejected it, sorted.
+ */
+export type WithheldFile = { path: string; rules: PatchRule[] }
+
 /** The broker refused the job. Do not retry the same job. */
 export class IngestRefRefusedError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /** The codes of the causes; empty when no code applies. */
+    readonly rules: readonly IngestRefusalRule[] = [],
+  ) {
     super(message)
     this.name = "IngestRefRefusedError"
   }
@@ -342,8 +362,8 @@ export async function pushIngestAssemble(input: {
     let tree = (await runGit(repoDir, ["write-tree"], { env: indexEnv }))
       .toString()
       .trim()
-    if (conflicts.length && input.semanticMerge)
-      tree = await mergeConflicts(repoDir, {
+    if (conflicts.length && input.semanticMerge) {
+      const merged = await mergeConflicts(repoDir, {
         pinnedRevision: input.pinnedRevision,
         tree,
         conflicts,
@@ -352,6 +372,16 @@ export async function pushIngestAssemble(input: {
         merge: input.semanticMerge,
         rootPath,
       })
+      if (merged.rejections.length)
+        throw new IngestRefRefusedError(
+          `The semantic merge result fails the patch validator: ${merged.rejections
+            .slice(0, 5)
+            .map((r) => `${r.path}: ${r.rule}: ${r.reason}`)
+            .join("; ")}`,
+          [...new Set(merged.rejections.map((r) => r.rule))].sort(),
+        )
+      tree = merged.tree
+    }
     const sha = await commitStep(repoDir, {
       tree,
       parents: tips.length ? tips : [input.pinnedRevision],
@@ -372,9 +402,11 @@ export async function pushIngestAssemble(input: {
  *
  * A path that the run and the default branch both changed after the pin goes
  * to `semanticMerge.resolve`, and its result goes through the patch
- * validator on `current`, as in assemble. One rejected file refuses the
- * publish. Each other path is the run's file, which passed the validator in
- * its step. Returns the files and deletes from `current`.
+ * validator on `current`, as in assemble. A rejected file is withheld: it
+ * keeps its version on `current`, and the other files publish (CTX-1081).
+ * Each other path is the run's file, which passed the validator in its
+ * step. Returns the files and deletes from `current`, and the withheld
+ * files with the validator rule that rejected each.
  */
 export async function mergeIngestPublish(input: {
   runId: string
@@ -390,6 +422,7 @@ export async function mergeIngestPublish(input: {
 }): Promise<{
   files: Array<{ path: string; content: string; encoding?: "base64" }>
   deletePaths: string[]
+  withheld: WithheldFile[]
 }> {
   return withScratchRepository(async (repoDir) => {
     await fetchCommits(
@@ -401,6 +434,7 @@ export async function mergeIngestPublish(input: {
     if ((await stepTrailers(repoDir, input.tip)).run !== input.runId)
       throw new IngestRefRefusedError(
         "The assembled tip is not a commit of the ingestion run",
+        ["run_tip"],
       )
     const text = async (spec: string) =>
       (await runGit(repoDir, ["cat-file", "blob", spec])).toString("utf8")
@@ -419,7 +453,8 @@ export async function mergeIngestPublish(input: {
       input.tip,
     )) {
       const reason = disallowedPathReason(change.path)
-      if (reason) throw new IngestRefRefusedError(`${change.path}: ${reason}`)
+      if (reason)
+        throw new IngestRefRefusedError(`${change.path}: ${reason}`, ["path"])
       if (change.blob === null && withheld.size) {
         const front = splitFrontMatter(
           await text(`${input.pinnedRevision}:${change.path}`),
@@ -445,8 +480,9 @@ export async function mergeIngestPublish(input: {
     let tree = (await runGit(repoDir, ["write-tree"], { env: indexEnv }))
       .toString()
       .trim()
-    if (conflicts.length)
-      tree = await mergeConflicts(repoDir, {
+    const withheldFiles: WithheldFile[] = []
+    if (conflicts.length) {
+      const merged = await mergeConflicts(repoDir, {
         pinnedRevision: input.pinnedRevision,
         tree,
         conflicts,
@@ -457,6 +493,13 @@ export async function mergeIngestPublish(input: {
         // The publish reads whole-repository paths.
         rootPath: "",
       })
+      tree = merged.tree
+      const rulesOf = new Map<string, Set<PatchRule>>()
+      for (const { path, rule } of merged.rejections)
+        rulesOf.set(path, (rulesOf.get(path) ?? new Set()).add(rule))
+      for (const [path, rules] of rulesOf)
+        withheldFiles.push({ path, rules: [...rules].sort() })
+    }
 
     const files: Array<{ path: string; content: string; encoding?: "base64" }> =
       []
@@ -478,7 +521,7 @@ export async function mergeIngestPublish(input: {
             },
       )
     }
-    return { files, deletePaths }
+    return { files, deletePaths, withheld: withheldFiles }
   })
 }
 
@@ -944,7 +987,9 @@ export type IngestConflictResolver = (
  * (the pinned revision plus the other shards' ops): a model wrote them, so
  * they get the same checks as a step's files. The host fields go back to
  * their pinned values first, and the validator stamps them again. Returns
- * the validated tree; one rejected file refuses the job.
+ * the validated tree and the rejections. A rejected file keeps its version
+ * on `tree`; the caller decides whether a rejection refuses the job or
+ * withholds the file.
  */
 async function mergeConflicts(
   repoDir: string,
@@ -959,7 +1004,7 @@ async function mergeConflicts(
     >
     rootPath: string
   },
-): Promise<string> {
+): Promise<{ tree: string; rejections: PatchRejection[] }> {
   const text = async (spec: string | null) =>
     spec === null
       ? null
@@ -993,6 +1038,7 @@ async function mergeConflicts(
     )
       throw new IngestRefRefusedError(
         "The semantic merge did not resolve exactly the conflicting paths",
+        ["merge_paths"],
       )
     for (const file of resolved) current.set(file.path, file.content)
   }
@@ -1015,6 +1061,7 @@ async function mergeConflicts(
   }
   let tree = input.tree
   let opsBefore = input.opsBefore
+  const rejections: PatchRejection[] = []
   for (const [root, conflicts] of groups) {
     const baseCommit = (
       await runGit(
@@ -1081,20 +1128,14 @@ async function mergeConflicts(
         rootPath: input.rootPath,
         ...(root === undefined ? {} : { root }),
       })
-      if (result.rejections.length)
-        throw new IngestRefRefusedError(
-          `The semantic merge result fails the patch validator: ${result.rejections
-            .slice(0, 5)
-            .map((r) => `${r.path}: ${r.rule}: ${r.reason}`)
-            .join("; ")}`,
-        )
+      rejections.push(...result.rejections)
       tree = result.tree
       opsBefore += ops.length
     } finally {
       await rm(stagedDir, { recursive: true, force: true })
     }
   }
-  return tree
+  return { tree, rejections }
 }
 
 /** The fields that only the host sets (patch validator, concept section 4.3). */

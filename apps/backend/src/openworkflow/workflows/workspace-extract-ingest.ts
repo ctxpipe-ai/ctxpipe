@@ -1,11 +1,15 @@
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
-import { IngestRefRefusedError } from "../../domain/ingestion/ingest-refs.js"
+import {
+  IngestRefRefusedError,
+  type WithheldFile,
+} from "../../domain/ingestion/ingest-refs.js"
 import {
   ingestSourceTree,
   releaseIngestSourceTree,
 } from "../../domain/ingestion/ingest-source-tree.js"
+import { logIngestEvent } from "../../domain/ingestion/ingest-telemetry.js"
 import {
   retiredPublishPipelineField,
   workspacePublishPipeline,
@@ -94,6 +98,31 @@ export const workspaceExtractIngestInputSchema = z
   )
 
 /**
+ * The result of a publish. `withheld` names the merged files that the
+ * publish left at the default-branch version because they failed the patch
+ * validator (CTX-1081).
+ */
+type ExtractIngestResult = (
+  | { committed: true; commitSha: string }
+  | {
+      committed: false
+      reason:
+        | "legacy_ingestion_retired"
+        | "no_changes"
+        | "source_unlinked"
+        | "publish_pipeline_stopped"
+    }
+  | {
+      committed: false
+      reason: "refused"
+      // A step output is JSON: its fields are optional.
+      refused?: string
+      rules?: IngestRefRefusedError["rules"]
+    }
+  | { committed: false; reason: "failed"; failed?: string }
+) & { withheld?: WithheldFile[] }
+
+/**
  * The Workspace format is the switch (ADR-052 phase 4, G5): an ingestion v2
  * publish (`ingest`) pushes only on a tree where the format selects `v2`.
  * The check reads the format file of the tree that the job pushes on, so a
@@ -106,7 +135,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
       name: "workspace-write-extract-ingest",
       schema: workspaceExtractIngestInputSchema,
     },
-    async ({ input: queuedInput, step, run }) => {
+    async ({ input: queuedInput, step, run }): Promise<ExtractIngestResult> => {
       const input = workspaceExtractIngestInputSchema.parse(queuedInput)
       const pipelineStopped = async (pack: GitPack, read: GitRemoteRead) =>
         workspacePublishPipeline(await packWorkspaceFormat(pack, read)) !== "v2"
@@ -220,39 +249,71 @@ export function defineWorkspaceExtractIngestWorkflow() {
                     holder,
                   })
                 try {
-                  return {
-                    ...(await mergeWorkspaceIngestPublish(
-                      {
-                        orgId: input.orgId,
-                        workspaceId: input.workspaceId,
-                        runId: ingest.runId,
-                        pinnedRevision: input.revision.sha,
-                        tip: ingest.tip,
-                        current: revision.sha,
-                        withheldRoots: ingest.withheldRoots,
-                        bundle: ingest.bundle,
-                        semanticMerge: {
-                          resolve: resolveIngestConflicts,
-                          source: { url: source.url, sha: sourceSha },
-                          sourcePath,
-                          sourcePathExists: (path) => sourceTree().exists(path),
-                          readSourceFile: (path) => sourceTree().read(path),
-                        },
+                  const merged = await mergeWorkspaceIngestPublish(
+                    {
+                      orgId: input.orgId,
+                      workspaceId: input.workspaceId,
+                      runId: ingest.runId,
+                      pinnedRevision: input.revision.sha,
+                      tip: ingest.tip,
+                      current: revision.sha,
+                      withheldRoots: ingest.withheldRoots,
+                      bundle: ingest.bundle,
+                      semanticMerge: {
+                        resolve: resolveIngestConflicts,
+                        source: { url: source.url, sha: sourceSha },
+                        sourcePath,
+                        sourcePathExists: (path) => sourceTree().exists(path),
+                        readSourceFile: (path) => sourceTree().read(path),
                       },
-                      env,
-                    )),
-                  }
+                    },
+                    env,
+                  )
+                  if (merged.withheld.length)
+                    logIngestEvent("warn", "ingestion-v2.partial", {
+                      ingestionRunId: ingest.runId,
+                      ingestStep: "publish",
+                      workspaceId: input.workspaceId,
+                      // Fixed codes and a count: a path can hold model text.
+                      reason: "withheld",
+                      rules: [
+                        ...new Set(merged.withheld.flatMap((w) => w.rules)),
+                      ].sort(),
+                      withheld: merged.withheld.length,
+                    })
+                  return { ...merged }
                 } catch (error) {
-                  // A merge that fails the patch validator: the Workspace
-                  // is `partial`, and the publish writes nothing.
-                  if (error instanceof IngestRefRefusedError)
-                    return { refused: error.message.slice(0, 300) }
+                  // A refused publish (not a validator rejection of a
+                  // merged file, which is withheld): the Workspace is
+                  // `partial`, and the publish writes nothing.
+                  if (error instanceof IngestRefRefusedError) {
+                    logIngestEvent("warn", "ingestion-v2.partial", {
+                      ingestionRunId: ingest.runId,
+                      ingestStep: "publish",
+                      workspaceId: input.workspaceId,
+                      // Fixed codes: the cause text can hold model or
+                      // customer text.
+                      reason: "refused",
+                      rules: error.rules,
+                    })
+                    return {
+                      refused: error.message.slice(0, 300),
+                      rules: error.rules,
+                    }
+                  }
                   // A failed semantic merge model: the same, but the run
                   // keeps the refs.
-                  if (error instanceof SemanticResolveError)
+                  if (error instanceof SemanticResolveError) {
+                    logIngestEvent("warn", "ingestion-v2.partial", {
+                      ingestionRunId: ingest.runId,
+                      ingestStep: "publish",
+                      workspaceId: input.workspaceId,
+                      reason: "failed",
+                    })
                     return {
                       failed: error.message.slice(0, 300),
                     }
+                  }
                   throw error
                 } finally {
                   await releaseIngestSourceTree(ingest.runId, sourceSha, holder)
@@ -267,6 +328,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
                 committed: false as const,
                 reason: "refused" as const,
                 refused: transformed.refused,
+                rules: transformed.rules,
               }
             }
             if ("failed" in transformed) {
@@ -280,6 +342,9 @@ export function defineWorkspaceExtractIngestWorkflow() {
               }
             }
             const { files, deletePaths } = transformed
+            // The merged files that fail the patch validator. A step output
+            // from before CTX-1081 has no list.
+            const withheld = transformed.withheld ?? []
             if (!files.length && !deletePaths.length) {
               // The delta is from the pinned revision, so a later tip cannot
               // add to it: there is nothing to confirm.
@@ -289,6 +354,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
               return {
                 committed: false as const,
                 reason: "no_changes" as const,
+                withheld: withheld.length ? withheld : undefined,
               }
             }
             const staged = await step.run({ name: "stage" }, () =>
@@ -400,13 +466,23 @@ export function defineWorkspaceExtractIngestWorkflow() {
             await step.run({ name: "complete" }, () =>
               persistWriteJobCommitSha(input.jobId, committed.sha),
             )
-            return { committed: true as const, commitSha: committed.sha }
+            return {
+              committed: true as const,
+              commitSha: committed.sha,
+              withheld: withheld.length ? withheld : undefined,
+            }
           }
           // Each attempt lost the push race: publish nothing, and let the
           // run publish its other Workspaces.
-          await step.run({ name: "fail-raced-publish" }, () =>
-            persistWriteJobStatus(input.jobId, "failed"),
-          )
+          await step.run({ name: "fail-raced-publish" }, async () => {
+            logIngestEvent("warn", "ingestion-v2.partial", {
+              ingestionRunId: ingestSource.runId,
+              ingestStep: "publish",
+              workspaceId: input.workspaceId,
+              reason: "failed",
+            })
+            await persistWriteJobStatus(input.jobId, "failed")
+          })
           return {
             committed: false as const,
             reason: "failed" as const,
