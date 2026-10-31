@@ -6,6 +6,7 @@ import { dirname, join } from "node:path"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { stringify } from "yaml"
 
+import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import {
   cleanUpIngestRefs,
   deleteRunIngestRefs,
@@ -1236,6 +1237,9 @@ describe("ingestRunRefTip", () => {
 
 describe("mergeIngestPublish", () => {
   const ASSEMBLED = ingestRefName({ runId: RUN, workspaceId: WORKSPACE })
+  /** The text with `line` added after the first "The … service." line. */
+  const edit = (text: string, line: string) =>
+    text.replace(/The (\w+) service\./, (found) => `${found}\n\n${line}`)
   const MERGE_CHECK = {
     source: { url: SOURCE_URL, sha: "1".repeat(40) },
     sourcePath: SOURCE_PATH,
@@ -1330,8 +1334,6 @@ describe("mergeIngestPublish", () => {
     const base = commitOn(pinned, "refs/heads/main", {
       files: { "knowledge/services/ledger.md": ledger },
     })
-    const edit = (text: string, line: string) =>
-      text.replace(/The (\w+) service\./, (found) => `${found}\n\n${line}`)
     const tip = commitOn(
       base,
       ASSEMBLED,
@@ -1422,13 +1424,162 @@ describe("mergeIngestPublish", () => {
     })
   })
 
+  describe("a merge with a file that an earlier run published (CTX-1102)", () => {
+    // The merge keeps the line of the earlier publish and adds the run's line.
+    const keepBothLines = async (
+      conflicts: Array<{ path: string; current: string | null }>,
+    ) =>
+      conflicts.map((c) => ({
+        path: c.path,
+        content: (c.current ?? "").replace(
+          "It keeps a log.",
+          "It keeps a log.\n\nIt pages by region.",
+        ),
+      }))
+    const frontOf = (content: string) =>
+      parseYamlObject(splitFrontMatter(content)?.yaml ?? "") ?? {}
+
+    it("accepts a file that the earlier run stamped with another source_sha, and gives it this run's host fields", async () => {
+      const path = "knowledge/services/runbook.md"
+      // At the pin, the file has the source commit 4…; the earlier run
+      // published it with 2…; this run (MERGE_CHECK) reads 1….
+      const atPin = RUNBOOK.replace("1".repeat(40), "4".repeat(40))
+      const base = commitOn(pinned, "refs/heads/main", {
+        files: { [path]: atPin },
+      })
+      const tip = commitOn(
+        base,
+        ASSEMBLED,
+        { files: { [path]: edit(atPin, "It pages by region.") } },
+        `Ingest step assemble:ws_alpha\n\nCtxpipe-Run: ${RUN}`,
+      )
+      const current = commitOn(base, "refs/heads/main", {
+        files: {
+          [path]: edit(
+            atPin.replace("4".repeat(40), "2".repeat(40)),
+            "It keeps a log.",
+          ),
+        },
+      })
+      const changes = await publish({
+        tip,
+        current,
+        pinnedRevision: base,
+        resolve: keepBothLines,
+      })
+      expect(changes.withheld).toEqual([])
+      expect(changes.files.map((file) => file.path)).toEqual([path])
+      const content = changes.files[0]?.content ?? ""
+      expect(content).toContain("It keeps a log.\n\nIt pages by region.")
+      expect(frontOf(content)).toMatchObject({
+        source_sha: "1".repeat(40),
+        skill: "semantic-merge",
+        bundle: "bundle-1",
+        sources: [SOURCE_PATH],
+      })
+    })
+
+    it("accepts a claim on a shared file, whose header stays as the earlier run left it", async () => {
+      const path = "knowledge/services/shared.md"
+      const other = "sources/github/example-org/other-api.md"
+      // Another source owns the file too, so a run can only add claims.
+      const shared = (sha: string, claims: unknown[]) =>
+        `---\n${stringify({
+          kind: "Service",
+          name: "Shared",
+          claims,
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH, other],
+          source_sha: sha,
+          skill: "apis",
+          bundle: "bundle-1",
+        })}---\n# Shared\n\nThe Shared service.\n`
+      const theirs = {
+        to: "./billing.md",
+        predicate: "CALLS",
+        evidence: { path: "src/billing.ts", kind: "script" },
+      }
+      const ours = {
+        to: "./billing.md",
+        predicate: "USES",
+        evidence: { path: "src/ledger.ts", kind: "script" },
+      }
+      const base = commitOn(pinned, "refs/heads/main", {
+        files: { [path]: shared("4".repeat(40), []) },
+      })
+      const tip = commitOn(
+        base,
+        ASSEMBLED,
+        { files: { [path]: shared("4".repeat(40), [ours]) } },
+        `Ingest step assemble:ws_alpha\n\nCtxpipe-Run: ${RUN}`,
+      )
+      // An earlier run, at another source commit, added its claim.
+      const current = commitOn(base, "refs/heads/main", {
+        files: { [path]: shared("2".repeat(40), [theirs]) },
+      })
+      const changes = await publish({
+        tip,
+        current,
+        pinnedRevision: base,
+        resolve: async (conflicts) =>
+          conflicts.map((c) => ({
+            path: c.path,
+            content: shared("4".repeat(40), [theirs, ours]),
+          })),
+      })
+      expect(changes.withheld).toEqual([])
+      const front = frontOf(changes.files[0]?.content ?? "")
+      expect(front).toMatchObject({ source_sha: "2".repeat(40) })
+      expect(
+        (front.claims as Array<{ predicate: string }>).map((c) => c.predicate),
+      ).toEqual(["CALLS", "USES"])
+    })
+
+    it("withholds no file for the op cap when it merges more than 30 files", async () => {
+      const names = Array.from(
+        { length: 31 },
+        (_, i) => `Svc${String(i).padStart(2, "0")}`,
+      )
+      const pathOf = (name: string) =>
+        `knowledge/services/${name.toLowerCase()}.md`
+      const fileOf = (name: string) => RUNBOOK.replaceAll("Runbook", name)
+      const base = commitOn(pinned, "refs/heads/main", {
+        files: Object.fromEntries(names.map((n) => [pathOf(n), fileOf(n)])),
+      })
+      const tip = commitOn(
+        base,
+        ASSEMBLED,
+        {
+          files: Object.fromEntries(
+            names.map((n) => [
+              pathOf(n),
+              edit(fileOf(n), "It pages by region."),
+            ]),
+          ),
+        },
+        `Ingest step assemble:ws_alpha\n\nCtxpipe-Run: ${RUN}`,
+      )
+      const current = commitOn(base, "refs/heads/main", {
+        files: Object.fromEntries(
+          names.map((n) => [pathOf(n), edit(fileOf(n), "It keeps a log.")]),
+        ),
+      })
+      const changes = await publish({
+        tip,
+        current,
+        pinnedRevision: base,
+        resolve: keepBothLines,
+      })
+      expect(changes.withheld).toEqual([])
+      expect(changes.files).toHaveLength(31)
+    })
+  })
+
   it("gives each rule and reason of the withheld files once, with the count of files and no path (CTX-1099)", async () => {
     const ledger = RUNBOOK.replaceAll("Runbook", "Ledger")
     const base = commitOn(pinned, "refs/heads/main", {
       files: { "knowledge/services/ledger.md": ledger },
     })
-    const edit = (text: string, line: string) =>
-      text.replace(/The (\w+) service\./, (found) => `${found}\n\n${line}`)
     const tip = commitOn(
       base,
       ASSEMBLED,

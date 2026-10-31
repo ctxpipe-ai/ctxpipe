@@ -9,7 +9,7 @@ import { ChooseWorkspacesStep } from "./ChooseWorkspacesStep"
 import { sourceProviderLabel } from "./source-provider-ui"
 import { useAddToWorkspaces } from "./useAddToWorkspaces"
 
-/** "Add to a Workspace" from a connector: the Choose Workspaces step alone. */
+/** "Add to a Workspace" from a connector: the Add to Workspaces step alone. */
 export function AddToWorkspacesDialog(props: {
   orgSlug: string
   connectionId: string

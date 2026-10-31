@@ -5,8 +5,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/Button"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
-import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
@@ -96,12 +96,7 @@ export function NotionSetupDialog({
       )
     }
     if (statusQuery.isPending || oauthAppQuery.isPending) {
-      return (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner className="size-4" />
-          Loading Notion connector...
-        </div>
-      )
+      return <InlineLoader label="Loading the Notion connector" />
     }
     if (!status?.isInstalled) {
       if (showRegister) {
@@ -216,7 +211,8 @@ export function NotionSetupDialog({
                 Set up Notion connector
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Complete each step to connect Notion to this organization.
+                Connect Notion, then select the pages and databases for each
+                Workspace.
               </p>
             </div>
           </div>

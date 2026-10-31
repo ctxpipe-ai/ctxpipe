@@ -10,7 +10,7 @@ import { ConfluenceScopeEditor } from "./confluence"
 
 const connectionId = "con_conf1"
 
-/** The editor with the scope it reports, as the Choose Workspaces step holds it. */
+/** The editor with the scope it reports, as the Add to Workspaces step holds it. */
 function EditorWithOutput(props: {
   initialScope: Record<string, unknown>
   label?: string

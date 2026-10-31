@@ -1,9 +1,9 @@
 import type { SourceProvider } from "backend/domain/workspace-sources/sources-file"
 
 import { Button } from "@/components/ui/Button"
+import { ExternalLink } from "@/components/ui/ExternalLink"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { InlineLoader } from "@/components/ui/InlineLoader"
-import { Link } from "@/components/ui/Link"
 
 import { ChooseWorkspacesStep } from "./ChooseWorkspacesStep"
 import {
@@ -55,7 +55,7 @@ export function AddToWorkspacesStep({
   return (
     <div className="space-y-5">
       <div>
-        <h3 className="text-base font-semibold text-foreground">
+        <h3 className="text-base font-medium text-foreground">
           Add {label} to Workspaces
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
@@ -65,9 +65,9 @@ export function AddToWorkspacesStep({
       {replacedConfigPullUrl ? (
         <InlineAlert variant="warning">
           This setup was replaced. ctxpipe no longer uses the{" "}
-          <Link href={replacedConfigPullUrl} target="_blank" rel="noreferrer">
+          <ExternalLink href={replacedConfigPullUrl}>
             configuration pull request
-          </Link>{" "}
+          </ExternalLink>{" "}
           of the earlier setup. Close it, and add {items} to a Workspace here
           instead.
         </InlineAlert>
@@ -88,7 +88,7 @@ export function AddToWorkspacesStep({
       ) : (
         <InlineLoader label={`Loading the Workspaces that use ${label}`} />
       )}
-      <div className="flex justify-end gap-2">
+      <div className="flex gap-2">
         <Button
           variant="primary"
           isDisabled={!adding.canAdd}

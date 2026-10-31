@@ -82,7 +82,7 @@ describe("LinkAtlassianStep", () => {
 
     const button = await waitFor(() =>
       [...(container?.querySelectorAll("button") ?? [])].find(
-        (element) => element.textContent === "Connect Atlassian account",
+        (element) => element.textContent === "Link Atlassian account",
       ),
     )
     act(() => button.click())

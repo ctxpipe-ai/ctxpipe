@@ -5,7 +5,7 @@ import {
 
 import type { WorkspaceSourceInput } from "./queries"
 
-/** The state of the "Choose Workspaces" wizard step. */
+/** The state of the "Add to Workspaces" wizard step. */
 export type ChooseWorkspacesValue = {
   workspaceSlugs: string[]
   /** One scope for all selected Workspaces, or one scope for each. */

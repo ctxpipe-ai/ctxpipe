@@ -5,8 +5,8 @@ import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/Button"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
-import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
@@ -139,12 +139,7 @@ export function PagerdutySetupDialog({
       )
     }
     if (statusQuery.isPending) {
-      return (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner className="size-4" />
-          Loading PagerDuty connector...
-        </div>
-      )
+      return <InlineLoader label="Loading the PagerDuty connector" />
     }
     if (statusQuery.isError || !status) {
       return (
@@ -238,7 +233,7 @@ export function PagerdutySetupDialog({
             Close
           </Button>
         </div>
-        {status ? (
+        {status || !connectionId ? (
           <div className="mb-6">
             <ConnectorSetupStepper
               steps={setupSteps}

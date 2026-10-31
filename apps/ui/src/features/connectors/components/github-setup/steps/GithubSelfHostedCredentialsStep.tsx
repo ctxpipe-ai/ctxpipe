@@ -2,6 +2,7 @@ import { type DragEvent, useState } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/Button"
+import { ExternalLink } from "@/components/ui/ExternalLink"
 import { Textarea } from "@/components/ui/textarea"
 import { TextField } from "@/components/ui/TextField"
 import { cn } from "@/lib/utils"
@@ -92,7 +93,7 @@ export function GithubSelfHostedCredentialsStep({
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-base font-semibold text-foreground">
+        <h3 className="text-base font-medium text-foreground">
           Register your GitHub App
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
@@ -102,14 +103,9 @@ export function GithubSelfHostedCredentialsStep({
         <ol className="mt-4 list-decimal space-y-6 pl-5 text-sm text-muted-foreground">
           <li>
             On GitHub, open{" "}
-            <a
-              href="https://github.com/settings/apps/new"
-              className="text-primary underline-offset-2 hover:underline"
-              target="_blank"
-              rel="noreferrer"
-            >
+            <ExternalLink href="https://github.com/settings/apps/new">
               New GitHub App (personal)
-            </a>
+            </ExternalLink>
             , or for an organization: open the org →{" "}
             <strong className="font-medium text-foreground">Settings</strong> →{" "}
             <strong className="font-medium text-foreground">
