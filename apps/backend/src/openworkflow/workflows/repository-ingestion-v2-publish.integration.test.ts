@@ -981,12 +981,7 @@ describe("ingestion v2 publish", () => {
       ).toEqual([{ reason: "withheld", withheld: 2 }])
       // One event for each rule and reason, with the count of files and no
       // path (CTX-1099).
-      const withheldLogs = loggedEvents.filter(
-        (event) =>
-          event.step === "ingestion-v2.publish-withheld" &&
-          event.ingestionRunId === runId &&
-          event.workspaceId === workspaceIds[0],
-      )
+      const withheldLogs = withheldLogsOf(runId)
       expect(
         withheldLogs.map(({ level, rule, reason, files }) => ({
           level,
@@ -1002,7 +997,7 @@ describe("ingestion v2 publish", () => {
           files: 2,
         },
       ])
-      expect(JSON.stringify(withheldLogs)).not.toContain("knowledge/")
+      for (const event of withheldLogs) expect(event).not.toHaveProperty("path")
       const runSpan = spanExporter
         .getFinishedSpans()
         .find(
@@ -1098,6 +1093,16 @@ describe("ingestion v2 publish", () => {
         event.ingestionRunId === runId &&
         event.workspaceId === workspaceIds[0] &&
         event.ingestStep === "publish",
+    )
+  }
+
+  /** The `ingestion-v2.publish-withheld` events of the publish to context A. */
+  function withheldLogsOf(runId: string) {
+    return loggedEvents.filter(
+      (event) =>
+        event.step === "ingestion-v2.publish-withheld" &&
+        event.ingestionRunId === runId &&
+        event.workspaceId === workspaceIds[0],
     )
   }
 
@@ -1231,6 +1236,13 @@ describe("ingestion v2 publish", () => {
       expect(
         partialLogsOf(handle.workflowRun.id).map((event) => event.rules),
       ).toEqual([["human_section"]])
+      // A publish that withholds each of its files logs the reason too.
+      expect(
+        withheldLogsOf(handle.workflowRun.id).map(({ rule, files }) => ({
+          rule,
+          files,
+        })),
+      ).toEqual([{ rule: "human_section", files: 1 }])
       const bare = join(remotes, contexts[0] ?? "")
       expect(git(bare, "rev-parse", "main")).toBe(sameFile.sha)
       expect(

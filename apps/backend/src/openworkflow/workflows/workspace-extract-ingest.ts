@@ -272,7 +272,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
                     },
                     env,
                   )
-                  const { withheldReasons, ...result } = merged
+                  const { withheldReasons, ...output } = merged
                   if (merged.withheld.length)
                     logIngestEvent("warn", "ingestion-v2.partial", {
                       ingestionRunId: ingest.runId,
@@ -285,8 +285,8 @@ export function defineWorkspaceExtractIngestWorkflow() {
                       ].sort(),
                       withheld: merged.withheld.length,
                     })
-                  // The validator reason of the withheld files, as the step
-                  // rejections log it, with a count and no path (CTX-1099).
+                  // Log the validator reasons of the withheld files as the step
+                  // rejections log them, with a count and no path (CTX-1099).
                   for (const { rule, reason, files } of withheldReasons)
                     logIngestEvent("warn", "ingestion-v2.publish-withheld", {
                       ingestionRunId: ingest.runId,
@@ -295,7 +295,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
                       reason: capIngestText(reason),
                       files,
                     })
-                  return result
+                  return output
                 } catch (error) {
                   // A refused publish (not a validator rejection of a
                   // merged file, which is withheld): the Workspace is

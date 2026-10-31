@@ -511,6 +511,8 @@ export async function mergeIngestPublish(input: {
       >()
       for (const { path, rule, reason } of merged.rejections) {
         rulesOf.set(path, (rulesOf.get(path) ?? new Set()).add(rule))
+        // A reason can hold a line number (a secret), so one cause can give
+        // more than one entry.
         const key = `${rule}\n${reason}`
         const entry = byReason.get(key) ?? { rule, reason, paths: new Set() }
         byReason.set(key, entry)
