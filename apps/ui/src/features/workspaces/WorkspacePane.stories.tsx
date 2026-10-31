@@ -937,7 +937,12 @@ export const GraphPhasePending: Story = {
   },
 }
 
-/** The graph phase failed: the pane shows plain copy, not the store error. */
+const graphRebuilds = { count: 0 }
+
+/**
+ * The graph phase failed: the pane shows plain copy, not the store error, and
+ * a Try again action that asks the server to build the graph again.
+ */
 export const GraphPhaseFailed: Story = {
   tags: ["workspace-golden"],
   args: {
@@ -949,10 +954,35 @@ export const GraphPhaseFailed: Story = {
       },
     },
   },
+  beforeEach: () => {
+    graphRebuilds.count = 0
+  },
   parameters: {
     intent:
-      "Catches a failed graph phase that shows the raw store error. The pane shows plain copy that says the graph builds again by itself. Not for pending or ready phases.",
+      "Catches a failed graph phase that shows the raw store error, or that has no Try again action. Try again sends one rebuild-graph request. Not for pending or ready phases.",
     storyRoute: graphPaneRoute,
+    msw: {
+      handlers: {
+        page: [
+          http.post(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+\/rebuild-graph$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              graphRebuilds.count += 1
+              return HttpResponse.json(
+                {
+                  ...docsWorkspaceDetail,
+                  hydratePhases: { graph: { kind: "pending" } },
+                },
+                { status: 202 },
+              )
+            },
+          ),
+        ],
+      },
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -961,13 +991,15 @@ export const GraphPhaseFailed: Story = {
     )
     expect(
       canvas.getByText(
-        "Could not build the graph. It builds again automatically.",
+        "Could not build the graph. It builds again automatically, or you can try again now.",
       ),
     ).toBeVisible()
     // The tab fades in for 100 ms when the pane mounts.
     await waitFor(() =>
       expect(canvas.getByRole("tab", { name: "Graph" })).toBeVisible(),
     )
+    await userEvent.click(canvas.getByRole("button", { name: "Try again" }))
+    await waitFor(() => expect(graphRebuilds.count).toBe(1))
   },
 }
 
