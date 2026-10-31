@@ -29,6 +29,7 @@ and its own scope.
 | [PagerDuty](/docs/connections/source-connectors/pagerduty) | Scoped mirror | Incidents of the selected services | Services |
 | [Buildkite](/docs/connections/source-connectors/buildkite) | Scoped mirror | The latest 25 finished builds of the selected pipelines | Pipelines |
 | [Plain](/docs/connections/source-connectors/plain) | Scoped mirror | Help Center articles and the newest threads of selected labels | Help Centers and thread labels |
+| [Zendesk](/docs/connections/source-connectors/zendesk) | Scoped mirror | Help Center articles of the selected categories, and the latest tickets of the selected views | Help Center categories and ticket views |
 | [Slack](/docs/connections/source-connectors/slack) | Capture on request | One thread at a time, when someone mentions the bot | Channels |
 | [Plain git](/docs/workspaces/linked-repositories#plain-git-repositories) | Git source | A public repository on any git host, with no connection | A URL |
 
@@ -100,8 +101,8 @@ To change what a Workspace reads, edit, rename, or remove its source. See
 
 ## How content stays current
 
-- **Webhooks.** Linear, Notion, Confluence, PagerDuty, and Plain tell ctxpipe when
-  content changes. ctxpipe updates the files of the sources whose scope
+- **Webhooks.** Linear, Notion, Confluence, PagerDuty, Plain, and Zendesk tell
+  ctxpipe when content changes. ctxpipe updates the files of the sources whose scope
   includes the change. Events that arrive before a source is live are skipped.
 - **Buildkite webhooks.** A finished build starts a full sync after a 10-minute
   window. More events in that window share the same sync.
@@ -109,8 +110,8 @@ To change what a Workspace reads, edit, rename, or remove its source. See
   source with the status **OK**. This sync finds content that the provider
   deleted, and content that a webhook missed.
 - **Sync now.** The menu of the connector on **Connectors** has **Sync now** for
-  Confluence, Linear, Notion, PagerDuty, Buildkite, and Plain. It starts the same full sync at
-  once. Only an owner or admin sees it.
+  Confluence, Linear, Notion, PagerDuty, Buildkite, Plain, and Zendesk. It starts
+  the same full sync at once. Only an owner or admin sees it.
 
 Do not edit mirrored files by hand. The next sync overwrites them. When you
 remove a source, the next sync deletes its files in one commit. Git history
@@ -151,6 +152,7 @@ same connection.
 | **PagerDuty** | 100 services |
 | **Buildkite** | 50 pipelines |
 | **Plain** | 50 Help Centers and 50 thread labels |
+| **Zendesk** | 50 Help Center categories and 50 ticket views |
 
 A GitHub source holds one repository, so it has no limit.
 

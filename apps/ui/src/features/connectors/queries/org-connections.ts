@@ -20,6 +20,7 @@ const TYPE_ORDER: Record<OrgConnectionListItem["type"], number> = {
   pagerduty: 5,
   buildkite: 6,
   plain: 6,
+  zendesk: 6,
 }
 
 /** GitHub first — every other connector syncs through it. Then createdAt. */

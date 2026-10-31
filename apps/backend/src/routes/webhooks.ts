@@ -11,6 +11,7 @@ import { registerNotionWebhookRoute } from "./webhooks/notion/notion.js"
 import { registerPagerdutyWebhookRoute } from "./webhooks/pagerduty/pagerduty.js"
 import { registerPlainWebhookRoute } from "./webhooks/plain/plain.js"
 import { registerSlackWebhookRoute } from "./webhooks/slack/slack.js"
+import { registerZendeskWebhookRoute } from "./webhooks/zendesk/zendesk.js"
 
 export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
   app.use("/api/v1/webhook/*", async (_c, next) => {
@@ -40,6 +41,8 @@ export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
     // A Plain timeline event can hold a long email, and the route reads none
     // of it.
     ["/api/v1/webhook/plain/*", 5 * MiB],
+    // A Zendesk article event holds ids and names, not the article body.
+    ["/api/v1/webhook/zendesk/*", 1 * MiB],
     // Forge reads only the event envelope; token refresh reads only headers.
     ["/api/v1/webhook/atlassian/*", 1 * MiB],
   ] as const)
@@ -58,4 +61,5 @@ export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
   registerPagerdutyWebhookRoute(app)
   registerBuildkiteWebhookRoute(app)
   registerPlainWebhookRoute(app)
+  registerZendeskWebhookRoute(app)
 }

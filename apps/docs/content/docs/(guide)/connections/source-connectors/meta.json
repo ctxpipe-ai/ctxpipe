@@ -8,6 +8,7 @@
     "slack",
     "pagerduty",
     "buildkite",
-    "plain"
+    "plain",
+    "zendesk"
   ]
 }

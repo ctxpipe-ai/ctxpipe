@@ -894,3 +894,41 @@ export const plainConnectionConfigStoredSchema = z.object({
 export type PlainConnectionConfigStored = z.infer<
   typeof plainConnectionConfigStoredSchema
 >
+
+/**
+ * The Workspace sources sync state of a Zendesk connection (ADR-058). It
+ * counts the sync cycles in which a category or a view failed for good.
+ */
+export const zendeskSourceSyncSchema = z.object({
+  /** Keyed `category:<id>` or `view:<id>`. */
+  failures: sourceSyncFailuresSchema,
+})
+export type ZendeskSourceSync = z.infer<typeof zendeskSourceSyncSchema>
+
+/** A Zendesk subdomain. It goes into a host name, so it must be strict. */
+export function isZendeskSubdomain(value: string): boolean {
+  return /^[a-z0-9][a-z0-9-]{0,62}$/.test(value)
+}
+
+/**
+ * Stored in `connections.config` for `type === "zendesk"` (ADR-058). A
+ * self-host admin saves a local OAuth client on the row; hosted ctxpipe uses
+ * its global OAuth client from env (`ZENDESK_CLIENT_*`). Tokens and the
+ * webhook signing secret are encrypted.
+ */
+export const zendeskConnectionConfigStoredSchema = z.object({
+  subdomain: z.string().refine(isZendeskSubdomain),
+  status: z.enum(["pending", "installed", "revoked"]),
+  oauthClientId: z.string().min(1).optional(),
+  oauthClientSecretEnc: z.string().min(1).optional(),
+  accessTokenEnc: z.string().min(1).optional(),
+  refreshTokenEnc: z.string().min(1).optional(),
+  accessTokenExpiresAt: z.string().nullable().optional(),
+  webhookId: z.string().min(1).optional(),
+  webhookSecretEnc: z.string().min(1).optional(),
+  sourceSync: zendeskSourceSyncSchema.optional(),
+})
+
+export type ZendeskConnectionConfigStored = z.infer<
+  typeof zendeskConnectionConfigStoredSchema
+>

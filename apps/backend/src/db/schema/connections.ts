@@ -21,6 +21,7 @@ export const CONNECTION_TYPE_NOTION = "notion" as const
 export const CONNECTION_TYPE_PAGERDUTY = "pagerduty" as const
 export const CONNECTION_TYPE_BUILDKITE = "buildkite" as const
 export const CONNECTION_TYPE_PLAIN = "plain" as const
+export const CONNECTION_TYPE_ZENDESK = "zendesk" as const
 
 export type ConnectionType =
   | typeof CONNECTION_TYPE_GITHUB
@@ -31,6 +32,7 @@ export type ConnectionType =
   | typeof CONNECTION_TYPE_PAGERDUTY
   | typeof CONNECTION_TYPE_BUILDKITE
   | typeof CONNECTION_TYPE_PLAIN
+  | typeof CONNECTION_TYPE_ZENDESK
 
 export const connections = pgTable.withRLS(
   "connections",

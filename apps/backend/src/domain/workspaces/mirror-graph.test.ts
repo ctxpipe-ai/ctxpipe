@@ -17,6 +17,10 @@ import {
   toSlackChannelIndexFile,
   toSlackThreadMarkdownFile,
 } from "../../services/slack/converter.js"
+import {
+  zendeskArticleFile,
+  zendeskTicketFile,
+} from "../../services/zendesk/converter.js"
 import { claimsUpgradeRemainder } from "./hydrate-write-jobs.js"
 import {
   hydrateKnowledgeTree,
@@ -518,5 +522,48 @@ describe("Plain mirror units", () => {
     const { unit } = hydrate([article, thread])
     expect(unit(article.path).kind).toBe("Article")
     expect(unit(thread.path).kind).toBe("Ticket")
+  })
+})
+
+describe("Zendesk mirror units", () => {
+  const article = zendeskArticleFile({
+    subdomain: "acme",
+    categoryId: "36",
+    article: {
+      id: "1",
+      title: "Reset a password",
+      url: "https://acme.zendesk.com/hc/en-us/articles/1",
+      bodyHtml: "<p>Steps</p>",
+      sectionId: null,
+      sectionName: null,
+      locale: null,
+      labels: [],
+      authorName: null,
+      createdAt: null,
+      updatedAt: null,
+    },
+  })
+  const ticket = zendeskTicketFile({
+    viewId: "90",
+    ticket: {
+      id: "11",
+      subject: "Export fails",
+      url: "https://acme.zendesk.com/agent/tickets/11",
+      status: "open",
+      priority: null,
+      type: null,
+      tags: [],
+      requesterName: null,
+      assigneeName: null,
+      createdAt: null,
+      updatedAt: null,
+      comments: [],
+    },
+  })
+
+  it("gives articles and tickets their kinds", () => {
+    const { unit } = hydrate([article, ticket])
+    expect(unit(article.path).kind).toBe("Article")
+    expect(unit(ticket.path).kind).toBe("Ticket")
   })
 })

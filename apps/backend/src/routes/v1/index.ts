@@ -33,6 +33,10 @@ import {
   slackConnectorRoutes,
   slackOAuthCallbackRoutes,
 } from "./connectors-slack.js"
+import {
+  zendeskConnectorRoutes,
+  zendeskOauthCallbackRoutes,
+} from "./connectors-zendesk.js"
 import { conversationRoutes } from "./conversations.js"
 import {
   githubInstallationReadRoutes,
@@ -112,6 +116,13 @@ const plainConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", plainConnectorRoutes)
 
+const zendeskConnectorScopedGate = new OpenAPIHono<AppEnv>()
+zendeskConnectorScopedGate.use("*", requireOrgAdminOrOwner)
+const zendeskConnectorScoped = zendeskConnectorScopedGate.route(
+  "/",
+  zendeskConnectorRoutes,
+)
+
 // Only the sync path: this app mounts on "/connectors" beside other routes.
 const connectionSyncScopedGate = new OpenAPIHono<AppEnv>()
 connectionSyncScopedGate.use("/:connectionId/sync", requireOrgAdminOrOwner)
@@ -145,6 +156,7 @@ function createOrgScopedV1<BasePath extends string>(
     .route("/connectors/pagerduty", pagerdutyConnectorScoped)
     .route("/connectors/buildkite", buildkiteConnectorScoped)
     .route("/connectors/plain", plainConnectorScoped)
+    .route("/connectors/zendesk", zendeskConnectorScoped)
     .route("/connectors/atlassian/pending-claim", pendingAtlassianClaimRoutes)
     .route("/connectors/slack", slackConnectorScoped)
     .route("/org/atlassian-oauth", orgAtlassianOauthReadRoutes)
@@ -193,6 +205,7 @@ function createUserScopedV1() {
       .route("/connectors/slack", slackOAuthCallbackRoutes)
       .route("/integrations/linear", linearOauthCallbackRoutes)
       .route("/integrations/pagerduty", pagerdutyOauthCallbackRoutes)
+      .route("/integrations/zendesk", zendeskOauthCallbackRoutes)
       .route("/me/github/installations", meGithubInstallationsRoutes)
       .route("/me/connected-apps", meConnectedAppsRoutes)
       .route("/me/api-keys", meApiKeysRoutes)

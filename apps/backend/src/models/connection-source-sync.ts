@@ -8,6 +8,7 @@ import type {
   NotionSourceSync,
   PagerdutySourceSync,
   PlainSourceSync,
+  ZendeskSourceSync,
 } from "../lib/connection-config.js"
 
 /**
@@ -22,6 +23,7 @@ export async function saveConnectionSourceSync(
     | { type: "pagerduty"; sourceSync: PagerdutySourceSync }
     | { type: "buildkite"; sourceSync: BuildkiteSourceSync }
     | { type: "plain"; sourceSync: PlainSourceSync }
+    | { type: "zendesk"; sourceSync: ZendeskSourceSync }
   ),
 ): Promise<void> {
   await withOrgDbContext(input.orgId, (db) =>

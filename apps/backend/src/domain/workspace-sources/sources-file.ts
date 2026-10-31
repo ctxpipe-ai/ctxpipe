@@ -13,6 +13,7 @@ import { pagerdutySourceScope } from "./providers/pagerduty.js"
 import { plainSourceScope } from "./providers/plain.js"
 import type { SourceScopeDefinition } from "./providers/scope.js"
 import { slackSourceScope } from "./providers/slack.js"
+import { zendeskSourceScope } from "./providers/zendesk.js"
 
 /**
  * The shared schema of `.ctxpipe/sources.yaml`, the source of truth for the
@@ -31,6 +32,7 @@ export const SOURCE_PROVIDERS = [
   "pagerduty",
   "buildkite",
   "plain",
+  "zendesk",
   "git",
 ] as const
 
@@ -47,6 +49,7 @@ export const SOURCE_SCOPES: Record<SourceProvider, SourceScopeDefinition> = {
   pagerduty: pagerdutySourceScope,
   buildkite: buildkiteSourceScope,
   plain: plainSourceScope,
+  zendesk: zendeskSourceScope,
   git: gitSourceScope,
 }
 

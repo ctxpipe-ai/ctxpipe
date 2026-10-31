@@ -6,10 +6,12 @@ import {
   linearConnectionConfigStoredSchema,
   notionConnectionConfigSchema,
   pagerdutyConnectionConfigStoredSchema,
+  zendeskConnectionConfigStoredSchema,
 } from "../lib/connection-config.js"
 import { isEmptyLinearSetupDraft } from "./linear-connector.js"
 import { isEmptyNotionSetupDraft } from "./notion-connector.js"
 import { isEmptyPagerdutySetupDraft } from "./pagerduty-connector.js"
+import { isEmptyZendeskSetupDraft } from "./zendesk-connector.js"
 
 type OrgConnectionListItem = {
   id: string
@@ -29,6 +31,7 @@ const DISPLAY_NAME_KEYS: Record<ConnectionType, readonly string[]> = {
   pagerduty: ["accountName", "accountSubdomain"],
   buildkite: ["organizationSlug"],
   plain: ["workspaceName"],
+  zendesk: ["subdomain"],
 }
 
 /** Read only the non-secret name keys of a connection config. */
@@ -63,6 +66,10 @@ function isEmptySetupDraft(type: ConnectionType, config: unknown): boolean {
     case "pagerduty": {
       const parsed = pagerdutyConnectionConfigStoredSchema.safeParse(config)
       return parsed.success && isEmptyPagerdutySetupDraft(parsed.data)
+    }
+    case "zendesk": {
+      const parsed = zendeskConnectionConfigStoredSchema.safeParse(config)
+      return parsed.success && isEmptyZendeskSetupDraft(parsed.data)
     }
     default:
       return false

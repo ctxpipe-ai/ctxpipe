@@ -36,6 +36,7 @@ const workspaceSourcesProviderSchema = z.enum([
   "confluence",
   "pagerduty",
   "buildkite",
+  "zendesk",
 ])
 
 /**

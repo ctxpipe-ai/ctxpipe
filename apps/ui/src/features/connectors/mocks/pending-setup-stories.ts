@@ -9,7 +9,7 @@ import { expect, screen, userEvent, waitFor, within } from "storybook/test"
  */
 export function pendingSetupHandlers(input: {
   orgSlug: string
-  provider: "notion" | "linear" | "pagerduty"
+  provider: "notion" | "linear" | "pagerduty" | "zendesk"
   statusReads: Mock
   deleted: Mock
 }) {

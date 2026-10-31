@@ -7,6 +7,7 @@ import { notionSourceAdapter } from "../../services/notion/workspace-source-adap
 import { pagerdutySourceAdapter } from "../../services/pagerduty/workspace-source-adapter.js"
 import { plainSourceAdapter } from "../../services/plain/workspace-source-adapter.js"
 import { slackSourceAdapter } from "../../services/slack/source-adapter.js"
+import { zendeskSourceAdapter } from "../../services/zendesk/workspace-source-adapter.js"
 import type { SourceProvider } from "./sources-file.js"
 
 /**
@@ -137,4 +138,5 @@ export const SOURCE_ADAPTERS: Partial<Record<SourceProvider, SourceAdapter>> = {
   plain: plainSourceAdapter as SourceAdapter,
   slack: slackSourceAdapter,
   buildkite: buildkiteSourceAdapter as SourceAdapter,
+  zendesk: zendeskSourceAdapter as SourceAdapter,
 }

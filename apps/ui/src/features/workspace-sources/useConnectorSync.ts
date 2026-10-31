@@ -18,6 +18,7 @@ const SYNCED_PROVIDERS: ReadonlySet<SourceProvider> = new Set([
   "pagerduty",
   "buildkite",
   "plain",
+  "zendesk",
 ])
 
 /**

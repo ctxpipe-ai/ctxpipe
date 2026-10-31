@@ -18,6 +18,7 @@ import {
 import { PAGERDUTY_SOURCE_MAX_SERVICES } from "./pagerduty.js"
 import { PLAIN_SOURCE_MAX_ITEMS } from "./plain.js"
 import { SLACK_SOURCE_MAX_CHANNELS } from "./slack.js"
+import { ZENDESK_SOURCE_MAX_ITEMS } from "./zendesk.js"
 
 const ids = (count: number, make: (i: number) => string) =>
   Array.from({ length: count }, (_, i) => make(i))
@@ -53,6 +54,18 @@ const lists = [
     max: PLAIN_SOURCE_MAX_ITEMS,
     scope: (n: number) => ({ labels: ids(n, (i) => `lt_${i}`) }),
     message: `labels: Select at most ${PLAIN_SOURCE_MAX_ITEMS} labels`,
+  },
+  {
+    provider: "zendesk",
+    max: ZENDESK_SOURCE_MAX_ITEMS,
+    scope: (n: number) => ({ categories: ids(n, (i) => String(1000 + i)) }),
+    message: `categories: Select at most ${ZENDESK_SOURCE_MAX_ITEMS} Zendesk categories`,
+  },
+  {
+    provider: "zendesk",
+    max: ZENDESK_SOURCE_MAX_ITEMS,
+    scope: (n: number) => ({ views: ids(n, (i) => String(1000 + i)) }),
+    message: `views: Select at most ${ZENDESK_SOURCE_MAX_ITEMS} Zendesk views`,
   },
   {
     provider: "slack",

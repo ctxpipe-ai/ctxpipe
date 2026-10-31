@@ -22,6 +22,7 @@ export type SourceScopeDefinition<
     | "pagerduty"
     | "buildkite"
     | "plain"
+    | "zendesk"
     | null
   /** The label for one provider, for example "Confluence". */
   label: string

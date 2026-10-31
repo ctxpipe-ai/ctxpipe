@@ -154,6 +154,7 @@ const PROVIDER_NAMES: Record<SourceProvider, string> = {
   pagerduty: "PagerDuty",
   buildkite: "Buildkite",
   plain: "Plain",
+  zendesk: "Zendesk",
   git: "Git",
 }
 

@@ -20,6 +20,7 @@ const ConnectorListItemSchema = z
       "pagerduty",
       "buildkite",
       "plain",
+      "zendesk",
     ]),
     /** The account, site, or workspace name that the provider gives. */
     displayName: z.string().nullable(),
