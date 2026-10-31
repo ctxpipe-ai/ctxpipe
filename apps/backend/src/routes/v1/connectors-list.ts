@@ -23,6 +23,12 @@ const ConnectorListItemSchema = z
     ]),
     /** The account, site, or workspace name that the provider gives. */
     displayName: z.string().nullable(),
+    /**
+     * The health of the connection from its stored row: a revoked or
+     * uninstalled connection needs a reconnect, and a connection that is not
+     * installed has an unfinished setup.
+     */
+    status: z.enum(["connected", "needs_reconnect", "setup_pending"]),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
@@ -101,6 +107,7 @@ export const connectorsListRoutes = new OpenAPIHono<AppEnv>()
           id: r.id,
           type: r.type,
           displayName: r.displayName,
+          status: r.status,
           createdAt: r.createdAt.toISOString(),
           updatedAt: r.updatedAt.toISOString(),
         })),
