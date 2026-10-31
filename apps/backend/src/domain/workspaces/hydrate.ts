@@ -43,11 +43,20 @@ export type HydrateClaim = {
   validFrom: string | null
   validTo: string | null
   source: string | null
-  /**
-   * For a claim of the `claims` front matter: true when it has an
-   * `evidence` object. A claim that hydrate makes has none.
-   */
-  evidence?: boolean
+}
+
+/**
+ * True when a claim of the `claims` front matter has an `evidence` mapping.
+ * Each claim that the ingestion v2 schema accepts has one (CTX-1100).
+ */
+export function claimHasEvidence(claim: unknown): boolean {
+  if (!claim || typeof claim !== "object") return false
+  const { evidence } = claim as { evidence?: unknown }
+  return (
+    typeof evidence === "object" &&
+    evidence !== null &&
+    !Array.isArray(evidence)
+  )
 }
 
 /**
@@ -70,6 +79,8 @@ export type HydrateUnit = {
   confidence?: number | null
   /** Front-matter `generated_by`: the owner of a generated file. */
   generatedBy?: string | null
+  /** True when a claim of the `claims` front matter has no `evidence` mapping. */
+  hasClaimWithoutEvidence?: boolean
   /** Front-matter `title`, else the text of the first Markdown heading. */
   title: string | null
   /** The connector root of a mirror path (`linear`, …), else `authored`. */
@@ -223,6 +234,9 @@ export function hydrateKnowledgeTree(input: {
         typeof parsed.attributes.generated_by === "string"
           ? parsed.attributes.generated_by
           : null,
+      hasClaimWithoutEvidence:
+        Array.isArray(parsed.attributes.claims) &&
+        parsed.attributes.claims.some((claim) => !claimHasEvidence(claim)),
       title: unitTitle(parsed.attributes.title, parsed.body),
       source: connectorMirrorRoot(path) ?? "authored",
       updatedAt: file.lastCommitTimestamp ?? null,
@@ -507,7 +521,6 @@ function parseClaims(raw: unknown): HydrateClaim[] {
       validFrom: typeof row.valid_from === "string" ? row.valid_from : null,
       validTo: typeof row.valid_to === "string" ? row.valid_to : null,
       source: typeof row.source === "string" ? row.source : null,
-      evidence: typeof row.evidence === "object" && row.evidence !== null,
     })
   }
   return claims

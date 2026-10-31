@@ -2768,10 +2768,10 @@ describe("validatePatchStep claims with the host field valid_from (CTX-1090)", (
 })
 
 describe("validatePatchStep on a file that claims_upgrade repaired (CTX-1100)", () => {
-  const path = "knowledge/services/linked.md"
+  const path = "knowledge/decisions/adr-001.md"
   const VALID_FROM = "2026-10-20T12:10:23.000Z"
   const full = {
-    to: "./billing.md",
+    to: "../services/billing.md",
     predicate: "CALLS",
     evidence: EVIDENCE,
     confidence: 0.7,
@@ -2779,33 +2779,34 @@ describe("validatePatchStep on a file that claims_upgrade repaired (CTX-1100)", 
   }
   // A claim that claims_upgrade added for a body link before CTX-1100, and
   // hydrate dated: it has no predicate and no evidence.
-  const bare = { to: "./ledger.md", valid_from: VALID_FROM }
-  const linked = (claims: unknown[]) =>
+  const bare = { to: "../services/ledger.md", valid_from: VALID_FROM }
+  const decision = (claims: unknown[]) =>
     doc(
       {
-        kind: "Service",
-        name: "Linked",
+        kind: "Decision",
+        name: "ADR-001: Billing calls",
         claims,
         generated_by: "ctxpipe-extract",
         sources: [SOURCE_PATH],
         source_sha: "0".repeat(40),
-        skill: "dependencies",
+        skill: "decisions",
         bundle: "bundle-0",
       },
-      "# Linked\n\nIt calls [Billing](./billing.md) and [Ledger](./ledger.md).\n",
+      "# ADR-001\n\nBilling calls [Ledger](../services/ledger.md).\n",
     )
-  // A step that edits the text and keeps the front matter of the file, as a
-  // model that edits the file does.
+  // A decisions step that edits the text and keeps the front matter of the
+  // file, as a model that edits the file does.
   const keep = (content: string) => {
     const base = commitOn(baseCommit, { [path]: content })
-    const edited = content.replace("It calls", "It now calls")
+    const edited = content.replace("Billing calls", "Billing now calls")
     return run(stage({ files: { [path]: edited }, base }), {
       baseCommit: base,
+      skill: "decisions",
     })
   }
 
   it("refuses a step that keeps a claim with no evidence, and accepts it after the repair", async () => {
-    const damaged = linked([full, bare])
+    const damaged = decision([full, bare])
     expect(rulesOf(await keep(damaged))).toEqual(["front_matter"])
 
     const [repaired] = claimsUpgradeFiles({

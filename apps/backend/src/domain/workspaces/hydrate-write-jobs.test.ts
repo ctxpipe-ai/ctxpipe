@@ -239,6 +239,12 @@ describe("claims_upgrade on a file that ingestion v2 owns (CTX-1100)", () => {
   const legacy = { to: "../services/old.md", evidence: { kind: "legacy" } }
   // A claim that claims_upgrade added for a body link, and hydrate dated.
   const bare = { to: "../apis/api.md", valid_from: VALID_FROM }
+  // A claim whose evidence is not a mapping: the v2 schema refuses it too.
+  const nullEvidence = {
+    to: "../services/billing.md",
+    predicate: "USES",
+    evidence: null,
+  }
   const body =
     "# ADR-001\n\nSee [UI](../services/ui.md) and [the API](../apis/api.md).\n"
   const decision = (claims: unknown[]) =>
@@ -267,7 +273,7 @@ describe("claims_upgrade on a file that ingestion v2 owns (CTX-1100)", () => {
   })
 
   it("removes each claim with no evidence, and keeps the other claims and the body", () => {
-    const content = decision([full, bare, legacy])
+    const content = decision([full, bare, nullEvidence, legacy])
     const units = unitsOf(content)
     expect(claimsUpgradeRemainder(units)).toBe(1)
     const [repaired] = claimsUpgradeFiles({ files: [{ path, content }], units })
