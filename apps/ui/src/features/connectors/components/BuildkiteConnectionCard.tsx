@@ -21,12 +21,15 @@ import { ConnectorListItem, connectorDash } from "./ConnectorListItem"
 type BuildkiteConnectionCardProps = {
   orgSlug: string
   connectionId: string
+  /** The catalog Fix marks the card for a moment. */
+  marked?: boolean
   onOpenSetup: (options?: { replaceWebhook: true }) => void
 }
 
 export function BuildkiteConnectionCard({
   orgSlug,
   connectionId,
+  marked,
   onOpenSetup,
 }: BuildkiteConnectionCardProps) {
   const queryClient = useQueryClient()
@@ -66,6 +69,8 @@ export function BuildkiteConnectionCard({
 
   return (
     <ConnectorListItem
+      connectionId={connectionId}
+      marked={marked}
       usedIn={
         <ConnectorUsedIn
           orgSlug={orgSlug}

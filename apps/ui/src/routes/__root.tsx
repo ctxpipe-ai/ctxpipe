@@ -127,7 +127,14 @@ function RootDocument({ children }: { children: ReactNode }) {
             },
           ]}
         />
-        <Toaster richColors position="top-center" />
+        {/*
+         * A top layer: an open modal hides the page from screen readers
+         * (React Aria `ariaHideOutside`), but not this element. A toast that
+         * an action in a modal shows is then announced.
+         */}
+        <div data-react-aria-top-layer="true">
+          <Toaster richColors position="top-center" />
+        </div>
         <Scripts />
       </body>
     </html>

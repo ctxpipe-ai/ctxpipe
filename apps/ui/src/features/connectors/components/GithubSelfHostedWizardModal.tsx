@@ -33,7 +33,6 @@ type GithubSelfHostedWizardModalProps = {
   orgSlug: string
   isOpen: boolean
   onOpenChange: (open: boolean) => void
-  onInstallFlowStarted?: () => void
   onDraftCreated?: (args: { connectionId: string }) => void
   onInstallPopupSettled?: (result: GithubSetupPopupResult) => void
   /**
@@ -47,7 +46,6 @@ export function GithubSelfHostedWizardModal({
   orgSlug,
   isOpen,
   onOpenChange,
-  onInstallFlowStarted,
   onDraftCreated,
   onInstallPopupSettled,
   onHandoffClose,
@@ -129,7 +127,6 @@ export function GithubSelfHostedWizardModal({
       toast.error("App slug is missing")
       return
     }
-    onInstallFlowStarted?.()
     try {
       localStorage.setItem(GITHUB_DRAFT_CONNECTION_KEY, connectionId ?? "")
       setGithubSetupOrgHint(orgSlug)
@@ -174,7 +171,6 @@ export function GithubSelfHostedWizardModal({
     appSlug,
     connectionId,
     orgSlug,
-    onInstallFlowStarted,
     onHandoffClose,
     onOpenChange,
     onInstallPopupSettled,

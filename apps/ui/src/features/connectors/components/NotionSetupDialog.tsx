@@ -91,7 +91,7 @@ export function NotionSetupDialog({
     if (!connectionId) {
       return (
         <p className="text-sm text-muted-foreground">
-          Connect Notion from the Add connection menu first.
+          Open Add connection, then select Connect on the Notion row.
         </p>
       )
     }

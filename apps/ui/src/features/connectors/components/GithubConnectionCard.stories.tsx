@@ -18,6 +18,7 @@ const cardProps = { orgSlug, connectionId }
 const meta = {
   title: "Components/Connections/GitHub/ConnectionCard",
   component: GithubConnectionCard,
+  args: cardProps,
   decorators: [
     (Story) => (
       <div className="w-full max-w-xl">

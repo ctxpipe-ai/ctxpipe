@@ -32,6 +32,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 const shared = {
+  connectionId: "con_story_github",
   name: "GitHub",
   icon: <IconBrandGithub className="size-5 text-foreground" aria-hidden />,
   remove: {
@@ -91,7 +92,7 @@ export const PendingSetup: Story = {
 export const PendingSetupNarrow: Story = {
   args: {
     ...shared,
-    name: "Atlassian Confluence",
+    name: "Confluence",
     health: "setup_pending",
     actionLabel: "Link Atlassian account",
   },
@@ -104,20 +105,20 @@ export const PendingSetupNarrow: Story = {
   ],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const name = await canvas.findByText("Atlassian Confluence")
+    const name = await canvas.findByText("Confluence")
     await document.fonts.ready
     expect(name.scrollWidth).toBeLessThanOrEqual(name.clientWidth)
     const remove = canvas.getByRole("button", {
-      name: "Remove Atlassian Confluence setup",
+      name: "Remove Confluence setup",
     })
     const nameBox = name.getBoundingClientRect()
     expect(remove.getBoundingClientRect().top).toBeGreaterThan(nameBox.bottom)
     const expand = canvas.getByRole("button", {
-      name: "Expand Atlassian Confluence",
+      name: "Expand Confluence",
     })
     expect(expand.getBoundingClientRect().top).toBeLessThan(nameBox.bottom)
     const action = canvas.getByRole("button", {
-      name: "Link Atlassian account for Atlassian Confluence",
+      name: "Link Atlassian account for Confluence",
     })
     expect(action.scrollHeight).toBeLessThanOrEqual(action.clientHeight)
   },

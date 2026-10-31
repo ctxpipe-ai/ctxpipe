@@ -5,6 +5,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { slackConnectionIsInstalled } from "../../models/connection-status.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
   bindSlackSyncTargetRepository,
@@ -646,8 +647,9 @@ export const slackConnectorRoutes = slackOAuthStartRoutes
         ? getSlackBindingWithRepoByConnectionId(orgId, connection.id)
         : Promise.resolve(undefined),
     ])
-    const installed =
-      connection?.status === "installed" && Boolean(connection.botTokenEnc)
+    const installed = connection
+      ? slackConnectionIsInstalled(connection)
+      : false
     return c.json(
       {
         isInstalled: installed,

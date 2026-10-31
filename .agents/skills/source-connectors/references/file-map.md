@@ -68,12 +68,13 @@ Follow [product-ui](../../product-ui/SKILL.md). Connector list lesson: `Connecto
 
 | Surface | Where |
 |---------|--------|
-| Catalog entry | `AddConnectorCatalogDialog` + `Add<Name>ConnectorButton` |
+| Catalog entry | One entry in `CONNECTOR_REGISTRY` (`features/connectors/catalog/registry.tsx`). Its `start` makes any draft and returns the setup that the page opens. The registry order is also the order of the cards |
 | Setup wizard/dialog + stories/MSW | `features/connectors/components/<slug>-setup/` or `*SetupDialog.tsx` |
 | Connection card | `*ConnectionCard.tsx` |
 | Queries + setup model | `features/connectors/queries/<slug>-connector.ts`, `<slug>-setup-model.ts` |
-| List sort order | `sortOrgConnectionsForDisplay` (GitHub first) |
-| Connectors page wiring | `routes/$orgSlug.connectors.tsx` |
+| List sort order | `sortOrgConnectionsForDisplay` (`catalog/catalog-state.ts`): the registry order, GitHub first |
+| Connectors page wiring | `routes/$orgSlug.connectors.tsx`: one card and one mounted setup dialog for each type, until the shared connector shell (CTX-1069) moves them |
+| Connection status in the list | One install rule for each provider in `apps/backend/src/models/connection-status.ts`; the status route uses the same rule for `isInstalled` |
 | OAuth popup route if needed | `routes/[.]<slug>.setup.tsx` |
 | List type union | `OrgConnectionListItem['type']` |
 

@@ -8,6 +8,7 @@ import {
   envHasPagerdutyOAuthApp,
   resolvePagerdutyOAuthAppCreds,
 } from "../../lib/connection-config.js"
+import { pagerdutyConnectionIsInstalled } from "../../models/connection-status.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
   claimPagerdutyConfigPrCreation,
@@ -791,7 +792,9 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
     ])
     return c.json(
       {
-        isInstalled: connection?.status === "installed",
+        isInstalled: connection
+          ? pagerdutyConnectionIsInstalled(connection)
+          : false,
         installationStatus: connection?.status ?? null,
         accountName: connection?.accountName ?? null,
         accountSubdomain: connection?.accountSubdomain ?? null,

@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 
 import type { AppEnv } from "../../app/env.js"
+import { CONNECTION_STATUSES } from "../../models/connection-status.js"
 import { getSuggestedConnectorSyncTarget } from "../../models/connector-sync-target.js"
 import { listOrgConnections } from "../../models/org-connections.js"
 
@@ -23,6 +24,12 @@ const ConnectorListItemSchema = z
     ]),
     /** The account, site, or workspace name that the provider gives. */
     displayName: z.string().nullable(),
+    /**
+     * The health of the connection from its stored row: a revoked or
+     * uninstalled connection needs a reconnect, and a connection that is not
+     * installed has an unfinished setup.
+     */
+    status: z.enum(CONNECTION_STATUSES),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
@@ -101,6 +108,7 @@ export const connectorsListRoutes = new OpenAPIHono<AppEnv>()
           id: r.id,
           type: r.type,
           displayName: r.displayName,
+          status: r.status,
           createdAt: r.createdAt.toISOString(),
           updatedAt: r.updatedAt.toISOString(),
         })),
