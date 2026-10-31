@@ -604,6 +604,128 @@ async function agentStatus(curlArgs: string): Promise<number> {
   return Number(result.stdout.trim() || "0")
 }
 
+/*
+ * Probe (CTX-1094): how the Vercel API reports a detached command. In CI, a
+ * detached root command that only plain `getCommand` reads did not end, and
+ * no read failed (PR 556). Each case writes what the API answers to the
+ * check log, and each wait has a deadline, so a case fails and does not hang.
+ */
+describe(
+  "detached sandbox command (CTX-1094 probe)",
+  { timeout: 300_000 },
+  () => {
+    let sandbox: Sandbox
+
+    beforeAll(async () => {
+      sandbox = await Sandbox.create({
+        ...credentials,
+        runtime: VERCEL_SANDBOX.runtime,
+        resources: VERCEL_SANDBOX.resources,
+        timeout: 15 * 60_000,
+        tags: { environment, purpose: "ci-contract-command-probe" },
+      })
+      created.push(sandbox.name)
+    }, 120_000)
+
+    /** Starts `script` detached, as the `vercelRootExec` of PR 556 does. */
+    async function start(label: string, script: string, sudo = true) {
+      const started = Date.now()
+      const command = await sandbox.runCommand({
+        cmd: "sh",
+        args: ["-c", script],
+        sudo,
+        detached: true,
+        signal: AbortSignal.timeout(30_000),
+      })
+      report(
+        `[probe] ${label} start ${Date.now() - started}ms exitCode=${String(command.exitCode)}`,
+      )
+      return command
+    }
+
+    /**
+     * Plain `getCommand` reads (no wait) every 250 ms, until one has an exit
+     * code or 30 s pass. It reports the time and the exit code of each read.
+     */
+    async function poll(label: string, cmdId: string) {
+      const started = Date.now()
+      const reads: string[] = []
+      let exitCode: number | null = null
+      while (exitCode === null && Date.now() - started < 30_000) {
+        await new Promise((resolve) => setTimeout(resolve, 250))
+        exitCode = (
+          await sandbox.getCommand(cmdId, {
+            signal: AbortSignal.timeout(10_000),
+          })
+        ).exitCode
+        reads.push(`${Date.now() - started}ms=${String(exitCode)}`)
+      }
+      report(`[probe] ${label} reads ${reads.join(" ")}`)
+      return exitCode
+    }
+
+    it.each([true, false])(
+      "plain getCommand reads give the exit code of a detached command that nobody reads (sudo %s)",
+      async (sudo) => {
+        const command = await start(
+          `poll sudo=${sudo}`,
+          "sleep 2; echo out; echo err >&2; exit 3",
+          sudo,
+        )
+        expect(await poll(`poll sudo=${sudo}`, command.cmdId)).toBe(3)
+      },
+    )
+
+    it("a log reader ends when the command ends, wait() gives the exit code, and a second log read starts from the first line", async () => {
+      const command = await start("logs", "sleep 2; echo a; echo b >&2; exit 4")
+      const read = async () => {
+        const lines: string[] = []
+        for await (const line of command.logs({
+          signal: AbortSignal.timeout(30_000),
+        }))
+          lines.push(`${line.stream}:${line.data.trim()}`)
+        return lines
+      }
+      let started = Date.now()
+      const first = await read()
+      report(`[probe] logs ended ${Date.now() - started}ms ${first.join(" ")}`)
+      started = Date.now()
+      const finished = await command.wait({
+        signal: AbortSignal.timeout(30_000),
+      })
+      report(
+        `[probe] logs wait ${Date.now() - started}ms exitCode=${finished.exitCode}`,
+      )
+      const plain = await sandbox.getCommand(command.cmdId, {
+        signal: AbortSignal.timeout(10_000),
+      })
+      report(`[probe] logs plain read exitCode=${String(plain.exitCode)}`)
+      started = Date.now()
+      const second = await read()
+      report(
+        `[probe] logs second read ${Date.now() - started}ms ${second.join(" ")}`,
+      )
+      // The two streams have no fixed order between them.
+      expect(first.toSorted()).toEqual(["stderr:b", "stdout:a"])
+      expect(finished.exitCode).toBe(4)
+      expect(plain.exitCode).toBe(4)
+      expect(second.toSorted()).toEqual(first.toSorted())
+    })
+
+    it("wait() gives the exit code of a detached command that nobody reads", async () => {
+      const command = await start("wait", "sleep 2; exit 5")
+      const started = Date.now()
+      const finished = await command.wait({
+        signal: AbortSignal.timeout(30_000),
+      })
+      report(
+        `[probe] wait ${Date.now() - started}ms exitCode=${finished.exitCode}`,
+      )
+      expect(finished.exitCode).toBe(5)
+    })
+  },
+)
+
 // The hosted gate is open for this test only.
 const runtime = ingestShardRuntimeFactory({ hostedEgressProven: true })
 
