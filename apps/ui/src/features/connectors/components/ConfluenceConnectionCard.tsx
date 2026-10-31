@@ -106,7 +106,7 @@ export function ConfluenceConnectionCard({
         />
       }
       sync={sync}
-      name="Atlassian Confluence"
+      name="Confluence"
       icon={
         <ConfluenceMark className="size-5 text-foreground" variant="outline" />
       }
