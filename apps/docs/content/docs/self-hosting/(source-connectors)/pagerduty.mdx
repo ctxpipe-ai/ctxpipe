@@ -31,8 +31,9 @@ connector testing requires a public HTTPS deployment or tunnel.
 
 ## 1. Register the OAuth app in the wizard
 
-1. Open **Connectors → Add connection → PagerDuty**. ctxpipe creates a draft
-   connection so the app can be saved before account authorization.
+1. Open **Connectors**, select **Add connection**, then select **Connect** on
+   the **PagerDuty** row. ctxpipe creates a draft connection so the app can be
+   saved before account authorization.
 2. Open [PagerDuty App Registration](https://developer.pagerduty.com/my-apps),
    select **New App**, and name the app `ctxpipe` or after your deployment.
 3. Under **Functionality**, select **OAuth 2.0**. Leave **Events Integration**
@@ -145,7 +146,8 @@ with `200` and never fetched.
 ## 4. Verify the connector
 
 1. Confirm `GET /.status` succeeds on the public backend origin.
-2. Open **Connectors → Add connection → PagerDuty**.
+2. Open **Connectors**, select **Add connection**, then select **Connect** on
+   the **PagerDuty** row.
 3. If the wizard shows **Register PagerDuty OAuth app**, save the client id
    and secret. Skip this when the deployment already has a shared env app.
 4. Complete OAuth and confirm the expected account appears.

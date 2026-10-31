@@ -95,7 +95,8 @@ after that. Copy them for the next step.
 
 ## 3. Register the app in the product UI
 
-1. Open **Connectors → Add connection → Linear**.
+1. Open **Connectors**, select **Add connection**, then select **Connect** on
+   the **Linear** row.
 2. On **Register Linear OAuth app**, paste the client ID and client secret
    Linear shows after Create, plus the webhook signing secret from the create
    form. The wizard shows the exact **Redirect URIs** and **Webhook URL** values
@@ -177,7 +178,8 @@ backend and worker task definitions.
 
 1. Confirm `GET /.status` succeeds on the public backend origin.
 2. Confirm the worker is running and shares the backend encryption key.
-3. Open **Connectors → Add connection → Linear**.
+3. Open **Connectors**, select **Add connection**, then select **Connect** on
+   the **Linear** row.
 4. If `LINEAR_*` is unset, complete **Register Linear OAuth app**, then Connect.
 5. Complete OAuth and confirm the expected Linear workspace appears.
 6. In **Choose Workspaces**, choose a Workspace and a scope.
