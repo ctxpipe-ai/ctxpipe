@@ -8,7 +8,10 @@ import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
-import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
+import {
+  PullRequestsToMerge,
+  useMergeStep,
+} from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import {
   consumePagerdutySetupPopupResult,
@@ -127,10 +130,14 @@ export function PagerdutySetupDialog({
         oauthAppSaved: status.oauthAppSaved,
       }
     : undefined
-  const setupSteps = getPagerdutySetupSteps(oauthMeta)
-  const setupStepIndex = status
-    ? getPagerdutySetupCurrentIndex(status, oauthMeta, { workspacesDone })
-    : 0
+  const merge = useMergeStep({
+    orgSlug,
+    steps: getPagerdutySetupSteps(oauthMeta),
+    pullRequests,
+  })
+  const setupStepIndex =
+    merge.currentIndex ??
+    (status ? getPagerdutySetupCurrentIndex(status, oauthMeta) : 0)
 
   const body = (() => {
     if (!connectionId) {
@@ -195,16 +202,11 @@ export function PagerdutySetupDialog({
       )
     }
     return (
-      <div className="space-y-4">
-        <PullRequestsToMerge orgSlug={orgSlug} pullRequests={pullRequests} />
-        <Button
-          variant="secondary"
-          className="rounded-md"
-          onPress={() => onOpenChange(false)}
-        >
-          Close
-        </Button>
-      </div>
+      <PullRequestsToMerge
+        pullRequests={pullRequests}
+        merged={merge.merged}
+        onDone={() => onOpenChange(false)}
+      />
     )
   })()
 
@@ -241,7 +243,7 @@ export function PagerdutySetupDialog({
         {status ? (
           <div className="mb-6">
             <ConnectorSetupStepper
-              steps={setupSteps}
+              steps={merge.steps}
               currentIndex={setupStepIndex}
             />
           </div>

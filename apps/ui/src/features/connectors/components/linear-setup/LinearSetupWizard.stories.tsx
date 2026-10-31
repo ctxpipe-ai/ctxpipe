@@ -221,8 +221,15 @@ export const ChooseWorkspaces: Story = {
         body.getByRole("heading", { name: "Merge the pull request" }),
       ).toBeVisible(),
     )
+    // The merge is the last step of the setup, and the pull request is the
+    // primary action.
     await expect(
-      body.getByRole("link", { name: "acme/docs#7" }),
+      body.getByRole("listitem", { current: "step" }),
+    ).toHaveTextContent("Merge the pull request")
+    await expect(
+      body.getByRole("link", {
+        name: "Review pull request acme/docs#7. Opens GitHub in a new tab.",
+      }),
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
     await expect(onOpenChange).not.toHaveBeenCalled()
   },
@@ -234,7 +241,8 @@ let merged = false
 
 /**
  * The user merges the pull request on GitHub. The merge step reads the
- * Workspace sources again and shows the merge.
+ * Workspace sources again and shows the merge: the step is done, and "Done"
+ * closes the dialog.
  */
 export const MergeStepShowsTheMerge: Story = {
   parameters: {
@@ -289,7 +297,7 @@ export const MergeStepShowsTheMerge: Story = {
   beforeEach: () => {
     merged = false
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ canvasElement, args }) => {
     const body = within(canvasElement.ownerDocument.body)
     await userEvent.click(
       await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
@@ -305,6 +313,10 @@ export const MergeStepShowsTheMerge: Story = {
         body.getByRole("heading", { name: "Merge the pull request" }),
       ).toBeVisible(),
     )
+    await expect(body.getByText("Awaiting merge")).toBeVisible()
+    await expect(
+      body.getByRole("link", { name: /^Review pull request/ }),
+    ).toHaveAttribute("href", pullRequestUrl)
 
     merged = true
     await waitFor(
@@ -315,9 +327,14 @@ export const MergeStepShowsTheMerge: Story = {
       { timeout: 10_000 },
     )
     await expect(body.getByText("Merged")).toBeVisible()
+    await expect(body.getByText("acme/docs#7")).toBeVisible()
+    // Each step is done, and "Done" is the primary action now.
+    await expect(body.queryByRole("listitem", { current: "step" })).toBeNull()
     await expect(
-      body.getByRole("link", { name: "acme/docs#7" }),
-    ).toHaveAttribute("href", pullRequestUrl)
+      body.queryByRole("link", { name: /^Review pull request/ }),
+    ).toBeNull()
+    await userEvent.click(body.getByRole("button", { name: "Done" }))
+    await waitFor(() => expect(args.onOpenChange).toHaveBeenCalledWith(false))
   },
 }
 

@@ -13,7 +13,10 @@ import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
-import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
+import {
+  PullRequestsToMerge,
+  useMergeStep,
+} from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import { pollWhileOk } from "@/lib/api-result"
 
@@ -131,7 +134,11 @@ export function ConfluenceSetupWizard({
   const oauthForModel =
     atlassianConnectionId && orgOauthSuccess ? orgOauthData : undefined
 
-  const wizardStepDefs = getConfluenceCardStepDefs(oauthForModel)
+  const merge = useMergeStep({
+    orgSlug,
+    steps: getConfluenceCardStepDefs(oauthForModel),
+    pullRequests,
+  })
 
   const cardIndexForStepper =
     status && !statusPending
@@ -237,10 +244,8 @@ export function ConfluenceSetupWizard({
         {status && !statusPending && !orgOauthBlocking ? (
           <div className="mb-6">
             <ConnectorSetupStepper
-              steps={wizardStepDefs}
-              currentIndex={
-                workspacesDone ? wizardStepDefs.length : cardIndexForStepper
-              }
+              steps={merge.steps}
+              currentIndex={merge.currentIndex ?? cardIndexForStepper}
               focusOverride={effectiveManual}
               onStepSelect={(i) => {
                 if (i === cardIndexForStepper && manualStepIndex != null) {
@@ -248,7 +253,7 @@ export function ConfluenceSetupWizard({
                   return
                 }
                 if (i >= cardIndexForStepper) return
-                if (wizardStepDefs[i]?.id === "forge") {
+                if (merge.steps[i]?.id === "forge") {
                   setWaitForInstall(false)
                 }
                 setManualStepIndex(i)
@@ -348,19 +353,11 @@ export function ConfluenceSetupWizard({
               </p>
             ) : null}
             {bodyId === "complete" ? (
-              <div className="space-y-4">
-                <PullRequestsToMerge
-                  orgSlug={orgSlug}
-                  pullRequests={pullRequests}
-                />
-                <Button
-                  variant="secondary"
-                  className="rounded-md"
-                  onPress={close}
-                >
-                  Close
-                </Button>
-              </div>
+              <PullRequestsToMerge
+                pullRequests={pullRequests}
+                merged={merge.merged}
+                onDone={close}
+              />
             ) : null}
           </div>
         )}

@@ -20,10 +20,12 @@ const TONE: Record<
     dot: "bg-zinc-500",
     pulse: false,
   },
+  // The user must merge a source pull request: the color of a step that
+  // needs the user, with a pulse while ctxpipe waits for the merge.
   awaiting_merge: {
-    text: "text-muted-foreground",
-    dot: "bg-zinc-500",
-    pulse: false,
+    text: "text-amber-400",
+    dot: "bg-amber-400",
+    pulse: true,
   },
   reconnect: {
     text: "text-amber-400",

@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
+import { useConnectionNextStep } from "@/features/workspace-sources/connection-next-step"
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
 import { useConnectorSync } from "@/features/workspace-sources/useConnectorSync"
 
@@ -57,12 +58,16 @@ export function LinearConnectionCard({
   const status = statusQuery.data
   const oauthMeta = oauthQuery.data
   const primary = status ? getLinearCardPrimaryCta(status, oauthMeta) : null
+  // The header follows the next step: a connection whose Workspaces
+  // wait for a source pull request shows "Awaiting merge".
+  const nextStep = useConnectionNextStep(orgSlug, connectionId)
   const health = resolveConnectorHealth({
     installationStatus: status?.installationStatus,
     statusError: statusQuery.isError,
-    checking: statusQuery.isPending || !status,
+    checking: statusQuery.isPending || !status || nextStep.isPending,
     connected: Boolean(status?.isInstalled),
     draft: !status?.isInstalled,
+    awaitingMerge: nextStep.step?.kind === "merge",
   })
 
   const sync = useConnectorSync({

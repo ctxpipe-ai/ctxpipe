@@ -314,6 +314,12 @@ export const SyncNowHiddenWhileAwaitingMerge: Story = {
     },
   },
   play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // Nothing syncs before the merge, so the header is not "Connected".
+    await waitFor(() =>
+      expect(canvas.getByText("Awaiting merge")).toBeVisible(),
+    )
+    await expect(canvas.queryByText("Connected")).toBeNull()
     const body = await openActionsMenu(canvasElement)
     await body.findByRole("menuitem", { name: "Remove connector" })
     await expect(body.queryByRole("menuitem", { name: "Sync now" })).toBeNull()

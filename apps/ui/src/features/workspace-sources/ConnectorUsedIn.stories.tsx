@@ -116,6 +116,119 @@ export const UsedInOneWorkspace: Story = {
   },
 }
 
+/**
+ * The first source pull request waits for its merge, and no Workspace syncs
+ * yet. "Used in" asks for the merge, with one teal link to the pull request.
+ */
+export const AwaitingFirstMerge: Story = {
+  args: { provider: "notion" },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          connectionUsageHandler([
+            connectionUsageItem({
+              workspaceSlug: "docs",
+              workspaceName: "Docs",
+              stat: "",
+              pendingChanges: [
+                {
+                  path: "sources/notion/notion.md",
+                  provider: "notion",
+                  action: "add",
+                  pullRequestUrl: "https://github.com/acme/docs/pull/7",
+                  createdAt: "2026-10-13T10:00:00Z",
+                },
+              ],
+            }),
+          ]),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByText("Merge the pull request")).toBeVisible(),
+    )
+    await expect(
+      canvas.getByText(
+        "ctxpipe opened a pull request that adds Notion to the Workspace. The sync starts after the merge.",
+      ),
+    ).toBeVisible()
+    // One teal action: the pull request. The Workspace row does not repeat it.
+    const reviews = canvas.getAllByRole("link", { name: /^Review/ })
+    await expect(reviews).toHaveLength(1)
+    await expect(reviews[0]).toHaveAccessibleName(
+      "Review pull request. Opens GitHub in a new tab.",
+    )
+    await expect(reviews[0]).toHaveAttribute(
+      "href",
+      "https://github.com/acme/docs/pull/7",
+    )
+    await expect(canvas.getByRole("link", { name: "Docs" })).toBeVisible()
+    await expect(canvas.queryByText("No Workspaces yet")).toBeNull()
+    await expect(
+      canvas.queryByText("Pull request open. The sync starts after the merge."),
+    ).toBeNull()
+  },
+}
+
+/** Two Workspaces wait for their first merge: one link for each pull request. */
+export const AwaitingFirstMergeInTwoWorkspaces: Story = {
+  args: { provider: "linear" },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          connectionUsageHandler(
+            ["docs", "ops"].map((slug, index) =>
+              connectionUsageItem({
+                workspaceSlug: slug,
+                workspaceName: slug === "docs" ? "Docs" : "Ops",
+                stat: "",
+                pendingChanges: [
+                  {
+                    path: "sources/linear/linear.md",
+                    provider: "linear",
+                    action: "add",
+                    pullRequestUrl: `https://github.com/acme/${slug}/pull/${index + 4}`,
+                    createdAt: "2026-10-13T10:00:00Z",
+                  },
+                ],
+              }),
+            ),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByText("Merge the pull requests")).toBeVisible(),
+    )
+    await expect(
+      canvas.getByText(
+        "ctxpipe opened a pull request in each Workspace that adds Linear. The sync starts after each merge.",
+      ),
+    ).toBeVisible()
+    const reviews = canvas.getAllByRole("link", { name: /^Review/ })
+    await expect(reviews.map((link) => link.textContent)).toEqual([
+      "Review the Docs pull request",
+      "Review the Ops pull request",
+    ])
+    await expect(reviews.map((link) => link.getAttribute("href"))).toEqual([
+      "https://github.com/acme/docs/pull/4",
+      "https://github.com/acme/ops/pull/5",
+    ])
+  },
+}
+
+/**
+ * A source syncs in one Workspace. Another Workspace waits for its first
+ * merge, and an edit waits in the first one: each row links its pull request.
+ */
 export const PullRequestAwaitingMerge: Story = {
   args: { provider: "notion" },
   parameters: {
@@ -141,6 +254,14 @@ export const PullRequestAwaitingMerge: Story = {
               workspaceSlug: "ops",
               workspaceName: "Ops",
               stat: "2 Notion pages",
+              sources: [
+                {
+                  path: "runbooks",
+                  provider: "notion",
+                  status: "ok",
+                  scopeSummary: "2 Notion pages",
+                },
+              ],
               pendingChanges: [
                 {
                   path: "runbooks",
@@ -164,6 +285,7 @@ export const PullRequestAwaitingMerge: Story = {
       expect(canvas.getByRole("link", { name: "Docs" })).toBeVisible(),
     )
     await expect(canvas.queryByText("No Workspaces yet")).toBeNull()
+    await expect(canvas.queryByText("Merge the pull request")).toBeNull()
     await expect(
       canvas.getByText("Pull request open. The sync starts after the merge."),
     ).toBeVisible()
@@ -172,7 +294,9 @@ export const PullRequestAwaitingMerge: Story = {
         "Pull request open. The change applies after the merge.",
       ),
     ).toBeVisible()
-    const pulls = canvas.getAllByRole("link", { name: "Open pull request" })
+    const pulls = canvas.getAllByRole("link", {
+      name: "Review pull request. Opens GitHub in a new tab.",
+    })
     await expect(pulls.map((pull) => pull.getAttribute("href"))).toEqual([
       "https://github.com/acme/docs/pull/7",
       "https://github.com/acme/ops/pull/3",

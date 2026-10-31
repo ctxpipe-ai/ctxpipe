@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { toast } from "sonner"
 
+import { useConnectionNextStep } from "@/features/workspace-sources/connection-next-step"
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
 
 import { resolveConnectorHealth } from "../connectorHealth"
@@ -64,12 +65,16 @@ export function SlackConnectionCard({
   // The mention capture repository is optional.
   const installed = Boolean(status?.isInstalled)
   const capturing = installed && status?.setupPhase === "live"
+  // The header follows the next step: a connection whose Workspaces
+  // wait for a source pull request shows "Awaiting merge".
+  const nextStep = useConnectionNextStep(orgSlug, connectionId)
   const health = resolveConnectorHealth({
     installationStatus: status?.installationStatus,
     statusError: isError,
-    checking: isPending || !status,
+    checking: isPending || !status || nextStep.isPending,
     connected: installed,
     draft: !installed,
+    awaitingMerge: nextStep.step?.kind === "merge",
   })
 
   return (

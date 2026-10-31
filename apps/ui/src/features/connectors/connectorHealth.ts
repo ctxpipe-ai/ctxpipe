@@ -36,7 +36,9 @@ export function connectorHealthLabel(health: ConnectorHealth): string {
  * `draft` comes from the server: the row never finished setup. A row that is
  * not a draft and not connected (revoked, uninstalled, or not linked for this
  * member) needs a reconnect, not a new setup. A revoked or uninstalled row
- * needs a reconnect in every phase.
+ * needs a reconnect in every phase. `awaitingMerge` comes from the next step
+ * of the connection (`connectionNextStep`): its Workspaces wait for a source
+ * pull request, so nothing syncs yet.
  */
 export function resolveConnectorHealth(input: {
   statusError: boolean
@@ -45,6 +47,7 @@ export function resolveConnectorHealth(input: {
   setupPhase?: string
   connected: boolean
   draft: boolean
+  awaitingMerge?: boolean
 }): ConnectorHealth {
   if (input.statusError) return "couldnt_load"
   if (input.checking) return "checking"
@@ -57,6 +60,7 @@ export function resolveConnectorHealth(input: {
   if (input.setupPhase === "sync_failed") return "sync_failed"
   if (input.setupPhase === "config_failed") return "config_failed"
   if (input.setupPhase === "initial_sync") return "syncing"
+  if (input.connected && input.awaitingMerge) return "awaiting_merge"
   if (input.connected) return "connected"
   if (input.draft) return "setup_pending"
   if (input.setupPhase === "awaiting_merge") return "awaiting_merge"

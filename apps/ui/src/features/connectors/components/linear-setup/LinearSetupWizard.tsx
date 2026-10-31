@@ -9,7 +9,10 @@ import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
-import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
+import {
+  PullRequestsToMerge,
+  useMergeStep,
+} from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 
 import {
@@ -122,7 +125,11 @@ export function LinearSetupWizard({
   }, [isOpen, onConnectionIdChange, orgSlug, queryClient])
 
   const oauthMeta = oauthQuery.data
-  const setupSteps = getLinearSetupSteps(oauthMeta)
+  const merge = useMergeStep({
+    orgSlug,
+    steps: getLinearSetupSteps(oauthMeta),
+    pullRequests,
+  })
   const status = connectionId ? statusQuery.data : { isInstalled: false }
   const body = status ? getLinearWizardBodyId(status, oauthMeta) : "connect"
   const loading =
@@ -159,11 +166,10 @@ export function LinearSetupWizard({
         {status && !loading ? (
           <div className="mb-6">
             <ConnectorSetupStepper
-              steps={setupSteps}
+              steps={merge.steps}
               currentIndex={
-                pullRequests.length
-                  ? setupSteps.length
-                  : getLinearSetupCurrentIndex(status, oauthMeta)
+                merge.currentIndex ??
+                getLinearSetupCurrentIndex(status, oauthMeta)
               }
             />
           </div>
@@ -195,15 +201,11 @@ export function LinearSetupWizard({
         ) : body === "connect" ? (
           <LinearConnectStep orgSlug={orgSlug} connectionId={connectionId} />
         ) : body === "workspaces" && pullRequests.length ? (
-          <div className="space-y-4">
-            <PullRequestsToMerge
-              orgSlug={orgSlug}
-              pullRequests={pullRequests}
-            />
-            <Button variant="secondary" className="rounded-md" onPress={close}>
-              Close
-            </Button>
-          </div>
+          <PullRequestsToMerge
+            pullRequests={pullRequests}
+            merged={merge.merged}
+            onDone={close}
+          />
         ) : body === "workspaces" && connectionId ? (
           <AddToWorkspacesStep
             orgSlug={orgSlug}

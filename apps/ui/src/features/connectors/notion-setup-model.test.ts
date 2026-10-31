@@ -39,14 +39,11 @@ describe("Notion setup model", () => {
     expect(getNotionCardCtaLabel(draft, webhookReady)).toBe("Connect Notion")
   })
 
-  it("goes from connect to Add to Workspaces, and is done after the add", () => {
+  it("goes from connect to Add to Workspaces", () => {
     const draft = { setupPhase: "draft", isInstalled: false }
     const installed = { setupPhase: "draft", isInstalled: true }
     expect(getNotionSetupCurrentIndex(draft, hosted)).toBe(0)
     expect(getNotionSetupCurrentIndex(installed, hosted)).toBe(1)
-    expect(
-      getNotionSetupCurrentIndex(installed, hosted, { workspacesDone: true }),
-    ).toBe(NOTION_SETUP_STEPS.length)
     expect(getNotionSetupCurrentIndex(installed, webhookReady)).toBe(3)
   })
 

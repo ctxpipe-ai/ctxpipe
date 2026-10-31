@@ -588,15 +588,79 @@ export const SourceProblemsNeedYou: Story = {
     await waitFor(() => expect(sources.getByText("Syncing now")).toBeVisible())
     await expect(sources.queryByText("Syncing")).toBeNull()
     await expect(sources.getByText("Awaiting merge")).toBeVisible()
-    await expect(
-      sources.getByRole("link", {
-        name: "Open the pull request. It opens on GitHub in a new tab.",
-      }),
-    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/31")
+    // The Needs you row and the pending row both link the pull request.
+    const reviews = sources.getAllByRole("link", {
+      name: "Review pull request. Opens GitHub in a new tab.",
+    })
+    await expect(reviews.map((link) => link.getAttribute("href"))).toEqual([
+      "https://github.com/acme/docs/pull/31",
+      "https://github.com/acme/docs/pull/31",
+    ])
     await waitFor(() =>
       expect(canvas.getByText(/1 part needs you:/)).toBeVisible(),
     )
     await expect(canvas.getByRole("link", { name: "Sources" })).toBeVisible()
+  },
+}
+
+/**
+ * Each source syncs, and a new Linear source waits for its merge. The
+ * Sources card asks for the merge first, in its "Needs you" list, with a
+ * teal link to the pull request (CTX-1060). The row of the new source says
+ * "Awaiting merge".
+ */
+export const SourcePullRequestNeedsYou: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        sources: [
+          workspaceSourcesHandler({
+            ...appAndLinearSources("ok"),
+            pendingChanges: [
+              {
+                path: "sources/linear/support.md",
+                provider: "linear",
+                action: "add",
+                pullRequestUrl: "https://github.com/acme/docs/pull/31",
+                createdAt: "2026-10-27T09:10:00.000Z",
+              },
+            ],
+          }),
+          orgConnectionsHandler([
+            { id: "con_gh", type: "github", displayName: "acme" },
+            { id: "con_li", type: "linear", displayName: "Acme Linear" },
+          ]),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const sources = within(
+      await canvas.findByRole("region", { name: "Sources" }),
+    )
+    const needsYou = within(
+      await sources.findByRole("list", { name: "Needs you" }),
+    )
+    const item = needsYou.getByRole("listitem", {
+      name: "Merge the Linear source pull request to start the sync",
+    })
+    await expect(item).toBeVisible()
+    await expect(
+      within(item).getByRole("link", {
+        name: "Review pull request. Opens GitHub in a new tab.",
+      }),
+    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/31")
+    await expect(
+      within(item).getByText(
+        "ctxpipe opened this pull request in the Workspace repository. Nothing changes until you merge it.",
+      ),
+    ).toBeVisible()
+    // The row of the new source keeps its state.
+    await expect(sources.getByText("Awaiting merge")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText(/1 part needs you:/)).toBeVisible(),
+    )
   },
 }
 

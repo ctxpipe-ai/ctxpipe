@@ -88,6 +88,40 @@ describe("resolveConnectorHealth", () => {
     ).toBe("syncing")
   })
 
+  it("shows awaiting merge for a connected row whose sources wait for a merge", () => {
+    const base = {
+      statusError: false,
+      checking: false,
+      connected: true,
+      draft: false,
+    }
+    expect(resolveConnectorHealth({ ...base, awaitingMerge: true })).toBe(
+      "awaiting_merge",
+    )
+    expect(resolveConnectorHealth({ ...base, awaitingMerge: false })).toBe(
+      "connected",
+    )
+  })
+
+  it("keeps a reconnect or a failure before awaiting merge", () => {
+    const base = {
+      statusError: false,
+      checking: false,
+      connected: true,
+      draft: false,
+      awaitingMerge: true,
+    }
+    expect(
+      resolveConnectorHealth({ ...base, installationStatus: "revoked" }),
+    ).toBe("reconnect")
+    expect(resolveConnectorHealth({ ...base, setupPhase: "sync_failed" })).toBe(
+      "sync_failed",
+    )
+    expect(resolveConnectorHealth({ ...base, statusError: true })).toBe(
+      "couldnt_load",
+    )
+  })
+
   it("shows setup not finished only for a draft row", () => {
     const base = { statusError: false, checking: false, connected: false }
     expect(

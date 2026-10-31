@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
-import { expect, fn, userEvent, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import {
   connectionUsageHandler,
@@ -92,10 +92,107 @@ function card() {
   )
 }
 
+/** A Notion page syncs to a Workspace: the header is green. */
 export const Connected: Story = {
   render: () => shell(card()),
   parameters: {
-    msw: { handlers: { page: [notionStatus(statusComplete)] } },
+    msw: {
+      handlers: {
+        usage: [
+          connectionUsageHandler([
+            connectionUsageItem({
+              workspaceSlug: "docs",
+              workspaceName: "Docs",
+              sources: [
+                {
+                  path: "sources/notion/notion.md",
+                  provider: "notion",
+                  status: "ok",
+                  scopeSummary: "2 Notion pages",
+                },
+              ],
+            }),
+          ]),
+        ],
+        page: [notionStatus(statusComplete)],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByText("Connected")).toBeVisible())
+    await expect(canvas.queryByText("Awaiting merge")).toBeNull()
+  },
+}
+
+/**
+ * Setup added Notion to a Workspace, and the source pull request waits for
+ * its merge. Nothing syncs yet, so the header is not green "Connected". The
+ * "Used in" section links the pull request (CTX-1060).
+ */
+export const AwaitingMerge: Story = {
+  render: () => shell(card()),
+  parameters: {
+    msw: {
+      handlers: {
+        usage: [
+          connectionUsageHandler([
+            connectionUsageItem({
+              workspaceSlug: "docs",
+              workspaceName: "Docs",
+              stat: "",
+              pendingChanges: [
+                {
+                  path: "sources/notion/notion.md",
+                  provider: "notion",
+                  action: "add",
+                  pullRequestUrl: "https://github.com/acme/docs/pull/7",
+                  createdAt: "2026-10-28T10:00:00Z",
+                },
+              ],
+            }),
+          ]),
+        ],
+        page: [notionStatus(statusComplete)],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByText("Awaiting merge")).toBeVisible(),
+    )
+    await expect(canvas.queryByText("Connected")).toBeNull()
+    await userEvent.click(canvas.getByRole("button", { name: "Expand Notion" }))
+    await waitFor(() =>
+      expect(canvas.getByText("Merge the pull request")).toBeVisible(),
+    )
+    await expect(
+      canvas.getByRole("link", {
+        name: "Review pull request. Opens GitHub in a new tab.",
+      }),
+    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
+  },
+}
+
+/**
+ * A connection from before Workspace sources reports its first sync in its
+ * setup phase. Only that legacy binding shows "Syncing": the Workspace
+ * source data has no sync time.
+ */
+export const Syncing: Story = {
+  render: () => shell(card()),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [notionStatus({ ...statusComplete, setupPhase: "initial_sync" })],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByText("Syncing")).toBeVisible())
+    await expect(canvas.queryByText("Connected")).toBeNull()
   },
 }
 

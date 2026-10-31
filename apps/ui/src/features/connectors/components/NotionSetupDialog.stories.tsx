@@ -1,12 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { notionResourcesHandler } from "@/mocks/notion-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
   connectionUsageHandler,
   workspaceSourceChangeHandlers,
+  workspaceSourceFixture,
+  workspaceSourceList,
 } from "@/mocks/workspace-sources-handlers"
 
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
@@ -307,9 +309,15 @@ export const AddToWorkspaces: Story = {
       name: "Merge the pull request",
     })
     await waitFor(() => expect(merge).toBeVisible())
-    // The sync starts after the merge, so the last step links the pull request.
+    // The merge is the last step of the setup, and the pull request is the
+    // primary action.
     await expect(
-      body.getByRole("link", { name: "acme/docs#7" }),
+      body.getByRole("listitem", { current: "step" }),
+    ).toHaveTextContent("Merge the pull request")
+    await expect(
+      body.getByRole("link", {
+        name: "Review pull request acme/docs#7. Opens GitHub in a new tab.",
+      }),
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
     await expect(addCalls).toEqual([
       {
@@ -331,6 +339,119 @@ export const AddToWorkspaces: Story = {
         },
       },
     ])
+  },
+}
+
+const handbookScope = {
+  pages: [
+    {
+      id: "1a2b3c4d-0000-4000-8000-000000000001",
+      title: "Engineering handbook",
+    },
+  ],
+}
+/** Whether the story user merged the Notion source pull request on GitHub. */
+let notionMerged = false
+
+/**
+ * The user merges the source pull request on GitHub while the dialog is
+ * open. The merge step shows the merge, the stepper is done, and "Done"
+ * closes the dialog (CTX-1060).
+ */
+export const MergeStepShowsTheMerge: Story = {
+  name: "Merge step shows the merge",
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.post(
+            `/${orgSlug}/api/v1/workspaces/${docsWorkspace.slug}/sources`,
+            () =>
+              HttpResponse.json({
+                outcome: "pull_request",
+                path: "sources/notion/notion.md",
+                pullRequestUrl: "https://github.com/acme/docs/pull/7",
+              }),
+          ),
+          http.get(
+            `/${orgSlug}/api/v1/workspaces/${docsWorkspace.slug}/sources`,
+            () =>
+              HttpResponse.json(
+                notionMerged
+                  ? workspaceSourceList({
+                      items: [
+                        workspaceSourceFixture({
+                          path: "sources/notion/notion.md",
+                          provider: "notion",
+                          connectionId,
+                          scope: handbookScope,
+                        }),
+                      ],
+                    })
+                  : workspaceSourceList(),
+              ),
+          ),
+          ...installedHandlers,
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    notionMerged = false
+  },
+  render: (args) => (
+    <NotionSetupDialog
+      orgSlug={orgSlug}
+      connectionId={connectionId}
+      isOpen
+      onOpenChange={args.onOpenChange}
+    />
+  ),
+  args: { onOpenChange: fn() },
+  play: async ({ canvasElement, args }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
+    )
+    await userEvent.click(
+      await body.findByRole("checkbox", { name: /Engineering handbook/ }),
+    )
+    await userEvent.click(
+      body.getByRole("button", { name: "Add to Workspaces" }),
+    )
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Merge the pull request" }),
+      ).toBeVisible(),
+    )
+    await expect(
+      body.getByRole("listitem", { current: "step" }),
+    ).toHaveTextContent("Merge the pull request")
+    await expect(body.getByText("Awaiting merge")).toBeVisible()
+    await expect(
+      body.getByRole("link", {
+        name: "Review pull request acme/docs#7. Opens GitHub in a new tab.",
+      }),
+    ).toBeVisible()
+    // Close is the secondary action next to the pull request.
+    await expect(body.getAllByRole("button", { name: "Close" })).toHaveLength(2)
+
+    notionMerged = true
+    await waitFor(
+      () =>
+        expect(
+          body.getByRole("heading", { name: "Pull request merged" }),
+        ).toBeVisible(),
+      // The merge step reads the sources again every 5 seconds.
+      { timeout: 10_000 },
+    )
+    await expect(body.getByText("Merged")).toBeVisible()
+    await expect(body.queryByRole("listitem", { current: "step" })).toBeNull()
+    await expect(
+      body.queryByRole("link", { name: /^Review pull request/ }),
+    ).toBeNull()
+    await userEvent.click(body.getByRole("button", { name: "Done" }))
+    await waitFor(() => expect(args.onOpenChange).toHaveBeenCalledWith(false))
   },
 }
 

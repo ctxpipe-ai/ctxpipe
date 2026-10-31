@@ -11,6 +11,7 @@ import type {
   SourceLiveStatus,
   SourceLiveStatusLookup,
 } from "@/features/workspace-sources/SourceActivityRows"
+import { SourceMergesNeedYou } from "@/features/workspace-sources/SourceMergesNeedYou"
 import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
 
 import {
@@ -131,6 +132,7 @@ export function SourcesCard(props: {
   }
   return (
     <SettingsCard part="sources" needsYou={props.needsYou}>
+      <SourceMergesNeedYou orgSlug={orgSlug} workspaceSlug={workspace.slug} />
       {activity.status === "loading" ? (
         <p
           className="mb-3 flex items-center gap-2 text-xs text-muted-foreground"

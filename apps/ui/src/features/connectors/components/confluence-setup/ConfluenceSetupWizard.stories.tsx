@@ -416,9 +416,15 @@ export const AddToWorkspaces: Story = {
       name: "Merge the pull request",
     })
     await waitFor(() => expect(merge).toBeVisible())
-    // The sync starts after the merge, so the last step links the pull request.
+    // The merge is the last step of the setup, and the pull request is the
+    // primary action.
     await expect(
-      body.getByRole("link", { name: "acme/docs#7" }),
+      body.getByRole("listitem", { current: "step" }),
+    ).toHaveTextContent("Merge the pull request")
+    await expect(
+      body.getByRole("link", {
+        name: "Review pull request acme/docs#7. Opens GitHub in a new tab.",
+      }),
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
     await expect(addCalls).toEqual([
       {

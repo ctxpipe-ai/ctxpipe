@@ -21,7 +21,7 @@ describe("PagerDuty setup model", () => {
     )
   })
 
-  it("goes from register to connect to Add to Workspaces, then is done", () => {
+  it("goes from register to connect to Add to Workspaces", () => {
     const draft = { isInstalled: false }
     const installed = { isInstalled: true }
     expect(getPagerdutySetupCurrentIndex(draft, selfHost)).toBe(0)
@@ -29,11 +29,6 @@ describe("PagerDuty setup model", () => {
     expect(getPagerdutySetupCurrentIndex(installed, saved)).toBe(2)
     expect(getPagerdutySetupCurrentIndex(draft, hosted)).toBe(0)
     expect(getPagerdutySetupCurrentIndex(installed, hosted)).toBe(1)
-    expect(
-      getPagerdutySetupCurrentIndex(installed, hosted, {
-        workspacesDone: true,
-      }),
-    ).toBe(PAGERDUTY_SETUP_STEPS.length)
   })
 
   it("manages the connection once PagerDuty is connected", () => {
