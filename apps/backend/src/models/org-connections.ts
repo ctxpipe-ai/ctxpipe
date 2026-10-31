@@ -7,26 +7,20 @@ import {
   notionConnectionConfigSchema,
   pagerdutyConnectionConfigStoredSchema,
 } from "../lib/connection-config.js"
+import {
+  type ConnectionStatus,
+  storedConnectionStatus,
+} from "./connection-status.js"
 import { isEmptyLinearSetupDraft } from "./linear-connector.js"
 import { isEmptyNotionSetupDraft } from "./notion-connector.js"
 import { isEmptyPagerdutySetupDraft } from "./pagerduty-connector.js"
-
-/**
- * The health of one connection, from its stored row only. The catalog shows
- * one state for each provider from these values, so it needs no status read
- * for each connection.
- */
-type OrgConnectionStatus =
-  | "connected"
-  | "needs_reconnect"
-  | "setup_pending"
 
 type OrgConnectionListItem = {
   id: string
   type: ConnectionType
   /** The account, site, or workspace name that the provider gives. */
   displayName: string | null
-  status: OrgConnectionStatus
+  status: ConnectionStatus
   createdAt: Date
   updatedAt: Date
 }
@@ -53,73 +47,6 @@ function connectionDisplayName(
     if (typeof value === "string" && value.trim()) return value.trim()
   }
   return null
-}
-
-/** True when the config has a non-empty string at `key`. */
-function hasText(config: Record<string, unknown>, key: string): boolean {
-  const value = config[key]
-  return typeof value === "string" && value.length > 0
-}
-
-/**
- * The same rule as the `isInstalled` field of each provider status route,
- * and `resolveConnectorHealth` in the UI. A revoked or uninstalled row needs a
- * reconnect. A row that is not installed has an unfinished setup.
- *
- * The rule reads the connection (the auth) only. The sync phases of the old
- * sync binding (`setupPhase`) are not connection health (ADR-050), so an
- * installed row is connected in every phase. No rule calls the provider: a
- * token that the provider revoked shows here only after a sync or a webhook
- * writes `status: "revoked"`.
- */
-function connectionStatus(
-  type: ConnectionType,
-  config: unknown,
-): OrgConnectionStatus {
-  const row =
-    config && typeof config === "object"
-      ? (config as Record<string, unknown>)
-      : {}
-  // Linear, Notion, and PagerDuty rows from before the status key are
-  // installed; Forge and Slack rows without it are pending (see their
-  // config schemas in `lib/connection-config.ts`).
-  const status = typeof row.status === "string" ? row.status : undefined
-  if (status === "revoked" || status === "uninstalled") return "needs_reconnect"
-  const installed = (() => {
-    switch (type) {
-      case "github": {
-        // GitHub has no revoked state: an uninstall removes the installation.
-        const installationId = row.installationId
-        return (
-          typeof installationId === "number" &&
-          Number.isSafeInteger(installationId) &&
-          installationId > 0
-        )
-      }
-      case "forge":
-        return status === "installed" && hasText(row, "cloudId")
-      case "linear":
-        return (
-          (status ?? "installed") === "installed" &&
-          hasText(row, "accessTokenEnc") &&
-          hasText(row, "workspaceId")
-        )
-      case "notion":
-        return (
-          (status ?? "installed") === "installed" &&
-          (hasText(row, "accessTokenEnc") || hasText(row, "accessToken"))
-        )
-      case "pagerduty":
-        return (status ?? "installed") === "installed"
-      case "slack":
-        return status === "installed" && hasText(row, "botTokenEnc")
-      case "buildkite":
-      case "plain":
-        // A row exists only after the token or key is saved.
-        return status === "installed"
-    }
-  })()
-  return installed ? "connected" : "setup_pending"
 }
 
 /**
@@ -172,6 +99,6 @@ export async function listOrgConnections(
     .map(({ config, ...item }) => ({
       ...item,
       displayName: connectionDisplayName(item.type, config),
-      status: connectionStatus(item.type, config),
+      status: storedConnectionStatus(item.type, config),
     }))
 }

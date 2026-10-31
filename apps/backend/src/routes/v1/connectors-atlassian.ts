@@ -22,6 +22,7 @@ import {
   getConfluenceSyncTargetWithRepoByConnectionId,
   getConfluenceSyncTargetWithRepoByOrgId,
 } from "../../models/confluence-sync-target.js"
+import { forgeConnectionIsInstalled } from "../../models/connection-status.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
@@ -666,8 +667,9 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     return c.json(
       {
         isLinked: Boolean(accessToken),
-        isInstalled:
-          installation?.status === "installed" && Boolean(installation.cloudId),
+        isInstalled: installation
+          ? forgeConnectionIsInstalled(installation)
+          : false,
         installationStatus: installation?.status ?? null,
         isGithubLinked,
         selectedSpaceCount: scopeRows.length,

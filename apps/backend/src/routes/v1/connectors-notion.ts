@@ -15,6 +15,7 @@ import {
   notionWebhookUrl,
   resolveNotionOAuthApp,
 } from "../../lib/notion-oauth.js"
+import { notionConnectionIsInstalled } from "../../models/connection-status.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
   createDraftNotionConnection,
@@ -1060,8 +1061,9 @@ export const notionConnectorRoutes = notionOAuthStartRoutes
     ])
     return c.json(
       {
-        isInstalled:
-          connection?.status === "installed" && Boolean(connection.accessToken),
+        isInstalled: connection
+          ? notionConnectionIsInstalled(connection)
+          : false,
         installationStatus: connection?.status ?? null,
         workspaceName: connection?.workspaceName ?? null,
         isGithubLinked,

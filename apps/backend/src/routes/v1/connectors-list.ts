@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 
 import type { AppEnv } from "../../app/env.js"
+import { CONNECTION_STATUSES } from "../../models/connection-status.js"
 import { getSuggestedConnectorSyncTarget } from "../../models/connector-sync-target.js"
 import { listOrgConnections } from "../../models/org-connections.js"
 
@@ -28,7 +29,7 @@ const ConnectorListItemSchema = z
      * uninstalled connection needs a reconnect, and a connection that is not
      * installed has an unfinished setup.
      */
-    status: z.enum(["connected", "needs_reconnect", "setup_pending"]),
+    status: z.enum(CONNECTION_STATUSES),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
