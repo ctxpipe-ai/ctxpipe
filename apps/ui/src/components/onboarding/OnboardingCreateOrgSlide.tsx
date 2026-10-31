@@ -98,7 +98,7 @@ export function OnboardingCreateOrgSlide({
 
   return (
     <>
-      <h2 className="mb-4 text-3xl font-semibold text-zinc-100 sm:text-4xl">
+      <h2 className="mb-4 text-3xl font-medium text-zinc-100 sm:text-4xl">
         Create your organization
       </h2>
       <div className="mx-auto mb-10 max-w-3xl">

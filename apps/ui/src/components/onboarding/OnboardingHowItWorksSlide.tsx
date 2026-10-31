@@ -49,11 +49,11 @@ export function OnboardingHowItWorksSlide({
   return (
     <>
       <div className={rowFadeClassName}>
-        <h1 className="text-3xl font-semibold text-zinc-100 sm:text-4xl">
+        <h1 className="text-3xl font-medium text-zinc-100 sm:text-4xl">
           Welcome to ctxpipe
         </h1>
         <p className="mt-3 text-lg text-zinc-400">
-          Context management for your software factory.
+          Context management for your software factory
         </p>
       </div>
       <ol className="mt-10 grid divide-y divide-border rounded-md border border-border bg-zinc-950/90 text-left sm:grid-cols-3 sm:divide-x sm:divide-y-0">

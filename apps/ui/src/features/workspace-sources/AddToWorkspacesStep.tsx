@@ -55,7 +55,7 @@ export function AddToWorkspacesStep({
   return (
     <div className="space-y-5">
       <div>
-        <h3 className="text-base font-semibold text-foreground">
+        <h3 className="text-base font-medium text-foreground">
           Add {label} to Workspaces
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">

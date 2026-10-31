@@ -1022,7 +1022,7 @@ function LegendDock() {
       <div className="pointer-events-auto max-h-48 w-56 max-w-[calc(50%-0.75rem)] overflow-hidden">
         <CosmographTypeColorLegend
           showLabel
-          labelResolver="node colours"
+          labelResolver="Node type"
           maxDisplayedItems={8}
         />
       </div>
@@ -1033,14 +1033,14 @@ function LegendDock() {
           showSublabels
           minSubLabel="low"
           maxSubLabel="high"
-          labelResolver={() => "edge width"}
+          labelResolver={() => "Edge width"}
         />
         <CosmographSizeLegend
           selectOnClick={false}
           showSublabels
           minSubLabel="and less"
           maxSubLabel="and more"
-          labelResolver={() => "connections count"}
+          labelResolver={() => "Connections"}
         />
       </div>
     </div>

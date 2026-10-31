@@ -36,7 +36,7 @@ function LoaderShell({
         className,
       )}
     >
-      <div className="flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.24em] text-teal-400">
+      <div className="flex items-center gap-2 ctx-label text-teal-400">
         <span
           aria-hidden
           className="inline-block h-2 w-2 animate-pulse bg-teal-400"

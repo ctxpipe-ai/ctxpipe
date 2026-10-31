@@ -62,7 +62,7 @@ export const NewOrganization: Story = {
       ).toBeVisible(),
     )
     expect(
-      canvas.getByText("Context management for your software factory."),
+      canvas.getByText("Context management for your software factory"),
     ).toBeVisible()
     // One heading: the title. The subtitle and the step labels are plain text.
     expect(canvas.getAllByRole("heading")).toHaveLength(1)

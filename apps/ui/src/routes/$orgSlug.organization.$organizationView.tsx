@@ -60,10 +60,10 @@ export function OrganizationSettingsShell(props: {
 }) {
   return (
     <main className="mx-auto max-w-4xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
-      <h1 className="mb-6 font-mono text-xs font-normal uppercase tracking-[0.24em] text-teal-400 sm:mb-8">
+      <h1 className="ctx-label mb-6 text-teal-400 sm:mb-8">
         organization settings
       </h1>
-      {/* Our nav lists every view, so Settings and Members also link to API Keys. */}
+      {/* Our nav lists every view, so Settings and Members also link to API keys. */}
       <div className="flex w-full grow flex-col gap-4 md:flex-row md:gap-12">
         <OrganizationSettingsNav
           orgSlug={props.orgSlug}

@@ -148,7 +148,17 @@ export const AuthProvider: FC<React.PropsWithChildren> = ({ children }) => {
         }}
         persistClient={false}
         credentials={{ forgotPassword: true }}
-        localization={{ EMAIL_NOT_VERIFIED: emailNotVerifiedMessage }}
+        localization={{
+          EMAIL_NOT_VERIFIED: emailNotVerifiedMessage,
+          // Sentence case and plain words in place of the library defaults.
+          SIGN_IN: "Sign in",
+          SIGN_IN_ACTION: "Sign in",
+          SIGN_IN_DESCRIPTION: "Enter your email and password",
+          SIGN_UP: "Sign up",
+          NAME_INSTRUCTIONS: "Use a maximum of 32 characters",
+          ORGANIZATION_NAME_INSTRUCTIONS: "Use a maximum of 32 characters",
+          ORGANIZATION_SLUG_INSTRUCTIONS: "Use a maximum of 48 characters",
+        }}
         // better-auth-ui sends every sign-in failure as an error toast.
         toast={({ variant = "default", message }) => {
           if (message === emailNotVerifiedMessage) toast.info(message)

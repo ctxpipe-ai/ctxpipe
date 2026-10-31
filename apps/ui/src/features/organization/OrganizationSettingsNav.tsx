@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 const NAV_ITEMS = [
   { view: "settings", label: "Settings" },
   { view: "members", label: "Members" },
-  { view: "api-keys", label: "API Keys" },
+  { view: "api-keys", label: "API keys" },
 ] as const
 
 export function OrganizationSettingsNav(props: {

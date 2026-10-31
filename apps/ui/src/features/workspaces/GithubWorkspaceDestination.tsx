@@ -59,7 +59,7 @@ export function GithubWorkspaceDestination({
       <h1
         className={
           onboarding
-            ? "text-3xl font-semibold text-zinc-100 sm:text-4xl"
+            ? "text-3xl font-medium text-zinc-100 sm:text-4xl"
             : "text-xl font-medium tracking-tight text-foreground"
         }
       >

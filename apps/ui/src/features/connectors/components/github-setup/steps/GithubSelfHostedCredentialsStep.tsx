@@ -92,7 +92,7 @@ export function GithubSelfHostedCredentialsStep({
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-base font-semibold text-foreground">
+        <h3 className="text-base font-medium text-foreground">
           Register your GitHub App
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">

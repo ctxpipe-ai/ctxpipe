@@ -29,7 +29,7 @@ export function DialogTitle(props: React.ComponentProps<"h2">) {
     <h2
       {...props}
       className={twMerge(
-        "text-base font-semibold text-zinc-100",
+        "text-base font-medium text-zinc-100",
         props.className,
       )}
     />

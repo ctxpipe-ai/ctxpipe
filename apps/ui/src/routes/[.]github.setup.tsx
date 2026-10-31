@@ -56,9 +56,7 @@ function MissingInstallationIdView() {
     <AppShell>
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
         <header className="mb-8">
-          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            GitHub
-          </span>
+          <span className="ctx-label text-teal-400">GitHub</span>
         </header>
         <section>
           <h1 className="text-3xl font-medium tracking-tight text-foreground">
@@ -79,9 +77,7 @@ function MissingPreferredOrgView() {
     <AppShell>
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
         <header className="mb-8">
-          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            GitHub
-          </span>
+          <span className="ctx-label text-teal-400">GitHub</span>
         </header>
         <section>
           <h1 className="text-3xl font-medium tracking-tight text-foreground">
@@ -211,9 +207,7 @@ export function ConnectGithubView({
       <AppShell>
         <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
           <header className="mb-8">
-            <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-              GitHub
-            </span>
+            <span className="ctx-label text-teal-400">GitHub</span>
           </header>
           <GithubNotLinkedNotice
             githubSignInEnabled={githubSignIn ?? true}
@@ -229,9 +223,7 @@ export function ConnectGithubView({
     <AppShell>
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
         <header className="mb-8">
-          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            GitHub
-          </span>
+          <span className="ctx-label text-teal-400">GitHub</span>
         </header>
         <section>
           <h1 className="text-3xl font-medium tracking-tight text-foreground">
@@ -338,9 +330,7 @@ function DirectSetupPage() {
       <AppShell>
         <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
           <header className="mb-8">
-            <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-              GitHub
-            </span>
+            <span className="ctx-label text-teal-400">GitHub</span>
           </header>
           <section>
             <h1 className="text-3xl font-medium tracking-tight text-foreground">
