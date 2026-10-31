@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { type FormEventHandler, useEffect, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/Button"
+import { ExternalLink } from "@/components/ui/ExternalLink"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Spinner } from "@/components/ui/spinner"
 import { TextField } from "@/components/ui/TextField"
@@ -261,7 +262,7 @@ export function InstallForgeStep({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-semibold text-foreground">
+        <h3 className="text-base font-medium text-foreground">
           {capabilitiesLoading
             ? "Forge app setup"
             : hasHostedInstall
@@ -282,14 +283,9 @@ export function InstallForgeStep({
           <p className="mt-2 text-sm text-muted-foreground">
             Confluence integrations use embedded Forge apps on Atlassian’s
             cloud. ctxpipe will provision one for you below.{" "}
-            <a
-              href="https://developer.atlassian.com/platform/forge/"
-              target="_blank"
-              rel="noreferrer noopener"
-              className="text-teal-400 underline-offset-4 hover:text-teal-300 hover:underline"
-            >
+            <ExternalLink href="https://developer.atlassian.com/platform/forge/">
               Learn what Forge is
-            </a>
+            </ExternalLink>
             .
           </p>
         )}
@@ -403,14 +399,9 @@ export function InstallForgeStep({
               description={
                 <>
                   Go to{" "}
-                  <a
-                    href="https://id.atlassian.com/manage-profile/security/api-tokens"
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="text-teal-400 underline-offset-4 hover:text-teal-300 hover:underline"
-                  >
+                  <ExternalLink href="https://id.atlassian.com/manage-profile/security/api-tokens">
                     https://id.atlassian.com/manage-profile/security/api-tokens
-                  </a>
+                  </ExternalLink>
                   {" -> "}
                   create an API token{" -> "}select the Forge app integration
                   {" -> "}enable all scopes offered{" -> "}paste the generated

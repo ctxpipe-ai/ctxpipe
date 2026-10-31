@@ -28,7 +28,7 @@ export const CHOOSE_WORKSPACES_HINT =
   "You can add or change what each Workspace syncs at any time in its settings."
 
 /**
- * The wizard step "Choose Workspaces": select one or more Workspaces, and
+ * The wizard step "Add to Workspaces": select one or more Workspaces, and
  * give them one shared scope or a scope for each. A connector wizard
  * includes it as a step and sends the result of `chooseWorkspacesRequests`.
  */

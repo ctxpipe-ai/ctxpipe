@@ -100,8 +100,8 @@ after that. Copy them for the next step.
    Linear shows after Create, plus the webhook signing secret from the create
    form. The wizard shows the exact **Redirect URIs** and **Webhook URL** values
    for this deployment.
-3. Save the app, then continue to **Connect Linear workspace**.
-4. Complete OAuth. In **Choose Workspaces**, choose the Workspaces and the
+3. Save the app, then continue to **Connect Linear**.
+4. Complete OAuth. In **Add to Workspaces**, choose the Workspaces and the
    scope, then merge the pull request that adds `sources/linear/<name>.md`.
 
 Secrets are stored encrypted on the Linear `connections` row. List and status
@@ -180,7 +180,7 @@ backend and worker task definitions.
 3. Open **Connectors → Add connection → Linear**.
 4. If `LINEAR_*` is unset, complete **Register Linear OAuth app**, then Connect.
 5. Complete OAuth and confirm the expected Linear workspace appears.
-6. In **Choose Workspaces**, choose a Workspace and a scope.
+6. In **Add to Workspaces**, choose a Workspace and a scope.
 7. Merge the pull request that adds `sources/linear/<name>.md`.
 8. Confirm the GitHub App delivers the merge push to
    `{AUTH_BASE_URL}/api/v1/webhook/github/<connectionId>`.
@@ -227,7 +227,7 @@ was revoked in Linear.
 
 ### The source pull request cannot open
 
-If **Choose Workspaces** reports an error, confirm that the selected GitHub App
+If **Add to Workspaces** reports an error, confirm that the selected GitHub App
 installation still has write access to the repository of the Workspace. Also
 confirm that the Workspace repository uses format 2 or higher. Below that, the
 dialog shows **Upgrade this Workspace first**.

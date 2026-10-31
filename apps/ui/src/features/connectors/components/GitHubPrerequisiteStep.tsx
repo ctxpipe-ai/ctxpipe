@@ -33,7 +33,7 @@ export function GitHubPrerequisiteStep({
           <h3 className="text-base font-medium text-foreground">
             Connect GitHub
           </h3>
-          <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
+          <p className="mt-2 text-sm text-muted-foreground">
             {sourceName} content is written into a Workspace on GitHub, so a
             GitHub connection is required before you can continue.
           </p>

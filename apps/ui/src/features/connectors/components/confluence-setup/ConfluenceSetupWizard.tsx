@@ -10,8 +10,8 @@ import {
 import { useEffect, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/Button"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
-import { Spinner } from "@/components/ui/spinner"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
@@ -225,7 +225,8 @@ export function ConfluenceSetupWizard({
                 Set up Confluence connector
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Complete each step to connect Confluence to this organization.
+                Connect Confluence, then select the spaces and pages for each
+                Workspace.
               </p>
             </div>
           </div>
@@ -258,10 +259,7 @@ export function ConfluenceSetupWizard({
         ) : null}
 
         {statusPending ? (
-          <div className="mt-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Spinner className="text-muted-foreground" />
-            Loading connector status...
-          </div>
+          <InlineLoader label="Loading the Confluence connector" />
         ) : statusError ? (
           <div className="mt-6 space-y-3 text-sm text-muted-foreground">
             <p className="text-destructive">Could not load connector status.</p>
@@ -279,10 +277,7 @@ export function ConfluenceSetupWizard({
             again.
           </p>
         ) : orgOauthBlocking ? (
-          <div className="mt-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Spinner className="text-muted-foreground" />
-            Loading OAuth settings...
-          </div>
+          <InlineLoader label="Loading the OAuth app settings" />
         ) : (
           <div className="mt-2">
             {bodyId === "oauth_register" && atlassianConnectionId ? (

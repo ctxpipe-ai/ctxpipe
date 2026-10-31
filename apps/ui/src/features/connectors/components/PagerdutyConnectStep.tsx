@@ -36,13 +36,13 @@ export function PagerdutyConnectStep({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-semibold text-foreground">
-          Connect PagerDuty account
+        <h3 className="text-base font-medium text-foreground">
+          Connect PagerDuty
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
           {revoked
             ? "PagerDuty authorization is revoked; reconnect the account."
-            : "Authorise read-only access to the PagerDuty account you want ctxpipe to mirror. A new window will open for approval."}
+            : "Authorize read-only access to the PagerDuty account you want ctxpipe to mirror. A new window will open for approval."}
         </p>
       </div>
       <Button
