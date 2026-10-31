@@ -97,10 +97,9 @@ describe("waitForPublishTurn", () => {
     const { clock, step } = engine(90_000)
     const startedAt = new Date(clock.now)
     let waitFor = 2
-    const check = async () =>
-      waitFor-- > 0
-        ? alwaysWait()
-        : ({ superseded: "run_newer" } as { superseded: string })
+    const check = async (): Promise<
+      { wait: string } | { superseded: string }
+    > => (waitFor-- > 0 ? alwaysWait() : { superseded: "run_newer" })
     const first = await waitForPublishTurn({
       step,
       startedAt,
@@ -120,7 +119,7 @@ describe("waitForPublishTurn", () => {
     expect(first).toEqual({
       outcome: "superseded",
       checks: 3,
-      newer: "run_newer",
+      newerRunId: "run_newer",
     })
     expect(replay).toEqual(first)
     expect(clock.now).toBe(afterFirst)

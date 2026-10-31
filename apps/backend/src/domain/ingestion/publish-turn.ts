@@ -5,6 +5,12 @@ import { getSystemDb } from "../../db/client.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "./ingestion-run.js"
 
+/** The result of one check of the publish turn. */
+type PublishTurnCheck =
+  | { turn: true }
+  | { wait: string }
+  | { superseded: string }
+
 /**
  * The turn of an ingestion v2 run to pin its Workspace revisions (CTX-895).
  * Two runs of one source that pin the same revision race at publish: the
@@ -15,12 +21,12 @@ import { INGESTION_V2_WORKFLOW_NAME } from "./ingestion-run.js"
  * revision that the earlier run published. A run waits only for an earlier
  * run, so two runs never wait for each other.
  *
- * A newer push run of the same source replaces a push run (CTX-1040): the
- * check gives the newer run's id, and the run ends before it calls a model.
- * Both push runs target each Workspace of the source, and the newer commit
- * includes the older one. A re-ingestion run names its Workspace in
- * `destinations`, so it is never replaced. A newer run that ended does not
- * replace a run.
+ * A newer active push run of the same source replaces a push run (CTX-1040).
+ * Each check looks for one first, also when no earlier run is active, and
+ * gives its run id. The run then ends before it calls a model. Both push
+ * runs target each Workspace of the source, and the newer commit includes
+ * the older one. A re-ingestion run names its Workspace in `destinations`,
+ * so it is never replaced. A newer run that ended does not replace a run.
  */
 export async function ingestPublishTurn(input: {
   orgId: string
@@ -28,29 +34,9 @@ export async function ingestPublishTurn(input: {
   sourceUrl: string
   /** The Workspaces of the run; undefined is each Workspace of the source. */
   destinations: readonly string[] | undefined
-}): Promise<{ turn: true } | { wait: string } | { superseded: string }> {
-  if (!input.destinations) {
-    const newer = await getSystemDb().execute<{ id: string }>(sql`
-      select other.id
-      from openworkflow.workflow_runs other, openworkflow.workflow_runs me
-      where me.namespace_id = ${openWorkflowNamespaceId()}
-        and me.id = ${input.runId}
-        and other.namespace_id = me.namespace_id
-        and other.workflow_name = ${INGESTION_V2_WORKFLOW_NAME}
-        and other.status in ('pending', 'running', 'sleeping')
-        and other.input->>'orgId' = ${input.orgId}
-        and other.input->>'shadow' = 'false'
-        and other.input->'destinations' is null
-        and lower(other.input->'source'->>'url') = ${input.sourceUrl.toLowerCase()}
-        and (other.created_at, other.id) > (me.created_at, me.id)
-      order by other.created_at desc, other.id desc
-      limit 1
-    `)
-    const id = newer.rows[0]?.id
-    if (id) return { superseded: id }
-  }
-  const result = await getSystemDb().execute<{ earlier: string }>(sql`
-    select count(*) as earlier
+}): Promise<PublishTurnCheck> {
+  // The other active publish runs of the source, with the run as `me`.
+  const otherRuns = sql`
     from openworkflow.workflow_runs other, openworkflow.workflow_runs me
     where me.namespace_id = ${openWorkflowNamespaceId()}
       and me.id = ${input.runId}
@@ -59,7 +45,20 @@ export async function ingestPublishTurn(input: {
       and other.status in ('pending', 'running', 'sleeping')
       and other.input->>'orgId' = ${input.orgId}
       and other.input->>'shadow' = 'false'
-      and lower(other.input->'source'->>'url') = ${input.sourceUrl.toLowerCase()}
+      and lower(other.input->'source'->>'url') = ${input.sourceUrl.toLowerCase()}`
+  if (!input.destinations) {
+    const newer = await getSystemDb().execute<{ id: string }>(sql`
+      select other.id ${otherRuns}
+        and other.input->'destinations' is null
+        and (other.created_at, other.id) > (me.created_at, me.id)
+      order by other.created_at desc, other.id desc
+      limit 1
+    `)
+    const newerRunId = newer.rows[0]?.id
+    if (newerRunId) return { superseded: newerRunId }
+  }
+  const result = await getSystemDb().execute<{ earlier: string }>(sql`
+    select count(*) as earlier ${otherRuns}
       and (other.created_at, other.id) < (me.created_at, me.id)
       and ${
         input.destinations
@@ -103,13 +102,11 @@ export async function waitForPublishTurn(options: {
   }
   /** The engine start of the run; null when the engine has not set it. */
   startedAt: Date | null
-  check: () => Promise<
-    { turn: true } | { wait: string } | { superseded: string }
-  >
+  check: () => Promise<PublishTurnCheck>
   now?: () => number
 }): Promise<
   | { outcome: "turn" | "deadline"; checks: number }
-  | { outcome: "superseded"; checks: number; newer: string }
+  | { outcome: "superseded"; checks: number; newerRunId: string }
 > {
   const now = options.now ?? Date.now
   const stored = await options.step.run(
@@ -142,7 +139,7 @@ export async function waitForPublishTurn(options: {
       return {
         outcome: "superseded",
         checks: check + 1,
-        newer: result.superseded,
+        newerRunId: result.superseded,
       }
     // A check stored by an earlier release carries its own deadline.
     deadlineAt = result.deadlineAt ?? deadlineAt
