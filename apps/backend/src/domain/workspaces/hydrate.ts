@@ -43,6 +43,11 @@ export type HydrateClaim = {
   validFrom: string | null
   validTo: string | null
   source: string | null
+  /**
+   * For a claim of the `claims` front matter: true when it has an
+   * `evidence` object. A claim that hydrate makes has none.
+   */
+  evidence?: boolean
 }
 
 /**
@@ -63,6 +68,8 @@ export type HydrateUnit = {
   links: string[]
   claims: HydrateClaim[]
   confidence?: number | null
+  /** Front-matter `generated_by`: the owner of a generated file. */
+  generatedBy?: string | null
   /** Front-matter `title`, else the text of the first Markdown heading. */
   title: string | null
   /** The connector root of a mirror path (`linear`, …), else `authored`. */
@@ -212,6 +219,10 @@ export function hydrateKnowledgeTree(input: {
       links: markdownLinks(parsed.body),
       claims: parseClaims(parsed.attributes.claims),
       confidence: parseOptionalNumber(parsed.attributes.confidence),
+      generatedBy:
+        typeof parsed.attributes.generated_by === "string"
+          ? parsed.attributes.generated_by
+          : null,
       title: unitTitle(parsed.attributes.title, parsed.body),
       source: connectorMirrorRoot(path) ?? "authored",
       updatedAt: file.lastCommitTimestamp ?? null,
@@ -496,6 +507,7 @@ function parseClaims(raw: unknown): HydrateClaim[] {
       validFrom: typeof row.valid_from === "string" ? row.valid_from : null,
       validTo: typeof row.valid_to === "string" ? row.valid_to : null,
       source: typeof row.source === "string" ? row.source : null,
+      evidence: typeof row.evidence === "object" && row.evidence !== null,
     })
   }
   return claims

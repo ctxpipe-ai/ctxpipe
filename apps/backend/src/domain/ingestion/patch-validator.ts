@@ -119,7 +119,8 @@ const FOLDER_KINDS: ReadonlyMap<string, string> = new Map(
     .map(([kind, folder]) => [folder, kind]),
 )
 
-const GENERATED_BY = "ctxpipe-extract"
+/** The `generated_by` of a file that ingestion v2 owns. */
+export const GENERATED_BY = "ctxpipe-extract"
 /**
  * Folders whose files more than one root can write (ADR-052 section 6). A
  * root step (with a `root`) only claims them; a repository-wide step writes them.

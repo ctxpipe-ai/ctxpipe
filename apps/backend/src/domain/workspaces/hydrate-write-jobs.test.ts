@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { parse as parseYaml, stringify } from "yaml"
 
 import {
   claimsUpgradeFiles,
@@ -10,7 +11,7 @@ import {
   validFromPersistFiles,
   validFromPersistRemainder,
 } from "./hydrate-write-jobs.js"
-import type { HydrateUnit } from "./hydrate.js"
+import { type HydrateUnit, hydrateKnowledgeTree } from "./hydrate.js"
 
 const unit = (overrides: Partial<HydrateUnit>): HydrateUnit => ({
   path: "knowledge/a.md",
@@ -220,5 +221,63 @@ describe("hydrate write files", () => {
     expect(files[0]?.content).toContain("predicate: DEPENDS_ON")
     expect(files[0]?.content).toContain("# Billing")
     expect(files[0]?.content).toContain("Ledger lives here.")
+  })
+})
+
+describe("claims_upgrade on a file that ingestion v2 owns (CTX-1100)", () => {
+  const path = "knowledge/decisions/adr-001.md"
+  const VALID_FROM = "2026-10-20T12:10:23.000Z"
+  // A claim of the decisions skill, after hydrate dated it.
+  const full = {
+    to: "../services/ui.md",
+    predicate: "INFLUENCES",
+    evidence: { path: "docs/adr-001.md", kind: "script" },
+    confidence: 0.7,
+    valid_from: VALID_FROM,
+  }
+  // A claim that the ownership migration carried over from the old pipeline.
+  const legacy = { to: "../services/old.md", evidence: { kind: "legacy" } }
+  // A claim that claims_upgrade added for a body link, and hydrate dated.
+  const bare = { to: "../apis/api.md", valid_from: VALID_FROM }
+  const body =
+    "# ADR-001\n\nSee [UI](../services/ui.md) and [the API](../apis/api.md).\n"
+  const decision = (claims: unknown[]) =>
+    `---\n${stringify({
+      kind: "Decision",
+      name: "ADR-001: UI stack",
+      claims,
+      generated_by: "ctxpipe-extract",
+      sources: ["sources/github/example-org/shop.md"],
+      skill: "decisions",
+      bundle: "bundle-1",
+    })}---\n${body}`
+  const unitsOf = (content: string) =>
+    hydrateKnowledgeTree({
+      workspaceId: "ws_fixture",
+      files: [{ path, content }],
+    }).units
+
+  it("adds no claim for a body link: the v2 steps write the claims of the file", () => {
+    const content = decision([full])
+    const units = unitsOf(content)
+    expect(claimsUpgradeRemainder(units)).toBe(0)
+    expect(claimsUpgradeFiles({ files: [{ path, content }], units })).toEqual(
+      [],
+    )
+  })
+
+  it("removes each claim with no evidence, and keeps the other claims and the body", () => {
+    const content = decision([full, bare, legacy])
+    const units = unitsOf(content)
+    expect(claimsUpgradeRemainder(units)).toBe(1)
+    const [repaired] = claimsUpgradeFiles({ files: [{ path, content }], units })
+    const text = repaired?.content ?? ""
+    const front = parseYaml(text.slice(4, text.indexOf("\n---\n"))) as {
+      claims: unknown[]
+    }
+    expect(front.claims).toEqual([full, legacy])
+    expect(text.endsWith(`---\n${body}`)).toBe(true)
+    // The repaired file needs no more claims_upgrade.
+    expect(claimsUpgradeRemainder(unitsOf(text))).toBe(0)
   })
 })
