@@ -34,6 +34,7 @@ import {
   projectionFromWorkspace,
   touchLastUsedWorkspace,
 } from "../../models/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
 import {
   enqueueWorkspaceGraphRebuild,
   enqueueWorkspaceHydrate,
@@ -397,10 +398,9 @@ const retryPrepareWorkspaceRoute = createRoute(
   }),
 )
 
-// Only a failed graph of the active revision is written again, only when its
-// embeddings are ready, and at most once each UTC hour. The run writes the
-// graph from PostgreSQL; it does not resolve the tip, so it never hydrates a
-// new commit.
+// Only a failed graph of the active revision is written again, and at most
+// once in each UTC hour. The run writes the graph from PostgreSQL; it does not
+// resolve the tip, so it never hydrates a new commit.
 const rebuildWorkspaceGraphRoute = createRoute(
   directWriteRoute({
     method: "post",
@@ -423,7 +423,7 @@ const rebuildWorkspaceGraphRoute = createRoute(
       409: {
         content: { "application/json": { schema: ErrorResponseSchema } },
         description:
-          "The graph of the active revision did not fail, its embeddings are not ready, or a rebuild started in this UTC hour",
+          "The graph of the active revision did not fail, another phase is not ready, a newer commit builds, or a rebuild started in this UTC hour",
       },
     },
   }),
@@ -673,19 +673,18 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const { workspaceSlug } = workspaceSlugParams(c)
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
-    const projection = publishedProjection(projectionFromWorkspace(workspace))
+    // The run writes only the graph when each other phase is ready. Not
+    // ready embeddings call a paid model, and a not ready index queues an
+    // index run. While a newer commit builds, the hydrate discards a run of
+    // the active revision. The tip check retries each of these states.
+    const projection = projectionFromWorkspace(workspace)
     if (
-      projection?.kind !== "active" ||
-      projection.stores.graph.kind !== "failed"
+      projection.kind !== "active" ||
+      projection.stores.graph.kind !== "failed" ||
+      projection.stores.embeddings.kind !== "ready" ||
+      projection.stores.index.kind !== "ready"
     )
-      return c.json({ error: "The graph did not fail." }, 409)
-    // A hydrate also embeds when the embeddings are not ready, and embeddings
-    // call a paid model. The tip check retries them.
-    if (projection.stores.embeddings.kind !== "ready")
-      return c.json(
-        { error: "The Workspace is not ready. Try again later." },
-        409,
-      )
+      return c.json({ error: "A rebuild cannot start now." }, 409)
     const { revision } = projection
     const queued = await enqueueWorkspaceGraphRebuild({
       orgId: workspace.orgId,
@@ -695,10 +694,13 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     })
     if (!queued)
       return c.json(
-        { error: "The graph was built again in this hour. Try again later." },
+        { error: "A rebuild started in this hour. Try again later." },
         409,
       )
-    await markWorkspaceGraphRetry(revision)
+    getLogger().info("workspace_graph_rebuild_requested", {
+      workspaceId: workspace.id,
+    })
+    await markWorkspaceGraphRetry(revision, workspace.updatedAt)
     return c.json(
       serializeWorkspace(
         (await getWorkspaceBySlug(workspaceSlug)) ?? workspace,

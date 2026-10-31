@@ -490,8 +490,9 @@ function WorkspaceGraphPaneBody(props: {
     enabled: graphReadable(phase),
   })
   const queryClient = useQueryClient()
-  // The server refuses a graph that did not fail, or a second rebuild in the
-  // same hour. Both answers read the Workspace again to show its phase.
+  // The server can refuse the rebuild, for example a second one in the same
+  // UTC hour. The alert then shows its reason. Both answers read the
+  // Workspace again to show its phase.
   const rebuild = useMutation({
     mutationFn: () =>
       rebuildWorkspaceGraph(props.orgSlug, props.workspace.slug),

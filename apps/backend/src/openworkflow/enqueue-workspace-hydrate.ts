@@ -59,8 +59,9 @@ export async function enqueueWorkspaceHydrate(
  * Start one hydrate run that writes the graph of a published revision again
  * from the PostgreSQL projection. The key names the Workspace, the revision
  * and the trigger (the time of a graph loss, or the UTC hour of a manual
- * rebuild), so each trigger starts one run. Returns true when the run waits
- * for a worker, and false when the key gives a run that started before.
+ * rebuild), so each trigger starts one run. Returns true when the key gives a
+ * run that did not start (a new run, or a run that waits for a worker), and
+ * false when the key gives a run that started before.
  */
 export async function enqueueWorkspaceGraphRebuild(input: {
   orgId: string

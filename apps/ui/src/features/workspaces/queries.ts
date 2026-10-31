@@ -1148,7 +1148,7 @@ export async function retryPrepareWorkspace(
   })
 }
 
-/** Builds a failed graph of the active revision again, at most once an hour. */
+/** Builds a failed graph of the active revision again, at most once in each UTC hour. */
 export async function rebuildWorkspaceGraph(
   orgSlug: string,
   workspaceSlug: string,

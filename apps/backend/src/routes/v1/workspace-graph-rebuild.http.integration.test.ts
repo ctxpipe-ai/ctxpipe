@@ -3,7 +3,15 @@ import { fileURLToPath } from "node:url"
 
 import { config } from "dotenv"
 import { eq, sql } from "drizzle-orm"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
 import {
   closeDb,
@@ -16,6 +24,10 @@ import type {
   DerivedStoreResult,
   WorkspaceRevision,
 } from "../../domain/workspaces/revision.js"
+import {
+  markWorkspaceGraphRetry,
+  persistWorkspaceGraphResult,
+} from "../../models/workspaces.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { workspaceRoutes } from "./workspaces.js"
 
@@ -33,8 +45,13 @@ const app = () => workspaceHttpApp(org, workspaceRoutes)
 async function seedWorkspace(
   name: string,
   graph: DerivedStoreResult | null,
-  embeddingError?: string,
+  options: {
+    embeddingError?: string
+    index?: DerivedStoreResult
+    desiredSha?: string
+  } = {},
 ): Promise<WorkspaceRevision> {
+  const { embeddingError } = options
   const id = `ws_${name}_${suffix}`
   const url = `https://github.com/example/${name}-${suffix}.git`
   const sha = "c".repeat(40)
@@ -54,7 +71,7 @@ async function seedWorkspace(
       displayName: name,
       workspaceRepositoryUrl: url,
       formatVersion: 3,
-      desiredSha: sha,
+      desiredSha: options.desiredSha ?? sha,
       desiredDefaultBranch: "main",
       hydrateStatus: "ready",
       ...(graph
@@ -81,7 +98,10 @@ async function seedWorkspace(
                     }
                   : {}),
               },
-              index: { revision, result: { kind: "ready" as const } },
+              index: {
+                revision,
+                result: options.index ?? { kind: "ready" as const },
+              },
             },
           }
         : {}),
@@ -100,6 +120,19 @@ async function hydrateRuns(workspaceId: string) {
       and input->>'workspaceId' = ${workspaceId}
   `)
   return result.rows
+}
+
+async function workspaceRow(workspaceId: string) {
+  const [row] = await withOrgDbContext(org.id, (db) =>
+    db
+      .select({
+        hydratePhases: workspaces.hydratePhases,
+        updatedAt: workspaces.updatedAt,
+      })
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId)),
+  )
+  return row
 }
 
 async function graphPhase(workspaceId: string) {
@@ -122,6 +155,10 @@ describe("Rebuild of a failed Workspace graph (Postgres)", () => {
   beforeAll(() => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
     initDb(process.env.DATABASE_URL)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   afterAll(async () => {
@@ -190,7 +227,6 @@ describe("Rebuild of a failed Workspace graph (Postgres)", () => {
       kind: "failed",
       message: "graph store unavailable",
     })
-    vi.useRealTimers()
   })
 
   it.each([
@@ -209,18 +245,55 @@ describe("Rebuild of a failed Workspace graph (Postgres)", () => {
 
   // A hydrate also embeds when the embeddings are not ready, and embeddings
   // call a paid model. The action writes only the graph.
-  it("refuses a failed graph when the embeddings are not ready", async () => {
-    const revision = await seedWorkspace(
-      "embeddings-failed",
-      { kind: "failed", message: "graph store unavailable" },
-      "embedding provider unavailable",
+  // The hydrate also queues an index run when the index is not ready. While
+  // a newer commit builds, the hydrate discards a run of the active revision.
+  it.each([
+    ["embeddings-failed", { embeddingError: "embedding provider unavailable" }],
+    [
+      "index-failed",
+      { index: { kind: "failed", message: "index unavailable" } as const },
+    ],
+    ["newer-commit", { desiredSha: "d".repeat(40) }],
+  ])(
+    "refuses a failed graph of %s and queues no run",
+    async (name, options) => {
+      const revision = await seedWorkspace(
+        name,
+        { kind: "failed", message: "graph store unavailable" },
+        options,
+      )
+
+      const response = await rebuild(name)
+
+      expect(response.status).toBe(409)
+      expect(await response.json()).toHaveProperty("error")
+      expect(await hydrateRuns(revision.workspaceId)).toHaveLength(0)
+    },
+  )
+
+  // The queued run can start and fail again before the route marks the
+  // phase. The mark must not hide that newer result.
+  it("does not set a newer graph result back to pending", async () => {
+    const revision = await seedWorkspace("raced", {
+      kind: "failed",
+      message: "graph store unavailable",
+    })
+    const read = await workspaceRow(revision.workspaceId)
+    await withOrgDbContext(org.id, () =>
+      persistWorkspaceGraphResult({
+        revision,
+        result: { kind: "failed", message: "graph store still unavailable" },
+      }),
     )
 
-    const response = await rebuild("embeddings-failed")
+    await withOrgDbContext(org.id, () =>
+      markWorkspaceGraphRetry(revision, read?.updatedAt ?? new Date(0)),
+    )
 
-    expect(response.status).toBe(409)
-    expect(await response.json()).toHaveProperty("error")
-    expect(await hydrateRuns(revision.workspaceId)).toHaveLength(0)
+    expect((await graphPhase(revision.workspaceId))?.result).toEqual({
+      kind: "failed",
+      message: "graph store still unavailable",
+    })
   })
 
   it("gives 404 for a Workspace that does not exist", async () => {
