@@ -93,6 +93,39 @@ describe("waitForPublishTurn", () => {
     expect(replay).toEqual(first)
   })
 
+  it("stops at once when a newer run of the source replaces the run, also on a replay (CTX-1040)", async () => {
+    const { clock, step } = engine(90_000)
+    const startedAt = new Date(clock.now)
+    let waitFor = 2
+    const check = async () =>
+      waitFor-- > 0
+        ? alwaysWait()
+        : ({ superseded: "run_newer" } as { superseded: string })
+    const first = await waitForPublishTurn({
+      step,
+      startedAt,
+      check,
+      now: () => clock.now,
+    })
+    const afterFirst = clock.now
+
+    // A replay takes the recorded checks: no new check, and no sleep.
+    const replay = await waitForPublishTurn({
+      step,
+      startedAt,
+      check: async () => ({ turn: true }),
+      now: () => clock.now,
+    })
+
+    expect(first).toEqual({
+      outcome: "superseded",
+      checks: 3,
+      newer: "run_newer",
+    })
+    expect(replay).toEqual(first)
+    expect(clock.now).toBe(afterFirst)
+  })
+
   it("stops at the first stored deadline when a step retry moves startedAt", async () => {
     const { clock, step } = engine(0)
     const startedAt = new Date(clock.now)

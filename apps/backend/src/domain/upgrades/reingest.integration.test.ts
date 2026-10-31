@@ -270,6 +270,74 @@ describe("a push during a re-ingestion", () => {
   })
 })
 
+describe("a newer push of the same source (CTX-1040)", () => {
+  it("replaces a waiting push run, and keeps a re-ingestion run and the newest push run", async () => {
+    const orgId = generateObjectId("org")
+    const workspaceId = generateObjectId("ws")
+    const url = "https://github.com/acme/ky"
+    const ingestionSpec = {
+      name: INGESTION_V2_WORKFLOW_NAME,
+      schema: z.object({ orgId: z.string() }).passthrough(),
+    }
+    // No worker runs ingestion v2 here: each queued run stays active.
+    let at = Date.now()
+    const ingestion = async (extra: Record<string, unknown>) => {
+      const handle = await runner.runWorkflow(ingestionSpec, {
+        orgId,
+        shadow: false,
+        source: {
+          kind: "github",
+          url,
+          githubConnectionId: generateObjectId("con"),
+        },
+        sha: "a".repeat(40),
+        authorTime: new Date().toISOString(),
+        ...extra,
+      })
+      queued.push(handle.workflowRun.id)
+      await startedAt(handle.workflowRun.id, new Date(at++))
+      return handle.workflowRun.id
+    }
+    const turn = (runId: string, destinations?: string[]) =>
+      ingestPublishTurn({
+        orgId,
+        runId,
+        sourceUrl: "https://github.com/Acme/Ky",
+        destinations,
+      })
+
+    const running = await ingestion({})
+    const older = await ingestion({})
+    const reingest = await ingestion({ destinations: [workspaceId] })
+    expect(await turn(older)).toHaveProperty("wait")
+
+    // A newer shadow run, a newer run of another source, and the newer
+    // re-ingestion run do not replace it.
+    await ingestion({ shadow: true })
+    await ingestion({
+      source: {
+        kind: "github",
+        url: "https://github.com/acme/other",
+        githubConnectionId: generateObjectId("con"),
+      },
+    })
+    expect(await turn(older)).toHaveProperty("wait")
+
+    // A newer push run of the source replaces it before its turn.
+    const newer = await ingestion({})
+    expect(await turn(older)).toEqual({ superseded: newer })
+    // A re-ingestion run and the newest push run wait for their turn.
+    expect(await turn(reingest, [workspaceId])).toHaveProperty("wait")
+    expect(await turn(newer)).toHaveProperty("wait")
+
+    // A newer run that ended does not replace it.
+    await runner.cancelWorkflowRun(newer)
+    expect(await turn(older)).toHaveProperty("wait")
+    await runner.cancelWorkflowRun(running)
+    expect(await turn(older)).toEqual({ turn: true })
+  })
+})
+
 describe("step budget", () => {
   it(
     "ends a repository run that waits for a long ingestion run inside its step budget",
