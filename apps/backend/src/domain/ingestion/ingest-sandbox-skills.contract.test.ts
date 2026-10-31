@@ -182,13 +182,19 @@ async function withBox(
             const r = await handle.process.exec(
               `${sudo ? "sudo -n " : ""}${[cmd, ...args].map(quote).join(" ")}`,
             )
+            // The command has ended when it starts, so no read follows.
             return {
+              cmdId: "cmd_docker",
               exitCode: r.exitCode,
               logs: async function* () {
                 yield { stream: "stdout" as const, data: r.stdout }
                 yield { stream: "stderr" as const, data: r.stderr }
               },
+              kill: async () => {},
             }
+          },
+          getCommand: async () => {
+            throw new Error("The command has already ended")
           },
         })
       : dockerRootExec(handle.id)
