@@ -9,6 +9,7 @@ import { workspaceRelativePath } from "../../services/git/root-folder.js"
 import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import {
   disallowedPathReason,
+  HOST_FIELDS,
   MAX_WORKSPACE_OPS,
   type PatchRejection,
   type PatchRule,
@@ -1007,9 +1008,12 @@ export type IngestConflictResolver = (
  * Resolve the paths that more than one shard changes, one round for each
  * further version: round `n` merges version `n` into the result so far.
  * Then the patch validator checks the merged files as one step on `tree`
- * (the pinned revision plus the other shards' ops): a model wrote them, so
- * they get the same checks as a step's files. The host fields go back to
- * their pinned values first, and the validator stamps them again. Returns
+ * (the pinned revision plus the other shards' ops). A model wrote them, so
+ * they get the same checks as a step's files. The run's steps already
+ * counted them, so only the Workspace cap applies, not the step cap. The
+ * merged files get the host fields of the file on the step's base, and the
+ * validator stamps them again.
+ * Returns
  * the validated tree and the rejections. A rejected file keeps its version
  * on `tree`; the caller decides whether a rejection refuses the job or
  * withholds the file.
@@ -1133,7 +1137,7 @@ async function mergeConflicts(
         await mkdir(dirname(file), { recursive: true })
         await writeFile(
           file,
-          withPinnedHostFields(content, base.get(conflict.path) ?? null),
+          withBaseHostFields(content, baseBlob ? await text(baseBlob) : null),
         )
       }
       await writeFile(join(stagedDir, "patch.json"), JSON.stringify({ ops }))
@@ -1148,6 +1152,8 @@ async function mergeConflicts(
         skill: "semantic-merge",
         bundle: input.bundle,
         workspaceOpsBefore: opsBefore,
+        // The run's steps counted these files: no step cap (CTX-1102).
+        maxOps: MAX_WORKSPACE_OPS,
         rootPath: input.rootPath,
         ...(root === undefined ? {} : { root }),
       })
@@ -1161,30 +1167,22 @@ async function mergeConflicts(
   return { tree, rejections }
 }
 
-/** The fields that only the host sets (patch validator, concept section 4.3). */
-const HOST_FIELDS = [
-  "generated_by",
-  "sources",
-  "root",
-  "source_sha",
-  "skill",
-  "bundle",
-] as const
-
 /**
- * The shard versions carry host fields that the validator stamped. Put back
- * the pinned values (or remove the field), so the validator checks the
- * merged file as a new write and stamps it again.
+ * The merged file with the host fields of the file on the step's base (or
+ * with no host field, for a new file). The validator then checks it as a
+ * write on that base, and it stamps the host fields again. In a publish, an
+ * earlier run can have stamped the base with its own `source_sha`
+ * (CTX-1102). A shared file must keep each base field except `claims`.
  */
-function withPinnedHostFields(content: string, pinned: string | null): string {
+function withBaseHostFields(content: string, onBase: string | null): string {
   const front = splitFrontMatter(content)
   const attributes = front ? parseYamlObject(front.yaml) : null
   if (!front || !attributes) return content
-  const pinnedFront = pinned ? splitFrontMatter(pinned) : null
-  const pinnedAttributes =
-    (pinnedFront ? parseYamlObject(pinnedFront.yaml) : null) ?? {}
+  const baseFront = onBase ? splitFrontMatter(onBase) : null
+  const baseAttributes =
+    (baseFront ? parseYamlObject(baseFront.yaml) : null) ?? {}
   for (const field of HOST_FIELDS) {
-    if (field in pinnedAttributes) attributes[field] = pinnedAttributes[field]
+    if (field in baseAttributes) attributes[field] = baseAttributes[field]
     else delete attributes[field]
   }
   return `---\n${stringify(attributes, { lineWidth: 0 })}---\n${front.body}`

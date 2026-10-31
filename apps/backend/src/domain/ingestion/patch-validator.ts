@@ -92,6 +92,12 @@ export type PatchStepInput = {
   readSourceFile: (path: string) => Promise<string | null>
   /** Ops that earlier steps of this run already wrote to this Workspace. */
   workspaceOpsBefore?: number
+  /**
+   * The op cap of this step, with `MAX_STEP_OPS` as the default. The
+   * Workspace cap applies too. A merge of files that the run's steps
+   * already counted uses the Workspace cap only (CTX-1102).
+   */
+  maxOps?: number
   /** The step's root is gone, so the delete cap does not apply. */
   rootGone?: boolean
   /** Repositories that the Workspace knows (sources and linked repositories). */
@@ -446,7 +452,10 @@ export async function validatePatchStep(
 
   const opLimit = Math.max(
     0,
-    Math.min(MAX_STEP_OPS, MAX_WORKSPACE_OPS - (input.workspaceOpsBefore ?? 0)),
+    Math.min(
+      input.maxOps ?? MAX_STEP_OPS,
+      MAX_WORKSPACE_OPS - (input.workspaceOpsBefore ?? 0),
+    ),
   )
   const baseBlobs = await readBlobs(
     input.repoDir,
