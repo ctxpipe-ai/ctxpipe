@@ -20,6 +20,8 @@ import { PlainMark } from "./PlainMark"
 type PlainConnectionCardProps = {
   orgSlug: string
   connectionId: string
+  /** The catalog Fix marks the card for a moment. */
+  marked?: boolean
   /** With `reconnect`, the setup opens at the key. */
   onOpenSetup: (options?: { reconnect: true }) => void
 }
@@ -27,6 +29,7 @@ type PlainConnectionCardProps = {
 export function PlainConnectionCard({
   orgSlug,
   connectionId,
+  marked,
   onOpenSetup,
 }: PlainConnectionCardProps) {
   const queryClient = useQueryClient()
@@ -63,6 +66,7 @@ export function PlainConnectionCard({
   return (
     <ConnectorListItem
       connectionId={connectionId}
+      marked={marked}
       usedIn={
         <ConnectorUsedIn
           orgSlug={orgSlug}

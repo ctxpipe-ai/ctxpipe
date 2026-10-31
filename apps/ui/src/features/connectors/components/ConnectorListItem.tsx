@@ -5,7 +5,15 @@ import {
   IconDotsVertical,
   IconRefresh,
 } from "@tabler/icons-react"
-import { type ReactNode, useContext, useState } from "react"
+import {
+  type ReactNode,
+  type Ref,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react"
 import { DisclosureStateContext } from "react-aria-components"
 
 import { AlertDialog } from "@/components/ui/AlertDialog"
@@ -18,19 +26,30 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Modal } from "@/components/ui/Modal"
+import { Modal, useIsModalOpen } from "@/components/ui/Modal"
 import { Skeleton, SkeletonChain, SkeletonText } from "@/components/ui/Skeleton"
 
+import { connectionAnchorId, scrollToConnection } from "../connectionAnchor"
 import type { ConnectorHealth } from "../connectorHealth"
 import { ConnectorHealthIndicator } from "./ConnectorHealthIndicator"
 
 type ConnectorSyncAction = { start: () => void; isPending: boolean }
 
-function ExpandTrigger({ name }: { name: string }) {
+function ExpandTrigger({
+  name,
+  ref,
+  describedBy,
+}: {
+  name: string
+  ref: Ref<HTMLButtonElement>
+  describedBy?: string
+}) {
   const state = useContext(DisclosureStateContext)
   const isExpanded = state?.isExpanded ?? false
   return (
     <Button
+      ref={ref}
+      aria-describedby={describedBy}
       slot="trigger"
       variant="ghost"
       size="icon-sm"
@@ -122,8 +141,8 @@ function ConnectorRemoveDialog({
 }
 
 export function ConnectorListItem({
-  id,
   connectionId,
+  marked = false,
   name,
   icon,
   health,
@@ -136,12 +155,13 @@ export function ConnectorListItem({
   defaultExpanded = false,
   children,
 }: {
-  id?: string
-  /**
-   * The stable hook of the card (`data-connection-id`). The catalog Fix
-   * finds the card with it (`markConnectionCard`).
-   */
+  /** The card's connection anchor (`connectionAnchorId`) comes from it. */
   connectionId: string
+  /**
+   * The catalog Fix marks the card for a moment. When no modal is open, the
+   * card scrolls into view and its expand control gets the focus.
+   */
+  marked?: boolean
   name: string
   icon: ReactNode
   health: ConnectorHealth
@@ -171,15 +191,36 @@ export function ConnectorListItem({
   const [removeOpen, setRemoveOpen] = useState(false)
   const pending = health === "setup_pending"
   const action = actionLabel && onAction ? { actionLabel, onAction } : null
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const markedHintId = useId()
+  const modalOpen = useIsModalOpen()
+  useEffect(() => {
+    if (!marked || modalOpen) return
+    // A closed modal gives the focus back in the next frame; this frame
+    // comes after it.
+    const frame = requestAnimationFrame(() => {
+      scrollToConnection(connectionId)
+      triggerRef.current?.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [marked, modalOpen, connectionId])
   return (
     <>
       <Disclosure
-        id={id}
-        data-connection-id={connectionId}
         defaultExpanded={defaultExpanded}
-        className="border-b border-white/[0.06] transition-colors data-[marked]:bg-teal-400/10"
+        className={`border-b border-white/[0.06] transition-colors ${
+          marked
+            ? "bg-teal-400/10 outline-2 -outline-offset-2 outline-teal-400"
+            : ""
+        }`}
       >
-        <div className="@container">
+        {marked ? (
+          <span id={markedHintId} className="sr-only">
+            Needs your attention
+          </span>
+        ) : null}
+        {/* The Disclosure keeps its own `id` off the DOM: the anchor is here. */}
+        <div id={connectionAnchorId(connectionId)} className="@container">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1 py-3 sm:px-2">
             <span className="ctx-node h-9 w-9 shrink-0">{icon}</span>
             <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
@@ -219,7 +260,11 @@ export function ConnectorListItem({
                 />
               </>
             )}
-            <ExpandTrigger name={name} />
+            <ExpandTrigger
+              name={name}
+              ref={triggerRef}
+              describedBy={marked ? markedHintId : undefined}
+            />
           </div>
         </div>
         <DisclosurePanel>

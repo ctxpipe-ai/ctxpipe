@@ -25,12 +25,15 @@ import { ConnectorListItem } from "./ConnectorListItem"
 type ConfluenceConnectionCardProps = {
   orgSlug: string
   connectionId: string
+  /** The catalog Fix marks the card for a moment. */
+  marked?: boolean
   onOpenWizard: () => void
 }
 
 export function ConfluenceConnectionCard({
   orgSlug,
   connectionId,
+  marked,
   onOpenWizard,
 }: ConfluenceConnectionCardProps) {
   const queryClient = useQueryClient()
@@ -94,6 +97,7 @@ export function ConfluenceConnectionCard({
   return (
     <ConnectorListItem
       connectionId={connectionId}
+      marked={marked}
       usedIn={
         <ConnectorUsedIn
           orgSlug={orgSlug}

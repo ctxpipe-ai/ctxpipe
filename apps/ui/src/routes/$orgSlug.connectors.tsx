@@ -27,18 +27,22 @@ import {
   PlainSetupDialog,
   SlackConnectionCard,
 } from "@/features/connectors"
+import { sortOrgConnectionsForDisplay } from "@/features/connectors/catalog/catalog-state"
 import { ConnectorCatalogDialog } from "@/features/connectors/catalog/ConnectorCatalogDialog"
-import type { ConnectorSetupOpeners } from "@/features/connectors/catalog/useConnectorStart"
+import type {
+  ConnectionType,
+  SetupRequest,
+} from "@/features/connectors/catalog/registry"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
 import { ConnectorListSkeleton } from "@/features/connectors/components/ConnectorListItem"
 import { ConnectorsOAuthErrorBanner } from "@/features/connectors/components/ConnectorsOAuthErrorBanner"
 import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
 import { SlackSetupDialog } from "@/features/connectors/components/SlackSetupDialog"
+import { scrollToConnection } from "@/features/connectors/connectionAnchor"
 import { atlassianConnectorKeys } from "@/features/connectors/queries/atlassian-connector"
 import {
   orgConnectionsKeys,
   orgConnectionsOptions,
-  sortOrgConnectionsForDisplay,
 } from "@/features/connectors/queries/org-connections"
 import { OrgOutletError } from "@/features/org/OrgOutletError"
 import { FormatUpgradeWorkspacesNotice } from "@/features/workspace-upgrades/FormatUpgradeWorkspacesNotice"
@@ -110,6 +114,19 @@ function ConnectorsPageGate() {
   return <ConnectorsPageContent orgSlug={orgSlug} />
 }
 
+/**
+ * The setup dialog that is open, and what it opens on. The catalog and the
+ * cards open it; one setup is open at a time. A closed setup keeps its
+ * connection, so that its dialog does not change while it closes.
+ */
+type PageSetup = SetupRequest & {
+  isOpen: boolean
+  /** Buildkite: replace the webhook. */
+  replaceWebhook?: boolean
+  /** Plain: save a new key for a revoked connection. */
+  reconnect?: boolean
+}
+
 export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const navigate = useNavigate()
   const search = Route.useSearch()
@@ -120,34 +137,10 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
     title: string
     description: string
   } | null>(null)
-  const [wizardOpen, setWizardOpen] = useState(false)
-  const [wizardAtlassianConnectionId, setWizardAtlassianConnectionId] =
-    useState<string | undefined>(undefined)
-  const [notionSetupOpen, setNotionSetupOpen] = useState(false)
-  const [pagerdutySetupOpen, setPagerdutySetupOpen] = useState(false)
-  const [notionConnectionId, setNotionConnectionId] = useState<string | null>(
+  const [setup, setSetup] = useState<PageSetup | null>(null)
+  const [markedConnectionId, setMarkedConnectionId] = useState<string | null>(
     null,
   )
-  const [pagerdutyConnectionId, setPagerdutyConnectionId] = useState<
-    string | null
-  >(null)
-  const [buildkiteSetupOpen, setBuildkiteSetupOpen] = useState(false)
-  const [buildkiteConnectionId, setBuildkiteConnectionId] = useState<
-    string | null
-  >(null)
-  const [buildkiteReplaceWebhook, setBuildkiteReplaceWebhook] = useState(false)
-  const [plainSetupOpen, setPlainSetupOpen] = useState(false)
-  const [plainConnectionId, setPlainConnectionId] = useState<string | null>(
-    null,
-  )
-  const [plainReconnect, setPlainReconnect] = useState(false)
-  const [githubSelfHostedWizardOpen, setGithubSelfHostedWizardOpen] =
-    useState(false)
-  const [slackSetupOpen, setSlackSetupOpen] = useState(false)
-  const [linearWizardOpen, setLinearWizardOpen] = useState(false)
-  const [linearConnectionId, setLinearConnectionId] = useState<
-    string | undefined
-  >(undefined)
 
   useGithubConnectorBootstrap(orgSlug)
 
@@ -179,10 +172,43 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
     }
   }, [search.pendingAccountClaim])
 
+  const openSetup = (next: Omit<PageSetup, "isOpen">) =>
+    setSetup({ ...next, isOpen: true })
+  const setupOf = (type: ConnectionType) =>
+    setup?.type === type ? setup : null
+  const closeSetup = () =>
+    setSetup((prev) => prev && { ...prev, isOpen: false })
+  // The setups with a key on their connection start again from nothing.
+  const clearSetup = () => setSetup(null)
+  const changeSetupConnection = (connectionId: string) =>
+    setSetup((prev) => prev && { ...prev, connectionId })
+  const invalidateConnections = () =>
+    void queryClient.invalidateQueries({
+      queryKey: orgConnectionsKeys.list(orgSlug),
+    })
+  const github = setupOf("github")
+  const slack = setupOf("slack")
+  const forge = setupOf("forge")
+  const linear = setupOf("linear")
+  const notion = setupOf("notion")
+  const pagerduty = setupOf("pagerduty")
+  const buildkite = setupOf("buildkite")
+  const plain = setupOf("plain")
+
+  // The catalog Fix marks a card for a moment.
+  useEffect(() => {
+    if (!markedConnectionId) return
+    const timer = window.setTimeout(() => setMarkedConnectionId(null), 2000)
+    return () => window.clearTimeout(timer)
+  }, [markedConnectionId])
+
   useEffect(() => {
     if (!search.notionConnectionId) return
-    setNotionConnectionId(search.notionConnectionId)
-    setNotionSetupOpen(true)
+    setSetup({
+      type: "notion",
+      connectionId: search.notionConnectionId,
+      isOpen: true,
+    })
     void navigate({
       to: "/$orgSlug/connectors",
       params: { orgSlug },
@@ -200,8 +226,11 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   // connection, so the wizard opens again on the next step.
   useEffect(() => {
     if (!search.atlassianConnectionId) return
-    setWizardAtlassianConnectionId(search.atlassianConnectionId)
-    setWizardOpen(true)
+    setSetup({
+      type: "forge",
+      connectionId: search.atlassianConnectionId,
+      isOpen: true,
+    })
     void navigate({
       to: "/$orgSlug/connectors",
       params: { orgSlug },
@@ -231,38 +260,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
       replace: true,
     })
   }, [search.error, search.error_description, navigate, orgSlug])
-
-  // The setup that each catalog entry opens. The catalog closes first.
-  const openSetup: ConnectorSetupOpeners = {
-    github: () => setGithubSelfHostedWizardOpen(true),
-    forge: ({ connectionId }) => {
-      setWizardAtlassianConnectionId(connectionId)
-      setWizardOpen(true)
-    },
-    slack: () => setSlackSetupOpen(true),
-    linear: ({ connectionId }) => {
-      setLinearConnectionId(connectionId)
-      setLinearWizardOpen(true)
-    },
-    notion: ({ connectionId }) => {
-      setNotionConnectionId(connectionId ?? null)
-      setNotionSetupOpen(true)
-    },
-    pagerduty: ({ connectionId }) => {
-      setPagerdutyConnectionId(connectionId ?? null)
-      setPagerdutySetupOpen(true)
-    },
-    buildkite: () => {
-      setBuildkiteConnectionId(null)
-      setBuildkiteReplaceWebhook(false)
-      setBuildkiteSetupOpen(true)
-    },
-    plain: () => {
-      setPlainConnectionId(null)
-      setPlainReconnect(false)
-      setPlainSetupOpen(true)
-    },
-  }
 
   return (
     <main className="mx-auto box-border flex min-h-full w-full max-w-2xl flex-col p-8 text-foreground">
@@ -311,17 +308,21 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             onAddConnection={() => setCatalogOpen(true)}
           />
         ) : (
+          // One card for each connection. The shared connector shell
+          // (CTX-1069) moves this list and the setup dialogs below out of
+          // the route; the catalog itself reads only the registry.
           items.map((row) => {
+            const marked = row.id === markedConnectionId
             if (row.type === "forge") {
               return (
                 <ConfluenceConnectionCard
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
-                  onOpenWizard={() => {
-                    setWizardAtlassianConnectionId(row.id)
-                    setWizardOpen(true)
-                  }}
+                  marked={marked}
+                  onOpenWizard={() =>
+                    openSetup({ type: "forge", connectionId: row.id })
+                  }
                 />
               )
             }
@@ -331,6 +332,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
+                  marked={marked}
                 />
               )
             }
@@ -340,10 +342,10 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
-                  onOpenWizard={() => {
-                    setLinearConnectionId(row.id)
-                    setLinearWizardOpen(true)
-                  }}
+                  marked={marked}
+                  onOpenWizard={() =>
+                    openSetup({ type: "linear", connectionId: row.id })
+                  }
                 />
               )
             }
@@ -353,10 +355,10 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
-                  onOpenSetup={() => {
-                    setNotionConnectionId(row.id)
-                    setNotionSetupOpen(true)
-                  }}
+                  marked={marked}
+                  onOpenSetup={() =>
+                    openSetup({ type: "notion", connectionId: row.id })
+                  }
                 />
               )
             }
@@ -366,11 +368,14 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
-                  onOpenSetup={(options) => {
-                    setBuildkiteConnectionId(row.id)
-                    setBuildkiteReplaceWebhook(Boolean(options?.replaceWebhook))
-                    setBuildkiteSetupOpen(true)
-                  }}
+                  marked={marked}
+                  onOpenSetup={(options) =>
+                    openSetup({
+                      type: "buildkite",
+                      connectionId: row.id,
+                      replaceWebhook: Boolean(options?.replaceWebhook),
+                    })
+                  }
                 />
               )
             }
@@ -380,11 +385,14 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
-                  onOpenSetup={(options) => {
-                    setPlainConnectionId(row.id)
-                    setPlainReconnect(Boolean(options?.reconnect))
-                    setPlainSetupOpen(true)
-                  }}
+                  marked={marked}
+                  onOpenSetup={(options) =>
+                    openSetup({
+                      type: "plain",
+                      connectionId: row.id,
+                      reconnect: Boolean(options?.reconnect),
+                    })
+                  }
                 />
               )
             }
@@ -394,10 +402,10 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
-                  onOpenSetup={() => {
-                    setPagerdutyConnectionId(row.id)
-                    setPagerdutySetupOpen(true)
-                  }}
+                  marked={marked}
+                  onOpenSetup={() =>
+                    openSetup({ type: "pagerduty", connectionId: row.id })
+                  }
                 />
               )
             }
@@ -406,6 +414,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 key={row.id}
                 orgSlug={orgSlug}
                 connectionId={row.id}
+                marked={marked}
               />
             )
           })
@@ -417,63 +426,52 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         connections={items}
         isOpen={catalogOpen}
         onOpenChange={setCatalogOpen}
-        openSetup={openSetup}
+        onOpenSetup={openSetup}
+        onFix={setMarkedConnectionId}
       />
 
       <GithubSelfHostedWizardModal
         orgSlug={orgSlug}
-        isOpen={githubSelfHostedWizardOpen}
-        onOpenChange={setGithubSelfHostedWizardOpen}
-        onInstallFlowStarted={() => setCatalogOpen(false)}
+        isOpen={github?.isOpen ?? false}
+        onOpenChange={(open) => {
+          if (!open) closeSetup()
+        }}
         onDraftCreated={({ connectionId }) => {
-          queueMicrotask(() => {
-            document
-              .getElementById(`connector-github-${connectionId}`)
-              ?.scrollIntoView({
-                behavior: "smooth",
-                block: "nearest",
-              })
-          })
+          queueMicrotask(() => scrollToConnection(connectionId))
         }}
       />
 
       <SlackSetupDialog
         orgSlug={orgSlug}
-        isOpen={slackSetupOpen}
-        onOpenChange={setSlackSetupOpen}
+        isOpen={slack?.isOpen ?? false}
+        onOpenChange={(open) => {
+          if (!open) closeSetup()
+        }}
       />
 
       <ConnectorSetupDialog
         orgSlug={orgSlug}
-        atlassianConnectionId={wizardAtlassianConnectionId}
-        isOpen={wizardOpen}
+        atlassianConnectionId={forge?.connectionId}
+        isOpen={forge?.isOpen ?? false}
         onOpenChange={(open) => {
-          setWizardOpen(open)
-          if (!open) {
-            void queryClient.invalidateQueries({
-              queryKey: orgConnectionsKeys.list(orgSlug),
-            })
-          }
+          if (open) return
+          closeSetup()
+          invalidateConnections()
         }}
       />
 
       <LinearSetupWizard
         orgSlug={orgSlug}
-        connectionId={linearConnectionId}
-        isOpen={linearWizardOpen}
+        connectionId={linear?.connectionId}
+        isOpen={linear?.isOpen ?? false}
         onConnectionIdChange={(connectionId) => {
-          setLinearConnectionId(connectionId)
-          void queryClient.invalidateQueries({
-            queryKey: orgConnectionsKeys.list(orgSlug),
-          })
+          changeSetupConnection(connectionId)
+          invalidateConnections()
         }}
         onOpenChange={(open) => {
-          setLinearWizardOpen(open)
-          if (!open) {
-            void queryClient.invalidateQueries({
-              queryKey: orgConnectionsKeys.list(orgSlug),
-            })
-          }
+          if (open) return
+          closeSetup()
+          invalidateConnections()
         }}
       />
 
@@ -543,61 +541,51 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
       </Modal>
 
       <NotionSetupDialog
-        key={notionConnectionId ?? "notion-setup"}
+        key={notion?.connectionId ?? "notion-setup"}
         orgSlug={orgSlug}
-        connectionId={notionConnectionId ?? undefined}
-        isOpen={notionSetupOpen}
-        onConnectionIdChange={setNotionConnectionId}
+        connectionId={notion?.connectionId}
+        isOpen={notion?.isOpen ?? false}
+        onConnectionIdChange={changeSetupConnection}
         onOpenChange={(open) => {
-          setNotionSetupOpen(open)
-          if (!open) {
-            setNotionConnectionId(null)
-          }
+          if (!open) clearSetup()
         }}
       />
 
       <PagerdutySetupDialog
-        key={pagerdutyConnectionId ?? "pagerduty-setup"}
+        key={pagerduty?.connectionId ?? "pagerduty-setup"}
         orgSlug={orgSlug}
-        connectionId={pagerdutyConnectionId ?? undefined}
-        isOpen={pagerdutySetupOpen}
+        connectionId={pagerduty?.connectionId}
+        isOpen={pagerduty?.isOpen ?? false}
         onConnectionIdChange={(nextConnectionId) => {
-          setPagerdutyConnectionId(nextConnectionId)
-          void queryClient.invalidateQueries({
-            queryKey: orgConnectionsKeys.list(orgSlug),
-          })
+          changeSetupConnection(nextConnectionId)
+          invalidateConnections()
         }}
         onOpenChange={(open) => {
-          setPagerdutySetupOpen(open)
-          if (!open) {
-            setPagerdutyConnectionId(null)
-          }
+          if (!open) clearSetup()
         }}
       />
 
       <BuildkiteSetupDialog
-        key={buildkiteConnectionId ?? "buildkite-setup"}
+        key={buildkite?.connectionId ?? "buildkite-setup"}
         orgSlug={orgSlug}
-        connectionId={buildkiteConnectionId ?? undefined}
-        replaceWebhook={buildkiteReplaceWebhook}
-        isOpen={buildkiteSetupOpen}
-        onConnectionIdChange={setBuildkiteConnectionId}
+        connectionId={buildkite?.connectionId}
+        replaceWebhook={Boolean(buildkite?.replaceWebhook)}
+        isOpen={buildkite?.isOpen ?? false}
+        onConnectionIdChange={changeSetupConnection}
         onOpenChange={(open) => {
-          setBuildkiteSetupOpen(open)
-          if (!open) setBuildkiteConnectionId(null)
+          if (!open) clearSetup()
         }}
       />
 
       <PlainSetupDialog
-        key={plainConnectionId ?? "plain-setup"}
+        key={plain?.connectionId ?? "plain-setup"}
         orgSlug={orgSlug}
-        connectionId={plainConnectionId ?? undefined}
-        reconnect={plainReconnect}
-        isOpen={plainSetupOpen}
-        onConnectionIdChange={setPlainConnectionId}
+        connectionId={plain?.connectionId}
+        reconnect={Boolean(plain?.reconnect)}
+        isOpen={plain?.isOpen ?? false}
+        onConnectionIdChange={changeSetupConnection}
         onOpenChange={(open) => {
-          setPlainSetupOpen(open)
-          if (!open) setPlainConnectionId(null)
+          if (!open) clearSetup()
         }}
       />
     </main>

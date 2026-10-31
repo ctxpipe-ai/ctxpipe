@@ -21,6 +21,8 @@ import { ConnectorListItem, connectorDash } from "./ConnectorListItem"
 type GithubConnectionCardProps = {
   orgSlug: string
   connectionId: string
+  /** The catalog Fix marks the card for a moment. */
+  marked?: boolean
 }
 
 async function deleteGithubConnector(
@@ -37,6 +39,7 @@ async function deleteGithubConnector(
 export function GithubConnectionCard({
   orgSlug,
   connectionId,
+  marked,
 }: GithubConnectionCardProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -87,6 +90,7 @@ export function GithubConnectionCard({
   return (
     <ConnectorListItem
       connectionId={connectionId}
+      marked={marked}
       usedIn={
         <ConnectorUsedIn
           orgSlug={orgSlug}
@@ -94,7 +98,6 @@ export function GithubConnectionCard({
           provider="github"
         />
       }
-      id={`connector-github-${connectionId}`}
       name="GitHub"
       icon={<IconBrandGithub className="size-5 text-foreground" aria-hidden />}
       health={health}

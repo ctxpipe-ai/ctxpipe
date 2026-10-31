@@ -21,12 +21,15 @@ import { LinearMark } from "./LinearMark"
 type LinearConnectionCardProps = {
   orgSlug: string
   connectionId: string
+  /** The catalog Fix marks the card for a moment. */
+  marked?: boolean
   onOpenWizard: () => void
 }
 
 export function LinearConnectionCard({
   orgSlug,
   connectionId,
+  marked,
   onOpenWizard,
 }: LinearConnectionCardProps) {
   const queryClient = useQueryClient()
@@ -74,6 +77,7 @@ export function LinearConnectionCard({
   return (
     <ConnectorListItem
       connectionId={connectionId}
+      marked={marked}
       usedIn={
         <ConnectorUsedIn
           orgSlug={orgSlug}

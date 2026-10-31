@@ -1,43 +1,31 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
+import { useRef } from "react"
 import { toast } from "sonner"
 
 import { orgConnectionsKeys } from "../queries/org-connections"
 import { useGithubConnectFlow } from "../useGithubConnectFlow"
-import type {
-  AvailableConnectorEntry,
-  ConnectionType,
-  SetupTarget,
+import {
+  type AvailableConnectorEntry,
+  CONNECTOR_REGISTRY,
+  type ConnectionType,
+  type ConnectorStartContext,
+  type SetupRequest,
 } from "./registry"
 
 /**
- * The Connectors page opens each setup dialog: one opener for each
- * connector. The GitHub opener is the self-hosted wizard; the hosted GitHub
- * App install starts from the catalog.
- */
-export type ConnectorSetupOpeners = Record<
-  ConnectionType,
-  (target: SetupTarget) => void
->
-
-/**
- * Starts the setup of a catalog entry: the first request of the entry, if
- * it has one, then the page opener. The catalog closes before the setup
- * opens, so that the setup dialog is the only dialog.
+ * Runs the start of a catalog entry (`ConnectorEntry.start`). When the start
+ * gives a setup, the catalog closes before the page opens it, so that the
+ * setup dialog is the only dialog.
  */
 export function useConnectorStart(input: {
   orgSlug: string
-  openSetup: ConnectorSetupOpeners
+  onOpenSetup: (setup: SetupRequest) => void
   closeCatalog: () => void
 }) {
-  const { orgSlug, openSetup, closeCatalog } = input
+  const { orgSlug, onOpenSetup, closeCatalog } = input
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-
-  const open = (id: ConnectionType, target: SetupTarget) => {
-    closeCatalog()
-    openSetup[id](target)
-  }
 
   const goToGithubSetup = () =>
     navigate({
@@ -45,42 +33,55 @@ export function useConnectorStart(input: {
       params: { orgSlug },
       search: { returnTo: "connectors" },
     })
-  // The catalog stays open while the GitHub install popup runs: the flow
-  // watches the popup from this component.
+  // The flow watches the install popup from this component. It calls the
+  // delegate in place of its own wizard when there is no hosted App.
+  const selfHosted = useRef(false)
   const github = useGithubConnectFlow({
     orgSlug,
     onAlreadyInstalled: () => void goToGithubSetup(),
     onRegistered: () => void goToGithubSetup(),
     onRegistrationFailed: (message) => toast.error(message),
-    delegateSelfHostedWizard: () => open("github", {}),
+    delegateSelfHostedWizard: () => {
+      selfHosted.current = true
+    },
   })
+  const context: ConnectorStartContext = {
+    orgSlug,
+    githubApp: {
+      install: () => {
+        selfHosted.current = false
+        github.start("connect")
+        return selfHosted.current
+      },
+      isBusy: github.isPending || github.isSyncing,
+    },
+  }
 
-  const prepare = useMutation({
+  const startEntry = useMutation({
     mutationFn: async (entry: AvailableConnectorEntry) => {
-      const target = (await entry.prepare?.(orgSlug)) ?? {}
-      if (target.connectionId) {
+      const target = await entry.start(context)
+      if (target?.connectionId) {
         await queryClient.invalidateQueries({
           queryKey: orgConnectionsKeys.list(orgSlug),
         })
       }
       return target
     },
-    onSuccess: (target, entry) => open(entry.id, target),
+    onSuccess: (target, entry) => {
+      if (!target) return
+      closeCatalog()
+      onOpenSetup({ ...target, type: entry.id })
+    },
     onError: (error: Error) => toast.error(error.message),
   })
 
-  const start = (entry: AvailableConnectorEntry) => {
-    if (entry.id === "github") github.start("connect")
-    else if (entry.prepare) prepare.mutate(entry)
-    else open(entry.id, {})
-  }
+  const pendingId: ConnectionType | null = startEntry.isPending
+    ? (startEntry.variables?.id ?? null)
+    : (CONNECTOR_REGISTRY.find(
+        (entry): entry is AvailableConnectorEntry =>
+          entry.availability === "available" &&
+          Boolean(entry.isBusy?.(context)),
+      )?.id ?? null)
 
-  const pendingId: ConnectionType | null =
-    github.isPending || github.isSyncing
-      ? "github"
-      : prepare.isPending
-        ? (prepare.variables?.id ?? null)
-        : null
-
-  return { start, pendingId }
+  return { start: startEntry.mutate, pendingId }
 }

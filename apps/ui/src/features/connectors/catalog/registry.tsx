@@ -39,10 +39,31 @@ export type ConnectorGroupId = (typeof CONNECTOR_GROUPS)[number]["id"]
 export type ConnectionType = OrgConnectionListItem["type"]
 
 /**
- * What a setup opens on. A connector that makes a draft first gives its
- * connection id; the other setups start without one.
+ * What the Connectors page opens after a start: the setup dialog of the
+ * connector. A start that makes a draft first gives its connection id.
  */
 export type SetupTarget = { connectionId?: string }
+
+/** A setup that the Connectors page must open. */
+export type SetupRequest = SetupTarget & { type: ConnectionType }
+
+/** What a start can use. */
+export type ConnectorStartContext = {
+  orgSlug: string
+  /**
+   * The GitHub App install. It runs in a popup that the catalog watches, so
+   * the catalog stays open while it runs.
+   */
+  githubApp: {
+    /**
+     * Starts the install. True when the deployment has no hosted App: the
+     * page must then open the self-hosted wizard.
+     */
+    install: () => boolean
+    /** True while the install flow loads or runs. */
+    isBusy: boolean
+  }
+}
 
 type EntryBase = {
   name: string
@@ -55,17 +76,21 @@ type EntryBase = {
 /**
  * One connector of the catalog. A new connector adds one entry. A rule for
  * a new availability (for example a connector that only self-hosted ctxpipe
- * can start) adds one more member to this union.
+ * can start) adds one more member to this union. TypeScript then shows each
+ * place that must handle it (`catalog-state.ts`, `ConnectorCatalogDialog`).
  */
 export type ConnectorEntry =
   | (EntryBase & {
       id: ConnectionType
       availability: "available"
       /**
-       * The first request of the setup, when the setup needs a draft row.
-       * The Connectors page then opens the setup on its result.
+       * Starts the setup: the first request, when the setup needs a draft
+       * row, then the setup that the page must open. Null when the start
+       * runs on its own (the GitHub App popup) and the page opens nothing.
        */
-      prepare?: (orgSlug: string) => Promise<SetupTarget>
+      start: (context: ConnectorStartContext) => Promise<SetupTarget | null>
+      /** True while the start runs outside the catalog. */
+      isBusy?: (context: ConnectorStartContext) => boolean
     })
   | (EntryBase & {
       /** A planned connector: the catalog offers "Ask for it". */
@@ -77,6 +102,9 @@ export type AvailableConnectorEntry = Extract<
   ConnectorEntry,
   { availability: "available" }
 >
+
+/** The start of a setup that needs no first request. */
+const openSetup = async (): Promise<SetupTarget> => ({})
 
 function ConfluenceOutlineMark({ className }: { className?: string }) {
   return <ConfluenceMark className={className} variant="outline" />
@@ -90,6 +118,10 @@ export const CONNECTOR_REGISTRY: readonly ConnectorEntry[] = [
     group: "code",
     Mark: IconBrandGithub,
     availability: "available",
+    // The hosted App installs in a popup; self-hosted ctxpipe opens the
+    // wizard that registers the org's own App.
+    start: async ({ githubApp }) => (githubApp.install() ? {} : null),
+    isBusy: ({ githubApp }) => githubApp.isBusy,
   },
   {
     id: "buildkite",
@@ -98,6 +130,7 @@ export const CONNECTOR_REGISTRY: readonly ConnectorEntry[] = [
     group: "code",
     Mark: BuildkiteMark,
     availability: "available",
+    start: openSetup,
   },
   {
     id: "backstage",
@@ -114,7 +147,7 @@ export const CONNECTOR_REGISTRY: readonly ConnectorEntry[] = [
     group: "docs",
     Mark: ConfluenceOutlineMark,
     availability: "available",
-    prepare: async (orgSlug) => {
+    start: async ({ orgSlug }) => {
       const intent = await registerAtlassianInstallIntent(orgSlug)
       return { connectionId: intent.id }
     },
@@ -126,7 +159,7 @@ export const CONNECTOR_REGISTRY: readonly ConnectorEntry[] = [
     group: "docs",
     Mark: IconBrandNotion,
     availability: "available",
-    prepare: async (orgSlug) => {
+    start: async ({ orgSlug }) => {
       const draft = await createDraftNotionConnection(orgSlug)
       return { connectionId: draft.id }
     },
@@ -154,7 +187,7 @@ export const CONNECTOR_REGISTRY: readonly ConnectorEntry[] = [
     group: "work",
     Mark: LinearMark,
     availability: "available",
-    prepare: async (orgSlug) => {
+    start: async ({ orgSlug }) => {
       // With the deployment's OAuth app, the setup makes its own draft.
       const oauth = await fetchLinearOauthApp(orgSlug)
       if (oauth.globalLinearOauthConfigured) return {}
@@ -169,6 +202,7 @@ export const CONNECTOR_REGISTRY: readonly ConnectorEntry[] = [
     group: "conversations",
     Mark: IconBrandSlack,
     availability: "available",
+    start: openSetup,
   },
   {
     id: "plain",
@@ -178,6 +212,7 @@ export const CONNECTOR_REGISTRY: readonly ConnectorEntry[] = [
     group: "support",
     Mark: PlainMark,
     availability: "available",
+    start: openSetup,
   },
   {
     id: "zendesk",
@@ -194,7 +229,7 @@ export const CONNECTOR_REGISTRY: readonly ConnectorEntry[] = [
     group: "operations",
     Mark: PagerdutyMark,
     availability: "available",
-    prepare: async (orgSlug) => {
+    start: async ({ orgSlug }) => {
       const setup = await startPagerdutySetup(orgSlug)
       return { connectionId: setup.connectionId ?? undefined }
     },

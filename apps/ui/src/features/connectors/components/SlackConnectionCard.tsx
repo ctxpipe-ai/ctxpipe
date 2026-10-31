@@ -21,11 +21,14 @@ import { SlackSetupDialog } from "./SlackSetupDialog"
 type SlackConnectionCardProps = {
   orgSlug: string
   connectionId: string
+  /** The catalog Fix marks the card for a moment. */
+  marked?: boolean
 }
 
 export function SlackConnectionCard({
   orgSlug,
   connectionId,
+  marked,
 }: SlackConnectionCardProps) {
   const queryClient = useQueryClient()
   const [setupOpen, setSetupOpen] = useState(false)
@@ -76,6 +79,7 @@ export function SlackConnectionCard({
     <>
       <ConnectorListItem
         connectionId={connectionId}
+        marked={marked}
         usedIn={
           <ConnectorUsedIn
             orgSlug={orgSlug}

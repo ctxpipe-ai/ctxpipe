@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import { connectionAnchorId } from "@/features/connectors/connectionAnchor"
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import {
   buildkiteStatusHandler,
@@ -863,15 +864,26 @@ export const FixFromCatalog: Story = {
         body.queryByRole("dialog", { name: "Add connection" }),
       ).not.toBeInTheDocument(),
     )
-    const card = () =>
-      canvasElement.ownerDocument.querySelector(
-        `[data-connection-id="${linearRevokedId}"]`,
-      )
-    await waitFor(() => expect(card()).toHaveAttribute("data-marked"))
-    await expect(
-      canvasElement.ownerDocument.querySelector(
-        `[data-connection-id="${linearDraftId}"]`,
-      ),
-    ).not.toHaveAttribute("data-marked")
+    // The card of the connection gets the focus and a mark that is not
+    // only a color: the expand control says that it needs attention.
+    const doc = canvasElement.ownerDocument
+    const expand = (connectionId: string) => {
+      const card = doc.getElementById(connectionAnchorId(connectionId))
+      if (!card) throw new Error(`No card for ${connectionId}`)
+      return within(card).getByRole("button", { name: "Expand Linear" })
+    }
+    await waitFor(() => expect(expand(linearRevokedId)).toHaveFocus())
+    await expect(expand(linearRevokedId)).toHaveAccessibleDescription(
+      "Needs your attention",
+    )
+    await expect(expand(linearDraftId)).not.toHaveAccessibleDescription(
+      "Needs your attention",
+    )
+    // The mark goes after a moment; the focus stays.
+    await waitFor(
+      () => expect(expand(linearRevokedId)).not.toHaveAccessibleDescription(),
+      { timeout: 4000 },
+    )
+    await expect(expand(linearRevokedId)).toHaveFocus()
   },
 }

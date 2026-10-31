@@ -1,6 +1,8 @@
+import type { ConnectorHealth } from "../connectorHealth"
 import type { OrgConnectionListItem } from "../queries/org-connections"
 import {
   CONNECTOR_GROUPS,
+  type AvailableConnectorEntry,
   CONNECTOR_REGISTRY,
   type ConnectorEntry,
   type ConnectorGroupId,
@@ -9,20 +11,22 @@ import {
 type ConnectionStatus = OrgConnectionListItem["status"]
 
 /**
- * One state for each provider. `status` is the worst state of its
- * connections; `fixConnectionId` is the first connection in that state when
- * the state needs a fix.
+ * One catalog row: a registry entry with one state for its provider.
+ * `status` is the worst state of its connections; `fixConnectionId` is the
+ * first connection in that state when the state needs a fix.
  */
-export type ProviderState =
-  | { kind: "coming_soon" }
+export type CatalogRow =
+  | {
+      kind: "coming_soon"
+      entry: Extract<ConnectorEntry, { availability: "coming_soon" }>
+    }
   | {
       kind: "available"
+      entry: AvailableConnectorEntry
       count: number
       status: ConnectionStatus | null
       fixConnectionId: string | null
     }
-
-export type CatalogRow = { entry: ConnectorEntry; state: ProviderState }
 
 export type CatalogViewId =
   | "all"
@@ -37,25 +41,35 @@ const STATUS_ORDER: readonly ConnectionStatus[] = [
   "connected",
 ]
 
-function providerState(
+function catalogRow(
   entry: ConnectorEntry,
   connections: readonly OrgConnectionListItem[],
-): ProviderState {
-  if (entry.availability === "coming_soon") return { kind: "coming_soon" }
-  const own = connections.filter((row) => row.type === entry.id)
-  const status =
-    STATUS_ORDER.find((candidate) =>
-      own.some((row) => row.status === candidate),
-    ) ?? null
-  const fix =
-    status === "connected"
-      ? undefined
-      : own.find((row) => row.status === status)
-  return {
-    kind: "available",
-    count: own.length,
-    status,
-    fixConnectionId: fix?.id ?? null,
+): CatalogRow {
+  switch (entry.availability) {
+    case "coming_soon":
+      return { kind: "coming_soon", entry }
+    case "available": {
+      const own = connections.filter((row) => row.type === entry.id)
+      const status =
+        STATUS_ORDER.find((candidate) =>
+          own.some((row) => row.status === candidate),
+        ) ?? null
+      const fix =
+        status === "connected"
+          ? undefined
+          : own.find((row) => row.status === status)
+      return {
+        kind: "available",
+        entry,
+        count: own.length,
+        status,
+        fixConnectionId: fix?.id ?? null,
+      }
+    }
+    default: {
+      const unhandled: never = entry
+      return unhandled
+    }
   }
 }
 
@@ -63,22 +77,26 @@ function providerState(
 export function catalogRows(
   connections: readonly OrgConnectionListItem[],
 ): CatalogRow[] {
-  return CONNECTOR_REGISTRY.map((entry) => ({
-    entry,
-    state: providerState(entry, connections),
-  }))
+  return CONNECTOR_REGISTRY.map((entry) => catalogRow(entry, connections))
 }
 
-/** The status word of a row. Null for a provider with no connection. */
-export function statusLabel(state: ProviderState): string | null {
-  if (state.kind === "coming_soon") return "Coming soon"
-  switch (state.status) {
+/**
+ * The card health that shows the state of a provider, so that the catalog
+ * and the Connectors page cards show a state the same way. The count is new:
+ * "2 connected". Null for a provider with no connection.
+ */
+export function statusChip(
+  row: Extract<CatalogRow, { kind: "available" }>,
+): { health: ConnectorHealth; label?: string } | null {
+  switch (row.status) {
     case "needs_reconnect":
-      return "Needs reconnect"
+      return { health: "reconnect" }
     case "setup_pending":
-      return "Setup not finished"
+      return { health: "setup_pending" }
     case "connected":
-      return state.count > 1 ? `${state.count} connected` : "Connected"
+      return row.count > 1
+        ? { health: "connected", label: `${row.count} connected` }
+        : { health: "connected" }
     case null:
       return null
   }
@@ -93,9 +111,9 @@ function inView(row: CatalogRow, view: CatalogViewId): boolean {
     case "all":
       return true
     case "connected":
-      return row.state.kind === "available" && row.state.count > 0
+      return row.kind === "available" && row.count > 0
     case "coming_soon":
-      return row.state.kind === "coming_soon"
+      return row.kind === "coming_soon"
     default:
       return row.entry.group === view
   }
@@ -133,4 +151,20 @@ export function rowsInView(
       text.toLowerCase().includes(needle),
     ),
   )
+}
+
+/**
+ * The catalog order (`CONNECTOR_REGISTRY`): GitHub first, because every other
+ * connector syncs through it. Then `createdAt`.
+ */
+export function sortOrgConnectionsForDisplay(
+  items: readonly OrgConnectionListItem[],
+): OrgConnectionListItem[] {
+  const order = (type: OrgConnectionListItem["type"]) =>
+    CONNECTOR_REGISTRY.findIndex((entry) => entry.id === type)
+  return [...items].sort((a, b) => {
+    const byType = order(a.type) - order(b.type)
+    if (byType !== 0) return byType
+    return a.createdAt.localeCompare(b.createdAt)
+  })
 }

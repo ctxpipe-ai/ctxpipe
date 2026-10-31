@@ -8,6 +8,7 @@ import type { StoryRouteParams } from "../../../../.storybook/decorators/with-st
 import { githubConnectorBootstrapHandler } from "../mocks/github-bootstrap-msw"
 import type { OrgConnectionListItem } from "../queries/org-connections"
 import { ConnectorCatalogDialog } from "./ConnectorCatalogDialog"
+import { CONNECTOR_GROUPS, CONNECTOR_REGISTRY } from "./registry"
 
 const orgSlug = "acme"
 
@@ -66,16 +67,8 @@ const meta = {
     connections: [],
     isOpen: true,
     onOpenChange: fn(),
-    openSetup: {
-      github: fn(),
-      forge: fn(),
-      slack: fn(),
-      linear: fn(),
-      notion: fn(),
-      pagerduty: fn(),
-      buildkite: fn(),
-      plain: fn(),
-    },
+    onOpenSetup: fn(),
+    onFix: fn(),
   },
 } satisfies Meta<typeof ConnectorCatalogDialog>
 
@@ -94,10 +87,9 @@ export const NewOrg: Story = {
         name: "Add connection",
       }),
     )
-    await expect(dialog.getByRole("tab", { name: "All, 12" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    )
+    await expect(
+      dialog.getByRole("tab", { name: `All, ${CONNECTOR_REGISTRY.length}` }),
+    ).toHaveAttribute("aria-selected", "true")
     await expect(
       dialog.getByRole("tab", { name: "Connected, 1" }),
     ).toBeInTheDocument()
@@ -112,7 +104,7 @@ export const NewOrg: Story = {
       dialog.getByRole("button", { name: "Connect Buildkite" }),
     )
     await expect(args.onOpenChange).toHaveBeenCalledWith(false)
-    await expect(args.openSetup.buildkite).toHaveBeenCalledWith({})
+    await expect(args.onOpenSetup).toHaveBeenCalledWith({ type: "buildkite" })
   },
 }
 
@@ -131,7 +123,7 @@ export const BusyOrg: Story = {
       connection("con_sl", "slack", "connected"),
     ],
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ canvasElement, args }) => {
     const dialog = within(
       await within(canvasElement.ownerDocument.body).findByRole("dialog", {
         name: "Add connection",
@@ -161,6 +153,9 @@ export const BusyOrg: Story = {
     await expect(
       dialog.queryByRole("button", { name: "Fix GitHub" }),
     ).not.toBeInTheDocument()
+    await userEvent.click(dialog.getByRole("button", { name: "Fix Linear" }))
+    await expect(args.onOpenChange).toHaveBeenCalledWith(false)
+    await expect(args.onFix).toHaveBeenCalledWith("con_li_revoked")
   },
 }
 
@@ -172,9 +167,14 @@ export const ComingSoon: Story = {
         name: "Add connection",
       }),
     )
-    await userEvent.click(dialog.getByRole("tab", { name: "Coming soon, 4" }))
+    const soon = CONNECTOR_REGISTRY.filter(
+      (entry) => entry.availability === "coming_soon",
+    )
+    await userEvent.click(
+      dialog.getByRole("tab", { name: `Coming soon, ${soon.length}` }),
+    )
     await dialog.findByText("Tell us which one you need first.")
-    for (const name of ["Backstage", "Google Drive", "Figma", "Zendesk"]) {
+    for (const { name } of soon) {
       await expect(
         dialog.getByRole("button", { name: `Ask for ${name}` }),
       ).toBeInTheDocument()
@@ -193,7 +193,13 @@ export const SearchNoMatch: Story = {
         name: "Add connection",
       }),
     )
-    await userEvent.click(dialog.getByRole("tab", { name: "Support, 2" }))
+    const support = CONNECTOR_GROUPS.find((group) => group.id === "support")
+    const supportCount = CONNECTOR_REGISTRY.filter(
+      (entry) => entry.group === "support",
+    ).length
+    await userEvent.click(
+      dialog.getByRole("tab", { name: `${support?.name}, ${supportCount}` }),
+    )
     const search = dialog.getByRole("searchbox", { name: "Search connectors" })
     await userEvent.type(search, "incident")
     await waitFor(() =>

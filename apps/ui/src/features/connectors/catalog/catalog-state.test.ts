@@ -5,8 +5,10 @@ import {
   catalogRows,
   catalogViews,
   rowsInView,
-  statusLabel,
+  sortOrgConnectionsForDisplay,
+  statusChip,
 } from "./catalog-state"
+import { CONNECTOR_GROUPS, CONNECTOR_REGISTRY } from "./registry"
 
 function connection(
   id: string,
@@ -29,6 +31,12 @@ function rowOf(connections: OrgConnectionListItem[], name: string) {
   return row
 }
 
+function availableRow(connections: OrgConnectionListItem[], name: string) {
+  const row = rowOf(connections, name)
+  if (row.kind !== "available") throw new Error(`${name} is not available`)
+  return row
+}
+
 describe("the state of a provider", () => {
   it("shows the worst state first and points Fix at that connection", () => {
     const connections = [
@@ -36,15 +44,14 @@ describe("the state of a provider", () => {
       connection("con_li_draft", "linear", "setup_pending"),
       connection("con_li_revoked", "linear", "needs_reconnect"),
     ]
-    expect(rowOf(connections, "Linear").state).toEqual({
+    const row = availableRow(connections, "Linear")
+    expect(row).toMatchObject({
       kind: "available",
       count: 3,
       status: "needs_reconnect",
       fixConnectionId: "con_li_revoked",
     })
-    expect(statusLabel(rowOf(connections, "Linear").state)).toBe(
-      "Needs reconnect",
-    )
+    expect(statusChip(row)).toEqual({ health: "reconnect" })
   })
 
   it("puts an unfinished setup before connected", () => {
@@ -52,12 +59,12 @@ describe("the state of a provider", () => {
       connection("con_no_ok", "notion", "connected"),
       connection("con_no_draft", "notion", "setup_pending"),
     ]
-    const { state } = rowOf(connections, "Notion")
-    expect(state).toMatchObject({
+    const row = availableRow(connections, "Notion")
+    expect(row).toMatchObject({
       status: "setup_pending",
       fixConnectionId: "con_no_draft",
     })
-    expect(statusLabel(state)).toBe("Setup not finished")
+    expect(statusChip(row)).toEqual({ health: "setup_pending" })
   })
 
   it("counts the connections when more than one is connected", () => {
@@ -66,21 +73,28 @@ describe("the state of a provider", () => {
       connection("con_gh_2", "github", "connected"),
       connection("con_sl", "slack", "connected"),
     ]
-    expect(statusLabel(rowOf(connections, "GitHub").state)).toBe("2 connected")
-    expect(statusLabel(rowOf(connections, "Slack").state)).toBe("Connected")
-    expect(rowOf(connections, "Slack").state).toMatchObject({
+    expect(statusChip(availableRow(connections, "GitHub"))).toEqual({
+      health: "connected",
+      label: "2 connected",
+    })
+    expect(statusChip(availableRow(connections, "Slack"))).toEqual({
+      health: "connected",
+    })
+    expect(availableRow(connections, "Slack")).toMatchObject({
       fixConnectionId: null,
     })
   })
 
-  it("gives no label to a provider with no connection, and Coming soon to a planned one", () => {
-    expect(statusLabel(rowOf([], "Plain").state)).toBeNull()
-    expect(statusLabel(rowOf([], "Zendesk").state)).toBe("Coming soon")
+  it("gives no chip to a provider with no connection, and marks a planned one", () => {
+    expect(statusChip(availableRow([], "Plain"))).toBeNull()
+    expect(rowOf([], "Zendesk").kind).toBe("coming_soon")
   })
 
   it("reads a Forge connection as Confluence", () => {
     const connections = [connection("con_cf", "forge", "connected")]
-    expect(rowOf(connections, "Confluence").state).toMatchObject({ count: 1 })
+    expect(availableRow(connections, "Confluence")).toMatchObject({
+      count: 1,
+    })
   })
 })
 
@@ -91,20 +105,24 @@ describe("the views of the catalog", () => {
   ]
 
   it("counts the connectors in each view", () => {
+    const soon = CONNECTOR_REGISTRY.filter(
+      (entry) => entry.availability === "coming_soon",
+    )
     expect(
       catalogViews(catalogRows(connections)).map(
         (view) => `${view.name} ${view.count}`,
       ),
     ).toEqual([
-      "All 12",
+      `All ${CONNECTOR_REGISTRY.length}`,
       "Connected 2",
-      "Code and CI 3",
-      "Docs and design 4",
-      "Work tracking 1",
-      "Conversations 1",
-      "Support 2",
-      "Operations 1",
-      "Coming soon 4",
+      ...CONNECTOR_GROUPS.map(
+        (group) =>
+          `${group.name} ${
+            CONNECTOR_REGISTRY.filter((entry) => entry.group === group.id)
+              .length
+          }`,
+      ),
+      `Coming soon ${soon.length}`,
     ])
   })
 
@@ -113,13 +131,16 @@ describe("the views of the catalog", () => {
     const names = (view: Parameters<typeof rowsInView>[1], query = "") =>
       rowsInView(rows, view, query).map((row) => row.entry.name)
     expect(names("connected")).toEqual(["GitHub", "Linear"])
-    expect(names("support")).toEqual(["Plain", "Zendesk"])
-    expect(names("coming_soon")).toEqual([
-      "Backstage",
-      "Google Drive",
-      "Figma",
-      "Zendesk",
-    ])
+    expect(names("support")).toEqual(
+      CONNECTOR_REGISTRY.filter((entry) => entry.group === "support").map(
+        (entry) => entry.name,
+      ),
+    )
+    expect(names("coming_soon")).toEqual(
+      CONNECTOR_REGISTRY.filter(
+        (entry) => entry.availability === "coming_soon",
+      ).map((entry) => entry.name),
+    )
   })
 
   it("searches the name, the description, and the group of every view", () => {
@@ -130,5 +151,25 @@ describe("the views of the catalog", () => {
     expect(names("incidents")).toEqual(["PagerDuty"])
     expect(names("support")).toEqual(["Plain", "Zendesk"])
     expect(names("no such tool")).toEqual([])
+  })
+})
+
+describe("the order of the connection cards", () => {
+  const row = (type: OrgConnectionListItem["type"], createdAt: string) => ({
+    ...connection(`con_${type}_${createdAt}`, type, "connected"),
+    createdAt,
+  })
+
+  it("puts GitHub first even when it was added later, then the catalog order", () => {
+    expect(
+      sortOrgConnectionsForDisplay([
+        row("notion", "2026-01-01T00:00:00.000Z"),
+        row("forge", "2026-01-02T00:00:00.000Z"),
+        row("github", "2026-06-01T00:00:00.000Z"),
+        row("linear", "2026-01-03T00:00:00.000Z"),
+        row("pagerduty", "2026-01-01T00:00:00.000Z"),
+        row("slack", "2026-01-01T00:00:00.000Z"),
+      ]).map((item) => item.type),
+    ).toEqual(["github", "forge", "notion", "linear", "slack", "pagerduty"])
   })
 })

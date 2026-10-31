@@ -325,7 +325,6 @@ apps/ui/src/features/connectors/queries/forge-provision-api.test.ts	test	n/a	pro
 apps/ui/src/features/connectors/queries/github-connector.test.ts	test	n/a	proof	Gate 3 UI	Pure assertions prove ambiguous-error recognition and linked-installation derivation.
 apps/ui/src/features/connectors/queries/linear-connector.test.ts	test	n/a	proof	Gate 3 UI	External fetch stubs prove connection scoping, config parsing, retry endpoints, payloads, and error propagation.
 apps/ui/src/features/connectors/queries/notion-connector.test.ts	test	n/a	proof	Gate 3 UI	External fetch stubs prove unconfigured OAuth errors and selected-connection retry payloads.
-apps/ui/src/features/connectors/queries/org-connections.test.ts	test	n/a	proof	Gate 3 UI	Pure ordering assertion proves GitHub-first display independent of creation order.
 apps/ui/src/features/connectors/queries/slack-connector.test.ts	test	n/a	characterization	Gate 3 UI	Status and patch behavior are asserted after replacing the owned shared API client module.
 apps/ui/src/features/connectors/slack-setup-model.test.ts	test	n/a	proof	Gate 3 UI	Pure state-table assertions prove prerequisite gating, live state, loading precedence, labels, and mention formatting.
 apps/ui/src/features/home/HomeComposer.stories.tsx	story	yes	characterization	Gate5 UI / Gate6 coverage	L35 opens menu then asserts rounded-md class; no submit or selected-workspace state proof

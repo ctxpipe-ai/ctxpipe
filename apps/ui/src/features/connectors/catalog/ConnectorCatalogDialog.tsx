@@ -18,6 +18,7 @@ import { Modal } from "@/components/ui/Modal"
 import { SearchField } from "@/components/ui/SearchField"
 import { focusRing } from "@/lib/react-aria-utils"
 
+import { ConnectorHealthIndicator } from "../components/ConnectorHealthIndicator"
 import type { OrgConnectionListItem } from "../queries/org-connections"
 import {
   type CatalogRow,
@@ -26,14 +27,14 @@ import {
   catalogViews,
   groupName,
   rowsInView,
-  statusLabel,
+  statusChip,
 } from "./catalog-state"
-import { markConnectionCard } from "./markConnectionCard"
-import type { ConnectorEntry } from "./registry"
-import {
-  type ConnectorSetupOpeners,
-  useConnectorStart,
-} from "./useConnectorStart"
+import type {
+  AvailableConnectorEntry,
+  ConnectorEntry,
+  SetupRequest,
+} from "./registry"
+import { useConnectorStart } from "./useConnectorStart"
 
 type ConnectorCatalogDialogProps = {
   orgSlug: string
@@ -41,7 +42,13 @@ type ConnectorCatalogDialogProps = {
   connections: readonly OrgConnectionListItem[]
   isOpen: boolean
   onOpenChange: (open: boolean) => void
-  openSetup: ConnectorSetupOpeners
+  /** Opens the setup that a start gives. The catalog is closed then. */
+  onOpenSetup: (setup: SetupRequest) => void
+  /**
+   * Takes the user to the card of a connection that needs a fix. The
+   * catalog is closed then.
+   */
+  onFix: (connectionId: string) => void
 }
 
 /**
@@ -76,7 +83,7 @@ function CatalogContent(
   const [view, setView] = useState<CatalogViewId>("all")
   const { start, pendingId } = useConnectorStart({
     orgSlug: props.orgSlug,
-    openSetup: props.openSetup,
+    onOpenSetup: props.onOpenSetup,
     closeCatalog: props.onClose,
   })
   const rows = catalogRows(props.connections)
@@ -176,13 +183,10 @@ function CatalogContent(
                       searching || view === "all" || view === "connected"
                     }
                     pending={pendingId === row.entry.id}
-                    onStart={() => {
-                      if (row.entry.availability === "available")
-                        start(row.entry)
-                    }}
+                    onStart={start}
                     onFix={(connectionId) => {
                       props.onClose()
-                      markConnectionCard(connectionId)
+                      props.onFix(connectionId)
                     }}
                   />
                 ))}
@@ -195,13 +199,6 @@ function CatalogContent(
   )
 }
 
-const STATUS_TONE = {
-  connected: { text: "text-emerald-400", dot: "bg-emerald-400" },
-  needs_reconnect: { text: "text-amber-400", dot: "bg-amber-400" },
-  setup_pending: { text: "text-muted-foreground", dot: "bg-zinc-500" },
-  coming_soon: { text: "text-muted-foreground", dot: "bg-zinc-500" },
-} as const
-
 function CatalogRowItem({
   row,
   showGroup,
@@ -212,18 +209,11 @@ function CatalogRowItem({
   row: CatalogRow
   showGroup: boolean
   pending: boolean
-  onStart: () => void
+  onStart: (entry: AvailableConnectorEntry) => void
   onFix: (connectionId: string) => void
 }) {
-  const { entry, state } = row
-  const label = statusLabel(state)
-  const tone =
-    STATUS_TONE[
-      state.kind === "coming_soon"
-        ? "coming_soon"
-        : (state.status ?? "connected")
-    ]
-  const soon = state.kind === "coming_soon"
+  const { entry } = row
+  const soon = row.kind === "coming_soon"
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-white/[0.06] py-3 last:border-b-0">
       <span className="ctx-node size-9 shrink-0" aria-hidden>
@@ -248,45 +238,74 @@ function CatalogRowItem({
           {entry.description}
         </p>
       </div>
-      {label ? (
-        <span
-          className={`inline-flex shrink-0 items-center gap-1.5 font-mono text-xs ${tone.text}`}
-        >
-          <span aria-hidden className={`size-1.5 rounded-full ${tone.dot}`} />
-          {label}
-        </span>
-      ) : null}
-      <div className="flex shrink-0 justify-end gap-1 sm:w-44">
-        {state.kind === "coming_soon" ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={`Ask for ${entry.name}`}
-            onPress={() => askFor(entry.id, entry.name)}
-          >
-            Ask for it
-          </Button>
-        ) : (
-          <>
-            {state.fixConnectionId ? (
+      <RowStateAndActions
+        row={row}
+        pending={pending}
+        onStart={onStart}
+        onFix={onFix}
+      />
+    </li>
+  )
+}
+
+/** The state of the provider and its actions, for each availability. */
+function RowStateAndActions({
+  row,
+  pending,
+  onStart,
+  onFix,
+}: {
+  row: CatalogRow
+  pending: boolean
+  onStart: (entry: AvailableConnectorEntry) => void
+  onFix: (connectionId: string) => void
+}) {
+  switch (row.kind) {
+    case "coming_soon":
+      return (
+        <>
+          <span className="inline-flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted-foreground">
+            <span aria-hidden className="size-1.5 rounded-full bg-zinc-500" />
+            Coming soon
+          </span>
+          <div className="flex shrink-0 justify-end gap-1 sm:w-44">
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`Ask for ${row.entry.name}`}
+              onPress={() => askFor(row.entry.id, row.entry.name)}
+            >
+              Ask for it
+            </Button>
+          </div>
+        </>
+      )
+    case "available": {
+      const { entry, fixConnectionId } = row
+      const chip = statusChip(row)
+      return (
+        <>
+          {chip ? (
+            <ConnectorHealthIndicator health={chip.health} label={chip.label} />
+          ) : null}
+          <div className="flex shrink-0 justify-end gap-1 sm:w-44">
+            {fixConnectionId ? (
               <Button
                 variant="secondary"
                 size="sm"
                 aria-label={`Fix ${entry.name}`}
-                onPress={() => {
-                  if (state.fixConnectionId) onFix(state.fixConnectionId)
-                }}
+                onPress={() => onFix(fixConnectionId)}
               >
                 Fix
               </Button>
             ) : null}
-            {state.count > 0 ? (
+            {row.count > 0 ? (
               <Button
                 variant="ghost"
                 size="sm"
                 isPending={pending}
                 aria-label={`Add another ${entry.name} connection`}
-                onPress={onStart}
+                onPress={() => onStart(entry)}
               >
                 Add another
               </Button>
@@ -296,16 +315,20 @@ function CatalogRowItem({
                 size="sm"
                 isPending={pending}
                 aria-label={`Connect ${entry.name}`}
-                onPress={onStart}
+                onPress={() => onStart(entry)}
               >
                 Connect
               </Button>
             )}
-          </>
-        )}
-      </div>
-    </li>
-  )
+          </div>
+        </>
+      )
+    }
+    default: {
+      const unhandled: never = row
+      return unhandled
+    }
+  }
 }
 
 /**
