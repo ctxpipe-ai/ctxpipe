@@ -70,6 +70,13 @@ const seeds: {
     status: "setup_pending",
   },
   {
+    // The hosted App install has not come back yet: no App credentials.
+    name: "github_hosted_draft",
+    type: "github",
+    config: { ingestAllRepositories: true, includeFutureRepos: true },
+    status: "setup_pending",
+  },
+  {
     name: "forge_installed",
     type: "forge",
     config: {
@@ -78,6 +85,16 @@ const seeds: {
       confluenceSiteHost: "example.atlassian.net",
     },
     status: "connected",
+  },
+  {
+    // Installed, but the Marketplace event has not bound the site yet.
+    name: "forge_installed_without_cloud_id",
+    type: "forge",
+    config: {
+      status: "installed",
+      confluenceSiteHost: "pending.atlassian.net",
+    },
+    status: "setup_pending",
   },
   {
     name: "forge_pending",
@@ -102,6 +119,23 @@ const seeds: {
       setupPhase: "live",
     },
     status: "connected",
+  },
+  {
+    // A row from before the status key: the schema reads it as installed.
+    name: "linear_legacy_without_status",
+    type: "linear",
+    config: {
+      accessTokenEnc: SECRET,
+      workspaceId: "lin-ws-3",
+      workspaceName: "Example Legacy",
+    },
+    status: "connected",
+  },
+  {
+    name: "linear_installed_without_workspace",
+    type: "linear",
+    config: { status: "installed", accessTokenEnc: SECRET },
+    status: "setup_pending",
   },
   {
     name: "linear_revoked",
@@ -153,6 +187,12 @@ const seeds: {
     status: "setup_pending",
   },
   {
+    name: "notion_installed_without_token",
+    type: "notion",
+    config: { status: "installed", workspaceId: "no-ws-4" },
+    status: "setup_pending",
+  },
+  {
     name: "notion_revoked",
     type: "notion",
     config: {
@@ -170,6 +210,13 @@ const seeds: {
       status: "installed",
       accessTokenEnc: SECRET,
     },
+    status: "connected",
+  },
+  {
+    // A row from before the status key: the schema reads it as installed.
+    name: "pagerduty_legacy_without_status",
+    type: "pagerduty",
+    config: { ...pagerdutyAccount, accessTokenEnc: SECRET },
     status: "connected",
   },
   {
@@ -204,6 +251,12 @@ const seeds: {
     name: "slack_pending",
     type: "slack",
     config: { status: "pending" },
+    status: "setup_pending",
+  },
+  {
+    name: "slack_installed_without_token",
+    type: "slack",
+    config: { status: "installed", teamId: `T_${suffix}_3` },
     status: "setup_pending",
   },
   {
@@ -260,6 +313,33 @@ const seeds: {
   },
 ]
 
+/** Empty drafts that only a setup first screen made: the list hides them. */
+const hiddenDrafts: {
+  name: string
+  type: ConnectionType
+  config: Record<string, unknown>
+}[] = [
+  {
+    name: "notion_empty_draft",
+    type: "notion",
+    config: { status: "pending", setupPhase: "draft" },
+  },
+  {
+    name: "linear_empty_draft",
+    type: "linear",
+    config: { setupPhase: "draft" },
+  },
+  {
+    name: "pagerduty_empty_draft",
+    type: "pagerduty",
+    config: {
+      ...pagerdutyAccount,
+      accountId: "pending:empty",
+      status: "pending",
+    },
+  },
+]
+
 function createApp() {
   const app = new OpenAPIHono<AppEnv>()
   app.use("*", async (c, next) => {
@@ -295,13 +375,12 @@ describe("GET /connectors gives the status of each connection (Postgres)", () =>
           config: seed.config,
           createdAt: new Date(Date.UTC(2026, 0, 1, 0, index)),
         })),
-        // An empty Notion draft that only the setup first screen made.
-        {
-          id: id("notion_empty_draft"),
+        ...hiddenDrafts.map((draft) => ({
+          id: id(draft.name),
           orgId,
-          type: "notion" as const,
-          config: { status: "pending", setupPhase: "draft" },
-        },
+          type: draft.type,
+          config: draft.config,
+        })),
       ])
     })
   })
