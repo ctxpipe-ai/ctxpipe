@@ -160,3 +160,10 @@ In a publish, a merged file that fails the patch validator is withheld at its de
 - **Why the key is the target and the predicate.** A step can update the evidence of a claim when the source changes. The claim stays the same claim, so it keeps its date. The evidence is a tie-breaker only when two base claims have the same target and predicate.
 - **The published file keeps `valid_from`.** The output has the base value, so that hydrate does not set it again on each run. Hydrate does not change.
 - **A `legacy` claim keeps its `valid_from` too.** When a step changes or removes the `valid_from` of a `legacy` claim, the output keeps the base claim. Before this revision, the validator refused that step. A step that changes the `valid_to` or the evidence of a `legacy` claim is still refused.
+
+## Revision 2026-10-31: a host job adds no claim to a v2-owned file (CTX-1100)
+
+- **Problem.** The hydrate write job `claims_upgrade` added a claim `{ to }` for each body link that had no claim. It also did this in a file that ingestion v2 owns (`generated_by: ctxpipe-extract`). Such a claim has no `predicate` and no `evidence`, so the claim schema refuses it. Each later step that kept the front matter of the file got a `front_matter` rejection. A publish merge that kept the claim withheld the file.
+- **The v2 steps own the claims of a v2-owned file.** `claims_upgrade` does not add a claim to a v2-owned file. A body link still makes its `LINKS_TO` edge in hydrate, so the graph loses no edge.
+- **Repair.** `claims_upgrade` removes each claim with no `evidence` from a v2-owned file. Each claim that the schema accepts has `evidence`, so this removes only claims that the schema refuses. A claim with evidence, also a `legacy` claim, stays.
+- **Rule.** A host job writes a field into a v2-owned file only when the v2 validator accepts it, as for `valid_from` (CTX-1090).

@@ -12,6 +12,8 @@ import { dirname, join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { parse as parseYaml, stringify } from "yaml"
 
+import { claimsUpgradeFiles } from "../workspaces/hydrate-write-jobs.js"
+import { hydrateKnowledgeTree } from "../workspaces/hydrate.js"
 import { ownershipMigrationFiles } from "./ownership-migration.js"
 import {
   findSuspectedSecret,
@@ -2762,5 +2764,60 @@ describe("validatePatchStep claims with the host field valid_from (CTX-1090)", (
         valid_from: VALID_FROM,
       },
     ])
+  })
+})
+
+describe("validatePatchStep on a file that claims_upgrade repaired (CTX-1100)", () => {
+  const path = "knowledge/decisions/adr-001.md"
+  const VALID_FROM = "2026-10-20T12:10:23.000Z"
+  const full = {
+    to: "../services/billing.md",
+    predicate: "CALLS",
+    evidence: EVIDENCE,
+    confidence: 0.7,
+    valid_from: VALID_FROM,
+  }
+  // A claim that claims_upgrade added for a body link before CTX-1100, and
+  // hydrate dated: it has no predicate and no evidence.
+  const bare = { to: "../services/ledger.md", valid_from: VALID_FROM }
+  const decision = (claims: unknown[]) =>
+    doc(
+      {
+        kind: "Decision",
+        name: "ADR-001: Billing calls",
+        claims,
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH],
+        source_sha: "0".repeat(40),
+        skill: "decisions",
+        bundle: "bundle-0",
+      },
+      "# ADR-001\n\nBilling calls [Ledger](../services/ledger.md).\n",
+    )
+  // A decisions step that edits the text and keeps the front matter of the
+  // file, as a model that edits the file does.
+  const keep = (content: string) => {
+    const base = commitOn(baseCommit, { [path]: content })
+    const edited = content.replace("Billing calls", "Billing now calls")
+    return run(stage({ files: { [path]: edited }, base }), {
+      baseCommit: base,
+      skill: "decisions",
+    })
+  }
+
+  it("refuses a step that keeps a claim with no evidence, and accepts it after the repair", async () => {
+    const damaged = decision([full, bare])
+    expect(rulesOf(await keep(damaged))).toEqual(["front_matter"])
+
+    const [repaired] = claimsUpgradeFiles({
+      files: [{ path, content: damaged }],
+      units: hydrateKnowledgeTree({
+        workspaceId: "ws_fixture",
+        files: [{ path, content: damaged }],
+      }).units,
+    })
+    if (!repaired) throw new Error("claims_upgrade did not repair the file")
+    const result = await keep(repaired.content)
+    expect(result.rejections).toEqual([])
   })
 })
