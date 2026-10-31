@@ -9,7 +9,10 @@ import {
   ingestSourceTree,
   releaseIngestSourceTree,
 } from "../../domain/ingestion/ingest-source-tree.js"
-import { logIngestEvent } from "../../domain/ingestion/ingest-telemetry.js"
+import {
+  capIngestText,
+  logIngestEvent,
+} from "../../domain/ingestion/ingest-telemetry.js"
 import {
   retiredPublishPipelineField,
   workspacePublishPipeline,
@@ -269,6 +272,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
                     },
                     env,
                   )
+                  const { withheldReasons, ...result } = merged
                   if (merged.withheld.length)
                     logIngestEvent("warn", "ingestion-v2.partial", {
                       ingestionRunId: ingest.runId,
@@ -281,7 +285,17 @@ export function defineWorkspaceExtractIngestWorkflow() {
                       ].sort(),
                       withheld: merged.withheld.length,
                     })
-                  return { ...merged }
+                  // The validator reason of the withheld files, as the step
+                  // rejections log it, with a count and no path (CTX-1099).
+                  for (const { rule, reason, files } of withheldReasons)
+                    logIngestEvent("warn", "ingestion-v2.publish-withheld", {
+                      ingestionRunId: ingest.runId,
+                      workspaceId: input.workspaceId,
+                      rule,
+                      reason: capIngestText(reason),
+                      files,
+                    })
+                  return result
                 } catch (error) {
                   // A refused publish (not a validator rejection of a
                   // merged file, which is withheld): the Workspace is

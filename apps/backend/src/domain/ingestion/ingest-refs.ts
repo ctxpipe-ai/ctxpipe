@@ -60,6 +60,13 @@ type IngestRefusalRule = PatchRule | "admission" | "run_tip" | "merge_paths"
  */
 export type WithheldFile = { path: string; rules: PatchRule[] }
 
+/**
+ * One validator rule and reason of the withheld files of a publish, with the
+ * count of files that it rejected (CTX-1099). It holds no path, so the log
+ * can keep it.
+ */
+type WithheldReason = { rule: PatchRule; reason: string; files: number }
+
 /** The broker refused the job. Do not retry the same job. */
 export class IngestRefRefusedError extends Error {
   constructor(
@@ -405,8 +412,9 @@ export async function pushIngestAssemble(input: {
  * validator on `current`, as in assemble. A rejected file is withheld: it
  * keeps its version on `current`, and the other files publish (CTX-1081).
  * Each other path is the run's file, which passed the validator in its
- * step. Returns the files and deletes from `current`, and the withheld
- * files with the validator rule that rejected each.
+ * step. Returns the files and deletes from `current`, the withheld files
+ * with the validator rule that rejected each, and each rule and reason of
+ * the withheld files with its count of files.
  */
 export async function mergeIngestPublish(input: {
   runId: string
@@ -423,6 +431,7 @@ export async function mergeIngestPublish(input: {
   files: Array<{ path: string; content: string; encoding?: "base64" }>
   deletePaths: string[]
   withheld: WithheldFile[]
+  withheldReasons: WithheldReason[]
 }> {
   return withScratchRepository(async (repoDir) => {
     await fetchCommits(
@@ -481,6 +490,7 @@ export async function mergeIngestPublish(input: {
       .toString()
       .trim()
     const withheldFiles: WithheldFile[] = []
+    const withheldReasons: WithheldReason[] = []
     if (conflicts.length) {
       const merged = await mergeConflicts(repoDir, {
         pinnedRevision: input.pinnedRevision,
@@ -495,10 +505,21 @@ export async function mergeIngestPublish(input: {
       })
       tree = merged.tree
       const rulesOf = new Map<string, Set<PatchRule>>()
-      for (const { path, rule } of merged.rejections)
+      const byReason = new Map<
+        string,
+        { rule: PatchRule; reason: string; paths: Set<string> }
+      >()
+      for (const { path, rule, reason } of merged.rejections) {
         rulesOf.set(path, (rulesOf.get(path) ?? new Set()).add(rule))
+        const key = `${rule}\n${reason}`
+        const entry = byReason.get(key) ?? { rule, reason, paths: new Set() }
+        byReason.set(key, entry)
+        entry.paths.add(path)
+      }
       for (const [path, rules] of rulesOf)
         withheldFiles.push({ path, rules: [...rules].sort() })
+      for (const { rule, reason, paths } of byReason.values())
+        withheldReasons.push({ rule, reason, files: paths.size })
     }
 
     const files: Array<{ path: string; content: string; encoding?: "base64" }> =
@@ -521,7 +542,7 @@ export async function mergeIngestPublish(input: {
             },
       )
     }
-    return { files, deletePaths, withheld: withheldFiles }
+    return { files, deletePaths, withheld: withheldFiles, withheldReasons }
   })
 }
 

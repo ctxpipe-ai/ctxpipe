@@ -979,6 +979,30 @@ describe("ingestion v2 publish", () => {
           withheld,
         })),
       ).toEqual([{ reason: "withheld", withheld: 2 }])
+      // One event for each rule and reason, with the count of files and no
+      // path (CTX-1099).
+      const withheldLogs = loggedEvents.filter(
+        (event) =>
+          event.step === "ingestion-v2.publish-withheld" &&
+          event.ingestionRunId === runId &&
+          event.workspaceId === workspaceIds[0],
+      )
+      expect(
+        withheldLogs.map(({ level, rule, reason, files }) => ({
+          level,
+          rule,
+          reason,
+          files,
+        })),
+      ).toEqual([
+        {
+          level: "warn",
+          rule: "suspected_injection",
+          reason: "The text looks like an instruction to an agent",
+          files: 2,
+        },
+      ])
+      expect(JSON.stringify(withheldLogs)).not.toContain("knowledge/")
       const runSpan = spanExporter
         .getFinishedSpans()
         .find(
