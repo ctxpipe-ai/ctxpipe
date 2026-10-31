@@ -261,7 +261,7 @@ export function InstallForgeStep({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-semibold text-foreground">
+        <h3 className="text-base font-medium text-foreground">
           {capabilitiesLoading
             ? "Forge app setup"
             : hasHostedInstall

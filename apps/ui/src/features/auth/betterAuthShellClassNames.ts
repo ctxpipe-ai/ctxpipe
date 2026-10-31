@@ -30,6 +30,7 @@ export const betterAuthShellClassNames: NonNullable<
     secondaryButton: "!rounded-md",
     destructiveButton: "!rounded-md",
     skeleton: "rounded-md",
+    title: "text-base font-medium md:text-base",
     dialog: {
       content: "rounded-md border-border",
       header: "",
@@ -49,6 +50,7 @@ export const betterAuthAuthViewClassNames: NonNullable<
 > = {
   base: "ctx-border ctx-surface rounded-md border-border shadow-none",
   header: "rounded-md",
+  title: "font-medium",
   content: "rounded-md",
   footer: "rounded-md border-border bg-transparent shadow-none",
   form: {

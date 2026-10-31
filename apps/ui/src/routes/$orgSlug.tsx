@@ -73,9 +73,7 @@ function OrgScopedLayout() {
     return (
       <main className="min-h-screen bg-background text-foreground">
         <div className="mx-auto max-w-lg px-6 py-16">
-          <p className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            Access
-          </p>
+          <p className="ctx-label text-teal-400">Access</p>
           <h1 className="mt-3 text-xl font-medium tracking-tight text-foreground">
             You do not have access to this organization
           </h1>

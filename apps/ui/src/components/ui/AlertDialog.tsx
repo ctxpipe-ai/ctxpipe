@@ -31,7 +31,7 @@ export function AlertDialog({
         <>
           <Heading
             slot="title"
-            className="text-xl font-semibold leading-6 my-0 text-zinc-100"
+            className="text-xl font-medium leading-6 my-0 text-zinc-100"
           >
             {title}
           </Heading>

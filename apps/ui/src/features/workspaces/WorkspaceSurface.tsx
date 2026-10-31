@@ -282,9 +282,7 @@ function WorkspaceSurfaceReady(props: {
   if (workspace === null) {
     return (
       <main className="mx-auto max-w-lg px-6 py-16">
-        <p className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-          Workspace
-        </p>
+        <p className="ctx-label text-teal-400">Workspace</p>
         <h1 className="mt-3 text-xl font-medium tracking-tight">
           Workspace not found
         </h1>

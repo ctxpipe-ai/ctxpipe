@@ -115,7 +115,7 @@ export function DeviceAuthorizationPage() {
           </div>
           <section className="ctx-border ctx-surface px-6 pt-24 pb-6 shadow-none">
             <div className="space-y-2 text-center">
-              <h1 className="text-lg font-semibold text-zinc-100">
+              <h1 className="text-lg font-medium text-zinc-100">
                 Authorize ctxpipe CLI
               </h1>
               <p className="text-sm text-zinc-400">

@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 const NAV_ITEMS = [
   { view: "settings", label: "Account" },
   { view: "security", label: "Security" },
-  { view: "api-keys", label: "API Keys" },
+  { view: "api-keys", label: "API keys" },
   { view: "connected-apps", label: "Connected apps" },
   { view: "organizations", label: "Organizations" },
 ] as const

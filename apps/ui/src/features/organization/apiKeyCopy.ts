@@ -1,7 +1,7 @@
 /** Copy for Better Auth API-key cards. */
 
 export const personalApiKeyLocalization = {
-  API_KEYS: "API Keys",
+  API_KEYS: "API keys",
   API_KEYS_DESCRIPTION:
     "For your own scripts and agents. Requests use your membership and permissions.",
   CREATE_API_KEY: "Create API key",
@@ -13,7 +13,7 @@ export const personalApiKeyLocalization = {
 } as const
 
 export const organizationApiKeyLocalization = {
-  API_KEYS: "API Keys",
+  API_KEYS: "API keys",
   API_KEYS_DESCRIPTION:
     "For CI and shared agents. Requests are tied to this organization, not a person.",
 } as const

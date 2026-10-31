@@ -109,7 +109,7 @@ export const SignInUnverifiedEmail: Story = {
       "member@example.com",
     )
     await userEvent.type(canvas.getByLabelText("Password"), "password-1234")
-    await userEvent.click(canvas.getByRole("button", { name: "Login" }))
+    await userEvent.click(canvas.getByRole("button", { name: "Sign in" }))
     await waitFor(() =>
       expect(
         within(document.body)

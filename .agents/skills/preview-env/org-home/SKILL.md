@@ -53,9 +53,9 @@ Shell and Home for the run's org. [Harness](../harness.md) is `PASS`; [onboardin
 **Requires** ONB-2.
 **Steps**
 1. Open `/{orgSlug}/organization/settings` from the organization menu.
-2. Open **Members** and **API Keys** from the settings nav (`/organization/members`, `/organization/api-keys`).
+2. Open **Members** and **API keys** from the settings nav (`/organization/members`, `/organization/api-keys`).
 
-**Expect (UI)** heading **organisation settings**; **Settings**, **Members**, **API Keys** tabs render. There is **no** Add Workspace entry here (Add Workspace is the sidebar **+**, decision 2026-10-02).
+**Expect (UI)** heading **organization settings**; **Settings**, **Members**, **API keys** tabs render. There is **no** Add Workspace entry here (Add Workspace is the sidebar **+**, decision 2026-10-02).
 **Expect (backend)** none for viewing.
 **Budget** 3 s / 10 s per view.
 **Evidence** `HOME-5-1.png`.

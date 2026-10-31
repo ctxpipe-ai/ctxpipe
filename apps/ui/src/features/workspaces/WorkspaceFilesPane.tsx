@@ -989,7 +989,7 @@ function WorkspaceFilesPaneContent(props: {
             >
               <Heading
                 slot="title"
-                className="my-0 text-lg font-semibold text-zinc-100"
+                className="my-0 text-lg font-medium text-zinc-100"
               >
                 {createDialog?.kind === "folder" ? "New folder" : "New file"}
               </Heading>
@@ -1029,7 +1029,7 @@ function WorkspaceFilesPaneContent(props: {
             <div className="p-6">
               <Heading
                 slot="title"
-                className="my-0 text-lg font-semibold text-zinc-100"
+                className="my-0 text-lg font-medium text-zinc-100"
               >
                 Delete {deleteItem?.kind === "directory" ? "folder" : "file"}?
               </Heading>

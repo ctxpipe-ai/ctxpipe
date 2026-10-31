@@ -226,7 +226,7 @@ export function OrgAtlassianOauthPanel({
       }
     >
       {embedded ? null : (
-        <h3 className="text-sm font-semibold text-foreground">
+        <h3 className="text-sm font-medium text-foreground">
           Atlassian OAuth (3LO)
         </h3>
       )}

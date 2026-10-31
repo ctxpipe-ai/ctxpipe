@@ -59,7 +59,7 @@ export const Settings: Story = {
     })
     await expect(nav).toHaveTextContent("Settings")
     await expect(nav).toHaveTextContent("Members")
-    await expect(nav).toHaveTextContent("API Keys")
+    await expect(nav).toHaveTextContent("API keys")
   },
 }
 
@@ -81,7 +81,7 @@ export const ApiKeysEmpty: Story = {
     const nav = await canvas.findByRole("navigation", {
       name: "Organization settings",
     })
-    await expect(nav).toHaveTextContent("API Keys")
+    await expect(nav).toHaveTextContent("API keys")
     await waitFor(() =>
       expect(canvas.getByText("No organization keys")).toBeVisible(),
     )
@@ -185,7 +185,7 @@ export const SubPagesKeepOnePosition: Story = {
       return { title: box(title), nav: box(nav) }
     }
     let first: ReturnType<typeof measure> | undefined
-    for (const label of ["Settings", "Members", "API Keys", "Settings"]) {
+    for (const label of ["Settings", "Members", "API keys", "Settings"]) {
       if (first) {
         await userEvent.click(
           within(
@@ -202,7 +202,7 @@ export const SubPagesKeepOnePosition: Story = {
         ).toHaveAttribute("aria-current", "page")
         expect(canvas.queryByText("Loading organization settings")).toBeNull()
         expectSharedFrame(canvasElement)
-        if (label === "API Keys") {
+        if (label === "API keys") {
           expect(canvas.getByText("No organization keys")).toBeVisible()
         }
       })

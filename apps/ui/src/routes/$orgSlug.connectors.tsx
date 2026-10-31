@@ -657,30 +657,21 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
 
 function ConnectorsHeader(props: { actions: ReactNode }) {
   return (
-    <>
-      <header className="mb-8">
-        <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-          Connectors
-        </span>
-      </header>
-      <section>
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-3xl font-medium tracking-tight text-foreground">
-              Connectors
-            </h1>
-            <p className="mt-3 leading-relaxed text-muted-foreground">
-              Connect external tools and choose what content ctxpipe should
-              ingest.
-            </p>
-          </div>
-          {props.actions ? (
-            <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pt-1">
-              {props.actions}
-            </div>
-          ) : null}
+    <section className="mt-2">
+      <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl font-medium text-foreground">Connectors</h1>
+          <p className="mt-2 leading-relaxed text-muted-foreground">
+            Connect external tools and choose what content ctxpipe should
+            ingest.
+          </p>
         </div>
-      </section>
-    </>
+        {props.actions ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pt-1">
+            {props.actions}
+          </div>
+        ) : null}
+      </div>
+    </section>
   )
 }
