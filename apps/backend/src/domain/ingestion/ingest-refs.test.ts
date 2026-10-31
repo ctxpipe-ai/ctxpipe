@@ -4,8 +4,9 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
-import { parse as parseYaml, stringify } from "yaml"
+import { stringify } from "yaml"
 
+import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import {
   cleanUpIngestRefs,
   deleteRunIngestRefs,
@@ -1236,6 +1237,9 @@ describe("ingestRunRefTip", () => {
 
 describe("mergeIngestPublish", () => {
   const ASSEMBLED = ingestRefName({ runId: RUN, workspaceId: WORKSPACE })
+  /** The text with `line` added after the first "The … service." line. */
+  const edit = (text: string, line: string) =>
+    text.replace(/The (\w+) service\./, (found) => `${found}\n\n${line}`)
   const MERGE_CHECK = {
     source: { url: SOURCE_URL, sha: "1".repeat(40) },
     sourcePath: SOURCE_PATH,
@@ -1330,8 +1334,6 @@ describe("mergeIngestPublish", () => {
     const base = commitOn(pinned, "refs/heads/main", {
       files: { "knowledge/services/ledger.md": ledger },
     })
-    const edit = (text: string, line: string) =>
-      text.replace(/The (\w+) service\./, (found) => `${found}\n\n${line}`)
     const tip = commitOn(
       base,
       ASSEMBLED,
@@ -1423,10 +1425,8 @@ describe("mergeIngestPublish", () => {
   })
 
   describe("a merge with a file that an earlier run published (CTX-1102)", () => {
-    const edit = (text: string, line: string) =>
-      text.replace(/The (\w+) service\./, (found) => `${found}\n\n${line}`)
-    // Both lines stay: the merge keeps the earlier publish and adds the run.
-    const both = async (
+    // The merge keeps the line of the earlier publish and adds the run's line.
+    const keepBothLines = async (
       conflicts: Array<{ path: string; current: string | null }>,
     ) =>
       conflicts.map((c) => ({
@@ -1437,34 +1437,46 @@ describe("mergeIngestPublish", () => {
         ),
       }))
     const frontOf = (content: string) =>
-      parseYaml(content.slice(4, content.indexOf("\n---\n"))) as Record<
-        string,
-        unknown
-      >
+      parseYamlObject(splitFrontMatter(content)?.yaml ?? "") ?? {}
 
     it("accepts a file that the earlier run stamped with another source_sha, and gives it this run's host fields", async () => {
       const path = "knowledge/services/runbook.md"
+      // At the pin, the file has the source commit 4…; the earlier run
+      // published it with 2…; this run (MERGE_CHECK) reads 1….
+      const atPin = RUNBOOK.replace("1".repeat(40), "4".repeat(40))
+      const base = commitOn(pinned, "refs/heads/main", {
+        files: { [path]: atPin },
+      })
       const tip = commitOn(
-        pinned,
+        base,
         ASSEMBLED,
-        { files: { [path]: edit(RUNBOOK, "It pages by region.") } },
+        { files: { [path]: edit(atPin, "It pages by region.") } },
         `Ingest step assemble:ws_alpha\n\nCtxpipe-Run: ${RUN}`,
       )
-      // The earlier run read the source at another commit.
-      const current = commitOn(pinned, "refs/heads/main", {
+      const current = commitOn(base, "refs/heads/main", {
         files: {
           [path]: edit(
-            RUNBOOK.replace("1".repeat(40), "2".repeat(40)),
+            atPin.replace("4".repeat(40), "2".repeat(40)),
             "It keeps a log.",
           ),
         },
       })
-      const changes = await publish({ tip, current, resolve: both })
+      const changes = await publish({
+        tip,
+        current,
+        pinnedRevision: base,
+        resolve: keepBothLines,
+      })
       expect(changes.withheld).toEqual([])
       expect(changes.files.map((file) => file.path)).toEqual([path])
       const content = changes.files[0]?.content ?? ""
       expect(content).toContain("It keeps a log.\n\nIt pages by region.")
-      expect(frontOf(content).source_sha).toBe("1".repeat(40))
+      expect(frontOf(content)).toMatchObject({
+        source_sha: "1".repeat(40),
+        skill: "semantic-merge",
+        bundle: "bundle-1",
+        sources: [SOURCE_PATH],
+      })
     })
 
     it("withholds no file for the op cap when it merges more than 30 files", async () => {
@@ -1500,7 +1512,7 @@ describe("mergeIngestPublish", () => {
         tip,
         current,
         pinnedRevision: base,
-        resolve: both,
+        resolve: keepBothLines,
       })
       expect(changes.withheld).toEqual([])
       expect(changes.files).toHaveLength(31)
@@ -1512,8 +1524,6 @@ describe("mergeIngestPublish", () => {
     const base = commitOn(pinned, "refs/heads/main", {
       files: { "knowledge/services/ledger.md": ledger },
     })
-    const edit = (text: string, line: string) =>
-      text.replace(/The (\w+) service\./, (found) => `${found}\n\n${line}`)
     const tip = commitOn(
       base,
       ASSEMBLED,

@@ -9,7 +9,7 @@ import { workspaceRelativePath } from "../../services/git/root-folder.js"
 import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import {
   disallowedPathReason,
-  MAX_STEP_OPS,
+  HOST_FIELDS,
   MAX_WORKSPACE_OPS,
   type PatchRejection,
   type PatchRule,
@@ -1007,11 +1007,12 @@ export type IngestConflictResolver = (
 /**
  * Resolve the paths that more than one shard changes, one round for each
  * further version: round `n` merges version `n` into the result so far.
- * Then the patch validator checks the merged files as steps on `tree` (the
- * pinned revision plus the other shards' ops): a model wrote them, so they
- * get the same checks as a step's files. Each step takes at most
- * `MAX_STEP_OPS` files. The host fields go back to the values of the file on
- * the step's base first, and the validator stamps them again. Returns
+ * Then the patch validator checks the merged files as one step on `tree`
+ * (the pinned revision plus the other shards' ops). A model wrote them, so
+ * they get the same checks as a step's files. The run's steps already
+ * counted them, so only the Workspace cap applies, not the step cap. The
+ * merged files lose their host fields, and the validator stamps them again.
+ * Returns
  * the validated tree and the rejections. A rejected file keeps its version
  * on `tree`; the caller decides whether a rejection refuses the job or
  * withholds the file.
@@ -1084,22 +1085,10 @@ async function mergeConflicts(
     const root = await rootOf(conflict)
     groups.set(root, [...(groups.get(root) ?? []), conflict])
   }
-  // A validator step takes at most MAX_STEP_OPS ops, so each chunk of that
-  // size is one step (CTX-1102). The Workspace cap still counts each step.
-  const steps: Array<{
-    root: string | undefined
-    conflicts: typeof input.conflicts
-  }> = []
-  for (const [root, conflicts] of groups)
-    for (let start = 0; start < conflicts.length; start += MAX_STEP_OPS)
-      steps.push({
-        root,
-        conflicts: conflicts.slice(start, start + MAX_STEP_OPS),
-      })
   let tree = input.tree
   let opsBefore = input.opsBefore
   const rejections: PatchRejection[] = []
-  for (const { root, conflicts } of steps) {
+  for (const [root, conflicts] of groups) {
     const baseCommit = (
       await runGit(
         repoDir,
@@ -1145,10 +1134,7 @@ async function mergeConflicts(
         })
         const file = join(stagedDir, "files", path)
         await mkdir(dirname(file), { recursive: true })
-        await writeFile(
-          file,
-          withBaseHostFields(content, baseBlob ? await text(baseBlob) : null),
-        )
+        await writeFile(file, withoutHostFields(content))
       }
       await writeFile(join(stagedDir, "patch.json"), JSON.stringify({ ops }))
       const result = await validatePatchStep({
@@ -1162,6 +1148,8 @@ async function mergeConflicts(
         skill: "semantic-merge",
         bundle: input.bundle,
         workspaceOpsBefore: opsBefore,
+        // The run's steps counted these files: no step cap (CTX-1102).
+        maxOps: MAX_WORKSPACE_OPS,
         rootPath: input.rootPath,
         ...(root === undefined ? {} : { root }),
       })
@@ -1175,34 +1163,17 @@ async function mergeConflicts(
   return { tree, rejections }
 }
 
-/** The fields that only the host sets (patch validator, concept section 4.3). */
-const HOST_FIELDS = [
-  "generated_by",
-  "sources",
-  "root",
-  "source_sha",
-  "skill",
-  "bundle",
-] as const
-
 /**
- * The merged versions carry host fields that the validator stamped. Put back
- * the values of the file on the step's base commit (or remove the field), so
- * the validator checks the merged file as a write on that base and stamps it
- * again. In a publish, the base is the default tip. An earlier run can have
- * stamped it with another `source_sha` (CTX-1102).
+ * The merged file with no host field. The validator then checks it as a
+ * write on the step's base, and it stamps the host fields again. A host
+ * field of a merged version can differ from the base: in a publish, an
+ * earlier run stamped the base with its own `source_sha` (CTX-1102).
  */
-function withBaseHostFields(content: string, onBase: string | null): string {
+function withoutHostFields(content: string): string {
   const front = splitFrontMatter(content)
   const attributes = front ? parseYamlObject(front.yaml) : null
   if (!front || !attributes) return content
-  const baseFront = onBase ? splitFrontMatter(onBase) : null
-  const baseAttributes =
-    (baseFront ? parseYamlObject(baseFront.yaml) : null) ?? {}
-  for (const field of HOST_FIELDS) {
-    if (field in baseAttributes) attributes[field] = baseAttributes[field]
-    else delete attributes[field]
-  }
+  for (const field of HOST_FIELDS) delete attributes[field]
   return `---\n${stringify(attributes, { lineWidth: 0 })}---\n${front.body}`
 }
 
