@@ -16,7 +16,7 @@ import { isEmptyPagerdutySetupDraft } from "./pagerduty-connector.js"
  * one state for each provider from these values, so it needs no status read
  * for each connection.
  */
-export type OrgConnectionStatus =
+type OrgConnectionStatus =
   | "connected"
   | "needs_reconnect"
   | "setup_pending"
