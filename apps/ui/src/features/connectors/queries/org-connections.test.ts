@@ -13,6 +13,7 @@ function row(
     id: `con_${type}_${createdAt}`,
     type,
     displayName: null,
+    status: "connected",
     createdAt,
     updatedAt: createdAt,
   }

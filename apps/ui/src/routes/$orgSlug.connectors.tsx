@@ -11,15 +11,6 @@ import {
   useSkeletonHold,
 } from "@/components/ui/Skeleton"
 import {
-  AddBuildkiteConnectorButton,
-  AddConfluenceConnectorButton,
-  AddConnectorCatalogDialog,
-  AddGithubConnectorButton,
-  AddLinearConnectorButton,
-  AddNotionConnectorButton,
-  AddPagerdutyConnectorButton,
-  AddPlainConnectorButton,
-  AddSlackConnectorButton,
   BuildkiteConnectionCard,
   BuildkiteSetupDialog,
   ConfluenceConnectionCard,
@@ -36,6 +27,8 @@ import {
   PlainSetupDialog,
   SlackConnectionCard,
 } from "@/features/connectors"
+import { ConnectorCatalogDialog } from "@/features/connectors/catalog/ConnectorCatalogDialog"
+import type { ConnectorSetupOpeners } from "@/features/connectors/catalog/useConnectorStart"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
 import { ConnectorListSkeleton } from "@/features/connectors/components/ConnectorListItem"
 import { ConnectorsOAuthErrorBanner } from "@/features/connectors/components/ConnectorsOAuthErrorBanner"
@@ -239,6 +232,38 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
     })
   }, [search.error, search.error_description, navigate, orgSlug])
 
+  // The setup that each catalog entry opens. The catalog closes first.
+  const openSetup: ConnectorSetupOpeners = {
+    github: () => setGithubSelfHostedWizardOpen(true),
+    forge: ({ connectionId }) => {
+      setWizardAtlassianConnectionId(connectionId)
+      setWizardOpen(true)
+    },
+    slack: () => setSlackSetupOpen(true),
+    linear: ({ connectionId }) => {
+      setLinearConnectionId(connectionId)
+      setLinearWizardOpen(true)
+    },
+    notion: ({ connectionId }) => {
+      setNotionConnectionId(connectionId ?? null)
+      setNotionSetupOpen(true)
+    },
+    pagerduty: ({ connectionId }) => {
+      setPagerdutyConnectionId(connectionId ?? null)
+      setPagerdutySetupOpen(true)
+    },
+    buildkite: () => {
+      setBuildkiteConnectionId(null)
+      setBuildkiteReplaceWebhook(false)
+      setBuildkiteSetupOpen(true)
+    },
+    plain: () => {
+      setPlainConnectionId(null)
+      setPlainReconnect(false)
+      setPlainSetupOpen(true)
+    },
+  }
+
   return (
     <main className="mx-auto box-border flex min-h-full w-full max-w-2xl flex-col p-8 text-foreground">
       {errorBanner ? (
@@ -387,89 +412,13 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         )}
       </section>
 
-      <AddConnectorCatalogDialog
+      <ConnectorCatalogDialog
+        orgSlug={orgSlug}
+        connections={items}
         isOpen={catalogOpen}
         onOpenChange={setCatalogOpen}
-      >
-        <li>
-          <AddGithubConnectorButton
-            orgSlug={orgSlug}
-            onRequestSelfHostedWizard={() => {
-              setCatalogOpen(false)
-              setGithubSelfHostedWizardOpen(true)
-            }}
-          />
-        </li>
-        <li>
-          <AddConfluenceConnectorButton
-            orgSlug={orgSlug}
-            onInstallIntentRegistered={({ connectionId }) => {
-              setWizardAtlassianConnectionId(connectionId)
-              setWizardOpen(true)
-              setCatalogOpen(false)
-            }}
-          />
-        </li>
-        <li>
-          <AddSlackConnectorButton
-            orgSlug={orgSlug}
-            onOpenSetup={() => {
-              setCatalogOpen(false)
-              setSlackSetupOpen(true)
-            }}
-          />
-        </li>
-        <li>
-          <AddLinearConnectorButton
-            orgSlug={orgSlug}
-            onStart={(connectionId) => {
-              setLinearConnectionId(connectionId)
-              setLinearWizardOpen(true)
-              setCatalogOpen(false)
-            }}
-          />
-        </li>
-        <li>
-          <AddNotionConnectorButton
-            orgSlug={orgSlug}
-            onStart={({ connectionId }) => {
-              setNotionConnectionId(connectionId)
-              setNotionSetupOpen(true)
-              setCatalogOpen(false)
-            }}
-          />
-        </li>
-        <li>
-          <AddPagerdutyConnectorButton
-            orgSlug={orgSlug}
-            onStart={({ connectionId }) => {
-              setPagerdutyConnectionId(connectionId ?? null)
-              setPagerdutySetupOpen(true)
-              setCatalogOpen(false)
-            }}
-          />
-        </li>
-        <li>
-          <AddBuildkiteConnectorButton
-            onStart={() => {
-              setBuildkiteConnectionId(null)
-              setBuildkiteReplaceWebhook(false)
-              setBuildkiteSetupOpen(true)
-              setCatalogOpen(false)
-            }}
-          />
-        </li>
-        <li>
-          <AddPlainConnectorButton
-            onStart={() => {
-              setPlainConnectionId(null)
-              setPlainReconnect(false)
-              setPlainSetupOpen(true)
-              setCatalogOpen(false)
-            }}
-          />
-        </li>
-      </AddConnectorCatalogDialog>
+        openSetup={openSetup}
+      />
 
       <GithubSelfHostedWizardModal
         orgSlug={orgSlug}

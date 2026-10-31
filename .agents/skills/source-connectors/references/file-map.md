@@ -68,7 +68,7 @@ Follow [product-ui](../../product-ui/SKILL.md). Connector list lesson: `Connecto
 
 | Surface | Where |
 |---------|--------|
-| Catalog entry | `AddConnectorCatalogDialog` + `Add<Name>ConnectorButton` |
+| Catalog entry | One entry in `CONNECTOR_REGISTRY` (`features/connectors/catalog/registry.tsx`) and one opener in the `openSetup` map of `routes/$orgSlug.connectors.tsx` |
 | Setup wizard/dialog + stories/MSW | `features/connectors/components/<slug>-setup/` or `*SetupDialog.tsx` |
 | Connection card | `*ConnectionCard.tsx` |
 | Queries + setup model | `features/connectors/queries/<slug>-connector.ts`, `<slug>-setup-model.ts` |

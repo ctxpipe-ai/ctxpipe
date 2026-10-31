@@ -108,36 +108,42 @@ const connectionItems = [
   {
     id: githubId,
     type: "github" as const,
+    status: "connected" as const,
     createdAt: "2025-01-01T00:00:00.000Z",
     updatedAt: "2025-01-02T00:00:00.000Z",
   },
   {
     id: forgeId,
     type: "forge" as const,
+    status: "connected" as const,
     createdAt: "2025-01-01T00:00:00.000Z",
     updatedAt: "2025-01-02T00:00:00.000Z",
   },
   {
     id: slackId,
     type: "slack" as const,
+    status: "connected" as const,
     createdAt: "2025-01-01T00:00:00.000Z",
     updatedAt: "2025-01-02T00:00:00.000Z",
   },
   {
     id: linearId,
     type: "linear" as const,
+    status: "connected" as const,
     createdAt: "2025-01-01T00:00:00.000Z",
     updatedAt: "2025-01-02T00:00:00.000Z",
   },
   {
     id: notionId,
     type: "notion" as const,
+    status: "connected" as const,
     createdAt: "2025-01-01T00:00:00.000Z",
     updatedAt: "2025-01-02T00:00:00.000Z",
   },
   {
     id: pagerdutyId,
     type: "pagerduty" as const,
+    status: "connected" as const,
     createdAt: "2025-01-01T00:00:00.000Z",
     updatedAt: "2025-01-02T00:00:00.000Z",
   },
@@ -660,7 +666,7 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
   },
 }
 
-/** A Buildkite row shows its own card, and the catalog opens its setup. */
+/** A Buildkite row shows its own card, and the catalog adds another one. */
 export const BuildkiteFromCatalog: Story = {
   render: pageRender,
   parameters: pageHandlers([
@@ -674,6 +680,7 @@ export const BuildkiteFromCatalog: Story = {
               id: "conn_buildkite_1",
               type: "buildkite",
               displayName: "acme",
+              status: "connected",
               createdAt: "2025-01-01T00:00:00.000Z",
               updatedAt: "2025-01-02T00:00:00.000Z",
             },
@@ -695,7 +702,7 @@ export const BuildkiteFromCatalog: Story = {
     await userEvent.click(body.getByRole("button", { name: "Add connection" }))
     await userEvent.click(
       await body.findByRole("button", {
-        name: /^Buildkite Sync the latest builds/,
+        name: "Add another Buildkite connection",
       }),
     )
     const setup = await body.findByRole("heading", {
@@ -707,7 +714,7 @@ export const BuildkiteFromCatalog: Story = {
   },
 }
 
-/** A Plain row shows its own card, and the catalog opens its setup. */
+/** A Plain row shows its own card, and the catalog adds another one. */
 export const PlainFromCatalog: Story = {
   render: pageRender,
   parameters: pageHandlers([
@@ -721,6 +728,7 @@ export const PlainFromCatalog: Story = {
               id: "conn_plain_1",
               type: "plain",
               displayName: "Acme Support",
+              status: "connected",
               createdAt: "2025-01-01T00:00:00.000Z",
               updatedAt: "2025-01-02T00:00:00.000Z",
             },
@@ -741,7 +749,7 @@ export const PlainFromCatalog: Story = {
     await expect(body.queryByText("GitHub")).toBeNull()
     await userEvent.click(body.getByRole("button", { name: "Add connection" }))
     await userEvent.click(
-      await body.findByRole("button", { name: /^Plain Sync Help Center/ }),
+      await body.findByRole("button", { name: "Add another Plain connection" }),
     )
     const setup = await body.findByRole("heading", {
       name: "Set up Plain connector",
@@ -749,5 +757,121 @@ export const PlainFromCatalog: Story = {
     // The modal fades in; wait until the setup is visible.
     await waitFor(() => expect(setup).toBeVisible())
     await expect(body.getByLabelText("API key")).toHaveValue("")
+  },
+}
+
+const linearRevokedId = "conn_linear_revoked"
+const linearDraftId = "conn_linear_draft"
+
+function linearStatusFor(connectionId: string, status: object) {
+  return http.get(
+    ({ request }) => {
+      const u = new URL(request.url)
+      return (
+        u.pathname.endsWith("/api/v1/connectors/linear/status") &&
+        u.searchParams.get("connectionId") === connectionId
+      )
+    },
+    () => HttpResponse.json(status),
+  )
+}
+
+/**
+ * Two Linear connections: one needs a reconnect and one has an unfinished
+ * setup. The catalog shows the worst state, and Fix takes the user to the
+ * card of the connection that needs the reconnect.
+ */
+export const FixFromCatalog: Story = {
+  render: pageRender,
+  parameters: pageHandlers([
+    http.get(
+      ({ request }) =>
+        new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+      () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: githubId,
+              type: "github",
+              displayName: "acme-corp",
+              status: "connected",
+              createdAt: "2025-01-01T00:00:00.000Z",
+              updatedAt: "2025-01-02T00:00:00.000Z",
+            },
+            {
+              id: linearDraftId,
+              type: "linear",
+              displayName: null,
+              status: "setup_pending",
+              createdAt: "2025-01-02T00:00:00.000Z",
+              updatedAt: "2025-01-02T00:00:00.000Z",
+            },
+            {
+              id: linearRevokedId,
+              type: "linear",
+              displayName: "Acme Platform",
+              status: "needs_reconnect",
+              createdAt: "2025-01-03T00:00:00.000Z",
+              updatedAt: "2025-01-03T00:00:00.000Z",
+            },
+          ],
+        }),
+    ),
+    githubInstallationHandler(githubInstallationComplete),
+    linearStatusFor(linearRevokedId, {
+      ...linearStatusComplete,
+      isInstalled: false,
+      installationStatus: "revoked",
+      workspaceName: "Acme Platform",
+    }),
+    linearStatusFor(linearDraftId, {
+      isInstalled: false,
+      installationStatus: null,
+      workspaceName: null,
+      isGithubLinked: true,
+      selectedScopeCount: 0,
+      setupPhase: "draft",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      syncTarget: null,
+    }),
+    connectionUsageHandler([]),
+    workspaceListHandler([]),
+  ]),
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await waitFor(() =>
+      expect(
+        body.getByRole("button", { name: "Linear connector actions" }),
+      ).toBeVisible(),
+    )
+    await userEvent.click(body.getByRole("button", { name: "Add connection" }))
+    const dialog = await body.findByRole("dialog", { name: "Add connection" })
+    await waitFor(() =>
+      expect(within(dialog).getByText("Needs reconnect")).toBeVisible(),
+    )
+    await expect(
+      within(dialog).getByRole("button", {
+        name: "Add another Linear connection",
+      }),
+    ).toBeVisible()
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Fix Linear" }),
+    )
+    await waitFor(() =>
+      expect(
+        body.queryByRole("dialog", { name: "Add connection" }),
+      ).not.toBeInTheDocument(),
+    )
+    const card = () =>
+      canvasElement.ownerDocument.querySelector(
+        `[data-connection-id="${linearRevokedId}"]`,
+      )
+    await waitFor(() => expect(card()).toHaveAttribute("data-marked"))
+    await expect(
+      canvasElement.ownerDocument.querySelector(
+        `[data-connection-id="${linearDraftId}"]`,
+      ),
+    ).not.toHaveAttribute("data-marked")
   },
 }
