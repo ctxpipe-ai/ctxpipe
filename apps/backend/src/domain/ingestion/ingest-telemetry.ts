@@ -33,8 +33,10 @@ export function capIngestText(text: string): string {
 /**
  * The log fields of a failed ingest step. An error message or `name` can
  * hold source text, so the fields hold only the class of the error, a
- * system error code (for example `ECONNRESET`), and the start of a message
- * from this list. The list holds only messages with no source text.
+ * system error code, and the start of a message from this list. The list
+ * holds only messages with no source text. The code can sit on the error,
+ * or on its cause. A failed `fetch` keeps its code on the cause, for
+ * example `UND_ERR_SOCKET`.
  */
 export function ingestErrorFields(error: unknown): {
   errorClass: string
@@ -42,14 +44,17 @@ export function ingestErrorFields(error: unknown): {
   errorKind?: string
 } {
   if (!(error instanceof Error)) return { errorClass: typeof error }
-  const code = (error as { code?: unknown }).code
+  const ownCode = (error as { code?: unknown }).code
+  const causeCode = (error as { cause?: { code?: unknown } }).cause?.code
+  const code = typeof ownCode === "string" ? ownCode : causeCode
   const kind =
-    /^(?:Ingest root command failed \(exit -?\d+\)|Sandbox lock ownership (?:lost|expired)|The ingest step reached its time limit|\(HTTP code \d{3}\)|aborted$|socket hang up$|discover-roots failed)/.exec(
+    /^(?:Ingest root command failed \(exit -?\d+\)|Sandbox lock ownership (?:lost|expired)|The ingest step reached its time limit|\(HTTP code \d{3}\)|aborted$|socket hang up$|fetch failed$|terminated$|discover-roots failed)/.exec(
       error.message,
     )?.[0]
   return {
     errorClass: error.constructor.name,
-    ...(typeof code === "string" && /^E[A-Z0-9_]{2,40}$/.test(code)
+    ...(typeof code === "string" &&
+    /^(?:E[A-Z0-9_]{2,40}|UND_ERR_[A-Z_]{1,40})$/.test(code)
       ? { errorCode: code }
       : {}),
     ...(kind ? { errorKind: kind } : {}),

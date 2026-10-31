@@ -12,6 +12,8 @@ import { dirname, join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { parse as parseYaml, stringify } from "yaml"
 
+import { claimsUpgradeFiles } from "../workspaces/hydrate-write-jobs.js"
+import { hydrateKnowledgeTree } from "../workspaces/hydrate.js"
 import { ownershipMigrationFiles } from "./ownership-migration.js"
 import {
   findSuspectedSecret,
@@ -2544,5 +2546,278 @@ describe("validatePatchStep claim rejection reasons (CTX-1082)", () => {
     expect(result.rejections).toHaveLength(1)
     expect(result.rejections[0]?.rule).toBe("front_matter")
     expect(result.rejections[0]?.reason).toBe("claims.0.evidence: invalid_type")
+  })
+})
+
+describe("validatePatchStep claims with the host field valid_from (CTX-1090)", () => {
+  const path = "knowledge/services/hydrated.md"
+  const VALID_FROM = "2026-02-03T04:05:06.000Z"
+  const STEP_VALID_FROM = "2026-05-06T00:00:00.000Z"
+  // A claim as hydrate leaves it: the validator stamped the confidence, and
+  // the valid_from_persist write job added valid_from.
+  const hydratedClaim = {
+    to: "./billing.md",
+    predicate: "CALLS",
+    evidence: EVIDENCE,
+    confidence: 0.7,
+    valid_from: VALID_FROM,
+  }
+  const hydratedBase = (claims: unknown[] = [hydratedClaim]) =>
+    commitOn(baseCommit, {
+      [path]: doc(
+        {
+          kind: "Service",
+          name: "Hydrated",
+          claims,
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH],
+          source_sha: "0".repeat(40),
+          skill: "dependencies",
+          bundle: "bundle-0",
+        },
+        "# Hydrated\n\nOld text.\n",
+      ),
+    })
+  const write = (base: string, claims: unknown[]) =>
+    run(
+      stage({
+        files: {
+          [path]: doc(
+            { kind: "Service", name: "Hydrated", claims },
+            "# Hydrated\n\nNew text.\n",
+          ),
+        },
+        base,
+      }),
+      { baseCommit: base },
+    )
+  const claimsOut = (tree: string, file = path) => {
+    const out = readTree(tree, file)
+    return parseYaml(out.slice(4, out.indexOf("\n---\n"))).claims as unknown[]
+  }
+
+  it("accepts a step that keeps a claim with valid_from, and keeps valid_from", async () => {
+    const base = hydratedBase()
+    const result = await write(base, [hydratedClaim])
+    expect(result.rejections).toEqual([])
+    expect(claimsOut(result.tree)).toEqual([hydratedClaim])
+  })
+
+  it("accepts a step that changes only the evidence of a claim with valid_from", async () => {
+    const base = hydratedBase()
+    const result = await write(base, [
+      {
+        to: "./billing.md",
+        predicate: "CALLS",
+        evidence: { path: "package.json", kind: "model" },
+        valid_from: VALID_FROM,
+      },
+    ])
+    expect(result.rejections).toEqual([])
+    expect(claimsOut(result.tree)).toEqual([
+      {
+        to: "./billing.md",
+        predicate: "CALLS",
+        evidence: { path: "package.json", kind: "model" },
+        confidence: 0.5,
+        valid_from: VALID_FROM,
+      },
+    ])
+  })
+
+  it.each([
+    [
+      "removes valid_from from a kept claim",
+      { to: "./billing.md", predicate: "CALLS", evidence: EVIDENCE },
+    ],
+    [
+      "changes valid_from on a kept claim",
+      { ...hydratedClaim, valid_from: STEP_VALID_FROM },
+    ],
+  ])(
+    "accepts a step that %s, and writes the base valid_from",
+    async (_name, claim) => {
+      const base = hydratedBase()
+      const result = await write(base, [claim])
+      expect(result.rejections).toEqual([])
+      expect(claimsOut(result.tree)).toEqual([hydratedClaim])
+    },
+  )
+
+  it("ignores the valid_from of a claim that has no base claim with its target and predicate", async () => {
+    const base = hydratedBase()
+    const result = await write(base, [
+      hydratedClaim,
+      {
+        to: "./ledger.md",
+        predicate: "READS",
+        evidence: EVIDENCE,
+        valid_from: STEP_VALID_FROM,
+      },
+      { ...hydratedClaim, predicate: "READS" },
+    ])
+    expect(result.rejections).toEqual([])
+    expect(claimsOut(result.tree)).toEqual([
+      hydratedClaim,
+      {
+        to: "./ledger.md",
+        predicate: "READS",
+        evidence: EVIDENCE,
+        confidence: 0.7,
+      },
+      {
+        to: "./billing.md",
+        predicate: "READS",
+        evidence: EVIDENCE,
+        confidence: 0.7,
+      },
+    ])
+  })
+
+  it("gives each claim the valid_from of the base claim with the same evidence", async () => {
+    const modelClaim = {
+      to: "./billing.md",
+      predicate: "CALLS",
+      evidence: { path: "package.json", kind: "model" },
+      confidence: 0.5,
+      valid_from: "2025-07-08T00:00:00.000Z",
+    }
+    const base = hydratedBase([hydratedClaim, modelClaim])
+    const kept = await write(base, [modelClaim, hydratedClaim])
+    expect(kept.rejections).toEqual([])
+    expect(claimsOut(kept.tree)).toEqual([modelClaim, hydratedClaim])
+
+    const swapped = await write(base, [
+      { ...hydratedClaim, valid_from: modelClaim.valid_from },
+      { ...modelClaim, valid_from: hydratedClaim.valid_from },
+    ])
+    expect(swapped.rejections).toEqual([])
+    expect(claimsOut(swapped.tree)).toEqual([hydratedClaim, modelClaim])
+  })
+
+  it("keeps the valid_from of a claim that the base file has twice", async () => {
+    // Hydrate gives each claim of a file the same time, so the copies agree.
+    const base = hydratedBase([hydratedClaim, hydratedClaim])
+    const result = await write(base, [hydratedClaim, hydratedClaim])
+    expect(result.rejections).toEqual([])
+    expect(claimsOut(result.tree)).toEqual([hydratedClaim, hydratedClaim])
+  })
+
+  it("writes no valid_from of the step on a claim that it adds to a file of another source", async () => {
+    const shared = "knowledge/libraries/shared.md"
+    const sharedFile = (claims: unknown[]) =>
+      doc(
+        {
+          kind: "Library",
+          name: "Shared",
+          generated_by: "ctxpipe-extract",
+          sources: [OTHER_SOURCE_PATH],
+          claims,
+        },
+        "# Shared\n\nOther source prose.\n",
+      )
+    const baseClaim = {
+      to: "../services/billing.md",
+      predicate: "USED_BY",
+      evidence: EVIDENCE,
+      confidence: 0.7,
+      valid_from: VALID_FROM,
+    }
+    const base = commitOn(baseCommit, { [shared]: sharedFile([baseClaim]) })
+    const result = await run(
+      stage({
+        files: {
+          [shared]: sharedFile([
+            baseClaim,
+            {
+              to: "../services/billing.md",
+              predicate: "CALLS",
+              evidence: EVIDENCE,
+              valid_from: STEP_VALID_FROM,
+            },
+            {
+              to: "../services/billing.md",
+              predicate: "USED_BY",
+              evidence: { path: "package.json", kind: "model" },
+              valid_from: STEP_VALID_FROM,
+            },
+          ]),
+        },
+        base,
+      }),
+      { baseCommit: base },
+    )
+    expect(result.rejections).toEqual([])
+    expect(claimsOut(result.tree, shared)).toEqual([
+      baseClaim,
+      {
+        to: "../services/billing.md",
+        predicate: "CALLS",
+        evidence: EVIDENCE,
+        confidence: 0.7,
+      },
+      {
+        to: "../services/billing.md",
+        predicate: "USED_BY",
+        evidence: { path: "package.json", kind: "model" },
+        confidence: 0.5,
+        valid_from: VALID_FROM,
+      },
+    ])
+  })
+})
+
+describe("validatePatchStep on a file that claims_upgrade repaired (CTX-1100)", () => {
+  const path = "knowledge/decisions/adr-001.md"
+  const VALID_FROM = "2026-10-20T12:10:23.000Z"
+  const full = {
+    to: "../services/billing.md",
+    predicate: "CALLS",
+    evidence: EVIDENCE,
+    confidence: 0.7,
+    valid_from: VALID_FROM,
+  }
+  // A claim that claims_upgrade added for a body link before CTX-1100, and
+  // hydrate dated: it has no predicate and no evidence.
+  const bare = { to: "../services/ledger.md", valid_from: VALID_FROM }
+  const decision = (claims: unknown[]) =>
+    doc(
+      {
+        kind: "Decision",
+        name: "ADR-001: Billing calls",
+        claims,
+        generated_by: "ctxpipe-extract",
+        sources: [SOURCE_PATH],
+        source_sha: "0".repeat(40),
+        skill: "decisions",
+        bundle: "bundle-0",
+      },
+      "# ADR-001\n\nBilling calls [Ledger](../services/ledger.md).\n",
+    )
+  // A decisions step that edits the text and keeps the front matter of the
+  // file, as a model that edits the file does.
+  const keep = (content: string) => {
+    const base = commitOn(baseCommit, { [path]: content })
+    const edited = content.replace("Billing calls", "Billing now calls")
+    return run(stage({ files: { [path]: edited }, base }), {
+      baseCommit: base,
+      skill: "decisions",
+    })
+  }
+
+  it("refuses a step that keeps a claim with no evidence, and accepts it after the repair", async () => {
+    const damaged = decision([full, bare])
+    expect(rulesOf(await keep(damaged))).toEqual(["front_matter"])
+
+    const [repaired] = claimsUpgradeFiles({
+      files: [{ path, content: damaged }],
+      units: hydrateKnowledgeTree({
+        workspaceId: "ws_fixture",
+        files: [{ path, content: damaged }],
+      }).units,
+    })
+    if (!repaired) throw new Error("claims_upgrade did not repair the file")
+    const result = await keep(repaired.content)
+    expect(result.rejections).toEqual([])
   })
 })

@@ -342,7 +342,11 @@ export async function runIngestShardStep(
     )
     skipModel = !scanStartsModel(scan)
   }
-  let usage: IngestStepUsage | undefined
+  // A step that the gate stops makes no model call: its usage is zero,
+  // not unknown (CTX-1087).
+  let usage: IngestStepUsage | undefined = skipModel
+    ? { inputTokens: 0, outputTokens: 0 }
+    : undefined
   for (const part of skipModel
     ? ["ctxpipe-finish"]
     : [command, "ctxpipe-finish"]) {
