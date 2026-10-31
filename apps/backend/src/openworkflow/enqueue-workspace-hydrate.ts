@@ -56,16 +56,19 @@ export async function enqueueWorkspaceHydrate(
 }
 
 /**
- * Start one hydrate run that writes a lost revision graph again from the
- * PostgreSQL projection. The key names the Workspace, the revision and the loss.
+ * Start one hydrate run that writes the graph of a published revision again
+ * from the PostgreSQL projection. The key names the Workspace, the revision
+ * and the trigger (the time of a graph loss, or the UTC hour of a manual
+ * rebuild), so each trigger starts one run. Returns true when the run waits
+ * for a worker, and false when the key gives a run that started before.
  */
 export async function enqueueWorkspaceGraphRebuild(input: {
   orgId: string
   revision: WorkspaceRevision
   revisionKey: string
-  lostAt: Date
-}): Promise<void> {
-  await runWorkflowWithWorkerWake(
+  trigger: string
+}): Promise<boolean> {
+  const handle = await runWorkflowWithWorkerWake(
     workspaceHydrate.spec,
     {
       orgId: input.orgId,
@@ -73,7 +76,8 @@ export async function enqueueWorkspaceGraphRebuild(input: {
       revision: input.revision,
     },
     {
-      idempotencyKey: `workspace-graph-rebuild:${input.revision.workspaceId}:${input.revisionKey}:${input.lostAt.toISOString()}`,
+      idempotencyKey: `workspace-graph-rebuild:${input.revision.workspaceId}:${input.revisionKey}:${input.trigger}`,
     },
   )
+  return handle.workflowRun.status === "pending"
 }

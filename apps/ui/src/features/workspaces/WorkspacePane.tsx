@@ -11,6 +11,7 @@ import {
 } from "@tabler/icons-react"
 import {
   type QueryClient,
+  useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
@@ -42,11 +43,13 @@ import {
   conversationGitBlobOptions,
   conversationGitDiffOptions,
   conversationGitTreeOptions,
+  rebuildWorkspaceGraph,
   workspaceChatPrepareOptions,
   workspaceGitBlobOptions,
   workspaceGitTreeOptions,
   workspaceGraphBuilding,
   workspaceGraphOptions,
+  workspaceKeys,
 } from "./queries"
 import type { WorkspaceDetail, WorkspaceStorePhase } from "./types"
 import {
@@ -486,6 +489,17 @@ function WorkspaceGraphPaneBody(props: {
     ...workspaceGraphOptions(props.orgSlug, props.workspace.slug),
     enabled: graphReadable(phase),
   })
+  const queryClient = useQueryClient()
+  // The server refuses a graph that did not fail, or a second rebuild in the
+  // same hour. Both answers read the Workspace again to show its phase.
+  const rebuild = useMutation({
+    mutationFn: () =>
+      rebuildWorkspaceGraph(props.orgSlug, props.workspace.slug),
+    onSettled: () =>
+      queryClient.invalidateQueries({
+        queryKey: workspaceKeys.detail(props.orgSlug, props.workspace.slug),
+      }),
+  })
   if (phase === "pending" || workspaceGraphBuilding(query.data))
     return (
       <div className="flex h-full min-h-0 flex-1 items-center justify-center p-6">
@@ -501,8 +515,22 @@ function WorkspaceGraphPaneBody(props: {
     return (
       <div className="flex h-full min-h-0 flex-1 items-center justify-center p-6">
         <div className="w-full max-w-md">
-          <InlineAlert variant="error" title="Could not build graph">
-            Could not build the graph. It builds again automatically.
+          <InlineAlert
+            variant="error"
+            title="Could not build graph"
+            actions={
+              <Button
+                variant="primary"
+                isPending={rebuild.isPending}
+                onPress={() => rebuild.mutate()}
+              >
+                Try again
+              </Button>
+            }
+          >
+            Could not build the graph. It builds again automatically, or you can
+            try again now.
+            {rebuild.error ? <> {rebuild.error.message}</> : null}
           </InlineAlert>
         </div>
       </div>

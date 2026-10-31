@@ -4,6 +4,7 @@ import type { AppEnv } from "../../app/env.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
 import { UPGRADE_STATUSES } from "../../domain/upgrades/registry.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
+import { workspaceGraphRevisionKey } from "../../domain/workspaces/graph-projection.js"
 import { HYDRATE_SKIP_REASONS } from "../../domain/workspaces/hydrate.js"
 import {
   type DerivedStoreResult,
@@ -27,12 +28,16 @@ import {
   getWorkspaceBySlug,
   listLinkedRepositories,
   listWorkspaces,
+  markWorkspaceGraphRetry,
   persistHydrateRetry,
   persistWriteCheckRetry,
   projectionFromWorkspace,
   touchLastUsedWorkspace,
 } from "../../models/workspaces.js"
-import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
+import {
+  enqueueWorkspaceGraphRebuild,
+  enqueueWorkspaceHydrate,
+} from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
 import { workspaceActivityRoutes } from "./workspace-activity-routes.js"
 import { workspaceFilesRoutes } from "./workspace-files-routes.js"
@@ -392,6 +397,37 @@ const retryPrepareWorkspaceRoute = createRoute(
   }),
 )
 
+// Only a failed graph of the active revision is written again, and at most
+// once each UTC hour. The run writes the graph from PostgreSQL; it does not
+// resolve the tip, so it never hydrates a new commit.
+const rebuildWorkspaceGraphRoute = createRoute(
+  directWriteRoute({
+    method: "post",
+    path: "/{workspaceSlug}/rebuild-graph",
+    request: { params: WorkspaceSlugParamsSchema },
+    responses: {
+      202: {
+        content: { "application/json": { schema: WorkspaceSchema } },
+        description:
+          "A rebuild of the failed graph of the active revision is queued",
+      },
+      401: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Unauthorized",
+      },
+      404: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Not found",
+      },
+      409: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description:
+          "The graph of the active revision did not fail, or a rebuild started in this UTC hour",
+      },
+    },
+  }),
+)
+
 // The tip check resumes paused write jobs and queues a migration export.
 const checkWriteAccessWorkspaceRoute = createRoute(
   directWriteRoute({
@@ -628,6 +664,39 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       c.get("log"),
     )
     return c.json(serializeWorkspace(retried), 200)
+  })
+  .openapi(rebuildWorkspaceGraphRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const { workspaceSlug } = workspaceSlugParams(c)
+    const workspace = await getWorkspaceBySlug(workspaceSlug)
+    if (!workspace) return c.json({ error: "Not found" }, 404)
+    const projection = publishedProjection(projectionFromWorkspace(workspace))
+    if (
+      projection?.kind !== "active" ||
+      projection.stores.graph.kind !== "failed"
+    )
+      return c.json({ error: "The graph did not fail." }, 409)
+    const { revision } = projection
+    const queued = await enqueueWorkspaceGraphRebuild({
+      orgId: workspace.orgId,
+      revision,
+      revisionKey: workspaceGraphRevisionKey(revision),
+      trigger: `manual:${new Date().toISOString().slice(0, 13)}`,
+    })
+    if (!queued)
+      return c.json(
+        { error: "The graph was built again in this hour. Try again later." },
+        409,
+      )
+    await markWorkspaceGraphRetry(revision)
+    return c.json(
+      serializeWorkspace(
+        (await getWorkspaceBySlug(workspaceSlug)) ?? workspace,
+      ),
+      202,
+    )
   })
   .openapi(checkWriteAccessWorkspaceRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {

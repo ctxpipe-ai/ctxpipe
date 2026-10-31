@@ -2180,6 +2180,32 @@ export async function markWorkspaceGraphLost(
   })
 }
 
+/**
+ * Set a failed graph phase of the active revision back to pending for a
+ * manual rebuild. The phase keeps its first failure, so the tip check spaces
+ * out its retries from that time.
+ */
+export async function markWorkspaceGraphRetry(
+  revision: WorkspaceRevision,
+): Promise<void> {
+  await orgSql(() =>
+    getOrgDb()
+      .update(workspaces)
+      .set({
+        hydratePhases: sql`coalesce(${workspaces.hydratePhases}, '{}'::jsonb) || jsonb_build_object('graph', ${derivedPhaseSql("graph", { revision, result: { kind: "pending" } })})`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(workspaces.id, revision.workspaceId),
+          sql`${workspaces.activeRevision} = ${JSON.stringify(revision)}::jsonb`,
+          sql`${workspaces.hydratePhases}->'graph'->'revision' = ${JSON.stringify(revision)}::jsonb`,
+          sql`${workspaces.hydratePhases}->'graph'->'result'->>'kind' = 'failed'`,
+        ),
+      ),
+  )
+}
+
 export async function persistWorkspaceGraphResult(input: {
   revision: WorkspaceRevision
   result: DerivedStoreResult

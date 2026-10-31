@@ -1148,6 +1148,22 @@ export async function retryPrepareWorkspace(
   })
 }
 
+/** Builds a failed graph of the active revision again, at most once an hour. */
+export async function rebuildWorkspaceGraph(
+  orgSlug: string,
+  workspaceSlug: string,
+): Promise<Workspace> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.workspaces[":workspaceSlug"][
+    "rebuild-graph"
+  ].$post({
+    param: { orgSlug, workspaceSlug },
+  })
+  return readApiJson(res, {
+    message: "Failed to build the Workspace graph again",
+  })
+}
+
 /** Clears a failed write-access check and starts a new one. */
 export async function checkWorkspaceWriteAccess(
   orgSlug: string,
