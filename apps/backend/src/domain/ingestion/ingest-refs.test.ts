@@ -1479,6 +1479,62 @@ describe("mergeIngestPublish", () => {
       })
     })
 
+    it("accepts a claim on a shared file, whose header stays as the earlier run left it", async () => {
+      const path = "knowledge/services/shared.md"
+      const other = "sources/github/example-org/other-api.md"
+      // Another source owns the file too, so a run can only add claims.
+      const shared = (sha: string, claims: unknown[]) =>
+        `---\n${stringify({
+          kind: "Service",
+          name: "Shared",
+          claims,
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH, other],
+          source_sha: sha,
+          skill: "apis",
+          bundle: "bundle-1",
+        })}---\n# Shared\n\nThe Shared service.\n`
+      const theirs = {
+        to: "./billing.md",
+        predicate: "CALLS",
+        evidence: { path: "src/billing.ts", kind: "script" },
+      }
+      const ours = {
+        to: "./billing.md",
+        predicate: "USES",
+        evidence: { path: "src/ledger.ts", kind: "script" },
+      }
+      const base = commitOn(pinned, "refs/heads/main", {
+        files: { [path]: shared("4".repeat(40), []) },
+      })
+      const tip = commitOn(
+        base,
+        ASSEMBLED,
+        { files: { [path]: shared("4".repeat(40), [ours]) } },
+        `Ingest step assemble:ws_alpha\n\nCtxpipe-Run: ${RUN}`,
+      )
+      // An earlier run, at another source commit, added its claim.
+      const current = commitOn(base, "refs/heads/main", {
+        files: { [path]: shared("2".repeat(40), [theirs]) },
+      })
+      const changes = await publish({
+        tip,
+        current,
+        pinnedRevision: base,
+        resolve: async (conflicts) =>
+          conflicts.map((c) => ({
+            path: c.path,
+            content: shared("4".repeat(40), [theirs, ours]),
+          })),
+      })
+      expect(changes.withheld).toEqual([])
+      const front = frontOf(changes.files[0]?.content ?? "")
+      expect(front).toMatchObject({ source_sha: "2".repeat(40) })
+      expect(
+        (front.claims as Array<{ predicate: string }>).map((c) => c.predicate),
+      ).toEqual(["CALLS", "USES"])
+    })
+
     it("withholds no file for the op cap when it merges more than 30 files", async () => {
       const names = Array.from(
         { length: 31 },

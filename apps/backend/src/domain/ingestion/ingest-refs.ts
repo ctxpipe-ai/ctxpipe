@@ -1011,7 +1011,8 @@ export type IngestConflictResolver = (
  * (the pinned revision plus the other shards' ops). A model wrote them, so
  * they get the same checks as a step's files. The run's steps already
  * counted them, so only the Workspace cap applies, not the step cap. The
- * merged files lose their host fields, and the validator stamps them again.
+ * merged files get the host fields of the file on the step's base, and the
+ * validator stamps them again.
  * Returns
  * the validated tree and the rejections. A rejected file keeps its version
  * on `tree`; the caller decides whether a rejection refuses the job or
@@ -1134,7 +1135,10 @@ async function mergeConflicts(
         })
         const file = join(stagedDir, "files", path)
         await mkdir(dirname(file), { recursive: true })
-        await writeFile(file, withoutHostFields(content))
+        await writeFile(
+          file,
+          withBaseHostFields(content, baseBlob ? await text(baseBlob) : null),
+        )
       }
       await writeFile(join(stagedDir, "patch.json"), JSON.stringify({ ops }))
       const result = await validatePatchStep({
@@ -1164,16 +1168,23 @@ async function mergeConflicts(
 }
 
 /**
- * The merged file with no host field. The validator then checks it as a
- * write on the step's base, and it stamps the host fields again. A host
- * field of a merged version can differ from the base: in a publish, an
- * earlier run stamped the base with its own `source_sha` (CTX-1102).
+ * The merged file with the host fields of the file on the step's base (or
+ * with no host field, for a new file). The validator then checks it as a
+ * write on that base, and it stamps the host fields again. In a publish, an
+ * earlier run can have stamped the base with its own `source_sha`
+ * (CTX-1102). A shared file must keep each base field except `claims`.
  */
-function withoutHostFields(content: string): string {
+function withBaseHostFields(content: string, onBase: string | null): string {
   const front = splitFrontMatter(content)
   const attributes = front ? parseYamlObject(front.yaml) : null
   if (!front || !attributes) return content
-  for (const field of HOST_FIELDS) delete attributes[field]
+  const baseFront = onBase ? splitFrontMatter(onBase) : null
+  const baseAttributes =
+    (baseFront ? parseYamlObject(baseFront.yaml) : null) ?? {}
+  for (const field of HOST_FIELDS) {
+    if (field in baseAttributes) attributes[field] = baseAttributes[field]
+    else delete attributes[field]
+  }
   return `---\n${stringify(attributes, { lineWidth: 0 })}---\n${front.body}`
 }
 
