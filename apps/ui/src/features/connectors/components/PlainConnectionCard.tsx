@@ -62,6 +62,7 @@ export function PlainConnectionCard({
 
   return (
     <ConnectorListItem
+      connectionId={connectionId}
       usedIn={
         <ConnectorUsedIn
           orgSlug={orgSlug}

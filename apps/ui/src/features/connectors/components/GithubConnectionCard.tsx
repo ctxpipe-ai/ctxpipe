@@ -86,6 +86,7 @@ export function GithubConnectionCard({
 
   return (
     <ConnectorListItem
+      connectionId={connectionId}
       usedIn={
         <ConnectorUsedIn
           orgSlug={orgSlug}

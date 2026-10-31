@@ -75,6 +75,7 @@ export function SlackConnectionCard({
   return (
     <>
       <ConnectorListItem
+        connectionId={connectionId}
         usedIn={
           <ConnectorUsedIn
             orgSlug={orgSlug}

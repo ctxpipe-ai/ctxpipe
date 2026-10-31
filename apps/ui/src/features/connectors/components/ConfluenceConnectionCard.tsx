@@ -93,6 +93,7 @@ export function ConfluenceConnectionCard({
 
   return (
     <ConnectorListItem
+      connectionId={connectionId}
       usedIn={
         <ConnectorUsedIn
           orgSlug={orgSlug}

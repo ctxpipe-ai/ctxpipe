@@ -32,6 +32,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 const shared = {
+  connectionId: "con_story_github",
   name: "GitHub",
   icon: <IconBrandGithub className="size-5 text-foreground" aria-hidden />,
   remove: {

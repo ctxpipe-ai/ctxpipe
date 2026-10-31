@@ -73,6 +73,7 @@ export function LinearConnectionCard({
 
   return (
     <ConnectorListItem
+      connectionId={connectionId}
       usedIn={
         <ConnectorUsedIn
           orgSlug={orgSlug}

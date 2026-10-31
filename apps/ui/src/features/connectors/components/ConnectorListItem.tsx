@@ -123,6 +123,7 @@ function ConnectorRemoveDialog({
 
 export function ConnectorListItem({
   id,
+  connectionId,
   name,
   icon,
   health,
@@ -136,6 +137,11 @@ export function ConnectorListItem({
   children,
 }: {
   id?: string
+  /**
+   * The stable hook of the card (`data-connection-id`). The catalog Fix
+   * finds the card with it (`markConnectionCard`).
+   */
+  connectionId: string
   name: string
   icon: ReactNode
   health: ConnectorHealth
@@ -169,8 +175,9 @@ export function ConnectorListItem({
     <>
       <Disclosure
         id={id}
+        data-connection-id={connectionId}
         defaultExpanded={defaultExpanded}
-        className="border-b border-white/[0.06]"
+        className="border-b border-white/[0.06] transition-colors data-[marked]:bg-teal-400/10"
       >
         <div className="@container">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1 py-3 sm:px-2">

@@ -81,6 +81,7 @@ export function NotionConnectionCard({
 
   return (
     <ConnectorListItem
+      connectionId={connectionId}
       usedIn={
         <ConnectorUsedIn
           orgSlug={orgSlug}
