@@ -249,6 +249,16 @@ export function defineRepositoryIngestionV2Workflow(
           })
           attributes["ctxpipe.ingest.wait.outcome"] = wait.outcome
           attributes["ctxpipe.ingest.wait.checks"] = wait.checks
+          // A newer push run of the source replaces this run (CTX-1040).
+          if (wait.outcome === "superseded") {
+            logIngestEvent("info", "ingestion-v2.superseded", {
+              ingestionRunId: run.id,
+              newerRunId: wait.newerRunId,
+              reason:
+                "A newer run of this source replaces this run, so it ends before it calls a model",
+            })
+            return { status: "skipped", reason: "superseded" }
+          }
           if (wait.outcome === "deadline")
             logIngestEvent("warn", "ingestion-v2.wait-deadline", {
               ingestionRunId: run.id,
