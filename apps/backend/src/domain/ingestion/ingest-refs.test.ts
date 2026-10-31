@@ -1422,6 +1422,53 @@ describe("mergeIngestPublish", () => {
     })
   })
 
+  it("gives each rule and reason of the withheld files once, with the count of files and no path (CTX-1099)", async () => {
+    const ledger = RUNBOOK.replaceAll("Runbook", "Ledger")
+    const base = commitOn(pinned, "refs/heads/main", {
+      files: { "knowledge/services/ledger.md": ledger },
+    })
+    const edit = (text: string, line: string) =>
+      text.replace(/The (\w+) service\./, (found) => `${found}\n\n${line}`)
+    const tip = commitOn(
+      base,
+      ASSEMBLED,
+      {
+        files: {
+          "knowledge/services/runbook.md": edit(RUNBOOK, "It pages by region."),
+          "knowledge/services/ledger.md": edit(ledger, "It pages by region."),
+        },
+      },
+      `Ingest step assemble:ws_alpha\n\nCtxpipe-Run: ${RUN}`,
+    )
+    const current = commitOn(base, "refs/heads/main", {
+      files: {
+        "knowledge/services/runbook.md": edit(RUNBOOK, "A person keeps a log."),
+        "knowledge/services/ledger.md": edit(ledger, "A person keeps a log."),
+      },
+    })
+    const changes = await publish({
+      tip,
+      current,
+      pinnedRevision: base,
+      // The merge adds a front matter key that the schema does not know.
+      resolve: async (conflicts) =>
+        conflicts.map((c) => ({
+          path: c.path,
+          content: (c.incoming ?? "").replace(
+            "kind: Service\n",
+            "kind: Service\nowner: platform\n",
+          ),
+        })),
+    })
+    expect(changes.withheld.map((entry) => entry.path).sort()).toEqual([
+      "knowledge/services/ledger.md",
+      "knowledge/services/runbook.md",
+    ])
+    expect(changes.withheldReasons).toEqual([
+      { rule: "front_matter", reason: "unrecognized_keys (1 key)", files: 2 },
+    ])
+  })
+
   it("validates an accepted resolution and gives it the host fields again", async () => {
     const tip = (
       await step({
