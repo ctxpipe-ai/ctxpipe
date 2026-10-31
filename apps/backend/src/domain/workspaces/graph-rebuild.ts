@@ -46,7 +46,7 @@ async function rebuildLostWorkspaceGraph(
         orgId,
         revision,
         revisionKey: workspaceGraphRevisionKey(revision),
-        lostAt,
+        trigger: lostAt.toISOString(),
       })
     } catch (error) {
       await persistWorkspaceGraphResult({

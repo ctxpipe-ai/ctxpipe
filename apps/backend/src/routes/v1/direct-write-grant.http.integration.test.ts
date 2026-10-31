@@ -72,6 +72,11 @@ const DIRECT_WRITE_ROUTES: ReadonlyArray<{
   },
   {
     method: "POST",
+    path: "/workspaces/missing-ws/rebuild-graph",
+    expectedStatus: 404,
+  },
+  {
+    method: "POST",
     path: "/workspaces/missing-ws/check-write-access",
     expectedStatus: 404,
   },
@@ -700,6 +705,7 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
         `PATCH ${base}/workspaces/{workspaceSlug}`,
         `DELETE ${base}/workspaces/{workspaceSlug}`,
         `POST ${base}/workspaces/{workspaceSlug}/retry-prepare`,
+        `POST ${base}/workspaces/{workspaceSlug}/rebuild-graph`,
         `POST ${base}/workspaces/{workspaceSlug}/check-write-access`,
         `POST ${base}/workspaces/{workspaceSlug}/files/jobs`,
         `DELETE ${base}/workspaces/{workspaceSlug}/linked-repositories/{linkedId}`,
