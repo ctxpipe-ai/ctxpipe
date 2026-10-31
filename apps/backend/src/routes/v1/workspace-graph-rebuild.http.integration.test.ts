@@ -33,6 +33,7 @@ const app = () => workspaceHttpApp(org, workspaceRoutes)
 async function seedWorkspace(
   name: string,
   graph: DerivedStoreResult | null,
+  embeddingError?: string,
 ): Promise<WorkspaceRevision> {
   const id = `ws_${name}_${suffix}`
   const url = `https://github.com/example/${name}-${suffix}.git`
@@ -66,7 +67,8 @@ async function seedWorkspace(
               url,
               sha,
               revision,
-              embeddings: true,
+              embeddings: !embeddingError,
+              ...(embeddingError ? { embeddingError } : {}),
               graph: {
                 revision,
                 result: graph,
@@ -199,6 +201,22 @@ describe("Rebuild of a failed Workspace graph (Postgres)", () => {
     const revision = await seedWorkspace(name, graph)
 
     const response = await rebuild(name)
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toHaveProperty("error")
+    expect(await hydrateRuns(revision.workspaceId)).toHaveLength(0)
+  })
+
+  // A hydrate also embeds when the embeddings are not ready, and embeddings
+  // call a paid model. The action writes only the graph.
+  it("refuses a failed graph when the embeddings are not ready", async () => {
+    const revision = await seedWorkspace(
+      "embeddings-failed",
+      { kind: "failed", message: "graph store unavailable" },
+      "embedding provider unavailable",
+    )
+
+    const response = await rebuild("embeddings-failed")
 
     expect(response.status).toBe(409)
     expect(await response.json()).toHaveProperty("error")

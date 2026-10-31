@@ -397,9 +397,10 @@ const retryPrepareWorkspaceRoute = createRoute(
   }),
 )
 
-// Only a failed graph of the active revision is written again, and at most
-// once each UTC hour. The run writes the graph from PostgreSQL; it does not
-// resolve the tip, so it never hydrates a new commit.
+// Only a failed graph of the active revision is written again, only when its
+// embeddings are ready, and at most once each UTC hour. The run writes the
+// graph from PostgreSQL; it does not resolve the tip, so it never hydrates a
+// new commit.
 const rebuildWorkspaceGraphRoute = createRoute(
   directWriteRoute({
     method: "post",
@@ -422,7 +423,7 @@ const rebuildWorkspaceGraphRoute = createRoute(
       409: {
         content: { "application/json": { schema: ErrorResponseSchema } },
         description:
-          "The graph of the active revision did not fail, or a rebuild started in this UTC hour",
+          "The graph of the active revision did not fail, its embeddings are not ready, or a rebuild started in this UTC hour",
       },
     },
   }),
@@ -678,6 +679,13 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       projection.stores.graph.kind !== "failed"
     )
       return c.json({ error: "The graph did not fail." }, 409)
+    // A hydrate also embeds when the embeddings are not ready, and embeddings
+    // call a paid model. The tip check retries them.
+    if (projection.stores.embeddings.kind !== "ready")
+      return c.json(
+        { error: "The Workspace is not ready. Try again later." },
+        409,
+      )
     const { revision } = projection
     const queued = await enqueueWorkspaceGraphRebuild({
       orgId: workspace.orgId,
