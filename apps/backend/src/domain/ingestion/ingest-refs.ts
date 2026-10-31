@@ -9,6 +9,7 @@ import { workspaceRelativePath } from "../../services/git/root-folder.js"
 import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import {
   disallowedPathReason,
+  MAX_STEP_OPS,
   MAX_WORKSPACE_OPS,
   type PatchRejection,
   type PatchRule,
@@ -1006,10 +1007,11 @@ export type IngestConflictResolver = (
 /**
  * Resolve the paths that more than one shard changes, one round for each
  * further version: round `n` merges version `n` into the result so far.
- * Then the patch validator checks the merged files as one step on `tree`
- * (the pinned revision plus the other shards' ops): a model wrote them, so
- * they get the same checks as a step's files. The host fields go back to
- * their pinned values first, and the validator stamps them again. Returns
+ * Then the patch validator checks the merged files as steps on `tree` (the
+ * pinned revision plus the other shards' ops): a model wrote them, so they
+ * get the same checks as a step's files. Each step takes at most
+ * `MAX_STEP_OPS` files. The host fields go back to the values of the file on
+ * the step's base first, and the validator stamps them again. Returns
  * the validated tree and the rejections. A rejected file keeps its version
  * on `tree`; the caller decides whether a rejection refuses the job or
  * withholds the file.
@@ -1082,10 +1084,22 @@ async function mergeConflicts(
     const root = await rootOf(conflict)
     groups.set(root, [...(groups.get(root) ?? []), conflict])
   }
+  // A validator step takes at most MAX_STEP_OPS ops, so each chunk of that
+  // size is one step (CTX-1102). The Workspace cap still counts each step.
+  const steps: Array<{
+    root: string | undefined
+    conflicts: typeof input.conflicts
+  }> = []
+  for (const [root, conflicts] of groups)
+    for (let start = 0; start < conflicts.length; start += MAX_STEP_OPS)
+      steps.push({
+        root,
+        conflicts: conflicts.slice(start, start + MAX_STEP_OPS),
+      })
   let tree = input.tree
   let opsBefore = input.opsBefore
   const rejections: PatchRejection[] = []
-  for (const [root, conflicts] of groups) {
+  for (const { root, conflicts } of steps) {
     const baseCommit = (
       await runGit(
         repoDir,
@@ -1133,7 +1147,7 @@ async function mergeConflicts(
         await mkdir(dirname(file), { recursive: true })
         await writeFile(
           file,
-          withPinnedHostFields(content, base.get(conflict.path) ?? null),
+          withBaseHostFields(content, baseBlob ? await text(baseBlob) : null),
         )
       }
       await writeFile(join(stagedDir, "patch.json"), JSON.stringify({ ops }))
@@ -1172,19 +1186,21 @@ const HOST_FIELDS = [
 ] as const
 
 /**
- * The shard versions carry host fields that the validator stamped. Put back
- * the pinned values (or remove the field), so the validator checks the
- * merged file as a new write and stamps it again.
+ * The merged versions carry host fields that the validator stamped. Put back
+ * the values of the file on the step's base commit (or remove the field), so
+ * the validator checks the merged file as a write on that base and stamps it
+ * again. In a publish, the base is the default tip. An earlier run can have
+ * stamped it with another `source_sha` (CTX-1102).
  */
-function withPinnedHostFields(content: string, pinned: string | null): string {
+function withBaseHostFields(content: string, onBase: string | null): string {
   const front = splitFrontMatter(content)
   const attributes = front ? parseYamlObject(front.yaml) : null
   if (!front || !attributes) return content
-  const pinnedFront = pinned ? splitFrontMatter(pinned) : null
-  const pinnedAttributes =
-    (pinnedFront ? parseYamlObject(pinnedFront.yaml) : null) ?? {}
+  const baseFront = onBase ? splitFrontMatter(onBase) : null
+  const baseAttributes =
+    (baseFront ? parseYamlObject(baseFront.yaml) : null) ?? {}
   for (const field of HOST_FIELDS) {
-    if (field in pinnedAttributes) attributes[field] = pinnedAttributes[field]
+    if (field in baseAttributes) attributes[field] = baseAttributes[field]
     else delete attributes[field]
   }
   return `---\n${stringify(attributes, { lineWidth: 0 })}---\n${front.body}`

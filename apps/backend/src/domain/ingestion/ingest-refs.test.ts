@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
-import { stringify } from "yaml"
+import { parse as parseYaml, stringify } from "yaml"
 
 import {
   cleanUpIngestRefs,
@@ -1419,6 +1419,91 @@ describe("mergeIngestPublish", () => {
     ])
     expect(changes.withheld[0]).toMatchObject({
       rules: ["suspected_injection"],
+    })
+  })
+
+  describe("a merge with a file that an earlier run published (CTX-1102)", () => {
+    const edit = (text: string, line: string) =>
+      text.replace(/The (\w+) service\./, (found) => `${found}\n\n${line}`)
+    // Both lines stay: the merge keeps the earlier publish and adds the run.
+    const both = async (
+      conflicts: Array<{ path: string; current: string | null }>,
+    ) =>
+      conflicts.map((c) => ({
+        path: c.path,
+        content: (c.current ?? "").replace(
+          "It keeps a log.",
+          "It keeps a log.\n\nIt pages by region.",
+        ),
+      }))
+    const frontOf = (content: string) =>
+      parseYaml(content.slice(4, content.indexOf("\n---\n"))) as Record<
+        string,
+        unknown
+      >
+
+    it("accepts a file that the earlier run stamped with another source_sha, and gives it this run's host fields", async () => {
+      const path = "knowledge/services/runbook.md"
+      const tip = commitOn(
+        pinned,
+        ASSEMBLED,
+        { files: { [path]: edit(RUNBOOK, "It pages by region.") } },
+        `Ingest step assemble:ws_alpha\n\nCtxpipe-Run: ${RUN}`,
+      )
+      // The earlier run read the source at another commit.
+      const current = commitOn(pinned, "refs/heads/main", {
+        files: {
+          [path]: edit(
+            RUNBOOK.replace("1".repeat(40), "2".repeat(40)),
+            "It keeps a log.",
+          ),
+        },
+      })
+      const changes = await publish({ tip, current, resolve: both })
+      expect(changes.withheld).toEqual([])
+      expect(changes.files.map((file) => file.path)).toEqual([path])
+      const content = changes.files[0]?.content ?? ""
+      expect(content).toContain("It keeps a log.\n\nIt pages by region.")
+      expect(frontOf(content).source_sha).toBe("1".repeat(40))
+    })
+
+    it("withholds no file for the op cap when it merges more than 30 files", async () => {
+      const names = Array.from(
+        { length: 31 },
+        (_, i) => `Svc${String(i).padStart(2, "0")}`,
+      )
+      const pathOf = (name: string) =>
+        `knowledge/services/${name.toLowerCase()}.md`
+      const fileOf = (name: string) => RUNBOOK.replaceAll("Runbook", name)
+      const base = commitOn(pinned, "refs/heads/main", {
+        files: Object.fromEntries(names.map((n) => [pathOf(n), fileOf(n)])),
+      })
+      const tip = commitOn(
+        base,
+        ASSEMBLED,
+        {
+          files: Object.fromEntries(
+            names.map((n) => [
+              pathOf(n),
+              edit(fileOf(n), "It pages by region."),
+            ]),
+          ),
+        },
+        `Ingest step assemble:ws_alpha\n\nCtxpipe-Run: ${RUN}`,
+      )
+      const current = commitOn(base, "refs/heads/main", {
+        files: Object.fromEntries(
+          names.map((n) => [pathOf(n), edit(fileOf(n), "It keeps a log.")]),
+        ),
+      })
+      const changes = await publish({
+        tip,
+        current,
+        pinnedRevision: base,
+        resolve: both,
+      })
+      expect(changes.withheld).toEqual([])
+      expect(changes.files).toHaveLength(31)
     })
   })
 
