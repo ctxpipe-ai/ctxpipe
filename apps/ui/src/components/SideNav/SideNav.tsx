@@ -1,4 +1,6 @@
 import {
+  IconBook,
+  IconExternalLink,
   IconHome,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -8,12 +10,13 @@ import {
 import { useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "@tanstack/react-router"
 import { type CSSProperties, useEffect, useRef, useState } from "react"
-import { Button } from "react-aria-components"
+import { Button, Link } from "react-aria-components"
 
 import { OverlayNavCloseButton } from "@/components/OverlayNavButton"
 import { useShellLayout } from "@/components/ShellLayoutContext"
 import { WorkspaceCommandPalette } from "@/features/workspaces/WorkspaceCommandPalette"
 import { WorkspaceNavList } from "@/features/workspaces/WorkspaceNavList"
+import { DOCS_URL } from "@/lib/docs-url"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import {
   clampSideNavWidth,
@@ -231,6 +234,37 @@ export function SideNav() {
               onSelectNav={selectNav}
             />
           ) : null}
+        </ul>
+
+        <ul className="relative w-full shrink-0 pt-3" aria-label="Help">
+          <li className="w-full">
+            <SideNavTooltip label="Docs" enabled={!expanded}>
+              <Link
+                href={DOCS_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={expanded ? undefined : "Docs"}
+                className={sideNavRowClassName({ active: false })}
+              >
+                <span className={sideNavIconGutterClassName}>
+                  <IconBook stroke={1.4} aria-hidden="true" />
+                </span>
+                <span
+                  className={[
+                    sideNavLabelClassName(expanded),
+                    "inline-flex items-center gap-1 pr-2",
+                  ].join(" ")}
+                  aria-hidden={!expanded}
+                >
+                  Docs
+                  <IconExternalLink
+                    className="size-3.5 text-zinc-500"
+                    aria-hidden="true"
+                  />
+                </span>
+              </Link>
+            </SideNavTooltip>
+          </li>
         </ul>
 
         <ul

@@ -109,6 +109,22 @@ export const ShowsHint: Story = {
   },
 }
 
+export const NoWorkspaces: Story = {
+  parameters: {
+    msw: { handlers: { page: [workspaceListHandler([])] } },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByText(/There are no Workspaces yet\./)).toBeVisible(),
+    )
+    await expect(canvas.getByText(/Add to a Workspace/)).toBeVisible()
+    await expect(
+      canvas.getByRole("button", { name: "Create a Workspace" }),
+    ).toBeEnabled()
+  },
+}
+
 export const SingleWorkspace: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -125,6 +141,10 @@ export const SingleWorkspace: Story = {
 }
 
 export const ChooseWorkspacesMulti: Story = {
+  parameters: {
+    intent:
+      "Catches a multi-workspace connector step that mixes the shared and per-workspace scope. Same scope shows one picker, different scope shows one for each workspace. Not for connector sign-in.",
+  },
   tags: ["workspace-golden"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

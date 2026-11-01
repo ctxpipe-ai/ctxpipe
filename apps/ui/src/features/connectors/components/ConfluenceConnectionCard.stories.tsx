@@ -136,7 +136,7 @@ export const Connected: Story = {
     expect(canvas.queryByRole("button", { name: /^Remove/ })).toBeNull()
     expect(
       canvas.getByRole("button", {
-        name: "Atlassian Confluence connector actions",
+        name: "Confluence connector actions",
       }),
     ).toBeVisible()
   },
@@ -150,7 +150,7 @@ async function expectLiveRowNotPending(canvasElement: HTMLElement) {
   expect(canvas.queryByRole("button", { name: /^Remove/ })).toBeNull()
   expect(
     canvas.getByRole("button", {
-      name: "Atlassian Confluence connector actions",
+      name: "Confluence connector actions",
     }),
   ).toBeVisible()
 }
@@ -265,14 +265,14 @@ export const PendingSetup: Story = {
     await canvas.findByText("Setup not finished")
     expect(canvas.queryByText("Connected")).toBeNull()
     expect(
-      canvas.getByRole("button", { name: "Remove Atlassian Confluence setup" }),
+      canvas.getByRole("button", { name: "Remove Confluence setup" }),
     ).toBeVisible()
     const resume = canvas.getByRole("button", {
-      name: "Link Atlassian account for Atlassian Confluence",
+      name: "Link Atlassian account for Confluence",
     })
     expect(resume).toBeVisible()
     await userEvent.click(
-      canvas.getByRole("button", { name: "Expand Atlassian Confluence" }),
+      canvas.getByRole("button", { name: "Expand Confluence" }),
     )
     await canvas.findByText("Account")
     expect(
@@ -313,11 +313,11 @@ export const RemovePendingSetup: Story = {
     const canvas = within(canvasElement)
     await userEvent.click(
       await canvas.findByRole("button", {
-        name: "Remove Atlassian Confluence setup",
+        name: "Remove Confluence setup",
       }),
     )
     const dialog = await screen.findByRole("alertdialog")
-    await within(dialog).findByText("Remove this Atlassian Confluence setup?")
+    await within(dialog).findByText("Remove this Confluence setup?")
     expect(deletePendingSetup).not.toHaveBeenCalled()
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Remove setup" }),
@@ -349,11 +349,9 @@ export const InstalledNotInWorkspaces: Story = {
     const canvas = within(canvasElement)
     await canvas.findByText("Connected")
     expect(canvas.queryByText("Setup not finished")).toBeNull()
-    expect(
-      canvas.queryByRole("button", { name: /for Atlassian Confluence$/ }),
-    ).toBeNull()
+    expect(canvas.queryByRole("button", { name: /for Confluence$/ })).toBeNull()
     await userEvent.click(
-      canvas.getByRole("button", { name: "Expand Atlassian Confluence" }),
+      canvas.getByRole("button", { name: "Expand Confluence" }),
     )
     await canvas.findByText("No Workspaces yet")
     // Each Workspace has its own scope, so the card shows none (ADR-050).

@@ -1,6 +1,6 @@
 import type { Preview } from "@storybook/react-vite"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { initialize, mswLoader } from "msw-storybook-addon"
+import { getWorker, initialize, mswLoader } from "msw-storybook-addon"
 import { type ReactElement, Suspense, useMemo } from "react"
 
 import {
@@ -15,6 +15,17 @@ import { storyRouteLoader } from "./decorators/with-story-route"
 import "../src/styles.css"
 
 initialize({ onUnhandledRequest: "bypass" })
+
+// The check runner (scripts/checks/README.md) records which MSW handlers
+// answered a request of the story. A handler header is `<METHOD> <path>`.
+Object.assign(window, {
+  __ctxpipeMswHandlers: () =>
+    getWorker()
+      .listHandlers()
+      .flatMap((handler) =>
+        "isUsed" in handler && handler.isUsed ? [handler.info.header] : [],
+      ),
+})
 
 const storybookDefaultMswHandlers = {
   defaults: [

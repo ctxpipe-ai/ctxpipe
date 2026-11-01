@@ -1,10 +1,11 @@
 "use client"
 
-import { IconCheck, IconCopy, IconExternalLink } from "@tabler/icons-react"
+import { IconCheck, IconCopy } from "@tabler/icons-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { Button } from "@/components/ui/Button"
+import { ExternalLink } from "@/components/ui/ExternalLink"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { TextField } from "@/components/ui/TextField"
 
@@ -128,15 +129,9 @@ export function PagerdutyRegisterOauthStep({
       <ol className="list-decimal space-y-3 pl-5 text-sm text-muted-foreground">
         <li>
           Open{" "}
-          <a
-            href="https://developer.pagerduty.com/my-apps"
-            className="font-medium text-teal-400 underline decoration-teal-400/50 underline-offset-4 hover:text-teal-300 hover:decoration-teal-300"
-            target="_blank"
-            rel="noreferrer"
-          >
+          <ExternalLink href="https://developer.pagerduty.com/my-apps">
             PagerDuty App Registration
-            <IconExternalLink className="ml-1 inline size-3.5" aria-hidden />
-          </a>
+          </ExternalLink>
           , select{" "}
           <strong className="font-medium text-foreground">New App</strong>, and
           name it{" "}

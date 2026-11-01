@@ -1,6 +1,6 @@
 import { BackendPostgres } from "openworkflow/postgres"
 
-import { getLogger } from "../observability/logger.js"
+import { getLogger, log } from "../observability/logger.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
 
 /**
@@ -71,6 +71,30 @@ export async function connectOpenWorkflowBackend(
       // A failed warning is not a failed step.
     }
     return attempt
+  }
+  // OpenWorkflow writes a failed heartbeat only to `console.error`. A failed
+  // extension usually means that another execution took the run (CTX-1080),
+  // so the log names the run and the worker id of the stale execution. The
+  // heartbeat runs outside the workflow logger, so this uses `log`.
+  const extendLease = backend.extendWorkflowRunLease.bind(backend)
+  backend.extendWorkflowRunLease = async (params) => {
+    try {
+      return await extendLease(params)
+    } catch (error) {
+      try {
+        log.warn({
+          step: "openworkflow.lease_extend_failed",
+          message:
+            "The worker could not extend the lease of the workflow run; another execution can own the run",
+          workflowRunId: params.workflowRunId,
+          workerId: params.workerId,
+          errorClass: error instanceof Error ? error.name : typeof error,
+        })
+      } catch {
+        // A failed warning must not replace the error of the extension.
+      }
+      throw error
+    }
   }
   backend.failStepAttempt = (params) =>
     failStep({ ...params, error: storable(params.error) })

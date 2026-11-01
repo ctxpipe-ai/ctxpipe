@@ -315,6 +315,43 @@ function hints(target, type, index, own) {
 }
 
 /**
+ * The candidates that one step resolves. The root step resolves the HTTP and
+ * config candidates. The repository-wide step resolves the other candidates
+ * (stream, queue, and config).
+ */
+export function stepCandidates(candidates, repositoryStep) {
+  return candidates.filter((c) =>
+    repositoryStep
+      ? c.type !== "http"
+      : c.type !== "stream" && c.type !== "queue",
+  )
+}
+
+/**
+ * The counts of the candidates of one step, for patch.json: the candidates
+ * of each type, and the roots that have candidates but no Service file.
+ * `claimable` is true when a root with a candidate has a Service file. Only
+ * a Service file gets a claim. `scanRoot` gives the scan of one root.
+ */
+export function stepStats(roots, rootPath, scanRoot) {
+  const stats = {}
+  const count = (name) => {
+    stats[name] = (stats[name] ?? 0) + 1
+  }
+  let claimable = false
+  for (const root of rootPath === null
+    ? roots
+    : roots.filter((r) => r.path === rootPath)) {
+    const mine = stepCandidates(scanRoot(root).candidates, rootPath === null)
+    for (const candidate of mine) count(`candidates.${candidate.type}`)
+    if (!mine.length) continue
+    if (root.files.some((f) => f.kind === "Service")) claimable = true
+    else count("roots.no_service")
+  }
+  return { stats, claimable }
+}
+
+/**
  * Scan one root. `index` is the context index entries; `own` is the set of
  * context file paths of this root (a hint never names them).
  * Returns { candidates, skipped, truncated }.

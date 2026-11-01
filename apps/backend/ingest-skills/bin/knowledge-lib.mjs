@@ -92,9 +92,10 @@ const SOURCE_PATH =
  *
  * The roots file is the host's root-to-file map (ADR-052 section 6):
  *   { "roots": [{ "path", "manifests", "evidence", "files": ["knowledge/..."] }] }
- * `files` are the context files that the root steps of the root wrote. Only
- * a file that exists at the base commit and whose `sources` hold the source
- * path counts. Each root in the result has `files: [{ path, kind }]`.
+ * `files` are the context files of the root: the files that the root steps
+ * of this run wrote, and the existing files whose front matter `root` is the
+ * root. Only a file that exists at the base commit and whose `sources` hold
+ * the source path counts. Each root in the result has `files: [{ path, kind }]`.
  */
 export function scriptStep(argv = process.argv.slice(2)) {
   const {
@@ -606,8 +607,9 @@ function mergeFile(text, { claims, related }) {
  * for the next page: the host runs the skill again on the new base until
  * `more` is false. A file that already has a claim or a line does not
  * change again, so each page continues where the last one stopped.
- * `options.more` adds a page that the caller knows of. patch.json holds
- * `more` for the host. Prints and returns { ops, skipped, more }.
+ * `options.more` adds a page that the caller knows of. `options.stats` are
+ * counts (a name to a whole number) for the host. patch.json holds `more` and
+ * `stats` for the host. Prints and returns { ops, skipped, more }.
  */
 export function writeStep(step, plans, skipped = [], options = {}) {
   const byPath = new Map()
@@ -676,7 +678,9 @@ export function writeStep(step, plans, skipped = [], options = {}) {
     changed++
   }
   more ||= options.more === true
-  const ops = writePatch(step, { more }).map(({ op, path }) => ({ op, path }))
+  const ops = writePatch(step, { more, stats: options.stats }).map(
+    ({ op, path }) => ({ op, path }),
+  )
   const result = { ops, skipped, more }
   process.stdout.write(`${JSON.stringify(result)}\n`)
   return result

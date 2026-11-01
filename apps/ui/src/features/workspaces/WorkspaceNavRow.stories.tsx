@@ -178,7 +178,11 @@ export const Ingesting: Story = {
  */
 export const IngestingReducedMotion: Story = {
   tags: ["workspace-golden", "reduced-motion"],
-  parameters: { msw: { handlers: ingestingDocs } },
+  parameters: {
+    intent:
+      "Catches an ingesting dot in the workspace nav row that keeps animating when the user prefers reduced motion. The dot must not animate. Not for the row label or link.",
+    msw: { handlers: ingestingDocs },
+  },
   play: async ({ canvasElement }) => {
     expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(
       true,

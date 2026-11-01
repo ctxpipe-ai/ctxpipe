@@ -21,12 +21,15 @@ import { ConnectorListItem, connectorDash } from "./ConnectorListItem"
 type NotionConnectionCardProps = {
   orgSlug: string
   connectionId: string
+  /** The catalog Fix marks the card for a moment. */
+  marked?: boolean
   onOpenSetup: () => void
 }
 
 export function NotionConnectionCard({
   orgSlug,
   connectionId,
+  marked,
   onOpenSetup,
 }: NotionConnectionCardProps) {
   const queryClient = useQueryClient()
@@ -81,6 +84,8 @@ export function NotionConnectionCard({
 
   return (
     <ConnectorListItem
+      connectionId={connectionId}
+      marked={marked}
       usedIn={
         <ConnectorUsedIn
           orgSlug={orgSlug}

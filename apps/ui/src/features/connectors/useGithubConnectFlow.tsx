@@ -38,9 +38,6 @@ type UseGithubConnectFlowOptions = {
   onWizardClosed?: () => void
   /** When set, self-hosted path calls this instead of opening the inline wizard (e.g. connectors catalog). */
   delegateSelfHostedWizard?: () => void
-  /** Called when a flow begins: managed popup about to open, or inline wizard about to open. */
-  onFlowStarted?: () => void
-  onDraftCreated?: (args: { connectionId: string }) => void
 }
 
 export function useGithubConnectFlow({
@@ -50,8 +47,6 @@ export function useGithubConnectFlow({
   onRegistrationFailed,
   onWizardClosed,
   delegateSelfHostedWizard,
-  onFlowStarted,
-  onDraftCreated,
 }: UseGithubConnectFlowOptions) {
   const queryClient = useQueryClient()
   const watchPopupClose = useWatchPopupClose()
@@ -115,7 +110,6 @@ export function useGithubConnectFlow({
 
   const openManagedInstallPopup = useCallback(
     (url: string) => {
-      onFlowStarted?.()
       try {
         localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
         localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
@@ -161,14 +155,7 @@ export function useGithubConnectFlow({
         },
       )
     },
-    [
-      onFlowStarted,
-      orgSlug,
-      watchPopupClose,
-      queryClient,
-      handleInstallSettled,
-      githubSignIn,
-    ],
+    [orgSlug, watchPopupClose, queryClient, handleInstallSettled, githubSignIn],
   )
 
   const start = useCallback(
@@ -212,7 +199,6 @@ export function useGithubConnectFlow({
         delegateSelfHostedWizard()
         return
       }
-      onFlowStarted?.()
       setSelfHostedWizardOpen(true)
     },
     [
@@ -222,7 +208,6 @@ export function useGithubConnectFlow({
       bootstrap?.hostedDefaultAppInstallUrl,
       orgSlug,
       onAlreadyInstalled,
-      onFlowStarted,
       delegateSelfHostedWizard,
       openManagedInstallPopup,
       githubSignIn,
@@ -250,8 +235,6 @@ export function useGithubConnectFlow({
         orgSlug={orgSlug}
         isOpen={selfHostedWizardOpen}
         onOpenChange={onWizardOpenChange}
-        onInstallFlowStarted={onFlowStarted}
-        onDraftCreated={onDraftCreated}
         onHandoffClose={onHandoffClose}
         onInstallPopupSettled={handleInstallSettled}
       />

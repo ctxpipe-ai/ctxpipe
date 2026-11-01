@@ -45,6 +45,10 @@ async function expectLink(entry: HTMLElement, name: string, href: string) {
 }
 
 export const SyncEntry: Story = {
+  parameters: {
+    intent:
+      "Catches a sync entry in the conversation whose text or branch link is wrong. It names the file count and links the branch to its tree. Not for pull requests or agent pushes.",
+  },
   tags: ["workspace-golden"],
   play: async ({ canvasElement }) => {
     const entry = within(canvasElement).getByRole("region", {
@@ -55,6 +59,10 @@ export const SyncEntry: Story = {
 }
 
 export const CreatePrEntry: Story = {
+  parameters: {
+    intent:
+      "Catches a push entry that does not show the opened pull request. It names the branch and PR number and links both. Not for an existing PR or a push with no PR.",
+  },
   tags: ["workspace-golden"],
   args: {
     sync: {
@@ -73,6 +81,10 @@ export const CreatePrEntry: Story = {
 }
 
 export const ExistingPrEntry: Story = {
+  parameters: {
+    intent:
+      "Catches a push entry that says a pull request opened when one already exists. The text says the push is for that PR and links it. Not for a new PR.",
+  },
   tags: ["workspace-golden"],
   args: {
     sync: {
@@ -92,6 +104,10 @@ export const ExistingPrEntry: Story = {
 
 /** The push succeeded, but GitHub did not open the pull request. */
 export const CreatePrWithoutPrEntry: Story = {
+  parameters: {
+    intent:
+      "Catches a push entry that shows a pull request link when GitHub did not open one. Only the branch link shows. Not for a successful PR.",
+  },
   tags: ["workspace-golden"],
   args: { sync: { ...base, trigger: "create_pr" } },
   play: async ({ canvasElement }) => {
@@ -104,6 +120,10 @@ export const CreatePrWithoutPrEntry: Story = {
 }
 
 export const AgentPushEntry: Story = {
+  parameters: {
+    intent:
+      "Catches a push by the agent that shows the wrong actor text. The entry says the agent pushed the files and links the branch. Not for user or sweep pushes.",
+  },
   tags: ["workspace-golden"],
   args: { sync: { ...base, trigger: "agent" } },
   play: async ({ canvasElement }) => {
@@ -115,6 +135,10 @@ export const AgentPushEntry: Story = {
 }
 
 export const SweepPushEntry: Story = {
+  parameters: {
+    intent:
+      "Catches an automatic sweep push that shows the wrong actor text. The entry says ctxpipe pushed the files and links the branch. Not for agent or user pushes.",
+  },
   tags: ["workspace-golden"],
   args: { sync: { ...base, trigger: "sweep", files: 2 } },
   play: async ({ canvasElement }) => {

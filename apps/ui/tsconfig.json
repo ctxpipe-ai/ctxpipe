@@ -4,7 +4,6 @@
     "target": "ES2022",
     "jsx": "react-jsx",
     "module": "ESNext",
-    "baseUrl": ".",
     "paths": {
       "next/font/local": ["./src/lib/next-font-local-shim.ts"],
       "@/*": ["./src/*"],

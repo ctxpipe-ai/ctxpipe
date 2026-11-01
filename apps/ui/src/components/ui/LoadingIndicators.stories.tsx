@@ -27,6 +27,10 @@ function expectLooping(style: CSSStyleDeclaration) {
  * Loading indicators must keep showing progress (DESIGN.md "Motion").
  */
 export const LoadingUnderReducedMotion: Story = {
+  parameters: {
+    intent:
+      "Catches loading indicators that stop looping when the user prefers reduced motion. The spinner, progress bar, and skeleton must keep a visible loop. Not for color or size.",
+  },
   tags: ["workspace-golden", "reduced-motion"],
   render: () => (
     <div className="flex w-64 flex-col gap-4">

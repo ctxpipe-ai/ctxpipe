@@ -6,6 +6,8 @@
     "notion",
     "confluence-atlassian",
     "slack",
-    "pagerduty"
+    "pagerduty",
+    "buildkite",
+    "plain"
   ]
 }

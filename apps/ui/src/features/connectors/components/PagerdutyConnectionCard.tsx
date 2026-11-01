@@ -20,12 +20,15 @@ import { PagerdutyMark } from "./PagerdutyMark"
 type PagerdutyConnectionCardProps = {
   orgSlug: string
   connectionId: string
+  /** The catalog Fix marks the card for a moment. */
+  marked?: boolean
   onOpenSetup: () => void
 }
 
 export function PagerdutyConnectionCard({
   orgSlug,
   connectionId,
+  marked,
   onOpenSetup,
 }: PagerdutyConnectionCardProps) {
   const queryClient = useQueryClient()
@@ -78,6 +81,8 @@ export function PagerdutyConnectionCard({
 
   return (
     <ConnectorListItem
+      connectionId={connectionId}
+      marked={marked}
       usedIn={
         <ConnectorUsedIn
           orgSlug={orgSlug}

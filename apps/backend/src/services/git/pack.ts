@@ -232,6 +232,11 @@ function describeGitFailure(
   const command =
     args.find((arg, at) => !arg.startsWith("-") && args[at - 1] !== "-c") ??
     "git"
+  // `merge-base` and `merge-tree` answer "no" (not an ancestor, a
+  // conflict) with exit code 1. That is not a failure: the caller reads
+  // the code (CTX-1089).
+  if (exitCode === 1 && (command === "merge-base" || command === "merge-tree"))
+    return error
   const firstLine = failure.message.split("\n", 1)[0]
   failure.message = `${firstLine}\ngit ${command} ${status} after ${Math.round(elapsedMs / 1000)} s${shownStderr ? `: ${shownStderr}` : " with no error output"}`
   const details = {

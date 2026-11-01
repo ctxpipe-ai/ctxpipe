@@ -44,42 +44,21 @@ export function upgradeCanStart(item: WorkspaceUpgradeItem): boolean {
   return item.status === "awaiting_operator" || item.status === "failed"
 }
 
-/** The colors of a status tag: one map for the item tags and the headline. */
-const STATUS_TONE = {
-  attention: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-  good: "border-teal-400/30 bg-teal-400/10 text-teal-200",
-  neutral: "border-border bg-zinc-800 text-muted-foreground",
-  error: "border-red-400/30 bg-red-400/10 text-red-200",
-} as const
-
-const UPGRADE_STATUS_TAG: Record<
-  UpgradeStatus,
-  { label: string; className: string; pulse?: boolean }
-> = {
-  awaiting_operator: {
-    label: "Ready to start",
-    className: STATUS_TONE.attention,
-  },
-  queued: { label: "Queued", className: STATUS_TONE.neutral, pulse: true },
-  running: {
-    label: "Preparing the pull request",
-    className: STATUS_TONE.neutral,
-    pulse: true,
-  },
-  pr_open: { label: "Waiting for merge", className: STATUS_TONE.attention },
-  completed: { label: "Applied", className: STATUS_TONE.good },
-  failed: { label: "Failed", className: STATUS_TONE.error },
-  blocked: { label: "Blocked", className: STATUS_TONE.attention },
+const UPGRADE_STATUS_LABEL: Record<UpgradeStatus, string> = {
+  awaiting_operator: "Ready to start",
+  queued: "Queued",
+  running: "Preparing the pull request",
+  pr_open: "Waiting for merge",
+  completed: "Applied",
+  failed: "Failed",
+  blocked: "Blocked",
 }
 
 /**
- * The tag of a blocked item in Working now: it waits for ctxpipe, for
+ * The status of a blocked item in Working now: it waits for ctxpipe, for
  * example for the format upgrade that ctxpipe reads now.
  */
-export const UPGRADE_WAITS_TAG = {
-  label: "Waiting",
-  className: STATUS_TONE.neutral,
-}
+export const UPGRADE_WAITS_LABEL = "Waiting"
 
 type BlockedCopy = { title: string; body: string }
 
@@ -165,37 +144,29 @@ function waitedFor(sinceIso: string, now = Date.now()): string {
   return `${Math.floor(minutes / 60)} h ${minutes % 60} min`
 }
 
-/** The status tag of an item. A run that waits for a sandbox slot says so. */
-export function upgradeStatusTag(
+/** The status of an item. A run that waits for a sandbox slot says so. */
+export function upgradeStatusLabel(
   item: Pick<
     WorkspaceUpgradeItem,
     "kind" | "status" | "blockedReason" | "targetFormat" | "waitingForSlot"
   > &
     Partial<Pick<WorkspaceUpgradeItem, "mergedAt">>,
   formatVersion?: number | null,
-) {
+): string {
   if (item.status === "pr_open" && item.mergedAt)
-    return {
-      label: "Merged. Reading the new format",
-      className: STATUS_TONE.good,
-      pulse: true,
-    }
+    return "Merged. Reading the new format"
   if (upgradeIsCheckingFormat(item, formatVersion))
-    return {
-      label: "Checking the new format",
-      className: STATUS_TONE.neutral,
-      pulse: true,
-    }
+    return "Checking the new format"
   // A re-ingestion opens no pull request while it runs.
   if (
     item.kind === "reingest" &&
     item.status === "running" &&
     !item.waitingForSlot
   )
-    return { ...UPGRADE_STATUS_TAG.running, label: "Re-ingesting the sources" }
+    return "Re-ingesting the sources"
   return item.status === "running" && item.waitingForSlot
-    ? { ...UPGRADE_STATUS_TAG.running, label: "Waiting for a free sandbox" }
-    : UPGRADE_STATUS_TAG[item.status]
+    ? "Waiting for a free sandbox"
+    : UPGRADE_STATUS_LABEL[item.status]
 }
 
 /** What a waiting item waits for, and what happens next. Null when it does not wait. */
@@ -269,7 +240,7 @@ export const MEMBER_ASK_ADMIN = "Ask an admin"
 type UpgradeGroup = "needs_you" | "working" | "done"
 
 /**
- * The group of an item in the Status group (CTX-980). `needs_you`: the item
+ * The group of an item in the Upgrades card (CTX-980). `needs_you`: the item
  * waits for a person (start, merge, a fix). `working`: ctxpipe works on it, or
  * waits for ctxpipe, and nobody must act. `done`: applied.
  */
@@ -295,11 +266,11 @@ export function upgradeGroup(
 }
 
 /**
- * The items of the Status group in their groups, in one pass. A checking
+ * The items of the Upgrades card in their groups, in one pass. A checking
  * state in `expired` is older than a minute: it is blocked again. A
  * re-ingestion that waits for the format, while a format item is open, goes
  * in the group of that format item and does not count: the format item is
- * the one thing to do. `count` gives the items that the headline counts.
+ * the one thing to do. `count` gives the items that `upgradesState` counts.
  */
 export function upgradeGroups(
   items: WorkspaceUpgradeItem[],
@@ -333,60 +304,24 @@ export function upgradeGroups(
   return { lists, groupOf, count }
 }
 
-const items = (count: number) => `${count} ${count === 1 ? "item" : "items"}`
-
 /**
- * The headline of the Status group: the most urgent state. Its line is the
- * first line of the group and says if the user must act. The format health
- * counts too: a format file that ctxpipe cannot read needs you, and a format
- * below the newest with no item means that ctxpipe checks the repository.
+ * The state of the upgrades of a Workspace, the most urgent first. A format
+ * file that ctxpipe cannot read needs a person. A format below the newest with
+ * no item means that ctxpipe checks the repository for its upgrade.
  */
-export function upgradeHeadline(input: {
+export function upgradesState(input: {
   count: { needs_you: number; working: number }
   formatVersion: number | null
   codeFormat: number
-  /**
-   * The ingestion work of the Workspace, as the sidebar says it (from
-   * `ingestingLabel`), or null when nothing ingests. It counts as Working.
-   */
-  ingesting?: string | null
-}): { label: string; className: string; pulse?: boolean; line: string } {
+}): "needs_you" | "working" | "checking_format" | "up_to_date" {
   const { formatVersion, codeFormat } = input
   const unreadable =
     formatVersion !== null && (formatVersion < 0 || formatVersion > codeFormat)
-  const needsYou = input.count.needs_you + (unreadable ? 1 : 0)
-  if (needsYou > 0)
-    return {
-      label: "Needs you",
-      className: STATUS_TONE.attention,
-      line: `Action needed. ${items(needsYou)} ${needsYou === 1 ? "needs" : "need"} you.`,
-    }
-  if (input.count.working > 0)
-    return {
-      label: "Working",
-      className: STATUS_TONE.good,
-      pulse: true,
-      line: `No action needed. ctxpipe works on ${items(input.count.working)} now.`,
-    }
-  if (input.ingesting)
-    return {
-      label: "Working",
-      className: STATUS_TONE.good,
-      pulse: true,
-      line: `No action needed. ${input.ingesting} now.`,
-    }
+  if (input.count.needs_you > 0 || unreadable) return "needs_you"
+  if (input.count.working > 0) return "working"
   if (formatVersion !== null && formatVersion < codeFormat)
-    return {
-      label: "Working",
-      className: STATUS_TONE.good,
-      pulse: true,
-      line: "No action needed. ctxpipe checks the format of the repository now.",
-    }
-  return {
-    label: "Up to date",
-    className: STATUS_TONE.good,
-    line: "No action needed. Upgrades show here and on Home when one is ready.",
-  }
+    return "checking_format"
+  return "up_to_date"
 }
 
 /**
@@ -424,7 +359,3 @@ export function upgradeHistoryLine(
   })
   return `History · ${applied.length} applied, last on ${date}`
 }
-
-/** The intro of the Status group. It shows only while an item is open. */
-export const STATUS_INTRO =
-  "ctxpipe keeps this Workspace current. Some upgrades open a pull request for you to merge. Others run here and use model calls."

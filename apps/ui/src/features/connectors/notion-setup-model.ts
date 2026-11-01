@@ -20,7 +20,7 @@ export const NOTION_SETUP_STEPS = [
 
 export const SELF_HOSTED_NOTION_SETUP_STEPS = [
   { id: "register", label: "Register Notion OAuth app" },
-  { id: "webhook", label: "Add webhook" },
+  { id: "webhook", label: "Add the webhook" },
   ...NOTION_SETUP_STEPS,
 ] as const
 
@@ -76,6 +76,6 @@ export function getNotionCardCtaLabel(
   if (status.isInstalled) return "Manage"
   if (shouldShowNotionRegisterStep(oauthMeta)) return "Register OAuth app"
   if (shouldShowNotionWebhookStep(oauthMeta) && !oauthMeta?.webhookConfigured)
-    return "Add webhook"
+    return "Add the webhook"
   return "Connect Notion"
 }

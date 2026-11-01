@@ -56,6 +56,10 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const TurnCardCollapsed: Story = {
+  parameters: {
+    intent:
+      "Catches a changes card that does not collapse or expand its file list. The summary counts stay and the Show and Hide buttons toggle the folders. Not for diffs.",
+  },
   tags: ["workspace-golden"],
   args: { defaultCollapsed: true },
   play: async ({ canvasElement }) => {
@@ -82,6 +86,10 @@ export const TurnCardCollapsed: Story = {
 }
 
 export const TurnCardExpanded: Story = {
+  parameters: {
+    intent:
+      "Catches a changes card whose folder does not add up its files, or whose Open diff button does not call the open action. Not for the collapsed state.",
+  },
   tags: ["workspace-golden"],
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
@@ -132,6 +140,8 @@ export const TurnCardOpensDiff: Story = {
   tags: ["workspace-golden"],
   decorators: [() => <CardAndPane />],
   parameters: {
+    intent:
+      "Catches a changes card that opens the diff of the wrong turn or file. The diff pane must read the turn of the card and show the chosen file. Not for card counts.",
     msw: {
       handlers: {
         page: [

@@ -1,12 +1,19 @@
+import { ChildProcess } from "node:child_process"
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { Session } from "node:inspector"
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { basename, join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { decode } from "@jridgewell/sourcemap-codec"
 import { afterAll, afterEach, beforeEach } from "vitest"
 
 import { emptyEdges, installEdges, takeEdges } from "./trace-edges.mjs"
+import {
+  executed,
+  lineRanges,
+  lineStarts,
+  positionsOf as positionsIn,
+  repoPath,
+} from "./trace-lines.mjs"
 
 // A Vitest setup file. trace-reporter.mjs adds it to each project only when
 // the runner traces. It records, for each test case, the repo source lines
@@ -15,13 +22,16 @@ import { emptyEdges, installEdges, takeEdges } from "./trace-edges.mjs"
 // The code that runs before the first test and after the last test (module
 // evaluation, beforeAll and afterAll) goes to the pseudo-case `<collect>`.
 // A Node child process that a case starts writes its coverage to a directory
-// of that case (NODE_V8_COVERAGE), and its lines go to that case too. The
+// of that case (NODE_V8_COVERAGE), and its lines go to that case too. A Bun
+// child process writes the list of repo files that it loaded to the same
+// directory (trace-bun.mjs), and each file goes to that case as a whole. The
 // semantic edges come from trace-edges.mjs.
 
 // A string, not `new URL()`: under jsdom, `URL` is the jsdom class.
 const root = resolve(fileURLToPath(import.meta.url), "../../..")
 const rootUrl = pathToFileURL(root).href
 const collect = "<collect>"
+const preload = resolve(fileURLToPath(import.meta.url), "../trace-bun.mjs")
 const parts = process.env.CTXPIPE_TRACE_PARTS
 if (!parts) throw new Error("trace-worker.mjs runs only under the check runner")
 
@@ -47,8 +57,10 @@ function open() {
   // resolves against the page (`http://localhost:3000/@fs/...`).
   const own = [
     import.meta.url,
-    pathToFileURL(resolve(fileURLToPath(import.meta.url), "../trace-edges.mjs"))
-      .href,
+    ...["trace-edges.mjs", "trace-lines.mjs"].map(
+      (name) =>
+        pathToFileURL(resolve(fileURLToPath(import.meta.url), "..", name)).href,
+    ),
   ]
   const session = new Session()
   session.connect()
@@ -85,6 +97,42 @@ function open() {
     code: new Map(),
     files: 0,
     recorded: undefined,
+    owner: undefined,
+  }
+}
+
+// Sets `lost` on the record of the test file that started the child (the
+// `state.owner` at the spawn) when a Node or Bun child process cannot give its data: a
+// signal stopped a Node child before it wrote its coverage, or a Bun child
+// started with an `env` without the preload. (Node adds NODE_V8_COVERAGE to
+// the `env` of each child itself.) A child that the test starts through a
+// shell or a script, or with a sync function (`spawnSync`), is not seen.
+function watchChildren() {
+  const spawn = ChildProcess.prototype.spawn
+  ChildProcess.prototype.spawn = function (options, ...rest) {
+    const result = spawn.call(this, options, ...rest)
+    const owner = state.owner
+    try {
+      const name = basename(options.file)
+      if (owner && (options.file === process.execPath || name === "node")) {
+        // A child that still runs when the file writes its part has no
+        // coverage in it yet.
+        owner.live++
+        this.once("exit", (_code, signal) => {
+          owner.live--
+          if (signal) owner.lost = true
+        })
+      } else if (
+        name === "bun" &&
+        !options.envPairs?.some(
+          (pair) => pair.startsWith("BUN_OPTIONS=") && pair.includes(preload),
+        )
+      )
+        if (owner) owner.lost = true
+    } catch {
+      // A failed check of a child turns the check off for that child only.
+    }
+    return result
   }
 }
 
@@ -93,68 +141,13 @@ function open() {
 // collected child coverage.
 if (state)
   try {
+    state.watched ??= (watchChildren(), true)
     state.recorded ??= await installEdges(root, `${resolve(parts)}${sep}`)
   } catch (error) {
     stop(error)
   }
 
-// The offset of the first character of each line.
-function lineStarts(text) {
-  const starts = [0]
-  let newline = text.indexOf("\n")
-  while (newline !== -1) {
-    starts.push(newline + 1)
-    newline = text.indexOf("\n", newline + 1)
-  }
-  return starts
-}
-
-// The source position of each source map segment of one script, sorted by
-// offset in the script that V8 ran. `starts` are the line offsets of that
-// script, and `prefix` is the length of a wrapper on its first line. Without
-// a source map the script is the source, and `text` gives the first
-// character of each line that is not white space. `base` is the file that
-// relative source names resolve against (the map file, or the script).
-function positionsOf({ path, text, starts, prefix = 0, map, base = path }) {
-  const positions = []
-  if (map) {
-    const names = map.sources.map((source) => {
-      if (source.startsWith("file:")) return repoPath(fileURLToPath(source))
-      const full = isAbsolute(source)
-        ? source
-        : resolve(dirname(base), map.sourceRoot ?? "", source)
-      return repoPath(full)
-    })
-    for (const [line, segments] of decode(map.mappings).entries())
-      for (const [column, source, sourceLine] of segments) {
-        if (
-          source === undefined ||
-          !names[source] ||
-          starts[line] === undefined
-        )
-          continue
-        positions.push({
-          offset: starts[line] + column + (line === 0 ? prefix : 0),
-          source: names[source],
-          line: sourceLine + 1,
-        })
-      }
-  } else {
-    const name = repoPath(path)
-    for (const [line, start] of starts.entries()) {
-      const from = start + (line === 0 ? prefix : 0)
-      const end = starts[line + 1] ?? text.length
-      const indent = text.slice(from, end).search(/\S/)
-      if (!name || indent === -1) continue
-      positions.push({ offset: from + indent, source: name, line: line + 1 })
-    }
-  }
-  for (const { source, line } of positions) {
-    if (!state.code.has(source)) state.code.set(source, new Set())
-    state.code.get(source).add(line)
-  }
-  return positions
-}
+const positionsOf = (script) => positionsIn(script, root, state.code)
 
 // The positions of one script of this worker.
 function table(scriptId) {
@@ -224,7 +217,9 @@ function childTable(url, cached) {
 }
 
 // The lines that the Node child processes wrote to `dir` (NODE_V8_COVERAGE),
-// and the number of coverage files that it read.
+// and the number of coverage files that it read. A Bun child gives no
+// lines, only the repo files that it loaded (trace-bun.mjs), so each line
+// with code of such a file counts as run.
 function childLines(dir) {
   const lines = new Map()
   let reports = 0
@@ -235,6 +230,26 @@ function childLines(dir) {
     return { lines, reports }
   }
   for (const name of names) {
+    if (name.startsWith("bun-") && name.endsWith(".txt")) {
+      reports++
+      for (const path of readFileSync(join(dir, name), "utf8").split("\n")) {
+        if (!path) continue
+        // The whole file: `state.code` is for exact ranges, and the raw
+        // text of a Bun file has no map to tell code from other lines.
+        const name = repoPath(root, path)
+        if (!name) continue
+        let text
+        try {
+          text = readFileSync(path, "utf8")
+        } catch {
+          continue
+        }
+        const last = lineStarts(text).length - (text.endsWith("\n") ? 1 : 0)
+        if (!lines.has(name)) lines.set(name, new Set())
+        for (let line = 1; line <= last; line++) lines.get(name).add(line)
+      }
+      continue
+    }
     if (!name.endsWith(".json")) continue
     let report
     try {
@@ -259,11 +274,6 @@ function childLines(dir) {
   return { lines, reports }
 }
 
-function repoPath(path) {
-  const name = relative(root, path).replaceAll("\\", "/")
-  return name.startsWith("..") || name.includes("node_modules/") ? null : name
-}
-
 // Takes the counts since the last take (V8 resets them) and adds the lines
 // that ran to `lines` (source path to a set of line numbers).
 function take(lines) {
@@ -275,55 +285,6 @@ function take(lines) {
     const positions = table(script.scriptId)
     if (positions) executed(ranges, positions, lines)
   }
-}
-
-// Adds the positions that ran to `lines`. A segment ran when the innermost
-// V8 range that holds its offset has a count above zero: the function ranges
-// minus their nested blocks with a zero count.
-function executed(ranges, positions, lines) {
-  ranges.sort(
-    (a, b) => a.startOffset - b.startOffset || b.endOffset - a.endOffset,
-  )
-  const stack = []
-  let next = 0
-  for (const { offset, source, line } of positions) {
-    while (next < ranges.length && ranges[next].startOffset <= offset) {
-      const range = ranges[next++]
-      while (stack.length && stack.at(-1).endOffset <= range.startOffset)
-        stack.pop()
-      stack.push(range)
-    }
-    while (stack.length && stack.at(-1).endOffset <= offset) stack.pop()
-    if (!stack.length || stack.at(-1).count === 0) continue
-    if (!lines.has(source)) lines.set(source, new Set())
-    lines.get(source).add(line)
-  }
-}
-
-// Line sets to sorted [start, end] ranges. A line with no code (blank, a
-// comment, a type) does not end a range.
-function ranges(lines) {
-  const out = {}
-  for (const [source, set] of [...lines].sort(([a], [b]) => (a < b ? -1 : 1))) {
-    const code = state.code.get(source)
-    const sorted = [...set].sort((a, b) => a - b)
-    const list = []
-    for (const line of sorted) {
-      const last = list.at(-1)
-      if (last) {
-        let gap = true
-        for (let between = last[1] + 1; between < line && gap; between++)
-          if (code.has(between)) gap = false
-        if (gap) {
-          last[1] = line
-          continue
-        }
-      }
-      list.push([line, line])
-    }
-    out[source] = list
-  }
-  return out
 }
 
 const cases = new Map()
@@ -378,17 +339,21 @@ const children = join(
   `${process.pid}-${state ? ++state.files : 0}`,
 )
 const directories = new Map()
+const bunOptions = process.env.BUN_OPTIONS
 const childrenOf = (name) => {
   if (failed) return
   if (!directories.has(name))
     directories.set(name, join(children, String(directories.size)))
   process.env.NODE_V8_COVERAGE = directories.get(name)
+  process.env.BUN_OPTIONS = `${bunOptions ?? ""} --preload ${preload}`.trim()
 }
 // Counts and edges from before this file (an earlier file in the same
 // worker, Vitest itself) do not belong to it.
 let mark = state?.clock() ?? 0
 phase(collect)
 cases.clear()
+const owner = { lost: false, live: 0 }
+if (state) state.owner = owner
 childrenOf(collect)
 beforeEach((context) => {
   phase(collect)
@@ -402,10 +367,13 @@ afterAll((suite) => {
   phase(collect)
   if (coverage === undefined) delete process.env.NODE_V8_COVERAGE
   else process.env.NODE_V8_COVERAGE = coverage
+  if (bunOptions === undefined) delete process.env.BUN_OPTIONS
+  else process.env.BUN_OPTIONS = bunOptions
   if (failed) return
   try {
-    // `children` only when a child wrote coverage: a check without it can
-    // have a child that gave none (its own `env`, a signal, Bun).
+    // `children` only when a child wrote coverage and no Node or Bun child
+    // that the worker saw lost its data. A check without it can have a child
+    // that gave none.
     let reports = 0
     for (const [name, directory] of directories) {
       const child = childLines(directory)
@@ -418,7 +386,10 @@ afterAll((suite) => {
       join(parts, `${process.pid}-${state.files}.json`),
       JSON.stringify({
         file: suite.filepath,
-        recorded: reports ? ["children", ...state.recorded] : state.recorded,
+        recorded:
+          reports && !owner.lost && !owner.live
+            ? ["children", ...state.recorded]
+            : state.recorded,
         cases: [...cases].map(([name, { lines, durationMs, edges }]) => {
           const tables = {
             ...(edges.read.size ? { read: sorted(edges.read) } : {}),
@@ -428,7 +399,7 @@ afterAll((suite) => {
           return {
             name,
             durationMs: Math.max(0, Math.round(durationMs)),
-            lines: ranges(lines),
+            lines: lineRanges(lines, state.code),
             ...(Object.keys(tables).length ? { tables } : {}),
             ...Object.fromEntries(
               lists

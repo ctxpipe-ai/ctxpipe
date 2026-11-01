@@ -15,8 +15,8 @@ callbacks or webhook URLs at hosted ctxpipe.
 
 ## 1. Register the OAuth app in the UI
 
-1. Open **Connectors**, choose **Add connection**, then **Notion**. ctxpipe
-   creates a draft Notion connection.
+1. Open **Connectors**, select **Add connection**, then select **Connect** on
+   the **Notion** row. ctxpipe creates a draft Notion connection.
 2. On **Register Notion OAuth app**, create an OAuth app in the
    [Notion integrations portal](https://www.notion.so/profile/integrations).
    For a private install, choose **Selected workspaces only** — do not list on
@@ -33,7 +33,7 @@ URL derived from `AUTH_BASE_URL`.
 
 4. Paste the **Client ID** and **Client secret** and save. The secret is stored
    encrypted on that connection and is never shown again.
-5. On **Add webhook**, open the same app's **Webhooks** tab, add a webhook, and
+5. On **Add the webhook**, open the same app's **Webhooks** tab, add a webhook, and
    paste the wizard event URL into **Webhook URL**. Select the page, data
    source, and database event types (`page.*`, `data_source.*`, and
    `database.*`). ctxpipe ignores other events, and a missing type means

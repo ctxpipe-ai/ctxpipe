@@ -126,6 +126,9 @@ const runOutputSchema = z
               })
               .optional(),
             refused: z.string().optional(),
+            withheld: z
+              .array(z.object({ rules: z.array(z.string()) }).passthrough())
+              .optional(),
           })
           .passthrough(),
       )
@@ -155,13 +158,20 @@ function stepFailureLine(failures: IngestStepFailures = {}): string | null {
   return `${steps}.`
 }
 
+/** One fixed line for the files that a publish withheld: no path, which can hold customer text. */
+function withheldLine(withheld: ReadonlyArray<{ rules: string[] }>): string {
+  const rules = [...new Set(withheld.flatMap((file) => file.rules))].sort()
+  const count = withheld.length
+  return `${count} ${count === 1 ? "file was" : "files were"} withheld at publish because ${count === 1 ? "it" : "they"} failed the patch validator (rules: ${rules.join(", ")}).`
+}
+
 /**
  * The report of one finished ingestion v2 run for the Workspace of the
  * re-ingestion. It reads the result of this Workspace, not the status of
  * the run: a run that skipped the Workspace, or did not reach it, failed
  * for it.
  */
-function runReport(
+export function runReport(
   state: Extract<Awaited<ReturnType<typeof ingestionRunState>>, { done: true }>,
   workspaceId: string,
 ): Pick<ReingestRepositoryReport, "status" | "report"> {
@@ -199,9 +209,13 @@ function runReport(
       report:
         result.refused !== undefined
           ? [result.refused]
-          : failedSteps
-            ? [...reason, failedSteps]
-            : reason,
+          : [
+              ...reason,
+              ...(failedSteps ? [failedSteps] : []),
+              ...(result.withheld?.length
+                ? [withheldLine(result.withheld)]
+                : []),
+            ],
     }
   }
   return { status: "done", report: [] }

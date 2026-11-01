@@ -9,6 +9,7 @@ import {
 import {
   IngestRefRefusedError,
   ingestRefName,
+  type WithheldFile,
 } from "../../domain/ingestion/ingest-refs.js"
 import { releaseIngestStepIndexes } from "../../domain/ingestion/ingest-shard-sandbox.js"
 import {
@@ -50,11 +51,13 @@ import { readWorkspaceFormatAt } from "../../domain/workspaces/workspace-format-
 import {
   deleteWorkspaceIngestRefs,
   pushWorkspaceIngestAssemble,
+  readWorkspaceIngestRunTip,
 } from "../../domain/workspaces/write-broker.js"
 import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import { withCrashLoopGuard } from "../crash-loop.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { openWorkflowExecution } from "../execution-lease.js"
 import { cleanUpUnlessParked, settledChildren } from "../isSleepSignal.js"
 import {
   addStepFailures,
@@ -94,18 +97,20 @@ import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
  * `workspace-write-extract-ingest`, which replays the delta from the pinned
  * revision on the current default tip as one commit. A path that a person
  * also changed after the pin goes through the semantic merge and the patch
- * validator; a rejected merge publishes nothing and makes the Workspace
- * `partial`. A `partial` Workspace publishes its accepted ops, but the
+ * validator; a merged file that fails it is withheld (it keeps the version
+ * of the default tip), and the other files publish. A publish with a
+ * withheld file makes the Workspace `partial`; the output counts the
+ * withheld files. A `partial` Workspace publishes its accepted ops, but the
  * deletes of a failed root stay out: a failed root gets no retraction. A
  * refused assemble publishes the run base; so does an assemble whose merge
  * model fails. A publish that fails (the merge model fails, or the default
  * branch wins each push race) also makes the Workspace `partial`, and the
  * other Workspaces publish. Then `delete-refs` deletes the run's refs, but
- * not the refs of a Workspace whose merge model or publish failed. The tip check deletes the refs that stay (the run is then
- * finished and not a shadow run). A run outside shadow mode publishes only
- * to a Workspace whose tree at the pinned revision is at format 3 or more
- * (G5). Upgrade step 3 moved the old extracted files of that tree to
- * ingestion v2 ownership.
+ * not the refs of a Workspace whose merge model or publish failed. The tip
+ * check deletes the refs that stay (the run is then finished and not a
+ * shadow run). A run outside shadow mode publishes only to a Workspace whose
+ * tree at the pinned revision is at format 3 or more (G5). Upgrade step 3
+ * moved the old extracted files of that tree to ingestion v2 ownership.
  */
 
 /** The write job of the publish of one Workspace; a replay finds it. */
@@ -133,6 +138,8 @@ export type IngestionV2Output =
         /** The steps that failed after their retries, by cause (CTX-896). */
         stepFailures?: IngestStepFailures
         refused?: string
+        /** The merged files that the publish withheld, with the validator rules. */
+        withheld?: WithheldFile[]
         /** The commit on the default branch; null for no change. */
         published?: string | null
       }>
@@ -164,7 +171,9 @@ export function defineRepositoryIngestionV2Workflow(
       // A failed run also deletes the worker's copy of the source tree,
       // and the index repositories of its repository step (shard 0). Each
       // run that ends deletes its codesearch checkout, unless it is the
-      // published revision.
+      // published revision. A stale execution keeps them while another
+      // execution has the run (CTX-1080).
+      const execution = openWorkflowExecution(step, run.id)
       return cleanUpUnlessParked(
         () => ingestWithSpan(),
         async () => {
@@ -176,6 +185,7 @@ export function defineRepositoryIngestionV2Workflow(
             runId: run.id,
           })
         },
+        execution,
       )
 
       // Export one summary for the terminal execution. Shards run in separate
@@ -209,6 +219,10 @@ export function defineRepositoryIngestionV2Workflow(
                   (sum, w) => sum + w.partial,
                   0,
                 ),
+                "ctxpipe.ingest.withheld": output.workspaces.reduce(
+                  (sum, w) => sum + (w.withheld?.length ?? 0),
+                  0,
+                ),
               })
             return output
           },
@@ -236,6 +250,16 @@ export function defineRepositoryIngestionV2Workflow(
           })
           attributes["ctxpipe.ingest.wait.outcome"] = wait.outcome
           attributes["ctxpipe.ingest.wait.checks"] = wait.checks
+          // A newer push run of the source replaces this run (CTX-1040).
+          if (wait.outcome === "superseded") {
+            logIngestEvent("info", "ingestion-v2.superseded", {
+              ingestionRunId: run.id,
+              newerRunId: wait.newerRunId,
+              reason:
+                "A newer run of this source replaces this run, so it ends before it calls a model",
+            })
+            return { status: "skipped", reason: "superseded" }
+          }
           if (wait.outcome === "deadline")
             logIngestEvent("warn", "ingestion-v2.wait-deadline", {
               ingestionRunId: run.id,
@@ -423,6 +447,7 @@ export function defineRepositoryIngestionV2Workflow(
             if (!state) continue
             await runSkillPages({
               step: guardedSkillStep(step, run.id, input.orgId),
+              execution,
               run: {
                 runId: run.id,
                 shard: 0,
@@ -514,9 +539,13 @@ export function defineRepositoryIngestionV2Workflow(
                         workspaceId: destination.workspaceId,
                         generation: destination.generation,
                       },
-                      shards: parts.flatMap((p) =>
-                        p.tip ? [{ shard: String(p.shard), tip: p.tip }] : [],
-                      ),
+                      // Each shard, also one whose output has no tip:
+                      // assemble takes the tips from the shard refs, which
+                      // another execution of a child can move (CTX-1073).
+                      shards: parts.map((p) => ({
+                        shard: String(p.shard),
+                        tip: p.tip,
+                      })),
                       // The shard refs start at the run base, which is
                       // the assembled ref's tip after the repository step.
                       pinnedRevision: base,
@@ -568,6 +597,10 @@ export function defineRepositoryIngestionV2Workflow(
                   ingestStep: assembleStep,
                   workspaceId: destination.workspaceId,
                   reason: capIngestText(error.message),
+                  // Fixed codes of the validator or the broker.
+                  ...(error instanceof IngestRefRefusedError
+                    ? { rules: error.rules }
+                    : {}),
                 })
                 return {
                   tip: null,
@@ -647,7 +680,7 @@ export function defineRepositoryIngestionV2Workflow(
             const { workspaceId } = destination
             const entry = workspaces.find((w) => w.workspaceId === workspaceId)
             if (entry?.assembled) {
-              const assembled = entry.assembled
+              const given = entry.assembled
               const target = await step.run(
                 { name: `publish-target:${workspaceId}` },
                 async () => {
@@ -677,6 +710,38 @@ export function defineRepositoryIngestionV2Workflow(
               )
               const revision = "revision" in target ? target.revision : null
               if (revision) {
+                // Another execution of the repository child can push after
+                // its output took the tip (CTX-1073). Publish takes the ref's
+                // tip, so it keeps those commits. A refused read keeps the
+                // output's tip, which is a commit of the run.
+                const assembled = await step.run(
+                  { name: `publish-tip:${workspaceId}` },
+                  () =>
+                    withIngestionOrg(input.orgId, () =>
+                      readWorkspaceIngestRunTip(
+                        {
+                          orgId: input.orgId,
+                          job: {
+                            runId: run.id,
+                            workspaceId,
+                            generation: destination.generation,
+                          },
+                          ref: ingestRefName({ runId: run.id, workspaceId }),
+                          given,
+                        },
+                        env(),
+                      ),
+                    ).catch((error: unknown) => {
+                      if (!(error instanceof IngestRefRefusedError)) throw error
+                      logIngestEvent("warn", "ingestion-v2.publish-tip-kept", {
+                        ingestionRunId: run.id,
+                        workspaceId,
+                        reason: capIngestText(error.message),
+                      })
+                      return given
+                    }),
+                )
+                entry.assembled = assembled
                 const published = await step.runWorkflow(
                   workspaceExtractIngest.spec,
                   {
@@ -711,6 +776,11 @@ export function defineRepositoryIngestionV2Workflow(
                   : null
                 if (!published.committed && published.reason === "failed")
                   keepRefs.add(workspaceId)
+                if (published.withheld?.length) {
+                  entry.withheld = published.withheld
+                  // One partial event for the publish; `withheld` counts files.
+                  entry.partial += 1
+                }
                 if (
                   !published.committed &&
                   (published.reason === "refused" ||
@@ -721,13 +791,6 @@ export function defineRepositoryIngestionV2Workflow(
                       ? published.refused
                       : published.failed
                   entry.partial += 1
-                  getLogger().warn("ingestion-v2.partial", {
-                    ingestionRunId: run.id,
-                    step: `publish:${workspaceId}`,
-                    workspaceId,
-                    // A fixed code: the cause text can hold model or customer text.
-                    reason: published.reason,
-                  })
                 }
               } else if ("skip" in target && target.skip === "below_format") {
                 entry.published = null
@@ -740,11 +803,11 @@ export function defineRepositoryIngestionV2Workflow(
               } else {
                 entry.refused = "The Workspace binding changed before publish"
                 entry.partial += 1
-                getLogger().warn("ingestion-v2.partial", {
+                logIngestEvent("warn", "ingestion-v2.partial", {
                   ingestionRunId: run.id,
-                  step: `publish:${workspaceId}`,
+                  ingestStep: "publish",
                   workspaceId,
-                  reason: entry.refused,
+                  reason: "relinked",
                 })
               }
             }

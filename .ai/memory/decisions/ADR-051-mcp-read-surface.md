@@ -77,7 +77,7 @@ This section amends [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) Decisio
 
 ### 5. Discovery, responses, and the current repository
 
-- **Server instructions** are dynamic for each principal: the rules first (the first 512 characters stand alone), then each org of the set with its Workspace slugs, under 2,048 characters in total. The rules say: ctxpipe serves the default branch; do not use it for the working repository; send independent calls in parallel; search knowledge before a design choice; name one org for each call; cite refs.
+- **Server instructions** are dynamic for each principal: the rules first (the first 512 characters stand alone), then each org of the set with its Workspace slugs, under 2,048 characters in total. The rules say: ctxpipe serves the default branch; do not use it for the working repository; send independent calls in parallel; search knowledge before a design choice; name one org for each call; cite refs. The last rule gives the docs index for agents (`https://docs.ctxpipe.ai/llms.txt`), so that a client can answer a question about ctxpipe itself.
 - `list_workspaces` has `_meta["anthropic/alwaysLoad"]: true`. List mode is about 20 tokens for each Workspace (slug, title, repository count, readiness), with 100 Workspaces per page. Detail mode is for one named Workspace (at most about 600 tokens).
 - Resources come later, only for `@`-mention. They do not reach the model on their own.
 - **Parallel calls:** the instructions and the tool descriptions tell the client to send independent calls in parallel.

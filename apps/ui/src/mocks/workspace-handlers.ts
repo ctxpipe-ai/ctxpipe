@@ -447,6 +447,7 @@ export function orgGithubConnectionsHandler(
         items: items.map((item) => ({
           id: item.id,
           type: "github",
+          status: "connected",
           createdAt: "2026-08-15T10:00:00.000Z",
           updatedAt: "2026-08-15T10:00:00.000Z",
         })),

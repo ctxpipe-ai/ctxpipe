@@ -67,6 +67,10 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const ConsentSendsTickedOrgs: Story = {
+  parameters: {
+    intent:
+      "Catches a consent route that sends the wrong organizations or scope. The consent request carries the ticked organizations and the read scope. Not for the consent screen layout.",
+  },
   tags: ["workspace-golden"],
   beforeEach: () => {
     consentRequests.length = 0

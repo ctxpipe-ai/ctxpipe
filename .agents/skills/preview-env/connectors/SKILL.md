@@ -1,12 +1,12 @@
 ---
 name: preview-env-connectors
-description: Connector catalog, per-provider connect through config PR and initial sync, and the per-Workspace GitHub PR mirror (preview-env).
+description: Connector catalog (Add connection), per-provider connect through config PR and initial sync, and the per-Workspace GitHub PR mirror (preview-env).
 disable-model-invocation: true
 ---
 
 # preview-env connectors
 
-`/{orgSlug}/connectors`. Types: GitHub, Confluence, Linear, Notion, Slack, PagerDuty. Content connectors fetch provider content and hand it to a typed mirror job that commits it into a Workspace repository (`linear/`, `notion/`, `slack/`, `confluence/`, `pagerduty/`, `github/`); scope is a `<connector>/config.yaml` reviewed in a pull request. [Harness](../harness.md) is `PASS`. Flow format: [run-setup](../run-setup.md#flow-format).
+`/{orgSlug}/connectors`. Types: GitHub, Buildkite, Confluence, Notion, Linear, Slack, Plain, PagerDuty. **Add connection** opens the connector catalog: one row for each connector, with its state for the org and one action (**Connect**, **Add another**, or **Ask for it**). The cards on the page show each connection. Content connectors fetch provider content and hand it to a typed mirror job that commits it into a Workspace repository (`linear/`, `notion/`, `slack/`, `confluence/`, `pagerduty/`, `github/`); scope is a `<connector>/config.yaml` reviewed in a pull request. [Harness](../harness.md) is `PASS`. Flow format: [run-setup](../run-setup.md#flow-format).
 
 Provider flows (CON-3 to CON-7) depend on the `ready-for-human` test workspaces in [run-setup](../run-setup.md#connector-test-workspaces): each is `SKIP(needs-human)` until the user supplies them and a human is at the OAuth consent screen. A flow that completes OAuth also needs flag `live-oauth` and this origin's OAuth and webhook URLs registered with that provider (hosted previews: *uncertain*; ask before assuming).
 
@@ -15,10 +15,11 @@ Health chips on a closed card: **Connected** · **Not yet connected** · **Could
 ### CON-1 Catalog
 **Requires** ONB-3.
 **Steps**
-1. Open `{BASE_URL}/{orgSlug}/connectors`; open **Add connection**.
-2. Open each card once; do not click Remove.
+1. Open `{BASE_URL}/{orgSlug}/connectors`; select **Add connection**.
+2. Select each view in the left pane: **All**, **Connected**, each group, and **Coming soon**. Type a connector name in the search field. Do not select **Connect**.
+3. Close the catalog. Expand each card on the page once; do not click Remove.
 
-**Expect (UI)** the six providers are offered (GitHub first); GitHub reads **Connected**; each open card shows Workspace / scope / sync destination (or a connect or setup action); with no connector the empty state shows.
+**Expect (UI)** the catalog fits the screen. **All** lists 12 rows: 8 connectors with **Connect** or **Add another**, and 4 planned connectors with **Coming soon** and **Ask for it**. GitHub is the first row, with **Connected** and **Add another**. Each view shows its count. A search finds a connector in any group. The catalog shows no connection cards and no Workspace detail. On the page, each expanded card shows its Workspaces, scope, and sync destination (or a connect or setup action). With no connector, the empty state shows.
 **Expect (backend)** `GET` of the org connections returns the GitHub `connections` row (`con_*`).
 **Budget** 3 s / 10 s, navigation to cards visible.
 **Evidence** `CON-1-1.png`; trace of the connections request.
@@ -26,9 +27,9 @@ Health chips on a closed card: **Connected** · **Not yet connected** · **Could
 ### CON-2 First screen of each wizard
 **Requires** CON-1.
 **Steps**
-1. For Slack, Linear, Notion, Confluence, and PagerDuty, open **Add connection** to the provider's **first** screen only; close the dialog.
+1. For Slack, Linear, Notion, Confluence, and PagerDuty, select **Add connection**, then **Connect** on the provider row. Go to the **first** screen of the setup only; close the dialog.
 
-**Expect (UI)** each first screen renders (hosted: no self-host credential steps; `local` self-host: the register-OAuth-app step); closing leaves no half-created card.
+**Expect (UI)** the catalog closes before the setup opens, so the setup is the only dialog; each first screen renders (hosted: no self-host credential steps; `local` self-host: the register-OAuth-app step); closing leaves no half-created card.
 **Expect (backend)** no `connections` row is created.
 **Budget** 1 s / 3 s per dialog.
 **Evidence** `CON-2-1.png` per provider.
@@ -36,7 +37,7 @@ Health chips on a closed card: **Connected** · **Not yet connected** · **Could
 ### CON-3 Linear: connect, config PR, initial sync (`needs-human`, `gated-live-oauth`)
 **Requires** `LINEAR_TEST`; ONB-3; ONB-4 (destination Workspace 1); HYD-1.
 **Steps**
-1. **Add connection**, **Linear**; human authorizes the read-only ctxpipe app in the popup.
+1. Select **Add connection**, then **Connect** on the **Linear** row; human authorizes the read-only ctxpipe app in the popup.
 2. Select Workspace 1 as the destination and at least one team or project as scope.
 3. Wait for the configuration pull request; human (or `gh`, with `merge-pr`) merges it.
 4. Wait for **Connected**.
@@ -52,7 +53,7 @@ Same shape as CON-3. **Requires** `NOTION_TEST` with a page or database shared w
 ### CON-5 Slack: connect and capture a thread (`needs-human`, `gated-live-oauth`)
 **Requires** `SLACK_TEST`; ONB-3; ONB-4.
 **Steps**
-1. **Add connection**, **Slack**; human installs the ctxpipe app, choose Workspace 1.
+1. Select **Add connection**, then **Connect** on the **Slack** row; human installs the ctxpipe app, choose Workspace 1.
 2. In Slack, invite the bot to a channel, start a thread, and **@mention** the bot inside it (a channel-top-level mention is refused).
 
 **Expect (UI)** the card is **Connected** with the bot handle (the handle alone is not capture proof); the bot replies in the thread when it captures.
@@ -63,7 +64,7 @@ Same shape as CON-3. **Requires** `NOTION_TEST` with a page or database shared w
 ### CON-6 Confluence: connect through Forge install, config PR, sync (`needs-human`, `gated-live-oauth`)
 **Requires** `CONFLUENCE_TEST`; ONB-3; ONB-4.
 **Steps**
-1. **Add connection**, **Confluence**; link the Atlassian account (OAuth), install the ctxpipe Forge app in the site (human), link GitHub, select Workspace 1 and spaces.
+1. Select **Add connection**, then **Connect** on the **Confluence** row; link the Atlassian account (OAuth), install the ctxpipe Forge app in the site (human), link GitHub, select Workspace 1 and spaces.
 2. Merge the `confluence/config.yaml` PR.
 
 **Expect (UI)** the wizard advances through its steps to **Setup complete**; the card is **Connected**.
@@ -90,5 +91,5 @@ Same shape as CON-3. **Requires** `PAGERDUTY_TEST` with a service and an inciden
 ## Status
 
 - **PASS** CON-1, CON-2, and CON-8 `PASS`; provider flows `PASS` or `SKIP(needs-human)`.
-- **FAIL** catalog missing cards, every chip **Couldn't load**, a wizard first screen erroring, a config PR not appearing, an initial mirror not committing, or a merged PR missing from a linking Workspace.
+- **FAIL** catalog missing rows, a card missing on the page, every chip **Couldn't load**, a wizard first screen erroring, a config PR not appearing, an initial mirror not committing, or a merged PR missing from a linking Workspace.
 - Delete no connector unless the user names it in this turn.

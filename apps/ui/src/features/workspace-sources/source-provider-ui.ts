@@ -4,12 +4,16 @@ import {
 } from "backend/domain/workspace-sources/sources-file"
 import type { ComponentType } from "react"
 
+import { scrollToPaneTop } from "@/lib/scroll-pane"
+
+import { buildkiteSourceUi } from "./providers/buildkite"
 import { confluenceSourceUi } from "./providers/confluence"
 import { gitSourceUi } from "./providers/git"
 import { githubSourceUi } from "./providers/github"
 import { linearSourceUi } from "./providers/linear"
 import { notionSourceUi } from "./providers/notion"
 import { pagerdutySourceUi } from "./providers/pagerduty"
+import { plainSourceUi } from "./providers/plain"
 import { slackSourceUi } from "./providers/slack"
 
 /**
@@ -52,6 +56,8 @@ export const SOURCE_PROVIDER_UI: Record<SourceProvider, SourceProviderUi> = {
   notion: notionSourceUi,
   slack: slackSourceUi,
   pagerduty: pagerdutySourceUi,
+  buildkite: buildkiteSourceUi,
+  plain: plainSourceUi,
   git: gitSourceUi,
 }
 
@@ -60,6 +66,16 @@ export function sourceProviderLabel(provider: SourceProvider): string {
 }
 
 /** The anchor of a provider section in the Workspace settings pane. */
+/**
+ * Scrolls to the provider group that the URL hash names (a "Used in" link of
+ * the Connectors page). True when the hash names `element`.
+ */
+export function scrollToLinkedSource(element: HTMLElement | null): boolean {
+  if (!element || window.location.hash !== `#${element.id}`) return false
+  scrollToPaneTop(element)
+  return true
+}
+
 export function sourceAnchorId(provider: SourceProvider): string {
   return `source-${provider}`
 }

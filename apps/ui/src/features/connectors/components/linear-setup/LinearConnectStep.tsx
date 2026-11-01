@@ -34,11 +34,11 @@ export function LinearConnectStep({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-semibold text-foreground">
-          Connect Linear workspace
+        <h3 className="text-base font-medium text-foreground">
+          Connect Linear
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          Authorise read-only access to the Linear workspace you want ctxpipe to
+          Authorize read-only access to the Linear workspace you want ctxpipe to
           mirror. A new window will open for approval.
         </p>
       </div>

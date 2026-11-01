@@ -1,4 +1,4 @@
-import { listChecks } from "./lanes.mjs"
+import { listChecks } from "./families.mjs"
 
 // Prints the check manifest (schema/manifest.v1.schema.json) as JSON.
 try {

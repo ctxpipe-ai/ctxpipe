@@ -174,4 +174,40 @@ describe("the fields of a failed ingest step in a log", () => {
       "private sentinel",
     )
   })
+  it("names a failed fetch and the code of its cause", () => {
+    expect(
+      ingestErrorFields(
+        new TypeError("fetch failed", { cause: { code: "UND_ERR_SOCKET" } }),
+      ),
+    ).toEqual({
+      errorClass: "TypeError",
+      errorCode: "UND_ERR_SOCKET",
+      errorKind: "fetch failed",
+    })
+    expect(
+      ingestErrorFields(
+        new TypeError("fetch failed", {
+          cause: Object.assign(new Error("x"), { code: "ECONNRESET" }),
+        }),
+      ),
+    ).toEqual({
+      errorClass: "TypeError",
+      errorCode: "ECONNRESET",
+      errorKind: "fetch failed",
+    })
+    expect(ingestErrorFields(new TypeError("terminated"))).toEqual({
+      errorClass: "TypeError",
+      errorKind: "terminated",
+    })
+    // A free-form code on the cause stays out.
+    expect(
+      ingestErrorFields(
+        new TypeError("fetch failed", { cause: { code: "private sentinel" } }),
+      ),
+    ).toEqual({ errorClass: "TypeError", errorKind: "fetch failed" })
+    // Text after the known start keeps the message out.
+    expect(
+      ingestErrorFields(new TypeError("terminated private sentinel")),
+    ).toEqual({ errorClass: "TypeError" })
+  })
 })

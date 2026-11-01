@@ -14,7 +14,7 @@ export function RegisterAtlassianOauthStep({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-semibold text-foreground">
+        <h3 className="text-base font-medium text-foreground">
           Register Atlassian OAuth app
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">

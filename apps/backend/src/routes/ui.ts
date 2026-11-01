@@ -6,7 +6,7 @@ import type { AppEnv } from "../app/env.js"
 import type { Env } from "../config/env.js"
 import { getLogger, log } from "../observability/logger.js"
 
-type UiProxyClientMessage = string | ArrayBuffer | Uint8Array
+type UiProxyClientMessage = string | ArrayBuffer | Uint8Array<ArrayBuffer>
 
 export const UI_PROXY_TIMEOUT_MS = 15_000
 
@@ -92,7 +92,7 @@ type UiProxyUpgradeServer = {
 type UiProxyServerSocket = {
   data: UiProxyWebSocketData
   readyState: number
-  send: (data: UiProxyClientMessage) => void
+  send: (data: string | ArrayBuffer | Uint8Array) => void
   close: (code?: number, reason?: string) => void
 }
 

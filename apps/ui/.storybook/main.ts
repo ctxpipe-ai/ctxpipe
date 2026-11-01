@@ -77,6 +77,10 @@ const config: StorybookConfig = {
         host: true,
       },
       build: {
+        // The check runner maps the browser coverage of each story to source
+        // lines with these maps (scripts/checks/README.md). "hidden" writes
+        // the files but no sourceMappingURL comment.
+        sourcemap: "hidden",
         commonjsOptions: {
           include: [/use-sync-external-store/, /node_modules/],
         },

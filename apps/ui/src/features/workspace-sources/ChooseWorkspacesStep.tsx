@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import type { SourceProvider } from "backend/domain/workspace-sources/sources-file"
 
 import { Button } from "@/components/ui/Button"
@@ -27,7 +28,7 @@ export const CHOOSE_WORKSPACES_HINT =
   "You can add or change what each Workspace syncs at any time in its settings."
 
 /**
- * The wizard step "Choose Workspaces": select one or more Workspaces, and
+ * The wizard step "Add to Workspaces": select one or more Workspaces, and
  * give them one shared scope or a scope for each. A connector wizard
  * includes it as a step and sends the result of `chooseWorkspacesRequests`.
  */
@@ -39,6 +40,7 @@ export function ChooseWorkspacesStep(props: {
   onChange: (value: ChooseWorkspacesValue) => void
 }) {
   const { orgSlug, provider, connectionId, value, onChange } = props
+  const navigate = useNavigate()
   const listQuery = useQuery(workspaceListOptions(orgSlug))
   // A Workspace below the newest format refuses a source (CTX-935): the row
   // is off and links to its upgrade, so the save cannot fail. No row shows
@@ -84,9 +86,23 @@ export function ChooseWorkspacesStep(props: {
           Could not load the Workspaces.
         </InlineAlert>
       ) : workspaces.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          There are no Workspaces yet. Create a Workspace first.
-        </p>
+        <div className="flex flex-col items-start gap-3">
+          <p className="text-sm text-muted-foreground">
+            There are no Workspaces yet. Create a Workspace, then select Add to
+            a Workspace on the connector card.
+          </p>
+          <Button
+            variant="secondary"
+            onPress={() => {
+              void navigate({
+                to: "/$orgSlug/workspaces/new",
+                params: { orgSlug },
+              })
+            }}
+          >
+            Create a Workspace
+          </Button>
+        </div>
       ) : (
         <>
           {gate.failed ? (

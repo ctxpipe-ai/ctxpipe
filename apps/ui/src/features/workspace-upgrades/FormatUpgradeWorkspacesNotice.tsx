@@ -7,7 +7,7 @@ import { MEMBER_ASK_ADMIN } from "./upgrade-copy"
 
 /**
  * The notice for a place that works on all the Workspaces of the org (the
- * Connectors page, the Choose Workspaces step), when each Workspace needs the
+ * Connectors page, the Add to Workspaces step), when each Workspace needs the
  * format upgrade first (CTX-935). One button for each Workspace opens its
  * Upgrades. A member sees "Ask an admin".
  */

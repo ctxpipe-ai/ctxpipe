@@ -14,6 +14,7 @@ The ctxpipe MCP server gives you facts with stable refs. You do the reasoning. T
 - Send independent calls in parallel.
 - Cite the `ref` of each fact that you use. Say "unverified" for a claim that has no ref.
 - Never put tokens or secrets in a query.
+- For a question about ctxpipe itself (setup, Workspaces, connections, MCP clients, self-hosting), read `https://docs.ctxpipe.ai/llms.txt`, then the page that matches. The tools serve organization context, not the ctxpipe docs.
 
 ## Start
 

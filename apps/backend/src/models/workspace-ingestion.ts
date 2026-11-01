@@ -132,6 +132,11 @@ async function readActiveRuns(
             ${INGESTION_V2_WORKFLOW_NAME}, ${SYNC_WORKFLOW_NAME},
             ${REINGEST_WORKFLOW_NAME})
           and status in ('pending', 'running', 'sleeping')
+          -- A run that waits for its first start has not started: the
+          -- daily source sync queues each run at midnight with a later
+          -- start (CTX-1095). A retry that waits has attempts, so it stays.
+          and not (status = 'pending' and attempts = 0
+            and available_at > now())
           and created_at > now() - interval '1 day'
           and input->>'orgId' = ${orgId}
           and (workflow_name <> ${INGESTION_V2_WORKFLOW_NAME}

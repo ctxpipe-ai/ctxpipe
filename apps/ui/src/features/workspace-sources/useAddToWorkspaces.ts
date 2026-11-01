@@ -37,7 +37,7 @@ export type OpenedPullRequest = {
 }
 
 /**
- * The state and the save of the Choose Workspaces step. It adds one source
+ * The state and the save of the Add to Workspaces step. It adds one source
  * for each chosen Workspace. With `manage`, the step starts from the sources
  * that the connection has now, and the save also updates a changed scope and
  * removes an unchecked Workspace. After a successful save it refreshes "Used

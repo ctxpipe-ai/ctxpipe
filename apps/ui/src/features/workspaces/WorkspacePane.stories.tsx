@@ -711,6 +711,8 @@ export const SelectedTabInView: Story = {
     previewPath: null,
   },
   parameters: {
+    intent:
+      "Catches a selected file tab that stays hidden when many tabs overflow. The tab strip scrolls so the selected tab is in view. Not for tab padding or tab content.",
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -746,7 +748,11 @@ export const TextTabsKeepPadding: Story = {
     fileTabs: [ledgerPath, "knowledge/notes/meeting-notes-1.md"],
     previewPath: null,
   },
-  parameters: SelectedTabInView.parameters,
+  parameters: {
+    ...SelectedTabInView.parameters,
+    intent:
+      "Catches file tabs with the wrong padding or a missing fade-in, or an icon tab that is not square. Text tabs keep 12px side padding. Not for tab selection.",
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const active = await canvas.findByRole("tab", { name: "ledger.md" })
@@ -890,6 +896,8 @@ export const GraphPhasePending: Story = {
     graphGets.count = 0
   },
   parameters: {
+    intent:
+      "Catches a graph pane that reads the graph while its build phase is pending. The pane must wait and send no graph request. Not for failed or ready phases.",
     storyRoute: graphPaneRoute,
     msw: {
       handlers: {
@@ -929,7 +937,12 @@ export const GraphPhasePending: Story = {
   },
 }
 
-/** The graph phase failed: the pane shows plain copy, not the store error. */
+const graphRebuilds = { count: 0 }
+
+/**
+ * The graph phase failed: the pane shows plain copy, not the store error, and
+ * a Try again action that asks the server to build the graph again.
+ */
 export const GraphPhaseFailed: Story = {
   tags: ["workspace-golden"],
   args: {
@@ -941,7 +954,36 @@ export const GraphPhaseFailed: Story = {
       },
     },
   },
-  parameters: { storyRoute: graphPaneRoute },
+  beforeEach: () => {
+    graphRebuilds.count = 0
+  },
+  parameters: {
+    intent:
+      "Catches a failed graph phase that shows the raw store error, or that has no Try again action. Try again sends one rebuild-graph request. Not for pending or ready phases.",
+    storyRoute: graphPaneRoute,
+    msw: {
+      handlers: {
+        page: [
+          http.post(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+\/rebuild-graph$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => {
+              graphRebuilds.count += 1
+              return HttpResponse.json(
+                {
+                  ...docsWorkspaceDetail,
+                  hydratePhases: { graph: { kind: "pending" } },
+                },
+                { status: 202 },
+              )
+            },
+          ),
+        ],
+      },
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -949,13 +991,15 @@ export const GraphPhaseFailed: Story = {
     )
     expect(
       canvas.getByText(
-        "Could not build the graph. It builds again automatically.",
+        "Could not build the graph. It builds again automatically, or you can try again now.",
       ),
     ).toBeVisible()
     // The tab fades in for 100 ms when the pane mounts.
     await waitFor(() =>
       expect(canvas.getByRole("tab", { name: "Graph" })).toBeVisible(),
     )
+    await userEvent.click(canvas.getByRole("button", { name: "Try again" }))
+    await waitFor(() => expect(graphRebuilds.count).toBe(1))
   },
 }
 
@@ -976,6 +1020,8 @@ export const GraphLostRebuilds: Story = {
     graphGets.count = 0
   },
   parameters: {
+    intent:
+      "Catches a ready graph that the store lost and the pane then shows an error. The pane shows the building state and opens the graph when a later read has it. Not for failed phases.",
     storyRoute: graphPaneRoute,
     msw: {
       handlers: {
@@ -1032,6 +1078,8 @@ export const GraphPhaseReadyStoreUnavailable: Story = {
     },
   },
   parameters: {
+    intent:
+      "Catches a ready graph phase with a failing graph route that hides the failure. The route error must show in the pane. Not for pending or failed phases.",
     storyRoute: graphPaneRoute,
     msw: {
       handlers: {
@@ -1064,6 +1112,10 @@ export const GraphPhaseReadyStoreUnavailable: Story = {
 
 /** Collapsed pane: the Graph trigger shows a busy dot while the graph builds. */
 export const TriggersGraphBuilding: Story = {
+  parameters: {
+    intent:
+      "Catches a collapsed pane whose Graph trigger shows no busy dot while the graph builds, or shows it on other triggers. Click opens the graph. Not for the open pane.",
+  },
   tags: ["workspace-golden"],
   args: {
     workspace: {
@@ -1216,6 +1268,8 @@ export const ConversationSandboxFiles: Story = {
     pane: { kind: "files" },
   },
   parameters: {
+    intent:
+      "Catches a conversation file tree that shows the workspace files instead of the sandbox files. The sandbox branch tree must show. Not for the legacy tree or edits.",
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -1262,7 +1316,11 @@ export const ConversationMaximizedSync: Story = {
     ...ConversationSandboxFiles.args,
     maximized: true,
   },
-  parameters: ConversationSandboxFiles.parameters,
+  parameters: {
+    ...ConversationSandboxFiles.parameters,
+    intent:
+      "Catches a maximized pane with a dirty branch that lacks Sync or shows Create PR. Sync must be the only call to action. Not for a clean branch.",
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const sync = await canvas.findByRole("button", {
@@ -1587,6 +1645,8 @@ export const DefaultBranchUntilSandboxReady: Story = {
   },
   render: (args) => <StartingSandboxPlayground {...args} />,
   parameters: {
+    intent:
+      "Catches a new conversation that shows no files before its sandbox is ready. It shows the default branch, then the sandbox tree with open folders and the open file kept. Not for later turns.",
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -1682,6 +1742,8 @@ export const StableFilesRequestBudget: Story = {
   },
   render: (args) => <WorkspacePanePlayground {...args} />,
   parameters: {
+    intent:
+      "Catches a files pane that keeps sending tree requests after it paints. The count of tree reads must stay stable and not show repository folders. Not for tree content.",
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -1832,6 +1894,8 @@ export const EditThenNavigate: Story = {
   },
   render: (args) => <EditThenNavigateHarness {...args} />,
   parameters: {
+    intent:
+      "Catches an edited file that is lost when the user leaves the pane. The pane saves on leave with the expected worktree version. Not for typing or tab changes.",
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -1990,6 +2054,8 @@ export const NewFileKeepsTypedText: Story = {
     previewPath: ledgerPath,
   },
   parameters: {
+    intent:
+      "Catches a new file whose editor is replaced after the first edit. The editor stays the same element and keeps focus, so later keys reach it. Not for saved file content.",
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -2138,6 +2204,8 @@ export const OutOfOrderSaves: Story = {
     previewPath: ledgerPath,
   },
   parameters: {
+    intent:
+      "Catches saves that finish out of order and show old text. The editor must show the latest typed text for each file. Not for one save.",
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",

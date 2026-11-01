@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { describe, expect, it } from "vitest"
+import { HttpResponse, http } from "msw"
+import { setupServer } from "msw/node"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import {
   type CallRule,
@@ -30,6 +32,7 @@ import {
   gateThresholds,
   type RunResult,
 } from "../../evals/mcp/gate.js"
+import { openRouterPrices, usageCost } from "../../evals/mcp/models.js"
 import { MCP_TOOL_ERROR_CODES } from "./framework/tool-errors.js"
 import { registerMcpReadTools } from "./framework/tool-registry.js"
 import { findSymbolTool } from "./tools/find-symbol.js"
@@ -707,5 +710,57 @@ describe("baseline.json", () => {
       expect(typeof stored.recordedAt).toBe("string")
       expect(Object.keys(stored.models).length).toBeGreaterThanOrEqual(2)
     }
+  })
+})
+
+describe("eval cost", () => {
+  const server = setupServer(
+    http.get("https://prices.test/v1/models", () =>
+      HttpResponse.json({
+        data: [
+          {
+            id: "anthropic/claude-sonnet-4.5",
+            pricing: { prompt: "0.000003", completion: "0.000015" },
+          },
+          { id: "openai/unpriced", pricing: {} },
+          {
+            id: "other/model",
+            pricing: { prompt: "0.000001", completion: "0.000002" },
+          },
+        ],
+      }),
+    ),
+    http.get("https://down.test/v1/models", () =>
+      HttpResponse.json({}, { status: 503 }),
+    ),
+  )
+  beforeAll(() => server.listen({ onUnhandledRequest: "error" }))
+  afterAll(() => server.close())
+
+  it("prices the run models from the OpenRouter list, and leaves an unlisted model unknown", async () => {
+    const prices = await openRouterPrices("https://prices.test/v1/", [
+      "anthropic/claude-sonnet-4.5",
+      "openai/unpriced",
+    ])
+    expect([...prices.keys()]).toEqual(["anthropic/claude-sonnet-4.5"])
+    expect(
+      usageCost(
+        { inputTokens: 1_000, outputTokens: 100 },
+        prices.get("anthropic/claude-sonnet-4.5"),
+      ),
+    ).toBeCloseTo(0.0045)
+    expect(
+      usageCost(
+        { inputTokens: 1_000, outputTokens: 100 },
+        prices.get("openai/unpriced"),
+      ),
+    ).toBeUndefined()
+  })
+
+  it("gives no prices when the list does not load", async () => {
+    const prices = await openRouterPrices("https://down.test/v1", [
+      "anthropic/claude-sonnet-4.5",
+    ])
+    expect(prices.size).toBe(0)
   })
 })

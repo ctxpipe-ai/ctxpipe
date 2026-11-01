@@ -23,6 +23,7 @@ import {
   findStepCommit,
   IngestRefRefusedError,
   type IngestRemote,
+  ingestRunRefTip,
   listStepFiles,
   mergeIngestPublish,
   type PushIngestStepInput,
@@ -613,20 +614,28 @@ async function admitIngestJob(
     if (!run?.unfinished)
       throw new IngestRefRefusedError(
         "The job's run is not an unfinished ingestion run of the org",
+        ["admission"],
       )
   }
   const workspace = await getWorkspaceWriteAdmission(workspaceId, orgId)
   if (!workspace)
-    throw new IngestRefRefusedError("The Workspace is not bound in the org")
+    throw new IngestRefRefusedError("The Workspace is not bound in the org", [
+      "admission",
+    ])
   if (workspace.writeStatus !== "writable")
-    throw new IngestRefRefusedError("The Workspace is not writable")
+    throw new IngestRefRefusedError("The Workspace is not writable", [
+      "admission",
+    ])
   if (job && workspace.revision.generation !== job.generation)
-    throw new IngestRefRefusedError("The Workspace binding changed")
+    throw new IngestRefRefusedError("The Workspace binding changed", [
+      "admission",
+    ])
   const { url, connectionId } = workspace.revision.remote
   const repositoryName = githubRepoFullNameFromWorkspaceUrl(url)
   if (!repositoryName || !connectionId)
     throw new IngestRefRefusedError(
       "Ingest refs require a connected GitHub repository",
+      ["admission"],
     )
   return {
     url,
@@ -732,19 +741,11 @@ export async function pushWorkspaceIngestAssemble(
   return pushIngestAssemble({ ...input, rootPath: admitted.rootPath, remote })
 }
 
-/**
- * Resume: the commit of `step` on the tip of `ref`, when a step crashed after
- * its push; else null. T09 calls it before the model run of each step.
- */
-export async function findWorkspaceStepCommit(
-  input: { orgId: string; job: IngestBrokerJob; ref: string; step: string },
+/** The read remote of an ingest ref, after the check that the ref is the job's. */
+async function ingestRefReadRemote(
+  input: { orgId: string; job: IngestBrokerJob; ref: string },
   env: Env,
-): Promise<{
-  sha: string
-  ops: number
-  rejects: number
-  more: boolean
-} | null> {
+): Promise<IngestRemote> {
   const target = parseIngestRef(input.ref)
   if (
     target?.runId !== input.job.runId ||
@@ -758,11 +759,48 @@ export async function findWorkspaceStepCommit(
     input.job.workspaceId,
     input.job,
   )
+  return ingestReadRemote(input.orgId, admitted, env)
+}
+
+/**
+ * Resume: the commit of `step` on `ref` after `since`, when a step crashed
+ * after its push or another execution pushed it; else the tip that another
+ * execution moved the ref to, or null. T09 calls it before the model run of
+ * each step.
+ */
+export async function findWorkspaceStepCommit(
+  input: {
+    orgId: string
+    job: IngestBrokerJob
+    ref: string
+    step: string
+    since: string
+  },
+  env: Env,
+): ReturnType<typeof findStepCommit> {
   return findStepCommit({
-    remote: await ingestReadRemote(input.orgId, admitted, env),
+    remote: await ingestRefReadRemote(input, env),
     ref: input.ref,
     runId: input.job.runId,
     step: input.step,
+    since: input.since,
+  })
+}
+
+/**
+ * The tip of the job's ref (read only): `given`, or a later commit of the run
+ * that another execution of the same child pushed (CTX-1073). A missing ref
+ * gives `given`.
+ */
+export async function readWorkspaceIngestRunTip(
+  input: { orgId: string; job: IngestBrokerJob; ref: string; given: string },
+  env: Env,
+): Promise<string> {
+  return ingestRunRefTip({
+    remote: await ingestRefReadRemote(input, env),
+    ref: input.ref,
+    runId: input.job.runId,
+    given: input.given,
   })
 }
 

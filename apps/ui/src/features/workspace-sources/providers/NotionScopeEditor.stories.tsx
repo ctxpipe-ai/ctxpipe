@@ -12,7 +12,7 @@ import { NotionScopeEditor } from "./notion"
 const HANDBOOK = "1a2b3c4d-0000-4000-8000-000000000001"
 const INCIDENTS = "1a2b3c4d-0000-4000-8000-000000000002"
 
-/** The editor with the scope it reports, as the Choose Workspaces step holds it. */
+/** The editor with the scope it reports, as the Add to Workspaces step holds it. */
 function EditorWithOutput(props: {
   initialScope: Record<string, unknown>
   label?: string

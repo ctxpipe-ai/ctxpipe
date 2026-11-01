@@ -58,7 +58,7 @@ Cursor is not in use now. Use this section only when Cursor Cloud runs again. Fo
 - Set the secrets in the Cursor dashboard under Cloud Agents. `AUTH_SECRET` (32 or more characters) is required. `DATABASE_URL` and `GRAPH_DB_URI` are optional.
 - A personal dashboard environment can override the committed `environment.json`. If agents boot without Docker or Bun, remove the override or save a personal install that includes them.
 - Cursor applies `environment.json` only when it builds the image. If `docker` is missing on the VM, rebuild at [cursor.com/onboard](https://cursor.com/onboard).
-- CI, CLI tests, Changeset Guard, and PR Deploy listen to both `push` and `pull_request`, because Cursor Cloud commits sometimes skip `synchronize`. A job runs on exactly one of these events: `cursor[bot]` and `cursoragent` on `push`, everyone else on `pull_request`. PR Deploy keeps one concurrency group for each PR branch. Manual fallback: Actions, PR Deploy, Run workflow. Select the PR branch (never `main`), then enter the PR number.
+- CI, CLI tests, Changeset Guard, and PR Deploy run on `pull_request`. CI also runs on `push` to `main`. PR Deploy keeps one concurrency group for each PR branch. Manual fallback: Actions, PR Deploy, Run workflow. Select the PR branch (never `main`), then enter the PR number.
 
 ## Claude Code on the web
 

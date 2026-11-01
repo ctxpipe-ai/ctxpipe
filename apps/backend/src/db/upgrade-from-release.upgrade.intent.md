@@ -1,0 +1,1 @@
+An operator upgrades from the previous release with no manual step, and the code of the previous release still reads the database. Catches migration, backfill, Workspace upgrade and rollback breaks. Not for UI, prompt or retrieval changes.

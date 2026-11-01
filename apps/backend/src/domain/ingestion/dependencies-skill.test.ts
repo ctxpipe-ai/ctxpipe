@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process"
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -13,6 +14,7 @@ import { afterAll, describe, expect, it } from "vitest"
 import { stringify } from "yaml"
 
 import { writeStepIndex } from "../../test/ingest-step-index.js"
+import { withExistingRootFiles } from "./ingestion-plan.js"
 import { gitSource, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
 
@@ -128,23 +130,30 @@ async function step(
       base,
       sourcePath: SOURCE_PATH,
     })
-  await index(baseCommit)
+  const { rootFiles } = await index(baseCommit)
   writeFileSync(
     join(root, "step.json"),
     JSON.stringify({ workspaceId: WORKSPACE_ID, baseCommit }),
   )
   mkdirSync(join(root, "out", "files"), { recursive: true })
+  // The host map: the files that this run wrote (`files`), and the existing
+  // files of each root at the step base.
   const rootsFile = join(root, "roots.json")
   writeFileSync(
     join(rootsFile),
-    JSON.stringify({
-      roots: roots.map((r) => ({
-        path: r.path,
-        manifests: [],
-        evidence: [],
-        files: r.files ?? [],
-      })),
-    }),
+    JSON.stringify(
+      withExistingRootFiles(
+        {
+          roots: roots.map((r) => ({
+            path: r.path,
+            manifests: [],
+            evidence: [],
+            files: r.files ?? [],
+          })),
+        },
+        rootFiles,
+      ),
+    ),
   )
   const script = (name: string, ...args: string[]) =>
     spawnSync(
@@ -223,7 +232,42 @@ async function step(
     ]
     return [...new Map(all.map((c) => [c.id, c])).values()]
   }
-  return { root, sourceDir, scan, candidates, apply, validate, advance, show }
+  /** patch.json of the step, as the host reads it. */
+  const patch = () =>
+    JSON.parse(readFileSync(join(root, "out", "patch.json"), "utf8")) as {
+      ops: unknown[]
+      stats?: Record<string, number>
+    }
+  /** `scan --gate`, which the host runs before the model. */
+  const gate = (path: string | null = ".") => {
+    const result = script(
+      "scan",
+      ...(path === null ? [] : ["--path", path]),
+      "--gate",
+    )
+    expect(result.status, `${result.stdout}${result.stderr}`).toBe(0)
+    return JSON.parse(result.stdout) as { needsModel: boolean }
+  }
+  /** `ctxpipe-finish`, which the model runs last. */
+  const finish = () =>
+    execFileSync(
+      process.execPath,
+      [join(INGEST_SKILLS_DIR, "bin/ctxpipe-finish"), "--root", root],
+      { env: GIT_ENV },
+    )
+  return {
+    root,
+    sourceDir,
+    scan,
+    candidates,
+    apply,
+    validate,
+    advance,
+    show,
+    patch,
+    finish,
+    gate,
+  }
 }
 
 const SERVICE_TS = `
@@ -533,6 +577,70 @@ describe("dependencies scan", { timeout: 60_000 }, () => {
   })
 })
 
+describe("dependencies scan gate", { timeout: 60_000 }, () => {
+  const shopApi = {
+    "package.json": JSON.stringify({
+      name: "shop-api",
+      dependencies: { express: "4.0.0" },
+    }),
+  }
+  const withCalls = { ...shopApi, "src/service.ts": SERVICE_TS }
+
+  it("says that no model is needed for a root with no candidate, and writes the counts", async () => {
+    const s = await step({ ...shopApi, "src/a.ts": "export const a = 1\n" }, {})
+    expect(s.gate()).toMatchObject({ needsModel: false })
+    expect(s.patch()).toEqual({
+      ops: [],
+      stats: { "gate.no_candidates": 1 },
+    })
+  })
+
+  it("says that no model is needed for a root with candidates and no Service file", async () => {
+    const library = front(
+      { kind: "Library", name: "shop-lib", sources: [SOURCE_PATH] },
+      "# shop-lib\n",
+    )
+    const s = await step(
+      {
+        "package.json": JSON.stringify({ name: "shop-lib", main: "x.js" }),
+        "src/service.ts": SERVICE_TS,
+      },
+      { "knowledge/libraries/shop-lib.md": library },
+      [{ path: ".", files: [] }],
+    )
+    expect(s.gate()).toMatchObject({ needsModel: false })
+    expect(s.patch().stats).toEqual({
+      "gate.no_service": 1,
+      "candidates.http": 2,
+      "candidates.config": 2,
+      "roots.no_service": 1,
+    })
+  })
+
+  it("says that the model is needed for a root with candidates and a Service file, and keeps the counts when the model runs no apply", async () => {
+    const s = await step(withCalls, {})
+    expect(s.gate()).toMatchObject({ needsModel: true })
+    const counts = { "candidates.http": 2, "candidates.config": 2 }
+    expect(s.patch()).toEqual({ ops: [], stats: counts })
+    // The model ends with ctxpipe-finish and no apply.mjs: the span still
+    // gets the counts of the scan.
+    s.finish()
+    expect(s.patch().stats).toEqual(counts)
+  })
+
+  it("gates the repository-wide step on the stream candidates of the roots that have a Service file", async () => {
+    const queue = 'channel.sendToQueue("tasks", Buffer.from("x"))\n'
+    // An HTTP candidate is for the root step: no stream candidate is left.
+    const none = await step(
+      { ...shopApi, "src/a.ts": 'fetch("http://billing/x")\n' },
+      {},
+    )
+    expect(none.gate(null)).toMatchObject({ needsModel: false })
+    const some = await step({ ...shopApi, "src/q.ts": queue }, {})
+    expect(some.gate(null)).toMatchObject({ needsModel: true })
+  })
+})
+
 describe("dependencies apply", { timeout: 60_000 }, () => {
   const BILLING = "knowledge/services/billing.md"
   const context = () => ({
@@ -560,6 +668,20 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
     expect(own).toContain("predicate: DEPENDS_ON")
     expect(own).toContain("path: src/service.ts")
     expect(own).toContain("kind: model")
+  })
+
+  it("reads only the first 300 resolutions, counts the others, and still writes the claims", async () => {
+    const s = await step({ "src/service.ts": SERVICE_TS }, context())
+    const call = s.candidates().find((c) => c.target.text.endsWith("/invoices"))
+    const out = s.apply([
+      { id: call?.id, kind: "service", path: BILLING },
+      ...Array.from({ length: 302 }, () => ({ id: call?.id, kind: "ignore" })),
+    ])
+    expect(out.ops).toEqual([{ op: "update", path: OWN }])
+    expect(out.skipped.map((x) => x.reason)).toContain(
+      "The script read only the first 300 resolutions",
+    )
+    expect(s.patch().stats?.["skipped.too_many"]).toBe(3)
   })
 
   it("creates a Stream file for a new stream and links the producer", async () => {
@@ -667,6 +789,186 @@ describe("dependencies apply", { timeout: 60_000 }, () => {
       null,
     )
     expect(out.ops).toEqual([])
+  })
+
+  it("counts the candidates, resolutions, and skipped choices in patch.json, with no path or text", async () => {
+    const s = await step({ "src/service.ts": SERVICE_TS }, context())
+    const candidates = s.candidates()
+    const id = (text: string) =>
+      candidates.find((c) => c.target.text === text)?.id
+    s.apply([
+      {
+        id: id("http://billing.internal:8080/invoices"),
+        kind: "service",
+        path: BILLING,
+      },
+      { id: id("BILLING_SERVICE_URL"), kind: "ignore" },
+      { id: "c0000000000", kind: "service", path: BILLING },
+      { id: id("https://users.example.com/me"), kind: "api", path: BILLING },
+    ])
+    const expected = {
+      "candidates.http": 2,
+      "candidates.config": 2,
+      "resolutions.service": 2,
+      "resolutions.api": 1,
+      "resolutions.ignore": 1,
+      "skipped.unknown_id": 1,
+      "skipped.unknown_path": 1,
+    }
+    expect(s.patch().stats).toEqual(expected)
+    // ctxpipe-finish writes patch.json again and keeps the counts.
+    s.finish()
+    expect(s.patch().stats).toEqual(expected)
+  })
+
+  // CTX-1083: on a later ingest, classify-kind finds its file and changes
+  // nothing, so no step commit of the root lists a file. The host adds the
+  // file of an earlier ingest to the roots map: its front matter `root` is
+  // the root, and its `sources` hold the source path.
+  describe("a root whose Service file an earlier ingest wrote", () => {
+    const shopApi = {
+      "package.json": JSON.stringify({
+        name: "shop-api",
+        dependencies: { express: "4.0.0" },
+      }),
+      "src/service.ts": SERVICE_TS,
+    }
+    // The name is not the package name: the host matches the root, not the name.
+    const STOREFRONT = "knowledge/services/storefront.md"
+    const earlier = (root: string, name = "Storefront") =>
+      front(
+        {
+          kind: "Service",
+          name,
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH],
+          root,
+        },
+        `# ${name}\n`,
+      )
+
+    it("writes DEPENDS_ON in the root step", async () => {
+      const s = await step(
+        shopApi,
+        { ...context(), [STOREFRONT]: earlier(".") },
+        [{ path: ".", files: [] }],
+      )
+      expect(s.gate()).toMatchObject({ needsModel: true })
+      const call = s
+        .candidates()
+        .find((c) => c.target.text.endsWith("/invoices"))
+      const out = s.apply([{ id: call?.id, kind: "service", path: BILLING }])
+      expect(out.skipped.map((x) => x.reason).join()).not.toContain(
+        "no Service file",
+      )
+      expect(out.ops).toEqual([{ op: "update", path: STOREFRONT }])
+      const result = await s.validate()
+      expect(result.rejections).toEqual([])
+      expect(s.show(result.tree, STOREFRONT)).toContain("predicate: DEPENDS_ON")
+    })
+
+    it("writes PRODUCES_TO for a Python worker in the repository-wide step", async () => {
+      const s = await step(
+        {
+          "worker/pyproject.toml":
+            '[project]\nname = "mail-worker"\ndependencies = ["pika"]\n',
+          "worker/main.py": [
+            "import pika",
+            "ch = pika.BlockingConnection().channel()",
+            'ch.basic_publish(exchange="", routing_key="emails", body=b"x")',
+          ].join("\n"),
+        },
+        { "knowledge/services/mailer.md": earlier("worker", "Mailer") },
+        [{ path: "worker", files: [] }],
+      )
+      const queue = s.candidates("worker").find((c) => c.type === "queue")
+      expect(queue).toBeDefined()
+      const out = s.apply(
+        [{ root: "worker", id: queue?.id, kind: "stream", name: "emails" }],
+        null,
+      )
+      expect(out.ops.map((o) => o.path)).toEqual([
+        "knowledge/services/mailer.md",
+        "knowledge/streams/emails.md",
+      ])
+      const result = await s.validate()
+      expect(result.rejections).toEqual([])
+      expect(s.show(result.tree, "knowledge/services/mailer.md")).toContain(
+        "predicate: PRODUCES_TO",
+      )
+    })
+
+    it("writes no claim to a Service file of another root or another source", async () => {
+      const s = await step(
+        shopApi,
+        {
+          ...context(),
+          [STOREFRONT]: earlier("apps/web"),
+          "knowledge/services/shop-api.md": front(
+            {
+              kind: "Service",
+              name: "shop-api",
+              generated_by: "ctxpipe-extract",
+              sources: ["sources/github/example-org/other.md"],
+              root: ".",
+            },
+            "# shop-api\n",
+          ),
+        },
+        [{ path: ".", files: [] }],
+      )
+      expect(s.gate()).toMatchObject({ needsModel: false })
+      const call = s
+        .candidates()
+        .find((c) => c.target.text.endsWith("/invoices"))
+      const out = s.apply([{ id: call?.id, kind: "service", path: BILLING }])
+      expect(out.ops).toEqual([])
+    })
+
+    it("does not take a Service file with no root because its name is the package name", async () => {
+      // OWN is "Shop API", of this source, with no front matter `root`.
+      const s = await step(shopApi, context(), [{ path: ".", files: [] }])
+      expect(s.gate()).toMatchObject({ needsModel: false })
+      const call = s
+        .candidates()
+        .find((c) => c.target.text.endsWith("/invoices"))
+      const out = s.apply([{ id: call?.id, kind: "service", path: BILLING }])
+      expect(out.ops).toEqual([])
+      expect(out.skipped.map((x) => x.reason)).toContain(
+        "The root . has no Service file in the context, so it has no claims",
+      )
+    })
+
+    it("writes no claim to the old Service file of a root that this run classified as a Library", async () => {
+      const LIBRARY = "knowledge/libraries/shop-lib.md"
+      const s = await step(
+        {
+          "package.json": JSON.stringify({ name: "shop-lib", main: "x.js" }),
+          "src/service.ts": SERVICE_TS,
+        },
+        {
+          ...context(),
+          [STOREFRONT]: earlier("."),
+          [LIBRARY]: front(
+            {
+              kind: "Library",
+              name: "shop-lib",
+              generated_by: "ctxpipe-extract",
+              sources: [SOURCE_PATH],
+              root: ".",
+            },
+            "# shop-lib\n",
+          ),
+        },
+        [{ path: ".", files: [LIBRARY] }],
+      )
+      expect(s.gate()).toMatchObject({ needsModel: false })
+      const call = s
+        .candidates()
+        .find((c) => c.target.text.endsWith("/invoices"))
+      const out = s.apply([{ id: call?.id, kind: "service", path: BILLING }])
+      expect(out.ops).toEqual([])
+    })
   })
 
   it("does nothing on a second run on the new base", async () => {

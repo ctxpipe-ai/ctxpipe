@@ -1,5 +1,6 @@
 id: claude-promote-port
 host: claude
+intent: "A host agent copies a seed-file fact into the memory lesson file, and capture hooks record a candidate. Catches memory hook and capture changes. Not for ADR writing, classifier wording or CLI UI."
 # Materialize before the agent starts. The fact lives only in seed files —
 # the user prompt must classify as empty (no CLASSIFIERS / FACT_PATTERNS hits).
 seed:

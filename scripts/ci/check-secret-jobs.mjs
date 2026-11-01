@@ -39,6 +39,37 @@
 // - A job that holds a secret uses a third-party action (not `actions/…`)
 //   only when it is pinned by a 40-character commit SHA: a tag can move to
 //   other code. Put the version in a comment after the SHA.
+// - A job with `id-token: write` can get a cloud credential through GitHub
+//   OIDC (for example the read-only merge gate role of the factory account).
+//   It follows every rule of a job that holds a secret. The jobs in
+//   oidcPublishJob (the npm publish jobs) are the exception, except for the
+//   rule that a third-party action is pinned: they follow that rule. A
+//   top-level `permissions: id-token: write` applies to each job that has no
+//   `permissions:` of its own.
+// - A job with `id-token: write` that checks out another commit (`ref:`)
+//   proves that the commit is on main (`git merge-base --is-ancestor HEAD
+//   origin/main`) in the step directly after each such checkout, before any
+//   other command of that step. On main, its token has the subject of main,
+//   which a cloud role can trust. The proof is the last non-empty line of the
+//   `run` of its step, and a plain command whose failure fails the step: the
+//   step has no `if:`, no `continue-on-error`, no `shell:`, no `set `, no
+//   `trap`, and nothing on the proof line or after it hides the exit status
+//   (`&&`, `||`, `;`).
+// - The merge gate selection job (ci.yaml merge-gate-select) does not use
+//   `workbench`: it reads only our own result store and the selector release
+//   through a read-only OIDC role of the factory account. It needs no secret
+//   and spends no money, so the rule for paid or outside checks does not
+//   apply.
+// - The merge gate LLM job (ci.yaml merge-gate-llm) holds the model key of
+//   `workbench` and no cloud role. It runs only the selector release that
+//   the select job downloaded, after it checks the pinned SHA-256 again.
+// - A step that lists the checks holds no secret and is in no job with an
+//   OIDC token: list.mjs or
+//   `checks:list`; run.mjs or `checks:run` without `--manifest`; and
+//   rerun-failed.mjs or selected.mjs without a non-empty `MANIFEST:` in the
+//   step env (a manifest that an earlier step listed). The discovery imports
+//   PR code (eval cases, the Storybook configuration), so a check step gets
+//   its credential only after the checks are listed.
 // The production jobs in productionJobs run only on a push to main, so the
 // rules for one job do not apply to them; the pin rule and the cache rule do.
 // Every other job of deploy.yaml gets all the rules.
@@ -116,6 +147,11 @@ const exceptions = new Map(
   }),
 )
 
+// An OIDC token: `id-token: write`, `permissions: write-all`, or the flow
+// form `permissions: { id-token: write }`, at workflow or job level.
+const oidcToken =
+  /^\s+id-token:\s*["']?write["']?(?![\w-])|^\s*permissions:\s*(?:["']?write-all["']?(?![\w-])|\{[^}]*\bid-token:\s*["']?write["']?(?![\w-]))/
+
 // Jobs that run only for main, as deploy.yaml does. The check keeps their
 // `if:` limited to refs/heads/main.
 const mainOnly = new Set(["observability.yaml:apply"])
@@ -166,14 +202,17 @@ function code(text) {
 
 function parse(text) {
   const workflowEnv = []
+  const workflowPermissions = []
   const jobs = []
   let section = ""
   for (const line of code(text)) {
     if (/^\S/.test(line.text)) {
       section = /^(\w+):/.exec(line.text)?.[1] ?? ""
+      if (section === "permissions") workflowPermissions.push(line)
       continue
     }
     if (section === "env") workflowEnv.push(line)
+    if (section === "permissions") workflowPermissions.push(line)
     if (section !== "jobs") continue
     const header = /^ {2}([\w-]+):\s*$/.exec(line.text)
     if (header) {
@@ -187,9 +226,10 @@ function parse(text) {
     if (/^ {4}\S/.test(line.text)) job.inEnv = /^ {4}env:\s*$/.test(line.text)
     else if (job.inEnv && line.text.trim() !== "") job.env.push(line)
     if (/^\s{4,6}-\s/.test(line.text))
-      job.steps.push({ uses: "", keys: [], inRestoreKeys: false })
+      job.steps.push({ uses: "", keys: [], inRestoreKeys: false, lines: [] })
     const step = job.steps.at(-1)
     if (!step) continue
+    step.lines.push(line)
     const uses = /^\s+(?:-\s+)?uses:\s*(\S+)/.exec(line.text)
     if (uses) step.uses = uses[1]
     const key = /^\s+(key|restore-keys):\s*(.*?)\s*$/.exec(line.text)
@@ -211,7 +251,7 @@ function parse(text) {
       })
     else step.inRestoreKeys = false
   }
-  return { workflowEnv, jobs }
+  return { workflowEnv, workflowPermissions, jobs }
 }
 
 // What a cache step does with its key: a sticky disk and actions/cache read
@@ -261,7 +301,9 @@ for (const script of reviewedScripts) {
 
 for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
   const file = join(".github", "workflows", name)
-  const { workflowEnv, jobs } = parse(readFileSync(join(root, file), "utf8"))
+  const { workflowEnv, workflowPermissions, jobs } = parse(
+    readFileSync(join(root, file), "utf8"),
+  )
   const isProduction = file === production
 
   for (const { text, number } of workflowEnv)
@@ -270,14 +312,56 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
         `${file}:${number}: a secret in the workflow env reaches every job. Put it in the env of the one step or job that needs it.`,
       )
 
+  const workflowOidc = workflowPermissions.some(({ text }) =>
+    oidcToken.test(text),
+  )
   for (const job of jobs) {
-    const holdsSecret = job.lines.some(({ text }) => secretUse.test(text))
+    // A job has an OIDC token when it asks for one, or when the workflow
+    // does and the job has no `permissions:` of its own.
+    const hasOidc =
+      job.lines.some(({ text }) => oidcToken.test(text)) ||
+      (workflowOidc &&
+        !job.lines.some(({ text }) => /^ {4}permissions:/.test(text)))
+    // Jobs that ask for an OIDC token only for npm trusted publishing (the
+    // token proves the workflow to npm), by a decision of the team. They run the
+    // package manager to build and publish. On main their token has the subject
+    // repo:ctxpipe-ai/ctxpipe:ref:refs/heads/main, which the result store role
+    // check-results-ci-writer also trusts. Thus these jobs and the ci.yaml
+    // results-writer can get that role. This is an accepted risk: `release`
+    // builds main itself, and `prerelease` builds only a commit that is on main
+    // (the ancestor rule below). The risk is the code on main and its
+    // dependencies.
+    const oidcPublishJob = [
+      "deploy.yaml:release",
+      "deploy.yaml:prerelease",
+    ].includes(`${name}:${job.name}`)
+    const holdsSecret =
+      job.lines.some(({ text }) => secretUse.test(text)) ||
+      (hasOidc && !oidcPublishJob)
     const environment = job.lines
       .map(({ text }) => /^ {4}environment:\s*['"]?([\w-]+)/.exec(text)?.[1])
       .find(Boolean)
     const runsUntrusted = job.lines.some(({ text }) =>
       untrusted.some(([pattern]) => pattern.test(text)),
     )
+
+    for (const step of job.steps) {
+      const text = step.lines.map((line) => line.text).join("\n")
+      const manifest = /^\s+MANIFEST:\s*(?!(?:""|''|~|null)?\s*$)\S/m.test(text)
+      const discovers =
+        /(?<![\w-])list\.mjs\b|\bchecks:list\b/.test(text) ||
+        (/(?<![\w-])run\.mjs\b|\bchecks:run\b/.test(text) &&
+          !/--manifest\b/.test(text)) ||
+        (/\b(?:rerun-failed|selected)\.mjs\b/.test(text) && !manifest)
+      // An OIDC token of the job reaches each step of the job.
+      const secret =
+        step.lines.find((line) => secretUse.test(line.text)) ??
+        (hasOidc && step.lines[0])
+      if (discovers && secret)
+        failures.push(
+          `${file}:${secret.number}: job ${job.name} gives a secret or an OIDC token to a step that lists the checks. The discovery imports PR code: list the checks in an earlier step without the secret, and give the manifest to run.mjs in --manifest, or to selected.mjs and rerun-failed.mjs in MANIFEST.`,
+        )
+    }
 
     for (const step of job.steps) {
       const access = cacheAccess(step.uses)
@@ -291,7 +375,7 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
       }
     }
 
-    if (holdsSecret)
+    if (holdsSecret || hasOidc)
       for (const { text, number } of job.lines) {
         const action = /^\s+(?:-\s+)?uses:\s*['"]?([^\s'"#]+)/.exec(text)?.[1]
         if (
@@ -301,7 +385,7 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
           !pinnedAction.test(action)
         )
           failures.push(
-            `${file}:${number}: job ${job.name} holds a secret and uses ${action}, a third-party action that is not pinned. Pin it by its 40-character commit SHA, with the version in a comment.`,
+            `${file}:${number}: job ${job.name} holds a secret or an OIDC token and uses ${action}, a third-party action that is not pinned. Pin it by its 40-character commit SHA, with the version in a comment.`,
           )
       }
 
@@ -323,6 +407,60 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
           `${file}:${number}: job ${job.name} can show HANDOFF_KEY in the log. Mask it with ::add-mask:: in an earlier step, and do not echo it.`,
         )
     }
+
+    // Another commit in a job with an OIDC token: each checkout with `ref:`
+    // is followed directly by the step that proves the commit is on main. That
+    // step is a `run:` step, and nothing in it comes before the proof.
+    if (hasOidc)
+      job.steps.forEach((step, index) => {
+        const ref = step.lines.find(({ text }) => /^\s+ref:\s*\S/.test(text))
+        if (!ref) return
+        const next = job.steps[index + 1]?.lines ?? []
+        const proof = next.findIndex(({ text }) =>
+          /\bgit merge-base --is-ancestor HEAD origin\/main\b/.test(text),
+        )
+        const early = next
+          .slice(0, Math.max(proof, 0))
+          .some(
+            ({ text }) =>
+              /^\s+(?:-\s+)?uses:/.test(text) ||
+              untrusted.some(([pattern]) => pattern.test(text)),
+          )
+        // The proof is the last non-empty line of the `run` of its step, a plain
+        // command whose failure fails the step. The step has no `if:`, no
+        // `continue-on-error`, no `shell:`, no `env:`. The only other line it
+        // may have is an `echo` without command substitution. No line has `set `, `trap`,
+        // `&&`, `||`, `;`, `|` or `&` on the proof line, or anything after it.
+        const runIndex = next.findIndex(({ text }) =>
+          /^\s*(?:-\s+)?run:/.test(text),
+        )
+        const runLines = next
+          .slice(Math.max(runIndex, 0))
+          .map(({ text }) =>
+            text.replace(/^\s*(?:-\s+)?run:\s*(?:[|>][+-]?)?/, ""),
+          )
+          .filter((text) => text.trim() !== "")
+        const hidden =
+          proof !== -1 &&
+          (runIndex === -1 ||
+            runLines.at(-1)?.trim() !==
+              "git merge-base --is-ancestor HEAD origin/main" ||
+            runLines
+              .slice(0, -1)
+              .some(
+                (text) => !/^\s*echo\b/.test(text) || /\$\(|`/.test(text),
+              ) ||
+            next.some(
+              ({ text }) =>
+                /^\s+(?:-\s+)?(if|continue-on-error|shell|env):/.test(text) ||
+                /(?<![\w-])set\s/.test(text) ||
+                /(?<![\w-])trap\b/.test(text),
+            ))
+        if (proof === -1 || early || hidden)
+          failures.push(
+            `${file}:${ref.number}: job ${job.name} has an OIDC token and checks out another commit. In the step directly after the checkout, stop unless \`git merge-base --is-ancestor HEAD origin/main\` passes: on main the token has the subject of main.`,
+          )
+      })
 
     const productionJob = productionJobs.has(`${name}:${job.name}`)
     if (productionJob) {
@@ -350,7 +488,7 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     }
     if (!holdsSecret) continue
     const where = (number) =>
-      `${file}:${number}: job ${job.name} holds a secret and`
+      `${file}:${number}: job ${job.name} holds a secret or an OIDC token and`
     for (const { text, number } of job.env)
       if (secretUse.test(text))
         failures.push(
@@ -366,9 +504,8 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
         failures.push(
           `${where(number)} gives ${token[1]} to a job that runs untrusted code. Move it to a job without such code.`,
         )
-      const accountSecret = /secrets\s*\.\s*(NEON_API_KEY|RAILWAY_WORKSPACE_TOKEN)\b/.exec(
-        text,
-      )
+      const accountSecret =
+        /secrets\s*\.\s*(NEON_API_KEY|RAILWAY_WORKSPACE_TOKEN)\b/.exec(text)
       if (accountSecret && /^workbench$/i.test(environment ?? ""))
         failures.push(
           `${where(number)} gives ${accountSecret[1]} to a job in the workbench environment. Only Preview and production jobs may read it.`,

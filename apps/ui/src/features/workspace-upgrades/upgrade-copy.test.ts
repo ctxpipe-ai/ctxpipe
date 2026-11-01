@@ -4,19 +4,19 @@ import { upgradeItemFixture } from "@/mocks/workspace-upgrades-handlers"
 
 import type { WorkspaceUpgradeItem } from "./queries"
 import {
+  upgradesState,
   formatHealthLine,
   upgradeBlockedCopy,
   upgradeCanCheck,
   upgradeCanStart,
   upgradeGroup,
   upgradeGroups,
-  upgradeHeadline,
   upgradeHistoryLine,
   upgradeIsCheckingFormat,
   upgradeNotices,
   upgradeSpendLine,
   upgradeStartedMessage,
-  upgradeStatusTag,
+  upgradeStatusLabel,
   upgradeWaitingCopy,
 } from "./upgrade-copy"
 
@@ -156,7 +156,7 @@ describe("upgrade copy", () => {
 
   it("tags a merged pull request and a running re-ingestion for what they do", () => {
     const tag = (overrides: Partial<WorkspaceUpgradeItem>) =>
-      upgradeStatusTag(upgradeItemFixture(overrides)).label
+      upgradeStatusLabel(upgradeItemFixture(overrides))
     expect(
       tag({ status: "pr_open", mergedAt: "2026-10-20T11:00:00.000Z" }),
     ).toBe("Merged. Reading the new format")
@@ -191,7 +191,7 @@ describe("a re-ingestion that waits for the scan after the format changed (CTX-9
   it("is checking when the Workspace has the format that the item needs", () => {
     expect(upgradeIsCheckingFormat(blockedForFormat, 3)).toBe(true)
     expect(upgradeIsCheckingFormat(blockedForFormat, 4)).toBe(true)
-    expect(upgradeStatusTag(blockedForFormat, 3).label).toBe(
+    expect(upgradeStatusLabel(blockedForFormat, 3)).toBe(
       "Checking the new format",
     )
   })
@@ -200,7 +200,7 @@ describe("a re-ingestion that waits for the scan after the format changed (CTX-9
     expect(upgradeIsCheckingFormat(blockedForFormat, 2)).toBe(false)
     expect(upgradeIsCheckingFormat(blockedForFormat, null)).toBe(false)
     expect(upgradeIsCheckingFormat(blockedForFormat, -1)).toBe(false)
-    expect(upgradeStatusTag(blockedForFormat, 2).label).toBe("Blocked")
+    expect(upgradeStatusLabel(blockedForFormat, 2)).toBe("Blocked")
   })
 
   it("does not change a block for another reason or another kind", () => {
@@ -347,68 +347,32 @@ describe("the Status group says if the user must act (CTX-980)", () => {
     ).toBe("working")
   })
 
-  it("gives the headline of the most urgent group", () => {
-    const headline = (needs_you: number, working: number, formatVersion = 3) =>
-      upgradeHeadline({
+  it("gives the most urgent state of the upgrades", () => {
+    const state = (needs_you: number, working: number) =>
+      upgradesState({
         count: { needs_you, working },
-        formatVersion,
-        codeFormat: 3,
-      })
-    const needs = headline(1, 1)
-    expect(needs.label).toBe("Needs you")
-    expect(needs.line).toBe("Action needed. 1 item needs you.")
-    expect(headline(2, 0).line).toBe("Action needed. 2 items need you.")
-    const working = headline(0, 1)
-    expect(working.label).toBe("Working")
-    expect(working.pulse).toBe(true)
-    expect(working.line).toBe("No action needed. ctxpipe works on 1 item now.")
-    const done = headline(0, 0)
-    expect(done.label).toBe("Up to date")
-    expect(done.line).toBe(
-      "No action needed. Upgrades show here and on Home when one is ready.",
-    )
-  })
-
-  it("counts ingestion work as Working, and Needs you still wins", () => {
-    const headline = (needs_you: number, ingesting: string | null) =>
-      upgradeHeadline({
-        count: { needs_you, working: 0 },
         formatVersion: 3,
         codeFormat: 3,
-        ingesting,
       })
-    expect(headline(0, "Ingesting 2 sources")).toMatchObject({
-      label: "Working",
-      pulse: true,
-      line: "No action needed. Ingesting 2 sources now.",
-    })
-    expect(headline(0, "Indexing the newest commit").line).toBe(
-      "No action needed. Indexing the newest commit now.",
-    )
-    expect(headline(1, "Ingesting 1 source").label).toBe("Needs you")
-    expect(headline(0, null).label).toBe("Up to date")
+    expect(state(1, 1)).toBe("needs_you")
+    expect(state(0, 1)).toBe("working")
+    expect(state(0, 0)).toBe("up_to_date")
   })
 
-  it("counts the format health in the headline", () => {
-    const headline = (formatVersion: number | null) =>
-      upgradeHeadline({
+  it("counts the format health in the state", () => {
+    const state = (formatVersion: number | null) =>
+      upgradesState({
         count: { needs_you: 0, working: 0 },
         formatVersion,
         codeFormat: 3,
       })
     // ctxpipe cannot read the format file: a person must fix it.
-    expect(headline(-1)).toMatchObject({
-      label: "Needs you",
-      line: "Action needed. 1 item needs you.",
-    })
-    expect(headline(4).label).toBe("Needs you")
+    expect(state(-1)).toBe("needs_you")
+    expect(state(4)).toBe("needs_you")
     // Below the newest format with no item yet: the scan finds the upgrade.
-    expect(headline(1)).toMatchObject({
-      label: "Working",
-      line: "No action needed. ctxpipe checks the format of the repository now.",
-    })
-    expect(headline(null).label).toBe("Up to date")
-    expect(headline(3).label).toBe("Up to date")
+    expect(state(1)).toBe("checking_format")
+    expect(state(null)).toBe("up_to_date")
+    expect(state(3)).toBe("up_to_date")
   })
 
   it("says the spend of a re-ingestion so far, and 'at least' when a part is unknown", () => {

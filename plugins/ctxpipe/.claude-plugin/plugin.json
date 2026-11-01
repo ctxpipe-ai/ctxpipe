@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "ctxpipe",
   "displayName": "ctxpipe",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Organization engineering context for Claude. Connects the hosted ctxpipe MCP and teaches Claude to search organization knowledge, the graph, and linked code before planning.",
   "author": {
     "name": "ctxpipe",

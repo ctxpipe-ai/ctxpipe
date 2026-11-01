@@ -1,7 +1,8 @@
-import { IconCheck, IconExternalLink } from "@tabler/icons-react"
+import { IconCheck } from "@tabler/icons-react"
 import { useQueries } from "@tanstack/react-query"
 import { type ReactNode, useState } from "react"
 
+import { ExternalLink } from "@/components/ui/ExternalLink"
 import { pollWhileOk } from "@/lib/api-result"
 
 import { stableJson } from "./choose-workspaces"
@@ -80,17 +81,11 @@ export function PullRequestsToMerge(props: {
       <ul className="mt-2 space-y-1 text-sm">
         {props.pullRequests.map((pullRequest, index) => (
           <li key={pullRequest.url} className="flex items-center gap-2">
-            <a
-              href={pullRequest.url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
-            >
+            <ExternalLink href={pullRequest.url}>
               {pullRequest.url
                 .replace(/^https:\/\/github\.com\//, "")
                 .replace("/pull/", "#")}
-              <IconExternalLink className="size-3.5" aria-hidden />
-            </a>
+            </ExternalLink>
             {merged[index] ? (
               <span className="inline-flex items-center gap-1 text-muted-foreground">
                 <IconCheck className="size-3.5" aria-hidden />

@@ -11,6 +11,7 @@ import type {
   IngestShardRuntimeFactory,
   IngestStepUsage,
 } from "../domain/ingestion/ingest-shard-runtime.js"
+import { withExistingRootFiles } from "../domain/ingestion/ingestion-plan.js"
 
 const exec = promisify(execFile)
 
@@ -85,7 +86,7 @@ export function standInIngestShardRuntime(options: {
         )
         if (!destination)
           throw new Error("The step's Workspace is not in the shard")
-        const { index, json } = await buildContextIndex({
+        const { index, json, rootFiles } = await buildContextIndex({
           workspaceId: step.workspaceId,
           sha: destination.pinnedRevision,
           base: step.baseCommit,
@@ -97,7 +98,11 @@ export function standInIngestShardRuntime(options: {
           json,
         )
         const rootsFile = join(root, "roots.json")
-        await writeFile(rootsFile, JSON.stringify(step.rootMap))
+        // The host adds the existing files of each root (ADR-052 section 6).
+        await writeFile(
+          rootsFile,
+          JSON.stringify(withExistingRootFiles(step.rootMap, rootFiles)),
+        )
         // The same host inputs as the sandbox (ADR-052 section 6).
         const args = [
           "--source",

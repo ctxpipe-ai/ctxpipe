@@ -30,6 +30,8 @@ export type CallRule = {
 export type EvalCase = {
   id: string
   name: string
+  /** What the case catches, and what is never a reason to run it (CTX-994). Under 40 words. */
+  intent: string
   prompt: string
   /** Remote URL of the repository the agent works in. `null`: no repository. */
   workingRepository: string | null
@@ -67,6 +69,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "list-workspace-detail",
     name: "Name the repositories of one Workspace",
+    intent:
+      "The agent lists a Workspace with the right org and Workspace arguments. Catches list_workspaces tool descriptions and argument rules. Not for HTTP plumbing, auth or UI.",
     prompt:
       "Which repositories does the Payments Workspace of Harbor Labs link, and is it ready to search?",
     workingRepository: sshRemote,
@@ -81,6 +85,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "workspace-description",
     name: "Describe one Workspace from its AGENTS.md",
+    intent:
+      "The agent reads the Workspace description and unit counts from list_workspaces output. Catches the tool description and result shape. Not for ingestion, auth or UI.",
     prompt:
       "What does the Payments Workspace of Harbor Labs contain, in one sentence, and how many knowledge units of each kind does it hold?",
     workingRepository: sshRemote,
@@ -95,6 +101,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "design-idempotency-retention",
     name: "Search knowledge before a design choice",
+    intent:
+      "The agent searches knowledge before a design choice and finds the decision. Catches retrieval ranking and the search_knowledge description. Not for HTTP plumbing, auth or UI.",
     prompt:
       "I am adding retry handling to the settlement submit path in this repository. How long must we keep idempotency keys? Harbor Labs has a standard for it.",
     workingRepository: sshRemote,
@@ -105,6 +113,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "read-decision-in-full",
     name: "Read a decision by its ref",
+    intent:
+      "The agent opens a decision with read_file and the exact ref. Catches ref and argument rules in the read_file description. Not for file storage, auth or UI.",
     prompt:
       "Open the Harbor Labs decision about idempotency key retention in the Payments Workspace and tell me why they chose that period.",
     workingRepository: sshRemote,
@@ -123,6 +133,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "runbook-replay",
     name: "Find a runbook",
+    intent:
+      "Search finds the relevant runbook for an operations question. Catches retrieval ranking and tool descriptions. Not for HTTP plumbing, auth or UI.",
     prompt:
       "A settlement consumer fell behind. How do we replay settlement events safely at Harbor Labs?",
     workingRepository: httpsRemote,
@@ -133,6 +145,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "incident-history",
     name: "Find an incident",
+    intent:
+      "Search finds a mirrored incident from a history question. Catches retrieval ranking across sources and tool descriptions. Not for connector sync, auth or UI.",
     prompt:
       "Did a settlement replay ever send duplicate payments at Harbor Labs? When did it happen?",
     workingRepository: sshRemote,
@@ -143,6 +157,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "mirrored-ticket",
     name: "Find a mirrored ticket",
+    intent:
+      "Search finds a mirrored ticket by topic. Catches retrieval ranking across sources and tool descriptions. Not for connector sync, auth or UI.",
     prompt:
       "Is there a Linear ticket about duplicate settlement at Harbor Labs? What does it ask for?",
     workingRepository: sshRemote,
@@ -155,6 +171,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "get-related-governing-decision",
     name: "Follow the graph from a service to its decision",
+    intent:
+      "The agent calls get_related with the why intent and a seed path. Catches the graph tool description and seed rules. Not for graph storage, HTTP plumbing or UI.",
     prompt:
       "Start from the Harbor Labs settlement service unit in the Payments Workspace (knowledge/services/settlement.md). Which decision governs it? Use the knowledge graph.",
     workingRepository: sshRemote,
@@ -175,6 +193,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "dependency-of-service",
     name: "Find what a service depends on",
+    intent:
+      "The agent picks a knowledge tool to find a service dependency. Catches tool choice among get_related, read_file and search_knowledge. Not for graph storage, auth or UI.",
     prompt:
       "What does the Harbor Labs settlement service depend on? Check the Payments Workspace.",
     workingRepository: sshRemote,
@@ -189,6 +209,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "parallel-knowledge-and-code",
     name: "Send independent searches in one turn",
+    intent:
+      "The agent sends independent knowledge and code searches in one step. Catches MCP tool prompts about parallel calls. Not for server concurrency, auth or UI.",
     prompt:
       "Before I design retries here, check both the Harbor Labs knowledge and the code in their other repositories for how a first-in first-out queue and idempotency are handled. Run the independent searches together.",
     workingRepository: sshRemote,
@@ -198,6 +220,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "parallel-reads",
     name: "Read two refs in parallel",
+    intent:
+      "The agent reads two refs in one step with read_file. Catches MCP tool prompts about parallel calls. Not for server concurrency, auth or UI.",
     prompt:
       "Read the Harbor Labs settlement service unit and the ledger service unit in the Payments Workspace, and tell me what ERR_LEDGER_FULL means.",
     workingRepository: sshRemote,
@@ -214,6 +238,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "two-orgs-one-session",
     name: "Compare two orgs, one call for each org",
+    intent:
+      "The agent makes one search call for each org in a two-org session. Catches org argument rules in tool descriptions. Not for auth, org isolation in the server or UI.",
     prompt:
       "Compare how Harbor Labs and Meadow Works settle payments. I have access to both.",
     workingRepository: sshRemote,
@@ -226,6 +252,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "org-scope-respected",
     name: "Do not reach into another org",
+    intent:
+      "The agent never calls a tool with a second org that the prompt did not name. Catches org scoping in tool prompts. Not for server-side org isolation, auth or UI.",
     prompt:
       "What is MEADOW_ONLY_42 at Harbor Labs? Search only Harbor Labs for it.",
     workingRepository: sshRemote,
@@ -235,6 +263,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "no-repository-agent",
     name: "An agent outside a repository passes an empty exclusion",
+    intent:
+      "An agent with no repository passes an empty excludeRepositories array. Catches the argument rule in code tool descriptions. Not for remote parsing, auth or UI.",
     prompt:
       "I am not in a git repository. Where is the Queue class defined in the Harbor Labs code?",
     workingRepository: null,
@@ -253,6 +283,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "current-repository-trap-https",
     name: "Exclude the working repository (HTTPS remote)",
+    intent:
+      "The agent excludes the working repository, given as an HTTPS remote, from code search. Catches the excludeRepositories rule. Not for remote parsing, auth or UI.",
     prompt: `I am working in https://github.com/${is}. Find how another Harbor Labs repository implements a first-in first-out queue with enqueue and dequeue.`,
     workingRepository: `https://github.com/${is}`,
     calls: [
@@ -268,6 +300,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "current-repository-trap-ssh",
     name: "Exclude the working repository (SSH remote)",
+    intent:
+      "The agent excludes the working repository, given as an SSH remote, from code search. Catches the excludeRepositories rule. Not for remote parsing, auth or UI.",
     prompt: `My checkout has the remote git@github.com:${is}.git. Search the code of the other Harbor Labs repositories for a queue class with a dequeue method.`,
     workingRepository: `git@github.com:${is}.git`,
     calls: [
@@ -282,6 +316,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "stale-cursor",
     name: "Recover from a cursor that the server rejects as stale",
+    intent:
+      "The agent restarts a search after the server rejects a stale cursor. Catches error text and recovery guidance in tool results. Not for cursor encoding, HTTP plumbing or UI.",
     prompt:
       'A colleague saved a page cursor from a Harbor Labs search_knowledge call with the query "idempotency" and limit 1: {cursor}. Continue that search with the same query, limit, and cursor. If the server rejects the cursor, start the search again and tell me how long the payments service keeps idempotency keys.',
     workingRepository: sshRemote,
@@ -300,6 +336,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "structural-search",
     name: "Use a structural pattern",
+    intent:
+      "The agent uses search_code structural mode with a language. Catches the mode and language rules in the tool description. Not for the code index, auth or UI.",
     prompt:
       "With a syntax-aware (AST) search, find class declarations that define a dequeue method in the other Harbor Labs repositories.",
     workingRepository: httpsRemote,
@@ -318,6 +356,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "regex-search",
     name: "Use a regular expression",
+    intent:
+      "The agent uses search_code regex mode for a pattern query. Catches the mode rule in the tool description. Not for the code index, auth or UI.",
     prompt:
       "Use a regular expression to find exported functions named isString or isNumber in the other Harbor Labs repositories.",
     workingRepository: sshRemote,
@@ -332,6 +372,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "code-search-path-glob",
     name: "Narrow a code search to a path glob",
+    intent:
+      "The agent narrows search_code with a path glob. Catches the pathGlob rule in the tool description. Not for the code index, auth or UI.",
     prompt:
       "In the other Harbor Labs repositories, search only the TypeScript files under the source folder for isPlainObject. Which repository has it?",
     workingRepository: sshRemote,
@@ -350,6 +392,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "symbol-definition",
     name: "Look up a symbol definition",
+    intent:
+      "The agent uses find_symbol with the definition relation. Catches tool choice and relation rules in the description. Not for the symbol index, auth or UI.",
     prompt:
       "Which Harbor Labs repository defines the Queue symbol, and in which file?",
     workingRepository: sshRemote,
@@ -368,6 +412,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "folder-structure",
     name: "List the knowledge folders",
+    intent:
+      "The agent lists knowledge folders with list_files. Catches tool choice and argument rules in the description. Not for file storage, auth or UI.",
     prompt:
       "How is the knowledge folder of the Harbor Labs Payments Workspace organized? Name its sub-folders.",
     workingRepository: sshRemote,
@@ -382,6 +428,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "filter-path-prefix",
     name: "Filter a search by path prefix",
+    intent:
+      "The agent filters search_knowledge with a pathPrefix. Catches the pathPrefix rule in the tool description. Not for retrieval storage, auth or UI.",
     prompt:
       "Search only the operations runbooks under knowledge/operations in the Harbor Labs Payments Workspace for replay steps.",
     workingRepository: sshRemote,
@@ -399,6 +447,8 @@ export const evalCases: EvalCase[] = [
   {
     id: "unknown-workspace-recovery",
     name: "Recover from an unknown Workspace",
+    intent:
+      "The agent recovers after a call names an unknown Workspace. Catches error text and recovery guidance in tool results. Not for HTTP plumbing, auth or UI.",
     prompt:
       "Search the billing Workspace of Harbor Labs for the idempotency key retention rule.",
     workingRepository: sshRemote,

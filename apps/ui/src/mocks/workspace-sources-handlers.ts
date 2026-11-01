@@ -170,7 +170,7 @@ export function connectionSyncHandler(
 export function orgConnectionsHandler(
   items: Array<
     Pick<OrgConnectionListItem, "id" | "type"> &
-      Partial<Pick<OrgConnectionListItem, "displayName">>
+      Partial<Pick<OrgConnectionListItem, "displayName" | "status">>
   >,
 ) {
   return http.get(
@@ -179,6 +179,7 @@ export function orgConnectionsHandler(
       HttpResponse.json({
         items: items.map((item) => ({
           displayName: null,
+          status: "connected",
           ...item,
           createdAt: "2026-08-15T10:00:00.000Z",
           updatedAt: "2026-08-15T10:00:00.000Z",

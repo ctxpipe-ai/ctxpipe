@@ -7,6 +7,10 @@ import {
   notionConnectionConfigSchema,
   pagerdutyConnectionConfigStoredSchema,
 } from "../lib/connection-config.js"
+import {
+  type ConnectionStatus,
+  storedConnectionStatus,
+} from "./connection-status.js"
 import { isEmptyLinearSetupDraft } from "./linear-connector.js"
 import { isEmptyNotionSetupDraft } from "./notion-connector.js"
 import { isEmptyPagerdutySetupDraft } from "./pagerduty-connector.js"
@@ -16,6 +20,7 @@ type OrgConnectionListItem = {
   type: ConnectionType
   /** The account, site, or workspace name that the provider gives. */
   displayName: string | null
+  status: ConnectionStatus
   createdAt: Date
   updatedAt: Date
 }
@@ -27,6 +32,8 @@ const DISPLAY_NAME_KEYS: Record<ConnectionType, readonly string[]> = {
   linear: ["workspaceName"],
   notion: ["workspaceName"],
   pagerduty: ["accountName", "accountSubdomain"],
+  buildkite: ["organizationSlug"],
+  plain: ["workspaceName"],
 }
 
 /** Read only the non-secret name keys of a connection config. */
@@ -92,5 +99,6 @@ export async function listOrgConnections(
     .map(({ config, ...item }) => ({
       ...item,
       displayName: connectionDisplayName(item.type, config),
+      status: storedConnectionStatus(item.type, config),
     }))
 }

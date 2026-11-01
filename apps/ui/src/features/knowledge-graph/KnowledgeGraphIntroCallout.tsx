@@ -1,11 +1,12 @@
 import { IconExternalLink, IconX } from "@tabler/icons-react"
 
 import { Button } from "@/components/ui/Button"
+import { DOCS_URL } from "@/lib/docs-url"
 
 import { FloatingPanel } from "./FloatingPanel"
 
 /** Product guide: Workspaces → Graph */
-const KNOWLEDGE_GRAPH_DOCS_URL = "https://docs.ctxpipe.ai/docs/workspaces/graph"
+const KNOWLEDGE_GRAPH_DOCS_URL = `${DOCS_URL}/docs/workspaces/graph`
 
 type KnowledgeGraphIntroCalloutProps = {
   open: boolean

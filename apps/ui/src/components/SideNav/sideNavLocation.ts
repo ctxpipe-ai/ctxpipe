@@ -13,8 +13,7 @@ export function parseSideNavLocation(
 ): SideNavLocation {
   const segments = pathname.split("/").filter(Boolean)
   const first = segments[0]
-  const orgSlug =
-    (!first?.startsWith(".") ? (first ?? null) : null) ?? fallbackOrg
+  const orgSlug = first && !first.startsWith(".") ? first : fallbackOrg
   if (segments[1] === "connectors") {
     return { orgSlug, primary: "connectors" }
   }

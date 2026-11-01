@@ -85,6 +85,10 @@ export const OnboardingEmpty: Story = {
  * the button, the cards and the close button.
  */
 export const LoadingSkeletonMatches: Story = {
+  parameters: {
+    intent:
+      "Catches a workspace destination skeleton whose size differs from the loaded list. This causes layout shift. Not for workspace data or selection.",
+  },
   tags: ["workspace-golden"],
   args: {
     status: "loading",

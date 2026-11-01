@@ -1,4 +1,13 @@
 {
   "title": "Source connectors",
-  "pages": ["github", "linear", "notion", "confluence", "slack", "pagerduty"]
+  "pages": [
+    "github",
+    "linear",
+    "notion",
+    "confluence",
+    "slack",
+    "pagerduty",
+    "buildkite",
+    "plain"
+  ]
 }

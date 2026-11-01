@@ -9,6 +9,7 @@ import {
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { markExitFailure, reportSuites, suiteRecord } from "../checks/lanes.mjs"
 import { freshParts, laneChecks, writeTrace } from "../checks/trace.mjs"
 import { setupSteps, vitestCommand } from "./vitest-launch.mjs"
 
@@ -196,7 +197,9 @@ try {
       if (built.error || built.status !== 0)
         throw new Error(`Required ${name} setup failed`)
     }
-    const parts = trace ? freshParts(join(output, "trace-parts"), name) : undefined
+    const parts = trace
+      ? freshParts(join(output, "trace-parts"), name)
+      : undefined
     const launch = vitestCommand(lane, root, selection, report, parts)
     const result = spawnSync(launch.command, launch.args, {
       cwd: launch.cwd,
@@ -218,6 +221,29 @@ try {
         `Test runner did not finish: ${result.error?.message ?? result.signal}`,
       )
     writeFileSync(join(output, "exit-code"), String(result.status))
+    // One result record for each file (scripts/checks/schema/result.v1.schema.json)
+    // in records.ndjson, for the merge gate and the result store. It is data
+    // only: an error here never changes the result.
+    try {
+      const suites = reportSuites(report)
+      const ids = files.map((file) => `${packages[name]}/${file}`)
+      const records = markExitFailure(
+        ids.map((file) =>
+          suiteRecord(`vitest:${name}:${file}`, suites.get(file)),
+        ),
+        result,
+      )
+      writeFileSync(
+        join(output, "records.ndjson"),
+        records
+          .map(
+            (record) => `${JSON.stringify({ schemaVersion: 1, ...record })}\n`,
+          )
+          .join(""),
+      )
+    } catch (error) {
+      process.stderr.write(`No result records written: ${error.message}\n`)
+    }
     if (parts)
       try {
         writeTrace(join(output, "trace.json.gz"), laneChecks(parts, name))

@@ -118,16 +118,6 @@ const STAGE_LABELS: Record<NonNullable<IngestionItem["stage"]>, string> = {
   publishing: "Publishing the knowledge files",
 }
 
-/**
- * The title of an item in the "Ingesting now" list. The list shows a hydrate
- * as its own line, so it has no title here.
- */
-export function ingestionItemTitle(item: IngestionItem): string {
-  if (item.kind === "source_sync") return `${item.name} sources`
-  if (item.kind === "reingest") return "Upgrade re-ingestion"
-  return item.name ?? ""
-}
-
 /** The progress of an item, in the shape of the upgrade progress (PR #443). */
 export function ingestionProgress(item: IngestionItem): UpgradeProgress {
   const { progress } = item
@@ -161,5 +151,71 @@ export function ingestionProgress(item: IngestionItem): UpgradeProgress {
         ? "Two runs of one repository do not publish at the same time. This run starts when the earlier run ends."
         : null,
     since: item.startedAt,
+  }
+}
+
+/** The runs of one source: the run that is the furthest leads. */
+export type SourceRuns = {
+  kind: IngestionItem["kind"]
+  /** The repository ("acme/app") or the provider of a sync ("Linear"). */
+  name: string
+  /** The runs, the oldest first. */
+  runs: IngestionItem[]
+  lead: IngestionItem
+}
+
+/**
+ * The ingestion work of each source, for the source list of Workspace
+ * settings. A push makes a run, so one repository can have several. A
+ * hydrate is not a source: the Knowledge graph card shows it. A paid
+ * re-ingestion is an upgrade: the Upgrades card shows it.
+ */
+export function groupSourceRuns(items: IngestionItem[]): SourceRuns[] {
+  const groups = new Map<string, IngestionItem[]>()
+  for (const item of items) {
+    if (item.kind === "hydrate" || item.kind === "reingest" || !item.name)
+      continue
+    const key = `${item.kind}:${item.name}`
+    groups.set(key, [...(groups.get(key) ?? []), item])
+  }
+  const rank: Record<NonNullable<IngestionItem["stage"]>, number> = {
+    publishing: 6,
+    ingesting: 5,
+    indexing: 4,
+    planning: 3,
+    waiting: 2,
+    queued: 1,
+  }
+  return [...groups.values()].flatMap((runs) => {
+    const sorted = [...runs].sort((a, b) =>
+      a.startedAt.localeCompare(b.startedAt),
+    )
+    const lead = [...sorted].sort(
+      (a, b) => (b.stage ? rank[b.stage] : 0) - (a.stage ? rank[a.stage] : 0),
+    )[0]
+    return lead?.name
+      ? [{ kind: lead.kind, name: lead.name, runs: sorted, lead }]
+      : []
+  })
+}
+
+/** One word for the work of a source, for its status: "Publishing". */
+export function sourceRunsWord(source: SourceRuns): string {
+  if (source.kind === "source_sync") return "Syncing"
+  switch (source.lead.stage) {
+    case "publishing":
+      return "Publishing"
+    case "ingesting":
+      return "Reading the code"
+    case "indexing":
+      return "Indexing for search"
+    case "planning":
+      return "Planning"
+    case "waiting":
+      return "Waiting for a turn"
+    case "queued":
+      return "Queued"
+    default:
+      return "Working"
   }
 }

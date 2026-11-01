@@ -329,7 +329,7 @@
         "apps/ui/src/features/workspaces/ConversationNameInput.tsx",
         "apps/ui/src/features/workspaces/WorkspaceCommandPalette.tsx",
         "apps/ui/src/features/workspaces/WorkspaceFilesPane.tsx",
-        "apps/ui/src/features/workspaces/WorkspaceSettingsPane.tsx"
+        "apps/ui/src/features/workspaces/settings/DangerCard.tsx"
       ],
       "rules": {
         "jsx-a11y/no-autofocus": "off"

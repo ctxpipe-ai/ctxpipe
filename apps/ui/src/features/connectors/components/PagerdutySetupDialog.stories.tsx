@@ -150,10 +150,13 @@ export const ConnectAccount: Story = {
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
-    await body.findByRole("heading", { name: "Connect PagerDuty account" })
+    await body.findByRole("heading", { name: "Connect PagerDuty" })
     const connect = body.getByRole("button", { name: "Connect PagerDuty" })
     // The modal fades in; wait until the step is visible.
     await waitFor(() => expect(connect).toBeVisible())
+    const stepper = within(body.getByRole("list"))
+    expect(stepper.getByText("Connect PagerDuty")).toBeVisible()
+    expect(stepper.getByText("Add to Workspaces")).toBeVisible()
   },
 }
 
@@ -236,7 +239,7 @@ export const AddToWorkspaces: Story = {
     await waitFor(() => expect(merge).toBeVisible())
     // The sync starts after the merge, so the last step links the pull request.
     await expect(
-      body.getByRole("link", { name: "acme/docs#7" }),
+      body.getByRole("link", { name: /^acme\/docs#7/ }),
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
     await expect(addCalls).toEqual([
       {
@@ -277,7 +280,7 @@ export const ReplacedSetup: Story = {
     // The modal fades in; wait until the notice is visible.
     await waitFor(() => expect(notice).toBeVisible())
     await expect(
-      body.getByRole("link", { name: "configuration pull request" }),
+      body.getByRole("link", { name: /^configuration pull request/ }),
     ).toHaveAttribute("href", "https://github.com/acme/on-call/pull/4")
   },
 }

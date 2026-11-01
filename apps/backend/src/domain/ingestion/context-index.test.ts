@@ -140,6 +140,48 @@ describe("contextIndexAtStepBase", () => {
   })
 })
 
+describe("the package files of each root at the step base", () => {
+  // CTX-1083: the host gives the root-to-file map the files that an earlier
+  // ingest wrote. The patch validator stamps `root` and `sources`.
+  const unit = (kind: string, root: string, sources: string[]) =>
+    `---\nkind: ${kind}\nname: x\ngenerated_by: ctxpipe-extract\nsources:\n${sources.map((s) => `  - ${s}\n`).join("")}root: ${JSON.stringify(root)}\n---\n# x\n`
+
+  it("lists each file of the run's source that has a root, read exactly from the front matter", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "context-index-"))
+    made.push(dir)
+    git(dir, "init", "-q", "-b", "main")
+    const OTHER = "sources/github/example-org/other.md"
+    const pinned = commit(dir, {
+      [SERVICE]: unit("Service", "apps/api", [SOURCE_PATH]),
+      "knowledge/services/other.md": unit("Service", "apps/api", [OTHER]),
+      "knowledge/libraries/gone.md": unit("Library", "lib", [SOURCE_PATH]),
+      "knowledge/services/human.md":
+        "---\nkind: Service\nname: x\nroot: apps/api\n---\n",
+    })
+    const base = commit(dir, {
+      "knowledge/libraries/gone.md": null,
+      "knowledge/apps/web.md": unit("App", ".", [OTHER, SOURCE_PATH]),
+    })
+    const { rootFiles } = await contextIndexAtStepBase({
+      workspaceId: "ws_index",
+      projection: [
+        { path: SERVICE, kind: "Service", links: [] },
+        { path: "knowledge/services/other.md", kind: "Service", links: [] },
+        { path: "knowledge/libraries/gone.md", kind: "Library", links: [] },
+        { path: "knowledge/services/human.md", kind: "Service", links: [] },
+      ],
+      pinnedRevision: pinned,
+      base,
+      sourcePath: SOURCE_PATH,
+      repoDir: dir,
+    })
+    expect(rootFiles).toEqual([
+      { path: "knowledge/apps/web.md", kind: "App", root: "." },
+      { path: SERVICE, kind: "Service", root: "apps/api" },
+    ])
+  })
+})
+
 describe("stepContextIndex", () => {
   it("keeps one scratch repository for a Workspace, fetches only new commits, and parses only changed files", async () => {
     const work = mkdtempSync(join(tmpdir(), "context-index-work-"))

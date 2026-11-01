@@ -1,4 +1,5 @@
 import { isValidSlug } from "../../domain/workspaces/slug.js"
+import { DOCS_URL } from "../../lib/docs-url.js"
 import { listOrgWorkspaceSlugs } from "./call-workspace.js"
 import { listToolOrgs } from "./tool-org.js"
 
@@ -17,6 +18,7 @@ export const INSTRUCTION_RULES = [
   "1. ctxpipe serves the default branch; do not use it for your current repository. Use your own tools there and pass its git remote URL in excludeRepositories.",
   "2. Call these tools in parallel where possible: send independent searches and reads in one turn.",
   "3. Search knowledge before a design choice. Name one org in each call. Cite refs.",
+  `4. How to use ctxpipe: ${DOCS_URL}/llms.txt`,
 ].join("\n")
 
 type InstructionOrg = { slug: string; workspaces: readonly string[] }

@@ -142,6 +142,11 @@ it(
         "kept through chat",
       )
       expect(f.modelRequests.length).toBeGreaterThanOrEqual(2)
+      expect(
+        f.modelRequests.some((request) =>
+          JSON.stringify(request).includes("https://docs.ctxpipe.ai/llms.txt"),
+        ),
+      ).toBe(true)
       const reconstructed = await reconstructChat(
         persistence,
         new Request(

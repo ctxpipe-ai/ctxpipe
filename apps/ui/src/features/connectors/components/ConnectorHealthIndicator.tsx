@@ -47,8 +47,11 @@ const TONE: Record<
 
 export function ConnectorHealthIndicator({
   health,
+  label,
 }: {
   health: ConnectorHealth
+  /** The text in place of the health name, for example "2 connected". */
+  label?: string
 }) {
   const tone = TONE[health]
   return (
@@ -61,7 +64,7 @@ export function ConnectorHealthIndicator({
           tone.pulse ? "ctx-status-pulse" : ""
         }`}
       />
-      {connectorHealthLabel(health)}
+      {label ?? connectorHealthLabel(health)}
     </span>
   )
 }

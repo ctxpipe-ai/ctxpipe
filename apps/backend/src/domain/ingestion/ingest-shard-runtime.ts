@@ -65,7 +65,8 @@ export type IngestRuntimeStep = {
 
 /**
  * The `--roots` file of each step (ADR-052 section 6): each planned root of
- * the run, and the context files that the root's steps wrote.
+ * the run, and its context files: the files that the root's steps wrote, and
+ * the existing files of the root (`withExistingRootFiles`).
  */
 export type IngestRootMap = {
   roots: Array<{

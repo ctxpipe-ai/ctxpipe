@@ -35,7 +35,7 @@ describe("Notion setup model", () => {
     expect(getNotionSetupCurrentIndex(draft, saved)).toBe(1)
     expect(getNotionSetupCurrentIndex(draft, webhookReady)).toBe(2)
     expect(getNotionCardCtaLabel(draft, selfHost)).toBe("Register OAuth app")
-    expect(getNotionCardCtaLabel(draft, saved)).toBe("Add webhook")
+    expect(getNotionCardCtaLabel(draft, saved)).toBe("Add the webhook")
     expect(getNotionCardCtaLabel(draft, webhookReady)).toBe("Connect Notion")
   })
 

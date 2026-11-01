@@ -4,6 +4,7 @@ import {
   INGEST_MAX_ROOTS,
   ingestRootMap,
   planIngestRoots,
+  withExistingRootFiles,
   plannedIngestSkills,
   skillStepName,
 } from "./ingestion-plan.js"
@@ -155,5 +156,60 @@ describe("ingestRootMap", () => {
         },
       ],
     })
+  })
+})
+
+describe("withExistingRootFiles", () => {
+  const SERVICE = "knowledge/services/api.md"
+  const LIBRARY = "knowledge/libraries/api.md"
+  const map = (files: string[]) => ({
+    roots: [
+      { ...root("services/api"), files },
+      { ...root("."), files: [] },
+    ],
+  })
+
+  it("gives a root the files of an earlier ingest when this run wrote none", () => {
+    expect(
+      withExistingRootFiles(map([]), [
+        { path: SERVICE, kind: "Service", root: "services/api" },
+        { path: "knowledge/apps/web.md", kind: "App", root: "." },
+      ]),
+    ).toEqual({
+      roots: [
+        { ...root("services/api"), files: [SERVICE] },
+        { ...root("."), files: ["knowledge/apps/web.md"] },
+      ],
+    })
+  })
+
+  it("keeps the files that this run wrote and adds no file twice", () => {
+    expect(
+      withExistingRootFiles(map(["knowledge/apis/orders.md", SERVICE]), [
+        { path: SERVICE, kind: "Service", root: "services/api" },
+      ]).roots[0]?.files,
+    ).toEqual(["knowledge/apis/orders.md", SERVICE])
+  })
+
+  it("gives no old package file to a root whose package file this run wrote", () => {
+    // This run classified the root as a Library: the old Service file of the
+    // same root is stale and must not get the claims of the Service.
+    expect(
+      withExistingRootFiles(map([LIBRARY]), [
+        { path: LIBRARY, kind: "Library", root: "services/api" },
+        { path: SERVICE, kind: "Service", root: "services/api" },
+      ]).roots[0]?.files,
+    ).toEqual([LIBRARY])
+  })
+
+  it("gives no old package file to a root that has more than one", () => {
+    // Two earlier ingests classified the root in two ways. The map cannot
+    // know which file is current, so it adds neither.
+    expect(
+      withExistingRootFiles(map([]), [
+        { path: SERVICE, kind: "Service", root: "services/api" },
+        { path: LIBRARY, kind: "Library", root: "services/api" },
+      ]).roots[0]?.files,
+    ).toEqual([])
   })
 })

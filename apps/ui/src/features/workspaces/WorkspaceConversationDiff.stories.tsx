@@ -73,6 +73,8 @@ export const DiffPaneEmpty: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_diff_empty" },
   parameters: {
+    intent:
+      "Catches a diff pane with no changes that shows an empty toolbar or no message. It says there are no changes against main. Not for diffs with files.",
     msw: { handlers: { page: [conversationGitDiffHandler([])] } },
   },
   play: async ({ canvasElement }) => {
@@ -93,6 +95,8 @@ export const DiffPaneManyFiles: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_diff_many" },
   parameters: {
+    intent:
+      "Catches a diff pane that drops files or sends extra requests. It lists every changed file with its status from one request. Not for one expanded file.",
     msw: {
       handlers: {
         page: [
@@ -152,6 +156,8 @@ export const DiffPaneExpandedFile: Story = {
     focusPath: "knowledge/decisions/ADR-021-decision.md",
   },
   parameters: {
+    intent:
+      "Catches a diff pane that does not open on the chosen file. The file row expands, stays highlighted, and scrolls into view. Not for the file list.",
     msw: { handlers: { page: [conversationGitDiffHandler(manyFiles)] } },
   },
   play: async ({ canvasElement }) => {
@@ -199,6 +205,8 @@ export const DiffPaneLongPaths: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_diff_long" },
   parameters: {
+    intent:
+      "Catches a long file path that breaks the diff pane layout. The path must truncate and not push other rows out. Not for diff content.",
     msw: {
       handlers: {
         page: [
@@ -255,6 +263,8 @@ export const DiffPaneRenamedAndOmitted: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_diff_omitted" },
   parameters: {
+    intent:
+      "Catches a diff row for a renamed, binary, or huge file that shows a broken diff. It shows the rename and an omitted note. Not for normal text diffs.",
     msw: {
       handlers: {
         page: [
@@ -322,6 +332,8 @@ export const DiffPaneTurnGone: Story = {
   tags: ["workspace-golden"],
   args: { conversationId: "conv_diff_gone", turn: "run_gone" },
   parameters: {
+    intent:
+      "Catches a diff of a turn whose snapshot is gone that shows an error screen or toolbar. It shows that the diff is no longer available. Not for current turns.",
     msw: {
       handlers: {
         page: [

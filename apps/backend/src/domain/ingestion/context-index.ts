@@ -7,7 +7,7 @@ import {
   resolveHydrateLink,
 } from "../workspaces/hydrate.js"
 import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
-import { fileOwnership, fileSources } from "./patch-validator.js"
+import { fileOwnership, fileSources, PACKAGE_KINDS } from "./patch-validator.js"
 import { runGit } from "./run-git.js"
 
 /**
@@ -201,6 +201,28 @@ export function buildContextIndexEntries(input: {
 
 type IndexUnit = { path: string; kind: string | null; links: string[] }
 
+/**
+ * A package file of the run's source (ADR-052 section 6, revision
+ * 2026-10-29): its front matter `root` is the source root that the patch
+ * validator stamped, and its `sources` hold the run's source path.
+ */
+export type RootFile = { path: string; kind: string; root: string }
+
+/** The root of a package file of the run's source, or null. */
+function packageRoot(
+  unit: IndexUnit,
+  raw: string,
+  sourcePath: string,
+): RootFile | null {
+  if (!unit.kind || !PACKAGE_KINDS.has(unit.kind)) return null
+  if (fileOwnership(raw, sourcePath) === "foreign") return null
+  const front = splitFrontMatter(raw)
+  const root = front ? parseYamlObject(front.yaml)?.root : undefined
+  return typeof root === "string" && root
+    ? { path: unit.path, kind: unit.kind, root }
+    : null
+}
+
 /** The units of written files, parsed as hydrate parses them. */
 function parseUnits(
   workspaceId: string,
@@ -249,6 +271,16 @@ async function changedFiles(
 }
 
 /**
+ * The index of a step, and the package files of each root at the step base
+ * for the root-to-file map (ADR-052 section 6, revision 2026-10-29).
+ */
+type StepContextIndex = {
+  index: ContextIndex
+  json: string
+  rootFiles: RootFile[]
+}
+
+/**
  * The index of each step of one Workspace in one shard (ADR-052 section 6).
  * It keeps one scratch repository and one projection: the first call reads
  * the projection at the pinned revision; each later call fetches only the
@@ -270,6 +302,7 @@ export function stepContextIndex(source: {
   let state: {
     base: string
     entries: Map<string, ContextIndexEntry>
+    rootFiles: Map<string, RootFile>
   } | null = null
   let fetches = 0
   let queue: Promise<unknown> = Promise.resolve()
@@ -295,13 +328,10 @@ export function stepContextIndex(source: {
       )
       state = {
         base: source.pinnedRevision,
-        entries: new Map(
-          units.map((unit) => [
-            unit.path,
-            entryOf(unit, raw.get(unit.path) ?? "", source.sourcePath),
-          ]),
-        ),
+        entries: new Map(),
+        rootFiles: new Map(),
       }
+      for (const unit of units) put(state, unit, raw.get(unit.path) ?? "")
     }
     if (base !== state.base) {
       if (ref && !(await has(base))) await fetchInto(ref)
@@ -312,7 +342,10 @@ export function stepContextIndex(source: {
         base,
         source.rootPath ?? "",
       )
-      for (const { path } of changed) state.entries.delete(path)
+      for (const { path } of changed) {
+        state.entries.delete(path)
+        state.rootFiles.delete(path)
+      }
       const written = changed.flatMap((file) =>
         file.content === null
           ? []
@@ -321,26 +354,35 @@ export function stepContextIndex(source: {
       builder.parsed += written.length
       const text = new Map(written.map((file) => [file.path, file.content]))
       for (const unit of parseUnits(source.workspaceId, written))
-        state.entries.set(
-          unit.path,
-          entryOf(unit, text.get(unit.path) ?? "", source.sourcePath),
-        )
+        put(state, unit, text.get(unit.path) ?? "")
       state.base = base
     }
-    return renderContextIndex({
-      workspaceId: source.workspaceId,
-      revision: base,
-      entries: linkedEntries([...state.entries.values()]),
-    })
+    return {
+      ...renderContextIndex({
+        workspaceId: source.workspaceId,
+        revision: base,
+        entries: linkedEntries([...state.entries.values()]),
+      }),
+      // The index cap does not apply: the root-to-file map needs each file.
+      rootFiles: [...state.rootFiles.values()].sort((a, b) =>
+        a.path < b.path ? -1 : 1,
+      ),
+    }
+  }
+  const put = (
+    into: NonNullable<typeof state>,
+    unit: IndexUnit,
+    raw: string,
+  ) => {
+    into.entries.set(unit.path, entryOf(unit, raw, source.sourcePath))
+    const file = packageRoot(unit, raw, source.sourcePath)
+    if (file) into.rootFiles.set(unit.path, file)
   }
 
   const builder = {
     parsed: 0,
     /** The index at `base`; `ref` is the run ref that holds `base`. */
-    at(
-      base: string,
-      ref?: string,
-    ): Promise<{ index: ContextIndex; json: string }> {
+    at(base: string, ref?: string): Promise<StepContextIndex> {
       // One step at a time: each call starts from the last base.
       const next = queue.then(() => at(base, ref))
       queue = next.catch(() => undefined)
@@ -364,7 +406,7 @@ export async function contextIndexAtStepBase(input: {
   sourcePath: string
   repoDir: string
   rootPath?: string
-}): Promise<{ index: ContextIndex; json: string }> {
+}): Promise<StepContextIndex> {
   return stepContextIndex({
     ...input,
     projection: async () => input.projection,
@@ -387,7 +429,7 @@ export async function buildContextIndex(input: {
   repoDir: string
   /** Workspace root folder; unit paths are relative to it. */
   rootPath?: string
-}): Promise<{ index: ContextIndex; json: string }> {
+}): Promise<StepContextIndex> {
   return contextIndexAtStepBase({
     workspaceId: input.workspaceId,
     projection: await listWorkspaceUnitsAtRevision(

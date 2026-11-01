@@ -378,6 +378,8 @@ export const SocketCleansUpOnLeave: Story = {
   tags: ["workspace-golden"],
   render: () => <SocketCleanupHarness />,
   parameters: {
+    intent:
+      "Catches a conversation socket that stays open after the user leaves the conversation. Leaving must close every conversation socket. Not for messages.",
     msw: {
       handlers: {
         page: workspaceShellHandlers(),
@@ -482,6 +484,8 @@ export const ReloadReconnects: Story = {
   tags: ["workspace-golden"],
   render: () => <ReloadReconnectHarness />,
   parameters: {
+    intent:
+      "Catches a reloaded conversation that does not open a new socket. A reload must reconnect and show the stored messages again. Not for streaming or sends.",
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -608,6 +612,8 @@ export const RapidRouteChanges: Story = {
   tags: ["workspace-golden"],
   render: () => <RapidRouteHarness />,
   parameters: {
+    intent:
+      "Catches fast switches between conversations that leave a stale error or composer. The last route wins: missing shows not found, ready shows the follow-up composer. Not for messages.",
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -726,6 +732,8 @@ export const LateErrorDoesNotClobberSuccess: Story = {
   tags: ["workspace-golden"],
   render: () => <ComposeHarness />,
   parameters: {
+    intent:
+      "Catches a late failed send that replaces a finished answer. The first answer stays visible and the error shows as an alert. Not for first turn streaming.",
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -887,6 +895,8 @@ export const FirstTurnStreamsLive: Story = {
   ],
   render: () => <ComposeHarness />,
   parameters: {
+    intent:
+      "Catches a first chat turn that does not stream live. Sandbox setup, thinking, the tool call, and the answer show in order without a reload. Not for chat API shapes or auth.",
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -1016,7 +1026,11 @@ function followUpEvents(threadId: string, runId: string): object[] {
 export const FollowUpShowsSandboxSetupFirst: Story = {
   tags: ["workspace-golden"],
   render: () => <ComposeHarness />,
-  parameters: FirstTurnStreamsLive.parameters,
+  parameters: {
+    ...FirstTurnStreamsLive.parameters,
+    intent:
+      "Catches a follow-up turn that shows Thinking before the sandbox is ready. The status line shows Setting up sandbox first, with no other label before it. Not for the first turn.",
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const socket = installAguiWebSocket((threadId, runId, index) =>
@@ -1118,7 +1132,11 @@ function interleavedTurnEvents(threadId: string, runId: string): object[] {
 export const LogKeepsStreamOrder: Story = {
   tags: ["workspace-golden"],
   render: () => <ComposeHarness />,
-  parameters: FirstTurnStreamsLive.parameters,
+  parameters: {
+    ...FirstTurnStreamsLive.parameters,
+    intent:
+      "Catches an activity log that reorders thoughts and tool calls. Rows follow the stream order, also when a thought comes after a tool call. Not for spacing or the closed log.",
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const socket = installAguiWebSocket(interleavedTurnEvents)
@@ -1161,7 +1179,11 @@ const capacityError =
 export const FirstTurnFailureRestoresDraft: Story = {
   tags: ["workspace-golden"],
   render: () => <ComposeHarness />,
-  parameters: FirstTurnStreamsLive.parameters,
+  parameters: {
+    ...FirstTurnStreamsLive.parameters,
+    intent:
+      "Catches a failed first turn that loses the user's message. The error shows and the composer holds the message again to send. Not for successful turns.",
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const socket = installAguiWebSocket((threadId, runId) => [

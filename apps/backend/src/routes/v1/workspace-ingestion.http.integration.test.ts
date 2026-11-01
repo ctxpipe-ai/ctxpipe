@@ -70,6 +70,9 @@ async function insertRun(input: {
   status?: string
   /** A negative age is in the future, so the run never gets old in the test. */
   ageSeconds: number
+  /** Seconds until the run may start; a positive value is in the future. */
+  availableInSeconds?: number
+  attempts?: number
   input: Record<string, unknown>
   idempotencyKey?: string
 }) {
@@ -80,7 +83,8 @@ async function insertRun(input: {
     values
       (${namespace}, ${input.id}, ${input.name}, ${input.status ?? "running"},
        ${input.idempotencyKey ?? null}, '{}'::jsonb,
-       ${JSON.stringify(input.input)}::jsonb, 1, now(),
+       ${JSON.stringify(input.input)}::jsonb, ${input.attempts ?? 1},
+       now() + ${input.availableInSeconds ?? 0} * interval '1 second',
        now() - ${input.ageSeconds} * interval '1 second', now())
   `)
 }
@@ -297,11 +301,30 @@ describe("Active ingestion of a Workspace (Postgres)", () => {
       ageSeconds: 200,
       input: v2Input(org.id),
     })
+    // A retry that waits for its next attempt is live work.
     await insertRun({
       id: "run_sync",
       name: "workspace-sources-sync",
       status: "pending",
+      attempts: 1,
+      availableInSeconds: 600,
       ageSeconds: 100,
+      input: {
+        kind: "connection",
+        orgId: org.id,
+        connectionId: linear,
+        provider: "linear",
+      },
+    })
+    // A daily sync that waits for its first start time has not started
+    // (CTX-1095): it is not live work.
+    await insertRun({
+      id: "run_sync_scheduled",
+      name: "workspace-sources-sync",
+      status: "pending",
+      attempts: 0,
+      availableInSeconds: 6 * 3600,
+      ageSeconds: 300,
       input: {
         kind: "connection",
         orgId: org.id,

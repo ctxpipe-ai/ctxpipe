@@ -37,9 +37,10 @@ export function checkingFormatExpired(
 
 /**
  * The keys of the items whose checking state is older than a minute, and a
- * re-render when a minute ends. The Status group calls it one time, so its
- * headline and its cards change together. The clock stops when no item checks
- * and is not expired, so the group does not render each second for ever.
+ * re-render when a minute ends. The Upgrades card and the summary of
+ * Workspace settings both call it. The first sight of each item is in one
+ * map, so the two change together. The clock stops when no item checks and is
+ * not expired, so the card does not render each second for ever.
  * `scope` names the Workspace: `<org>/<workspace>`.
  */
 export function useExpiredCheckingKeys(

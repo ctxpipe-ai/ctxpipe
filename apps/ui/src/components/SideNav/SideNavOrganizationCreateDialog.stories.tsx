@@ -54,6 +54,8 @@ export const CreateOpensHome: Story = {
     userOnboardingCompleted.value = false
   },
   parameters: {
+    intent:
+      "Catches organization creation that does not open the new organization home, or that marks the user's own onboarding as complete. Not for form validation or slug rules.",
     msw: {
       handlers: {
         page: [

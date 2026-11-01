@@ -9,7 +9,10 @@ import { workspaceRelativePath } from "../../services/git/root-folder.js"
 import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import {
   disallowedPathReason,
+  HOST_FIELDS,
   MAX_WORKSPACE_OPS,
+  type PatchRejection,
+  type PatchRule,
   type PatchStepInput,
   type PatchStepResult,
   validatePatchStep,
@@ -44,11 +47,48 @@ type IngestRefTarget = {
 /** A remote and the git environment (credentials) to reach it. */
 export type IngestRemote = { url: string; env?: NodeJS.ProcessEnv }
 
+/**
+ * A fixed code of the cause of a refusal, for the logs: a rule of the patch
+ * validator, or a check of the broker. The message can hold model or
+ * customer text; the code holds none.
+ */
+type IngestRefusalRule = PatchRule | "admission" | "run_tip" | "merge_paths"
+
+/**
+ * A merged file that a publish withholds (CTX-1081): the file keeps its
+ * version on the default tip. `rules` holds each validator rule that
+ * rejected it, sorted.
+ */
+export type WithheldFile = { path: string; rules: PatchRule[] }
+
+/**
+ * One validator rule and reason of the withheld files of a publish, with the
+ * count of files that it rejected (CTX-1099). It holds no path, so the log
+ * can keep it.
+ */
+type WithheldReason = { rule: PatchRule; reason: string; files: number }
+
 /** The broker refused the job. Do not retry the same job. */
 export class IngestRefRefusedError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /** The codes of the causes; empty when no code applies. */
+    readonly rules: readonly IngestRefusalRule[] = [],
+  ) {
     super(message)
     this.name = "IngestRefRefusedError"
+  }
+}
+
+/**
+ * The ref is not at the old tip that the push expected: another push moved
+ * it. Another execution of the same child can move the ref (CTX-1073). The
+ * next attempt of the step reads the ref again and continues from its tip.
+ */
+export class IngestRefMovedError extends IngestRefRefusedError {
+  constructor() {
+    super("The ref is not at the expected old tip")
+    this.name = "IngestRefMovedError"
   }
 }
 
@@ -170,8 +210,12 @@ export async function pushIngestStep(
 export async function pushIngestAssemble(input: {
   job: IngestJob
   pinnedRevision: string
-  /** The shard tips from the step outputs. */
-  shards: Array<{ shard: string; tip: string }>
+  /**
+   * The shard tips from the step outputs; null when the output has no tip.
+   * Assemble takes each tip from the shard ref: another execution of the same
+   * shard child can move the ref past the output tip (CTX-1073).
+   */
+  shards: Array<{ shard: string; tip: string | null }>
   /** The assembled ref tip that the job expects; null for a new ref. */
   oldTip: string | null
   /** The accepted ops of the run in the Workspace before the shards. */
@@ -209,14 +253,26 @@ export async function pushIngestAssemble(input: {
     const listed = new Map(
       (await listIngestRefs(repoDir, input.remote)).map((r) => [r.name, r.sha]),
     )
+    const resolved: Array<{ shard: string; tip: string }> = []
     for (const { shard, tip } of shards) {
       const name = ingestRefName({ ...input.job, shard })
-      if (listed.get(name) !== tip)
-        throw new IngestRefRefusedError(
-          `The shard ref ${shard} is not at the given tip`,
-        )
+      const onRemote = listed.get(name)
+      if (!onRemote) {
+        // A shard that pushed nothing, in any execution, has no ref.
+        if (tip === null) continue
+        throw new IngestRefRefusedError(`The shard ref ${shard} is missing`)
+      }
+      resolved.push({
+        shard,
+        tip: await checkedRunTip(repoDir, input.remote, {
+          runId: input.job.runId,
+          label: `shard ref ${shard}`,
+          given: tip,
+          onRemote,
+        }),
+      })
     }
-    const tips = shards.map((s) => s.tip)
+    const tips = resolved.map((s) => s.tip)
     await fetchCommits(repoDir, input.remote, [input.pinnedRevision], {
       blobs: true,
     })
@@ -258,7 +314,7 @@ export async function pushIngestAssemble(input: {
       string,
       { path: string; line: string; versions: Array<string | null> }
     >()
-    for (const { shard, tip } of shards) {
+    for (const { shard, tip } of resolved) {
       const descends = await runGit(repoDir, [
         "merge-base",
         "--is-ancestor",
@@ -314,8 +370,8 @@ export async function pushIngestAssemble(input: {
     let tree = (await runGit(repoDir, ["write-tree"], { env: indexEnv }))
       .toString()
       .trim()
-    if (conflicts.length && input.semanticMerge)
-      tree = await mergeConflicts(repoDir, {
+    if (conflicts.length && input.semanticMerge) {
+      const merged = await mergeConflicts(repoDir, {
         pinnedRevision: input.pinnedRevision,
         tree,
         conflicts,
@@ -324,6 +380,16 @@ export async function pushIngestAssemble(input: {
         merge: input.semanticMerge,
         rootPath,
       })
+      if (merged.rejections.length)
+        throw new IngestRefRefusedError(
+          `The semantic merge result fails the patch validator: ${merged.rejections
+            .slice(0, 5)
+            .map((r) => `${r.path}: ${r.rule}: ${r.reason}`)
+            .join("; ")}`,
+          [...new Set(merged.rejections.map((r) => r.rule))].sort(),
+        )
+      tree = merged.tree
+    }
     const sha = await commitStep(repoDir, {
       tree,
       parents: tips.length ? tips : [input.pinnedRevision],
@@ -344,9 +410,12 @@ export async function pushIngestAssemble(input: {
  *
  * A path that the run and the default branch both changed after the pin goes
  * to `semanticMerge.resolve`, and its result goes through the patch
- * validator on `current`, as in assemble. One rejected file refuses the
- * publish. Each other path is the run's file, which passed the validator in
- * its step. Returns the files and deletes from `current`.
+ * validator on `current`, as in assemble. A rejected file is withheld: it
+ * keeps its version on `current`, and the other files publish (CTX-1081).
+ * Each other path is the run's file, which passed the validator in its
+ * step. Returns the files and deletes from `current`, the withheld files
+ * with the validator rule that rejected each, and each rule and reason of
+ * the withheld files with its count of files.
  */
 export async function mergeIngestPublish(input: {
   runId: string
@@ -362,6 +431,8 @@ export async function mergeIngestPublish(input: {
 }): Promise<{
   files: Array<{ path: string; content: string; encoding?: "base64" }>
   deletePaths: string[]
+  withheld: WithheldFile[]
+  withheldReasons: WithheldReason[]
 }> {
   return withScratchRepository(async (repoDir) => {
     await fetchCommits(
@@ -373,6 +444,7 @@ export async function mergeIngestPublish(input: {
     if ((await stepTrailers(repoDir, input.tip)).run !== input.runId)
       throw new IngestRefRefusedError(
         "The assembled tip is not a commit of the ingestion run",
+        ["run_tip"],
       )
     const text = async (spec: string) =>
       (await runGit(repoDir, ["cat-file", "blob", spec])).toString("utf8")
@@ -391,7 +463,8 @@ export async function mergeIngestPublish(input: {
       input.tip,
     )) {
       const reason = disallowedPathReason(change.path)
-      if (reason) throw new IngestRefRefusedError(`${change.path}: ${reason}`)
+      if (reason)
+        throw new IngestRefRefusedError(`${change.path}: ${reason}`, ["path"])
       if (change.blob === null && withheld.size) {
         const front = splitFrontMatter(
           await text(`${input.pinnedRevision}:${change.path}`),
@@ -417,8 +490,10 @@ export async function mergeIngestPublish(input: {
     let tree = (await runGit(repoDir, ["write-tree"], { env: indexEnv }))
       .toString()
       .trim()
-    if (conflicts.length)
-      tree = await mergeConflicts(repoDir, {
+    const withheldFiles: WithheldFile[] = []
+    const withheldReasons: WithheldReason[] = []
+    if (conflicts.length) {
+      const merged = await mergeConflicts(repoDir, {
         pinnedRevision: input.pinnedRevision,
         tree,
         conflicts,
@@ -429,6 +504,26 @@ export async function mergeIngestPublish(input: {
         // The publish reads whole-repository paths.
         rootPath: "",
       })
+      tree = merged.tree
+      const rulesOf = new Map<string, Set<PatchRule>>()
+      const byReason = new Map<
+        string,
+        { rule: PatchRule; reason: string; paths: Set<string> }
+      >()
+      for (const { path, rule, reason } of merged.rejections) {
+        rulesOf.set(path, (rulesOf.get(path) ?? new Set()).add(rule))
+        // A reason can hold a line number (a secret), so one cause can give
+        // more than one entry.
+        const key = `${rule}\n${reason}`
+        const entry = byReason.get(key) ?? { rule, reason, paths: new Set() }
+        byReason.set(key, entry)
+        entry.paths.add(path)
+      }
+      for (const [path, rules] of rulesOf)
+        withheldFiles.push({ path, rules: [...rules].sort() })
+      for (const { rule, reason, paths } of byReason.values())
+        withheldReasons.push({ rule, reason, files: paths.size })
+    }
 
     const files: Array<{ path: string; content: string; encoding?: "base64" }> =
       []
@@ -450,52 +545,164 @@ export async function mergeIngestPublish(input: {
             },
       )
     }
-    return { files, deletePaths }
+    return { files, deletePaths, withheld: withheldFiles, withheldReasons }
   })
 }
 
 /**
- * Resume: the commit on the ref tip when it is this run's commit for `step`
- * (a crash after the push), else null.
+ * The tip of an ingest ref of the run, read from the remote: `given`, or a
+ * later commit of the run that another execution of the same child pushed
+ * (CTX-1073). A missing ref gives `given`. A tip that is not a commit of the
+ * run, or that does not hold `given`, refuses the job.
+ */
+export async function ingestRunRefTip(input: {
+  remote: IngestRemote
+  ref: string
+  runId: string
+  given: string
+}): Promise<string> {
+  return withScratchRepository(async (repoDir) => {
+    const onRemote = await remoteTip(repoDir, input.remote, input.ref)
+    if (!onRemote) return input.given
+    return checkedRunTip(repoDir, input.remote, {
+      runId: input.runId,
+      label: `ref ${input.ref}`,
+      given: input.given,
+      onRemote,
+    })
+  })
+}
+
+/**
+ * The remote tip of an ingest ref, when it is `given` or a later commit of
+ * the run. `label` names the ref in a refusal.
+ */
+async function checkedRunTip(
+  repoDir: string,
+  remote: IngestRemote,
+  input: {
+    runId: string
+    label: string
+    given: string | null
+    /** The tip of the ref on the remote. */
+    onRemote: string
+  },
+): Promise<string> {
+  if (input.onRemote === input.given) return input.onRemote
+  await runGit(
+    repoDir,
+    [
+      "fetch",
+      "--quiet",
+      "--no-tags",
+      "--filter=blob:none",
+      "--",
+      remote.url,
+      input.onRemote,
+    ],
+    { env: remote.env },
+  )
+  await assertRunTip(repoDir, {
+    runId: input.runId,
+    label: input.label,
+    since: input.given,
+    tip: input.onRemote,
+  })
+  return input.onRemote
+}
+
+/**
+ * Refuses `tip` unless it is a commit of the run that holds `since`. The ref
+ * moves only by leased fast-forward pushes, so a later tip of the run holds
+ * each earlier tip. Both commits must be in `repoDir`.
+ */
+async function assertRunTip(
+  repoDir: string,
+  input: { runId: string; label: string; since: string | null; tip: string },
+): Promise<void> {
+  if ((await stepTrailers(repoDir, input.tip)).run !== input.runId)
+    throw new IngestRefRefusedError(
+      `The tip of ${input.label} is not a commit of the run`,
+    )
+  if (input.since === null) return
+  const holds = await runGit(repoDir, [
+    "merge-base",
+    "--is-ancestor",
+    input.since,
+    input.tip,
+  ]).then(
+    () => true,
+    () => false,
+  )
+  if (!holds)
+    throw new IngestRefRefusedError(
+      `The ${input.label} does not hold the given tip`,
+    )
+}
+
+/**
+ * Resume: the run's commits on the ref after `since`, the tip that the step
+ * starts from. When one of them is the commit of `step` (a crash after the
+ * push, or another execution of the same child that pushed the step,
+ * CTX-1073), it gives that commit. Else it gives the tip that another
+ * execution moved the ref to. It gives null when the ref is at `since` or
+ * missing. `ops` counts the paths that changed after `since`.
  */
 export async function findStepCommit(input: {
   remote: IngestRemote
   ref: string
   runId: string
   step: string
-}): Promise<{
-  sha: string
-  ops: number
-  rejects: number
-  more: boolean
-} | null> {
+  since: string
+}): Promise<
+  | { sha: string; ops: number; rejects: number; more: boolean }
+  | { tip: string; ops: number }
+  | null
+> {
   return withScratchRepository(async (repoDir) => {
     const tip = await remoteTip(repoDir, input.remote, input.ref)
-    if (!tip) return null
-    // The tip and its parent, with their trees: the ops are the diff.
-    await runGit(
-      repoDir,
-      [
-        "fetch",
-        "--quiet",
-        "--no-tags",
-        "--depth=2",
-        "--filter=blob:none",
-        "--",
-        input.remote.url,
-        tip,
-      ],
-      { env: input.remote.env },
+    if (!tip || tip === input.since) return null
+    const fetch = (sha: string, depth: string[]) =>
+      runGit(
+        repoDir,
+        [
+          "fetch",
+          "--quiet",
+          "--no-tags",
+          ...depth,
+          "--filter=blob:none",
+          "--",
+          input.remote.url,
+          sha,
+        ],
+        { env: input.remote.env },
+      )
+    // `since` is the shallow boundary: the second fetch stops there.
+    await fetch(input.since, ["--depth=1"])
+    await fetch(tip, [])
+    await assertRunTip(repoDir, {
+      runId: input.runId,
+      label: `ref ${input.ref}`,
+      since: input.since,
+      tip,
+    })
+    const commits = (
+      await runGit(repoDir, ["rev-list", "--reverse", `${input.since}..${tip}`])
     )
-    const trailers = await stepTrailers(repoDir, tip)
-    if (trailers.run !== input.runId || trailers.step !== input.step)
-      return null
-    return {
-      sha: tip,
-      ops: (await diffTree(repoDir, `${tip}^`, tip)).length,
-      more: trailers.more,
-      rejects: trailers.rejects,
+      .toString()
+      .split("\n")
+      .filter(Boolean)
+    for (const sha of commits) {
+      const trailers = await stepTrailers(repoDir, sha)
+      if (trailers.run === input.runId && trailers.step === input.step)
+        return {
+          sha,
+          ops: (await diffTree(repoDir, input.since, sha)).length,
+          rejects: trailers.rejects,
+          more: trailers.more,
+        }
     }
+    return { tip, ops: (await diffTree(repoDir, input.since, tip)).length }
   })
 }
 
@@ -712,10 +919,7 @@ async function pushWithLease(
     } catch (error) {
       const tip = await remoteTip(repoDir, remote, ref)
       if (tip === sha) return
-      if (tip !== oldTip)
-        throw new IngestRefRefusedError(
-          "The ref is not at the expected old tip",
-        )
+      if (tip !== oldTip) throw new IngestRefMovedError()
       // The ref did not move: a rival push held the ref lock, or the remote
       // failed. Try again; the lease still guards the ref.
       if (attempt >= PUSH_ATTEMPTS) throw error
@@ -804,10 +1008,15 @@ export type IngestConflictResolver = (
  * Resolve the paths that more than one shard changes, one round for each
  * further version: round `n` merges version `n` into the result so far.
  * Then the patch validator checks the merged files as one step on `tree`
- * (the pinned revision plus the other shards' ops): a model wrote them, so
- * they get the same checks as a step's files. The host fields go back to
- * their pinned values first, and the validator stamps them again. Returns
- * the validated tree; one rejected file refuses the job.
+ * (the pinned revision plus the other shards' ops). A model wrote them, so
+ * they get the same checks as a step's files. The run's steps already
+ * counted them, so only the Workspace cap applies, not the step cap. The
+ * merged files get the host fields of the file on the step's base, and the
+ * validator stamps them again.
+ * Returns
+ * the validated tree and the rejections. A rejected file keeps its version
+ * on `tree`; the caller decides whether a rejection refuses the job or
+ * withholds the file.
  */
 async function mergeConflicts(
   repoDir: string,
@@ -822,7 +1031,7 @@ async function mergeConflicts(
     >
     rootPath: string
   },
-): Promise<string> {
+): Promise<{ tree: string; rejections: PatchRejection[] }> {
   const text = async (spec: string | null) =>
     spec === null
       ? null
@@ -856,6 +1065,7 @@ async function mergeConflicts(
     )
       throw new IngestRefRefusedError(
         "The semantic merge did not resolve exactly the conflicting paths",
+        ["merge_paths"],
       )
     for (const file of resolved) current.set(file.path, file.content)
   }
@@ -878,6 +1088,7 @@ async function mergeConflicts(
   }
   let tree = input.tree
   let opsBefore = input.opsBefore
+  const rejections: PatchRejection[] = []
   for (const [root, conflicts] of groups) {
     const baseCommit = (
       await runGit(
@@ -926,7 +1137,7 @@ async function mergeConflicts(
         await mkdir(dirname(file), { recursive: true })
         await writeFile(
           file,
-          withPinnedHostFields(content, base.get(conflict.path) ?? null),
+          withBaseHostFields(content, baseBlob ? await text(baseBlob) : null),
         )
       }
       await writeFile(join(stagedDir, "patch.json"), JSON.stringify({ ops }))
@@ -941,49 +1152,37 @@ async function mergeConflicts(
         skill: "semantic-merge",
         bundle: input.bundle,
         workspaceOpsBefore: opsBefore,
+        // The run's steps counted these files: no step cap (CTX-1102).
+        maxOps: MAX_WORKSPACE_OPS,
         rootPath: input.rootPath,
         ...(root === undefined ? {} : { root }),
       })
-      if (result.rejections.length)
-        throw new IngestRefRefusedError(
-          `The semantic merge result fails the patch validator: ${result.rejections
-            .slice(0, 5)
-            .map((r) => `${r.path}: ${r.rule}: ${r.reason}`)
-            .join("; ")}`,
-        )
+      rejections.push(...result.rejections)
       tree = result.tree
       opsBefore += ops.length
     } finally {
       await rm(stagedDir, { recursive: true, force: true })
     }
   }
-  return tree
+  return { tree, rejections }
 }
 
-/** The fields that only the host sets (patch validator, concept section 4.3). */
-const HOST_FIELDS = [
-  "generated_by",
-  "sources",
-  "root",
-  "source_sha",
-  "skill",
-  "bundle",
-] as const
-
 /**
- * The shard versions carry host fields that the validator stamped. Put back
- * the pinned values (or remove the field), so the validator checks the
- * merged file as a new write and stamps it again.
+ * The merged file with the host fields of the file on the step's base (or
+ * with no host field, for a new file). The validator then checks it as a
+ * write on that base, and it stamps the host fields again. In a publish, an
+ * earlier run can have stamped the base with its own `source_sha`
+ * (CTX-1102). A shared file must keep each base field except `claims`.
  */
-function withPinnedHostFields(content: string, pinned: string | null): string {
+function withBaseHostFields(content: string, onBase: string | null): string {
   const front = splitFrontMatter(content)
   const attributes = front ? parseYamlObject(front.yaml) : null
   if (!front || !attributes) return content
-  const pinnedFront = pinned ? splitFrontMatter(pinned) : null
-  const pinnedAttributes =
-    (pinnedFront ? parseYamlObject(pinnedFront.yaml) : null) ?? {}
+  const baseFront = onBase ? splitFrontMatter(onBase) : null
+  const baseAttributes =
+    (baseFront ? parseYamlObject(baseFront.yaml) : null) ?? {}
   for (const field of HOST_FIELDS) {
-    if (field in pinnedAttributes) attributes[field] = pinnedAttributes[field]
+    if (field in baseAttributes) attributes[field] = baseAttributes[field]
     else delete attributes[field]
   }
   return `---\n${stringify(attributes, { lineWidth: 0 })}---\n${front.body}`

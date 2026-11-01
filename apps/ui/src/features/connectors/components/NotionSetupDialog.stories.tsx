@@ -144,14 +144,14 @@ export const RegisterNotionOauth: Story = {
       "client_123",
     )
     await userEvent.type(body.getByLabelText("Client secret"), "secret_abc")
-    await userEvent.click(body.getByRole("button", { name: "Save" }))
+    await userEvent.click(body.getByRole("button", { name: "Save OAuth app" }))
     await body.findByText(/Waiting for Notion to send a verification token/)
     await expect(body.queryByRole("textbox", { name: "Client ID" })).toBeNull()
   },
 }
 
 export const AddNotionWebhookWaiting: Story = {
-  name: "Add webhook (waiting for token)",
+  name: "Add the webhook (waiting for token)",
   render: () => dialog(),
   parameters: {
     msw: {
@@ -179,7 +179,7 @@ export const AddNotionWebhookWaiting: Story = {
 }
 
 export const AddNotionWebhookToken: Story = {
-  name: "Add webhook (verification token received)",
+  name: "Add the webhook (verification token received)",
   render: () => dialog(),
   parameters: {
     msw: {
@@ -309,7 +309,7 @@ export const AddToWorkspaces: Story = {
     await waitFor(() => expect(merge).toBeVisible())
     // The sync starts after the merge, so the last step links the pull request.
     await expect(
-      body.getByRole("link", { name: "acme/docs#7" }),
+      body.getByRole("link", { name: /^acme\/docs#7/ }),
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
     await expect(addCalls).toEqual([
       {
@@ -357,7 +357,7 @@ export const ReplacedSetup: Story = {
     // The modal fades in; wait until the notice is visible.
     await waitFor(() => expect(notice).toBeVisible())
     await expect(
-      body.getByRole("link", { name: "configuration pull request" }),
+      body.getByRole("link", { name: /^configuration pull request/ }),
     ).toHaveAttribute("href", "https://github.com/acme/notes/pull/3")
   },
 }

@@ -12,7 +12,12 @@ import { dirname, join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 import { parse, stringify } from "yaml"
 
-import { buildContextIndexEntries } from "./context-index.js"
+import { EMPTY_TREE } from "../../test/ingest-step-index.js"
+import {
+  buildContextIndexEntries,
+  contextIndexAtStepBase,
+} from "./context-index.js"
+import { withExistingRootFiles } from "./ingestion-plan.js"
 import { gitSource, validatePatchStep } from "./patch-validator.js"
 import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
 
@@ -132,6 +137,23 @@ function step(source: Record<string, string>, context: Record<string, string>) {
       .roots as RootEntry[]
     writeRoots(roots.map((r) => ({ ...r, files: map[r.path] ?? r.files })))
   }
+  /**
+   * The host map at the base: the files of `mapFiles`, and the existing files
+   * of each root (ADR-052 section 6, revision 2026-10-29).
+   */
+  const hostMap = async () => {
+    const { rootFiles } = await contextIndexAtStepBase({
+      workspaceId: WORKSPACE_ID,
+      projection: [],
+      pinnedRevision: EMPTY_TREE,
+      base,
+      sourcePath: SOURCE_PATH,
+      repoDir: contextDir,
+    })
+    const roots = JSON.parse(readFileSync(rootsFile, "utf8"))
+      .roots as RootEntry[]
+    writeRoots(withExistingRootFiles({ roots }, rootFiles).roots)
+  }
   let base = baseCommit
   /** Commit a validated tree as the next page's base and empty the step output. */
   const advance = (tree: string) => {
@@ -198,6 +220,7 @@ function step(source: Record<string, string>, context: Record<string, string>) {
     show,
     writeRoots,
     mapFiles,
+    hostMap,
     advance,
   }
 }
@@ -401,6 +424,44 @@ describe("libraries skill", () => {
     const result = await s.validate("libraries")
     expect(result.rejections).toEqual([])
     const api = s.show(result.tree, "knowledge/services/api.md")
+    for (const id of ["drizzle", "hono", "zod"])
+      expect(api).toMatch(
+        new RegExp(
+          `- to: \\.\\./libraries/${id}\\.md\\n\\s+predicate: USES_LIBRARY\\n\\s+evidence:\\n\\s+path: apps/api/package\\.json`,
+        ),
+      )
+  })
+
+  // CTX-1083: on a later ingest no root step writes the Service file again.
+  // The host map gives the root its file from the front matter `root`.
+  it("adds USES_LIBRARY to the Service file that an earlier ingest wrote for the root", async () => {
+    const earlier = (name: string, root: string) =>
+      front(
+        {
+          kind: "Service",
+          name,
+          generated_by: "ctxpipe-extract",
+          sources: [SOURCE_PATH],
+          root,
+        },
+        `# ${name}\n`,
+      )
+    const s = step(PNPM_SHOP, {
+      "knowledge/services/storefront.md": earlier("Storefront", "apps/api"),
+      "knowledge/services/gone.md": earlier("Gone", "apps/gone"),
+    })
+    await s.hostMap()
+    const out = s.run("libraries")
+    expect(out.ops).toContainEqual({
+      op: "update",
+      path: "knowledge/services/storefront.md",
+    })
+    expect(out.ops.map((op) => op.path)).not.toContain(
+      "knowledge/services/gone.md",
+    )
+    const result = await s.validate("libraries")
+    expect(result.rejections).toEqual([])
+    const api = s.show(result.tree, "knowledge/services/storefront.md")
     for (const id of ["drizzle", "hono", "zod"])
       expect(api).toMatch(
         new RegExp(

@@ -1,9 +1,14 @@
 import { isAlias, isMap, isSeq } from "yaml"
 
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
+import { GENERATED_BY as INGESTION_V2_GENERATED_BY } from "../ingestion/patch-validator.js"
 import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
 import { looksLikeGitSha } from "./hydrate-phases.js"
-import { type HydrateUnit, resolveHydrateLink } from "./hydrate.js"
+import {
+  claimHasEvidence,
+  type HydrateUnit,
+  resolveHydrateLink,
+} from "./hydrate.js"
 import {
   editableMetadataNode,
   materializeMetadataAlias,
@@ -19,9 +24,24 @@ import {
   type WorkspaceWriteJobKind,
 } from "./write-jobs.js"
 
+/**
+ * True for a file that ingestion v2 owns. Its steps write its claims. Its
+ * patch validator refuses a claim with no predicate or no evidence. So no
+ * host job adds a claim to it (CTX-1100). A body link still makes its
+ * `LINKS_TO` edge in hydrate.
+ */
+function ownedByIngestion(unit: HydrateUnit): boolean {
+  return unit.generatedBy === INGESTION_V2_GENERATED_BY
+}
+
+/** True when a file that ingestion v2 owns has a claim with no evidence. */
+function needsClaimRepair(unit: HydrateUnit): boolean {
+  return ownedByIngestion(unit) && unit.hasClaimWithoutEvidence === true
+}
+
 function missingClaimLinks(unit: HydrateUnit): string[] {
   // The connector sync owns a mirror file, so no claims are written into it.
-  if (isConnectorMirrorPath(unit.path)) return []
+  if (isConnectorMirrorPath(unit.path) || ownedByIngestion(unit)) return []
   const directory = unit.path.split("/").slice(0, -1).join("/")
   const targets = new Set(
     unit.claims.map((claim) => resolveHydrateLink(directory, claim.to)),
@@ -37,7 +57,9 @@ function missingClaimLinks(unit: HydrateUnit): string[] {
 }
 
 export function claimsUpgradeRemainder(units: readonly HydrateUnit[]): number {
-  return units.filter((unit) => missingClaimLinks(unit).length > 0).length
+  return units.filter(
+    (unit) => missingClaimLinks(unit).length > 0 || needsClaimRepair(unit),
+  ).length
 }
 
 /**
@@ -126,27 +148,52 @@ export function claimsUpgradeFiles(input: {
     const unit = byPath.get(file.path)
     if (!unit) continue
     const missing = missingClaimLinks(unit)
-    if (missing.length === 0) continue
+    const repair = needsClaimRepair(unit)
+    if (missing.length === 0 && !repair) continue
     const parsed = parseSimpleFrontMatter(file.content)
     if (parsed.malformed) continue
-    out.push({
-      path: file.path,
-      content: updateKnowledgeMetadata(file.content, (document) => {
-        const claims = editableMetadataNode(document, "claims")
-        if (claims == null)
-          document.set(
-            "claims",
-            missing.map((to) => ({ to })),
-          )
-        else {
-          if (!isSeq(claims))
-            throw new Error("Knowledge claims must be a sequence")
-          for (const to of missing) claims.add(document.createNode({ to }))
-        }
-      }),
-    })
+    const content = repair
+      ? withoutClaimsLackingEvidence(file.content, parsed.attributes.claims)
+      : withLinkClaims(file.content, missing)
+    // A file that the job does not change gets no commit.
+    if (content !== file.content) out.push({ path: file.path, content })
   }
   return out
+}
+
+/** The file with a claim `{ to }` for each body link in `missing`. */
+function withLinkClaims(content: string, missing: readonly string[]): string {
+  return updateKnowledgeMetadata(content, (document) => {
+    const claims = editableMetadataNode(document, "claims")
+    if (claims == null)
+      document.set(
+        "claims",
+        missing.map((to) => ({ to })),
+      )
+    else {
+      if (!isSeq(claims)) throw new Error("Knowledge claims must be a sequence")
+      for (const to of missing) claims.add(document.createNode({ to }))
+    }
+  })
+}
+
+/**
+ * The file with no claim that lacks an `evidence` mapping. Before CTX-1100,
+ * this job added such claims to files that ingestion v2 owns. Each later v2
+ * edit that kept one failed. `claims` is the parsed list: its items are in
+ * the order of the YAML sequence, and `claimHasEvidence` decides for both
+ * the count and this edit.
+ */
+function withoutClaimsLackingEvidence(
+  content: string,
+  claims: unknown,
+): string {
+  const keep = Array.isArray(claims) ? claims.map(claimHasEvidence) : []
+  return updateKnowledgeMetadata(content, (document) => {
+    const node = editableMetadataNode(document, "claims")
+    if (isSeq(node))
+      node.items = node.items.filter((_, index) => keep[index] ?? true)
+  })
 }
 
 export function validFromPersistFiles(input: {
