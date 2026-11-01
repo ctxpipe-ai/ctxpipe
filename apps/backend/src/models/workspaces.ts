@@ -1775,6 +1775,12 @@ export async function persistHydrateFailure(input: {
   })
 }
 
+/**
+ * Set a failed prepare, or a prepare that has no tip, back to pending. These
+ * are the two states where the UI shows "Try again". Returns undefined when
+ * the Workspace is in a different state, so of two concurrent retries only
+ * one continues.
+ */
 export async function persistHydrateRetry(
   workspaceId: string,
 ): Promise<WorkspaceRecord | undefined> {
@@ -1786,7 +1792,12 @@ export async function persistHydrateRetry(
         hydrateError: null,
         updatedAt: new Date(),
       })
-      .where(eq(workspaces.id, workspaceId))
+      .where(
+        and(
+          eq(workspaces.id, workspaceId),
+          sql`(${workspaces.hydrateStatus} = 'failed' or (${workspaces.hydrateStatus} <> 'ready' and (nullif(${workspaces.hydrateError}, '') is not null or nullif(${workspaces.desiredSha}, '') is null)))`,
+        ),
+      )
       .returning()
     return updated
   })

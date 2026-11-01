@@ -394,6 +394,10 @@ const retryPrepareWorkspaceRoute = createRoute(
         content: { "application/json": { schema: ErrorResponseSchema } },
         description: "Not found",
       },
+      409: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "The prepare did not fail and has a tip",
+      },
     },
   }),
 )
@@ -658,11 +662,25 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const { workspaceSlug } = workspaceSlugParams(c)
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
+    // Only a failed prepare, or a prepare that has no tip, starts again. A
+    // retry of a ready Workspace stays pending, because the hydrate finds the
+    // active revision and does not set it to ready.
     const retried = await persistHydrateRetry(workspace.id)
-    if (!retried) return c.json({ error: "Not found" }, 404)
+    if (!retried)
+      return c.json(
+        { error: "The prepare did not fail. Nothing to retry." },
+        409,
+      )
+    // The key starts at most one run of a tip in each UTC minute. A short
+    // window lets a user who fixes repository access try again soon.
+    const minute = new Date().toISOString().slice(0, 16)
     void enqueueWorkspaceHydrate(
       { orgId: retried.orgId, workspaceId: retried.id },
       c.get("log"),
+      {
+        idempotencyKey: (revision) =>
+          `workspace-retry-prepare:${revision.workspaceId}:${revision.generation}:${revision.defaultBranch}:${revision.sha}:${minute}`,
+      },
     )
     return c.json(serializeWorkspace(retried), 200)
   })
