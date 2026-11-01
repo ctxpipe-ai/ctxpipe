@@ -18,7 +18,8 @@ const oneFile = (incoming: string, onTip: string) =>
     tip({ "pr.md": onTip }),
   )
 
-const unchanged = { files: [], deletePaths: [] }
+const unchanged = { files: [], deletePaths: [], staleDropped: 1 }
+const nothing = { files: [], deletePaths: [], staleDropped: 0 }
 
 describe("mirrorWriteChanges", () => {
   it("drops the write when the file on the tip is a strictly newer snapshot", async () => {
@@ -39,6 +40,7 @@ describe("mirrorWriteChanges", () => {
     ).toEqual({
       files: [{ path: "pr.md", content: incoming }],
       deletePaths: [],
+      staleDropped: 0,
     })
   })
 
@@ -51,7 +53,7 @@ describe("mirrorWriteChanges", () => {
 
   it("skips a file that is byte-identical to the file on the tip", async () => {
     const same = pullRequest("2026-10-30T12:00:00Z")
-    expect(await oneFile(same, same)).toEqual(unchanged)
+    expect(await oneFile(same, same)).toEqual(nothing)
   })
 
   it("reads the update time field of each provider", async () => {
@@ -118,31 +120,69 @@ describe("mirrorWriteChanges", () => {
       })
   })
 
-  it("drops the whole write when one row is stale, also the files with no update time", async () => {
-    const page = (time: string, title: string) =>
-      `---\nsource: notion\nlast_edited_time: "${time}"\n---\n# ${title}\n`
+  const page = (time: string, title: string) =>
+    `---\nsource: notion\nlast_edited_time: "${time}"\n---\n# ${title}\n`
+
+  it("drops only the stale page of a write and keeps a page in another directory", async () => {
+    const newerB = page("2026-10-30T12:00:00Z", "B2")
     expect(
       await mirrorWriteChanges(
         {
           files: [
-            { path: "db/a.md", content: page("2026-10-30T12:00:00Z", "A2") },
-            { path: "db/b.md", content: page("2026-10-30T10:00:00Z", "B1") },
-            { path: "db/index.md", content: "# Database\n- A2\n- B1\n" },
-            { path: "db/table.csv", content: "title\nA2\nB1\n" },
+            {
+              path: "pages/a/index.md",
+              content: page("2026-10-30T10:00:00Z", "A1"),
+            },
+            { path: "pages/b/index.md", content: newerB },
           ],
           deletePaths: [],
         },
         tip({
-          "db/a.md": page("2026-10-30T11:00:00Z", "A1"),
-          "db/b.md": page("2026-10-30T11:00:00Z", "B2"),
-          "db/index.md": "# Database\n- A1\n- B2\n",
-          "db/table.csv": "title\nA1\nB2\n",
+          "pages/a/index.md": page("2026-10-30T11:00:00Z", "A2"),
+          "pages/b/index.md": page("2026-10-30T11:00:00Z", "B1"),
         }),
       ),
-    ).toEqual(unchanged)
+    ).toEqual({
+      files: [{ path: "pages/b/index.md", content: newerB }],
+      deletePaths: [],
+      staleDropped: 1,
+    })
   })
 
-  it("drops the deletes of a stale write", async () => {
+  it("drops the index and the table of a database with a stale row, and keeps a fresh row", async () => {
+    const freshRow = page("2026-10-30T12:00:00Z", "A2")
+    const result = await mirrorWriteChanges(
+      {
+        files: [
+          { path: "databases/db/rows/a/index.md", content: freshRow },
+          {
+            path: "databases/db/rows/b/index.md",
+            content: page("2026-10-30T10:00:00Z", "B1"),
+          },
+          {
+            path: "databases/db/index.md",
+            content: "# Database\n- A2\n- B1\n",
+          },
+          { path: "databases/db/table.csv", content: "title\nA2\nB1\n" },
+          { path: "databases/other/index.md", content: "# Other\n" },
+        ],
+        deletePaths: [],
+      },
+      tip({
+        "databases/db/rows/a/index.md": page("2026-10-30T11:00:00Z", "A1"),
+        "databases/db/rows/b/index.md": page("2026-10-30T11:00:00Z", "B2"),
+        "databases/db/index.md": "# Database\n- A1\n- B2\n",
+        "databases/db/table.csv": "title\nA1\nB2\n",
+      }),
+    )
+    expect(result.files.map((file) => file.path)).toEqual([
+      "databases/db/rows/a/index.md",
+      "databases/other/index.md",
+    ])
+    expect(result.staleDropped).toBe(3)
+  })
+
+  it("keeps the deletes of a write that has a stale file", async () => {
     expect(
       await mirrorWriteChanges(
         {
@@ -156,6 +196,15 @@ describe("mirrorWriteChanges", () => {
           "comment.md": "# Comment\n",
         }),
       ),
+    ).toEqual({ files: [], deletePaths: ["comment.md"], staleDropped: 1 })
+  })
+
+  it("reads the first update time field that parses", async () => {
+    expect(
+      await oneFile(
+        '---\nupdatedAt: unknown\nupdated_at: "2026-10-30T10:00:00Z"\n---\nolder\n',
+        '---\nupdatedAt: unknown\nupdated_at: "2026-10-30T11:00:00Z"\n---\nnewer\n',
+      ),
     ).toEqual(unchanged)
   })
 
@@ -165,6 +214,6 @@ describe("mirrorWriteChanges", () => {
         { files: [], deletePaths: ["gone.md", "kept.md"] },
         tip({ "kept.md": "# Kept\n" }),
       ),
-    ).toEqual({ files: [], deletePaths: ["kept.md"] })
+    ).toEqual({ files: [], deletePaths: ["kept.md"], staleDropped: 0 })
   })
 })

@@ -29,6 +29,7 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
 import {
   nativeGit,
   packRootTree,
@@ -148,11 +149,20 @@ export const workspaceConnectorMirror = defineWorkflow(
                         .toString()
                         .split("\0")
                     : []
-                  return mirrorWriteChanges(input, async (path) =>
-                    paths.includes(path)
-                      ? nativeGit(directory, ["show", `${tree}:${path}`])
-                      : null,
+                  const { staleDropped, ...changes } = await mirrorWriteChanges(
+                    input,
+                    async (path) =>
+                      paths.includes(path)
+                        ? nativeGit(directory, ["show", `${tree}:${path}`])
+                        : null,
                   )
+                  if (staleDropped > 0)
+                    getLogger().info("connector-mirror.stale-dropped", {
+                      step: "connector-mirror.stale-dropped",
+                      staleDropped,
+                      kept: changes.files.length,
+                    })
+                  return changes
                 },
                 acquired.pack,
                 read,
