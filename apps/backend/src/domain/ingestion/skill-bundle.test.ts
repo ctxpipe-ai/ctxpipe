@@ -149,10 +149,13 @@ describe("readIngestSkillBundle", () => {
     ).toThrow(/changed during the run/)
   })
 
-  it("keeps the re-ingestion key of the 2026-10-21 re-ingestion", async () => {
+  // The dependencies skill change of CTX-1083 can change the knowledge, so
+  // its content hash is the version. The key is the key of the re-ingestion
+  // that the scan started for that change on 2026-10-30.
+  it("keeps the re-ingestion key of the 2026-10-30 re-ingestion", async () => {
     const bundle = await readIngestSkillBundle()
     expect(reingestUpgradeKey(bundle.version)).toBe(
-      "reingest-ingest-5a5590e43c073b46",
+      "reingest-ingest-f4f530135d829c39",
     )
   })
 
