@@ -3,6 +3,7 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { connectorMirrorContentSchema } from "../../domain/workspaces/connector-mirror-input.js"
+import { tipMirrorSnapshotIsCurrent } from "../../domain/workspaces/mirror-snapshot-age.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
@@ -10,7 +11,6 @@ import {
 } from "../../domain/workspaces/revision.js"
 import {
   attemptWorkspaceCommit,
-  captureSemanticHandoff,
   publishWorkspaceWriteRevision,
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
@@ -21,6 +21,7 @@ import {
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import {
+  discardWriteJobPreparedCommit,
   persistBoundWriteJob,
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
@@ -42,7 +43,6 @@ import {
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
-import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
 export const workspaceConnectorMirrorInputSchema = connectorMirrorContentSchema
   .safeExtend({
@@ -102,6 +102,10 @@ export const workspaceConnectorMirror = defineWorkflow(
             workflowRunId: run.id,
           }),
         )
+        // A mirror write never goes to the semantic merge (CTX-1104). After a
+        // failed push, the write reads the new tip again and keeps only the
+        // files that are newer than the snapshots on that tip.
+        let pushFailed = false
         for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
           let acquired: NonNullable<
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
@@ -150,7 +154,18 @@ export const workspaceConnectorMirror = defineWorkflow(
                           `${tree}:${file.path}`,
                         ])
                       : null
-                    if (!existing?.equals(gitFileBytes(file))) files.push(file)
+                    const bytes = gitFileBytes(file)
+                    if (existing?.equals(bytes)) continue
+                    if (
+                      pushFailed &&
+                      existing &&
+                      tipMirrorSnapshotIsCurrent(
+                        bytes.toString("utf8"),
+                        existing.toString("utf8"),
+                      )
+                    )
+                      continue
+                    files.push(file)
                   }
                   return {
                     files,
@@ -229,23 +244,14 @@ export const workspaceConnectorMirror = defineWorkflow(
             )
           }
           if (!pushed.pushed) {
-            const handoff = await step.run(
-              { name: "capture-semantic-handoff" },
-              () =>
-                captureSemanticHandoff(input, revision, committed, env, "host"),
+            await step.run({ name: "discard-unpublished-candidate" }, () =>
+              discardWriteJobPreparedCommit(input.jobId, committed.sha),
             )
-            const result = await step.runWorkflow(
-              workspaceSemanticMerge.spec,
-              handoff,
-              { name: "semantic-merge-child" },
+            revision = await step.run({ name: "refresh-raced-revision" }, () =>
+              refreshWorkspaceWriteRevision(input, revision, env),
             )
-            await step.run({ name: "complete-merged-result" }, () =>
-              persistWriteJobCommitSha(
-                input.jobId,
-                result.committed ? result.commitSha : null,
-              ),
-            )
-            return result
+            pushFailed = true
+            continue
           }
           const published = await step.run({ name: "publish-result" }, () =>
             publishWorkspaceWriteRevision(input, revision, committed, env),
@@ -266,7 +272,9 @@ export const workspaceConnectorMirror = defineWorkflow(
           )
           return { committed: true as const, commitSha: committed.sha }
         }
-        throw new Error("Default branch kept changing during no-op validation")
+        throw new Error(
+          "Default branch kept changing during the connector mirror write",
+        )
       },
     )
   },

@@ -400,7 +400,7 @@ it(
 )
 
 it.each([false, true])(
-  "retains connector identity across semantic handoff; reset=%s",
+  "retains connector identity when it pushes again after a concurrent commit; reset=%s",
   { timeout: 60_000 },
   async (reset) => {
     await withNativeHydrationFixture(
@@ -474,8 +474,7 @@ it.each([false, true])(
           ).data.filter(
             (run) => run.workflowName === "workspace-write-semantic-merge",
           )
-          expect(children).toHaveLength(reset ? 0 : 1)
-          if (!reset) expect(children[0]?.input).toMatchObject({ mirror })
+          expect(children).toHaveLength(0)
           if (reset) {
             const parent = await f.backend.getWorkflowRun({
               workflowRunId: handle.workflowRun.id,
@@ -605,6 +604,132 @@ it(
               (run) => run.workflowName === "workspace-write-semantic-merge",
             ),
           ).toHaveLength(0)
+        } finally {
+          for (const run of (await f.backend.listWorkflowRuns({ limit: 100 }))
+            .data)
+            if (!["completed", "failed", "canceled"].includes(run.status))
+              await cancelWorkflowRunIfOpen(f.backend, run.id)
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+/** A Notion page mirror file with the source update time of a snapshot. */
+const notionPage = (lastEditedTime: string, title: string) =>
+  `---\nsource: notion\nlast_edited_time: "${lastEditedTime}"\n---\n# ${title}\n`
+
+it.each([
+  {
+    name: "an older snapshot keeps the newer file on the moved tip",
+    tip: notionPage("2026-10-30T12:00:00.000Z", "Newer page"),
+    incoming: notionPage("2026-10-30T11:00:00.000Z", "Older page"),
+    result: { committed: false, reason: "no_changes" },
+    page: "Newer page",
+  },
+  {
+    name: "a newer snapshot replaces the older file on the moved tip",
+    tip: notionPage("2026-10-30T11:00:00.000Z", "Older page"),
+    incoming: notionPage("2026-10-30T12:00:00.000Z", "Newer page"),
+    result: { committed: true },
+    page: "Newer page",
+  },
+  {
+    name: "an older snapshot replaces a file with conflict markers on the moved tip",
+    tip: [
+      "---",
+      "source: notion",
+      "<<<<<<< ours",
+      'last_edited_time: "2026-10-30T12:00:00.000Z"',
+      "=======",
+      'last_edited_time: "2026-10-30T10:00:00.000Z"',
+      ">>>>>>> theirs",
+      "---",
+      "# Merged page",
+      "",
+    ].join("\n"),
+    incoming: notionPage("2026-10-30T11:00:00.000Z", "Older page"),
+    result: { committed: true },
+    page: "Older page",
+  },
+])(
+  "pushes a stale connector mirror again with no semantic merge: $name",
+  { timeout: 60_000 },
+  async ({ tip, incoming, result, page }) => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          { path: "notion/config.yaml", body: "version: 1\n" },
+          {
+            path: "notion/page.md",
+            body: notionPage("2026-10-30T09:00:00.000Z", "Original page"),
+          },
+        ],
+      },
+      async (f) => {
+        await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
+        const mirror = await createNotionMirrorBinding(f)
+        const { workspaceConnectorMirror } =
+          await import("../../openworkflow/workflows/workspace-connector-mirror.js")
+        const { workspaceSemanticMerge } =
+          await import("../../openworkflow/workflows/workspace-semantic-merge.js")
+        const spec = {
+          ...workspaceConnectorMirror.spec,
+          retryPolicy: { maximumAttempts: 1 },
+        }
+        f.runner.implementWorkflow(spec, workspaceConnectorMirror.fn)
+        f.runner.implementWorkflow(
+          {
+            ...workspaceSemanticMerge.spec,
+            retryPolicy: { maximumAttempts: 1 },
+          },
+          workspaceSemanticMerge.fn,
+        )
+        // Another mirror write of the same page pushes first.
+        f.git("reset", "--hard", f.sha)
+        writeFileSync(join(f.directory, "notion/page.md"), tip)
+        f.git("add", "notion/page.md")
+        f.git("commit", "-m", "Concurrent mirror write")
+        f.git("push", f.remote, "HEAD:main")
+        const movedTip = f.git("rev-parse", "HEAD")
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        try {
+          await worker.start()
+          // The write has the revision from before the concurrent push.
+          const stale = await f.runner.runWorkflow(spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            revision: { ...f.revision, access: "write-default" },
+            mirror,
+            jobId: `wjob_${f.id}_stale_snapshot`,
+            files: [{ path: "notion/page.md", content: incoming }],
+            deletePaths: [],
+          })
+          expect(await stale.result({ timeoutMs: 30_000 })).toMatchObject(
+            result,
+          )
+          expect(
+            f.git("--git-dir", f.remote, "show", "main:notion/page.md"),
+          ).toContain(`# ${page}`)
+          expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "rev-list",
+              "--count",
+              `${movedTip}..main`,
+            ),
+          ).toBe(result.committed ? "1" : "0")
+          expect(
+            (await f.backend.listWorkflowRuns({ limit: 100 })).data.filter(
+              (run) => run.workflowName === "workspace-write-semantic-merge",
+            ),
+          ).toHaveLength(0)
+          expect(f.semanticRequests).toHaveLength(0)
         } finally {
           for (const run of (await f.backend.listWorkflowRuns({ limit: 100 }))
             .data)
