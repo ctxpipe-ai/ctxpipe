@@ -3,7 +3,7 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { connectorMirrorContentSchema } from "../../domain/workspaces/connector-mirror-input.js"
-import { tipMirrorSnapshotIsCurrent } from "../../domain/workspaces/mirror-snapshot-age.js"
+import { mirrorWriteChanges } from "../../domain/workspaces/mirror-write-changes.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
@@ -29,7 +29,6 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import { gitFileBytes } from "../../services/git/file-change.js"
 import {
   nativeGit,
   packRootTree,
@@ -102,11 +101,14 @@ export const workspaceConnectorMirror = defineWorkflow(
             workflowRunId: run.id,
           }),
         )
-        // A mirror write never goes to the semantic merge (CTX-1104). After a
-        // failed push, the write reads the new tip again and keeps only the
-        // files that are newer than the snapshots on that tip.
-        let pushFailed = false
-        for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
+        // A mirror write never goes to the semantic merge (CTX-1104). Each
+        // attempt compares the write with the tip that it acquires. When a
+        // file on the tip is a strictly newer snapshot, the write is stale and
+        // changes nothing. When the tip moves, the write reads it again and
+        // tries again. A lost push and a moved tip at the no-op check use the same
+        // count: both are a turn of the loop on a tip that moves.
+        const attempts = 5
+        for (let attempt = 0; attempt < attempts; attempt++) {
           let acquired: NonNullable<
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
           >
@@ -146,33 +148,11 @@ export const workspaceConnectorMirror = defineWorkflow(
                         .toString()
                         .split("\0")
                     : []
-                  const files: typeof input.files = []
-                  for (const file of input.files) {
-                    const existing = paths.includes(file.path)
-                      ? await nativeGit(directory, [
-                          "show",
-                          `${tree}:${file.path}`,
-                        ])
-                      : null
-                    const bytes = gitFileBytes(file)
-                    if (existing?.equals(bytes)) continue
-                    if (
-                      pushFailed &&
-                      existing &&
-                      tipMirrorSnapshotIsCurrent(
-                        bytes.toString("utf8"),
-                        existing.toString("utf8"),
-                      )
-                    )
-                      continue
-                    files.push(file)
-                  }
-                  return {
-                    files,
-                    deletePaths: input.deletePaths.filter((path) =>
-                      paths.includes(path),
-                    ),
-                  }
+                  return mirrorWriteChanges(input, async (path) =>
+                    paths.includes(path)
+                      ? nativeGit(directory, ["show", `${tree}:${path}`])
+                      : null,
+                  )
                 },
                 acquired.pack,
                 read,
@@ -250,7 +230,6 @@ export const workspaceConnectorMirror = defineWorkflow(
             revision = await step.run({ name: "refresh-raced-revision" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
-            pushFailed = true
             continue
           }
           const published = await step.run({ name: "publish-result" }, () =>
@@ -272,9 +251,13 @@ export const workspaceConnectorMirror = defineWorkflow(
           )
           return { committed: true as const, commitSha: committed.sha }
         }
-        throw new Error(
-          "Default branch kept changing during the connector mirror write",
+        // The job must not stay running with no commit. The next sync of the
+        // item writes it again.
+        const failure = `The default branch moved during each of ${attempts} attempts of the connector mirror write`
+        await step.run({ name: "fail-raced-command" }, () =>
+          persistWriteJobStatus(input.jobId, "failed", failure),
         )
+        throw new Error(failure)
       },
     )
   },
