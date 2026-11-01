@@ -72,7 +72,7 @@ const WorkspaceUpgradeItemSchema = z
   .object({
     key: z.string().openapi({
       description:
-        "`format-<N>`: the git upgrade of the Workspace repository to format N. `reingest-<bundle>`: the fresh re-ingestion of the source repositories with that skill bundle.",
+        "`format-<N>`: the git upgrade of the Workspace repository to format N. `reingest-<version>`: the fresh re-ingestion of the source repositories for that re-ingestion version.",
     }),
     kind: z.enum(["format", "reingest"]),
     title: z.string(),

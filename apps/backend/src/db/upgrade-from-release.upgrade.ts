@@ -515,7 +515,7 @@ it("upgrades a database of the previous release and its Workspace with no manual
       runner.implementWorkflow(workspaceUpgrade.spec, workspaceUpgrade.fn)
       const worker = runner.newWorker({ concurrency: 1 })
       const reingestKey = reingestUpgradeKey(
-        (await readIngestSkillBundle()).name,
+        (await readIngestSkillBundle()).version,
       )
       const row = (key: string) =>
         withOrgIdContext(ORG, () => getWorkspaceUpgradeRow(workspace.id, key))

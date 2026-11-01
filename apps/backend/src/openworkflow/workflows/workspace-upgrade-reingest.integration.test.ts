@@ -326,6 +326,10 @@ beforeAll(async () => {
       mode: file.executable ? 0o755 : 0o644,
     })
   }
+  writeFileSync(
+    join(bundleDir, "version.json"),
+    JSON.stringify({ version: real.version }),
+  )
   mkdirSync(join(bundleDir, "classify-kind"))
   writeFileSync(
     join(bundleDir, "classify-kind/SKILL.md"),
@@ -531,7 +535,8 @@ async function setWorkspace(
   )
 }
 
-const key = async () => reingestUpgradeKey((await readIngestSkillBundle()).name)
+const key = async () =>
+  reingestUpgradeKey((await readIngestSkillBundle()).version)
 const row = async (workspaceId: string) =>
   withOrgIdContext(org, async () =>
     getWorkspaceUpgradeRow(workspaceId, await key()),

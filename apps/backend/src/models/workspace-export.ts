@@ -269,10 +269,11 @@ export async function loadKnowledgeProjectionSource(
 
 /**
  * The GitHub source repositories (`owner/name`, lower case) that a
- * re-ingestion of this Workspace did. Any skill bundle counts: each bundle
- * makes the knowledge of the repository again, so after a new bundle the
- * main-era knowledge must not come back. A row keeps these marks when a
- * later run or a new bundle replaces its reports.
+ * re-ingestion of this Workspace did. Any re-ingestion version counts: each
+ * re-ingestion makes the knowledge of the repository again, so after a new
+ * re-ingestion version the main-era knowledge must not come back. A row keeps
+ * these marks when a later run or a new re-ingestion version replaces its
+ * reports.
  */
 export async function reingestedRepositories(
   workspaceId: string,

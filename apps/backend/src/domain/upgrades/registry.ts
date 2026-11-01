@@ -204,15 +204,15 @@ export function upgradeJobId(workspaceId: string, key: string): string {
 
 /**
  * Names the set of upgrades that this code knows: the git steps and the
- * ingest skill bundle (`bundleName`) that the re-ingestion offers. The
- * worker-start scan runs once for each org and release, so a release with a
- * new step or a new bundle scans again.
+ * re-ingestion version that the re-ingestion offers. The worker-start scan
+ * runs once for each org and release, so a release with a new step or a new
+ * re-ingestion version scans again.
  */
 export function upgradeRelease(
   steps: readonly GitUpgradeStep[],
-  bundleName: string,
+  version: string,
 ): string {
-  return `code-${CODE_FORMAT}.steps-${upgradeTargetFormat(steps)}.${bundleName}`
+  return `code-${CODE_FORMAT}.steps-${upgradeTargetFormat(steps)}.${version}`
 }
 
 /**
@@ -269,7 +269,7 @@ export type WorkspaceUpgradePayload = {
   /**
    * Only on a re-ingestion: each source repository (`owner/name`, lower
    * case) that a re-ingestion did. It only grows, also when a later run or a
-   * new skill bundle replaces `repositories`, because hydrate reads it to
+   * new re-ingestion version replaces `repositories`, because hydrate reads it to
    * drop the main-era knowledge of that repository. See {@link reingestedNames}.
    */
   reingested?: string[]

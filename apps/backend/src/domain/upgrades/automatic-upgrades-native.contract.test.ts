@@ -290,7 +290,7 @@ it(
         // queues, so the enqueue is refused, as it is after a deploy.
         const release = upgradeRelease(
           GIT_UPGRADE_STEPS,
-          (await readIngestSkillBundle()).name,
+          (await readIngestSkillBundle()).version,
         )
         await getSystemDb().execute(sql`
           insert into openworkflow.workflow_runs
