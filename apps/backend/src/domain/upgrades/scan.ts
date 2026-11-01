@@ -292,11 +292,11 @@ export async function scanWorkspaceUpgrade(input: {
  * Find the fresh re-ingestion of one Workspace and record it (ADR-053
  * section 5, G1). Every Workspace with a GitHub source repository needs it
  * once for each re-ingestion version: the key names the version, so a
- * completed row keeps it done until a release sets a new version. The scan never starts
- * it. It records `awaiting_operator` with the estimate, or `blocked` with
- * the reason of {@link reingestBlock}. A format that the scan cannot read now
- * leaves the row as it is, and a format that is newer than this code gets no
- * re-ingestion.
+ * completed row keeps it done until a release sets a new version. The scan
+ * never starts it. It records `awaiting_operator` with the estimate, or
+ * `blocked` with the reason of {@link reingestBlock}. A format that the scan
+ * cannot read now leaves the row as it is, and a format that is newer than
+ * this code gets no re-ingestion.
  */
 /**
  * The source repositories of a re-ingestion. A Workspace below format 3 that

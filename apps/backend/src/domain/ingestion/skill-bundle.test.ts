@@ -2,6 +2,7 @@ import {
   appendFileSync,
   chmodSync,
   cpSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -136,26 +137,45 @@ describe("readIngestSkillBundle", () => {
     ).toThrow(/changed during the run/)
   })
 
-  it("compares the content hash for a run planned with no version", async () => {
+  it("lets a run planned with no version continue when its bundle equals the version", async () => {
     const dir = copyBundle()
     const before = await readIngestSkillBundle(dir)
+    writeFileSync(
+      join(dir, "version.json"),
+      JSON.stringify({ version: before.name, hash: before.name }),
+    )
+    const same = await readIngestSkillBundle(dir)
     expect(() =>
-      assertSameReingestVersion({ bundle: before.name }, before),
+      assertSameReingestVersion({ bundle: before.name }, same),
     ).not.toThrow()
-    appendFileSync(join(dir, "discover-roots/SKILL.md"), "\n")
-    const after = await readIngestSkillBundle(dir)
+    writeFileSync(
+      join(dir, "version.json"),
+      JSON.stringify({ version: "ingest-1111111111111111", hash: before.name }),
+    )
+    const other = await readIngestSkillBundle(dir)
     expect(() =>
-      assertSameReingestVersion({ bundle: before.name }, after),
+      assertSameReingestVersion({ bundle: before.name }, other),
     ).toThrow(/changed during the run/)
   })
 
-  // The dependencies skill change of CTX-1083 can change the knowledge, so
-  // its content hash is the version. The key is the key of the re-ingestion
-  // that the scan started for that change on 2026-10-30.
-  it("keeps the re-ingestion key of the 2026-10-30 re-ingestion", async () => {
-    const bundle = await readIngestSkillBundle()
-    expect(reingestUpgradeKey(bundle.version)).toBe(
-      "reingest-ingest-f4f530135d829c39",
+  it("stops a run when a skill folder is added and the version stays", async () => {
+    const dir = copyBundle()
+    const before = await readIngestSkillBundle(dir)
+    const planned = {
+      bundle: before.name,
+      version: before.version,
+      skills: before.skills,
+    }
+    expect(() => assertSameReingestVersion(planned, before)).not.toThrow()
+    mkdirSync(join(dir, "added-skill"))
+    writeFileSync(
+      join(dir, "added-skill/SKILL.md"),
+      "---\nname: added-skill\ndescription: Fixture.\n---\n# added-skill\n",
+    )
+    const after = await readIngestSkillBundle(dir)
+    expect(after.version).toBe(before.version)
+    expect(() => assertSameReingestVersion(planned, after)).toThrow(
+      /skill list changed during the run/,
     )
   })
 
@@ -166,7 +186,7 @@ describe("readIngestSkillBundle", () => {
     const { name } = await readIngestSkillBundle()
     expect(
       hash,
-      `The content of apps/backend/ingest-skills changed. In apps/backend/ingest-skills/version.json, set "hash" to "${name}". Set "version" to "${name}" too only when the change can change the knowledge that ingestion writes: a new version offers each Workspace a paid re-ingestion. A format, lint, or comment change keeps the version.`,
+      `The content of apps/backend/ingest-skills changed. In apps/backend/ingest-skills/version.json, set "hash" to "${name}". Also set "version" to "${name}" when the edit can change the knowledge that ingestion writes. A new version offers each Workspace a paid re-ingestion. A format, lint, or comment edit keeps the version. A new or removed skill folder needs a new version.`,
     ).toBe(name)
   })
 })

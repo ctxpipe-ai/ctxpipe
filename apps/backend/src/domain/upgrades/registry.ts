@@ -210,9 +210,9 @@ export function upgradeJobId(workspaceId: string, key: string): string {
  */
 export function upgradeRelease(
   steps: readonly GitUpgradeStep[],
-  reingestVersion: string,
+  version: string,
 ): string {
-  return `code-${CODE_FORMAT}.steps-${upgradeTargetFormat(steps)}.${reingestVersion}`
+  return `code-${CODE_FORMAT}.steps-${upgradeTargetFormat(steps)}.${version}`
 }
 
 /**
@@ -269,7 +269,7 @@ export type WorkspaceUpgradePayload = {
   /**
    * Only on a re-ingestion: each source repository (`owner/name`, lower
    * case) that a re-ingestion did. It only grows, also when a later run or a
-   * new skill bundle replaces `repositories`, because hydrate reads it to
+   * new re-ingestion version replaces `repositories`, because hydrate reads it to
    * drop the main-era knowledge of that repository. See {@link reingestedNames}.
    */
   reingested?: string[]

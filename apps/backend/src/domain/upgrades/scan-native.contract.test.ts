@@ -257,3 +257,71 @@ it(
     )
   },
 )
+
+it(
+  "offers one waiting re-ingestion when the version is new and keeps the completed row of the old version",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        format: 3,
+        files: [
+          {
+            path: "sources/github/example/tools.md",
+            body: "---\nprovider: github\nconnection: {{connectionId}}\nrepository: example/tools\n---\nThe tools repository.\n",
+          },
+        ],
+      },
+      async (f) => {
+        await f.worker.start()
+        await f.handle.result({ timeoutMs: 60_000 })
+        const real = await readIngestSkillBundle()
+        const oldKey = reingestUpgradeKey(real.version)
+        const bundle = { ...real, version: "ingest-9a9a9a9a9a9a9a9a" }
+        const newKey = reingestUpgradeKey(bundle.version)
+        expect(newKey).not.toBe(oldKey)
+        const [workspace] = (
+          await withOrgDbContext(f.org.id, () => listOrgWorkspaces(f.org.id))
+        ).filter((row) => row.id === f.workspaceId)
+        if (!workspace) throw new Error("The fixture Workspace is missing")
+        const scan = () =>
+          withOrgIdContext(f.org, async () => {
+            await insertWorkspaceUpgradeRow({
+              workspaceId: f.workspaceId,
+              generation: 1,
+              status: "completed",
+              upgrade: {
+                key: oldKey,
+                fromFormat: 3,
+                targetFormat: 3,
+                repositories: [],
+              },
+            })
+            return scanWorkspaceReingest({
+              orgId: f.org.id,
+              workspace,
+              bundle,
+              format: 3,
+              env: parseEnv(process.env),
+            })
+          })
+        const result = await scan()
+        expect(result).toMatchObject({
+          kind: "pending",
+          status: "awaiting_operator",
+        })
+        await withOrgIdContext(f.org, async () => {
+          expect(
+            (await getWorkspaceUpgradeRow(f.workspaceId, newKey))?.status,
+          ).toBe("awaiting_operator")
+          expect(
+            (await getWorkspaceUpgradeRow(f.workspaceId, oldKey))?.status,
+          ).toBe("completed")
+        })
+      },
+    )
+  },
+)

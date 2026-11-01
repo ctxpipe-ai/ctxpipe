@@ -219,13 +219,13 @@ export async function scheduleUpgradeScansForAllOrgs(
   input: {
     now?: Date
     steps?: readonly GitUpgradeStep[]
-    reingestVersion?: string
+    version?: string
   } = {},
 ): Promise<number> {
   const now = input.now ?? new Date()
   const release = upgradeRelease(
     input.steps ?? GIT_UPGRADE_STEPS,
-    input.reingestVersion ?? (await readIngestSkillBundle()).version,
+    input.version ?? (await readIngestSkillBundle()).version,
   )
   let index = 0
   for (const orgId of await listOrgIdsWithWorkspaces()) {

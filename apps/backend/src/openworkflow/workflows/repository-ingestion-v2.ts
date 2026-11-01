@@ -344,6 +344,7 @@ export function defineRepositoryIngestionV2Workflow(
                   partial?: undefined
                   bundle: string
                   version?: string
+                  skills?: string[]
                   roots: string
                   repositorySkills: number
                 }
@@ -382,6 +383,7 @@ export function defineRepositoryIngestionV2Workflow(
               return {
                 bundle: bundle.name,
                 version: bundle.version,
+                skills: bundle.skills,
                 roots: packed,
                 repositorySkills: plannedIngestSkills(
                   bundle.skills,
@@ -414,7 +416,8 @@ export function defineRepositoryIngestionV2Workflow(
           mode,
           roots,
           bundle: scope.bundle,
-          ...(scope.version === undefined ? {} : { version: scope.version }),
+          version: scope.version ?? scope.bundle,
+          skills: scope.skills,
           source,
           authorTime: input.authorTime,
           destinations,

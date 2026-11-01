@@ -131,6 +131,8 @@ export const ingestionShardInputSchema = z.object({
   bundle: z.string().min(1),
   /** The re-ingestion version that the parent planned with. */
   version: z.string().min(1).optional(),
+  /** The skill folder names that the parent planned with. */
+  skills: z.array(z.string()).optional(),
   /** A GitHub or a plain git source (CTX-815), at the run's SHA. */
   source: ingestSourceWith({ sha, repositoryId: z.string().nullable() }),
   authorTime: z.string().datetime(),

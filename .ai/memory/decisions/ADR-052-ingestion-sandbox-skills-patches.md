@@ -15,7 +15,7 @@ An audit shows that no ingestion model call runs in a sandbox. Each call is a La
 - **One model run for each destination Workspace.** The agent must link what it finds to the existing context of that Workspace, and update existing files, not only add new ones. Scripts and the codesearch index are shared between the Workspaces of a run.
 - The agent gets a read-only checkout of each destination Workspace repository at `/ctxpipe/context/<workspaceId>/`, and a context index that the host builds from the active projection (path, kind, name, heading, summary, links, sources, owned flag). Before it writes a file, it looks for a file that already describes the same thing, and updates it or links to it.
 - **Skills:** `discover-roots` and `classify-kind` (scripts first; the model only when ambiguous; fast model tier); `apis`, `dependencies`, `datasources-infra`, `decisions`, and `instruction-areas` (medium tier); `libraries` and `ownership` (script-only, plain `exec`, no agent, repository-wide). Patterns are not extracted. The host plans the steps from the `discover-roots` result, so the agent cannot add a root without script evidence: `resolveDiscoveredRoots` (`apps/backend/src/domain/ingestion/discovered-roots.ts`) keeps each script root and adds only a root that the model chose from the `candidates` of an `ambiguous` entry. The model runs only when an `ambiguous` entry has a candidate.
-- The content hash names the skill bundle. That hash replaces `EXTRACTOR_VERSION`. The bundle also has a re-ingestion version, which a person sets. A Workspace needs a re-ingestion once for each re-ingestion version, not for each content hash.
+- The skill bundle is versioned by its content hash. That hash replaces `EXTRACTOR_VERSION`.
 
 ### 2. Output: patches as a staged tree, not JSON
 
@@ -167,3 +167,11 @@ In a publish, a merged file that fails the patch validator is withheld at its de
 - **The v2 steps own the claims of a v2-owned file.** `claims_upgrade` does not add a claim to a v2-owned file. A body link still makes its `LINKS_TO` edge in hydrate, so the graph loses no edge.
 - **Repair.** `claims_upgrade` removes each claim with no `evidence` from a v2-owned file. Each claim that the schema accepts has `evidence`, so this removes only claims that the schema refuses. A claim with evidence, also a `legacy` claim, stays.
 - **Rule.** A host job writes a field into a v2-owned file only when the v2 validator accepts it, as for `valid_from` (CTX-1090).
+
+## Revision 2026-11-01: a re-ingestion version names the re-ingestion (CTX-1028)
+
+- **Problem.** The re-ingestion key was the content hash of the skill bundle. A format, lint, or comment edit changed the hash, so each such edit offered each Workspace a paid re-ingestion.
+- **A person sets a re-ingestion version.** `apps/backend/ingest-skills/version.json` holds `version` and the content `hash` that it covers. It is not part of the bundle hash. The key `reingest-<version>` and the upgrade release name use the version. The content hash still names the bundle for step commits.
+- **A unit test pins the hash.** The test fails when the content changes and `hash` does not. The failure message says that a person sets `version` only when the edit can change the knowledge that ingestion writes, or when a skill folder is added or removed.
+- **A run in progress.** The in-run check compares the planned version with the current version. A run planned before this revision has only the content hash, which equals the first version. The check also stops a run when the skill folder names differ from the planned names.
+
