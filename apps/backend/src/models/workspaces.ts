@@ -6,6 +6,7 @@ import {
   getColumnTable,
   inArray,
   isNotNull,
+  ne,
   type SQL,
   sql,
 } from "drizzle-orm"
@@ -1776,10 +1777,40 @@ export async function persistHydrateFailure(input: {
 }
 
 /**
+ * Set the Workspace ready when its active revision is the desired revision.
+ * A hydrate that finds the revision published writes no projection, so a
+ * retry of that revision ends here. The update changes nothing when the
+ * desired revision moved on or the Workspace is ready.
+ */
+export async function persistHydrateNoopReady(
+  revision: WorkspaceRevision,
+): Promise<void> {
+  await orgSql(async () => {
+    await getOrgDb()
+      .update(workspaces)
+      .set({
+        hydrateStatus: "ready",
+        hydrateError: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(workspaces.id, revision.workspaceId),
+          eq(workspaces.desiredGeneration, revision.generation),
+          eq(workspaces.desiredSha, revision.sha),
+          sql`${workspaces.activeRevision} = ${JSON.stringify(revision)}::jsonb`,
+          ne(workspaces.hydrateStatus, "ready"),
+        ),
+      )
+  })
+}
+
+/**
  * Set a failed prepare, or a prepare that has no tip, back to pending. These
  * are the two states where the UI shows "Try again". Returns undefined when
  * the Workspace is in a different state, so of two concurrent retries only
- * one continues.
+ * one continues. A prepare that has no tip stays in that state after a
+ * retry, so it accepts one retry in each minute.
  */
 export async function persistHydrateRetry(
   workspaceId: string,
@@ -1795,7 +1826,12 @@ export async function persistHydrateRetry(
       .where(
         and(
           eq(workspaces.id, workspaceId),
-          sql`(${workspaces.hydrateStatus} = 'failed' or (${workspaces.hydrateStatus} <> 'ready' and (nullif(${workspaces.hydrateError}, '') is not null or nullif(${workspaces.desiredSha}, '') is null)))`,
+          // The same states as `workspaceHydrateView` in apps/ui: failed, or
+          // waiting_for_tip.
+          sql`(${workspaces.hydrateStatus} = 'failed'
+            or (${workspaces.hydrateStatus} <> 'ready' and nullif(${workspaces.hydrateError}, '') is not null)
+            or (${workspaces.hydrateStatus} <> 'ready' and nullif(${workspaces.desiredSha}, '') is null
+              and ${workspaces.updatedAt} < now() - interval '1 minute'))`,
         ),
       )
       .returning()

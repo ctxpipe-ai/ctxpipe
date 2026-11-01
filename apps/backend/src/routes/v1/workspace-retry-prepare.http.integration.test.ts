@@ -7,15 +7,7 @@ import { promisify } from "node:util"
 
 import { config } from "dotenv"
 import { eq, sql } from "drizzle-orm"
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import {
   closeDb,
@@ -50,6 +42,7 @@ async function seedWorkspace(
     desiredSha: string | null
     active?: true
     url?: string
+    updatedAt?: Date
   },
 ) {
   const id = `ws_${name}_${suffix}`
@@ -74,6 +67,7 @@ async function seedWorkspace(
       desiredDefaultBranch: state.desiredSha ? "main" : null,
       hydrateStatus: state.hydrateStatus,
       hydrateError: state.hydrateError ?? null,
+      ...(state.updatedAt ? { updatedAt: state.updatedAt } : {}),
       ...(state.active
         ? {
             activeRevision: revision,
@@ -119,10 +113,6 @@ describe("Retry of a Workspace prepare (Postgres)", () => {
     initDb(process.env.DATABASE_URL)
   })
 
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
   afterAll(async () => {
     await getSystemDb().execute(
       sql`delete from openworkflow.workflow_runs where input->>'workspaceId' like ${`%_${suffix}`}`,
@@ -137,8 +127,8 @@ describe("Retry of a Workspace prepare (Postgres)", () => {
     await closeDb()
   })
 
-  // A retry of a ready Workspace sets it back to pending. The hydrate then
-  // finds the active revision and does not set it to ready again.
+  // The guard keeps a ready Workspace ready: a retry must not set it back
+  // to pending.
   it("refuses a ready Workspace and queues no run", async () => {
     const id = await seedWorkspace("ready", {
       hydrateStatus: "ready",
@@ -204,24 +194,19 @@ describe("Retry of a Workspace prepare (Postgres)", () => {
     // no failed prepare.
     expect([first.status, second.status].sort()).toEqual([200, 409])
     await expect.poll(() => hydrateRunCount(id), { timeout: 5_000 }).toBe(1)
-    expect(await hydrateRunCount(id)).toBe(1)
   })
 
-  it("starts at most one run of a tip in each UTC minute", async () => {
-    // Both requests fall in the same UTC minute. Only `Date` is fake: the
-    // database client needs real timers.
-    vi.useFakeTimers({ toFake: ["Date"] })
-    vi.setSystemTime(Math.floor(Date.now() / 60_000) * 60_000 + 1_000)
-    const id = await seedWorkspace("minute", {
+  it("starts a new run for a retry after the last run failed", async () => {
+    const id = await seedWorkspace("again", {
       hydrateStatus: "failed",
       hydrateError: "clone failed",
       desiredSha: sha,
     })
-    expect((await retry("minute")).status).toBe(200)
+    expect((await retry("again")).status).toBe(200)
     await expect.poll(() => hydrateRunCount(id), { timeout: 5_000 }).toBe(1)
-    // The run of the first request fails again before the second request.
+    // The run fails at once and records the failure on the Workspace.
     await getSystemDb().execute(
-      sql`update openworkflow.workflow_runs set status = 'completed'
+      sql`update openworkflow.workflow_runs set status = 'failed'
           where input->>'workspaceId' = ${id}`,
     )
     await withOrgDbContext(org.id, (db) =>
@@ -231,17 +216,16 @@ describe("Retry of a Workspace prepare (Postgres)", () => {
         .where(eq(workspaces.id, id)),
     )
 
-    expect((await retry("minute")).status).toBe(200)
+    expect((await retry("again")).status).toBe(200)
 
-    // The queue is not awaited. Give it time to write a second run.
-    await new Promise((resolve) => setTimeout(resolve, 1_000))
-    expect(await hydrateRunCount(id)).toBe(1)
+    await expect.poll(() => hydrateRunCount(id), { timeout: 5_000 }).toBe(2)
   })
 
-  it("queues one run for a Workspace that waits for its tip", async () => {
-    repositoryDir = await mkdtemp(join(tmpdir(), "ctxpipe-retry-prepare-"))
+  it("queues one run for two retries of a Workspace that waits for its tip", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ctxpipe-retry-prepare-"))
+    repositoryDir = dir
     const git = (...args: string[]) =>
-      execFileAsync("git", ["-C", repositoryDir as string, ...args])
+      execFileAsync("git", ["-C", dir, ...args])
     await git("init", "-b", "main")
     await git(
       "-c",
@@ -256,12 +240,18 @@ describe("Retry of a Workspace prepare (Postgres)", () => {
     const id = await seedWorkspace("tip", {
       hydrateStatus: "pending",
       desiredSha: null,
-      url: repositoryDir,
+      url: dir,
+      updatedAt: new Date(Date.now() - 2 * 60_000),
     })
 
-    const response = await retry("tip")
+    const first = await retry("tip")
+    // The first retry does not change the view: the Workspace still waits
+    // for its tip. The guard refuses a second retry in the same minute, so
+    // that it does not read the tip again.
+    const second = await retry("tip")
 
-    expect(response.status).toBe(200)
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(409)
     await expect.poll(() => hydrateRunCount(id), { timeout: 5_000 }).toBe(1)
   })
 })
