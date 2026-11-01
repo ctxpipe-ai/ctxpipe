@@ -3,7 +3,6 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { connectorMirrorContentSchema } from "../../domain/workspaces/connector-mirror-input.js"
-import { mirrorWriteChanges } from "../../domain/workspaces/mirror-write-changes.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
@@ -11,6 +10,7 @@ import {
 } from "../../domain/workspaces/revision.js"
 import {
   attemptWorkspaceCommit,
+  captureSemanticHandoff,
   publishWorkspaceWriteRevision,
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
@@ -21,7 +21,6 @@ import {
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import {
-  discardWriteJobPreparedCommit,
   persistBoundWriteJob,
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
@@ -29,7 +28,7 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import { getLogger } from "../../observability/logger.js"
+import { gitFileBytes } from "../../services/git/file-change.js"
 import {
   nativeGit,
   packRootTree,
@@ -43,6 +42,7 @@ import {
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
+import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
 export const workspaceConnectorMirrorInputSchema = connectorMirrorContentSchema
   .safeExtend({
@@ -102,14 +102,7 @@ export const workspaceConnectorMirror = defineWorkflow(
             workflowRunId: run.id,
           }),
         )
-        // A mirror write never goes to the semantic merge (CTX-1104). Each
-        // attempt compares the write with the tip that it acquires. When a
-        // file on the tip is a strictly newer snapshot, the write is stale and
-        // changes nothing. When the tip moves, the write reads it again and
-        // tries again. A lost push and a moved tip at the no-op check use the same
-        // count: both are a turn of the loop on a tip that moves.
-        const attempts = 5
-        for (let attempt = 0; attempt < attempts; attempt++) {
+        for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
           let acquired: NonNullable<
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
           >
@@ -149,20 +142,22 @@ export const workspaceConnectorMirror = defineWorkflow(
                         .toString()
                         .split("\0")
                     : []
-                  const { staleDropped, ...changes } = await mirrorWriteChanges(
-                    input,
-                    async (path) =>
-                      paths.includes(path)
-                        ? nativeGit(directory, ["show", `${tree}:${path}`])
-                        : null,
-                  )
-                  if (staleDropped > 0)
-                    getLogger().info("connector-mirror.stale-dropped", {
-                      step: "connector-mirror.stale-dropped",
-                      staleDropped,
-                      kept: changes.files.length,
-                    })
-                  return changes
+                  const files: typeof input.files = []
+                  for (const file of input.files) {
+                    const existing = paths.includes(file.path)
+                      ? await nativeGit(directory, [
+                          "show",
+                          `${tree}:${file.path}`,
+                        ])
+                      : null
+                    if (!existing?.equals(gitFileBytes(file))) files.push(file)
+                  }
+                  return {
+                    files,
+                    deletePaths: input.deletePaths.filter((path) =>
+                      paths.includes(path),
+                    ),
+                  }
                 },
                 acquired.pack,
                 read,
@@ -234,13 +229,23 @@ export const workspaceConnectorMirror = defineWorkflow(
             )
           }
           if (!pushed.pushed) {
-            await step.run({ name: "discard-unpublished-candidate" }, () =>
-              discardWriteJobPreparedCommit(input.jobId, committed.sha),
+            const handoff = await step.run(
+              { name: "capture-semantic-handoff" },
+              () =>
+                captureSemanticHandoff(input, revision, committed, env, "host"),
             )
-            revision = await step.run({ name: "refresh-raced-revision" }, () =>
-              refreshWorkspaceWriteRevision(input, revision, env),
+            const result = await step.runWorkflow(
+              workspaceSemanticMerge.spec,
+              handoff,
+              { name: "semantic-merge-child" },
             )
-            continue
+            await step.run({ name: "complete-merged-result" }, () =>
+              persistWriteJobCommitSha(
+                input.jobId,
+                result.committed ? result.commitSha : null,
+              ),
+            )
+            return result
           }
           const published = await step.run({ name: "publish-result" }, () =>
             publishWorkspaceWriteRevision(input, revision, committed, env),
@@ -261,13 +266,7 @@ export const workspaceConnectorMirror = defineWorkflow(
           )
           return { committed: true as const, commitSha: committed.sha }
         }
-        // The job must not stay running with no commit. The next sync of the
-        // item writes it again.
-        const failure = `The default branch moved during each of ${attempts} attempts of the connector mirror write`
-        await step.run({ name: "fail-raced-command" }, () =>
-          persistWriteJobStatus(input.jobId, "failed", failure),
-        )
-        throw new Error(failure)
+        throw new Error("Default branch kept changing during no-op validation")
       },
     )
   },

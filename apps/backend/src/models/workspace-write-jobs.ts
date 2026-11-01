@@ -361,9 +361,7 @@ export async function discardWriteJobPreparedCommit(
       )
       .returning({ id: workspaceWriteJobs.id })
     if (!row)
-      throw new Error(
-        "The unpublished candidate changed before the write discarded it",
-      )
+      throw new Error("Unpublished candidate changed before semantic retry")
   })
 }
 
