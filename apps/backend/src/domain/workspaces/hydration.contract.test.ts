@@ -23,6 +23,7 @@ import {
   markKnowledgeEmbeddingsReady,
   persistEmbeddingFailure,
   persistHydrateFailure,
+  persistHydrateRetry,
 } from "../../models/workspaces.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
@@ -867,6 +868,39 @@ it(
         revision: { ...revision, generation: 2 },
         stores: { index: { kind: "pending" } },
       })
+    }),
+)
+
+it(
+  "a retry of a failed Workspace whose revision is published sets it ready again",
+  { timeout: 60_000 },
+  async () =>
+    withNativeHydrationFixture({}, async (f) => {
+      const { workspaceId, org, runner } = f
+      await f.publish()
+      // A lost repository access fails the Workspace and keeps its active
+      // revision. The user then gives access again and clicks "Try again".
+      await withOrgDbContext(org.id, (db) =>
+        db
+          .update(workspaces)
+          .set({ hydrateStatus: "failed", hydrateError: "No access" })
+          .where(eq(workspaces.id, workspaceId)),
+      )
+      await withOrgIdContext(org, () => persistHydrateRetry(workspaceId))
+
+      const repeat = await runner.runWorkflow(workspaceHydrate.spec, {
+        orgId: org.id,
+        workspaceId,
+        revision: await f.resolveRevision(),
+      })
+
+      expect(await repeat.result({ timeoutMs: 30_000 })).toEqual({
+        hydrated: false,
+        reason: "noop",
+      })
+      expect(
+        await withOrgIdContext(org, () => getWorkspaceById(workspaceId)),
+      ).toMatchObject({ hydrateStatus: "ready", hydrateError: null })
     }),
 )
 

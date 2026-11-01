@@ -394,6 +394,10 @@ const retryPrepareWorkspaceRoute = createRoute(
         content: { "application/json": { schema: ErrorResponseSchema } },
         description: "Not found",
       },
+      409: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "The prepare did not fail, or a retry started recently",
+      },
     },
   }),
 )
@@ -658,8 +662,18 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const { workspaceSlug } = workspaceSlugParams(c)
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
+    // Only a failed prepare, or a prepare that has no tip, starts again. The
+    // guard keeps a retry from setting a ready or building Workspace back to
+    // pending, and lets one of two concurrent retries continue.
     const retried = await persistHydrateRetry(workspace.id)
-    if (!retried) return c.json({ error: "Not found" }, 404)
+    if (!retried)
+      return c.json(
+        {
+          error:
+            "Nothing to retry: the prepare did not fail, or a retry started less than a minute ago.",
+        },
+        409,
+      )
     void enqueueWorkspaceHydrate(
       { orgId: retried.orgId, workspaceId: retried.id },
       c.get("log"),

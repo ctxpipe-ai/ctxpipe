@@ -67,6 +67,7 @@ import {
   markKnowledgeEmbeddingsReady,
   persistEmbeddingFailure,
   persistHydrateFailure,
+  persistHydrateNoopReady,
   persistWorkspaceGraphResult,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
@@ -405,6 +406,11 @@ export function defineWorkspaceHydrateWorkflow() {
           ) {
             if (planning.needed) await enqueueRecordedBackfills()
             await enqueueRemainingWrites()
+            // A retry of a published revision set the Workspace to pending.
+            // No projection is written, so set it ready here.
+            await step.run({ name: "settle-noop-ready" }, () =>
+              orgSql(() => persistHydrateNoopReady(revision)),
+            )
             return { hydrated: false, reason: "noop" as const }
           }
           if (
