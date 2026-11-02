@@ -117,17 +117,16 @@ the **Status** group of **Settings**, shows the progress of each run.
 - **Code search**: text, file, and symbol search over the linked branch.
 - **Code navigation**: definitions and references for the supported languages.
 - **Extracted knowledge**: services, APIs, libraries, infrastructure, and
-  instructions such as `AGENTS.md`, skills, and ADRs. ctxpipe commits them to
-  the Workspace repository as knowledge files with claims.
+  instructions such as `AGENTS.md`, skills, and ADRs, as knowledge files in
+  the Workspace repository. See
+  [How extraction works](/docs/workspaces/indexing#how-extraction-works).
 
-Extraction uses models on parts of the code. Treat extracted claims like other
-knowledge files: review them in git, and correct them when they are wrong.
+ctxpipe only reads a linked repository. It never writes to it. See
+[Code repositories stay read-only](/docs/workspaces#code-repositories-stay-read-only).
 
-## Closed pull requests
+## Issues and pull requests
 
-For a linked GitHub repository, ctxpipe also mirrors its closed pull requests,
-merged or not, into `github/pulls/` in the Workspace repository. When you link
-the repository, ctxpipe backfills up to 200 recent closed pull requests. After
-that, each pull request arrives when it closes. When you unlink, new pull
-requests stop. The files already mirrored stay. See
-[GitHub connector](/docs/connections/source-connectors/github).
+For a linked GitHub repository, ctxpipe also mirrors its issues and its closed
+pull requests into `github/issues/` and `github/pulls/` in the Workspace
+repository. When you unlink, new items stop, and the files already mirrored
+stay. See [GitHub connector](/docs/connections/source-connectors/github).

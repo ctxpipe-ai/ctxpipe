@@ -51,7 +51,8 @@ kinds of upgrade:
   for each step. The last commit writes `.ctxpipe/workspace.yaml`. Read the
   **Notes** on the card before you merge.
 - **Fresh re-ingestion of the source repositories** reads each linked
-  repository again and publishes the new knowledge. It needs format 3. For the
+  repository again and publishes the new knowledge. See
+  [How extraction works](/docs/workspaces/indexing#how-extraction-works). It needs format 3. For the
   cost and the restart rules, see
   [Upgrade a Workspace](/docs/self-hosting/upgrades#upgrade-a-workspace).
 
@@ -127,7 +128,7 @@ write access tag shows the result of the last check:
 | Tag | Meaning |
 | --- | --- |
 | **Can save changes** | The GitHub App can push to the repository. |
-| **Changes by pull request** | The default branch is protected. Conversations and source changes use pull requests. This is a normal state. |
+| **Changes by pull request** | The default branch is protected. Conversations and source changes use pull requests. Connector mirrors and extracted knowledge cannot push to the default branch, so they stop. |
 | **Checking write access** | ctxpipe is checking. The pane checks again by itself. |
 | **Could not check write access** | GitHub returned an error or a rate limit. Choose **Check again**. |
 | **Read-only** | ctxpipe cannot write. Search, chat, and the graph continue to work on the latest commit. |

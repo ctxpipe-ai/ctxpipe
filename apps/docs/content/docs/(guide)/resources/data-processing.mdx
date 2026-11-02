@@ -13,9 +13,8 @@ model traffic.
 - The git repositories that you link to a Workspace, and the Workspace
   repository itself.
 - The content of the sources that you add: Linear, Notion, Confluence,
-  PagerDuty, Buildkite, and Plain mirrors, the closed pull requests of linked
-  GitHub repositories,
-  and the Slack threads that a person captures. ctxpipe writes this content
+  PagerDuty, Buildkite, and Plain mirrors, the issues and closed pull requests
+  of linked GitHub repositories, and the Slack threads that a person captures. ctxpipe writes this content
   into the Workspace repository, which you control, then indexes it.
 
 ctxpipe reads nothing that you did not connect.
@@ -24,6 +23,9 @@ ctxpipe reads nothing that you did not connect.
 
 - You create each Workspace, link each repository, and approve each source scope
   in a pull request. ctxpipe ingests nothing without one of these actions.
+- ctxpipe writes only to Workspace repositories. It never writes to your code
+  repositories. See
+  [What ctxpipe writes](/docs/workspaces#what-ctxpipe-writes).
 - You can unlink a repository, remove a source, or delete a Workspace at any
   time. This stops new indexing. The indexed data can stay until the deletion
   process of your organization is complete.
@@ -45,12 +47,11 @@ ctxpipe reads nothing that you did not connect.
 ## How ctxpipe uses models
 
 - **Workspace chat.** Your messages, and the context that the agent retrieves
-  (search results, file excerpts, and graph context), go to the model. Each
-  conversation runs in its own sandbox. Its changes stay on a conversation
-  branch until you open a pull request.
+  (search results, file excerpts, and graph context), go to the model. See
+  [Where the agent runs](/docs/workspaces/chat#where-the-agent-runs).
 - **Ingestion.** ctxpipe uses models to extract knowledge from parts of the
-  linked repositories, in an isolated sandbox. See
-  [How indexing works](/docs/workspaces/indexing).
+  linked repositories, in a sandbox with a closed network. See
+  [Where extraction runs](/docs/workspaces/indexing#where-extraction-runs).
 - **MCP tools.** The tools call no model. They search and read your data. Your
   coding agent uses its own model.
 
