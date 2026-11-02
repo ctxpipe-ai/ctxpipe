@@ -274,7 +274,7 @@ clones the repository again while a new base builds.
 
 - Confirm PagerDuty OAuth credentials are present on backend and worker.
 - Confirm the connection is live and the incident's service is listed in the
-  scope of a PagerDuty source with the status **OK**. There is no shared webhook secret. ctxpipe
+  scope of a PagerDuty source with the status **Connected**. There is no shared webhook secret. ctxpipe
   stores the secret of each subscription on the connection.
 - Confirm signed requests reach `/api/v1/webhook/pagerduty` and merge pushes
   reach `/api/v1/webhook/github/<connectionId>`.

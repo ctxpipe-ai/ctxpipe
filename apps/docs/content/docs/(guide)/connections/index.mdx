@@ -107,7 +107,7 @@ To change what a Workspace reads, edit, rename, or remove its source. See
 - **Buildkite webhooks.** A finished build starts a full sync after a 10-minute
   window. More events in that window share the same sync.
 - **Daily full sync.** Once a day, ctxpipe syncs each connection that has a
-  source with the status **OK**. This sync finds content that the provider
+  source with the status **Connected**. This sync finds content that the provider
   deleted, and content that a webhook missed.
 - **Sync now.** The menu of the connector on **Connectors** has **Sync now** for
   Confluence, Linear, Notion, PagerDuty, Buildkite, and Plain. It starts the
@@ -162,7 +162,7 @@ A GitHub source holds one repository, so it has no limit.
 | Authorization fails | Allow popups and try again. On a self-hosted deployment, ask the operator to check the OAuth app of the provider and its callback URL. |
 | **Add to Workspaces** shows an error | The message names the cause: **Needs the format upgrade first.** next to a Workspace (see [Upgrades](/docs/workspaces/settings#upgrades)), **This Workspace is read-only** (see [Write access](/docs/workspaces/settings#write-access)), or **Ask an admin to choose what this source syncs** (your role). |
 | No pull request appears | Make sure that the GitHub App can write to the Workspace repository. Close the dialog and try again. |
-| The source status is not **OK** | Read the status and the reason in **Settings**. See [Source status](/docs/workspaces/settings#source-status). |
+| The source status is not **Connected** | Read the status and the reason in **Settings**. See [Source status](/docs/workspaces/settings#source-status). |
 | Changes in the tool do not arrive | Choose **Sync now**. If changes still do not arrive, ask the operator to check the webhook of the provider. |
 | A sync fails | Choose **Sync now**. If it fails again, ask the operator to check the worker logs, the GitHub write access, and outbound access to the API of the provider. |
 | The authorization was revoked | Reconnect the tool from its connector card. Updates stop until you do. |

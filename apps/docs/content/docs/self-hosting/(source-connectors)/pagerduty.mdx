@@ -160,7 +160,7 @@ selects, with `200`. It never fetches them.
    has many.
 6. Merge the pull request that adds `sources/pagerduty/<name>.md` in each
    Workspace repository.
-7. Confirm the source shows **OK** in the Workspace settings and generated
+7. Confirm the source shows **Connected** in the Workspace settings and generated
    files appear under `pagerduty/services/<serviceId>/incidents/`.
 8. Trigger or update an in-scope incident and confirm
    `POST /api/v1/webhook/pagerduty` succeeds and the corresponding Git file
@@ -218,7 +218,7 @@ trailing slash is present.
 ### Incremental events never arrive
 
 Confirm these three points: the public webhook URL is reachable, the connection
-is connected, and the service of the incident is in an **OK** PagerDuty source
+is connected, and the service of the incident is in a **Connected** PagerDuty source
 of a Workspace. ctxpipe rejects tampered or stale signatures. A failed enqueue
 returns `5xx`, so PagerDuty can retry.
 
