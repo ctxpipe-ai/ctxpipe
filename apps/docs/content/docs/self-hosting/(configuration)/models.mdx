@@ -23,7 +23,7 @@ For Vertex and other gateways that expect Bearer and a base URL, use **`openai-l
 </Callout>
 
 <Callout type="warn" title="Bedrock embeddings (Cohere only)">
-  When `MODEL_PROVIDER=bedrock`, embeddings use the native Bedrock Runtime API and currently support only **Cohere** embed models. The default is `cohere.embed-v4:0` on AWS CDK when `models.embedding` is omitted. Inference-profile IDs such as `global.cohere.embed-v4:0` are fine. Non-Cohere Bedrock embedding models are not supported yet. An SCP deny for a profile ID often still names the base `…/foundation-model/cohere.embed-v4:0` ARN.
+  When `MODEL_PROVIDER=bedrock`, embeddings use the native Bedrock Runtime API. Only **Cohere** embed models work. Other Bedrock embedding models do not work yet. On AWS CDK, the default is `cohere.embed-v4:0` when you do not set `models.embedding`. You can also use an inference-profile ID, for example `global.cohere.embed-v4:0`. If an SCP denies a profile ID, the error often names the base `…/foundation-model/cohere.embed-v4:0` ARN.
 </Callout>
 
 ## Quick Start (OpenRouter)
