@@ -7,8 +7,8 @@ description: How ctxpipe helps coding agents remember what your team teaches the
   Local memory builds on features of coding agents (Cursor, Claude Code, Codex,
   OpenCode, VS Code) that change from month to month, and on ideas about agent
   memory that are still settling. Expect this page and `ctxpipe memory init` to
-  change frequently. After upgrading the CLI, re-run `npx ctxpipe memory init`
-  to pick up the latest hooks, rules, and skills.
+  change frequently. After you upgrade the CLI, run `npx ctxpipe memory init` again
+  to get the latest hooks, rules, and skills.
 </Callout>
 
 ## What it is
@@ -23,7 +23,7 @@ nothing leaves your machine until you commit and push.
 
 ## Why it exists
 
-Agents forget. Every new chat starts from scratch, so engineers end up repeating
+Agents forget. Every new chat starts from scratch. Engineers then repeat
 the same corrections ("we use pnpm here", "don't call that API directly"). Local
 memory keeps those lessons:
 
@@ -32,29 +32,29 @@ memory keeps those lessons:
 - **With your team.** Memory is committed and reviewed like code, so a lesson one
   engineer teaches reaches everyone once it merges.
 - **In ctxpipe.** When the repository is linked to a Workspace, merged lessons
-  become part of that Workspace's knowledge, and the MCP read tools pass them on to
-  agents working in other repositories too.
+  become part of the knowledge of that Workspace. The MCP read tools also pass
+  them on to agents that work in other repositories.
 
 ## How it works
 
 1. **The agent notices.** When you tell an agent something that sounds lasting
    ("from now on…", "we decided…"), a small hook saves it as a *candidate* in
-   `.ai/memory/events/`. Candidates stay on your machine; that folder is
+   `.ai/memory/events/`. Candidates stay on your machine. That folder is
    gitignored.
 2. **The agent decides.** When the agent finishes its turn, the hook shows it the
    candidates. The agent writes the ones worth keeping into the right file (for
    example `lessons-learned.md`, or a new decision record) and discards the rest.
    Hooks never write lasting memory themselves.
 3. **You commit it with the work.** Memory changes go in the same commit and pull
-   request as the code they came from. If memory is left uncommitted, the agent
-   is reminded once, and again if a later commit leaves it out.
+   request as the code they came from. If memory stays uncommitted, the agent
+   gets one reminder. It gets another reminder if a later commit leaves it out.
 4. **The pull request tells the story.** The agent summarizes the work in the
    pull request description: what changed, why, what was tried and ruled out, and
    what is left. That description is reviewed with the code.
-5. **ctxpipe learns from what merges.** After merge, ctxpipe reads
-   `lessons-learned.md` as instructions for how your team works, decision records
-   as decisions, and, where pull request mirroring is enabled, pull request
-   descriptions as the history behind each change.
+5. **ctxpipe reads what merges.** After the merge, ctxpipe reads
+   `lessons-learned.md` as instructions for how your team works, and decision
+   records as decisions. Where pull request mirroring is on, it also reads pull
+   request descriptions as the history behind each change.
 
 ## What each agent gets
 
@@ -119,8 +119,9 @@ The interactive wizard asks.
 | Local memory (this page) | Markdown in one repository plus agent hooks. It is not an MCP server. |
 
 You can use local memory on its own (`memory init`) or alongside the ctxpipe MCP
-(`init --memory`). Together, local memory is how agents learn, and the MCP is how
-that learning reaches every agent in your organization.
+(`init --memory`). Local memory keeps the lessons of one repository. When you link that
+repository to a Workspace, the MCP serves the merged lessons to every
+agent in your organization.
 
 ## Finding things in memory
 
@@ -143,5 +144,5 @@ The installed `memory-search` skill describes the full procedure.
 - Re-run `npx ctxpipe memory init` after upgrading the CLI. It refreshes the
   rules, skills, and hooks, and keeps your own memory files. It also removes
   retired pieces from older versions: the `ctxpipe-memory` MCP entry, old memory
-  skills, and an AgentMemory-era `README.md`, and it moves `patterns.md` into
+  skills, and an AgentMemory-era `README.md`. It also moves `patterns.md` into
   `lessons-learned.md`.

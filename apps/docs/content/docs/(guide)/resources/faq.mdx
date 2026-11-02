@@ -7,10 +7,11 @@ description: Common questions about ctxpipe, connections, MCP, accounts, and sel
 
 ### What is ctxpipe?
 
-Context management for teams that ship with AI coding agents. ctxpipe keeps
+Context management for software factories: the coding agents, and the
+harnesses that run them, that a team uses to write software. ctxpipe keeps
 your code, decisions, tickets, docs, and incidents as Markdown in a git
-repository that you own, keeps it current with background jobs, and serves it
-to each coding agent through one MCP endpoint. See
+repository that you own. It keeps the repository current with background jobs.
+It serves the repository to each coding agent through one MCP endpoint. See
 [Getting started](/docs/getting-started).
 
 ### How is ctxpipe different from giving an agent more MCP servers?
@@ -31,8 +32,8 @@ endpoints. See [Data and privacy](/docs/resources/data-processing).
 
 GitHub, Linear, Notion, Confluence, PagerDuty, Buildkite, Plain, and Slack, plus
 public repositories on any git host. Linear, Notion, Confluence, PagerDuty,
-Buildkite, and Plain mirror the scope that you approve. Slack captures one thread when someone mentions the
-bot. See [Connections](/docs/connections).
+Buildkite, and Plain mirror the scope that you approve. Slack captures one
+thread when someone mentions the bot. See [Connections](/docs/connections).
 
 ### Is ctxpipe only for GitHub?
 
@@ -56,9 +57,9 @@ Markdown in your repository, and it leaves your machine only when you push it.
 
 ### Does ctxpipe write to my code repositories?
 
-No. ctxpipe only reads linked code repositories. It commits only to Workspace
-repositories, and it opens pull requests for source changes, upgrades, and
-Workspace chat.
+No. ctxpipe only reads linked code repositories, and writes only to Workspace
+repositories. See
+[Code repositories stay read-only](/docs/workspaces#code-repositories-stay-read-only).
 
 ## MCP
 

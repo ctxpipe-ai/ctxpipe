@@ -61,7 +61,7 @@ again to capture the thread again. The new capture replaces the file.
 
 ## What is captured
 
-ctxpipe saves the thread in each Workspace whose **OK** Slack source has the
+ctxpipe saves the thread in each Workspace whose **Connected** Slack source has the
 channel, with one commit for each Workspace:
 
 - the file is
@@ -81,7 +81,7 @@ source, the captured threads stay in the repository.
 ## Troubleshooting
 
 - **A mention does nothing.** Check that the connector shows **Connected**,
-  that an **OK** source has the channel, and that the bot is in the channel.
+  that a **Connected** source has the channel, and that the bot is in the channel.
   Use Slack autocomplete to mention the bot. If no Workspace has the channel,
   the bot replies "Nothing captured: no Workspace has this channel."
 - **A private channel does not work.** Invite the bot to the channel first.

@@ -78,8 +78,8 @@ in answers.
 ctxpipe skips a file that has one of the errors below, and continues with the
 other files. One bad file does not stop the Workspace. A skipped file stays in
 **Files**, because it is in git, but chat, MCP, search, and the graph do not
-use it. **Settings** lists the skipped files of the latest commit under
-**Hydrate skipped N files**.
+use it. The **Knowledge graph** card in **Settings** lists the skipped files of
+the latest commit under **ctxpipe skipped N files**.
 
 | Reason | Cause | Fix |
 | --- | --- | --- |
@@ -90,7 +90,8 @@ Push the fix to the default branch. When ctxpipe reads the new commit, the file
 is a knowledge unit again, and it leaves the list.
 
 Other errors stop the read of the whole commit. For example, a set of files
-that is too large shows **Loading failed** in **Settings**. See
+that is too large shows **The knowledge graph did not load** in **Settings**.
+See
 [Workspace settings](/docs/workspaces/settings#hydrate-and-skipped-files).
 
 ## Sources and linked repositories
@@ -102,26 +103,39 @@ repositories of a Workspace. See
 files in `repositories/`. When an organization moves to Workspaces, the upgrade
 pull request turns those files into source files.
 
-## What ctxpipe writes
+## Extracted files
 
-ctxpipe changes the Workspace repository only with small commits to the
-default branch. Each commit does one job and has a clear message:
+ctxpipe writes the knowledge that it
+[extracts from linked repositories](/docs/workspaces/indexing#how-extraction-works)
+only to these folders: `knowledge/codebases/`, `services/`, `apps/`,
+`libraries/`, `apis/`, `operations/`, `databases/`, `infrastructure/`,
+`streams/`, `decisions/`, `teams/`, and `instructions/`. ctxpipe sets these
+front matter fields. Do not change them by hand:
 
-- the setup commit (`AGENTS.md` and the knowledge skill);
-- knowledge extracted from linked repositories;
-- connector mirrors from Linear, Notion, Confluence, Slack, PagerDuty,
-  Buildkite, Plain, and GitHub pull requests;
-- the mirror files of the sources that you add in Settings;
-- upkeep such as rewriting links after a rename or filling in a missing
-  `valid_from`.
+| Field | Meaning |
+| --- | --- |
+| `generated_by` | `ctxpipe-extract`. ctxpipe extracted the file. |
+| `sources` | The source files that own the file, for example `sources/github/acme/checkout.md`. |
+| `source_sha` | The commit of the linked repository that ctxpipe read. |
+| `root` | The folder of the package in the linked repository. It is `.` for the whole repository. Only `Repository`, `Service`, `App`, and `Library` files have it. |
+| `skill`, `bundle` | The extraction step that wrote the file, and the version of the extraction. |
 
-ctxpipe never force-pushes. If someone else pushed first, ctxpipe rebases its
-change onto theirs. If both changed the same lines, ctxpipe merges the two
-changes before it pushes.
+Each claim of an extracted file has `evidence`: a path in the linked
+repository, and `script` or `model`. ctxpipe sets `confidence` from it: `0.7`
+for `script` and `0.5` for `model`.
 
-Changes made in [Workspace chat](/docs/workspaces/chat) are different: they go
-to a separate branch and reach the default branch only through a pull request
-you open.
+To change an extracted file:
 
-Files under `sources/` and `.ctxpipe/` change only through pull requests, so a
-person reviews the scope before ctxpipe mirrors content.
+- Put your own text between `<!-- ctxpipe:human -->` and
+  `<!-- /ctxpipe:human -->`. Ingestion never changes it.
+- To take over the file, remove `generated_by`. After that, ingestion can only
+  add claims and new lines in its `## Related` section.
+
+A file that a source owns alone can change fully on the next run. When you
+remove a repository source, ctxpipe deletes the files that only that source
+owned. ctxpipe also removes the source from the files that it shares with other
+sources. A file with a human section stays. ctxpipe removes only its own fields
+and claims.
+
+For all the commits that ctxpipe makes, see
+[What ctxpipe writes](/docs/workspaces#what-ctxpipe-writes).

@@ -1,24 +1,24 @@
 ---
 title: Confluence & Atlassian
-description: Configure Atlassian OAuth, Forge provisioning, and Confluence sync for self-hosted ctxpipe.
+description: Set up Atlassian OAuth, Forge provisioning, and Confluence sync for self-hosted ctxpipe.
 ---
 
 ## Overview
 
-Self-hosted Confluence uses the same connector surface as hosted ctxpipe, but
-your deployment owns the Atlassian and Forge configuration. In practice, there
-are two modes:
+Self-hosted Confluence uses the same connector surface as hosted ctxpipe. But
+your deployment owns the Atlassian and Forge configuration. There are two
+modes:
 
-- **Managed-style install URL**: provide a Forge install URL for the connection
-  or deployment, then the wizard opens Atlassian's install flow.
-- **Self-hosted provisioning**: let the worker create, deploy, and install a
-  Forge app using a scoped Forge API token and Confluence site hostname.
+- **Managed-style install URL**: give a Forge install URL for the connection
+  or deployment. The wizard then opens Atlassian's install flow.
+- **Self-hosted provisioning**: the worker creates, deploys, and installs a
+  Forge app. It uses a scoped Forge API token and the Confluence site hostname.
 
 Both modes keep connector settings and encrypted credentials on your deployment.
 
 ## What you need
 
-- A public `AUTH_BASE_URL` or `CTXPIPE_PUBLIC_APP_URL` reachable by Atlassian.
+- A public `AUTH_BASE_URL` or `CTXPIPE_PUBLIC_APP_URL` that Atlassian can reach.
 - A Confluence Cloud site, for example `your-site.atlassian.net`.
 - A GitHub connection, and a Workspace that the GitHub App can write to.
 - For per-connection OAuth: an Atlassian 3LO app.
@@ -30,8 +30,8 @@ If your deployment sets global **`ATLASSIAN_CLIENT_ID`** and
 **`ATLASSIAN_CLIENT_SECRET`**, ctxpipe uses that Atlassian app for account linking.
 Otherwise, the wizard shows **Register Atlassian OAuth app**. Register a 3LO
 app for the Forge connection in the
-[Atlassian developer console](https://developer.atlassian.com/cloud/oauth-2-3lo-apps)
-and save its client ID and secret in that step. On Docker Compose, the
+[Atlassian developer console](https://developer.atlassian.com/cloud/oauth-2-3lo-apps).
+Save its client ID and secret in that step. On Docker Compose, the
 `ATLASSIAN_*` values need an override file (see
 [Docker](/docs/self-hosting/deployment/docker#settings-that-need-an-override-file)).
 On AWS CDK, use `connectorSecrets.atlassianClientId` and
@@ -57,11 +57,11 @@ a durable worker job. The generated Forge app uses your public API origin for
 its remote callback.
 
 The Forge app requires `read:attachment:confluence` to clone page attachments.
-After upgrading an existing app manifest, deploy the new Forge version and
-complete Atlassian's permission upgrade; refreshing the app-system token alone
-does not grant the new scope. Assets are stored in the Workspace repository with
-25 MiB per-file and 100 MiB per-page limits. The worker strips credentials from
-media redirects and never persists Atlassian download URLs.
+After you upgrade the app manifest that you have, deploy the new Forge version.
+Complete Atlassian's permission upgrade. A refresh of the app-system token alone
+does not grant the new scope. ctxpipe stores assets in the Workspace repository.
+The limits are 25 MiB for each file and 100 MiB for each page. The worker removes
+credentials from media redirects. It never saves Atlassian download URLs.
 
 ### Allowed Forge apps
 
@@ -85,9 +85,9 @@ After Atlassian is linked and Forge is installed:
 4. Review and merge the pull request that adds `sources/confluence/<name>.md`
    in each Workspace repository.
 
-Confluence content is then synced into each selected Workspace repository and
-moves through the same indexing and graph ingestion path as other source
-material.
+ctxpipe then syncs Confluence content into each selected Workspace repository.
+The content goes through the same indexing and graph ingestion path as other
+source material.
 
 ## Error codes (provision)
 

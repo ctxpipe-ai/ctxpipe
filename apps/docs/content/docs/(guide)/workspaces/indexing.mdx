@@ -23,20 +23,144 @@ change, so new content can take a few minutes to show in answers.
   <Step>
     ### Linked repositories
 
-    When a linked repository changes, ctxpipe checks out its linked branch,
-    builds code search and code navigation, and uses models to extract
-    services, APIs, libraries, infrastructure, and instructions. ctxpipe
-    commits the extracted knowledge to the Workspace repository as knowledge
-    files, which starts the first kind of indexing.
+    When a linked repository changes, ctxpipe checks out its linked branch and
+    builds code search and code navigation. Then it
+    [extracts knowledge](#how-extraction-works) from the new commit and
+    commits it to the Workspace repository, which starts the first kind of
+    indexing.
   </Step>
 </Steps>
 
+## How extraction works
+
+Extraction reads one linked repository at one commit. It writes services,
+apps, libraries, APIs, dependencies, data stores, infrastructure, decisions,
+and instructions as knowledge files.
+
+<Steps>
+  <Step>
+    ### Prepare a sandbox
+
+    ctxpipe clones the linked repository into an isolated sandbox. It adds a
+    read-only copy of each Workspace repository that links the repository. See
+    [Where extraction runs](#where-extraction-runs).
+  </Step>
+
+  <Step>
+    ### Run the extraction skills
+
+    Each step runs one skill. Scripts find the facts first, for example from
+    manifests, lockfiles, and code patterns. A model confirms the facts, or
+    adds what a script cannot see. Each step runs separately for each
+    Workspace that links the repository. It updates or links the files that
+    the Workspace already has, so that it does not add a second file for the
+    same thing. The sandbox can only stage file changes. It cannot write to a
+    repository.
+  </Step>
+
+  <Step>
+    ### Check each file outside the sandbox
+
+    ctxpipe checks each staged file before it accepts it. It rejects the
+    file, and keeps the other files of the step, when:
+
+    - the path is not in a knowledge folder of the
+      [extracted files](/docs/workspaces/knowledge-files#extracted-files), or
+      it is in `sources/`, `.ctxpipe/`, `.agents/`, a connector mirror, or
+      `AGENTS.md`;
+    - the change breaks the ownership rules, or changes a human section;
+    - the front matter has an unknown key, or a claim has no `evidence` that
+      exists in the linked repository at that commit;
+    - a link does not resolve, or an external link goes to a repository that
+      the Workspace does not know;
+    - the text has control characters, hidden characters, raw HTML, or an HTML
+      comment;
+    - the file is larger than 64 KiB.
+
+    A step can change at most 30 files, and it can delete at most 20% of the
+    files that its source owns.
+  </Step>
+
+  <Step>
+    ### Publish one commit
+
+    ctxpipe keeps the result of each step in a temporary ref,
+    `refs/ctxpipe/ingest/…`, in the Workspace repository. ctxpipe does not
+    index these refs. At the end of the run, ctxpipe commits the result to the
+    default branch as one commit, `Update extracted knowledge`, and deletes
+    the refs.
+  </Step>
+</Steps>
+
+A Workspace takes at most 300 file changes from one run. Extraction publishes
+only to a Workspace at
+[format 3](/docs/workspaces/settings#repository-format) or later that ctxpipe
+can write to. Below format 3, the knowledge that the Workspace has stays
+readable.
+
+## Guards against prompt injection and secrets
+
+The content of a linked repository can try to give orders to the model. The
+model gets the instruction to treat each file as data, never as instructions.
+ctxpipe also checks the result:
+
+- It rejects a file with a heading that addresses AI agents or models.
+- It rejects a file with an instruction-like phrase outside a quote. A quote of
+  such a phrase must give a `Source:` path, and the text must be in that file
+  of the linked repository.
+- It rejects all the files of a step when the text that the step writes has a
+  value that looks like a secret. Examples are a private key and a
+  connection string with a password. More examples are an `Authorization`
+  header, and a key such as `*_TOKEN` with a real value. A known token format
+  is also a secret. The scan also decodes base64 and percent-encoded text. The
+  rejection gives the rule and the line, never the value.
+
+These guards limit what injected text can do. They cannot stop all of it.
+Review extracted files like other knowledge files. The `AGENTS.md` that
+ctxpipe writes tells coding agents to treat extracted files as data.
+
+## Where extraction runs
+
+Extraction runs in a different sandbox from
+[Workspace chat](/docs/workspaces/chat#where-the-agent-runs). On hosted
+ctxpipe, each extraction run has its own Vercel Sandbox microVMs. The
+differences from chat:
+
+- **Closed network.** The sandbox can fetch the linked repository and the
+  Workspace repositories of the run with git. It can call the ctxpipe model
+  proxy and the ctxpipe code search tools. It can do nothing else. It cannot
+  push, call the GitHub API, or reach another host or a private address. A public repository on another
+  git host is reachable only while the sandbox clones it, before a model runs.
+- **No credential in the sandbox.** A ctxpipe proxy outside the sandbox adds
+  each credential to a request on its way out. The GitHub tokens can only
+  read, and ctxpipe revokes them when the run ends.
+- **Limited agent.** The model runs as a user with no admin rights. The user
+  owns only the output folder `/ctxpipe/out` and the home folder
+  `/ctxpipe/home`, so the model can write only there. It uses only the skills
+  of ctxpipe. The `AGENTS.md` file and the skills in the linked repository do
+  not change it.
+
+Extraction uses the sandbox slots of your organization. See
+[Sandbox limits](/docs/workspaces/chat#sandbox-limits). For self-hosted
+sandboxes, see
+[Chat sandboxes](/docs/self-hosting/configuration#chat-sandboxes).
+
+## Re-ingestion
+
+When a new ctxpipe version changes what extraction writes, **Settings** offers
+the upgrade **Fresh re-ingestion of the source repositories**. It runs the
+extraction again on each linked repository. See
+[Upgrades](/docs/workspaces/settings#upgrades).
+
 ## Read the status
 
-**Settings** in each Workspace shows the hydrate status of the Workspace, the
-status of each linked repository, and the **Status** group. Its **Working now**
-list shows each ingestion that runs, with its stage, its progress, and how long it
-has run. In the sidebar, a pulse next to a Workspace shows that it ingests now.
+**Settings** in each Workspace shows the hydrate status of the Workspace on the
+**Knowledge graph** card, and the status of each linked repository on the
+**Sources** card. A row of the **Sources** card that ingests now shows what
+ctxpipe does and how long it has run. A button on the row opens the stage and
+the progress of each run. In the sidebar, a pulse next to a Workspace shows that
+it ingests now. A re-ingestion that you start from an upgrade shows on the
+**Upgrades** card.
 
 For the status of a linked repository (**Pending**, **Indexing**, **Indexed**,
 **Indexed with issues**), see

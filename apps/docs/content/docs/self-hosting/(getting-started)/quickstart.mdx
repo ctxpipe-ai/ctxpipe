@@ -3,9 +3,9 @@ title: Quickstart
 description: Deploy ctxpipe, set the public origin, and prove the loop from a source to an agent.
 ---
 
-This quickstart is the same for each deployment path. Deploy, then test the
-product loop: sign in, connect GitHub, index one repository, and search it from
-an agent with the MCP tools.
+This quickstart is the same for each deployment path. Deploy ctxpipe. Then test
+the product loop: sign in, connect GitHub, and index one repository. Then search
+it from an agent with the MCP tools.
 
 ## 1. Deploy
 
@@ -48,9 +48,8 @@ Before you add a source, make sure that:
 
 Open **Connectors**, select **Add connection**, then select **Connect** on the
 **GitHub** row. The wizard helps you create a GitHub App that your deployment
-owns. Follow
-[Self-host GitHub](/docs/self-hosting/github), and install the App on a few
-repositories.
+owns. Follow [Self-host GitHub](/docs/self-hosting/github). Then install the
+App on a few repositories.
 
 Then [create a Workspace](/docs/workspaces/create-workspace), and
 [link one code repository](/docs/workspaces/linked-repositories) in its
@@ -64,7 +63,7 @@ Run the CLI with the URL of your deployment:
 npx ctxpipe init --base-url https://ctx.example.com
 ```
 
-Or configure your client by hand with `https://ctx.example.com/mcp`. See
+Or set up your client by hand with `https://ctx.example.com/mcp`. See
 [Connect your agent](/docs/mcp/mcp-docs). The client authorizes against your
 deployment. The signed-in user must be a member of each organization that the
 client reads.

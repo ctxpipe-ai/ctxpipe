@@ -1,10 +1,10 @@
 ---
 title: Authentication
-description: Establish the public auth origin, protect signing secrets, and choose sign-in methods for self-hosted ctxpipe.
+description: Set the public auth origin, protect signing secrets, and choose sign-in methods for self-hosted ctxpipe.
 ---
 
 ctxpipe uses [Better Auth](https://www.better-auth.com) for identity management.
-All browser sign-in, provider callbacks, sessions, and MCP OAuth flow through the
+All browser sign-in, provider callbacks, sessions, and MCP OAuth go through the
 same public backend origin.
 
 ## Required auth boundary
@@ -18,33 +18,34 @@ same public backend origin.
 | `EMAIL_FROM_ADDRESS` | The sender address for transactional email. |
 
 `AUTH_SECRET` protects sessions and encrypted auth material. Do not generate a
-new value on every deploy. Rotating it can invalidate sessions and prevent
-existing encrypted signing keys from being read; treat rotation as a planned
-operational change.
+new value on every deploy. A rotation can invalidate sessions. It can also
+prevent ctxpipe from reading the encrypted signing keys that you have. Plan each rotation
+as an operational change.
 
 <Callout type="warn" title="One public origin">
   Open the product through `AUTH_BASE_URL`. Do not send browser users directly
   to the private UI service. Provider callbacks, MCP OAuth, cookies, and the API
-  rely on a consistent origin.
+  need one consistent origin.
 </Callout>
 
 ## Email and password
 
-Email/password sign-in is available by default. Configure SMTP before inviting a
-team so verification, invitation, and password-reset messages leave the
+Email/password sign-in is available by default. Set up SMTP before you invite a
+team. Then verification, invitation, and password-reset messages leave the
 deployment reliably.
 
-With SMTP and `EMAIL_FROM_ADDRESS` set, new email/password accounts verify
-their address before they can sign in. An unverified account that signs in is
-sent a fresh link. Resetting a password also verifies the address, and signs
-out the account's other sessions. Without SMTP, messages are only logged, so
-verification is not required and the backend logs a warning at startup.
+When you set SMTP and `EMAIL_FROM_ADDRESS`, a new email/password account must
+verify its address before it can sign in. ctxpipe sends a fresh link to an
+unverified account that signs in. A password reset also verifies the address. It
+signs out the other sessions of the account. Without SMTP, ctxpipe only logs the
+messages. Verification is then not required, and the backend logs a warning at
+startup.
 
 ## Social providers (OAuth)
 
 ctxpipe supports GitHub, Google, and Microsoft social sign-in.
-Each provider is enabled conditionally - if the corresponding client ID and
-secret are set in the backend environment, the sign-in option appears.
+Each provider is on only when you set its client ID and secret in the backend
+environment. Then the sign-in option shows.
 
 | Provider | Env vars required |
 |---|---|
@@ -53,19 +54,20 @@ secret are set in the backend environment, the sign-in option appears.
 | Microsoft | `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET` |
 
 <Callout type="info">
-  GitHub social sign-in credentials are separate from the deployment-owned
-  [GitHub App](/docs/self-hosting/github) used for repositories and connector
-  writes.
+  GitHub social sign-in credentials are separate from the
+  [GitHub App](/docs/self-hosting/github) that your deployment owns. That App
+  gives access to repositories and writes connector content.
 </Callout>
 
 Register each provider callback under `AUTH_BASE_URL`. Test sign-in through the
-same public origin users will use in production.
+same public origin that users use in production.
 
 ## Passkeys and two-factor authentication
 
 Passkeys are available on compatible browsers and platforms. Users can also
 enable TOTP two-factor authentication with a standard authenticator app. Verify
-both through your production TLS domain; WebAuthn credentials are origin-bound.
+both through your production TLS domain. WebAuthn credentials belong to one
+origin.
 
 ## MCP OAuth and API keys
 
@@ -73,7 +75,7 @@ ctxpipe is an OAuth provider for downstream MCP clients. It supports discovery,
 dynamic client registration, and device authorization for compatible headless
 clients.
 
-Configure the client with:
+Give the client this URL:
 
 ```text
 {AUTH_BASE_URL}/mcp

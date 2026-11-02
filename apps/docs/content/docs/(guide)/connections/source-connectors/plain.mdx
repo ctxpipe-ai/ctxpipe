@@ -25,8 +25,9 @@ You select Help Centers, thread labels, or both, for each Workspace.
   the first 50 messages in order, each as a quote. Internal notes are marked.
   A longer thread says that Plain has more messages.
 
-ctxpipe writes people by name only. In thread text, ctxpipe removes email addresses,
-phone numbers in common formats, and links that carry a credential. ctxpipe
+ctxpipe writes people by name only. In thread text, ctxpipe removes email
+addresses, phone numbers in common formats, and links that carry a credential.
+ctxpipe
 keeps only `https:` links. A link with text keeps the text and loses the
 link. A bare URL that is not `https:` becomes `[link removed]`. Other
 personal data in the text can remain.
@@ -43,7 +44,7 @@ personal data in the text can remain.
 - A Plain admin who can add a machine user and an API key.
 - A [Workspace](/docs/workspaces) whose repository the ctxpipe GitHub App can
   write to. The repository must use format 2 or higher. If it does not, the
-  Workspace shows **Upgrade this Workspace first**. See
+  dialog shows **Needs the format upgrade first.** next to the Workspace. See
   [Upgrades](/docs/workspaces/settings#upgrades).
 - Permission to merge the pull request that adds the source.
 
@@ -84,15 +85,15 @@ scope.
     `helpCenterArticleGroup:read`, `labelType:read`, `label:read`,
     `thread:read`, `timeline:read`, `customer:read`, `user:read`,
     `machineUser:read`, `webhookTarget:create`, and `webhookTarget:delete`.
-    Copy the key: Plain shows it one time.
+    Copy the key. Plain shows it one time.
   </Step>
 
   <Step>
     ### Connect Plain
 
     In ctxpipe, open **Connectors**, select **Add connection**, then select
-    **Connect** on the **Plain** row. Paste the key and select **Connect Plain**. ctxpipe checks the key
-    and its permissions, keeps it encrypted, and adds one webhook target for
+    **Connect** on the **Plain** row. Paste the key and select **Connect Plain**.
+    ctxpipe checks the key and its permissions, keeps it encrypted, and adds one webhook target for
     thread activity.
   </Step>
 
@@ -126,7 +127,7 @@ scope.
 
     After GitHub reports the merge, ctxpipe reads the source file and writes the
     first Plain files. The Workspace indexes the new files after that. See
-    [Indexing](/docs/connections/ingestion) for the lifecycle.
+    [How indexing works](/docs/workspaces/indexing) for the lifecycle.
   </Step>
 </Steps>
 
@@ -148,7 +149,7 @@ plain/help-centers/<help-center-id>/<slug>--<article-id>.md
 plain/threads/labels/<label-id>/<thread-id>.md
 ```
 
-The source owns these folders. Do not edit the files: ctxpipe writes them again
+The source owns these folders. Do not edit the files. ctxpipe writes them again
 on each sync. When an article is unpublished, or a thread leaves the newest
 100 of its label, ctxpipe deletes its file in the same commit.
 
@@ -188,8 +189,8 @@ address, and add a selected label to the new thread.
 ### A label or a Help Center does not sync
 
 Plain refuses a read when the key does not have a permission in the list
-above. The source can still show OK. Add the missing permission to the key
-in Plain, then select **Sync now** in the menu of the connector card.
+above. The source can still show OK. Add that permission to the key in
+Plain, then select **Sync now** in the menu of the connector card.
 
 ### The setup names missing permissions
 
@@ -199,7 +200,7 @@ machine user with all of them, and paste it.
 ### Add to a Workspace shows an error
 
 The dialog shows a message about the format, the write access, or your role.
-See [Add source shows an error](/docs/workspaces/settings#add-source-shows-an-error).
+See [Troubleshooting](/docs/connections#troubleshooting).
 
 ### No pull request appears
 
@@ -227,14 +228,15 @@ helps when someone deleted the target in Plain.
 
 Plain refused the saved key, for example because someone deleted it.
 ctxpipe keeps the files and stops the sync. Select **Reconnect Plain** on
-the card and paste a new key. A missing permission does not show here: see
+the card and paste a new key. A permission that the key does not have does
+not show here. See
 [A label or a Help Center does not sync](#a-label-or-a-help-center-does-not-sync).
 
 ### Removing the connector
 
 Choose **Remove connector** in the menu of the connector card. See
-[Connection menu](/docs/connections#connection-menu) for what stays in Git.
-ctxpipe also deletes the webhook target in Plain while the key works. When the
+[How content stays current](/docs/connections#how-content-stays-current) for
+what stays in Git. ctxpipe also deletes the webhook target in Plain while the key works. When the
 key no longer works, delete the target in **Settings → Webhooks** in Plain.
 
 ### More than one ctxpipe target in Plain

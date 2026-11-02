@@ -4,14 +4,9 @@ import { docs } from "@/.source"
 
 const mdxSource = docs.toFumadocsSource()
 
-/** Unpublished until the hosted Claude plugin is available in production. */
-const UNPUBLISHED_PAGE_PATHS = ["claude-plugin.mdx"]
-
+/** A page with `draft: true` in its front matter is not on the site. */
 const files = mdxSource.files.filter(
-  (file) =>
-    !UNPUBLISHED_PAGE_PATHS.some(
-      (name) => file.path === name || file.path.endsWith(`/${name}`),
-    ),
+  (file) => !(file.type === "page" && file.data.draft === true),
 )
 
 export const source = loader({ ...mdxSource, files }, { baseUrl: "/docs" })

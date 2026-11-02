@@ -1,6 +1,6 @@
 ---
 title: MCP
-description: Point MCP clients at a self-hosted ctxpipe origin, then diagnose routing and OAuth with ctxpipe doctor mcp and MCPJam.
+description: Connect MCP clients to a self-hosted ctxpipe origin. Then diagnose routing and OAuth with ctxpipe doctor mcp and MCPJam.
 ---
 
 Self-hosted ctxpipe exposes the same organization-scoped Streamable HTTP endpoint as
@@ -16,12 +16,12 @@ the `org` argument. The server accepts the old `?orgSlug=` parameter and ignores
 it.
 
 `AUTH_BASE_URL` must be the public origin clients use, including TLS. Client
-JSON shapes and OAuth install paths are unchanged from hosted ctxpipe; see
+JSON shapes and OAuth install paths are the same as on hosted ctxpipe. See
 [Connect your agent](/docs/mcp/mcp-docs) and
 [Authentication](/docs/self-hosting/authentication).
 
-This page is for operators: confirm the endpoint is reachable, then debug OAuth
-and tools on a **test organization**.
+This page is for operators. Confirm that the endpoint is reachable. Then debug
+OAuth and tools on a **test organization**.
 
 <Callout type="warn" title="Ready for OAuth is not authenticated proof">
   `npx ctxpipe doctor mcp` checks HTTP routing, TLS or reachability, the
@@ -65,7 +65,7 @@ npx ctxpipe doctor mcp \
 ```
 
 `--json` is machine-readable. Failures set a non-zero exit code. Loopback HTTP
-is allowed with a warning; remote endpoints must use HTTPS.
+works with a warning. Remote endpoints must use HTTPS.
 
 | Check | Passes when |
 | --- | --- |
@@ -84,8 +84,8 @@ If TLS fails from a Node CLI against a local CA (Portless or a private CA), set
 ## Authenticated checks with MCPJam
 
 MCPJam is an external diagnostic client. It is not bundled into `ctxpipe` or the
-self-hosted backend. Pin the versions below; do not use `@latest`. Use a test
-organization, not a customer organization.
+self-hosted backend. Pin the versions below. Do not use `@latest`. Use a test
+organization. Do not use a customer organization.
 
 ```bash
 npx @mcpjam/cli@3.24.0 oauth login \

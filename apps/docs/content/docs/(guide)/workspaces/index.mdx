@@ -18,11 +18,46 @@ open each Workspace.
 
 All that ctxpipe knows about a Workspace is in files in its Workspace
 repository. ctxpipe reads those files to build its search index and knowledge
-graph, and writes new knowledge back as ordinary commits. Thus:
+graph, and writes new knowledge back as ordinary commits. Because of this:
 
 - you read, review, and edit the knowledge with the tools that you already use;
 - each change that ctxpipe makes is a commit in the history of the repository;
 - if you stop using ctxpipe, the repository and its knowledge stay with you.
+
+### What ctxpipe writes
+
+ctxpipe writes only to the Workspace repository, through the ctxpipe GitHub
+App. Each change is a small commit to the default branch, or a pull request:
+
+| Change | How it gets to the default branch |
+| --- | --- |
+| The [setup commit](/docs/workspaces/create-workspace#what-ctxpipe-adds-to-the-repository) of a new Workspace | A commit |
+| Connector mirrors: Linear, Notion, Confluence, Slack, PagerDuty, Buildkite, Plain, and the issues and closed pull requests of linked GitHub repositories | A commit for each sync |
+| [Knowledge extracted](/docs/workspaces/indexing#how-extraction-works) from linked repositories | One commit for each run, `Update extracted knowledge` |
+| Upkeep, for example links that ctxpipe rewrites after a rename, a `valid_from` that a file does not have, or the automatic-upgrades setting | A commit |
+| A change to `sources/`: add, edit, rename, or remove a source | A pull request that a person merges |
+| A [format upgrade](/docs/workspaces/settings#upgrades) | A pull request on `ctxpipe/upgrade/format-<N>` |
+| [Workspace chat](/docs/workspaces/chat#publish-with-a-pull-request) | A branch for each conversation, and a pull request that you open |
+
+ctxpipe never force-pushes the default branch. It force-pushes only refs that
+it owns: the branch of a conversation, the upgrade branch, and the temporary
+refs of an extraction run. If someone else pushed to the default branch first,
+ctxpipe rebases its change onto theirs. If both changed the same lines,
+ctxpipe merges the two changes before it pushes.
+
+If the default branch is protected, connector mirrors and extracted knowledge
+stop. See [Write access](/docs/workspaces/settings#write-access).
+
+### Code repositories stay read-only
+
+ctxpipe does not write to
+[linked repositories](/docs/workspaces/linked-repositories). It reads them with
+short-lived tokens that can only read. The GitHub mirror only reads issues and
+pull requests, and writes them to the Workspace repository.
+
+A linked repository can also be the Workspace repository of another Workspace
+in your organization. ctxpipe then writes to it only for that other Workspace,
+and does not extract knowledge from it.
 
 ## Use a Workspace
 
@@ -43,9 +78,9 @@ the sidebar to find a Workspace or a page.
 
 ## How a Workspace stays current
 
-Files change in git: someone pushes, a connector mirrors new content, or
-ctxpipe commits knowledge that it extracted from a linked repository. ctxpipe
-then indexes the new commit. See [How indexing works](/docs/workspaces/indexing).
+When a new commit arrives on the default branch, from ctxpipe or from a person,
+ctxpipe indexes it. See
+[How indexing works](/docs/workspaces/indexing).
 
 ## Read-only Workspaces
 
