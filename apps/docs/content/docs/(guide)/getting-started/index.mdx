@@ -17,8 +17,9 @@ you own, and that you can read, review, and correct.
    Confluence, PagerDuty, Buildkite, Plain, and Slack. ctxpipe writes it as Markdown into one git
    repository for each [Workspace](/docs/workspaces).
 2. **Keep current.** Background jobs mirror changes from your tools, and read a
-   linked repository again after each push. Each job makes one small commit
-   that you can review or revert. Then ctxpipe
+   linked repository again after each push. Each job makes
+   [one small commit](/docs/workspaces#what-ctxpipe-writes) that you can review
+   or revert. Then ctxpipe
    [indexes the new commit](/docs/workspaces/indexing) for search and the graph.
 3. **Serve.** Claude Code, Cursor, Codex, OpenCode, and VS Code read the same
    Workspace [through one MCP endpoint](/docs/mcp/mcp-docs). ctxpipe returns

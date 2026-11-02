@@ -39,8 +39,9 @@ App. Each change is a small commit to the default branch, or a pull request:
 | A [format upgrade](/docs/workspaces/settings#upgrades) | A pull request on `ctxpipe/upgrade/format-<N>` |
 | [Workspace chat](/docs/workspaces/chat#publish-with-a-pull-request) | A branch for each conversation, and a pull request that you open |
 
-ctxpipe never force-pushes. If someone else pushed first, ctxpipe rebases its
-change onto theirs. If both changed the same lines, ctxpipe merges the two
+ctxpipe never force-pushes the default branch. It force-pushes only its own
+branches: the branch of a conversation and the upgrade branch. If someone else
+pushed to the default branch first, ctxpipe rebases its change onto theirs. If both changed the same lines, ctxpipe merges the two
 changes before it pushes.
 
 If the default branch is protected, **Settings** shows **Changes by pull
