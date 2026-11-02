@@ -3,18 +3,17 @@ title: Upgrades
 description: Upgrade and rollback process for self-hosted ctxpipe deployments.
 ---
 
-Treat upgrades as an operational change: back up state, run migrations once,
-deploy compatible services together, and validate product workflows before
-inviting users back in.
+An upgrade is an operational change. Back up state. Run migrations once. Deploy
+compatible services together. Validate product workflows before you invite users
+back in.
 
 ## Upgrade checklist
 
 1. Read release notes or the relevant pull request.
 2. Back up Postgres.
 3. Back up or snapshot the graph database.
-4. Preserve current deployment secrets and image tags or commit SHA.
-5. Confirm there are no long-running connector or ingestion jobs you need to let
-   finish first.
+4. Keep the current deployment secrets and image tags or commit SHA.
+5. Confirm that no long-running connector or ingestion job must finish first.
 6. Run migrations against the target database (AWS CDK: this is part of
    `cdk deploy`).
 7. Deploy backend, worker, UI, and codesearch from the same commit or release.
@@ -22,8 +21,8 @@ inviting users back in.
 
 ## Upgrade from main to Workspaces
 
-This release is a minor upgrade. You bump the version and deploy. The SQL only
-adds to your database, with one exception: the migration deletes orphan rows
+This release is a minor upgrade. You change the version number and deploy. The SQL only
+adds to your database, with one exception. The migration deletes orphan rows
 that have no organization (see [What the SQL changes](#what-the-sql-changes)).
 Nothing runs on its own after the deploy. Each change to a Workspace
 repository and each paid run waits for a click in the UI. Hosted and
@@ -31,13 +30,13 @@ self-hosted deployments use the same UI workflow.
 
 ### Before you start
 
-1. **Take a database snapshot.** The upgrade deletes orphan rows, and a
-   schema rollback is only possible from a snapshot. Take the snapshot of
+1. **Take a database snapshot.** The upgrade deletes orphan rows. A
+   schema rollback is possible only from a snapshot. Take the snapshot of
    Postgres (and of the graph database) before you deploy.
 2. **Check the GitHub App permissions.** Workspace writes need **Contents:
    Read and write** and **Pull requests: Read and write**. Without them, a
-   Workspace shows `blocked: write_access`, and the upgrade pull request
-   cannot open. Update the permissions in the GitHub App settings, then
+   Workspace shows `blocked: write_access`. The upgrade pull request
+   then cannot open. Update the permissions in the GitHub App settings. Then
    accept the change for each installation.
 3. **Note your current image tag or release.** You need it for a rollback.
 
@@ -49,7 +48,7 @@ migrate command, `bun run apps/backend/src/db/migrate.ts`.
 - **Docker Compose:** pull the new release, then run
   `docker compose --profile deploy build` and
   `docker compose --profile deploy up -d`. The `migrate` service runs before
-  the app services, and `chat-sandbox-image` builds the new chat image in
+  the app services. `chat-sandbox-image` builds the new chat image in
   `dind`. Set `POSTGRES_PASSWORD` in your `.env` (Compose sends it to migrate
   as the `ctxpipe_app` password). Check `docker compose logs migrate`.
   Before the Workspaces release, the deploy profile published Postgres on host
@@ -65,7 +64,7 @@ migrate command, `bun run apps/backend/src/db/migrate.ts`.
 
 ### What the SQL changes
 
-The upgrade follows the expand-only rule: a minor release adds tables,
+The upgrade follows the expand-only rule. A minor release adds tables,
 columns, policies, and rows. It does not remove anything that the previous
 release reads.
 
@@ -121,7 +120,7 @@ Each Workspace repository holds `.ctxpipe/workspace.yaml`. It has one key,
 
 ### Upgrade a Workspace
 
-An upgrade of a Workspace has two parts: a git upgrade and a re-ingestion.
+An upgrade of a Workspace has two parts. These are a git upgrade and a re-ingestion.
 Each part needs one click. Nothing starts by itself, unless an owner or admin
 turns on [automatic upgrades](/docs/workspaces/settings#automatic-upgrades). A
 merge always needs a person. This is true on hosted and on self-hosted
@@ -203,8 +202,8 @@ Workspace already holds.
   re-ingestions at once. A run that waits for its turn stays queued and
   starts when a slot is free. See
   [sandbox limits](/docs/workspaces/chat#sandbox-limits).
-- **Spend.** ctxpipe records the model spend of each repository run, and
-  does not cap it. A run does all of its steps. Use the limits of your
+- **Spend.** ctxpipe records the model spend of each repository run. It
+  does not cap the spend. A run does all of its steps. Use the limits of your
   model provider key to control spend. When a runtime reports no usage for
   a model step, the report shows "Spend unknown". The spend then counts
   only the known part.
@@ -271,16 +270,16 @@ the larger sizes.
 
 To turn the host off, set `sandboxHost: { enabled: false }` on `CtxPipe`. The
 deploy then adds no EC2 host and gives the services no sandbox host settings.
-Chat is off without the host: it answers "sandbox unavailable" (503).
+Without the host, chat is off. It answers "sandbox unavailable" (503).
 
 ## AWS CDK flow
 
-Self-hosted AWS stacks upgrade by bumping `@ctxpipe/aws-cdk` and redeploying. The published package pins backend, worker, UI, codesearch, and migrate images to the same git SHA and applies that release’s Fargate size profiles.
+To upgrade a self-hosted AWS stack, update `@ctxpipe/aws-cdk` and deploy again. The published package pins the backend, worker, UI, codesearch, and migrate images to the same git SHA. It also applies the Fargate size profiles of that release.
 
 Before the first deploy of a new version, read the Aurora PostgreSQL minor
 version of your cluster. CloudFormation cannot move a cluster to a lower minor
-version, so a cluster above the pinned version needs that version set in your
-CDK app. See
+version. A cluster above the pinned version therefore needs that version set in
+your CDK app. See
 [Aurora PostgreSQL minor version](https://github.com/ctxpipe-ai/ctxpipe/blob/main/packages/aws-cdk/README.md#aurora-postgresql-minor-version).
 
 ```bash
@@ -289,9 +288,9 @@ cdk synth
 cdk deploy
 ```
 
-`cdk deploy` runs the migrate task, then updates ECS services. Do not retag services to `:latest` or mix image SHAs from different package versions. See [AWS](/docs/self-hosting/deployment/aws).
+`cdk deploy` runs the migrate task. Then it updates the ECS services. Do not retag services to `:latest` or mix image SHAs from different package versions. See [AWS](/docs/self-hosting/deployment/aws).
 
-This release’s migrate task also creates the `ctxpipe_app` runtime role. The services then read a new runtime secret with the `ctxpipe_app` URL. The earlier `DATABASE_URL` secret keeps the owner URL, so a rollback to the earlier task definitions still works. You do not run `psql` or add `CtxPipe` props. Image-only retags without a package bump skip that role split.
+The migrate task of this release also creates the `ctxpipe_app` runtime role. The services then read a new runtime secret with the `ctxpipe_app` URL. The earlier `DATABASE_URL` secret keeps the owner URL, so a rollback to the earlier task definitions still works. You do not run `psql` or add `CtxPipe` props. Image-only retags without a package bump skip that role split.
 
 ## Docker Compose flow
 
@@ -313,7 +312,7 @@ branch.
 The `deploy` profile runs the `migrate` service before app services. Migrate
 connects as the Postgres owner (`ctxpipe` by default) and provisions
 `ctxpipe_app`. Backend, worker, and codesearch use the app-role `DATABASE_URL`.
-Check the migrator logs before validating the app.
+Check the migrator logs before you validate the app.
 
 ```bash
 docker compose logs migrate
@@ -378,7 +377,7 @@ fills `org_id` from the parent row, and the next migrate run repairs the
 rest. You do not need to do anything for these rows.
 
 The deleted orphan rows do not come back. Only the snapshot you took before
-the upgrade holds them, and it is the only way to roll back the schema.
+the upgrade holds them. It is also the only way to roll back the schema.
 
 A Workspace that you upgraded keeps its new format.
 A release that knows only older formats shows that Workspace as read-only
@@ -386,8 +385,8 @@ A release that knows only older formats shows that Workspace as read-only
 
 <Callout type="warn" title="Backups define rollback quality">
   A code rollback without a database restore is not always safe. Take a backup
-  before running migrations and test restore in the environment style you use for
-  production.
+  before you run migrations. Test the restore in an environment like your
+  production environment.
 </Callout>
 
 ## Upgrade notes by component

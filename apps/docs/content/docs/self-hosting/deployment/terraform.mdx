@@ -4,13 +4,13 @@ description: Start from the Terraform stack of hosted ctxpipe, on Railway and Ne
 ---
 
 The repository has a Terraform stack in `infra/`. It is the deployment of
-hosted ctxpipe: Railway for the services, Neon for Postgres, and Vercel Sandbox
-for chat. It is not a reusable module yet. Use it as a starting point, and fork
-it.
+hosted ctxpipe. It uses Railway for the services, Neon for Postgres, and Vercel
+Sandbox for chat. It is not a reusable module yet. Fork it and use it as a
+starting point.
 
 <Callout type="warn" title="Change the hosted values before you apply">
-  The stack names the accounts and settings of hosted ctxpipe: the Railway
-  workspace and project, the Neon organization and region, the GitHub App, the
+  The stack names the accounts and settings of hosted ctxpipe. These are the
+  Railway workspace and project, the Neon organization and region, the GitHub App, the
   email sender, the custom domains, the Vercel team and project, and the
   telemetry endpoint. Replace each of them with your own values in `infra/` and
   `infra/module/ctxpipe/` before you run `terraform apply`.
@@ -29,7 +29,7 @@ it.
 ## Initialize the state
 
 `infra/backend.tf` uses an S3-compatible state backend. Give the backend
-settings when you initialize, and keep the credentials out of the repository.
+settings when you initialize. Keep the credentials out of the repository.
 `infra/README.md` shows an example for Cloudflare R2:
 
 ```bash
@@ -79,9 +79,9 @@ environment of the project, or the plan stops.
 ## Database roles
 
 Terraform generates the `ctxpipe_app` password, and `migrate` creates the role
-in SQL with it. Do not use a role that the Neon API creates for the app: it is a
-member of `neon_superuser`, which bypasses row-level security, so `migrate`
-refuses it.
+in SQL with it. Do not use a role that the Neon API creates for the app. It is a
+member of `neon_superuser`, which bypasses row-level security. `migrate`
+therefore refuses it.
 
 The backend, worker, and codesearch use the pooler URL of `ctxpipe_app` as
 `DATABASE_URL`. `migrate` uses the owner URL. Keep these two identities

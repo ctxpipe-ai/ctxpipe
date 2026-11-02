@@ -1,19 +1,19 @@
 ---
 title: Graph databases
-description: Choose and configure an OpenCypher-compatible graph database when self-hosting ctxpipe.
+description: Choose and set up an OpenCypher-compatible graph database when self-hosting ctxpipe.
 ---
 
-When self-hosting this service, you need to configure an OpenCypher-compatible graph database for knowledge graphs, RAG, and related workloads. This guide helps you choose and configure one of the supported engines.
+When you self-host this service, you must set up an OpenCypher-compatible graph database for knowledge graphs, RAG, and related workloads. This guide helps you choose and set up one of the supported engines.
 
 ## Quick Start (FalkorDB)
 
-The easiest way to get started is **FalkorDB**, which is included as a Docker container in the default stack. No extra setup required, just run:
+The easiest way to start is **FalkorDB**. The default stack includes it as a Docker container. No extra setup is needed. Run:
 
 ```bash
 docker compose --profile deploy up -d
 ```
 
-The backend connects to FalkorDB via the **native driver** at `redis://falkordb:6379` by default. For host-based deployments, point `GRAPH_DB_URI` at your FalkorDB instance (e.g. `redis://localhost:6379`) or you can use any OpenCypher compatible database via Bolt driver.
+By default, the backend connects to FalkorDB with the **native driver** at `redis://falkordb:6379`. For host-based deployments, point `GRAPH_DB_URI` at your FalkorDB instance (for example `redis://localhost:6379`). Or use any OpenCypher-compatible database with the Bolt driver.
 
 On Docker Compose, the `GRAPH_DB_*` values in `.env` do not reach the backend.
 Set them in a `docker-compose.override.yml`. See
@@ -21,7 +21,7 @@ Set them in a `docker-compose.override.yml`. See
 
 ## Supported Engines
 
-You can use any of these OpenCypher-compatible engines. FalkorDB uses its native driver (Redis protocol); others use Bolt.
+You can use any of these OpenCypher-compatible engines. FalkorDB uses its native driver (Redis protocol). Others use Bolt.
 
 | Engine               | Best for                      | Notes                                                        |
 | -------------------- | ----------------------------- | ------------------------------------------------------------ |
@@ -31,7 +31,7 @@ You can use any of these OpenCypher-compatible engines. FalkorDB uses its native
 | **Memgraph**         | Enterprise, real-time         | Enterprise edition for multi-database.                       |
 | **Neptune**          | AWS-hosted                    | Managed service. Single graph per cluster.                   |
 
-Set `GRAPH_DB_PROVIDER` to match your engine. Tenancy mode is inferred automatically.
+Set `GRAPH_DB_PROVIDER` to match your engine. The service infers the tenancy mode automatically.
 
 ## Environment Variables
 
@@ -70,21 +70,21 @@ GRAPH_DB_PROVIDER=neptune
 
 ## Tenancy Modes
 
-All setups are **multi-tenant**: each organization’s graph data must be isolated from others. The service infers the tenancy strategy based on provider defined in `GRAPH_DB_PROVIDER`.
+All setups are **multi-tenant**. The graph data of each organization must be isolated from the data of the others. The service infers the tenancy strategy from the provider in `GRAPH_DB_PROVIDER`.
 
 ### Database-per-tenant (shared instance)
 
 **Providers**: FalkorDB, Neo4j Enterprise, Memgraph
 
-These engines support **multiple graphs or databases within a single instance**, with strong isolation between them. One shared instance serves many orgs; each org gets its own graph/database (e.g. `org_abc123`). The service passes the org’s database name when executing queries, so data stays isolated at the database layer.
+These engines support **multiple graphs or databases in one instance**, with strong isolation between them. One shared instance serves many orgs. Each org gets its own graph or database (for example `org_abc123`). The service passes the database name of the org when it runs queries. Data therefore stays isolated at the database layer.
 
 ### Instance-per-tenant (separate instance per org)
 
 **Providers**: Neo4j Community, Neptune
 
-Neo4j Community and Neptune **do not support multiple databases or graphs within a single instance**. Each instance has one logical graph. To achieve per-org isolation, the service uses **instance-per-tenant**: each org must have its own database instance. Queries are routed to the correct instance based on the org, so isolation is enforced by the deployment topology rather than by the database engine.
+Neo4j Community and Neptune **do not support multiple databases or graphs in one instance**. Each instance has one logical graph. For per-org isolation, the service uses **instance-per-tenant**. Each org must have its own database instance. The service routes each query to the instance of the org. The deployment topology enforces isolation, not the database engine.
 
-Set `GRAPH_DB_URI_<orgSlug>` for each org (e.g. `GRAPH_DB_URI_acme`, `GRAPH_DB_URI_piedpiper`). There is no fallback to `GRAPH_DB_URI`; each org must have its own URI configured. The AWS CDK construct sets this variable for its one `orgSlug`, so CDK users need to do nothing.
+Set `GRAPH_DB_URI_<orgSlug>` for each org (for example `GRAPH_DB_URI_acme`, `GRAPH_DB_URI_piedpiper`). There is no fallback to `GRAPH_DB_URI`. Each org must have its own URI. The AWS CDK construct sets this variable for its one `orgSlug`, so CDK users need to do nothing.
 
 ## Engine-Specific Setup
 

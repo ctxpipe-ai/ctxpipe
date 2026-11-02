@@ -1,17 +1,17 @@
 ---
 title: Linear
-description: Register a Linear OAuth application in the product UI, or optionally set a deployment-wide app with LINEAR_* environment variables.
+description: Register a Linear OAuth application in the product UI. Or set one app for the whole deployment with LINEAR_* environment variables.
 ---
 
 Self-hosted Linear uses an OAuth application that you create in Linear. The
 usual path is to paste the client ID, client secret, and webhook signing secret
-into the connector wizard. No `LINEAR_*` environment variables or service
-restart are required for that path.
+into the connector wizard. That path needs no `LINEAR_*` environment variables
+and no service restart.
 
 The same routes run on hosted ctxpipe and on self-host. Hosted ctxpipe keeps a
 deployment-wide Linear app in environment variables as a fallback. Self-host
-operators can use that fallback too if they want one shared Linear application
-for the whole deployment.
+operators can use that fallback too. Use it when you want one shared Linear
+application for the whole deployment.
 
 The worker decrypts the saved client secret with the same key the backend uses
 (`AUTH_SECRET` or `CONNECTION_SECRETS_ENCRYPTION_KEY`). That is not a new Linear
@@ -24,11 +24,12 @@ environment variable.
 - Permission to create a Linear OAuth application.
 - A ctxpipe GitHub App connection with write access to the repository of each
   Workspace that uses Linear.
-- The backend and worker able to reach `api.linear.app` over HTTPS.
+- Network access from the backend and the worker to `api.linear.app` over
+  HTTPS.
 
 ## Connector state and backups
 
-Linear scope remains reviewable in Git:
+You can review the Linear scope in Git:
 
 - Each Workspace has a source file at `sources/linear/<name>.md`. Draft scope is
   the file on the branch of the pull request that adds it.
@@ -38,7 +39,7 @@ Linear scope remains reviewable in Git:
 - Signed Linear events update in-scope generated files through durable worker
   jobs.
 
-Back up PostgreSQL for connection credentials, and back up the Workspace
+Back up PostgreSQL for connection credentials. Back up the Workspace
 repositories for both scope and mirrored content. PostgreSQL contains only
 credentials and setup state.
 
@@ -47,7 +48,7 @@ credentials and setup state.
 Open [Create new application](https://linear.app/settings/api/applications/new)
 in Linear Settings → API.
 
-Fill **Application name** and **Developer name**. In **Redirect URIs**, paste:
+Fill in **Application name** and **Developer name**. In **Redirect URIs**, paste:
 
 ```text
 https://<public-origin>/api/v1/integrations/linear/callback
@@ -55,13 +56,13 @@ https://<public-origin>/api/v1/integrations/linear/callback
 
 Linear supports several redirect URIs, one per line. Add local, staging, or
 preview callbacks individually when those environments must run OAuth. The
-scheme, host, path, and trailing slash must match the URI sent by ctxpipe.
+scheme, host, path, and trailing slash must match the URI that ctxpipe sends.
 
 ctxpipe requests the **`read`** scope with a user actor on the authorize URL. You
 do not set those on this Linear form.
 
 Linear cannot deliver webhooks to a private localhost address. End-to-end
-connector testing requires a public HTTPS deployment or tunnel.
+connector testing needs a public HTTPS deployment or tunnel.
 
 ## 2. Configure webhooks on the same form
 
@@ -72,17 +73,17 @@ https://<public-origin>/api/v1/webhook/linear
 ```
 
 Copy **Webhook signing secret** from that form. Linear fills it in before you
-click Create. ctxpipe verifies the `Linear-Signature` HMAC against the raw request
-body and rejects stale timestamps. Accepted in-scope events start a durable
-update before the endpoint acknowledges delivery.
+select Create. ctxpipe verifies the `Linear-Signature` HMAC against the raw
+request body. It rejects stale timestamps. For an accepted in-scope event,
+ctxpipe starts a durable update before the endpoint acknowledges delivery.
 
 Under **Data change events**, select Issues, Comments, Documents, Projects,
 Initiatives, Teams, and the related update and attachment boxes (including
 cycles, issue labels, users, and customer requests). Under **Authorization events**,
 select OAuth authorization events.
 
-Then click **Create**. Linear shows **Client ID** and **Client secret** only
-after that. Copy them for the next step.
+Then select **Create**. Only after that, Linear shows **Client ID** and
+**Client secret**. Copy them for the next step.
 
 <Callout title="One webhook URL per Linear application">
   A Linear application has one webhook destination. You can register several
@@ -97,16 +98,16 @@ after that. Copy them for the next step.
 
 1. Open **Connectors**, select **Add connection**, then select **Connect** on
    the **Linear** row.
-2. On **Register Linear OAuth app**, paste the client ID and client secret
-   Linear shows after Create, plus the webhook signing secret from the create
-   form. The wizard shows the exact **Redirect URIs** and **Webhook URL** values
+2. On **Register Linear OAuth app**, paste the client ID and the client secret
+   that Linear shows after Create. Also paste the webhook signing secret from the
+   create form. The wizard shows the exact **Redirect URIs** and **Webhook URL** values
    for this deployment.
 3. Save the app, then continue to **Connect Linear**.
 4. Complete OAuth. In **Add to Workspaces**, choose the Workspaces and the
    scope, then merge the pull request that adds `sources/linear/<name>.md`.
 
-Secrets are stored encrypted on the Linear `connections` row. List and status
-APIs never return them.
+ctxpipe stores secrets encrypted on the Linear `connections` row. The list and
+status APIs never return them.
 
 The backend and worker must share the encryption key
 (`AUTH_SECRET` / `CONNECTION_SECRETS_ENCRYPTION_KEY`) so token refresh can use
@@ -114,9 +115,9 @@ the saved client secret.
 
 ## 4. Optional deployment-wide environment variables
 
-`LINEAR_*` remains an optional operator shortcut for a deployment-wide Linear
-application (the hosted fallback). When both `LINEAR_CLIENT_ID` and
-`LINEAR_CLIENT_SECRET` are set, the wizard skips Register and starts at Connect.
+`LINEAR_*` is an optional operator shortcut for a deployment-wide Linear
+application (the hosted fallback). When you set both `LINEAR_CLIENT_ID` and
+`LINEAR_CLIENT_SECRET`, the wizard skips Register and starts at Connect.
 
 | Variable | Required | Purpose |
 |---|---:|---|
@@ -131,7 +132,7 @@ changing these variables.
 ### Docker Compose
 
 Add the variables to the root `.env` used by the `deploy` profile only if you
-want a deployment-wide app, then run:
+want a deployment-wide app. Then run:
 
 ```bash
 docker compose --profile deploy up -d --build backend worker
@@ -140,15 +141,15 @@ docker compose --profile deploy up -d --build backend worker
 ### Railway
 
 Set OAuth variables on the production backend and worker, and the webhook
-secret on the backend, only when using the deployment-wide fallback. The
+secret on the backend, only when you use the deployment-wide fallback. The
 repository's Terraform module currently passes provided `LINEAR_*` values to
 both services. For the root Terraform stack, the corresponding inputs are
 `TF_VAR_linear_client_id`, `TF_VAR_linear_client_secret`,
 `TF_VAR_linear_redirect_uri`, and `TF_VAR_linear_webhook_secret`.
 
 PR environments duplicate the production environment. Add each preview
-callback to the Linear application before testing OAuth. A shared production
-application still sends webhooks to production; use a dedicated preview
+callback to the Linear application before you test OAuth. A shared production
+application still sends webhooks to production. Use a dedicated preview
 application to test incremental delivery safely.
 
 ### AWS CDK
@@ -193,13 +194,13 @@ backend and worker task definitions.
     changes.
 11. Confirm the Workspace re-indexes.
 
-Linear file uploads and explicit embedded external media are copied into
+ctxpipe copies Linear file uploads and explicit embedded external media into
 sibling `assets/` directories in the Workspace repository. Ordinary link-only
-attachments stay links and are never crawled; GitHub pull requests and commits
-remain references. Downloads are limited to 25 MiB per asset and 100 MiB per
-Linear entity; unsafe, failed, or oversized assets leave a Linear link or
-textual stub. Treat the destination repository as carrying the same sensitivity
-as the selected Linear scope.
+attachments stay links. ctxpipe never crawls them. GitHub pull requests and
+commits stay references. The limits are 25 MiB for each asset and 100 MiB for
+each Linear entity. An unsafe, failed, or oversized asset leaves a Linear link
+or a textual stub. Give the destination repository the same sensitivity as the
+selected Linear scope.
 
 Initial sync proves OAuth, worker, and GitHub access. The webhook step
 separately proves Linear webhook delivery and signature configuration.
@@ -210,20 +211,20 @@ separately proves Linear webhook delivery and signature configuration.
 
 Neither the connection nor the deployment has a Linear client ID and secret.
 Register the app in the wizard, or set `LINEAR_CLIENT_ID` and
-`LINEAR_CLIENT_SECRET` on backend and worker if you want a deployment-wide app.
+`LINEAR_CLIENT_SECRET` on the backend and the worker if you want a deployment-wide app.
 
 ### Linear reports a redirect URI mismatch
 
 Compare the authorize request's `redirect_uri` with the application setting
-character for character. Prefer leaving `LINEAR_REDIRECT_URI` unset so ctxpipe
-derives it from the public `AUTH_BASE_URL`; use the override only behind a proxy
+character for character. If you can, leave `LINEAR_REDIRECT_URI` unset, so that ctxpipe
+derives it from the public `AUTH_BASE_URL`. Use the override only behind a proxy
 with a different external callback.
 
 ### OAuth succeeds but sync later fails
 
 The worker must be able to decrypt the saved client secret (same
 `AUTH_SECRET` / `CONNECTION_SECRETS_ENCRYPTION_KEY` as the backend) or, when
-using the env fallback, have `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET`.
+you use the environment variable fallback, have `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET`.
 Check outbound HTTPS, worker logs, and whether the application authorization
 was revoked in Linear.
 

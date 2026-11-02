@@ -1,55 +1,56 @@
 ---
 title: Slack
-description: Configure a deployment-owned Slack app for OAuth, Events API, and intent-based thread capture.
+description: Set up the Slack app that your deployment owns, for OAuth, the Events API, and intent-based thread capture.
 ---
 
 ## Overview
 
-Self-hosted Slack uses the same connector flow as hosted ctxpipe, but your
+Self-hosted Slack uses the same connector flow as hosted ctxpipe. But your
 deployment owns **one** Slack app. Organizations authorize that app into their
-workspace; they do not create their own Slack apps or webhook URLs.
+workspace. They do not create their own Slack apps or webhook URLs.
 
-This page covers only the operator setup: the Slack app, its scopes and
+This page covers only the operator setup. It has the Slack app, its scopes and
 events, and the secrets. For how people capture threads, see the
 [Slack connector guide](/docs/connections/source-connectors/slack).
 
 ## What you need
 
-- A public HTTPS `AUTH_BASE_URL` reachable by Slack.
+- A public HTTPS `AUTH_BASE_URL` that Slack can reach.
 - A Slack app with OAuth and Event Subscriptions enabled.
 - A GitHub connection, and a Workspace that the GitHub App can write to.
-- Backend env: `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`.
-- Model env (`MODEL_PROVIDER*` / Bedrock) so the mention agent can interpret
-  extra text after `@mention`. A bare mention still captures without the model.
+- Backend environment variables: `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`.
+- Model environment variables (`MODEL_PROVIDER*` / Bedrock), so the mention
+  agent can read extra text after `@mention`. A bare mention captures without
+  the model.
 - The same stable `AUTH_SECRET` and, when set,
   `CONNECTION_SECRETS_ENCRYPTION_KEY` on backend and worker so the worker can
   decrypt stored bot tokens.
 
 ## 1. Create the Slack app
 
-In the [Slack API dashboard](https://api.slack.com/apps), create an app (from
-scratch is fine). For higher rate limits in production, prefer distributing it
-as a Marketplace or internal org app rather than a throwaway development app.
+In the [Slack API dashboard](https://api.slack.com/apps), create an app. You can
+start from scratch. For higher rate limits in production, distribute it as a
+Marketplace app or an internal org app. Do not use a throwaway development app.
 
 If organizations will install the app into workspaces other than the app
 owner's development workspace, activate **Manage Distribution** in Slack.
-Marketplace listing is separate and is not required for private
-multi-workspace distribution.
+Marketplace listing is a separate step. Private distribution to many
+workspaces does not need it.
 
 ### OAuth & Permissions
 
-Add bot token scopes at least:
+Add at least these bot token scopes:
 
 - `app_mentions:read` (receive capture requests from bot mentions)
 - `channels:history`, `channels:read`
-- `groups:history`, `groups:read` (private channels; bot must be invited)
+- `groups:history`, `groups:read` (private channels; invite the bot)
 - `chat:write` (in-thread capturing → captured status replies)
 - `files:read`
 - `users:read`
 
-When adding a scope after a workspace has already installed the app, that
-workspace must complete OAuth again. Updating Slack app settings does not
-upgrade an existing bot token.
+If you add a scope after a workspace installs the app, that workspace must
+complete OAuth again. A change to the Slack app settings does not upgrade an
+existing bot token.
 
 Register this OAuth redirect URL:
 
@@ -81,7 +82,7 @@ Subscribe the bot to:
 Do **not** subscribe to `message.channels` / `message.groups` for the connector
 ingest path. Continuous message fan-out is not used.
 
-**Turn Socket Mode off.** If Socket Mode is enabled, Slack will not POST to the
+**Turn Socket Mode off.** If Socket Mode is enabled, Slack does not POST to the
 Request URL (“You won’t need a Request URL”) and mentions never reach ctxpipe.
 
 The Events URL is deployment-wide. Do not ask each organization to register its
@@ -95,7 +96,7 @@ event verification unusable.
 ### Docker Compose
 
 Add the values to the root `.env` used by the `deploy` profile, then recreate
-backend and worker:
+the backend and the worker:
 
 ```dotenv
 SLACK_CLIENT_ID=...
@@ -129,7 +130,7 @@ new CtxPipe(stack, "CtxPipe", {
 })
 ```
 
-Use your normal secret-management convention; do not put plaintext credentials
+Use your normal secret-management convention. Do not put plaintext credentials
 in source control.
 
 ## 3. Check the connector
@@ -148,10 +149,10 @@ request. See the [Slack connector guide](/docs/connections/source-connectors/sla
 
 ### “Slack is not configured on this deployment”
 
-The backend does not have both OAuth values. Confirm `SLACK_CLIENT_ID` and
-`SLACK_CLIENT_SECRET` are non-empty in the backend runtime, then redeploy or
-restart backend. Setting repository or CI secrets alone does not update an
-already-running service.
+The backend does not have both OAuth values. Confirm that `SLACK_CLIENT_ID` and
+`SLACK_CLIENT_SECRET` are not empty in the backend runtime. Then redeploy or
+restart the backend. A change to repository secrets or CI secrets alone does not
+update a running service.
 
 ### OAuth returns `invalid_redirect_uri`
 
@@ -161,8 +162,8 @@ Register the exact callback:
 {AUTH_BASE_URL}/api/v1/connectors/slack/oauth/callback
 ```
 
-Only set `SLACK_REDIRECT_URI` when intentionally using a different public
-callback. Its value must exactly match a redirect URL registered in Slack.
+Set `SLACK_REDIRECT_URI` only when you use a different public callback on
+purpose. Its value must exactly match a redirect URL registered in Slack.
 
 ### Slack cannot verify the Events Request URL
 
@@ -172,8 +173,8 @@ callback. Its value must exactly match a redirect URL registered in Slack.
   verification token.
 - Confirm the public proxy forwards the raw request body and
   `X-Slack-Signature` / `X-Slack-Request-Timestamp` headers unchanged.
-- An unsigned test POST should return 401. A 404 means routing is wrong; a 503
-  means the backend has no signing secret.
+- An unsigned test POST must return 401. A 404 means that the routing is wrong.
+  A 503 means that the backend has no signing secret.
 
 ### Mentions do not create commits
 
@@ -186,20 +187,21 @@ callback. Its value must exactly match a redirect URL registered in Slack.
   again.
 - Mention the bot's **@handle** (Slack autocomplete), not only a display name
   typed as plain text.
-- Inspect worker logs for the Slack mention capture job. Backend and worker
-  must use the same database and stable encryption material
+- Read the worker logs for the Slack mention capture job. The backend and the
+  worker must use the same database and stable encryption material
   (`AUTH_SECRET` and, when set, `CONNECTION_SECRETS_ENCRYPTION_KEY`). The
   GitHub App must still have contents write access to the Workspace repository.
-  Extra text after a mention requires `MODEL_PROVIDER*` (or Bedrock). A second
-  org cannot OAuth-install a workspace that is already connected.
+  Extra text after a mention needs `MODEL_PROVIDER*` (or Bedrock). A second
+  org cannot install a workspace through OAuth when that workspace is already
+  connected.
 
 ### Capture commits but the repository never indexes
 
-Capture writes git via the GitHub App. Indexing starts only when this
+Capture writes to git through the GitHub App. Indexing starts only when this
 deployment receives the GitHub **push** webhook for that repository. Confirm
-the GitHub App webhook URL points at **this** origin
-(`{AUTH_BASE_URL}/api/v1/webhook/github/...`), not another environment, and
-that the worker and codesearch services are running.
+that the GitHub App webhook URL points at **this** origin
+(`{AUTH_BASE_URL}/api/v1/webhook/github/...`) and not at another environment.
+Confirm that the worker and codesearch services run.
 
 ## Related pages
 

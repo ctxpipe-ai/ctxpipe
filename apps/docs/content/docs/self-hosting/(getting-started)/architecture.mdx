@@ -3,7 +3,7 @@ title: Architecture
 description: Service topology and request flow for self-hosted ctxpipe.
 ---
 
-Self-hosted ctxpipe uses the same product architecture as hosted ctxpipe, but the
+Self-hosted ctxpipe uses the same product architecture as hosted ctxpipe. But the
 operator owns the runtime, network boundary, secrets, and stateful services.
 Keep the browser, REST API, auth callbacks, and MCP endpoint on the same public
 backend origin.
@@ -16,7 +16,7 @@ backend origin.
 4. Auth sessions, repository records, connections, and workflow state live in
    Postgres.
 5. Repository ingestion calls `codesearch`, which clones repositories and
-   maintains Zoekt indexes. Codesearch is a **single replica**: Zoekt shards,
+   maintains Zoekt indexes. Codesearch is a **single replica**. Zoekt shards,
    git clone cache, and SCIP artifacts live on one process and one volume.
    Extra worker replicas do not raise ingest throughput unless codesearch
    memory (and `OPENWORKFLOW_CONCURRENCY` / indexer caps) also grow.
@@ -49,20 +49,20 @@ The same policy holds on Docker Compose and AWS:
   (open source) runs next to the sandboxes and adds each credential to the
   requests that need it.
 - Sandboxes reach the network only through the Agent Vault proxy. On Compose,
-  rules in the `dind` service enforce this; on AWS, `DOCKER-USER` rules on the
-  sandbox host do. HTTP and
-  HTTPS stay open: agents can clone, fetch, push, call the GitHub CLI, install
-  packages, and read documentation on the internet. The proxy forwards hosts
-  that have no credential rule as they are.
-- All other traffic from a sandbox is blocked: a direct connection that does
-  not use the proxy, any non-HTTP protocol (SSH, raw TCP, UDP), and DNS.
-  Sandboxes do not resolve names; the proxy resolves them.
-- Private addresses through the proxy: on Compose, only the backend's fixed
-  address on the `sandbox` network. On AWS, only the backend's subnets; the
-  host also rejects traffic from Agent Vault to the host itself. Agent Vault
-  never reaches its own management API. Data stores are never exposed to
-  sandboxes: Compose never publishes Postgres or FalkorDB, and AWS admits only
-  the app's security group to them.
+  rules in the `dind` service enforce this. On AWS, `DOCKER-USER` rules on the
+  sandbox host enforce it. HTTP and HTTPS stay open. Agents can clone, fetch,
+  push, call the GitHub CLI, install packages, and read documentation on the
+  internet. The proxy forwards hosts that have no credential rule without
+  change.
+- All other traffic from a sandbox is blocked. This includes a direct connection
+  that does not use the proxy, any non-HTTP protocol (SSH, raw TCP, UDP), and
+  DNS. Sandboxes do not resolve names. The proxy resolves them.
+- The proxy allows private addresses as follows. On Compose, it allows only the
+  fixed address of the backend on the `sandbox` network. On AWS, it allows only
+  the subnets of the backend. The host also rejects traffic from Agent Vault to
+  the host itself. Agent Vault never reaches its own management API. Sandboxes
+  never reach data stores. Compose never publishes Postgres or FalkorDB. AWS
+  admits only the security group of the app to them.
 - Sandboxes cannot reach cloud instance metadata (`169.254.169.254`).
 - Each agent port needs a password, and sandboxes cannot reach each other over
   the Docker bridge.
@@ -75,16 +75,16 @@ The same policy holds on Docker Compose and AWS:
 The deployment generates the Agent Vault passwords. You do not set them. On
 Compose, the master password is on a volume that only Agent Vault mounts, and
 the owner password is on a volume that only the backend and the worker mount.
-On AWS, the stack keeps both in Secrets Manager; only the host reads the
+On AWS, the stack keeps both in Secrets Manager. Only the host reads the
 master password.
 
 #### Agent Vault owner password
 
 The backend registers the owner password on its first login to an Agent Vault
-with no owner. After that, Agent Vault refuses another password, and Docker
-chat fails closed with an error that names this section. To change the
-password, change it in Agent Vault first (`agent-vault account change-password`,
-or its web UI on port 14321 inside the deployment), then give the backend the
+with no owner. After that, Agent Vault refuses another password. Docker
+chat then fails closed with an error that names this section. To change the
+password, first change it in Agent Vault (`agent-vault account change-password`,
+or its web UI on port 14321 inside the deployment). Then give the backend the
 new value. To start over, remove Agent Vault's data (Compose: the
 `agent_vault_data` volume; AWS: replace the sandbox host). Run vaults are
 temporary, so no data is lost.
@@ -133,7 +133,7 @@ host itself. See
 ## Public surface
 
 Expose the backend origin publicly. Keep internal services private unless you
-have a specific operational need.
+have an operational need.
 
 | Route or endpoint | Public? | Notes |
 |---|---|---|

@@ -8,7 +8,8 @@ production-style tests, and for a small internal deployment on one host.
 
 ## Start the stack
 
-You need Docker with Compose, Node.js, and pnpm. From a clone of the repository:
+You need Docker with Compose, Node.js, and pnpm. Run these commands from a clone
+of the repository:
 
 ```bash
 git clone https://github.com/ctxpipe-ai/ctxpipe.git
@@ -64,8 +65,8 @@ FalkorDB have no host port.
 ## Settings that need an override file
 
 The deploy profile passes only a fixed list of variables from `.env` to each
-service: the auth, model, OpenTelemetry, and sandbox settings, and the Slack,
-Linear, Notion, and PagerDuty connector secrets. Other values in `.env` do not
+service. The list has the auth, model, OpenTelemetry, and sandbox settings, and
+the Slack, Linear, Notion, and PagerDuty connector secrets. Other values in `.env` do not
 reach the services. Add them to the `environment` of `backend` and `worker` in
 a `docker-compose.override.yml`. This applies to:
 
@@ -88,8 +89,8 @@ services:
       EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS}
 ```
 
-The in-product GitHub wizard stores the GitHub App credentials in the database,
-so the GitHub App needs no variable.
+The in-product GitHub wizard stores the GitHub App credentials in the database.
+The GitHub App therefore needs no variable.
 
 ## Persistent state
 
@@ -101,8 +102,8 @@ so the GitHub App needs no variable.
     the old volume.
   - The FalkorDB image declares no volume, so FalkorDB keeps its data in the
     writable layer of the container. Each time Compose creates the container
-    again, for example after `down`, an image update, or a configuration
-    change, the graph data is lost.
+    again, you lose the graph data. This happens, for example, after `down`, an
+    image update, or a configuration change.
 
   Before people depend on the deployment, mount named volumes in
   `docker-compose.override.yml`:
@@ -121,7 +122,7 @@ so the GitHub App needs no variable.
   ```
 
   Do this before the first start. On a running deployment, first back up the
-  data, then restore it into the new volumes.
+  data. Then restore it into the new volumes.
 </Callout>
 
 | State | Where it is | Back it up |
@@ -158,7 +159,7 @@ Docker-in-Docker daemon. It needs no settings.
   and the backend never mounts the Docker socket of the host.
 - The Docker API listens on port `2376` inside Compose, with mutual TLS. It is
   not published on the host.
-- Sandboxes hold no credential, and can reach only Agent Vault. See the
+- Sandboxes hold no credential. They can reach only Agent Vault. See the
   [sandbox network policy](/docs/self-hosting/architecture#chat-sandbox-network-policy).
 - `dind`, `agent-vault`, `backend`, and `worker` share the `sandbox` network,
   `172.30.99.0/24`. If it overlaps a network of your host, change each
@@ -182,8 +183,8 @@ services:
 
 <Callout type="warn" title="The Docker client certificate gives root on dind">
   Each process that has the files in `sandbox_client_certs` can start
-  privileged containers on `dind`, which is root on the Docker host. Do not
-  mount that volume in another service, and do not copy it off the host.
+  privileged containers on `dind`. That access is root on the Docker host. Do not
+  mount that volume in another service. Do not copy it off the host.
 </Callout>
 
 If `dind` stops, chat answers `503` until it is back. It never runs an agent

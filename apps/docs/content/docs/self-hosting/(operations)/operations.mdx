@@ -3,7 +3,7 @@ title: Operations
 description: Health checks, logs, migrations, backups, and recovery for self-hosted ctxpipe.
 ---
 
-Operations docs assume the deployment is already configured. Use this page to
+These docs assume that you already configured the deployment. Use this page to
 keep a running instance healthy and to diagnose component-level failures.
 
 ## Health checks
@@ -19,8 +19,8 @@ keep a running instance healthy and to diagnose component-level failures.
 
 <Callout title="Codesearch health">
   The reference codesearch service does not expose a separate public health
-  endpoint. Treat successful repository clone/index/search operations as the
-  practical health signal.
+  endpoint. Use successful repository clone, index, and search operations as the
+  health signal.
 </Callout>
 
 ## Migrations
@@ -34,9 +34,9 @@ bun run apps/backend/src/db/migrate.ts
 ```
 
 The AWS CDK migrate task and the hosted deploy run the same script,
-`migrate.ts`. It does these steps in this order: it makes the `ctxpipe_app` role ready, applies the
-Drizzle and OpenWorkflow migrations, runs every data backfill, and then grants
-`ctxpipe_app` access to the tables.
+`migrate.ts`. It does these steps in this order. It makes the `ctxpipe_app`
+role ready. It applies the Drizzle and OpenWorkflow migrations. It runs every
+data backfill. Then it grants `ctxpipe_app` access to the tables.
 
 After the Drizzle migrations, migrate runs the backfills. The org backfill
 fills a missing `org_id` on rows that the previous release wrote (the
@@ -56,7 +56,7 @@ Migrate reads the `ctxpipe_app` password from `DATABASE_APP_PASSWORD`:
 - When the password is not set and the role exists, migrate only grants access.
 - When the password is not set and the role does not exist, migrate stops with
   exit code 1 before it changes the database. The error tells you how to fix it
-  for each deployment path. Compose sends `POSTGRES_PASSWORD`, and the CDK
+  for each deployment path. Compose sends `POSTGRES_PASSWORD`. The CDK
   migrate task sends the app database credentials secret.
 
 For non-Compose deployments:
@@ -79,13 +79,13 @@ endpoint, logs go to stdout.
 | `postgres` | connection limits, slow queries, disk pressure |
 | `graph database` | connection failures, memory pressure, query errors |
 
-Configure `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`,
+Set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`,
 `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, and `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`
 on the app services when you want telemetry to leave stdout and reach your
 observability backend. See
 [Configuration](/docs/self-hosting/configuration) for headers, service names,
-and Langfuse. ctxpipe does not run a collector for you. Export failures are
-visible in your collector or vendor, not in a bundled collector container.
+and Langfuse. ctxpipe does not run a collector for you. You see export failures in your
+collector or vendor. There is no bundled collector container.
 
 ## Backups
 
@@ -104,7 +104,7 @@ changes.
 
 `@ctxpipe/aws-cdk` runs Workspace chat sandboxes on one EC2 Docker host (see
 [AWS: Chat sandbox host](/docs/self-hosting/deployment/aws#chat-sandbox-host)).
-It holds no data you need to back up: a replaced host starts empty and
+It holds no data that you need to back up. A replaced host starts empty, and
 conversations continue from their git branch.
 
 Find the instance from the `SandboxHostAutoScalingGroupName` stack output and
@@ -125,28 +125,27 @@ aws ssm start-session --target <instance-id>
 | Workspace bases | `sudo docker image ls ctxpipe-workspace-base` | At most about one image for each Workspace that had a new conversation in the last 30 days |
 | Boot log | `sudo tail -n 100 /var/log/cloud-init-output.log` | Ends with the CloudFormation success signal |
 
-Sandboxes stop after 5 minutes idle and are removed 30 days after last use;
-an organization runs at most 50 at once. A Workspace base is an image of the
-Workspace repository after clone and setup, so that a new conversation starts
-without a clone. The periodic sandbox cleanup deletes a base when a newer base
-replaces it, and deletes the current base when no new conversation
-started from it for 30 days. The same cleanup removes objects with ctxpipe
-labels (`ai.ctxpipe.*`) that no database row records. If the volume still
-fills, check `docker system df` for what grows, then raise
-`sandboxHost.dockerVolumeSizeGiB` and run `cdk deploy`; the new size replaces
-the host.
+Sandboxes stop after 5 minutes idle. They are removed 30 days after last use.
+An organization runs at most 50 sandboxes at once. A Workspace base is an image
+of the Workspace repository after clone and setup. A new conversation then
+starts without a clone. The periodic sandbox cleanup deletes a base when a newer
+base replaces it. It deletes the current base when no new conversation started
+from it for 30 days. The same cleanup removes objects with ctxpipe labels
+(`ai.ctxpipe.*`) that no database row records. If the volume still fills, check
+`docker system df` to see what grows. Then raise `sandboxHost.dockerVolumeSizeGiB`
+and run `cdk deploy`. The new size replaces the host.
 
 Do not run `docker system prune` or `docker container prune` while
-conversations are active: they delete stopped sandboxes that conversations
-would resume. Do not run `docker image prune -a`: it deletes Workspace bases,
-and the next new conversation of each Workspace clones the repository again
-while a new base builds.
+conversations are active. These commands delete stopped sandboxes that
+conversations would resume. Do not run `docker image prune -a`. It deletes
+Workspace bases. The next new conversation of each Workspace then clones the
+repository again while a new base builds.
 
 ## Chat sandboxes (Docker Compose)
 
 The Compose deploy profile runs Workspace chat sandboxes inside the `dind`
 service (see [Docker: Chat sandboxes](/docs/self-hosting/deployment/docker#chat-sandboxes)).
-Its `sandbox_docker` volume holds no data you need to back up. Run these from
+Its `sandbox_docker` volume holds no data that you need to back up. Run these commands from
 the repository root:
 
 | Check | Command | Expected result |
@@ -162,8 +161,9 @@ the repository root:
 | No published data stores | `docker port $(docker compose ps -q postgres falkordb)` | Prints nothing |
 | No host socket | `docker inspect --format '{{range .Mounts}}{{.Source}} {{end}}' $(docker compose ps -q backend worker)` | No `/var/run/docker.sock` |
 
-Sandboxes and Workspace bases are removed on the same schedule as on AWS. To free disk without touching sandboxes, remove untagged chat images
-and build cache:
+ctxpipe removes sandboxes and Workspace bases on the same schedule as on AWS.
+To free disk without touching sandboxes, remove untagged chat images and build
+cache:
 
 ```bash
 docker compose exec dind docker image prune -f
@@ -172,21 +172,22 @@ docker compose exec dind docker builder prune -f
 
 `docker image prune` without `-a` keeps every tagged image, so it keeps the
 Workspace bases. Do not run `docker system prune` or `docker container prune`
-inside `dind` while conversations are active: they delete stopped sandboxes
-that conversations would resume. Do not run `docker image prune -a`: it
-deletes Workspace bases, and the next new conversation of each Workspace
+inside `dind` while conversations are active. These commands delete stopped
+sandboxes that conversations would resume. Do not run `docker image prune -a`.
+It deletes Workspace bases. The next new conversation of each Workspace then
 clones the repository again while a new base builds.
 
 ## Recovery runbooks
 
 ### Workspace chat fails to start on Docker Compose
 
-- A 503 saying the Docker daemon is not reachable means `dind` is down:
-  confirm it is healthy (`docker compose --profile deploy ps -a`) and check
+- A 503 that says the Docker daemon is not reachable means that `dind` is down.
+  Confirm that it is healthy (`docker compose --profile deploy ps -a`). Check
   `docker compose logs dind`.
-- A 503 saying the chat sandbox image is missing means `chat-sandbox-image`
-  has not finished or failed (for example a package mirror was unreachable,
-  or the `sandbox_docker` volume was removed). Check its logs and rerun it:
+- A 503 that says the chat sandbox image is missing means that
+  `chat-sandbox-image` has not finished or has failed. For example, a package
+  mirror was unreachable, or the `sandbox_docker` volume was removed. Check its
+  logs. Then run it again:
   `docker compose --profile deploy up -d chat-sandbox-image`.
 - Check backend logs for Docker TLS errors. After the `sandbox_ca` volume is
   removed, restart `backend` and `worker` so they read the new certificates.
@@ -198,7 +199,7 @@ clones the repository again while a new base builds.
 
 - Confirm the sandbox host instance is `InService` in its Auto Scaling group.
 - Check backend logs for Docker connection or TLS errors. Backend and worker
-  reach the host at `sandbox-host.ctxpipe.local:2376`; the host registers that
+  reach the host at `sandbox-host.ctxpipe.local:2376`. The host registers that
   name when it finishes booting.
 - If the backend reports that the chat sandbox image is missing, the host
   could not pull `ghcr.io/ctxpipe-ai/chat-sandbox`. Check the host's outbound
@@ -225,7 +226,7 @@ clones the repository again while a new base builds.
 - Confirm `GET /.status` returns `{ "status": "ok" }`.
 - Run `npx ctxpipe doctor mcp --url "$AUTH_BASE_URL/mcp"`.
 - A `ready-for-oauth` result means routing, the Bearer challenge, and OAuth
-  discovery are coherent. It does not prove authenticated `tools/list` or
+  discovery are consistent. It does not prove authenticated `tools/list` or
   a tool call.
 - Confirm `AUTH_BASE_URL` matches the public origin clients use, including TLS.
 - Confirm the MCP URL path is `/mcp`.
@@ -256,8 +257,8 @@ clones the repository again while a new base builds.
 
 ### Linear setup stalls or content becomes stale
 
-- Confirm a Linear OAuth application is registered in the wizard or that
-  `LINEAR_*` is present on backend and worker.
+- Confirm that you registered a Linear OAuth application in the wizard, or that
+  `LINEAR_*` is present on the backend and the worker.
 - Confirm the Linear webhook secret is saved on the connection or
   `LINEAR_WEBHOOK_SECRET` is present on backend, and signed requests reach
   `/api/v1/webhook/linear`.
@@ -273,8 +274,8 @@ clones the repository again while a new base builds.
 
 - Confirm PagerDuty OAuth credentials are present on backend and worker.
 - Confirm the connection is live and the incident's service is listed in the
-  scope of a PagerDuty source with the status **OK**. There is no shared webhook secret; ctxpipe
-  stores the per-subscription secret on the connection.
+  scope of a PagerDuty source with the status **OK**. There is no shared webhook secret. ctxpipe
+  stores the secret of each subscription on the connection.
 - Confirm signed requests reach `/api/v1/webhook/pagerduty` and merge pushes
   reach `/api/v1/webhook/github/<connectionId>`.
 - Check worker logs for `pagerduty-sync-config`, `pagerduty-sync-content`, or

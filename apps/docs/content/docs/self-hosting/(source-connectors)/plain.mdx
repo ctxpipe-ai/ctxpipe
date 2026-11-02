@@ -6,7 +6,7 @@ description: Use the Plain connector on a self-hosted ctxpipe. It needs no envir
 ## Overview
 
 Self-hosted Plain uses the same connector flow as hosted ctxpipe. Plain has no
-OAuth application for other products, so an org admin pastes the API key of a
+OAuth application for other products. An org admin pastes the API key of a
 Plain machine user in the setup. ctxpipe encrypts the key and the webhook
 token on the connection with the connection secret key of the deployment.
 
@@ -17,12 +17,12 @@ Railway, or CDK settings.
 
 - A public HTTPS `AUTH_BASE_URL` for the webhook target. Plain sends webhooks
   only to a public HTTPS address. Without it, the connector syncs once a day
-  and on **Sync now**. ctxpipe cannot check that Plain reaches the URL: when
+  and on **Sync now**. ctxpipe cannot check that Plain reaches the URL. When
   Plain accepts the target but cannot reach it, the card still shows live
   updates as on.
 - A ctxpipe GitHub App connection with write access to each Workspace repository
   that syncs Plain content.
-- The backend and worker able to reach `core-api.uk.plain.com` over HTTPS.
+- Network access from the backend and the worker to `core-api.uk.plain.com` over HTTPS.
 
 ## Webhook target
 
@@ -34,7 +34,7 @@ At connect, ctxpipe creates one Plain webhook target for each connection:
 
 The target sends `timeline.timeline_entry_changed` events with a random token
 in the `X-Ctxpipe-Webhook-Token` header. ctxpipe compares the token and
-refuses a request without it. A failed enqueue returns `503`, and Plain sends
+refuses a request without it. A failed enqueue returns `503`. Plain then sends
 the event again.
 
 ## Verify the connector
@@ -49,9 +49,9 @@ the event again.
 4. Confirm the source shows **OK** in the Workspace settings and files appear
    under `plain/`.
 5. In Plain, open **Settings → Webhooks** and confirm the ctxpipe target. Add a
-   note to a real thread with a selected label, not a Plain test thread. Confirm that
-   `POST /api/v1/webhook/plain/{connectionId}` returns `200`, and that the
-   thread file changes after the 10-minute window.
+   note to a real thread with a selected label. Do not use a Plain test thread.
+   Confirm that `POST /api/v1/webhook/plain/{connectionId}` returns `200`.
+   Confirm that the thread file changes after the 10-minute window.
 
 See [Plain connector](/docs/connections/source-connectors/plain) for the
 files, the sync, and product troubleshooting.

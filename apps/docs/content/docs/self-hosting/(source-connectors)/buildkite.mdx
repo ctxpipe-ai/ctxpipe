@@ -6,10 +6,9 @@ description: Use the Buildkite connector on a self-hosted ctxpipe. It needs no e
 ## Overview
 
 A self-hosted ctxpipe uses the same Buildkite connector flow as hosted ctxpipe.
-Buildkite has no OAuth application for other products, so an organization owner
+Buildkite has no OAuth application for other products. An organization owner
 or admin pastes a Buildkite API access token in the setup. The webhook token is
-also connection-specific.
-ctxpipe encrypts both tokens on the connection with the connection secret key
+also connection-specific. ctxpipe encrypts both tokens on the connection with the connection secret key
 of the deployment.
 
 There is no `BUILDKITE_*` environment variable. You do not need to change
@@ -21,8 +20,9 @@ Compose, Railway, or CDK settings.
   connector syncs once a day and on **Sync now**.
 - A ctxpipe GitHub App connection with write access to each Workspace repository
   that syncs Buildkite builds.
-- The backend and worker able to reach `api.buildkite.com` over HTTPS. The
-  backend also reaches `graphql.buildkite.com`, only when someone connects.
+- Network access from the backend and the worker to `api.buildkite.com` over
+  HTTPS. The backend also reaches `graphql.buildkite.com`, only when someone
+  connects.
 
 ## Webhook URL
 
@@ -35,21 +35,20 @@ token:
 
 The webhook step of the setup shows the full URL. ctxpipe verifies the
 `X-Buildkite-Signature` HMAC-SHA256 of the timestamp and the raw request body,
-and refuses a signature older than five minutes. A webhook that sends the plain
-`X-Buildkite-Token` is refused. A failed enqueue returns `503`. The next event
-in the window or the daily sync then gets the build.
+and refuses a signature older than five minutes. It also refuses a webhook that
+sends the plain `X-Buildkite-Token`. A failed enqueue returns `503`. The next
+event in the window or the daily sync then gets the build.
 
 All traffic stays on your deployment. Buildkite sends the webhook to your
-`AUTH_BASE_URL`, and your backend and worker call `api.buildkite.com`. When
-someone connects Buildkite, your backend also calls `graphql.buildkite.com`
-once.
+`AUTH_BASE_URL`. Your backend and worker call `api.buildkite.com`. When someone
+connects Buildkite, your backend also calls `graphql.buildkite.com` once.
 
 ## Verify the connector
 
 1. Open **Connectors**, select **Add connection**, then select **Connect** on
    the **Buildkite** row.
-2. Paste an API access token with only `read_pipelines` and `read_builds`, and
-   the organization slug. ctxpipe refuses a token with any other scope or with
+2. Paste an API access token with only `read_pipelines` and `read_builds`.
+   Paste the organization slug. ctxpipe refuses a token with any other scope or with
    GraphQL API access.
 3. Add the webhook in Buildkite with the signature option and the
    `build.finished` event, then save its token in the setup.
@@ -59,8 +58,8 @@ once.
 5. Confirm that the source shows **OK** in the Workspace settings and files appear
    under `buildkite/pipelines/<slug>/`.
 6. Finish a build in a selected pipeline. Confirm that
-   `POST /api/v1/webhook/buildkite/{connectionId}` returns `200`, and that the
-   build file appears after the 10-minute window.
+   `POST /api/v1/webhook/buildkite/{connectionId}` returns `200`. Confirm that
+   the build file appears after the 10-minute window.
 
 ## Troubleshooting
 
@@ -72,9 +71,9 @@ once.
 - A `401` answer has three causes: the webhook sends the plain
   `X-Buildkite-Token`, the token in the setup is not the token of this
   webhook, or the clock of the backend is more than five minutes off. Select
-  the signature option in Buildkite, paste the webhook token again in the
-  setup, and check the time of the backend host.
-- A `503` answer means that ctxpipe could not queue the sync. Check the backend
+  the signature option in Buildkite. Paste the webhook token again in the
+  setup. Check the time of the backend host.
+- A `503` answer means that ctxpipe could not queue the sync. Read the backend
   logs. The next event in the window or the daily sync gets the build.
 
 ### The setup cannot check GraphQL access

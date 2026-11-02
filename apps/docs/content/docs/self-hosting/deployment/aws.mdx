@@ -3,7 +3,7 @@ title: AWS
 description: Deploy ctxpipe on AWS with the @ctxpipe/aws-cdk CtxPipe construct.
 ---
 
-`@ctxpipe/aws-cdk` is the AWS self-hosting path for ctxpipe. It gives you one high-level construct, `CtxPipe`, that provisions the required infrastructure and wires runtime configuration for you.
+`@ctxpipe/aws-cdk` is the AWS self-hosting path for ctxpipe. It gives you one high-level construct, `CtxPipe`. The construct provisions the required infrastructure and sets the runtime configuration for you.
 
 <Callout type="warn" title="Single-tenant only">
   Self-hosted ctxpipe on `@ctxpipe/aws-cdk` is **single-tenant**. Run one stack
@@ -29,17 +29,17 @@ DNS and TLS from it.
 
 - Reuse an existing public hosted zone if you already manage your domain in
   Route 53.
-- Or create a new hosted zone and delegate your domain/subdomain to it.
+- Or create a new hosted zone and delegate your domain or subdomain to it.
 - Keep both values ready:
   - `customDomain.domainName` (example: `app.example.com`)
   - `customDomain.hostedZoneId` (example: `Z0123456789ABCDEF`)
 
 ### 3) Import `CtxPipe` and configure it
 
-Instantiate the construct in your stack. Follow the same pattern as
+Add the construct to your stack. Follow the same pattern as
 [`examples/aws-cdk-self-host`](https://github.com/ctxpipe-ai/ctxpipe/tree/main/examples/aws-cdk-self-host).
 
-`modelProvider` is a union: **openai-like** (default) or **bedrock**. Both variants configure tiers through the same `models` prop (`fast` required).
+`modelProvider` is a union of two variants: **openai-like** (default) and **bedrock**. Both variants set the tiers through the same `models` prop (`fast` is required).
 
 #### OpenAI-compatible provider
 
@@ -82,16 +82,16 @@ providers do not know.
 
 #### Amazon Bedrock (task role)
 
-For Bedrock, set `kind: "bedrock"` and tier model IDs only. The construct grants the backend/worker ECS task roles `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream`, injects `MODEL_PROVIDER=bedrock` and `MODEL_BEDROCK_AWS_REGION`, and does **not** create a `MODEL_PROVIDER_API_KEY` secret. The backend calls Bedrock Runtime with SigV4 credentials from the ECS task role.
+For Bedrock, set `kind: "bedrock"` and the tier model IDs only. The construct grants the backend and worker ECS task roles `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream`. It injects `MODEL_PROVIDER=bedrock` and `MODEL_BEDROCK_AWS_REGION`. It does **not** create a `MODEL_PROVIDER_API_KEY` secret. The backend calls Bedrock Runtime with SigV4 credentials from the ECS task role.
 
-Enable each model ID in the [Amazon Bedrock console](https://console.aws.amazon.com/bedrock/) for your stack region before relying on chat or embeddings.
+Enable each model ID in the [Amazon Bedrock console](https://console.aws.amazon.com/bedrock/) for your stack region before you use chat or embeddings.
 
 <Callout type="info" title="Bedrock embeddings (Cohere only)">
-  Bedrock embeddings currently support **Cohere** embed models only (the backend uses Cohere's invoke format). Default when `models.embedding` is omitted: `cohere.embed-v4:0`. You can also use inference-profile IDs such as `global.cohere.embed-v4:0`. Non-Cohere Bedrock embed models (for example Titan) are not supported yet.
+  Bedrock embeddings currently support only **Cohere** embed models. The backend uses the Cohere invoke format. When you omit `models.embedding`, the default is `cohere.embed-v4:0`. You can also use inference-profile IDs such as `global.cohere.embed-v4:0`. Non-Cohere Bedrock embed models (for example Titan) are not supported yet.
 </Callout>
 
 <Callout type="warn" title="Organizations SCPs can still block Bedrock">
-  The construct attaches `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` to the backend and worker task roles, but an AWS Organizations **service control policy (SCP)** can override that with an **explicit deny**. Typical log text: `AccessDeniedException` … `explicit deny in a service control policy`. Allow your chat and Cohere embed foundation-model ARNs in the SCP (denies for `global.cohere.embed-v4:0` often name `…/foundation-model/cohere.embed-v4:0`). This is separate from chat stream stalls such as `Bedrock Converse stream timed out … without receiving a chunk`—those need CloudTrail `ConverseStream` investigation, not a wider task-role policy.
+  The construct attaches `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` to the backend and worker task roles, but an AWS Organizations **service control policy (SCP)** can override them with an **explicit deny**. The log text is typically `AccessDeniedException` … `explicit deny in a service control policy`. Allow your chat and Cohere embed foundation-model ARNs in the SCP. Denies for `global.cohere.embed-v4:0` often name `…/foundation-model/cohere.embed-v4:0`. This is a different problem from chat stream stalls such as `Bedrock Converse stream timed out … without receiving a chunk`. For those stalls, investigate `ConverseStream` in CloudTrail. A wider task-role policy does not help.
 </Callout>
 
 ```ts
@@ -123,9 +123,9 @@ cdk synth
 cdk deploy -c modelApiKey="$OPENAI_API_KEY"
 ```
 
-**Bedrock**, with the example app in
+For **Bedrock**, use the example app in
 [`examples/aws-cdk-self-host`](https://github.com/ctxpipe-ai/ctxpipe/tree/main/examples/aws-cdk-self-host).
-It always uses Bedrock, and reads `orgSlug`, `domainName`, `hostedZoneId`,
+It always uses Bedrock. It reads `orgSlug`, `domainName`, `hostedZoneId`,
 `size`, `stackName`, `modelFast`, `modelMedium`, `modelHigh`, and
 `modelEmbedding` from the context:
 
@@ -151,7 +151,7 @@ contain only lowercase letters, digits, and `-`.
 
 ### 7) Upgrade an existing stack
 
-A new `@ctxpipe/aws-cdk` version on npm is the release unit. It pins backend, worker, UI, codesearch, and migrate images to one git SHA and includes that release’s Fargate size profiles. After it is published:
+A new `@ctxpipe/aws-cdk` version on npm is the release unit. It pins the backend, worker, UI, codesearch, and migrate images to one git SHA. It also includes the Fargate size profiles of that release. After npm publishes the version:
 
 ```bash
 pnpm update @ctxpipe/aws-cdk
@@ -162,14 +162,14 @@ cdk deploy
 Before the first deploy of a new version, check the Aurora minor version. See
 [Aurora PostgreSQL minor version](https://github.com/ctxpipe-ai/ctxpipe/blob/main/packages/aws-cdk/README.md#aurora-postgresql-minor-version).
 
-`cdk deploy` runs Postgres migrations, then rolls the ECS services. You do not set image tags in `CtxPipe` props, and you should not retag tasks to `:latest` yourself. The migrate task provisions `ctxpipe_app`, and then the stack writes the runtime `DATABASE_URL` secret; CDK operators do not set either URL by hand and do not run `psql`.
+`cdk deploy` runs Postgres migrations. Then it rolls the ECS services. Do not set image tags in `CtxPipe` props. Do not retag tasks to `:latest` yourself. The migrate task provisions `ctxpipe_app`. Then the stack writes the runtime `DATABASE_URL` secret. CDK operators do not set either URL by hand and do not run `psql`.
 
-This is how codesearch memory bumps (4 / 8 / 12 GiB) and ingest behavior land together. Updating only container images, or only task memory, leaves the stack split across releases.
+This way, the codesearch memory changes (4 / 8 / 12 GiB) and the ingest behavior arrive together. An update of only the container images, or only the task memory, leaves the stack split across releases.
 
 The first upgrade to a version with the [chat sandbox host](#chat-sandbox-host)
 adds it with no new required props. That deploy only adds resources and
-replaces nothing that holds data. It waits until the host reports ready,
-then rolls backend and worker.
+replaces nothing that holds data. It waits until the host reports ready.
+Then it rolls the backend and the worker.
 
 To automate upgrades, let Renovate or Dependabot open a pull request for each
 new `@ctxpipe/aws-cdk` version, and run `cdk synth` and `cdk deploy` from your
@@ -262,7 +262,7 @@ settings.
 | `headers` | `OTEL_EXPORTER_OTLP_HEADERS` (Secrets Manager) |
 | `resourceAttributes` | `OTEL_RESOURCE_ATTRIBUTES` |
 
-Browser telemetry and the signal URLs the apps read are in [Configuration](/docs/self-hosting/configuration). Prop reference: [package README](https://github.com/ctxpipe-ai/ctxpipe/blob/main/packages/aws-cdk/README.md#observability).
+[Configuration](/docs/self-hosting/configuration) describes browser telemetry and the signal URLs that the apps read. For the prop reference, see the [package README](https://github.com/ctxpipe-ai/ctxpipe/blob/main/packages/aws-cdk/README.md#observability).
 
 ## High-level architecture
 
@@ -289,13 +289,13 @@ container. `CtxPipe` creates one EC2 host for those containers by default. The
 sandbox keeps the agent's commands away from the backend and your data stores.
 
 To create no host, set `sandboxHost: { enabled: false }`. Without the host,
-Workspace chat is off: the product answers chat requests with a "sandbox
+Workspace chat is off. The product answers chat requests with a "sandbox
 unavailable" error (503). The rest of the product keeps working.
 
 ### Sizes and cost
 
 The host mostly holds idle sandboxes, so it uses burstable Graviton (ARM)
-instances. Memory is the limit: an active sandbox uses about 0.3–0.5 GiB.
+instances. Memory is the limit. An active sandbox uses about 0.3–0.5 GiB.
 Sandboxes stop after 5 minutes idle and resume on the next message. Stopped
 sandboxes are removed 30 days after last use. An organization runs at most 50
 sandboxes at once.
@@ -324,14 +324,13 @@ new CtxPipe(stack, "CtxPipe", {
 });
 ```
 
-The instance type must be Graviton (arm64); other architectures are rejected
-at synth.
+The instance type must be Graviton (arm64). Synth rejects other architectures.
 
 ### Private git servers
 
 Ingestion can read a plain git repository on a git server inside your network
 (see [Plain git repositories](/docs/workspaces/linked-repositories#plain-git-repositories)).
-The ingestion sandbox fetches it through Agent Vault on the sandbox host, and
+The ingestion sandbox fetches it through Agent Vault on the sandbox host.
 Agent Vault connects only to the private addresses in its allowlist. By
 default, the allowlist holds only the backend subnets. Add the single host
 address of your git server with `sandboxHost.agentVaultNetworkAllowlist`:
@@ -346,7 +345,7 @@ new CtxPipe(stack, "CtxPipe", {
 ```
 
 <Callout type="warn">
-  Chat-sandbox vaults forward each host that no rule matches. An address or CIDR in this list therefore lets every chat agent reach every port and path at that address. Add only the single host address of the git server, never a whole subnet.
+  Chat-sandbox vaults forward each host that no rule matches. An address or CIDR in this list therefore lets every chat agent reach every port and path at that address. Add only the single host address of the git server. Never add a whole subnet.
 </Callout>
 
 The stack adds each entry after the backend subnets. Each entry must be an
@@ -390,7 +389,7 @@ for (const alarm of ctxPipe.sandboxHostAlarms) {
 ```
 
 <Callout type="warn" title="Chat needs a sandbox">
-  The backend and worker images refuse `SANDBOX_PROVIDER=unsandboxed`: an
+  The backend and worker images refuse `SANDBOX_PROVIDER=unsandboxed`. An
   agent without a sandbox would run with the backend's credentials. `CtxPipe`
   configures a Docker host for chat sandboxes.
 </Callout>
@@ -406,13 +405,13 @@ for (const alarm of ctxPipe.sandboxHostAlarms) {
 
 Use `size` to tune compute and database capacity for your single-tenant workload:
 
-- `small` (default): best for pilot/small-team deployments with moderate repository churn and cost sensitivity. Aurora and Neptune both use `db.t4g.medium` — AWS’s minimum supported burstable size for these engines (dev/test oriented). Codesearch is 4 GiB (ingest peak, not idle RSS).
-- `medium`: better for sustained ingestion/reindex workloads where worker and codesearch need more headroom. Codesearch is 8 GiB. Aurora uses `db.t4g.large`; Neptune uses memory-optimized `db.r6g.large`.
-- `large`: for high-ingestion and lower-latency expectations, with bigger tasks, scaled backend/worker replicas, and `db.r6g.xlarge` for both Aurora and Neptune. Codesearch is 12 GiB and still **one task**. The two workers each get `OPENWORKFLOW_CONCURRENCY=8` so the cluster cannot stampede codesearch. Extra workers help extract and connectors, not clone/SCIP parallelism.
+- `small` (default): for pilot and small-team deployments with moderate repository churn and cost sensitivity. Aurora and Neptune both use `db.t4g.medium`. This is the minimum burstable size that AWS supports for these engines (for dev and test). Codesearch is 4 GiB (ingest peak, not idle RSS).
+- `medium`: for sustained ingestion and reindex workloads where the worker and codesearch need more headroom. Codesearch is 8 GiB. Aurora uses `db.t4g.large`; Neptune uses memory-optimized `db.r6g.large`.
+- `large`: for high ingestion and lower latency. It has bigger tasks, scaled backend and worker replicas, and `db.r6g.xlarge` for both Aurora and Neptune. Codesearch is 12 GiB and still **one task**. The two workers each get `OPENWORKFLOW_CONCURRENCY=8`, so the cluster cannot overload codesearch. Extra workers help extract and connectors. They do not help clone or SCIP parallelism.
 
 See the [package README sizing table](https://github.com/ctxpipe-ai/ctxpipe/blob/main/packages/aws-cdk/README.md#sizing-profiles) for the full preset matrix.
 
-Do **not** raise codesearch desired count. Ingest throughput grows with codesearch memory (4 / 8 / 12 GiB) and the env the construct injects (`OPENWORKFLOW_CONCURRENCY`, `CODESEARCH_INDEXER_CONCURRENCY`, `CODESEARCH_INDEX_PIPELINE_CONCURRENCY`).
+Do **not** raise the desired count of codesearch. Ingest throughput grows with codesearch memory (4 / 8 / 12 GiB) and the environment variables that the construct injects (`OPENWORKFLOW_CONCURRENCY`, `CODESEARCH_INDEXER_CONCURRENCY`, `CODESEARCH_INDEX_PIPELINE_CONCURRENCY`).
 
 Signals that you should move up a size:
 
@@ -420,7 +419,7 @@ Signals that you should move up a size:
 - frequent codesearch reindex delays,
 - higher p95 response latency during active sync/index windows.
 
-`@ctxpipe/aws-cdk` keeps services in private subnets for every size. NAT remains required because backend/worker/codesearch need outbound access for model providers, GitHub, Atlassian, and Linear APIs.
+`@ctxpipe/aws-cdk` keeps services in private subnets for every size. NAT is still required, because the backend, worker, and codesearch need outbound access to model providers and to the GitHub, Atlassian, and Linear APIs.
 
 ## Related references
 

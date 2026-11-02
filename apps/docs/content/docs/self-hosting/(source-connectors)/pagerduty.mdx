@@ -1,19 +1,19 @@
 ---
 title: PagerDuty
-description: Register a PagerDuty OAuth app in the UI, or optionally via deployment env, for self-hosted ctxpipe.
+description: Register a PagerDuty OAuth app in the UI, or set it with deployment environment variables, for self-hosted ctxpipe.
 ---
 
 ## Overview
 
 Self-hosted PagerDuty uses the same connector flow as hosted ctxpipe. Someone
-still creates a Scoped OAuth application in the
+must still create a Scoped OAuth application in the
 [PagerDuty developer portal](https://developer.pagerduty.com). The usual path
-is to paste that app's client id and secret in the connector wizard. ctxpipe
-then creates one v3 webhook subscription per connection. Operators do not
-paste a shared webhook signing secret.
+is to paste the client id and secret of that app in the connector wizard.
+ctxpipe then creates one v3 webhook subscription for each connection. Operators
+do not paste a shared webhook signing secret.
 
-Deployment env (`PAGERDUTY_CLIENT_ID` / `PAGERDUTY_CLIENT_SECRET`) remains an
-optional hosted-style shortcut. You do not need to restart Compose, Railway,
+Deployment environment variables (`PAGERDUTY_CLIENT_ID` /
+`PAGERDUTY_CLIENT_SECRET`) are an optional shortcut, as on hosted ctxpipe. You do not need to restart Compose, Railway,
 or CDK to finish first-time setup.
 
 ## What you need
@@ -23,24 +23,25 @@ or CDK to finish first-time setup.
 - Permission to create a PagerDuty OAuth application.
 - A ctxpipe GitHub App connection with write access to each Workspace repository
   that syncs PagerDuty incidents.
-- The backend and worker able to reach `identity.pagerduty.com` and
-  `api.pagerduty.com` or `api.eu.pagerduty.com` over HTTPS.
+- Network access from the backend and the worker to `identity.pagerduty.com`
+  and `api.pagerduty.com` or `api.eu.pagerduty.com` over HTTPS.
 
 PagerDuty cannot deliver webhooks to a private localhost address. End-to-end
-connector testing requires a public HTTPS deployment or tunnel.
+connector testing needs a public HTTPS deployment or tunnel.
 
 ## 1. Register the OAuth app in the wizard
 
 1. Open **Connectors**, select **Add connection**, then select **Connect** on
-   the **PagerDuty** row. ctxpipe creates a draft connection so the app can be
-   saved before account authorization.
+   the **PagerDuty** row. ctxpipe creates a draft connection so that you can
+   save the app before account authorization.
 2. Open [PagerDuty App Registration](https://developer.pagerduty.com/my-apps),
-   select **New App**, and name the app `ctxpipe` or after your deployment.
+   select **New App**. Name the app `ctxpipe` or use the name of your
+   deployment.
 3. Under **Functionality**, select **OAuth 2.0**. Leave **Events Integration**
    unselected. ctxpipe creates a v3 webhook subscription through PagerDuty's
-   API after account authorization; this is not an Events API integration.
-4. Choose **Scoped OAuth** and register this redirect URL exactly (the wizard
-   copies it for you):
+   API after account authorization. This is not an Events API integration.
+4. Choose **Scoped OAuth**. Register this redirect URL exactly. The wizard
+   copies it for you:
 
 ```text
 {AUTH_BASE_URL}/api/v1/integrations/pagerduty/callback
@@ -55,33 +56,35 @@ connector testing requires a public HTTPS deployment or tunnel.
 - `webhook_subscriptions.write`
 
 6. Select **Register App**. Copy the generated client id and client secret
-   before closing the confirmation; PagerDuty only shows the secret once.
+   before you close the confirmation. PagerDuty shows the secret only once.
 7. Save both values in **Register PagerDuty OAuth app**. ctxpipe
-   encrypts the secret on the connection and never returns it from connector
-   metadata. Continue to **Connect PagerDuty**.
+   encrypts the secret on the connection. It never returns the secret from
+   connector metadata. Continue to **Connect PagerDuty**.
 
 Do not add write-back scopes for incidents. ctxpipe does not acknowledge or
 resolve PagerDuty incidents.
 
 <Callout title="No PAGERDUTY_WEBHOOK_SECRET">
-  Webhook signing secrets are created per subscription and stored encrypted on
-  the connection. Do not invent a deployment-wide PagerDuty webhook secret.
+  ctxpipe creates webhook signing secrets for each subscription and stores them
+  encrypted on the connection. Do not create a deployment-wide PagerDuty webhook
+  secret.
 </Callout>
 
 ## 2. Optional: deployment env shortcut
 
-If you prefer one shared app for the whole deployment, set
+If you want one shared app for the whole deployment, set
 **`PAGERDUTY_CLIENT_ID`** and **`PAGERDUTY_CLIENT_SECRET`** on the backend and
 the worker. Set **`PAGERDUTY_REDIRECT_URI`** only when the public callback
-differs from the URL derived from `AUTH_BASE_URL`. The wizard then starts at
+differs from the URL that ctxpipe derives from `AUTH_BASE_URL`. The wizard then starts at
 **Connect PagerDuty**.
 
-Credential resolution is the saved connection app first, then env. The worker
-needs whichever client secret the refresh path will read.
+ctxpipe looks for credentials in the saved connection app first. Then it looks
+in the environment variables. The worker needs the client secret that the
+refresh path reads.
 
 ### Docker Compose
 
-Add the values to the root `.env`, then restart backend and worker:
+Add the values to the root `.env`, then restart the backend and the worker:
 
 ```bash
 PAGERDUTY_CLIENT_ID=...
@@ -134,14 +137,14 @@ PagerDuty receives it when ctxpipe creates the webhook subscription through
 the Webhook Subscriptions API.
 
 ctxpipe verifies `X-PagerDuty-Signature` HMAC-SHA256 against the raw request
-body, binds the event to the one connection whose stored secret verifies, and
+body. It binds the event to the one connection whose stored secret verifies. It
 routes with `X-PagerDuty-Subscription`. Re-authorization replaces a lost
 secret instead of stacking another subscription on the same event URL.
 
 Account-level delivery can include every service. ctxpipe syncs an event only
 for the Workspace sources whose services include the incident's service.
-Events with no service, or a service that no source selects, are acknowledged
-with `200` and never fetched.
+ctxpipe acknowledges events with no service, or with a service that no source
+selects, with `200`. It never fetches them.
 
 ## 4. Verify the connector
 
@@ -149,10 +152,11 @@ with `200` and never fetched.
 2. Open **Connectors**, select **Add connection**, then select **Connect** on
    the **PagerDuty** row.
 3. If the wizard shows **Register PagerDuty OAuth app**, save the client id
-   and secret. Skip this when the deployment already has a shared env app.
+   and secret. Skip this when the deployment already has a shared app that environment
+   variables set.
 4. Complete OAuth and confirm the expected account appears.
 5. In **Add PagerDuty to Workspaces**, select one or more Workspaces and at
-   least one service for each. Search, and show more services if the account
+   least one service for each. Use search. Show more services if the account
    has many.
 6. Merge the pull request that adds `sources/pagerduty/<name>.md` in each
    Workspace repository.
@@ -190,7 +194,7 @@ each moved file. A file without a readable `service_id` stays in
 
 ## US and EU accounts
 
-ctxpipe discovers the account region from the authorized user's `html_url`
+ctxpipe finds the account region from the authorized user's `html_url`
 after OAuth. Do not add a region field to the wizard. The API host is
 `api.pagerduty.com` or `api.eu.pagerduty.com`.
 
@@ -200,9 +204,9 @@ after OAuth. Do not add a region field to the wizard. The API host is
 
 Neither the connection nor the deployment has OAuth client credentials. Finish
 **Register PagerDuty OAuth app** in the wizard, or set both
-`PAGERDUTY_CLIENT_ID` and `PAGERDUTY_CLIENT_SECRET` on backend and worker and
-restart. The catalog still opens the setup wizard; Connect fails when the
-authorization URL cannot be created.
+`PAGERDUTY_CLIENT_ID` and `PAGERDUTY_CLIENT_SECRET` on the backend and the
+worker and restart. The catalog still opens the setup wizard. Connect fails when
+ctxpipe cannot create the authorization URL.
 
 ### Callback is rejected
 
@@ -213,14 +217,15 @@ trailing slash is present.
 
 ### Incremental events never arrive
 
-Confirm the public webhook URL is reachable, the connection is connected, and
-the incident's service is in an **OK** PagerDuty source of a Workspace. Tampered or stale signatures
-are rejected. Failed enqueue returns `5xx` so PagerDuty can retry.
+Confirm these three points: the public webhook URL is reachable, the connection
+is connected, and the service of the incident is in an **OK** PagerDuty source
+of a Workspace. ctxpipe rejects tampered or stale signatures. A failed enqueue
+returns `5xx`, so PagerDuty can retry.
 
 ### A source shows “Out of access”
 
-A selected service was deleted in PagerDuty, or the OAuth grant cannot read
-it. ctxpipe tries the service in three sync cycles, keeps its files, and then
+Someone deleted a selected service in PagerDuty, or the OAuth grant cannot read
+it. ctxpipe tries the service in three sync cycles and keeps its files. Then it
 marks only that source. Remove the service from the source, or give the
 connection access to it.
 

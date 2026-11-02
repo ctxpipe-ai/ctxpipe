@@ -1,11 +1,11 @@
 ---
 title: Configuration
-description: Configure Docker Compose, environment variables, and connector secrets for self-hosted ctxpipe.
+description: Set up Docker Compose, environment variables, and connector secrets for self-hosted ctxpipe.
 ---
 
-Configuration is environment-driven. Set only the values your deployment needs,
-but treat the required auth, database, model, and public-origin values as
-production secrets.
+Environment variables control the configuration. Set only the values that your
+deployment needs. Treat the required auth, database, model, and public-origin
+values as production secrets.
 
 ## What a deployment needs
 
@@ -95,8 +95,8 @@ and tenancy behavior.
 ## Chat sandboxes
 
 Workspace chat runs each conversation's agent in a sandbox. Docker Compose and
-AWS CDK set these values for you. On other platforms, set them on backend and
-worker.
+AWS CDK set these values for you. On other platforms, set them on the backend and
+the worker.
 
 | Variable | Description |
 |---|---|
@@ -130,8 +130,9 @@ codesearch read the repository through the proxy of their environment
 
 ## GitHub App connector
 
-Repository connectors use a deployment-owned GitHub App. The in-product wizard
-stores its ID, PEM private key, and webhook secret encrypted for the connection.
+Repository connectors use a GitHub App that your deployment owns. The in-product
+wizard stores the ID, the PEM private key, and the webhook secret of the App,
+encrypted, for the connection.
 
 | Variable | Description |
 |---|---|
@@ -141,7 +142,7 @@ stores its ID, PEM private key, and webhook secret encrypted for the connection.
 | `GITHUB_APP_SLUG` | Optional. Public app slug used for default install URLs. |
 | `CONNECTION_SECRETS_ENCRYPTION_KEY` | Optional 64-character hex key. When unset, encryption derives from `AUTH_SECRET`. |
 
-The wizard reserves the connection-specific webhook URL and provides the exact
+The wizard reserves the connection-specific webhook URL and gives the exact
 value to paste into GitHub.
 
 <Callout title="OAuth sign-in is separate">
@@ -154,8 +155,9 @@ events, credentials, installation, and end-to-end verification.
 
 ## Atlassian and Confluence
 
-Self-hosted Confluence uses the same product wizard as hosted ctxpipe, but
-your deployment or organization must provide Atlassian and Forge settings first.
+Self-hosted Confluence uses the same product wizard as hosted ctxpipe. But
+your deployment or organization must first provide the Atlassian and Forge
+settings.
 
 | Variable | Description |
 |---|---|
@@ -167,8 +169,9 @@ full operator flow.
 
 ## Slack
 
-Self-hosted Slack uses one deployment-owned Slack app. Organizations authorize
-that app; they do not create per-tenant Slack apps or Event Subscription URLs.
+Self-hosted Slack uses one Slack app that your deployment owns. Organizations
+authorize that app. They do not create per-tenant Slack apps or Event
+Subscription URLs.
 
 | Variable | Description |
 |---|---|
@@ -176,10 +179,10 @@ that app; they do not create per-tenant Slack apps or Event Subscription URLs.
 | `SLACK_SIGNING_SECRET` | Verifies Event Subscription requests (`X-Slack-Signature`). |
 | `SLACK_REDIRECT_URI` | Optional. Override when the public OAuth callback differs from `{AUTH_BASE_URL}/api/v1/connectors/slack/oauth/callback`. |
 
-Set the client ID, client secret, and signing secret together, then restart or
-redeploy backend. Backend and worker must share the same `AUTH_SECRET` and, when
-configured, `CONNECTION_SECRETS_ENCRYPTION_KEY` so encrypted Slack bot tokens
-remain usable by background capture jobs.
+Set the client ID, client secret, and signing secret together. Then restart or
+redeploy the backend. The backend and the worker must share the same
+`AUTH_SECRET` and, when configured, `CONNECTION_SECRETS_ENCRYPTION_KEY`. Then
+the background capture jobs can use the encrypted Slack bot tokens.
 
 Set the Slack Event Subscriptions Request URL to:
 
@@ -192,8 +195,8 @@ intent-based thread capture.
 
 ## Linear
 
-Linear can store the OAuth application and webhook signing secret on the
-connection (Register in the product UI). `LINEAR_*` is an optional
+ctxpipe can store the Linear OAuth application and the webhook signing secret
+on the connection (Register in the product UI). `LINEAR_*` is an optional
 deployment-wide fallback.
 
 | Variable | Description |
@@ -207,8 +210,8 @@ subscriptions, preview limitations, and troubleshooting.
 
 ## Notion
 
-Notion uses one deployment-owned public integration and one deployment webhook
-subscription.
+Notion uses one public integration and one webhook subscription. Your
+deployment owns both.
 
 | Variable | Description |
 |---|---|
@@ -216,24 +219,24 @@ subscription.
 | `NOTION_REDIRECT_URI` | Optional exact callback override. Defaults to `{AUTH_BASE_URL}/api/v1/connectors/notion/oauth/callback`. |
 | `NOTION_WEBHOOK_SECRET` | Verification token shown by Notion after the first webhook delivery. Required for signed updates. |
 
-Put the OAuth credentials on every service that performs token refresh or
-connector work, then register the single deployment webhook.
+Put the OAuth credentials on every service that refreshes tokens or does
+connector work. Then register the single deployment webhook.
 See [Notion](/docs/self-hosting/notion) for provisioning and verification.
 
 ## PagerDuty
 
-PagerDuty can use a deployment-owned OAuth application. After a user
+PagerDuty can use an OAuth application that your deployment owns. After a user
 authorizes an account, ctxpipe creates the signed webhook subscription. These
-variables are an optional hosted-style shortcut; self-host can save the app
-on the connection in the setup wizard instead.
+variables are an optional shortcut, as on hosted ctxpipe. A self-hosted
+deployment can instead save the app on the connection in the setup wizard.
 
 | Variable | Description |
 |---|---|
 | `PAGERDUTY_CLIENT_ID`, `PAGERDUTY_CLIENT_SECRET` | Optional shared PagerDuty OAuth application. When unset, save client id and secret on the connection in the wizard. |
 | `PAGERDUTY_REDIRECT_URI` | Optional exact callback override. Defaults to `{AUTH_BASE_URL}/api/v1/integrations/pagerduty/callback`. |
 
-There is no `PAGERDUTY_WEBHOOK_SECRET`. Per-subscription signing secrets are
-stored encrypted on the connection.
+There is no `PAGERDUTY_WEBHOOK_SECRET`. ctxpipe stores the signing secret of
+each subscription encrypted on the connection.
 
 See [PagerDuty](/docs/self-hosting/pagerduty) for application registration and
 verification.
@@ -243,7 +246,7 @@ verification.
 Telemetry is off until you set it. ctxpipe does not ship a collector, Langfuse, or
 ClickStack in the Compose `deploy` profile or in `@ctxpipe/aws-cdk`. Unset
 values keep logs on stdout and do not start trace or metric export. Empty
-values are treated as unset.
+values count as unset.
 
 Point the signal URLs at your own OTLP/HTTP backend. Export starts from these
 variables. Include the signal path on each URL.
@@ -264,11 +267,11 @@ OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer xxx
 | `OTEL_SERVICE_NAME` | Resource `service.name`. Compose and CDK set `backend`, `openworkflow`, `ui`, and `codesearch` per container. Compose does not apply a shared name from the root `.env`. |
 | `OTEL_RESOURCE_ATTRIBUTES` | Extra resource attributes, for example `deployment.environment=production`. |
 
-`deployment.environment` on backend traces, metrics, and logs, the Langfuse
-environment tag, codesearch, and the UI relay is `RAILWAY_ENVIRONMENT_NAME`
-when that is set, otherwise `deployment.environment` from
-`OTEL_RESOURCE_ATTRIBUTES`, otherwise `production` when `NODE_ENV=production`,
-otherwise `development`. Backend and codesearch also set
+The `deployment.environment` value on backend traces, metrics, and logs, on the
+Langfuse environment tag, on codesearch, and on the UI relay is
+`RAILWAY_ENVIRONMENT_NAME` when that is set. Otherwise it is
+`deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES`. Otherwise it is
+`production` when `NODE_ENV=production`. Otherwise it is `development`. Backend and codesearch also set
 `service.namespace=ctxpipe`. Codesearch always exports `service.name`
 `codesearch`.
 
@@ -277,7 +280,7 @@ LLM spans are OpenTelemetry spans. The apps do not read `LANGFUSE_PUBLIC_KEY`,
 `https://<your-langfuse>/api/public/otel/v1/traces` with
 `Authorization=Basic <base64(publicKey:secretKey)>` in
 `OTEL_EXPORTER_OTLP_HEADERS`. `@ctxpipe/aws-cdk` takes one base `otel.endpoint`
-and appends `/v1/traces`, `/v1/logs`, and `/v1/metrics`; see
+and appends `/v1/traces`, `/v1/logs`, and `/v1/metrics`. See
 [AWS](/docs/self-hosting/deployment/aws).
 
 ### Browser telemetry
@@ -285,8 +288,8 @@ and appends `/v1/traces`, `/v1/logs`, and `/v1/metrics`; see
 The UI enables browser telemetry only when
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set on the UI server. The browser posts
 traces to the same origin at `/.otel/v1/traces`. The relay also accepts
-`/.otel/v1/logs`, but the SDK does not use it: replay is off, and console
-capture is emitted as spans. The UI server forwards traces to
+`/.otel/v1/logs`, but the SDK does not use it. Replay is off, and the SDK
+emits console capture as spans. The UI server forwards traces to
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and logs to
 `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, using `OTEL_EXPORTER_OTLP_HEADERS`. When
 the traces endpoint is unset, the browser SDK does not start. A signal whose
