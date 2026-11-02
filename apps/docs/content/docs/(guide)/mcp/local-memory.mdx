@@ -51,7 +51,7 @@ memory keeps those lessons:
 4. **The pull request tells the story.** The agent summarizes the work in the
    pull request description: what changed, why, what was tried and ruled out, and
    what is left. That description is reviewed with the code.
-5. **ctxpipe learns from what merges.** After merge, ctxpipe reads
+5. **ctxpipe reads what merges.** After merge, ctxpipe reads
    `lessons-learned.md` as instructions for how your team works, decision records
    as decisions, and, where pull request mirroring is enabled, pull request
    descriptions as the history behind each change.
@@ -119,8 +119,9 @@ The interactive wizard asks.
 | Local memory (this page) | Markdown in one repository plus agent hooks. It is not an MCP server. |
 
 You can use local memory on its own (`memory init`) or alongside the ctxpipe MCP
-(`init --memory`). Together, local memory is how agents learn, and the MCP is how
-that learning reaches every agent in your organization.
+(`init --memory`). Local memory keeps the lessons of one repository. When that
+repository is linked to a Workspace, the MCP serves the merged lessons to every
+agent in your organization.
 
 ## Finding things in memory
 
