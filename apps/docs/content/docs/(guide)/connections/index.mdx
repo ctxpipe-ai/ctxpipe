@@ -160,7 +160,7 @@ A GitHub source holds one repository, so it has no limit.
 | Problem | What to do |
 | --- | --- |
 | Authorization fails | Allow popups and try again. On a self-hosted deployment, ask the operator to check the OAuth app of the provider and its callback URL. |
-| **Add to Workspaces** shows an error | The message names the cause: **Upgrade this Workspace first** (see [Upgrades](/docs/workspaces/settings#upgrades)), **This Workspace is read-only** (see [Write access](/docs/workspaces/settings#write-access)), or **Ask an admin to choose what this source syncs** (your role). |
+| **Add to Workspaces** shows an error | The message names the cause: **Needs the format upgrade first.** next to a Workspace (see [Upgrades](/docs/workspaces/settings#upgrades)), **This Workspace is read-only** (see [Write access](/docs/workspaces/settings#write-access)), or **Ask an admin to choose what this source syncs** (your role). |
 | No pull request appears | Make sure that the GitHub App can write to the Workspace repository. Close the dialog and try again. |
 | The source status is not **OK** | Read the status and the reason in **Settings**. See [Source status](/docs/workspaces/settings#source-status). |
 | Changes in the tool do not arrive | Choose **Sync now**. If changes still do not arrive, ask the operator to check the webhook of the provider. |

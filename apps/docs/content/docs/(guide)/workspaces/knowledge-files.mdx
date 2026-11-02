@@ -78,8 +78,8 @@ in answers.
 ctxpipe skips a file that has one of the errors below, and continues with the
 other files. One bad file does not stop the Workspace. A skipped file stays in
 **Files**, because it is in git, but chat, MCP, search, and the graph do not
-use it. **Settings** lists the skipped files of the latest commit under
-**Hydrate skipped N files**.
+use it. The **Knowledge graph** card in **Settings** lists the skipped files of
+the latest commit under **ctxpipe skipped N files**.
 
 | Reason | Cause | Fix |
 | --- | --- | --- |
@@ -90,7 +90,8 @@ Push the fix to the default branch. When ctxpipe reads the new commit, the file
 is a knowledge unit again, and it leaves the list.
 
 Other errors stop the read of the whole commit. For example, a set of files
-that is too large shows **Loading failed** in **Settings**. See
+that is too large shows **The knowledge graph did not load** in **Settings**.
+See
 [Workspace settings](/docs/workspaces/settings#hydrate-and-skipped-files).
 
 ## Sources and linked repositories

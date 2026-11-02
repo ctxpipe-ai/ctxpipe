@@ -77,10 +77,10 @@ If someone closes the pull request without a merge, the upgrade goes back to
 
 ### Automatic upgrades
 
-By default, nothing starts by itself. The group shows **Automatic upgrades: Off**
-or **Automatic upgrades: On**. An owner or admin chooses **Turn on** or **Turn
-off**, or **Always update** on the Home alert. ctxpipe then commits the setting
-into `.ctxpipe/workspace.yaml` on the default branch.
+By default, nothing starts by itself. To change this, an owner or admin turns
+the **Automatic upgrades** switch on or off, or chooses **Always update** on the
+Home alert. ctxpipe then commits the setting into `.ctxpipe/workspace.yaml` on
+the default branch.
 
 When automatic upgrades are on, ctxpipe starts each upgrade when it finds it. A
 merge always needs a person.
@@ -151,20 +151,24 @@ minute.
 ## Hydrate and skipped files
 
 Hydrate is the step that reads the files of the repository at one commit and
-builds the search index and the graph. The hydrate tag shows its status:
+builds the search index and the graph. The **Knowledge graph** card shows its
+status:
 
-| Tag | Meaning |
+| The card shows | Meaning |
 | --- | --- |
-| **Ready** | ctxpipe read the latest commit. |
-| **Hydrate pending** | ctxpipe did not start yet. |
-| **Hydrating** | ctxpipe is reading a commit. The previous index serves until it is done. |
-| **Loading failed** | ctxpipe could not read the repository. The pane shows the error. |
+| **The knowledge graph is loaded.** | ctxpipe read the latest commit. |
+| **The knowledge graph waits to load.** | ctxpipe did not start yet. |
+| **ctxpipe loads the knowledge graph now.** | ctxpipe is reading a commit. The previous index serves until it is done. |
+| **The knowledge graph did not load** | ctxpipe could not read the repository. The card shows the error. |
+
+While ctxpipe indexes a new commit, the card also shows **Indexing the newest
+commit…** and the time since it started.
 
 Before the first hydrate ends, the Workspace page shows **Preparing**. If the
 first read fails, it shows **Could not prepare the Workspace** with the reason
 and **Try again**.
 
-When ctxpipe skips files, **Settings** shows **Hydrate skipped N files**, with
+When ctxpipe skips files, the card shows **ctxpipe skipped N files**, with
 the path and the reason for each file. Chat, MCP, search, and the graph do not
 use a skipped file. Select a path to open the file in **Files**. Fix the file
 and push the fix to the default branch. See
