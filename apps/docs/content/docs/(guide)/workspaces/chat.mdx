@@ -103,8 +103,8 @@ conversation or organization shares it.
 - **The agent can use the internet**, for example to read documentation or
   install packages.
 - **No credential is in the sandbox.** A firewall outside the sandbox adds
-  each credential to a request on its way out. The GitHub token can only read,
-  it is short-lived, and ctxpipe revokes it when the sandbox stops. Access to
+  each credential to a request on its way out. The GitHub token can only read.
+  It is short-lived, and ctxpipe revokes it when the sandbox stops. Access to
   the model and the Workspace tools is added only while a reply runs.
 
 The sandbox never holds a credential that can push to your default branch.

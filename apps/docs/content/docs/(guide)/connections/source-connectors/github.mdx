@@ -101,10 +101,11 @@ ctxpipe backfills the issues of each linked repository of that account.
 ## In the graph
 
 A pull request links to its repository, to the GitHub issues whose URL it
-contains, and to the Linear issues that it names. A merged pull request also links to each file that it added,
-changed, removed, or renamed. It **resolves** an issue when its branch names the
-issue, or when a closing word such as `fixes` or `closes` comes before the
-issue identifier. A GitHub issue links to the pull requests that closed it.
+contains, and to the Linear issues that it names. A merged pull request also links to
+each file that it added, changed, removed, or renamed. A pull request
+**resolves** an issue when its branch names the issue. It also resolves an
+issue when a closing word, such as `fixes` or `closes`, comes before the issue
+identifier. A GitHub issue links to the pull requests that closed it.
 
 <Cards>
   <Card title="Create a Workspace" href="/docs/workspaces/create-workspace" description="Choose or create the Workspace repository." />

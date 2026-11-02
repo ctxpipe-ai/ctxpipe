@@ -52,8 +52,8 @@ kinds of upgrade:
   **Notes** on the card before you merge.
 - **Fresh re-ingestion of the source repositories** reads each linked
   repository again and publishes the new knowledge. See
-  [How extraction works](/docs/workspaces/indexing#how-extraction-works). It needs format 3. For the
-  cost and the restart rules, see
+  [How extraction works](/docs/workspaces/indexing#how-extraction-works). It
+  needs format 3. For the cost and the restart rules, see
   [Upgrade a Workspace](/docs/self-hosting/upgrades#upgrade-a-workspace).
 
 | Status | What to do |
@@ -107,8 +107,9 @@ that ctxpipe reads.
 | 3 | Ingestion writes ownership front matter in each knowledge file. This is the current format. Ingestion needs format 3. |
 
 Only the setup commit of a new Workspace, an upgrade pull request, and the
-automatic-upgrades setting write this file. A format that this version of ctxpipe does not know, or a file that does
-not parse, makes the Workspace **Read-only**. Reads continue.
+automatic-upgrades setting write this file. A format that this version of
+ctxpipe does not know, or a file that does not parse, makes the Workspace
+**Read-only**. Reads continue.
 
 ## Repositories
 
@@ -127,7 +128,7 @@ write access tag shows the result of the last check:
 
 | Tag | Meaning |
 | --- | --- |
-| **Can save changes** | The GitHub App can push to the repository. |
+| **Writable** | The GitHub App can push to the repository. |
 | **Changes by pull request** | The default branch is protected. Conversations and source changes use pull requests. Connector mirrors and extracted knowledge cannot push to the default branch, so they stop. |
 | **Checking write access** | ctxpipe is checking. The pane checks again by itself. |
 | **Could not check write access** | GitHub returned an error or a rate limit. Choose **Check again**. |

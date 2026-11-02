@@ -8,9 +8,9 @@ one [Workspace](/docs/workspaces) what to read through a connection. ctxpipe
 writes the content into the Workspace repository as Markdown files, so you can
 read, review, and keep each file that ctxpipe and your agents use.
 
-- A **connection** holds only the authorization: the OAuth grant, API access token, or GitHub
-  App installation, and its webhooks. An organization owner or admin adds it
-  one time for the organization, on **Connectors**.
+- A **connection** holds only the authorization: the OAuth grant, API access
+  token, or GitHub App installation, and its webhooks. An organization owner or
+  admin adds it one time for the organization, on **Connectors**.
 - A **source** is one Markdown file in a Workspace, at
   `sources/<provider>/<name>.md`. It names the connection, the scope (for
   example Linear teams or Notion pages), and an optional description.
@@ -35,7 +35,7 @@ and its own scope.
 ctxpipe indexes the docs in linked repositories with the code: README files,
 `docs/**`, ADRs, `AGENTS.md`, and skills.
 
-The important difference is the scope. A scoped mirror keeps an approved
+The main difference is the scope. A scoped mirror keeps an approved
 subset current. Slack has no history backfill and no channel mirror: a person
 captures one thread when the team needs it later.
 
@@ -72,8 +72,7 @@ Before you start, make sure that:
     ### Add it to Workspaces
 
     The next step is **Add to Workspaces**. Select the Workspaces, then select
-    the scope. For more than one
-    Workspace, choose **Same scope for each Workspace** or **A different scope
+    the scope. For more than one Workspace, choose **Same scope for each Workspace** or **A different scope
     for each Workspace**. Then choose **Add to Workspaces**.
 
     You can do this later. Expand the connector on **Connectors** and choose
@@ -102,8 +101,8 @@ To change what a Workspace reads, edit, rename, or remove its source. See
 
 ## How content stays current
 
-- **Webhooks.** Linear, Notion, Confluence, PagerDuty, and Plain tell ctxpipe when
-  content changes. ctxpipe updates the files of the sources whose scope
+- **Webhooks.** Linear, Notion, Confluence, PagerDuty, and Plain tell ctxpipe
+  when content changes. ctxpipe updates the files of the sources whose scope
   includes the change. Events that arrive before a source is live are skipped.
 - **Buildkite webhooks.** A finished build starts a full sync after a 10-minute
   window. More events in that window share the same sync.
@@ -111,8 +110,8 @@ To change what a Workspace reads, edit, rename, or remove its source. See
   source with the status **OK**. This sync finds content that the provider
   deleted, and content that a webhook missed.
 - **Sync now.** The menu of the connector on **Connectors** has **Sync now** for
-  Confluence, Linear, Notion, PagerDuty, Buildkite, and Plain. It starts the same full sync at
-  once. Only an owner or admin sees it.
+  Confluence, Linear, Notion, PagerDuty, Buildkite, and Plain. It starts the
+  same full sync at once. Only an owner or admin sees it.
 
 Do not edit mirrored files by hand. The next sync overwrites them. When you
 remove a source, the next sync deletes its files in one commit. Git history

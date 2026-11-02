@@ -73,7 +73,7 @@ pipelines.
     [API Access Tokens](https://buildkite.com/user/api-access-tokens/new).
     Select only your organization, and only these REST scopes:
     `read_pipelines` and `read_builds`. Do not select **Enable GraphQL API
-    access**: that option gives the token full access, also writes. ctxpipe
+    access**. That option gives the token full access, including write access. ctxpipe
     refuses a token that has any other scope or GraphQL API access, because
     the connector only needs these two scopes.
   </Step>
@@ -82,8 +82,8 @@ pipelines.
     ### Connect Buildkite
 
     Open **Connectors**, select **Add connection**, then select **Connect** on
-    the **Buildkite** row. Type the organization slug (the name in your Buildkite URL) and paste the
-    token. ctxpipe checks the token with Buildkite before it saves it. ctxpipe
+    the **Buildkite** row. Type the organization slug (the name in your Buildkite URL) and paste
+    the token. ctxpipe checks the token with Buildkite before it saves it. ctxpipe
     keeps the token encrypted and never shows it again.
   </Step>
 
@@ -101,7 +101,7 @@ pipelines.
        Workspaces sync. Then save the webhook.
     5. Copy the token of the webhook, and paste it into the setup.
 
-    To add the webhook later, close the setup: the connector card shows
+    To add the webhook later, close the setup. The connector card shows
     **Add the webhook**, and **Add to a Workspace** under **Used in**. Until
     then, ctxpipe syncs once a day and when you select **Sync now**.
   </Step>
@@ -119,7 +119,7 @@ pipelines.
     4. Choose **Add to Workspaces**.
 
     If the organization has no Workspace yet, the step shows **Create a
-    Workspace**. Create the Workspace, then come back to **Connectors** and
+    Workspace**. Create the Workspace, then return to **Connectors** and
     choose **Add to a Workspace** on the Buildkite card. The connection stays
     saved.
 
@@ -255,7 +255,7 @@ and paste the token again.
 ### Remove the connector
 
 Choose **Remove connector** in the menu of the connector card. See
-[How content stays current](/docs/connections#how-content-stays-current) for what stays in Git.
-This deletes the saved tokens. The Workspace sources that use the connector
+[How content stays current](/docs/connections#how-content-stays-current) for
+what stays in Git. This deletes the saved tokens. The Workspace sources that use the connector
 stop syncing. Delete the webhook in Buildkite too, and the API access
 token if nothing else uses it.

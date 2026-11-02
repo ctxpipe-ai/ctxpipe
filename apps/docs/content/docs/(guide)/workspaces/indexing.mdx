@@ -126,10 +126,10 @@ Extraction runs in a different sandbox from
 ctxpipe, each extraction run has its own Vercel Sandbox microVMs. The
 differences from chat:
 
-- **Closed network.** The sandbox can only fetch the linked repository and the
-  Workspace repositories of the run with git, call the ctxpipe model proxy,
-  and call the ctxpipe code search tools. It cannot push, call the GitHub API,
-  or reach another host or a private address. A public repository on another
+- **Closed network.** The sandbox can fetch the linked repository and the
+  Workspace repositories of the run with git. It can call the ctxpipe model
+  proxy and the ctxpipe code search tools. It can do nothing else. It cannot
+  push, call the GitHub API, or reach another host or a private address. A public repository on another
   git host is reachable only while the sandbox clones it, before a model runs.
 - **No credential in the sandbox.** A ctxpipe proxy outside the sandbox adds
   each credential to a request on its way out. The GitHub tokens can only
@@ -154,8 +154,8 @@ extraction again on each linked repository. See
 
 **Settings** in each Workspace shows the hydrate status of the Workspace, the
 status of each linked repository, and the **Status** group. Its **Working now**
-list shows each ingestion that runs, with its stage, its progress, and how long it
-has run. In the sidebar, a pulse next to a Workspace shows that it ingests now.
+list shows each ingestion that runs. For each one, it shows the stage, the
+progress, and how long it has run. In the sidebar, a pulse next to a Workspace shows that it ingests now.
 
 For the status of a linked repository (**Pending**, **Indexing**, **Indexed**,
 **Indexed with issues**), see

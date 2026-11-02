@@ -18,7 +18,7 @@ open each Workspace.
 
 All that ctxpipe knows about a Workspace is in files in its Workspace
 repository. ctxpipe reads those files to build its search index and knowledge
-graph, and writes new knowledge back as ordinary commits. Thus:
+graph, and writes new knowledge back as ordinary commits. Because of this:
 
 - you read, review, and edit the knowledge with the tools that you already use;
 - each change that ctxpipe makes is a commit in the history of the repository;
@@ -41,8 +41,8 @@ App. Each change is a small commit to the default branch, or a pull request:
 
 ctxpipe never force-pushes the default branch. It force-pushes only its own
 branches: the branch of a conversation and the upgrade branch. If someone else
-pushed to the default branch first, ctxpipe rebases its change onto theirs. If both changed the same lines, ctxpipe merges the two
-changes before it pushes.
+pushed to the default branch first, ctxpipe rebases its change onto theirs. If
+both changed the same lines, ctxpipe merges the two changes before it pushes.
 
 If the default branch is protected, **Settings** shows **Changes by pull
 request**. Conversations and source changes continue through pull requests,
@@ -79,7 +79,7 @@ the sidebar to find a Workspace or a page.
 
 ## How a Workspace stays current
 
-When a new commit gets to the default branch, from ctxpipe or from a person,
+When a new commit arrives on the default branch, from ctxpipe or from a person,
 ctxpipe indexes it. See
 [How indexing works](/docs/workspaces/indexing).
 

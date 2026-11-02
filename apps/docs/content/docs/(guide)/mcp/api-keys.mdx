@@ -57,7 +57,7 @@ and add the header entry for your client:
 | OpenCode | `opencode.json` or `~/.config/opencode/opencode.json` | `"headers": { "x-api-key": "{env:CTXPIPE_API_KEY}" }`, and `"oauth": false` |
 | VS Code / Copilot | `.vscode/mcp.json` | `"headers": { "x-api-key": "${env:CTXPIPE_API_KEY}" }` |
 
-Each client uses its own syntax for the variable. Codex wants the name of the
+Each client uses its own syntax for the variable. Codex needs the name of the
 variable, not `$VAR` and not the secret. In OpenCode, `"oauth": false` stops
 the client from opening the browser after a `401`.
 
