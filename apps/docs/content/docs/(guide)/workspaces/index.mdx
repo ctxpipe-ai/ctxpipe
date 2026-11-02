@@ -34,20 +34,19 @@ App. Each change is a small commit to the default branch, or a pull request:
 | The [setup commit](/docs/workspaces/create-workspace#what-ctxpipe-adds-to-the-repository) of a new Workspace | A commit |
 | Connector mirrors: Linear, Notion, Confluence, Slack, PagerDuty, Buildkite, Plain, and the issues and closed pull requests of linked GitHub repositories | A commit for each sync |
 | [Knowledge extracted](/docs/workspaces/indexing#how-extraction-works) from linked repositories | One commit for each run, `Update extracted knowledge` |
-| Upkeep, for example links that ctxpipe rewrites after a rename, a missing `valid_from`, or the automatic-upgrades setting | A commit |
+| Upkeep, for example links that ctxpipe rewrites after a rename, a `valid_from` that a file does not have, or the automatic-upgrades setting | A commit |
 | A change to `sources/`: add, edit, rename, or remove a source | A pull request that a person merges |
 | A [format upgrade](/docs/workspaces/settings#upgrades) | A pull request on `ctxpipe/upgrade/format-<N>` |
 | [Workspace chat](/docs/workspaces/chat#publish-with-a-pull-request) | A branch for each conversation, and a pull request that you open |
 
-ctxpipe never force-pushes the default branch. It force-pushes only its own
-branches: the branch of a conversation and the upgrade branch. If someone else
-pushed to the default branch first, ctxpipe rebases its change onto theirs. If
-both changed the same lines, ctxpipe merges the two changes before it pushes.
+ctxpipe never force-pushes the default branch. It force-pushes only refs that
+it owns: the branch of a conversation, the upgrade branch, and the temporary
+refs of an extraction run. If someone else pushed to the default branch first,
+ctxpipe rebases its change onto theirs. If both changed the same lines,
+ctxpipe merges the two changes before it pushes.
 
-If the default branch is protected, **Settings** shows **Changes by pull
-request**. Conversations and source changes continue through pull requests,
-but ctxpipe cannot push commits. Connector mirrors and extracted knowledge
-stop until the GitHub App can push to the default branch.
+If the default branch is protected, connector mirrors and extracted knowledge
+stop. See [Write access](/docs/workspaces/settings#write-access).
 
 ### Code repositories stay read-only
 

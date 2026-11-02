@@ -17,7 +17,6 @@ const BASE = {
     "---\ntitle: Configuration\n---\n\n## Chat sandboxes\n",
   [`${DOCS}/(guide)/mcp/plugin.mdx`]:
     "---\ntitle: Plugin\ndraft: true\n---\n\nDraft.\n",
-  "apps/docs/next.config.ts": `export default {\n  async redirects() {\n    return [\n      { source: "/docs/old-page", destination: "/docs/workspaces/settings" },\n      { source: "/docs/chat/:path*", destination: "/docs/workspaces/settings" },\n    ]\n  },\n}\n`,
   "apps/docs/public/launch.gif": "GIF89a",
 }
 
@@ -60,6 +59,7 @@ test("links to pages, headings, and images that exist pass", () => {
         '<ImageSlot src="/launch.gif" alt="Launch" />',
         "## Local heading",
         "Go [up](#local-heading).",
+        "Read https://docs.ctxpipe.ai/docs/getting-started.",
       ].join("\n\n"),
     ),
   )
@@ -100,21 +100,6 @@ test("a link to a draft page fails", () => {
   const result = check(page("See [plugin](/docs/mcp/plugin)."))
   assert.equal(result.status, 1)
   assert.match(result.stderr, /\/docs\/mcp\/plugin: the page is a draft/)
-})
-
-test("a link to a redirect fails and names the new URL", () => {
-  const result = check(
-    page("See [old](/docs/old-page) and [chat](/docs/chat/x)."),
-  )
-  assert.equal(result.status, 1)
-  assert.match(
-    result.stderr,
-    /\/docs\/old-page: redirects to \/docs\/workspaces\/settings/,
-  )
-  assert.match(
-    result.stderr,
-    /\/docs\/chat\/x: redirects to \/docs\/workspaces\/settings/,
-  )
 })
 
 test("a missing image fails", () => {

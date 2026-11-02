@@ -6,7 +6,8 @@
 // - each docs.ctxpipe.ai URL in apps, packages, plugins, examples, and the
 //   README.
 // A link must name a published page and, after `#`, a heading of that page.
-// A link to a draft page fails. A link to a redirect source also fails: the
+// A page with `draft: true` in its front matter is not published
+// (apps/docs/lib/source.ts). A redirect source is not a page either: the
 // redirects in apps/docs/next.config.ts are for links outside this repository.
 //
 // Usage: node scripts/ci/check-docs-links.mjs [repository root]
@@ -89,7 +90,6 @@ for (const file of pageFiles) {
       count.set(id, seen + 1)
       anchors.add(seen ? `${id}-${seen}` : id)
     }
-    for (const match of line.matchAll(/\bid="([^"]+)"/g)) anchors.add(match[1])
   }
   pages.set(["/docs", ...segments].join("/"), {
     file,
@@ -99,27 +99,12 @@ for (const file of pageFiles) {
   })
 }
 
-const config = readFileSync(join(root, "apps/docs/next.config.ts"), "utf8")
-const redirects = [
-  ...config.matchAll(/source:\s*"([^"]+)",\s*destination:\s*"([^"]+)"/g),
-].map(([, source, destination]) => ({
-  destination,
-  pattern: new RegExp(
-    `^${source
-      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-      .replace(/\/:\w+\\\*/g, "(?:/.*)?")
-      .replace(/:\w+/g, "[^/]+")}$`,
-  ),
-}))
-
 /** Why `target` is dead, or null. `here` is the page of a `#heading` link. */
-function problem(target, here) {
+function deadReason(target, here) {
   const [path, hash] = target.split("#")
   let page = here
   if (path) {
     const url = path.replace(/\.mdx$/, "").replace(/(.)\/$/, "$1")
-    const redirect = redirects.find(({ pattern }) => pattern.test(url))
-    if (redirect) return `redirects to ${redirect.destination}`
     page = pages.get(url)
     if (!page) return "no such page"
     if (page.draft) return "the page is a draft"
@@ -134,10 +119,19 @@ const DOCS_URL = /(?:docs\.ctxpipe\.ai|DOCS_URL\})(\/docs[^\s"'`)<>\]]*)/g
 
 const problems = []
 let checked = 0
-function report(file, index, target, reason) {
+/** Counts one checked link, and keeps it when `reason` says that it is dead. */
+function record(file, index, target, reason) {
   checked += 1
   if (reason)
     problems.push(`${relative(root, file)}:${index + 1}: ${target}: ${reason}`)
+}
+
+/** Checks each docs.ctxpipe.ai URL on one line of any file. */
+function checkDocsUrls(file, line, index) {
+  for (const match of line.matchAll(DOCS_URL)) {
+    const target = match[1].replace(/[.,;:]+$/, "")
+    record(file, index, target, deadReason(target, null))
+  }
 }
 
 for (const page of pages.values()) {
@@ -145,14 +139,13 @@ for (const page of pages.values()) {
     const prose = line.replace(/(`+)[^`]*?\1/g, "")
     for (const match of prose.matchAll(PAGE_LINK)) {
       const target = match[1] ?? match[2]
-      report(page.file, index, target, problem(target, page))
+      record(page.file, index, target, deadReason(target, page))
     }
-    for (const match of prose.matchAll(DOCS_URL))
-      report(page.file, index, match[1], problem(match[1], page))
+    checkDocsUrls(page.file, prose, index)
     for (const match of prose.matchAll(IMAGE)) {
       const image = match[1] ?? match[2]
       const found = existsSync(join(root, "apps/docs/public", image))
-      report(
+      record(
         page.file,
         index,
         image,
@@ -176,12 +169,7 @@ if (existsSync(join(root, "README.md")))
 for (const file of otherFiles) {
   readFileSync(file, "utf8")
     .split("\n")
-    .forEach((line, index) => {
-      for (const match of line.matchAll(DOCS_URL)) {
-        const target = match[1].replace(/[.,;:]+$/, "")
-        report(file, index, target, problem(target, null))
-      }
-    })
+    .forEach((line, index) => checkDocsUrls(file, line, index))
 }
 
 if (problems.length) {
