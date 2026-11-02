@@ -109,11 +109,11 @@ ctxpipe also checks the result:
   such a phrase must give a `Source:` path, and the text must be in that file
   of the linked repository.
 - It rejects all the files of a step when the text that the step writes has a
-  value that looks like a secret. Examples are a known token format, a private
-  key, a connection string with a password, an `Authorization` header, or a
-  key such as `*_TOKEN` with a real value. The scan also decodes base64 and
-  percent-encoded text. The rejection gives the rule and the line, never the
-  value.
+  value that looks like a secret. Examples are a private key and a
+  connection string with a password. More examples are an `Authorization`
+  header, and a key such as `*_TOKEN` with a real value. A known token format
+  is also a secret. The scan also decodes base64 and percent-encoded text. The
+  rejection gives the rule and the line, never the value.
 
 These guards limit what injected text can do. They cannot stop all of it.
 Review extracted files like other knowledge files. The `AGENTS.md` that
@@ -134,9 +134,11 @@ differences from chat:
 - **No credential in the sandbox.** A ctxpipe proxy outside the sandbox adds
   each credential to a request on its way out. The GitHub tokens can only
   read, and ctxpipe revokes them when the run ends.
-- **Limited agent.** The model runs as a user with no admin rights, and it can
-  write only to its output folder. It uses only the skills of ctxpipe. The
-  `AGENTS.md` file and the skills in the linked repository do not change it.
+- **Limited agent.** The model runs as a user with no admin rights. The user
+  owns only the output folder `/ctxpipe/out` and the home folder
+  `/ctxpipe/home`, so the model can write only there. It uses only the skills
+  of ctxpipe. The `AGENTS.md` file and the skills in the linked repository do
+  not change it.
 
 Extraction uses the sandbox slots of your organization. See
 [Sandbox limits](/docs/workspaces/chat#sandbox-limits). For self-hosted
@@ -152,10 +154,13 @@ extraction again on each linked repository. See
 
 ## Read the status
 
-**Settings** in each Workspace shows the hydrate status of the Workspace, the
-status of each linked repository, and the **Status** group. Its **Working now**
-list shows each ingestion that runs. For each one, it shows the stage, the
-progress, and how long it has run. In the sidebar, a pulse next to a Workspace shows that it ingests now.
+**Settings** in each Workspace shows the hydrate status of the Workspace on the
+**Knowledge graph** card, and the status of each linked repository on the
+**Sources** card. A row of the **Sources** card that ingests now shows what
+ctxpipe does and how long it has run. A button on the row opens the stage and
+the progress of each run. In the sidebar, a pulse next to a Workspace shows that
+it ingests now. A re-ingestion that you start from an upgrade shows on the
+**Upgrades** card.
 
 For the status of a linked repository (**Pending**, **Indexing**, **Indexed**,
 **Indexed with issues**), see
