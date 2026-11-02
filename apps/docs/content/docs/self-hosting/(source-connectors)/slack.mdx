@@ -30,7 +30,7 @@ events, and the secrets. For how people capture threads, see the
 
 In the [Slack API dashboard](https://api.slack.com/apps), create an app. You can
 start from scratch. For higher rate limits in production, distribute it as a
-Marketplace app or an internal org app. Do not use a throwaway development app.
+Marketplace app or an internal organization app. Do not use a throwaway development app.
 
 If organizations will install the app into workspaces other than the app
 owner's development workspace, activate **Manage Distribution** in Slack.
@@ -49,8 +49,8 @@ Add at least these bot token scopes:
 - `users:read`
 
 If you add a scope after a workspace installs the app, that workspace must
-complete OAuth again. A change to the Slack app settings does not upgrade an
-existing bot token.
+complete OAuth again. A change to the Slack app settings does not upgrade the
+bot token that you have.
 
 Register this OAuth redirect URL:
 
@@ -192,7 +192,7 @@ purpose. Its value must exactly match a redirect URL registered in Slack.
   (`AUTH_SECRET` and, when set, `CONNECTION_SECRETS_ENCRYPTION_KEY`). The
   GitHub App must still have contents write access to the Workspace repository.
   Extra text after a mention needs `MODEL_PROVIDER*` (or Bedrock). A second
-  org cannot install a workspace through OAuth when that workspace is already
+  organization cannot install a workspace through OAuth when that workspace is already
   connected.
 
 ### Capture commits but the repository never indexes

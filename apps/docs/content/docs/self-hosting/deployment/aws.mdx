@@ -91,7 +91,7 @@ Enable each model ID in the [Amazon Bedrock console](https://console.aws.amazon.
 </Callout>
 
 <Callout type="warn" title="Organizations SCPs can still block Bedrock">
-  The construct attaches `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` to the backend and worker task roles, but an AWS Organizations **service control policy (SCP)** can override them with an **explicit deny**. The log text is typically `AccessDeniedException` … `explicit deny in a service control policy`. Allow your chat and Cohere embed foundation-model ARNs in the SCP. Denies for `global.cohere.embed-v4:0` often name `…/foundation-model/cohere.embed-v4:0`. This is a different problem from chat stream stalls such as `Bedrock Converse stream timed out … without receiving a chunk`. For those stalls, investigate `ConverseStream` in CloudTrail. A wider task-role policy does not help.
+  The construct attaches `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` to the backend and worker task roles. An AWS Organizations **service control policy (SCP)** can override them with an **explicit deny**. The log text is typically `AccessDeniedException` … `explicit deny in a service control policy`. Allow your chat and Cohere embed foundation-model ARNs in the SCP. Denies for `global.cohere.embed-v4:0` often name `…/foundation-model/cohere.embed-v4:0`. This is a different problem from chat stream stalls such as `Bedrock Converse stream timed out … without receiving a chunk`. For those stalls, investigate `ConverseStream` in CloudTrail. A wider task-role policy does not help.
 </Callout>
 
 ```ts
@@ -419,7 +419,7 @@ Signals that you should move up a size:
 - frequent codesearch reindex delays,
 - higher p95 response latency during active sync/index windows.
 
-`@ctxpipe/aws-cdk` keeps services in private subnets for every size. NAT is still required, because the backend, worker, and codesearch need outbound access to model providers and to the GitHub, Atlassian, and Linear APIs.
+`@ctxpipe/aws-cdk` keeps services in private subnets for every size. You still need NAT, because the backend, worker, and codesearch need outbound access to model providers and to the GitHub, Atlassian, and Linear APIs.
 
 ## Related references
 

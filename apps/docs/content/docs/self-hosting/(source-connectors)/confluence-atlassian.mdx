@@ -57,7 +57,7 @@ a durable worker job. The generated Forge app uses your public API origin for
 its remote callback.
 
 The Forge app requires `read:attachment:confluence` to clone page attachments.
-After you upgrade an existing app manifest, deploy the new Forge version.
+After you upgrade the app manifest that you have, deploy the new Forge version.
 Complete Atlassian's permission upgrade. A refresh of the app-system token alone
 does not grant the new scope. ctxpipe stores assets in the Workspace repository.
 The limits are 25 MiB for each file and 100 MiB for each page. The worker removes

@@ -5,14 +5,14 @@ description: Start from the Terraform stack of hosted ctxpipe, on Railway and Ne
 
 The repository has a Terraform stack in `infra/`. It is the deployment of
 hosted ctxpipe. It uses Railway for the services, Neon for Postgres, and Vercel
-Sandbox for chat. It is not a reusable module yet. Fork it and use it as a
-starting point.
+Sandbox for chat. It is not a reusable module yet. Fork it and change it
+for your own deployment.
 
 <Callout type="warn" title="Change the hosted values before you apply">
-  The stack names the accounts and settings of hosted ctxpipe. These are the
-  Railway workspace and project, the Neon organization and region, the GitHub App, the
-  email sender, the custom domains, the Vercel team and project, and the
-  telemetry endpoint. Replace each of them with your own values in `infra/` and
+  The stack names the accounts and settings of hosted ctxpipe. These are:
+  the Railway workspace and project, the Neon organization and region, the
+  GitHub App, the email sender, the custom domains, the Vercel team and project,
+  and the telemetry endpoint. Replace each of them with your own values in `infra/` and
   `infra/module/ctxpipe/` before you run `terraform apply`.
 </Callout>
 

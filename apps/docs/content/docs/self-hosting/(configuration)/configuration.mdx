@@ -267,12 +267,12 @@ OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer xxx
 | `OTEL_SERVICE_NAME` | Resource `service.name`. Compose and CDK set `backend`, `openworkflow`, `ui`, and `codesearch` per container. Compose does not apply a shared name from the root `.env`. |
 | `OTEL_RESOURCE_ATTRIBUTES` | Extra resource attributes, for example `deployment.environment=production`. |
 
-The `deployment.environment` value on backend traces, metrics, and logs, on the
-Langfuse environment tag, on codesearch, and on the UI relay is
+The `deployment.environment` value applies to backend traces, metrics, and logs,
+to the Langfuse environment tag, to codesearch, and to the UI relay. It is
 `RAILWAY_ENVIRONMENT_NAME` when that is set. Otherwise it is
 `deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES`. Otherwise it is
-`production` when `NODE_ENV=production`. Otherwise it is `development`. Backend and codesearch also set
-`service.namespace=ctxpipe`. Codesearch always exports `service.name`
+`production` when `NODE_ENV=production`. Otherwise it is `development`. Backend
+and codesearch also set `service.namespace=ctxpipe`. Codesearch always exports `service.name`
 `codesearch`.
 
 LLM spans are OpenTelemetry spans. The apps do not read `LANGFUSE_PUBLIC_KEY`,

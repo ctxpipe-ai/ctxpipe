@@ -114,7 +114,7 @@ front matter fields. Do not change them by hand:
 
 | Field | Meaning |
 | --- | --- |
-| `generated_by` | `ctxpipe-extract`. The file is extracted. |
+| `generated_by` | `ctxpipe-extract`. ctxpipe extracted the file. |
 | `sources` | The source files that own the file, for example `sources/github/acme/checkout.md`. |
 | `source_sha` | The commit of the linked repository that ctxpipe read. |
 | `root` | The folder of the package in the linked repository. It is `.` for the whole repository. Only `Repository`, `Service`, `App`, and `Library` files have it. |
@@ -132,9 +132,10 @@ To change an extracted file:
   add claims and new lines in its `## Related` section.
 
 A file that a source owns alone can change fully on the next run. When you
-remove a repository source, ctxpipe deletes the files that only it owned, and
-removes it from the files that it shares with other sources. A file with a
-human section stays: ctxpipe removes only its own fields and claims.
+remove a repository source, ctxpipe deletes the files that only that source
+owned. ctxpipe also removes the source from the files that it shares with other
+sources. A file with a human section stays. ctxpipe removes only its own fields
+and claims.
 
 For all the commits that ctxpipe makes, see
 [What ctxpipe writes](/docs/workspaces#what-ctxpipe-writes).

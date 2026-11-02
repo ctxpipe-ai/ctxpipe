@@ -19,7 +19,7 @@ same public backend origin.
 
 `AUTH_SECRET` protects sessions and encrypted auth material. Do not generate a
 new value on every deploy. A rotation can invalidate sessions. It can also
-prevent ctxpipe from reading existing encrypted signing keys. Plan each rotation
+prevent ctxpipe from reading the encrypted signing keys that you have. Plan each rotation
 as an operational change.
 
 <Callout type="warn" title="One public origin">
@@ -34,7 +34,7 @@ Email/password sign-in is available by default. Set up SMTP before you invite a
 team. Then verification, invitation, and password-reset messages leave the
 deployment reliably.
 
-When SMTP and `EMAIL_FROM_ADDRESS` are set, a new email/password account must
+When you set SMTP and `EMAIL_FROM_ADDRESS`, a new email/password account must
 verify its address before it can sign in. ctxpipe sends a fresh link to an
 unverified account that signs in. A password reset also verifies the address. It
 signs out the other sessions of the account. Without SMTP, ctxpipe only logs the
@@ -44,7 +44,7 @@ startup.
 ## Social providers (OAuth)
 
 ctxpipe supports GitHub, Google, and Microsoft social sign-in.
-Each provider is on only when its client ID and secret are set in the backend
+Each provider is on only when you set its client ID and secret in the backend
 environment. Then the sign-in option shows.
 
 | Provider | Env vars required |
@@ -66,7 +66,7 @@ same public origin that users use in production.
 
 Passkeys are available on compatible browsers and platforms. Users can also
 enable TOTP two-factor authentication with a standard authenticator app. Verify
-both through your production TLS domain. WebAuthn credentials are bound to the
+both through your production TLS domain. WebAuthn credentials belong to one
 origin.
 
 ## MCP OAuth and API keys

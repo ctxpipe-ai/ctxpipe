@@ -125,7 +125,7 @@ aws ssm start-session --target <instance-id>
 | Workspace bases | `sudo docker image ls ctxpipe-workspace-base` | At most about one image for each Workspace that had a new conversation in the last 30 days |
 | Boot log | `sudo tail -n 100 /var/log/cloud-init-output.log` | Ends with the CloudFormation success signal |
 
-Sandboxes stop after 5 minutes idle. They are removed 30 days after last use.
+Sandboxes stop after 5 minutes idle. ctxpipe removes them 30 days after last use.
 An organization runs at most 50 sandboxes at once. A Workspace base is an image
 of the Workspace repository after clone and setup. A new conversation then
 starts without a clone. The periodic sandbox cleanup deletes a base when a newer
@@ -162,7 +162,7 @@ the repository root:
 | No host socket | `docker inspect --format '{{range .Mounts}}{{.Source}} {{end}}' $(docker compose ps -q backend worker)` | No `/var/run/docker.sock` |
 
 ctxpipe removes sandboxes and Workspace bases on the same schedule as on AWS.
-To free disk without touching sandboxes, remove untagged chat images and build
+To free disk and keep the sandboxes, remove untagged chat images and build
 cache:
 
 ```bash
@@ -186,7 +186,7 @@ clones the repository again while a new base builds.
   `docker compose logs dind`.
 - A 503 that says the chat sandbox image is missing means that
   `chat-sandbox-image` has not finished or has failed. For example, a package
-  mirror was unreachable, or the `sandbox_docker` volume was removed. Check its
+  mirror was unreachable, or someone removed the `sandbox_docker` volume. Check its
   logs. Then run it again:
   `docker compose --profile deploy up -d chat-sandbox-image`.
 - Check backend logs for Docker TLS errors. After the `sandbox_ca` volume is
@@ -258,7 +258,7 @@ clones the repository again while a new base builds.
 ### Linear setup stalls or content becomes stale
 
 - Confirm that you registered a Linear OAuth application in the wizard, or that
-  `LINEAR_*` is present on the backend and the worker.
+  `LINEAR_*` is set on the backend and the worker.
 - Confirm the Linear webhook secret is saved on the connection or
   `LINEAR_WEBHOOK_SECRET` is present on backend, and signed requests reach
   `/api/v1/webhook/linear`.

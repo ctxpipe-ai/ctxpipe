@@ -7,7 +7,7 @@ When you self-host this service, you must set up an OpenCypher-compatible graph 
 
 ## Quick Start (FalkorDB)
 
-The easiest way to start is **FalkorDB**. The default stack includes it as a Docker container. No extra setup is needed. Run:
+The easiest way to start is **FalkorDB**. The default stack includes it as a Docker container. You do not need extra setup. Run:
 
 ```bash
 docker compose --profile deploy up -d
@@ -70,21 +70,21 @@ GRAPH_DB_PROVIDER=neptune
 
 ## Tenancy Modes
 
-All setups are **multi-tenant**. The graph data of each organization must be isolated from the data of the others. The service infers the tenancy strategy from the provider in `GRAPH_DB_PROVIDER`.
+All setups are **multi-tenant**. The service must isolate the graph data of each organization from the data of the others. The service infers the tenancy strategy from the provider in `GRAPH_DB_PROVIDER`.
 
 ### Database-per-tenant (shared instance)
 
 **Providers**: FalkorDB, Neo4j Enterprise, Memgraph
 
-These engines support **multiple graphs or databases in one instance**, with strong isolation between them. One shared instance serves many orgs. Each org gets its own graph or database (for example `org_abc123`). The service passes the database name of the org when it runs queries. Data therefore stays isolated at the database layer.
+These engines support **multiple graphs or databases in one instance**, with strong isolation between them. One shared instance serves many organizations. Each organization gets its own graph or database (for example `org_abc123`). The service passes the database name of the organization when it runs queries. Data therefore stays isolated at the database layer.
 
 ### Instance-per-tenant (separate instance per org)
 
 **Providers**: Neo4j Community, Neptune
 
-Neo4j Community and Neptune **do not support multiple databases or graphs in one instance**. Each instance has one logical graph. For per-org isolation, the service uses **instance-per-tenant**. Each org must have its own database instance. The service routes each query to the instance of the org. The deployment topology enforces isolation, not the database engine.
+Neo4j Community and Neptune **do not support multiple databases or graphs in one instance**. Each instance has one logical graph. For per-organization isolation, the service uses **instance-per-tenant**. Each organization must have its own database instance. The service routes each query to the instance of the organization. The deployment topology enforces isolation, not the database engine.
 
-Set `GRAPH_DB_URI_<orgSlug>` for each org (for example `GRAPH_DB_URI_acme`, `GRAPH_DB_URI_piedpiper`). There is no fallback to `GRAPH_DB_URI`. Each org must have its own URI. The AWS CDK construct sets this variable for its one `orgSlug`, so CDK users need to do nothing.
+Set `GRAPH_DB_URI_<orgSlug>` for each organization (for example `GRAPH_DB_URI_acme`, `GRAPH_DB_URI_piedpiper`). There is no fallback to `GRAPH_DB_URI`. Each organization must have its own URI. The AWS CDK construct sets this variable for its one `orgSlug`, so CDK users need to do nothing.
 
 ## Engine-Specific Setup
 

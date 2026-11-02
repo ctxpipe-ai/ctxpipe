@@ -68,10 +68,12 @@ connects Buildkite, your backend also calls `graphql.buildkite.com` once.
 - Confirm that Buildkite can reach `AUTH_BASE_URL` over public HTTPS. With a
   private URL, no webhook arrives, and the connector syncs once a day and on
   **Sync now**.
-- A `401` answer has three causes: the webhook sends the plain
-  `X-Buildkite-Token`, the token in the setup is not the token of this
-  webhook, or the clock of the backend is more than five minutes off. Select
-  the signature option in Buildkite. Paste the webhook token again in the
+- A `401` answer has three causes:
+  - The webhook sends the plain `X-Buildkite-Token`.
+  - The token in the setup is not the token of this webhook.
+  - The clock of the backend is more than five minutes off.
+
+  Select the signature option in Buildkite. Paste the webhook token again in the
   setup. Check the time of the backend host.
 - A `503` answer means that ctxpipe could not queue the sync. Read the backend
   logs. The next event in the window or the daily sync gets the build.

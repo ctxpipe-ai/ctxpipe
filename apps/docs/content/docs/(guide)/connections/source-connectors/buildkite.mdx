@@ -71,9 +71,11 @@ pipelines.
 
     In Buildkite, open
     [API Access Tokens](https://buildkite.com/user/api-access-tokens/new).
-    Select only your organization, and only these REST scopes:
+    Select only your organization. Select only these REST scopes:
     `read_pipelines` and `read_builds`. Do not select **Enable GraphQL API
-    access**. That option gives the token full access, including write access. ctxpipe
+    access**.
+
+    That option gives the token full access, including write access. ctxpipe
     refuses a token that has any other scope or GraphQL API access, because
     the connector only needs these two scopes.
   </Step>

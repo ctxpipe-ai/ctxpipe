@@ -8,7 +8,7 @@ description: Register a PagerDuty OAuth app in the UI, or set it with deployment
 Self-hosted PagerDuty uses the same connector flow as hosted ctxpipe. Someone
 must still create a Scoped OAuth application in the
 [PagerDuty developer portal](https://developer.pagerduty.com). The usual path
-is to paste the client id and secret of that app in the connector wizard.
+is to paste the client ID and secret of that app in the connector wizard.
 ctxpipe then creates one v3 webhook subscription for each connection. Operators
 do not paste a shared webhook signing secret.
 
@@ -26,8 +26,8 @@ or CDK to finish first-time setup.
 - Network access from the backend and the worker to `identity.pagerduty.com`
   and `api.pagerduty.com` or `api.eu.pagerduty.com` over HTTPS.
 
-PagerDuty cannot deliver webhooks to a private localhost address. End-to-end
-connector testing needs a public HTTPS deployment or tunnel.
+PagerDuty cannot deliver webhooks to a private localhost address. To test a
+connector end to end, use a public HTTPS deployment or tunnel.
 
 ## 1. Register the OAuth app in the wizard
 

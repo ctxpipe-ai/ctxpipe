@@ -37,8 +37,8 @@ URL that ctxpipe derives from `AUTH_BASE_URL`.
 5. On **Add the webhook**, open the **Webhooks** tab of the same app. Add a webhook.
    Paste the wizard event URL into **Webhook URL**. Select the page, data
    source, and database event types (`page.*`, `data_source.*`, and
-   `database.*`). ctxpipe ignores other events. A missing type means missing
-   updates. Query parameters scope the URL to this connection:
+   `database.*`). ctxpipe ignores other events. If you do not select a type, ctxpipe
+   does not get its updates. Query parameters scope the URL to this connection:
 
 ```text
 {AUTH_BASE_URL}/api/v1/webhook/notion?connectionId={id}&provisioningToken={hmac}
@@ -57,7 +57,7 @@ refresh therefore works when the `NOTION_*` environment variables are empty.
 
 ## 2. Optional env shortcut
 
-Operators who already own a shared OAuth app can set
+Operators who have a shared OAuth app can set
 **`NOTION_CLIENT_ID`**, **`NOTION_CLIENT_SECRET`**, and
 **`NOTION_WEBHOOK_SECRET`** on the backend and worker instead of saving them
 in the wizard. When you set those environment variables, **Add Notion** skips the
@@ -127,8 +127,8 @@ ctxpipe writes pages as Markdown under `notion/pages/`. It writes databases
 under `notion/databases/`. Each database has one `table.csv` snapshot, and each
 row has one Markdown file, for task and knowledge retrieval. ctxpipe copies
 provider-declared files and explicit embedded external media into an `assets/`
-directory beside the owning page or row. The limits are 25 MiB for each file and
-100 MiB for each page or row. ctxpipe never saves expiring Notion URLs. A
+directory beside the page or row that uses them. The limits are 25 MiB for each file and
+100 MiB for each page or row. ctxpipe never saves Notion URLs that expire. A
 failed, unsafe, or oversized download leaves a Notion page link or a caption
 stub.
 

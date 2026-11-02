@@ -54,7 +54,7 @@ The same policy holds on Docker Compose and AWS:
   push, call the GitHub CLI, install packages, and read documentation on the
   internet. The proxy forwards hosts that have no credential rule without
   change.
-- All other traffic from a sandbox is blocked. This includes a direct connection
+- The proxy blocks all other traffic from a sandbox. This includes a direct connection
   that does not use the proxy, any non-HTTP protocol (SSH, raw TCP, UDP), and
   DNS. Sandboxes do not resolve names. The proxy resolves them.
 - The proxy allows private addresses as follows. On Compose, it allows only the

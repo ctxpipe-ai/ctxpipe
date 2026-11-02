@@ -13,7 +13,7 @@ back in.
 2. Back up Postgres.
 3. Back up or snapshot the graph database.
 4. Keep the current deployment secrets and image tags or commit SHA.
-5. Confirm that no long-running connector or ingestion job must finish first.
+5. Confirm that no connector or ingestion job that runs for a long time must finish first.
 6. Run migrations against the target database (AWS CDK: this is part of
    `cdk deploy`).
 7. Deploy backend, worker, UI, and codesearch from the same commit or release.

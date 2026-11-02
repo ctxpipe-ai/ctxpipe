@@ -61,8 +61,8 @@ scheme, host, path, and trailing slash must match the URI that ctxpipe sends.
 ctxpipe requests the **`read`** scope with a user actor on the authorize URL. You
 do not set those on this Linear form.
 
-Linear cannot deliver webhooks to a private localhost address. End-to-end
-connector testing needs a public HTTPS deployment or tunnel.
+Linear cannot deliver webhooks to a private localhost address. To test a
+connector end to end, use a public HTTPS deployment or tunnel.
 
 ## 2. Configure webhooks on the same form
 
@@ -222,11 +222,11 @@ with a different external callback.
 
 ### OAuth succeeds but sync later fails
 
-The worker must be able to decrypt the saved client secret (same
-`AUTH_SECRET` / `CONNECTION_SECRETS_ENCRYPTION_KEY` as the backend) or, when
-you use the environment variable fallback, have `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET`.
-Check outbound HTTPS, worker logs, and whether the application authorization
-was revoked in Linear.
+The worker must decrypt the saved client secret. It needs the same
+`AUTH_SECRET` / `CONNECTION_SECRETS_ENCRYPTION_KEY` as the backend. When you
+use the environment variable fallback, the worker needs `LINEAR_CLIENT_ID` and
+`LINEAR_CLIENT_SECRET`. Check outbound HTTPS and the worker logs. Check if
+someone revoked the application authorization in Linear.
 
 ### The source pull request cannot open
 
