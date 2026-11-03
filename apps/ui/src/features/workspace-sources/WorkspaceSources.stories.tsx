@@ -1846,13 +1846,17 @@ export const AddRepositoriesRefreshesOnReturn: Story = {
 /**
  * The user closes the dialog while the GitHub popup is open. The flow ends at
  * once, so a later /.github/setup page does not close itself. When the popup
- * closes, the dialog does not load the list again and selects nothing, so a
- * new open starts with no selection.
+ * closes, the dialog selects nothing. A minute later the next open loads
+ * the list again: the new repository then shows, and it is not selected.
  */
 export const AddRepositoriesAccessPopupAfterCloseSelectsNothing: Story = {
   beforeEach: () => {
     popupReads.count = 0
-    return stubWindowOpen()
+    const restoreWindowOpen = stubWindowOpen()
+    return () => {
+      restoreWindowOpen()
+      Date.now = realDateNow
+    }
   },
   parameters: {
     msw: {
@@ -1868,16 +1872,18 @@ export const AddRepositoriesAccessPopupAfterCloseSelectsNothing: Story = {
     },
   },
   play: async ({ canvasElement }) => {
+    const body = within(document.body)
     const dialog = await openAddRepositories(canvasElement)
     await dialog.findByRole("checkbox", { name: /acme\/api/ })
     await userEvent.click(
       dialog.getByRole("link", { name: "Give ctxpipe access on GitHub" }),
     )
     await expect(localStorage.getItem(GITHUB_POPUP_FLOW_KEY)).not.toBeNull()
-    await userEvent.click(dialog.getByRole("button", { name: "Cancel" }))
-    await waitFor(() =>
-      expect(within(document.body).queryByRole("dialog")).toBeNull(),
-    )
+    await waitFor(async () => {
+      const cancel = body.queryByRole("button", { name: "Cancel" })
+      if (cancel) await userEvent.click(cancel)
+      expect(body.queryByRole("dialog")).toBeNull()
+    })
     await expect(localStorage.getItem(GITHUB_POPUP_FLOW_KEY)).toBeNull()
     // /.github/setup in the popup writes its result and closes the popup.
     localStorage.setItem(
@@ -1889,15 +1895,18 @@ export const AddRepositoriesAccessPopupAfterCloseSelectsNothing: Story = {
     await waitFor(() =>
       expect(localStorage.getItem(GITHUB_SETUP_RESULT_KEY)).toBeNull(),
     )
-    // The dialog does not load the list again, and selects nothing.
-    await expect(popupReads.count).toBe(1)
+    // The list stays fresh for 10 seconds. A minute later, it is stale.
+    const start = realDateNow()
+    Date.now = () => realDateNow() - start + start + 60_000
     const reopened = await openAddRepositories(canvasElement)
-    await reopened.findByRole("checkbox", { name: /acme\/api/ })
+    await reopened.findByRole("checkbox", { name: "acme/gateway" })
     await waitFor(() => {
+      expect(
+        reopened.getByRole("checkbox", { name: "acme/gateway" }),
+      ).not.toBeChecked()
       expect(
         reopened.getByRole("button", { name: "Open a pull request" }),
       ).toBeDisabled()
-      expect(reopened.queryByText(/selected$/)).toBeNull()
     })
   },
 }
