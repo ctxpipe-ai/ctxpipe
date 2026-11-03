@@ -309,7 +309,7 @@ function DotGitHubSetupPage() {
   return <DirectSetupPage />
 }
 
-function DirectSetupPage() {
+export function DirectSetupPage() {
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
   const search = Route.useSearch()
   const hintedOrgSlug = useMemo(() => consumeGithubSetupOrgHint(), [])
@@ -371,6 +371,11 @@ function DirectSetupPage() {
       <Navigate
         to="/$orgSlug/github/setup"
         params={{ orgSlug: organization.orgSlug }}
+        // GitHub sends `setup_action=update` after a change of repository
+        // access. The page then says that access changed, not "connected".
+        search={
+          search.setup_action === "update" ? { setup_action: "update" } : {}
+        }
         replace
       />
     )
