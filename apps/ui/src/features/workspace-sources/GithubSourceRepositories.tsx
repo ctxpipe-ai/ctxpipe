@@ -36,7 +36,6 @@ import {
 } from "@/features/repositories/githubRepoSelection"
 import { gitSourceMatchesQuery } from "@/features/repositories/gitSourcesFilter"
 import { workspaceUpgradesOptions } from "@/features/workspace-upgrades/queries"
-import { eligibleInstallationRepos } from "@/features/workspaces/gitUrl"
 import {
   unlinkWorkspaceRepository,
   workspaceDetailOptions,
@@ -45,6 +44,15 @@ import {
 import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
+import {
+  beginGithubPopupFlow,
+  clearGithubPopupFlow,
+  GITHUB_POPUP_NAME,
+  GITHUB_SETUP_RESULT_KEY,
+  GITHUB_SETUP_RESULT_MESSAGE,
+  openCenteredPopup,
+  useWatchPopupClose,
+} from "@/lib/popup"
 import { cn } from "@/lib/utils"
 
 import { addRepositoriesGate } from "./add-repositories-gate"
@@ -553,8 +561,10 @@ function pickKey(repo: GithubRepoItem): string {
 
 /**
  * "Add repositories": pick repositories of the GitHub connections. Each pick
- * adds one GitHub source file. The Workspace repository shows, but the user
- * cannot pick it: a Workspace cannot link its own repository. The dialog
+ * adds one GitHub source file. The list shows each repository that ctxpipe can
+ * read. The user cannot pick the Workspace repository (a Workspace cannot
+ * link its own repository) or a repository that the Workspace links already.
+ * Those rows show last, with the reason. The dialog
  * reads the same queries as the Sources section, so the Sources section and
  * the Get started guide on Home both render it and show the same list. A
  * Workspace that is read-only or below format 2 gets the reason and the next
@@ -637,40 +647,41 @@ export function WorkspaceAddRepositoriesDialog(props: {
       (item) => item.provider === "github",
     ),
   )
-  const eligibleRepos = eligibleInstallationRepos({
-    // Two connections can list the same repository: give each row its own
-    // id for the list.
-    repositories: (reposQuery.data?.repositories ?? []).map((repo, index) => ({
-      ...repo,
-      id: index + 1,
-    })),
-    takenUrls: rows.map((row) => row.gitUrl),
-  })
-  const disabledLabels = new Map<number, string>(
-    workspaceRepositoryUrl
-      ? eligibleRepos
-          .filter(
-            (repo) =>
-              githubCloneUrlKey(repo.clone_url) ===
-              githubCloneUrlKey(workspaceRepositoryUrl),
-          )
-          .map((repo): [number, string] => [
-            repo.id,
-            "This Workspace's repository",
-          ])
-      : [],
-  )
+  // Two connections can list the same repository: give each row its own id
+  // for the list.
+  const allRepos = (reposQuery.data?.repositories ?? []).map((repo, index) => ({
+    ...repo,
+    id: index + 1,
+  }))
+  // A repository that the user cannot pick shows with the reason. Without
+  // the linked rows, a Workspace that links most repositories looks as if
+  // ctxpipe cannot read them.
+  const linkedKeys = new Set(rows.map((row) => githubCloneUrlKey(row.gitUrl)))
+  const workspaceKey = workspaceRepositoryUrl
+    ? githubCloneUrlKey(workspaceRepositoryUrl)
+    : null
+  const disabledLabels = new Map<number, string>()
+  for (const repo of allRepos) {
+    const key = githubCloneUrlKey(repo.clone_url)
+    if (key === workspaceKey)
+      disabledLabels.set(repo.id, "This Workspace's repository")
+    else if (linkedKeys.has(key))
+      disabledLabels.set(repo.id, "In this Workspace")
+  }
   const query = searchQuery.trim().toLowerCase()
-  const filteredRepos = sortGithubRepos(
+  const sortedRepos = sortGithubRepos(
     query
-      ? eligibleRepos.filter((repo) =>
-          repo.full_name.toLowerCase().includes(query),
-        )
-      : eligibleRepos,
+      ? allRepos.filter((repo) => repo.full_name.toLowerCase().includes(query))
+      : allRepos,
     sort,
   )
-  const selected = eligibleRepos.filter((repo) =>
-    selectedKeys.has(pickKey(repo)),
+  // The repositories that the user can pick come first.
+  const filteredRepos = [
+    ...sortedRepos.filter((repo) => !disabledLabels.has(repo.id)),
+    ...sortedRepos.filter((repo) => disabledLabels.has(repo.id)),
+  ]
+  const selected = allRepos.filter(
+    (repo) => !disabledLabels.has(repo.id) && selectedKeys.has(pickKey(repo)),
   )
   const accessLinks = (reposQuery.data?.manageUrls ?? []).map(
     ({ connectionId, url }) => ({
@@ -680,6 +691,58 @@ export function WorkspaceAddRepositoriesDialog(props: {
           ?.displayName ?? "GitHub",
     }),
   )
+
+  const watchPopupClose = useWatchPopupClose()
+  /**
+   * Opens the GitHub access page in a popup. GitHub sends the popup back to
+   * /.github/setup, which closes it. The list then loads again, and each
+   * repository that is new in it is selected, so one press of "Open a pull
+   * request" adds it.
+   */
+  const giveAccess = (url: string) => {
+    const before = new Set((reposQuery.data?.repositories ?? []).map(pickKey))
+    try {
+      localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
+    } catch {
+      // The popup can also send its result as a message.
+    }
+    // The flow makes /.github/setup act as the popup and close itself.
+    beginGithubPopupFlow()
+    const popup = openCenteredPopup(url, {
+      name: GITHUB_POPUP_NAME,
+      width: 1120,
+      height: 780,
+    })
+    if (!popup) {
+      // The window goes to GitHub. The setup page then says that access
+      // changed.
+      clearGithubPopupFlow()
+      return
+    }
+    watchPopupClose(
+      popup,
+      () => {
+        // The installation is registered already. Only the list changes.
+        try {
+          localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
+        } catch {
+          // ignore
+        }
+        clearGithubPopupFlow()
+        void reposQuery.refetch().then(({ data }) => {
+          const added = (data?.repositories ?? [])
+            .map(pickKey)
+            .filter((key) => !before.has(key))
+          if (added.length === 0) return
+          setSelectedKeys((previous) => new Set([...previous, ...added]))
+        })
+      },
+      {
+        resultKey: GITHUB_SETUP_RESULT_KEY,
+        messageType: GITHUB_SETUP_RESULT_MESSAGE,
+      },
+    )
+  }
 
   const close = () => {
     setSearchQuery("")
@@ -865,9 +928,9 @@ export function WorkspaceAddRepositoriesDialog(props: {
                       <p className="text-sm text-muted-foreground">
                         Could not load the GitHub repositories.
                       </p>
-                    ) : eligibleRepos.length === 0 ? (
+                    ) : allRepos.length === 0 ? (
                       <p className="text-sm text-muted-foreground">
-                        No installation repositories left to link.
+                        ctxpipe cannot read a GitHub repository yet.
                       </p>
                     ) : filteredRepos.length === 0 ? (
                       <p className="text-sm text-muted-foreground">
@@ -879,9 +942,7 @@ export function WorkspaceAddRepositoriesDialog(props: {
                         disabledLabels={disabledLabels}
                         selectedIds={new Set(selected.map((repo) => repo.id))}
                         onToggle={(id, isSelected) => {
-                          const repo = eligibleRepos.find(
-                            (item) => item.id === id,
-                          )
+                          const repo = allRepos.find((item) => item.id === id)
                           if (!repo) return
                           setSelectedKeys((previous) => {
                             const next = new Set(previous)
@@ -906,11 +967,14 @@ export function WorkspaceAddRepositoriesDialog(props: {
                         ) : accessLinks.length === 1 ? (
                           <p>
                             Don't see a repository?{" "}
+                            {/* No href: the press opens a popup, which
+                                closes itself when GitHub sends it back. */}
                             <Link
-                              href={accessLinks[0]?.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1"
+                              onPress={() => {
+                                const [link] = accessLinks
+                                if (link) giveAccess(link.url)
+                              }}
+                              className="inline-flex cursor-pointer items-center gap-1"
                             >
                               Give ctxpipe access on GitHub
                               <IconExternalLink
@@ -918,22 +982,21 @@ export function WorkspaceAddRepositoriesDialog(props: {
                                 aria-hidden
                               />
                             </Link>
-                            .
+                            . The repositories that you add show here, selected.
                           </p>
                         ) : (
                           <>
                             <p>
                               Don't see a repository? Give ctxpipe access on
-                              GitHub.
+                              GitHub. The repositories that you add show here,
+                              selected.
                             </p>
                             <ul className="m-0 list-none space-y-0.5 p-0">
                               {accessLinks.map((link) => (
                                 <li key={link.url}>
                                   <Link
-                                    href={link.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1"
+                                    onPress={() => giveAccess(link.url)}
+                                    className="inline-flex cursor-pointer items-center gap-1"
                                   >
                                     Give ctxpipe access for {link.name}
                                     <IconExternalLink

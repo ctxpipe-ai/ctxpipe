@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useRouterState } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { expect, waitFor, within } from "storybook/test"
 
@@ -10,7 +11,7 @@ import {
   sessionSignedInHandler,
 } from "../mocks/handlers"
 import { workspaceListHandler } from "../mocks/workspace-handlers"
-import { ConnectGithubView } from "./[.]github.setup"
+import { ConnectGithubView, DirectSetupPage } from "./[.]github.setup"
 
 const meta = {
   title: "Pages/GitHub setup",
@@ -132,6 +133,49 @@ export const NotLinkedShowsLinkError: Story = {
     await expect(canvas.queryByText("Repositories")).not.toBeInTheDocument()
     await waitFor(() =>
       expect(canvas.getByText("GitHub", { exact: true })).toBeVisible(),
+    )
+  },
+}
+
+/** The setup page, and a marker of the place where it sends the user. */
+function SetupRedirect() {
+  const href = useRouterState({ select: (state) => state.location.href })
+  return href.startsWith("/.github/") ? (
+    <DirectSetupPage />
+  ) : (
+    <p>Story route: {href}</p>
+  )
+}
+
+/**
+ * GitHub comes back after a change of repository access, for an installation
+ * that an organization has already. The page keeps `setup_action=update`, so
+ * the organization page says that access changed and does not show the
+ * first-install wizard (CTX-1118).
+ */
+export const AccessUpdateKeepsSetupAction: Story = {
+  render: () => <SetupRedirect />,
+  parameters: {
+    storyRoute: {
+      pattern: "flat",
+      path: "/.github/setup",
+      search: "?installation_id=42&setup_action=update",
+      alsoAt: ["/acme/github/setup"],
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          organizationListWithOrgHandler,
+          http.get(/\/me\/github\/installations\/42\/organization$/, () =>
+            HttpResponse.json({ orgSlug: "acme" }),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await within(canvasElement).findByText(
+      "Story route: /acme/github/setup?setup_action=update",
     )
   },
 }

@@ -38,6 +38,10 @@ function GitHubSetupPage() {
     () => returnToFromSearch(location.search),
     [location.search],
   )
+  // GitHub came back after a change of repository access (CTX-1118).
+  const accessUpdated =
+    (location.search as { setup_action?: unknown }).setup_action === "update"
+  const closeLabel = accessUpdated ? "Close" : "Close wizard"
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const redirect = `/${orgSlug}/github/setup${
@@ -93,7 +97,7 @@ function GitHubSetupPage() {
         </div>
         <div className="mt-6">
           <Button variant="quiet" onPress={goBack}>
-            Close wizard
+            {closeLabel}
           </Button>
         </div>
       </main>
@@ -128,7 +132,7 @@ function GitHubSetupPage() {
         </InlineAlert>
         <div className="mt-6">
           <Button variant="quiet" onPress={goBack}>
-            Close wizard
+            {closeLabel}
           </Button>
         </div>
       </main>
@@ -150,7 +154,7 @@ function GitHubSetupPage() {
         </p>
         <div className="mt-8">
           <Button variant="quiet" onPress={goBack}>
-            Close wizard
+            {closeLabel}
           </Button>
         </div>
       </main>
@@ -161,6 +165,7 @@ function GitHubSetupPage() {
     <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
       <GithubWorkspaceDestinationFromApi
         orgSlug={orgSlug}
+        accessUpdated={accessUpdated}
         onCreateWorkspace={goCreate}
         onSelectWorkspace={(workspace) => {
           void navigate({
