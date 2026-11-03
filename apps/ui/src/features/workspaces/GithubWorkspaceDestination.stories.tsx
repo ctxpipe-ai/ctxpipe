@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, within } from "storybook/test"
+import { expect, waitFor, within } from "storybook/test"
 
 import { AppShell } from "@/components/AppShell"
 import {
@@ -87,13 +87,15 @@ export const AccessUpdated: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("heading", { name: "GitHub access updated" })
-    await expect(
-      canvas.getByText(
-        "ctxpipe can read the repositories that you selected on GitHub. To add one to a workspace, select the workspace, then select Add repositories.",
-      ),
-    ).toBeVisible()
-    await expect(canvas.getByRole("button", { name: "Close" })).toBeVisible()
-    await expect(canvas.queryByText(/wizard/)).toBeNull()
+    await waitFor(() => {
+      expect(
+        canvas.getByText(
+          "ctxpipe can read the repositories that you selected on GitHub. To add one to a workspace, select the workspace, then select Add repositories.",
+        ),
+      ).toBeVisible()
+      expect(canvas.getByRole("button", { name: "Close" })).toBeVisible()
+      expect(canvas.queryByText(/wizard/)).toBeNull()
+    })
   },
 }
 

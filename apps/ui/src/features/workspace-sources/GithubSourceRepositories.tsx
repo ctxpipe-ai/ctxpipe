@@ -2,7 +2,7 @@ import HyperDX from "@hyperdx/browser"
 import { IconExternalLink, IconPlus, IconUnlink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useId, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import { Heading } from "react-aria-components"
 import { toast } from "sonner"
 
@@ -693,6 +693,16 @@ export function WorkspaceAddRepositoriesDialog(props: {
   )
 
   const watchPopupClose = useWatchPopupClose()
+  /** The access popup that the open dialog waits for. */
+  const accessPopup = useRef<Window | null>(null)
+  // A flow that stays after the dialog goes makes a later /.github/setup page
+  // close itself, so the dialog ends its flow when it unmounts.
+  useEffect(
+    () => () => {
+      if (accessPopup.current) clearGithubPopupFlow()
+    },
+    [],
+  )
   /**
    * Opens the GitHub access page in a popup. GitHub sends the popup back to
    * /.github/setup, which closes it. The list then loads again, and each
@@ -700,12 +710,14 @@ export function WorkspaceAddRepositoriesDialog(props: {
    * request" adds it.
    */
   const giveAccess = (url: string) => {
-    const before = new Set((reposQuery.data?.repositories ?? []).map(pickKey))
-    try {
-      localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
-    } catch {
-      // The popup can also send its result as a message.
-    }
+    // By clone URL: a repository that one more connection lists is not new.
+    const before = new Set(
+      (reposQuery.data?.repositories ?? []).map((repo) =>
+        githubCloneUrlKey(repo.clone_url),
+      ),
+    )
+    // An old result would end the watch at once.
+    localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
     // The flow makes /.github/setup act as the popup and close itself.
     beginGithubPopupFlow()
     const popup = openCenteredPopup(url, {
@@ -719,20 +731,21 @@ export function WorkspaceAddRepositoriesDialog(props: {
       clearGithubPopupFlow()
       return
     }
+    accessPopup.current = popup
     watchPopupClose(
       popup,
       () => {
-        // The installation is registered already. Only the list changes.
-        try {
-          localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
-        } catch {
-          // ignore
-        }
+        // The installation is registered already, so the result has no use.
+        // A result that stays would go to the next Connectors install.
+        localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
+        // The user closed the dialog first, and the close ended the flow.
+        if (accessPopup.current !== popup) return
+        accessPopup.current = null
         clearGithubPopupFlow()
         void reposQuery.refetch().then(({ data }) => {
           const added = (data?.repositories ?? [])
+            .filter((repo) => !before.has(githubCloneUrlKey(repo.clone_url)))
             .map(pickKey)
-            .filter((key) => !before.has(key))
           if (added.length === 0) return
           setSelectedKeys((previous) => new Set([...previous, ...added]))
         })
@@ -745,6 +758,10 @@ export function WorkspaceAddRepositoriesDialog(props: {
   }
 
   const close = () => {
+    if (accessPopup.current) {
+      accessPopup.current = null
+      clearGithubPopupFlow()
+    }
     setSearchQuery("")
     setSelectedKeys(new Set())
     setMode("select")

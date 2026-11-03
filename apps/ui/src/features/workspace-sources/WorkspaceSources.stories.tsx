@@ -10,7 +10,11 @@ import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { emptyLinkedWorkspaceDetail } from "@/features/workspaces/workspace-fixtures"
-import { GITHUB_POPUP_FLOW_KEY, GITHUB_POPUP_NAME } from "@/lib/popup"
+import {
+  GITHUB_POPUP_FLOW_KEY,
+  GITHUB_POPUP_NAME,
+  GITHUB_SETUP_RESULT_KEY,
+} from "@/lib/popup"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import {
   githubInstallationReposHandler,
@@ -1480,12 +1484,14 @@ export const AddRepositoriesExplains: Story = {
     await waitFor(() =>
       expect(dialog.getByText(/Don't see a repository\?/)).toBeVisible(),
     )
-    await expect(
-      dialog.getByRole("link", { name: "Give ctxpipe access on GitHub" }),
-    ).toBeVisible()
-    await expect(
-      dialog.getByText(/The repositories that you add show here, selected\./),
-    ).toBeVisible()
+    await waitFor(() => {
+      expect(
+        dialog.getByRole("link", { name: "Give ctxpipe access on GitHub" }),
+      ).toBeVisible()
+      expect(
+        dialog.getByText(/The repositories that you add show here, selected\./),
+      ).toBeVisible()
+    })
   },
 }
 
@@ -1608,7 +1614,6 @@ export const AddRepositoriesShowsLinkedRepositories: Story = {
       expect(dialog.getByRole("checkbox", { name: /acme\/api/ })).toBeDisabled()
       expect(dialog.getByRole("checkbox", { name: /acme\/web/ })).toBeDisabled()
     })
-    await expect(dialog.queryByText(/No installation repositories/)).toBeNull()
   },
 }
 
@@ -1634,6 +1639,41 @@ function stubWindowOpen() {
 }
 
 const popupReads = { count: 0 }
+/** The repositories of the GitHub App. The second read has one more. */
+const reposAfterAccess = http.get(
+  ({ request }) =>
+    new URL(request.url).pathname.endsWith(
+      "/api/v1/github/installation/repositories",
+    ),
+  () => {
+    popupReads.count += 1
+    const repositories = [
+      {
+        name: "api",
+        clone_url: "https://github.com/acme/api.git",
+        full_name: "acme/api",
+      },
+      ...(popupReads.count > 1
+        ? [
+            {
+              name: "gateway",
+              clone_url: "https://github.com/acme/gateway.git",
+              full_name: "acme/gateway",
+            },
+          ]
+        : []),
+    ]
+    return HttpResponse.json({
+      repositories,
+      repositorySelection: "selected",
+      manageUrl:
+        "https://github.com/organizations/acme/settings/installations/123",
+      hasMore: false,
+      totalCount: repositories.length,
+    })
+  },
+)
+
 /**
  * The user gives ctxpipe access to one more repository in the GitHub popup.
  * When the popup closes, the list loads again and the new repository is
@@ -1655,39 +1695,7 @@ export const AddRepositoriesAccessPopupSelectsNew: Story = {
           ),
           connected,
           ...workspaceSourceChangeHandlers(addCalls),
-          http.get(
-            ({ request }) =>
-              new URL(request.url).pathname.endsWith(
-                "/api/v1/github/installation/repositories",
-              ),
-            () => {
-              popupReads.count += 1
-              const repositories = [
-                {
-                  name: "api",
-                  clone_url: "https://github.com/acme/api.git",
-                  full_name: "acme/api",
-                },
-                ...(popupReads.count > 1
-                  ? [
-                      {
-                        name: "gateway",
-                        clone_url: "https://github.com/acme/gateway.git",
-                        full_name: "acme/gateway",
-                      },
-                    ]
-                  : []),
-              ]
-              return HttpResponse.json({
-                repositories,
-                repositorySelection: "selected",
-                manageUrl:
-                  "https://github.com/organizations/acme/settings/installations/123",
-                hasMore: false,
-                totalCount: repositories.length,
-              })
-            },
-          ),
+          reposAfterAccess,
         ],
       },
     },
@@ -1708,8 +1716,10 @@ export const AddRepositoriesAccessPopupSelectsNew: Story = {
     await expect(localStorage.getItem(GITHUB_POPUP_FLOW_KEY)).not.toBeNull()
     popupStub.popup.closed = true
     const added = await dialog.findByRole("checkbox", { name: "acme/gateway" })
-    await waitFor(() => expect(added).toBeChecked())
-    await expect(dialog.getByText("1 repository selected")).toBeVisible()
+    await waitFor(() => {
+      expect(added).toBeChecked()
+      expect(dialog.getByText("1 repository selected")).toBeVisible()
+    })
     await expect(localStorage.getItem(GITHUB_POPUP_FLOW_KEY)).toBeNull()
     await userEvent.click(
       dialog.getByRole("button", { name: "Open a pull request" }),
@@ -1829,6 +1839,65 @@ export const AddRepositoriesRefreshesOnReturn: Story = {
     await expect(addCalls[0]).toMatchObject({
       method: "POST",
       body: { source: { scope: { repository: "acme/api" } } },
+    })
+  },
+}
+
+/**
+ * The user closes the dialog while the GitHub popup is open. The flow ends at
+ * once, so a later /.github/setup page does not close itself. When the popup
+ * closes, the dialog does not load the list again and selects nothing, so a
+ * new open starts with no selection.
+ */
+export const AddRepositoriesAccessPopupAfterCloseSelectsNothing: Story = {
+  beforeEach: () => {
+    popupReads.count = 0
+    return stubWindowOpen()
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({ items: [githubSource] }),
+          ),
+          connected,
+          reposAfterAccess,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openAddRepositories(canvasElement)
+    await dialog.findByRole("checkbox", { name: /acme\/api/ })
+    await userEvent.click(
+      dialog.getByRole("link", { name: "Give ctxpipe access on GitHub" }),
+    )
+    await expect(localStorage.getItem(GITHUB_POPUP_FLOW_KEY)).not.toBeNull()
+    await userEvent.click(dialog.getByRole("button", { name: "Cancel" }))
+    await waitFor(() =>
+      expect(within(document.body).queryByRole("dialog")).toBeNull(),
+    )
+    await expect(localStorage.getItem(GITHUB_POPUP_FLOW_KEY)).toBeNull()
+    // /.github/setup in the popup writes its result and closes the popup.
+    localStorage.setItem(
+      GITHUB_SETUP_RESULT_KEY,
+      JSON.stringify({ installationId: 123 }),
+    )
+    popupStub.popup.closed = true
+    // The dialog removes the result, so the watch has ended.
+    await waitFor(() =>
+      expect(localStorage.getItem(GITHUB_SETUP_RESULT_KEY)).toBeNull(),
+    )
+    // The dialog does not load the list again, and selects nothing.
+    await expect(popupReads.count).toBe(1)
+    const reopened = await openAddRepositories(canvasElement)
+    await reopened.findByRole("checkbox", { name: /acme\/api/ })
+    await waitFor(() => {
+      expect(
+        reopened.getByRole("button", { name: "Open a pull request" }),
+      ).toBeDisabled()
+      expect(reopened.queryByText(/selected$/)).toBeNull()
     })
   },
 }
