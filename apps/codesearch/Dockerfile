@@ -118,6 +118,9 @@ ENV BUN_INSTALL=/usr/local
 
 # Runtime build tools let indexers resolve and compile real-world projects.
 # universal-ctags lets zoekt-index record symbol metadata for sym: queries.
+# The apt packages have no version pins on purpose: Debian stable ships only
+# fixes, and a pin breaks when the mirror drops that version. The nightly
+# non-portable detector (scripts/checks/non-portable.json) guards the drift.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
