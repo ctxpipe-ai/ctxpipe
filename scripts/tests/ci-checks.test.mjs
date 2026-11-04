@@ -382,6 +382,12 @@ test("the manifest marks exactly the platform-independent checks portable", () =
   )
   assert.deepEqual(programs("cli"), new Set(['["git"]', '["git","bash"]']))
   assert.deepEqual(programs("upgrade"), new Set(['["git","zoekt","ast-grep"]']))
+  // The contracts lane runs Linux containers: its key holds the platform of
+  // the Docker server.
+  assert.deepEqual(
+    programs("contracts"),
+    new Set(['["git","bun","zoekt","ast-grep","container-platform"]']),
+  )
   // A check that the denylist names is never portable.
   const denied = JSON.parse(readFileSync(script("non-portable.json"), "utf8"))
   for (const check of checks.filter(({ id }) => denied.includes(id)))
@@ -396,7 +402,7 @@ test("the manifest marks exactly the platform-independent checks portable", () =
 test("the backend files that start Docker or host tools run in the contracts lane", () => {
   const moved = JSON.parse(
     readFileSync(join(root, "scripts/ci/contracts.json"), "utf8"),
-  )["host Docker, zoekt and process environment (not portable)"]
+  )["host Docker, zoekt and process environment"]
   assert.ok(moved.length >= 10)
   const backend = JSON.parse(
     node([join(root, "scripts/ci/test-suite.mjs"), "backend", "--list"]).stdout,

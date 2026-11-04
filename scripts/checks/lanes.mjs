@@ -103,7 +103,10 @@ const lanes = {
     portable: true,
     programs: ["git"],
   },
-  // Not portable: its files start Docker containers, zoekt and OpenCode.
+  // Its files start Linux containers, so the key holds the platform of the
+  // Docker server (container-platform), with the host tools that the lane
+  // runs. The prerequisite pins the OpenCode version to a lane input. A file
+  // that depends on the host itself is in scripts/checks/non-portable.json.
   contracts: {
     directory: "apps/backend",
     runtime: "node",
@@ -111,6 +114,8 @@ const lanes = {
     traceInputs: backendTraceInputs,
     env: backendEnv,
     prerequisites: nativePrerequisites,
+    portable: true,
+    programs: ["git", "bun", "zoekt", "ast-grep", "container-platform"],
   },
   vercel: {
     directory: "apps/backend",
