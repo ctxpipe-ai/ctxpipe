@@ -27,7 +27,18 @@
   "$defs": {
     "critic": {
       "type": "object",
-      "required": ["id", "family", "file", "version", "intent", "inputs", "notApplicable", "triggers", "fullReview", "models"],
+      "required": [
+        "id",
+        "family",
+        "file",
+        "version",
+        "intent",
+        "inputs",
+        "notApplicable",
+        "triggers",
+        "fullReview",
+        "models"
+      ],
       "additionalProperties": false,
       "properties": {
         "id": {

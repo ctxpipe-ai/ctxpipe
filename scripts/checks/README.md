@@ -4,9 +4,13 @@ These commands are the public check contract. A tool that selects checks (for ex
 
 ## Commands
 
-- `pnpm -s checks:list` prints the manifest as one JSON object: `{ schemaVersion, checks }`. The schema is [`schema/manifest.v1.schema.json`](schema/manifest.v1.schema.json).
+- `pnpm -s checks:list` prints the manifest as one JSON object: `{ schemaVersion, checks, critics }`. The schema is [`schema/manifest.v1.schema.json`](schema/manifest.v1.schema.json).
 - `pnpm -s checks:run [--trace <dir>] [ids-file]` runs the given check ids. Without `ids-file`, it reads the ids from stdin, one id on each line. It first makes or verifies the prerequisites of the checks (see Prerequisites). It writes one JSON line for each id to stdout. Each line has `schemaVersion`. The schema is [`schema/result.v1.schema.json`](schema/result.v1.schema.json). The output of the checks goes to a log in `.ci-results/checks/` (the `log` of each record): `<lane>.log` for a Vitest lane, `<family>-<lane>.log` for a project check, `storybook.log` and `eval-mcp.log`. The exit code is 1 when a check fails or does not run.
 - `pnpm -s checks:prepare <name>...` makes or verifies the named prerequisites. It writes `ready <name>` or `failed <name>: <cause and fix>` for each name. The exit code is 1 when one fails.
+
+## Critics
+
+`critics` lists the review critics of the code-review skill, from [`.agents/skills/code-review/critics.json`](../../.agents/skills/code-review/critics.json) ([`critics.mjs`](critics.mjs)). A critic has the family `critic` and the id `critic:<name>`. An agent runs it, not `checks:run`, so it is not in `checks`, and `checks:run` does not know its id. Each record has the intent, the non-code `inputs` (the skill text and the rules), the path `triggers`, the `notApplicable` reasons for which a reader may skip it (empty: it runs on every change), the `fullReview` paths, and the reviewers of each kind of run. Its `version` is a SHA-256 of its definition and the text of its inputs. The factory `factory review plan` reads these records; without the factory, the skill runs every critic.
 
 ## Check ids
 

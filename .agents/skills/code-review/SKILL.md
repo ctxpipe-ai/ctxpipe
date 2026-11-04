@@ -23,6 +23,17 @@ Capture the diff command once: `git diff <fixed-point>...HEAD` (three-dot, so th
 
 Before going further, confirm the fixed point resolves (`git rev-parse <fixed-point>`) and the diff is non-empty. A bad ref or empty diff should fail here — not inside parallel sub-agents.
 
+### 1b. Plan the critics with the factory (if installed)
+
+The critics are in [`critics.json`](critics.json): Spec, Standards, Simplicity and Security, each with its intent, its triggers, when it may be skipped, and its reviewers. Without the factory, run every axis as below, and Security as `AGENTS.md` says.
+
+If `factory` is on `PATH`, run `factory review plan --repo . --pr <owner>/<repo>#<number> --base <fixed point> --input <ticket or brief file>`. Add `--context-pack <file>` when a context pack of this diff exists. The plan gives each critic `run-full`, `run-delta`, `carried` or `not-applicable`, with a reason. It prints the round directory last.
+
+- Start only the critics with `run-full` or `run-delta`, on the reviewers that the plan names. Give each one its brief, `briefs/<critic>.md`, with the prompt of step 4. Delta runs on the same model can share one agent.
+- Put the plan's reasons for `carried` and `not-applicable` in the aggregate (step 5).
+- If the plan has `audit`, also run every `briefs/<critic>.audit.md` in full.
+- After each run, write its report as JSON (`status`, `reviewers` with tokens, `findings` with `severity`, `file`, `line`, `summary`) and run `factory review record --repo . --pr <pr> --critic <id> --report <file>` (add `--audit` for an audit run).
+
 ### 2. Identify the spec source
 
 Look for the originating spec, in this order:
