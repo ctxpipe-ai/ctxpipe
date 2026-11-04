@@ -257,7 +257,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/ctxpipe-zoekt
-          key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1
+          key: zoekt-both-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1-v2
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: steps.zoekt.outputs.cache-hit != 'true'
         with:
@@ -266,7 +266,7 @@ jobs:
       - name: Required native revision index tools
         run: |
           npm install --global @ast-grep/cli@0.45.0
-          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ]; then
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ] || [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-index" ]; then
             mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
             # proxy.golang.org occasionally resets the zoekt zip mid-download.
             for tool in zoekt-index zoekt-webserver; do
@@ -1145,7 +1145,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/ctxpipe-zoekt
-          key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1
+          key: zoekt-both-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1-v2
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: steps.zoekt.outputs.cache-hit != 'true'
         with:
@@ -1154,7 +1154,7 @@ jobs:
       - name: Required native revision index tools
         run: |
           npm install --global @ast-grep/cli@0.45.0
-          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ]; then
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ] || [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-index" ]; then
             mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
             for tool in zoekt-index zoekt-webserver; do
               n=0
@@ -1301,7 +1301,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/ctxpipe-zoekt
-          key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1
+          key: zoekt-both-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1-v2
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
         with:
@@ -1311,15 +1311,19 @@ jobs:
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
         run: |
           npm install --global @ast-grep/cli@0.45.0
-          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ]; then
+          # Install both binaries: the cache that this job saves is the one
+          # the test jobs restore, and they need zoekt-index too.
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ] || [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-index" ]; then
             mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
-            n=0
-            until GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install \
-              "github.com/sourcegraph/zoekt/cmd/zoekt-webserver@596c362fcf1388fe0082acfcfc80c4d172efb7c1"
-            do
-              n=$((n + 1))
-              [ "$n" -lt 4 ] || exit 1
-              sleep $((n * 4))
+            for tool in zoekt-index zoekt-webserver; do
+              n=0
+              until GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install \
+                "github.com/sourcegraph/zoekt/cmd/${tool}@596c362fcf1388fe0082acfcfc80c4d172efb7c1"
+              do
+                n=$((n + 1))
+                [ "$n" -lt 4 ] || exit 1
+                sleep $((n * 4))
+              done
             done
           fi
           echo "$RUNNER_TEMP/ctxpipe-zoekt" >> "$GITHUB_PATH"
