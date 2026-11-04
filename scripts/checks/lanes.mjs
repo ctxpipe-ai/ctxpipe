@@ -407,8 +407,8 @@ const codesearchLanes = ["codesearch", "codesearch-bun"]
 // Runs the codesearch lanes in the test image (zoekt and the SCIP indexers),
 // as CI does, so that a laptop and CI give the same result. The image has the
 // platform of the Docker server (run-vitest-docker.sh). The container runs the
-// Node and the Bun lane and writes one result record for each test file; this
-// returns the records of the selected checks. The lanes have no trace here.
+// selected files in their runtime and writes one result record for each file.
+// The lanes have no trace here.
 export function runCodesearchImage(checks) {
   const log = logFile("codesearch")
   const directory = join(root, ".ci-results", "checks", "codesearch-records")
@@ -420,6 +420,10 @@ export function runCodesearchImage(checks) {
       join(root, "apps/codesearch/scripts/run-vitest-docker.sh"),
       "--records",
       directory,
+      ...checks.flatMap(({ runtime, file }) => [
+        `--${runtime}`,
+        relative(join(root, "apps/codesearch"), join(root, file)),
+      ]),
     ],
     { cwd: root, timeout: 2_700_000 },
   )

@@ -76,7 +76,7 @@ RUN --mount=type=bind,source=apps/codesearch/release-assets.txt,target=/release-
     curl \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /out /tmp/releases \
-  && bash /fetch-releases.sh /release-assets.txt /tmp/releases /releases \
+  && TARGETARCH="${TARGETARCH}" bash /fetch-releases.sh /release-assets.txt /tmp/releases /releases \
   && cd /tmp/releases \
   && tar -xzf "scip-go-${TARGETARCH}.tar.gz" -C /out scip-go \
   && tar -xzf "scip-${TARGETARCH}.tar.gz" -C /out scip \
