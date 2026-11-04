@@ -70,7 +70,7 @@ A single switch that replaced a one-adapter seam is not Repeated Switches. A typ
 
 Spawn all three on Opus at high effort (use the harness's own name for the model and effort setting). Always spawn **Simplicity**. Skip Spec only when step 2 found no spec.
 
-When step 1b made a pack, start each prompt with this text: "Context pack: `<path>`. Read the pack first. Read a file from the repo only when the pack does not have what you need, for example a file that the pack lists under Not in the pack. In the report, name each file that you read from the repo."
+When step 1b made a pack, start each prompt with this text: "Context pack: `<path>`. Read the pack first. Read a file from the repo only when the pack does not have what you need, for example a file that the pack lists under Not in the pack. In the report, name each file that you read from the repo." In each prompt, replace the diff command with "The diff is in the pack, section 4. Run git only for a file that the pack cut." For Standards, replace the list of standards sources with "the Rules section of the pack, and the root `AGENTS.md` that your harness loads". Each byte in the prompt costs once for each turn of the sub-agent, so do not also paste the diff or the rules.
 
 **Standards sub-agent prompt** — include:
 
