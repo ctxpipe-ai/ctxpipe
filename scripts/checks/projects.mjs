@@ -207,14 +207,46 @@ const definitions = () => [
     ["ui-motion", ["apps/ui/src/**"]],
     ["story-play-timing", ["apps/ui/src/**"]],
     ["claude-plugin", ["plugins/**", ".claude-plugin/**"]],
-  ].map(([lane, reads]) => {
+    // The next three read the git diff against origin/main, so a result
+    // cannot be reused from the files alone.
+    [
+      "changeset",
+      [
+        ".changeset/**",
+        "apps/**",
+        "packages/**",
+        "plugins/**",
+        "scripts/**",
+        ".github/**",
+        ".agents/**",
+        ".ai/**",
+      ],
+      "Catches a pull request with no changeset, or an internal-only change (tests, scripts, CI, agent files) that ships a release bump instead of an empty changeset. Run it on every change; it reads only the changed file names and the new changesets.",
+    ],
+    [
+      "adr",
+      ["apps/**", "packages/**", "plugins/**", ".ai/memory/decisions/**"],
+      "Catches a new app, package, or plugin with no ADR, and a new ADR missing from the decisions index. Run it when a package manifest, a plugin manifest, or an ADR changes; never for a change inside existing code.",
+    ],
+    [
+      "module-scope-values",
+      ["apps/**", "packages/**", "scripts/**"],
+      "Catches a new module-scope string or number constant that the file reads once, which AGENTS.md says to inline. Run it when app, package, or script source changes; never for a change only to tests or docs.",
+    ],
+  ].map(([lane, reads, intent]) => {
     const file = `scripts/ci/check-${lane}.mjs`
     return {
       family: "policy",
       lane,
       file,
       root: "",
-      inputs: [...shared, file, ...reads],
+      inputs: [
+        ...shared,
+        file,
+        ...(intent ? ["scripts/ci/changed-files.mjs"] : []),
+        ...reads,
+      ],
+      ...(intent && { intent, cacheable: false }),
       commands: [node(file)],
     }
   }),

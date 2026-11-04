@@ -72,6 +72,12 @@ jobs:
         run: node scripts/ci/check-claude-plugin.mjs
       - name: Reject dead docs links
         run: node scripts/ci/check-docs-links.mjs
+      - name: Reject a missing or wrong changeset
+        run: node scripts/ci/check-changeset.mjs . origin/main
+      - name: Reject a new package without an ADR
+        run: node scripts/ci/check-adr.mjs . origin/main
+      - name: Reject new single-use module-scope values
+        run: node scripts/ci/check-module-scope-values.mjs . origin/main
       - name: CI command regression tests
         run: |
           node --test scripts/tests/ci-*.test.mjs
