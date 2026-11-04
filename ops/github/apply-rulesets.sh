@@ -9,7 +9,7 @@ dir="$(cd "$(dirname "$0")" && pwd)/rulesets"
 
 for file in "$dir"/*.json; do
   name="$(jq -r .name "$file")"
-  id="$(gh api "repos/$repo/rulesets" --paginate --jq ".[] | select(.name == \"$name\") | .id")"
+  id="$(gh api "repos/$repo/rulesets?includes_parents=false" --paginate --jq ".[] | select(.name == \"$name\") | .id")"
   if [ -n "$id" ]; then
     gh api --method PUT "repos/$repo/rulesets/$id" --input "$file" --jq '"updated \(.name) \(.id)"'
   else
