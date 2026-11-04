@@ -25,11 +25,28 @@ function check(files) {
   }
 }
 
-test("Blacksmith labels pass", () => {
+test("Blacksmith arm64 labels pass", () => {
   const result = check({
-    "a.yaml": "jobs:\n  a:\n    runs-on: blacksmith-4vcpu-ubuntu-2404\n",
+    "a.yaml": "jobs:\n  a:\n    runs-on: blacksmith-4vcpu-ubuntu-2404-arm\n",
   })
   assert.equal(result.status, 0, result.stderr)
+})
+
+test("an x64 Blacksmith label needs an amd64 reason", () => {
+  const bare = check({
+    "a.yaml": "jobs:\n  a:\n    runs-on: blacksmith-4vcpu-ubuntu-2404\n",
+  })
+  assert.equal(bare.status, 1)
+  const before = check({
+    "a.yaml":
+      "jobs:\n  a:\n    # amd64: the tool has no arm64 build\n    runs-on: blacksmith-4vcpu-ubuntu-2404\n",
+  })
+  assert.equal(before.status, 0, before.stderr)
+  const empty = check({
+    "a.yaml":
+      "jobs:\n  a:\n    # amd64:\n    runs-on: blacksmith-4vcpu-ubuntu-2404\n",
+  })
+  assert.equal(empty.status, 1)
 })
 
 test("ubuntu-latest fails", () => {

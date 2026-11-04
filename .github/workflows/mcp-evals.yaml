@@ -39,7 +39,7 @@ jobs:
       (github.event.action == 'synchronize' &&
       contains(github.event.pull_request.labels.*.name, 'mcp-evals')
       )
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     timeout-minutes: 90
     # The model keys are secrets of the workbench environment: a spend-capped
     # MODEL_PROVIDER_API_KEY for CI. This job runs pnpm install, so it must

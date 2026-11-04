@@ -20,7 +20,7 @@ jobs:
   backend:
     timeout-minutes: 15
     name: Backend tests
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     env:
       DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5433/ctxpipe
       AUTH_SECRET: test-only-auth-secret-with-at-least-32-characters
@@ -63,7 +63,7 @@ jobs:
   ui:
     timeout-minutes: 15
     name: UI tests
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@v6
         with:
