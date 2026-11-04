@@ -15,9 +15,88 @@
       "items": {
         "$ref": "#/$defs/check"
       }
+    },
+    "critics": {
+      "description": "The review critics. A critic is a model review that an agent runs, not `checks:run`, so it is not in `checks`. A reader plans each critic for a diff: run it in full, on the changed hunks only, carry its earlier verdict, or skip it as not applicable. Optional; without it, no critic.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/critic"
+      }
     }
   },
   "$defs": {
+    "critic": {
+      "type": "object",
+      "required": ["id", "family", "file", "version", "intent", "inputs", "notApplicable", "triggers", "fullReview", "models"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "`critic:<name>`.",
+          "type": "string",
+          "pattern": "^critic:[a-z0-9-]+$"
+        },
+        "family": {
+          "const": "critic"
+        },
+        "file": {
+          "description": "Repo-relative path of the file that defines the critic.",
+          "type": "string"
+        },
+        "version": {
+          "description": "SHA-256 (hex) of the definition and of the text of each input. A reader keys a stored verdict on it, so a change to the skill text does not reuse an older verdict.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "intent": {
+          "description": "What the critic catches, and what is never a reason to run it.",
+          "type": "string"
+        },
+        "inputs": {
+          "description": "Repo-relative files that are not code and that change the result of the critic: the skill text and the rules that it applies.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "notApplicable": {
+          "description": "The reasons for which a reader may skip the critic. Empty: the critic runs on every change.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "triggers": {
+          "description": "Path patterns: a changed file that matches one makes the critic run, whatever the reasons in `notApplicable`. `**` stands for any number of path parts, `*` for any characters in one part.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "fullReview": {
+          "description": "Path patterns (as in `triggers`): when the changed part since the last review touches one, the critic reviews the whole diff again, not only the changed part.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "models": {
+          "description": "The reviewers of each kind of run: `full` reviews the whole diff, `delta` only the part that changed since the last review, and `light` (optional) is a cheaper full run that a reader may choose. Each reviewer is a model and an effort.",
+          "type": "object",
+          "required": ["full", "delta"],
+          "additionalProperties": false,
+          "properties": {
+            "full": { "$ref": "#/$defs/reviewers" },
+            "delta": { "$ref": "#/$defs/reviewers" },
+            "light": { "$ref": "#/$defs/reviewers" }
+          }
+        }
+      }
+    },
+    "reviewers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["model", "effort"],
+        "additionalProperties": false,
+        "properties": {
+          "model": { "type": "string" },
+          "effort": { "enum": ["low", "medium", "high"] }
+        }
+      }
+    },
     "check": {
       "type": "object",
       "required": ["id", "family", "lane", "root", "file", "inputs"],
