@@ -346,8 +346,7 @@ test("the manifest marks exactly the platform-independent checks portable", () =
     [
       "build:image",
       ...notPortable.filter((lane) => lane.startsWith("deploy:")),
-      "vitest:codesearch",
-      "vitest:codesearch-bun",
+      // Only the contracts file of the denylist.
       "vitest:contracts",
       "vitest:latency",
     ].sort(),
@@ -384,6 +383,8 @@ test("the manifest marks exactly the platform-independent checks portable", () =
   assert.deepEqual(programs("upgrade"), new Set(['["git","zoekt","ast-grep"]']))
   // The contracts lane runs Linux containers: its key holds the platform of
   // the Docker server.
+  for (const lane of ["codesearch", "codesearch-bun"])
+    assert.deepEqual(programs(lane), new Set(['["container-platform"]']))
   assert.deepEqual(
     programs("contracts"),
     new Set(['["git","bun","zoekt","ast-grep","container-platform"]']),
