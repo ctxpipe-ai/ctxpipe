@@ -1,4 +1,3 @@
-import { listCritics } from "./critics.mjs"
 import { listEvals, runEvals } from "./evals.mjs"
 import { listVitest, runVitest } from "./lanes.mjs"
 import { listProjects, runProjects } from "./projects.mjs"
@@ -27,5 +26,5 @@ export async function listChecks() {
   ])
   const checks = lists.flat()
   checks.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-  return { schemaVersion: 1, checks, critics: listCritics() }
+  return { schemaVersion: 1, checks }
 }

@@ -1365,6 +1365,30 @@ jobs:
           path: ${{ runner.temp }}/factory.tar.gz
           retention-days: 1
           if-no-files-found: error
+      # The review critics (`factory review gate`): for the PR diff and the
+      # critics of the merge base, the stored verdict of each critic. An
+      # agent stores them when it runs /code-review. The record names no
+      # writer. This step never fails the job: the Merge gate job decides,
+      # and a check that could not run is a cause, not a missing critic.
+      - name: Look up the review critics
+        timeout-minutes: 2
+        env:
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          out="$RUNNER_TEMP/out"
+          code=0
+          "$RUNNER_TEMP/bin/factory" review gate --repo . --pr "$REPO#$PR" \
+            --base "$BASE_SHA" --head "$HEAD_SHA" --json \
+            > "$RUNNER_TEMP/critics.json" 2> "$RUNNER_TEMP/critics.err" || code=$?
+          if [ "$code" -le 1 ] && jq -e '.critics | type == "array"' "$RUNNER_TEMP/critics.json" > /dev/null; then
+            mv "$RUNNER_TEMP/critics.json" "$out/critics.json"
+          else
+            echo "factory review gate failed with exit code $code (the pinned release may not have it yet)" > "$out/critics-cause.txt"
+            cat "$RUNNER_TEMP/critics.err" >&2
+          fi
       - name: Select and look up the cache (variant B, k = 3, no model step)
         timeout-minutes: 3
         env:

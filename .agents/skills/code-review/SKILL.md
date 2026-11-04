@@ -27,12 +27,13 @@ Before going further, confirm the fixed point resolves (`git rev-parse <fixed-po
 
 The critics are in [`critics.json`](critics.json): Spec, Standards, Simplicity and Security, each with its intent, its triggers, when it may be skipped, and its reviewers. Without the factory, run every axis as below, and Security as `AGENTS.md` says.
 
-If `factory` is on `PATH`, run `factory review plan --repo . --pr <owner>/<repo>#<number> --base <fixed point> --input <ticket or brief file>`. Add `--context-pack <file>` when a context pack of this diff exists. The plan gives each critic `run-full`, `run-delta`, `carried` or `not-applicable`, with a reason. It prints the round directory last.
+If `factory` is on `PATH`, run `factory review plan --repo . --pr <owner>/<repo>#<number> --base <fixed point> --input <ticket or brief file>`. Add `--context-pack <file>` when a context pack of this diff exists. The plan reads the critics at the merge base. It gives each critic `run-full`, `run-delta`, `carried` or `not-applicable`, with a reason. It prints the round directory (`round-<n>`) last. If the command fails, run every axis as below.
 
-- Start only the critics with `run-full` or `run-delta`, on the reviewers that the plan names. Give each one its brief, `briefs/<critic>.md`, with the prompt of step 4. Delta runs on the same model can share one agent.
+- Start one sub-agent for each critic with `run-full` or `run-delta`, on the reviewers that the plan names. Do not let two critics share an agent, also when they use the same model. Give each one its brief, `briefs/<critic>.md`, with the prompt of step 4.
 - Put the plan's reasons for `carried` and `not-applicable` in the aggregate (step 5).
 - If the plan has `audit`, also run every `briefs/<critic>.audit.md` in full.
-- After each run, write its report as JSON (`status`, `reviewers` with tokens, `findings` with `severity`, `file`, `line`, `summary`) and run `factory review record --repo . --pr <pr> --critic <id> --report <file>` (add `--audit` for an audit run).
+- After each run, write its report as JSON (`status`, `reviewers` with tokens, `findings` with `severity`, `file`, `line`, `summary`) and run `factory review record --repo . --pr <pr> --critic <id> --round <n> --report <file>`. Use the round of the brief, also when a newer round exists. Add `--audit` for an audit run.
+- The merge gate runs `factory review gate` on the PR head. It fails when a critic has no stored verdict for the PR diff. After the last push, plan and run the review again; unchanged hunks are carried, so only the new hunks cost a review.
 
 ### 2. Identify the spec source
 

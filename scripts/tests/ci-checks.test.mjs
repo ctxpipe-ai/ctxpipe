@@ -223,30 +223,6 @@ test("the manifest matches its schema and lists each check of each family", asyn
   assert.equal(env("ui"), undefined)
 })
 
-test("the manifest lists each critic of the code-review skill with a version of its text", () => {
-  const result = node([script("list.mjs")])
-  assert.equal(result.status, 0, result.stderr)
-  const { critics } = JSON.parse(result.stdout)
-  assert.deepEqual(
-    critics.map(({ id }) => id),
-    ["critic:spec", "critic:standards", "critic:simplicity", "critic:security"],
-  )
-  for (const critic of critics) {
-    assert.ok(existsSync(join(root, critic.file)), critic.file)
-    for (const input of critic.inputs)
-      assert.ok(existsSync(join(root, input)), `${critic.id}: ${input}`)
-  }
-  // Spec, Standards and Simplicity run on every change; only Security may be
-  // planned as not applicable, and its triggers can only add it.
-  for (const critic of critics)
-    assert.equal(
-      critic.notApplicable.length > 0,
-      critic.id === "critic:security",
-      critic.id,
-    )
-  assert.equal(new Set(critics.map(({ version }) => version)).size, 4)
-})
-
 test("the runner runs exactly the given ids and writes one schema result for each", () => {
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-checks-"))
   try {

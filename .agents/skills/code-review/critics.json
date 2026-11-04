@@ -6,7 +6,6 @@
       "inputs": [".agents/skills/code-review/SKILL.md"],
       "notApplicable": [],
       "triggers": ["**"],
-      "fullReview": [],
       "models": {
         "full": [
           {
@@ -24,26 +23,19 @@
     },
     {
       "name": "standards",
-      "intent": "Does the diff follow the documented repo rules (AGENTS.md of the repo and of the app, lessons-learned) and the smell baseline of the code-review skill. It runs on every change.",
+      "intent": "Does the diff follow the documented repo rules (the root AGENTS.md, the AGENTS.md of each app, and lessons-learned) and the smell baseline of the code-review skill. It runs on every change.",
       "inputs": [
         ".agents/skills/code-review/SKILL.md",
-        "AGENTS.md",
+        "**/AGENTS.md",
         ".ai/memory/lessons-learned.md"
       ],
       "notApplicable": [],
       "triggers": ["**"],
-      "fullReview": [],
       "models": {
         "full": [
           {
             "model": "gpt-6.1-sol",
             "effort": "high"
-          }
-        ],
-        "light": [
-          {
-            "model": "gpt-6-luna",
-            "effort": "medium"
           }
         ],
         "delta": [
@@ -63,7 +55,6 @@
       ],
       "notApplicable": [],
       "triggers": ["**"],
-      "fullReview": [],
       "models": {
         "full": [
           {
@@ -81,7 +72,7 @@
     },
     {
       "name": "security",
-      "intent": "Trust surfaces: credentials and tokens, auth and organization isolation, OIDC and IAM trust, CI workflow trust (permissions, secrets, environments, triggers, third-party actions), sandboxes and egress, model routing to an outside provider, code that runs at install, at check listing or at check discovery (dependency scripts, bin entries, git dependencies), and data that leaves to a public artifact or an outside provider. A change that touches none of these is never a reason to run it; a workflow or package edit that does not change its trust is not one either.",
+      "intent": "Trust surfaces. They are credentials and tokens, auth and organization isolation, and OIDC and IAM trust. They are CI workflow trust: permissions, secrets, environments, triggers and third-party actions. They are sandboxes and egress, and model routing to an outside provider. They are code that runs at install, at check listing or at check discovery: dependency scripts, bin entries and git dependencies. They are data that leaves to a public artifact or an outside provider. A change that touches none of these is not a reason to run it. A workflow or package edit that does not change its trust is not a reason either.",
       "inputs": [".agents/skills/code-review/SKILL.md", "AGENTS.md"],
       "notApplicable": [
         "no trust surface: the diff touches no credential, auth, CI workflow, IAM or infrastructure, install or discovery path, sandbox or egress, model routing, and no data that leaves to a public artifact or an outside provider"
@@ -104,21 +95,14 @@
         "**/*sandbox*/**",
         ".agents/hooks/**",
         ".mcp.json",
-        ".codex/**"
+        ".codex/**",
+        ".github/**",
+        "**/package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "scripts/checks/**"
       ],
-      "fullReview": [
-        "infra/**",
-        "packages/aws-cdk/**",
-        "**/*.tf",
-        "**/auth/**",
-        "**/*auth*",
-        "**/*token*",
-        "**/*secret*",
-        "**/*credential*",
-        "**/*oidc*",
-        "**/*iam*",
-        ".npmrc"
-      ],
+      "fullReview": true,
       "models": {
         "full": [
           {
@@ -127,12 +111,6 @@
           },
           {
             "model": "gpt-6.1-sol",
-            "effort": "high"
-          }
-        ],
-        "delta": [
-          {
-            "model": "claude-opus",
             "effort": "high"
           }
         ]
