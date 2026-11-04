@@ -32,7 +32,7 @@ import {
   shardMinutes,
   shardTargetSeconds,
 } from "../checks/shard.mjs"
-import { hashed, toolchain } from "../checks/toolchain.mjs"
+import { hashed, programVersion, toolchain } from "../checks/toolchain.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const sha = (n) => String(n).repeat(40).slice(0, 40)
@@ -992,6 +992,53 @@ test("the toolchain record hashes each value and matches its schema", () => {
     schemaErrors({ ...record, env: { TZ: "UTC" } }, "toolchain.v1"),
     [],
   )
+})
+
+test("the toolchain record holds the version of each host program that a check declares", () => {
+  const outputs = {
+    "git --version": "git version 2.50.1 (Apple Git-155)\n",
+    'go version -m "$(command -v zoekt-webserver)"':
+      "/x/zoekt-webserver: go1.24.1\n\tpath\tgithub.com/sourcegraph/zoekt/cmd/zoekt-webserver\n\tmod\tgithub.com/sourcegraph/zoekt\tv0.0.0-20250925130127-596c362fcf13\th1:abc=\n",
+  }
+  const asked = []
+  const record = toolchain(
+    {
+      checks: [
+        { programs: ["git"] },
+        { programs: ["git", "zoekt", "ast-grep"] },
+      ],
+    },
+    {},
+    (tool) => (tool === "pnpm" ? "10.12.1" : undefined),
+    (command) => {
+      asked.push(command)
+      return outputs[command]
+    },
+  )
+  // ast-grep is not installed, so it is absent and its checks get no key.
+  assert.deepEqual(record.programs, {
+    git: "2.50",
+    zoekt: "v0.0.0-20250925130127-596c362fcf13",
+  })
+  assert.equal(asked.length, 3)
+  assert.deepEqual(schemaErrors(record, "toolchain.v1"), [])
+  assert.notDeepEqual(
+    schemaErrors({ ...record, programs: { curl: "8.0.0" } }, "toolchain.v1"),
+    [],
+  )
+  assert.equal(programVersion("ast-grep", "ast-grep 0.45.0\n"), "0.45.0")
+  assert.equal(programVersion("git", "no version"), undefined)
+  assert.throws(
+    () => toolchain({ checks: [{ programs: ["curl"] }] }, {}, () => "1"),
+    /unknown program curl/,
+  )
+  const none = toolchain(
+    { checks: [{}] },
+    {},
+    () => "1",
+    () => "",
+  )
+  assert.equal(none.programs, undefined)
 })
 
 test("a selection record of the factory format matches its schema", () => {

@@ -33,6 +33,8 @@ const backendInputs = [
   "apps/backend/src/test/setup-openworkflow-runs.ts",
   "apps/backend/migrations/**",
   "scripts/ci/contracts.json",
+  "scripts/ci/service-pins.json",
+  "scripts/checks/prerequisites.mjs",
 ]
 // The files that pin the tools and images of the native backend tests:
 // the prerequisite check (it compares the OpenCode version with the declared
@@ -83,6 +85,13 @@ const nativePrerequisites = [
   "ast-grep",
   "chat-sandbox-image",
 ]
+// `portable`: the result does not depend on the OS or the CPU architecture,
+// so a result cache leaves them out of the key and a pass on a laptop counts
+// in CI (manifest.v1.schema.json). A lane is portable only when no file of it
+// starts Docker or runs a host tool other than git and Node: such a file
+// belongs to the contracts lane (the "not portable" group of
+// scripts/ci/contracts.json). `programs`: the host tools that the lane runs;
+// the key holds their versions.
 const lanes = {
   backend: {
     directory: "apps/backend",
@@ -91,7 +100,10 @@ const lanes = {
     traceInputs: backendTraceInputs,
     env: backendEnv,
     prerequisites: nativePrerequisites,
+    portable: true,
+    programs: ["git"],
   },
+  // Not portable: its files start Docker containers, zoekt and OpenCode.
   contracts: {
     directory: "apps/backend",
     runtime: "node",
@@ -109,6 +121,7 @@ const lanes = {
     // The Vercel contracts do not use the graph, and the CI job has no
     // FalkorDB.
     prerequisites: ["postgres", "migrations"],
+    portable: true,
   },
   // The files that do not end in `.test.ts` have their own Vitest config,
   // so the PR suite never runs them. Wall-clock bounds vary on shared
@@ -143,6 +156,8 @@ const lanes = {
       "ast-grep",
       "previous-release",
     ],
+    portable: true,
+    programs: ["git", "zoekt", "ast-grep"],
   },
   ui: {
     directory: "apps/ui",
@@ -153,6 +168,7 @@ const lanes = {
       "apps/ui/tsconfig.json",
       "apps/ui/vite.config.ts",
     ],
+    portable: true,
   },
   cli: {
     directory: "packages/cli",
@@ -172,6 +188,8 @@ const lanes = {
       "packages/cli/src/**": "lines",
       "packages/cli/bin/**": "lines",
     },
+    portable: true,
+    programs: ["git"],
   },
   "aws-cdk": {
     directory: "packages/aws-cdk",
@@ -182,6 +200,7 @@ const lanes = {
       "packages/aws-cdk/tsconfig.json",
       "packages/aws-cdk/scripts/stamp-image-tag.mjs",
     ],
+    portable: true,
   },
   // CI runs codesearch in its Docker test image (zoekt and the SCIP indexers).
   codesearch: {
@@ -196,6 +215,18 @@ const lanes = {
     inputs: codesearchInputs,
     prerequisites: ["bun", "zoekt"],
   },
+}
+
+// The host programs that one test file runs in addition to those of its lane.
+const filePrograms = {
+  // The ingest skill scripts run ast-grep.
+  "apps/backend/src/domain/ingestion/apis-skill.test.ts": ["ast-grep"],
+  "apps/backend/src/domain/ingestion/dependencies-skill.test.ts": ["ast-grep"],
+  // It starts a Bun child process.
+  "apps/backend/src/openworkflow/workflows/repository-ingestion-v2.integration.test.ts":
+    ["bun"],
+  // It runs the capture shell script with the host bash.
+  "packages/cli/test/memory/memory-capture-sh.test.ts": ["bash"],
 }
 
 const json = async (script, args) => {
@@ -238,8 +269,19 @@ export async function listVitest() {
   return Object.entries(files).flatMap(([lane, list]) =>
     list.map((relative) => {
       const file = `${lanes[lane].directory}/${relative}`
-      const { inputs, runtime, env, traceInputs, prerequisites, stochastic } =
-        lanes[lane]
+      const {
+        inputs,
+        runtime,
+        env,
+        traceInputs,
+        prerequisites,
+        stochastic,
+        portable,
+      } = lanes[lane]
+      const programs = [
+        ...(lanes[lane].programs ?? []),
+        ...(filePrograms[file] ?? []),
+      ]
       // An expensive check states its intent in a file next to it.
       const intent = join(root, file.replace(/\.[cm]?[jt]sx?$/, ".intent.md"))
       // A check id is `<family>:<lane>:<file>`. A later version adds case ids
@@ -256,6 +298,8 @@ export async function listVitest() {
         ...(traceInputs && { traceInputs }),
         ...(prerequisites && { prerequisites }),
         ...(stochastic && { stochastic }),
+        ...(portable && { portable }),
+        ...(programs.length && { programs }),
         ...(existsSync(intent) && {
           intent: readFileSync(intent, "utf8").trim(),
         }),

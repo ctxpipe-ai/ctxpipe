@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 
+import { hostPins } from "../ci/vitest-launch.mjs"
 import { listChecks, runners } from "./families.mjs"
 import { prepare } from "./prerequisites.mjs"
 import { writeTrace } from "./trace.mjs"
@@ -13,10 +14,14 @@ import { writeTrace } from "./trace.mjs"
 // --manifest, it reads the checks from that manifest (the output of
 // list.mjs) and does not list them. Thus a step that holds a credential for
 // its checks can list them in an earlier step, without the credential.
+// It sets TZ=UTC and LANG=C.UTF-8 (and LC_ALL, which wins over LANG) for
+// each check, so that the time zone and the locale of the host cannot change
+// a result; a portable check (manifest.v1.schema.json) depends on it.
 // It first makes or verifies the prerequisites of the checks
 // (prerequisites.mjs). A check whose prerequisite fails does not run.
 // This is the subset path. It does not compare the executed files with the
 // full CI inventory or the failure baseline; test-suite.mjs still does that.
+Object.assign(process.env, hostPins)
 try {
   const args = process.argv.slice(2)
   const traceAt = args.indexOf("--trace")

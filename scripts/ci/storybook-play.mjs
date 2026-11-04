@@ -73,8 +73,31 @@ export const waitFor = async (url) => {
   throw new Error(`Storybook did not become ready at ${url}`)
 }
 
+// The browser context of every play. The time zone, the locale and the pixel
+// ratio are fixed, so that a play gives the same result on each host: a
+// Storybook check is portable (scripts/checks/storybook.mjs). The story
+// Testing/Play host (apps/ui/src/lib/play-host.stories.tsx) proves the pins.
+const playContext = {
+  viewport: { width: 1440, height: 900 },
+  timezoneId: "UTC",
+  locale: "en-US",
+  deviceScaleFactor: 1,
+}
+
 const playInitScript = () => {
   window.__CTXPIPE_GOLDEN__ = { result: null, waiters: [] }
+  // A component can read the CPU count and the memory of the host (for
+  // example AnimatedBackground skips its animation on a small device), so
+  // every play sees the same small device. No real host reports 3 CPUs and
+  // 2 GB, so the Testing/Play host story fails when this override is missing.
+  for (const [name, value] of [
+    ["hardwareConcurrency", 3],
+    ["deviceMemory", 2],
+  ])
+    Object.defineProperty(Navigator.prototype, name, {
+      configurable: true,
+      get: () => value,
+    })
   // Storybook ends a play in the "errored" phase, with no error event, when the
   // page had an unhandled error during the play. Keep the errors to name them.
   const unhandled = []
@@ -157,11 +180,15 @@ const playInitScript = () => {
 // that fails leaves its value undefined and never changes the outcome.
 export async function playStories(storybookUrl, stories, onStory, trace) {
   const { chromium } = createRequire(join(ui, "package.json"))("playwright")
-  const browser = await chromium.launch({ headless: true })
+  // The browser starts with a time zone and a language that no pin uses, so
+  // the Testing/Play host story fails when a pin of playContext is missing.
+  const browser = await chromium.launch({
+    headless: true,
+    env: { ...process.env, TZ: "Pacific/Chatham" },
+    args: ["--lang=de-DE"],
+  })
   try {
-    const context = await browser.newContext({
-      viewport: { width: 1440, height: 900 },
-    })
+    const context = await browser.newContext(playContext)
     for (const story of stories) {
       const page = await context.newPage()
       const pageErrors = []

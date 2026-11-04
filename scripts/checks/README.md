@@ -144,6 +144,18 @@ A lane is one Vitest run: one package directory, one config and one runtime. [`l
   - `tables`: the Drizzle migration directories of the backend. A changed `migration.sql` selects the checks that touched a table that a changed statement names, and the checks that read the file. `snapshot.json` is drizzle-kit state; no check reads it. A statement whose tables a reader cannot name (for example `DO $$ ... $$`) selects the whole lane.
 - `run.mjs` and `scripts/ci/test-suite.mjs` start Vitest through `scripts/ci/vitest-launch.mjs`. Thus a subset run and the CI run use the same setup steps and command line.
 
+## Portable checks
+
+A result cache adds the OS and the CPU architecture to the key of a check, unless the check is `portable`. The key of a portable check does not hold them, so a pass on a macOS laptop counts in Linux CI.
+
+- `run.mjs` and `scripts/ci/vitest-launch.mjs` set `TZ=UTC`, `LANG=C.UTF-8` and `LC_ALL=C.UTF-8` for each check (`hostPins`). The time zone and the locale of the host cannot change a result, so the key of a portable check does not hold `TZ`.
+- The Storybook plays run in a browser context with a fixed time zone, locale and pixel ratio, and every page sees 3 CPUs and 2 GB of memory. The play runner starts Chromium in another time zone and language, so the story Testing/Play host fails when a pin is missing (`playContext` and the init script in `scripts/ci/storybook-play.mjs`).
+- Portable: the `backend`, `vercel`, `upgrade`, `ui`, `cli` and `aws-cdk` lanes, the Storybook checks, the evals, and the typecheck, lint, policy and package build checks. Not portable: the `contracts`, `codesearch`, `codesearch-bun` and `latency` lanes, the image builds and the deploy checks.
+- A backend test file that starts Docker, zoekt or OpenCode, or reads the process environment of the host, goes in the "not portable" group of `scripts/ci/contracts.json`, so that it runs in the `contracts` lane.
+- `programs` (optional) lists the host programs that a check runs and whose version changes a result: `git` for the backend, `cli` and `upgrade` lanes, `zoekt` and `ast-grep` for `upgrade`, and per test file (`filePrograms` in `lanes.mjs`) `ast-grep`, `bun` or `bash`. The merge gate manifest job installs the pinned zoekt and ast-grep, so the CI record holds their versions. `toolchain.mjs` records the version of each (git: only the major and minor version) (`programs` in the toolchain record), and a result cache adds it to the key. A check whose program is not installed has no key.
+- A laptop pass counts in CI only when the laptop has the CI versions: the Node of `.node-version`, the pnpm of `packageManager`, the Bun of CI, and a git with the major and minor version of CI (`brew install git` on macOS; Apple git is older). `factory check` prints a warning with the fix for each version that differs from the latest nightly run.
+- [`non-portable.json`](non-portable.json) lists the check ids that are never portable. The nightly Results writer finds them: a portable check that failed in CI and in the rerun, while every stored pass of the same key came from another platform. The Non-portable checks job then opens a draft pull request that adds the ids. Find the platform dependency, fix it, and remove the id.
+
 To add a lane, add it to `lanes` in `lanes.mjs` and add its inventory to `listVitest`. To add a check family, add a new `family` value to the manifest schema, write its list and run functions, and add them to [`families.mjs`](families.mjs).
 
 ## Traces
