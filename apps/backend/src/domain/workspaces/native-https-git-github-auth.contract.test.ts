@@ -44,18 +44,14 @@ it(
               expect(remote.url).toBe(
                 "https://github.com/fixture/workspace.git",
               )
-              const bridge = await docker.getNetwork("bridge").inspect()
-              const gateway = bridge.IPAM?.Config?.[0]?.Gateway
-              if (!gateway)
-                throw new Error("Nested Docker bridge gateway missing")
               const denied = await runGitRemote(docker, {
                 image: fixture.image,
-                extraHosts: [`github.com:${gateway}`],
+                network: remote.networkName,
               })
               expect(denied.code).not.toBe(0)
               const allowed = await runGitRemote(docker, {
                 image: fixture.image,
-                extraHosts: [`github.com:${gateway}`],
+                network: remote.networkName,
                 token: "fixture-read-1",
               })
               expect(allowed.code).toBe(0)
@@ -91,7 +87,7 @@ it(
 
 async function runGitRemote(
   docker: Docker,
-  input: { image: string; extraHosts: string[]; token?: string },
+  input: { image: string; network: string; token?: string },
 ) {
   const header = input.token
     ? `Authorization: Basic ${Buffer.from(`x-access-token:${input.token}`).toString("base64")}`
@@ -107,7 +103,7 @@ async function runGitRemote(
       "https://github.com/fixture/workspace.git",
       "refs/heads/main",
     ],
-    HostConfig: { ExtraHosts: input.extraHosts },
+    HostConfig: { NetworkMode: input.network },
     Labels: { "ai.ctxpipe.purpose": "native-https-git-auth-client" },
   })
   try {
