@@ -27,6 +27,11 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Node on the arm64 runner stops at a 2 GB heap, so the Typecheck and
+  # Storybook build jobs run out of memory without this.
+  NODE_OPTIONS: --max-old-space-size=6144
+
 jobs:
   lint:
     timeout-minutes: 15
@@ -64,7 +69,7 @@ jobs:
         run: node scripts/ci/check-ui-motion.mjs
       - name: Reject racy Storybook play checks
         run: node scripts/ci/check-story-play-timing.mjs
-      - name: Reject runners other than Blacksmith arm64
+      - name: Reject non-Blacksmith runners
         run: node scripts/ci/check-runners.mjs
       - name: Reject outside values in run scripts and workflows without permissions
         run: node scripts/ci/check-workflow-inputs.mjs
