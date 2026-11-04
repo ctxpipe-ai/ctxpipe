@@ -27,7 +27,7 @@ Before going further, confirm the fixed point resolves (`git rev-parse <fixed-po
 
 If `factory` is on `PATH`, and the review request does not say `Context pack: off`, run `factory review pack <fixed-point>..HEAD`. Add `--ticket <file>` and `--brief <file>` when you have the spec text in a file. In a follow-up round, add `--findings <file>` for each earlier report. The command prints the path of the pack.
 
-The pack is one Markdown file (first line `<!-- factory-review-pack/1 -->`). It holds the rules that apply to the changed paths, the task, the diff with whole functions, the direct callers and callees, and the earlier findings. Give the same path to each sub-agent. Then each sub-agent does not read the same files again.
+The pack is one Markdown file (first line `<!-- factory-review-pack/1 -->`). It holds the rules that apply to the changed paths, the task, the diff with whole functions, the direct callers and callees, and the earlier findings. Give the path only to the **Standards** sub-agent. In a replay of past rounds (CTX-1119), the pack cut the Standards tokens by about half with the same real findings. For Spec it saved nothing, and for Simplicity it added about a quarter, because those axes still search the repo and carry the pack in each turn. Spec and Simplicity read the repo as before.
 
 If `factory` is not on `PATH`, or the request says `Context pack: off`, skip this step. Each sub-agent then reads the repo as before. The live audit of the review critics uses `Context pack: off` for its control sample.
 
@@ -70,7 +70,7 @@ A single switch that replaced a one-adapter seam is not Repeated Switches. A typ
 
 Spawn all three on Opus at high effort (use the harness's own name for the model and effort setting). Always spawn **Simplicity**. Skip Spec only when step 2 found no spec.
 
-When step 1b made a pack, start each prompt with this text: "Context pack: `<path>`. Read the pack first. Read a file from the repo only when the pack does not have what you need, for example a file that the pack lists under Not in the pack. In the report, name each file that you read from the repo." In each prompt, replace the diff command with "The diff is in the pack, section 4. Run git only for a file that the pack cut." For Standards, replace the list of standards sources with "the Rules section of the pack, and the root `AGENTS.md` that your harness loads". Each byte in the prompt costs once for each turn of the sub-agent, so do not also paste the diff or the rules.
+When step 1b made a pack, start the Standards prompt with this text: "Context pack: `<path>`. Read the pack first. Read a file from the repo only when the pack does not have what you need, for example a file that the pack lists under Not in the pack. In the report, name each file that you read from the repo." In that prompt, replace the diff command with "The diff is in the pack, section 4. Run git only for a file that the pack cut.", and replace the list of standards sources with "the Rules section of the pack, and the root `AGENTS.md` that your harness loads". Each byte in the prompt costs once for each turn of the sub-agent, so do not also paste the diff or the rules.
 
 **Standards sub-agent prompt** — include:
 
