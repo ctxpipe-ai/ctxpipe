@@ -71,6 +71,7 @@ export async function withNativeHttpsGitFixture<T>(
   const serverName = `${derivedRepository}-server`
   let customizer: Docker.Container | undefined
   let server: Docker.Container | undefined
+  let network: Docker.Network | undefined
   let result: T | undefined
   let primaryError: unknown
   const cleanupErrors: unknown[] = []
@@ -230,7 +231,7 @@ export async function withNativeHttpsGitFixture<T>(
           ["--no-xattrs", "-C", staging, "-cf", serverArchive, "tmp", "srv"],
           { timeout: 30_000 },
         )
-        await input.docker.createNetwork({
+        network = await input.docker.createNetwork({
           Name: networkName,
           Labels: { "ai.ctxpipe.purpose": "native-https-git-fixture" },
         })
@@ -342,7 +343,8 @@ export async function withNativeHttpsGitFixture<T>(
           step = "remove the Git server"
           await server.remove({ force: true, v: true })
           server = undefined
-          await input.docker.getNetwork(networkName).remove()
+          await network.remove()
+          network = undefined
           step = "run the fixture callback"
         }
       },
@@ -355,6 +357,14 @@ export async function withNativeHttpsGitFixture<T>(
       if (!container) continue
       try {
         await container.remove({ force: true, v: true })
+      } catch (error) {
+        if ((error as { statusCode?: number }).statusCode !== 404)
+          cleanupErrors.push(error)
+      }
+    }
+    if (network) {
+      try {
+        await network.remove()
       } catch (error) {
         if ((error as { statusCode?: number }).statusCode !== 404)
           cleanupErrors.push(error)
