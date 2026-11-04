@@ -12,7 +12,7 @@
 // Usage: node scripts/ci/check-module-scope-values.mjs [repository root] [base ref]
 //   (default base: origin/main)
 
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -103,6 +103,8 @@ function main() {
   let failed = false
   for (const { status, path } of changedFiles(root, base)) {
     if (status === "D" || !checked.test(path) || skipped.test(path)) continue
+    // Uncommitted work can delete a file that the diff still lists.
+    if (!existsSync(join(root, path))) continue
     const added = addedLines(root, base, path)
     for (const { name, line } of singleUseValues(
       path,

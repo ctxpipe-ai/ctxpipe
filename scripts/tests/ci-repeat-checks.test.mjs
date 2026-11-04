@@ -158,3 +158,45 @@ test("a single-use value that the change did not add passes", () => {
   )
   assert.equal(result.status, 0, result.stderr)
 })
+
+test("a file that the diff lists but the working tree lacks is skipped", () => {
+  const root = mkdtempSync(join(tmpdir(), "ctxpipe-repeat-checks-"))
+  const git = (...args) =>
+    execFileSync(
+      "git",
+      ["-c", "user.name=t", "-c", "user.email=t@t", ...args],
+      {
+        cwd: root,
+        encoding: "utf8",
+      },
+    )
+  try {
+    git("init", "-q", "-b", "main")
+    mkdirSync(join(root, "apps/backend/src"), { recursive: true })
+    writeFileSync(join(root, "README.md"), "x\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "base")
+    git("tag", "base")
+    writeFileSync(
+      join(root, "apps/backend/src/a.ts"),
+      "const ONE = 1\nexport const f = () => ONE\n",
+    )
+    git("add", "-A")
+    git("commit", "-q", "-m", "change")
+    rmSync(join(root, "apps/backend/src/a.ts"))
+    const result = spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(
+          new URL("../ci/check-module-scope-values.mjs", import.meta.url),
+        ),
+        root,
+        "base",
+      ],
+      { encoding: "utf8" },
+    )
+    assert.equal(result.status, 0, result.stderr)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
