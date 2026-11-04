@@ -820,7 +820,10 @@ test("a gated step has the setup of its full-run step and of the prerequisites o
 test("a failed plan job gives a full run, and the merge gate reports its verdict", () => {
   // The plan job failed before it wrote plan.json or any output: each check
   // job runs in full, and the merge gate fails with the full run.
-  const decide = (result, critics = { critics: [] }) => {
+  const decide = (
+    result,
+    critics = { critics: [{ critic: "critic:spec", status: "carried" }] },
+  ) => {
     const directory = inputs({
       "mode.json": { mode: "select", reason: "gate" },
       "selection.json": selectRecord(),

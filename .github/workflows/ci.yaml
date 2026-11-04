@@ -1446,8 +1446,10 @@ jobs:
   # runs no package manager and no repository script. Its artifact is the only
   # source of critics.json: a job that runs PR code cannot write it. Each step
   # writes out/critics-cause.txt before a part that can fail, and the Merge
-  # gate job fails a same-repo PR without a critics record. The lookup gets
-  # much time, because a large diff has many hunks and so many store keys.
+  # gate job fails a same-repo PR without a critics record. The job runs
+  # beside the test jobs, so it adds no time to the run. A lookup of 16 hunks
+  # and 4 critics took 5 s. The timeout is large, because a large diff (a
+  # lockfile) has many hunks and so many store keys.
   merge-gate-critics:
     timeout-minutes: 25
     name: Merge gate critics
@@ -1645,8 +1647,8 @@ jobs:
         with:
           node-version-file: .node-version
       # Each artifact downloads by its name. The manifest job runs PR code, so
-      # only its mode.json is read. The selection, the LLM selection, the plan
-      # and the critics come only from the jobs that wrote them.
+      # only its mode.json is read. The selection and the LLM selection come
+      # only from the jobs that wrote them.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:

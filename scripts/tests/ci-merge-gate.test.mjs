@@ -1245,6 +1245,18 @@ test("a same-repo PR whose critics were not checked fails the gate with the caus
   })
   assert.equal(skipped.cause, "the critics job skipped")
   assert.equal(criticsFail(skipped), true)
+  // An empty list or an unknown status never passes.
+  const empty = critics(inputs({ "critics.json": { critics: [] } }))
+  assert.equal(empty.cause, "the critics record lists no critics")
+  assert.equal(criticsFail(empty), true)
+  const unknown = critics(
+    inputs({
+      "critics.json": {
+        critics: [{ critic: "critic:spec", status: "stale" }],
+      },
+    }),
+  )
+  assert.deepEqual(unknown.missing, ["critic:spec"])
   const fork = critics(inputs({}), { fork: true })
   assert.equal(criticsFail(fork), false)
   assert.ok(criticsText(fork).includes("a fork PR gets no role"))

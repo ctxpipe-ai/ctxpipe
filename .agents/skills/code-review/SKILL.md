@@ -29,12 +29,12 @@ The critics are in [`critics.json`](critics.json): Spec, Standards, Simplicity a
 
 If `factory` is on `PATH`, run `factory review plan --repo . --pr <owner>/<repo>#<number> --base <fixed point> --input <ticket or brief file>`. Add `--context-pack <file>` when a context pack of this diff exists. The plan reads the critics at the merge base. It gives each critic `run-full`, `run-delta`, `carried` or `not-applicable`, with a reason. It prints the round directory (`round-<n>`) last. If the command fails, run every axis as below.
 
-- Start one sub-agent for each critic with `run-full` or `run-delta`, on the reviewers that the plan names. Do not let two critics share an agent, also when they use the same model. Give each one its brief, `briefs/<critic>.md`, with the prompt of step 4.
+- Start one sub-agent for each critic with `run-full` or `run-delta`, on the reviewers that the plan names. Do not let two critics share an agent, even if they use the same model. Give each one its brief, `briefs/<critic>.md`, with the prompt of step 4.
 - Put the plan's reasons for `carried` and `not-applicable` in the aggregate (step 5).
 - If the plan has `audit`, also run every `briefs/<critic>.audit.md` in full.
-- After each run, write its report as JSON (`status`, `reviewers` with tokens, `findings` with `severity`, `file`, `line`, `summary`) and run `factory review record --repo . --pr <pr> --critic <id> --round <n> --report <file>`. Use the round of the brief, also when a newer round exists. Add `--audit` for an audit run.
+- After each run, write its report as JSON (`status`, `reviewers` with tokens, `findings` with `severity`, `file`, `line`, `summary`) and run `factory review record --repo . --pr <pr> --critic <id> --round <n> --report <file>`. Use the round of the brief, even if a newer round exists. Add `--audit` for an audit run.
 - When the ticket or the brief (`--input`) changes, the next plan carries no verdict. The plan finds this change only in the rounds of this clone (below `.git`). Another clone does not know the earlier input, so it carries the passes of an older ticket. Plan a review after a ticket change in the same clone.
-- The merge gate runs `factory review gate` on the PR head in every mode. It fails when a critic has no stored verdict for the PR diff, or when it cannot look up the critics of a same-repo PR. After the last push, plan and run the review again; unchanged hunks are carried, so only the new hunks cost a review.
+- The merge gate runs `factory review gate` on the PR head in every mode. In gate mode, it fails when a critic has no stored verdict for the PR diff, or when it cannot look up the critics of a same-repo PR. After the last push, plan and run the review again; unchanged hunks are carried, so only the new hunks cost a review. Then use **Re-run all jobs** in CI, or push again, so that the job `Merge gate critics` looks up the new verdicts.
 - The gate proves that an agent recorded a review of the hunks. It does not prove that the review was sound.
 
 ### 2. Identify the spec source

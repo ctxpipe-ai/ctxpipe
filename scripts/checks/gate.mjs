@@ -508,20 +508,21 @@ export function code(text) {
 
 // The review critics of the PR, from `factory review gate` in the critics
 // job (critics.json): each critic of the merge base is carried (a stored
-// verdict covers the PR diff), not-applicable, or missing. Without that
-// record, `checked` is false and `cause` says why (critics-cause.txt, or the
+// verdict covers the PR diff), not-applicable, or missing. Each other status
+// counts as missing. Without a record that lists critics, `checked` is false and `cause` says why (critics-cause.txt, or the
 // result of the critics job). A same-repo PR needs the record (`required`):
 // without it the gate fails. A fork PR gets no role for the result store.
 export function critics(inputs, { needs, fork = false } = {}) {
   const record = readJson(join(inputs, "critics.json"))
-  if (Array.isArray(record?.critics))
+  if (record?.critics?.length > 0)
     return {
       checked: true,
       required: !fork,
-      head: record.head,
       critics: record.critics,
       missing: record.critics
-        .filter((critic) => critic.status === "missing")
+        .filter(
+          (critic) => !["carried", "not-applicable"].includes(critic.status),
+        )
         .map((critic) => critic.critic),
     }
   const cause = join(inputs, "critics-cause.txt")
@@ -530,9 +531,11 @@ export function critics(inputs, { needs, fork = false } = {}) {
     required: !fork,
     cause: existsSync(cause)
       ? readFileSync(cause, "utf8").trim()
-      : fork
-        ? "a fork PR gets no role for the result store"
-        : `the critics job ${needs?.["merge-gate-critics"]?.result ?? "did not run"}`,
+      : record
+        ? "the critics record lists no critics"
+        : fork
+          ? "a fork PR gets no role for the result store"
+          : `the critics job ${needs?.["merge-gate-critics"]?.result ?? "did not run"}`,
     missing: [],
   }
 }
@@ -556,7 +559,7 @@ export function criticsText(checked, repoUrl) {
     if (checked?.required)
       lines.push(
         "",
-        "A same-repo PR needs the critics record, so the gate fails. Fix: run this workflow again. When the cause stays, look at the job `Merge gate critics`; when the pinned factory release has no `review gate`, update the pin in `.github/merge-gate.json`.",
+        "A same-repo PR needs the critics record, so the gate fails in gate mode. Fix: use **Re-run all jobs**, so that the job `Merge gate critics` runs again. When the cause stays, look at the log of that job.",
       )
     return `${lines.join("\n")}\n`
   }
@@ -579,7 +582,7 @@ export function criticsText(checked, repoUrl) {
   if (checked.missing.length > 0)
     lines.push(
       "",
-      `${checked.missing.length} critics have no stored verdict for this diff. Fix: run \`/code-review\` on the PR head (it stores the verdicts), then run this job again.`,
+      `Critics with no stored verdict for this diff: ${checked.missing.length}. Fix: run \`/code-review\` on the PR head (it stores the verdicts). Then use **Re-run all jobs**, or push again: the job \`Merge gate critics\` must look up the verdicts again.`,
     )
   lines.push("", attested)
   return `${lines.join("\n")}\n`
