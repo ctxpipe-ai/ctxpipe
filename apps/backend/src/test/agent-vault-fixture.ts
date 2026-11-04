@@ -7,6 +7,7 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 
 import type { AgentVaultAccess } from "../domain/workspaces/agent-vault.js"
+import { contractImage } from "./contract-images.js"
 
 const exec = promisify(execFile)
 
@@ -296,7 +297,7 @@ exec node /tmp/upstream.cjs`,
       "AGENT_VAULT_TELEMETRY=false",
       "-e",
       `AGENT_VAULT_NETWORK_ALLOWLIST=${upstreamIp}`,
-      "infisical/agent-vault:latest",
+      contractImage("agentVault"),
       // A fixed proxy port, for the closed network's forwarder.
       "server",
       "--host",
@@ -474,7 +475,7 @@ export async function startTestAgentVaultEnv(
             "SSL_CERT_DIR=/etc/ssl/certs:/extra-ca",
           ]
         : []),
-      "infisical/agent-vault:latest",
+      contractImage("agentVault"),
       "server",
       "--host",
       "0.0.0.0",

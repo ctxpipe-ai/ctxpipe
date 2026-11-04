@@ -92,6 +92,7 @@ const nativePrerequisites = [
   "zoekt",
   "ast-grep",
   "chat-sandbox-image",
+  "contract-images",
 ]
 // `portable`: the result does not depend on the OS or the CPU architecture,
 // so a result cache leaves them out of the key and a pass on a laptop counts
@@ -120,7 +121,7 @@ const lanes = {
     runtime: "node",
     inputs: [...backendInputs, ...nativeInputs],
     traceInputs: backendTraceInputs,
-    env: backendEnv,
+    env: [...backendEnv, { name: "DOCKER_DEFAULT_PLATFORM", mode: "value" }],
     prerequisites: nativePrerequisites,
     portable: true,
     programs: ["git", "bun", "zoekt", "ast-grep", "container-platform"],

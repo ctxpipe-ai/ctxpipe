@@ -16,6 +16,7 @@ import { organizations } from "../../db/schema/auth.js"
 import { conversations } from "../../db/schema/conversations.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
+import { contractImage } from "../../test/contract-images.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import { withSessionOnlyEnv } from "./sandbox-provider.js"
 
@@ -137,7 +138,7 @@ it.each(["workspace", "conversation"] as const)(
         workspaceId: firstWorkspaceId,
         conversationId: firstConversationId,
         provider: "docker",
-        image: "node:24",
+        image: contractImage("node"),
       })
       const second = postgresSandboxInstanceStore({
         orgId,
@@ -145,7 +146,7 @@ it.each(["workspace", "conversation"] as const)(
           scope === "workspace" ? secondWorkspaceId : firstWorkspaceId,
         conversationId: secondConversationId,
         provider: "docker",
-        image: "node:24",
+        image: contractImage("node"),
       })
       const owned: SandboxInstanceRecord = {
         key,
@@ -222,7 +223,7 @@ it(
       throw new Error("Docker transport proxy did not bind")
     const provider = withSessionOnlyEnv(
       dockerSandbox({
-        image: "alpine:3.22",
+        image: contractImage("alpine"),
         workdir: "/tmp",
         keepAliveCommand: ["/ctxpipe-deliberately-missing-command"],
         dockerodeOptions: { host: "127.0.0.1", port: address.port },
@@ -258,7 +259,7 @@ it(
   async () => {
     const endpoint = dockerEndpoint()
     const provider = dockerSandbox({
-      image: "alpine:3.22",
+      image: contractImage("alpine"),
       workdir: "/tmp",
       dockerodeOptions: endpoint,
     })
@@ -294,7 +295,7 @@ it(
     const endpoint = dockerEndpoint()
     const dockerodeOptions = endpoint
     const baseConfig = {
-      image: "alpine:3.22",
+      image: contractImage("alpine"),
       workdir: "/tmp",
       dockerodeOptions,
       publishPorts: [8080],

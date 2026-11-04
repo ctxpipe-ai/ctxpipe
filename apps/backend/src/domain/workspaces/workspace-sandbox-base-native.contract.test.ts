@@ -32,6 +32,7 @@ import {
 } from "../../models/workspaces.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { startTestAgentVaultEnv } from "../../test/agent-vault-fixture.js"
+import { contractImage } from "../../test/contract-images.js"
 import {
   CHAT_IMAGE,
   dockerChat,
@@ -712,7 +713,7 @@ it(
     })
     const container = async (labels: Record<string, string> = {}) => {
       const created = await docker.createContainer({
-        Image: "alpine:3.22",
+        Image: contractImage("alpine"),
         Cmd: ["sleep", "600"],
         Labels: { "ai.ctxpipe.purpose": "workspace-base-proof", ...labels },
       })
@@ -723,7 +724,7 @@ it(
     }
     const labeledImage = async (labels: Record<string, string>) => {
       const source = await docker.createContainer({
-        Image: "alpine:3.22",
+        Image: contractImage("alpine"),
         Cmd: ["true"],
       })
       try {
@@ -779,7 +780,7 @@ it(
           desiredDefaultBranch: "main",
         }),
       )
-      await ensureImage("alpine:3.22")
+      await ensureImage(contractImage("alpine"))
       const recordedContainer = await container(ours("base:recorded"))
       await withOrgDbContext(orgId, (db) =>
         db.insert(workspaceSandboxInstances).values({

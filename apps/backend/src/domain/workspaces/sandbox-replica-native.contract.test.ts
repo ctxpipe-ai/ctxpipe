@@ -14,6 +14,7 @@ import {
 import { organizations } from "../../db/schema/auth.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
+import { contractImage } from "../../test/contract-images.js"
 
 it(
   "reuses one native Docker worktree across replicas and process restarts",
@@ -86,7 +87,7 @@ it(
       if (!line) throw new Error(`Missing native result: ${client.output()}`)
       return JSON.parse(line) as { id: string; contents?: string }
     }
-    const provider = dockerSandbox({ image: "node:24" })
+    const provider = dockerSandbox({ image: contractImage("node") })
     try {
       await getSystemDb().insert(organizations).values({
         id: orgId,

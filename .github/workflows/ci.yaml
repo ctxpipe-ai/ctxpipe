@@ -246,7 +246,7 @@ jobs:
       - name: Required test container images
         if: matrix.lane != 'backend'
         run: |
-          for image in infisical/agent-vault:latest alpine:3.22 node:24 curlimages/curl:8.17.0; do
+          for image in $(jq -r '.contracts[] | "\(.image):\(.tag)@\(.digest)"' scripts/ci/service-pins.json); do
             n=0
             until docker pull --quiet "$image"; do
               n=$((n + 1))
@@ -302,7 +302,7 @@ jobs:
           context: scripts/chat-sandbox
           tags: ctxpipe-chat-sandbox:opencode-1.18.34-r4
           load: true
-          cache-from: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox
+          cache-from: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox-arm64
       - name: Required ${{ matrix.lane }} tests
         if: matrix.lane != 'selected'
         env:
@@ -620,7 +620,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    # amd64: it writes the codesearch layer cache, and codesearch builds only for amd64.
+    # amd64: production codesearch and the amd64 chat sandbox use this cache.
     runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       fail-fast: false
@@ -651,6 +651,33 @@ jobs:
           push: false
           cache-from: type=registry,ref=${{ matrix.cache }}
           cache-to: type=registry,ref=${{ matrix.cache }},mode=max,ignore-error=true
+
+  layer-cache-chat-sandbox-arm64:
+    timeout-minutes: 45
+    name: Layer cache (chat-sandbox-arm64)
+    if: github.ref == 'refs/heads/main' && github.event_name != 'schedule'
+    continue-on-error: true
+    permissions:
+      contents: read
+      packages: write
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: scripts/chat-sandbox
+          file: scripts/chat-sandbox/Dockerfile
+          push: false
+          cache-from: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox-arm64
+          cache-to: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox-arm64,mode=max,ignore-error=true
 
   packages:
     timeout-minutes: 20

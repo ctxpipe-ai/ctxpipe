@@ -5,6 +5,7 @@ import { initLogger } from "evlog"
 import { closeDb, initDb } from "../db/client.js"
 import { postgresSandboxInstanceStore } from "../domain/workspaces/sandbox-instance-store.js"
 import { postgresSandboxLocks } from "../domain/workspaces/sandbox-lock-store.js"
+import { contractImage } from "./contract-images.js"
 
 initLogger({ enabled: false })
 const [orgId, workspaceId, runId, mode] = process.argv.slice(2)
@@ -14,7 +15,7 @@ initDb(process.env.DATABASE_URL)
 const controller = new AbortController()
 const definition = defineSandbox({
   id: "native-replica-proof",
-  provider: dockerSandbox({ image: "node:24" }),
+  provider: dockerSandbox({ image: contractImage("node") }),
   lifecycle: { reuse: "thread", snapshot: "none" },
 })
 const context = {

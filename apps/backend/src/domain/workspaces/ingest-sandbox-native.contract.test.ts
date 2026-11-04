@@ -20,6 +20,7 @@ import {
 import { generateObjectId } from "../../lib/id.js"
 import { getSandboxInstance } from "../../models/workspaces.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
+import { contractImage } from "../../test/contract-images.js"
 import {
   INGEST_SHARD_LIMIT_MS,
   ORG_INGEST_SANDBOX_LIMIT,
@@ -31,7 +32,7 @@ import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import { destroySandboxesForWorkspace } from "./workspace-sandbox-cleanup.js"
 
-const IMAGE = "alpine:3.22"
+const IMAGE = contractImage("alpine")
 const docker = new Docker({ timeout: 30_000 })
 
 function databaseUrl(): string {

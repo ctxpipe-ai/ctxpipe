@@ -9,7 +9,8 @@
 # fake scip-clang and scip-ruby commands). Production deploys linux/amd64.
 
 # ── Stage 1: Go toolchain and Zoekt binaries ─────────────────────────────────
-FROM golang:1.24-bookworm AS go-tools
+# golang:1.24-bookworm
+FROM golang@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac AS go-tools
 # proxy.golang.org sometimes resets a connection in the middle of a module
 # download. The "|" in GOPROXY falls back to the origin on any error, and the
 # retry keeps the modules that the module cache already holds.
@@ -23,7 +24,8 @@ RUN export GOTOOLCHAIN=auto GOBIN=/zoekt-bin GOPROXY='https://proxy.golang.org|d
     exit 1
 
 # ── Stage 2: Node toolchain and npm-distributed SCIP tools ───────────────────
-FROM node:24.22.1-bookworm-slim AS node-tools
+# node:24.22.1-bookworm-slim
+FROM node@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS node-tools
 RUN npm install --global \
     @ast-grep/cli@0.45.0 \
     @sourcegraph/scip-python@0.6.6 \
@@ -31,7 +33,8 @@ RUN npm install --global \
   && npm cache clean --force
 
 # ── Stage 3: Rust toolchain and debian-lsp ───────────────────────────────────
-FROM rust:1-bookworm AS rust-tools
+# rust:1-bookworm
+FROM rust@sha256:c9155318d07341301a78b45ecdd81af2e43b8b297d64e8fd4c5e80d7735607c3 AS rust-tools
 ARG DEBIAN_LSP_REV=daee711aba7282a6e79344c71dcaf85593c54040
 # The crates.io release predates debian-lsp's SCIP feature, so build that
 # feature from a pinned upstream revision.
@@ -46,7 +49,8 @@ RUN cargo install \
   && rm -rf /usr/local/cargo/git /usr/local/cargo/registry
 
 # ── Stage 4: .NET SDK and scip-dotnet ────────────────────────────────────────
-FROM mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim AS dotnet-tools
+# mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim
+FROM mcr.microsoft.com/dotnet/sdk@sha256:6ba9644da07bb5b560a402acec9ca38711a0762969f1b61da261df5c9f6f85da AS dotnet-tools
 ARG SCIP_DOTNET_VERSION=0.2.14
 RUN dotnet tool install \
     --tool-path /opt/dotnet-tools \
@@ -54,7 +58,8 @@ RUN dotnet tool install \
     scip-dotnet
 
 # ── Stage 5: Dart SDK and scip_dart ─────────────────────────────────────────
-FROM dart:stable AS dart-tools
+# dart:stable
+FROM dart@sha256:517cbeb4612c4dff11c983edea521d5aef3f47a674c23684fad5e89803ca5b1c AS dart-tools
 ARG SCIP_DART_VERSION=1.6.2
 ENV PUB_CACHE=/opt/pub-cache
 RUN dart pub global activate scip_dart "${SCIP_DART_VERSION}"
@@ -62,7 +67,8 @@ RUN dart pub global activate scip_dart "${SCIP_DART_VERSION}"
 # ── Stage 6: Official SCIP release binaries ─────────────────────────────────
 FROM scratch AS releases
 
-FROM debian:bookworm-slim AS release-tools
+# debian:bookworm-slim
+FROM debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS release-tools
 ARG TARGETARCH
 # Versions and checksums live in release-assets.txt. fetch-releases.sh bounds
 # each download (connect, stall and total timeouts, 3 attempts) and fails with
@@ -88,9 +94,11 @@ RUN --mount=type=bind,source=apps/codesearch/release-assets.txt,target=/release-
   && chmod +x /out/*
 
 # ── Stage 7: Install application dependencies ────────────────────────────────
-FROM oven/bun:1.4.4-slim AS bun-runtime
+# oven/bun:1.4.4-slim
+FROM oven/bun@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS bun-runtime
 
-FROM node:24.22.1-bookworm-slim AS deps
+# node:24.22.1-bookworm-slim
+FROM node@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS deps
 WORKDIR /app
 ENV CI=true
 RUN npm install -g pnpm@10.12.1
@@ -102,7 +110,8 @@ RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 # ── Stage 8: Production runtime ──────────────────────────────────────────────
 # Keep the indexer OS contract on Bookworm. Bun's newer slim image uses
 # Trixie, which no longer supplies the JDK 17 package required by this matrix.
-FROM debian:bookworm-slim AS runtime
+# debian:bookworm-slim
+FROM debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3 AS runtime
 ARG TARGETARCH
 COPY --from=bun-runtime /usr/local/bin/bun /usr/local/bin/bun
 ENV BUN_INSTALL=/usr/local
