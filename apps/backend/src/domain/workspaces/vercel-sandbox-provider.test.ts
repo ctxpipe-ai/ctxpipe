@@ -12,7 +12,6 @@ import {
   vi,
 } from "vitest"
 
-import { log } from "../../observability/logger.js"
 import { CallDeadlineError } from "./call-deadline.js"
 import { openIngestEgressScope } from "./ingest-egress-proxy.js"
 import { ingestNetworkPolicy } from "./ingest-sandbox-egress.js"
@@ -892,7 +891,6 @@ describe("vercelConversationProvider start failures", () => {
   })
   afterEach(() => {
     vi.useRealTimers()
-    vi.restoreAllMocks()
   })
 
   it("deletes the sandbox of a start that passed its deadline, by the name it sent, before it starts from the agent snapshot", async () => {
@@ -961,7 +959,7 @@ describe("vercelConversationProvider start failures", () => {
   const lateCreateHandlers = (
     created: string[],
     deleted: string[],
-    deleteStatus: () => number,
+    deleteStatus: (name: string) => number,
   ) => {
     const made = new Set<string>()
     return [
@@ -1004,7 +1002,7 @@ describe("vercelConversationProvider start failures", () => {
         })
       }),
       http.delete("https://vercel.com/api/v2/sandboxes/:name", ({ params }) => {
-        const status = deleteStatus()
+        const status = deleteStatus(String(params.name))
         if (status !== 200)
           return HttpResponse.json(
             { error: { code: "internal", message: "no delete" } },
@@ -1041,30 +1039,39 @@ describe("vercelConversationProvider start failures", () => {
     await vi.waitFor(() => expect(deleted).toEqual([late]))
   })
 
-  it("logs a failed second delete of a late sandbox, and nothing throws", async () => {
-    const warn = vi.spyOn(log, "warn")
-    const state = { put: [] as string[], revoked: [] as string[] }
-    const created: string[] = []
-    const deleted: string[] = []
-    server.use(...lateCreateHandlers(created, deleted, () => 500))
-    const handle = await settle(
-      provider(state).create({
-        workspace: { source: { type: "none" } },
-      } as Parameters<ReturnType<typeof provider>["create"]>[0]),
-    )
-    expect(handle).not.toBeInstanceOf(Error)
-    const [late] = created
-    await vi.advanceTimersByTimeAsync(120_000)
-    await vi.waitFor(() =>
-      expect(warn).toHaveBeenCalledWith(
-        expect.objectContaining({
-          step: "workspace-sandbox-late-delete",
-          sandboxId: late,
-          attempt: 2,
+  it("lets a failed second delete of a late sandbox end without an unhandled rejection", async () => {
+    const rejections: unknown[] = []
+    const onRejection = (reason: unknown) => rejections.push(reason)
+    process.on("unhandledRejection", onRejection)
+    try {
+      const state = { put: [] as string[], revoked: [] as string[] }
+      const created: string[] = []
+      const deleted: string[] = []
+      const refused: string[] = []
+      server.use(
+        ...lateCreateHandlers(created, deleted, (name) => {
+          refused.push(name)
+          return 500
         }),
-      ),
-    )
-    expect(deleted).toEqual([])
+      )
+      const handle = await settle(
+        provider(state).create({
+          workspace: { source: { type: "none" } },
+        } as Parameters<ReturnType<typeof provider>["create"]>[0]),
+      )
+      expect(handle).not.toBeInstanceOf(Error)
+      const [late] = created
+      await vi.advanceTimersByTimeAsync(120_000)
+      // The second delete reached Vercel, which refused it; the failure is
+      // logged in the provider, and no promise rejects with no handler.
+      await vi.waitFor(() => expect(refused).toContain(late))
+      await vi.advanceTimersByTimeAsync(60_000)
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(deleted).toEqual([])
+      expect(rejections).toEqual([])
+    } finally {
+      process.off("unhandledRejection", onRejection)
+    }
   })
 
   it("revokes the GitHub token when no start succeeds", async () => {
