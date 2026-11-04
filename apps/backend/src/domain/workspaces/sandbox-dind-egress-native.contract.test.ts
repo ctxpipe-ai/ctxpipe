@@ -69,32 +69,24 @@ it(
           // daemon (the CI job pulls it with retries) so a Docker Hub token
           // timeout inside DinD cannot fail the test.
           const curlImage = contractImage("curl")
-          // BuildKit reads a bare image id in FROM as a registry name, so the
-          // image gets a local tag inside DinD.
+          // BuildKit reads a bare image id in FROM as a registry name, and the
+          // id on the runner is not the id inside DinD. A local tag survives
+          // save and load.
           const curlLocal = "ctxpipe-test-curl:local"
           try {
             await exec("docker", ["image", "inspect", curlImage]).catch(() =>
               exec("docker", ["pull", "-q", curlImage]),
             )
-            const curlImageId = await docker(
-              "image",
-              "inspect",
-              "--format",
-              "{{.Id}}",
-              curlImage,
-            )
+            await docker("tag", curlImage, curlLocal)
             await exec("sh", [
               "-c",
-              `docker save ${curlImageId} | docker exec -i ${name} docker load`,
+              `docker save ${curlLocal} | docker exec -i ${name} docker load`,
             ])
-            await docker("exec", name, "docker", "tag", curlImageId, curlLocal)
           } catch (error) {
             throw new Error(
               `Docker Hub (docker.io) did not serve ${curlImage}: ${error instanceof Error ? error.message : error}`,
             )
           }
-          // Docker save/load does not retain registry digests. Use the local
-          // tag of the pinned image inside DinD.
           // Compose builds the chat image inside DinD. A build step on a
           // sandbox bridge is blocked; on the DinD host network it downloads.
           const build = (network: string) =>
