@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, rm, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { dirname, join, relative } from "node:path"
 import { promisify } from "node:util"
 
 import { buildContextIndex } from "../domain/ingestion/context-index.js"
@@ -178,13 +178,7 @@ export function standInIngestShardRuntime(options: {
           root,
           ...(more ? ["--more"] : []),
         )
-        const tar = await exec("tar", ["-C", out, "-cf", "-", "."], {
-          encoding: "buffer",
-          maxBuffer: 16 * 1024 * 1024,
-          // macOS tar adds AppleDouble `._*` entries; the sandbox tar does not.
-          env: { ...process.env, COPYFILE_DISABLE: "1" },
-        })
-        return { tar: new Uint8Array(tar.stdout), ...(usage ? { usage } : {}) }
+        return { tar: await tarOf(out), ...(usage ? { usage } : {}) }
       },
     }
     return runtime
@@ -193,4 +187,51 @@ export function standInIngestShardRuntime(options: {
     destroy: (target: { runId: string; shard: number }) =>
       rm(folderOf(target), { recursive: true, force: true }),
   })
+}
+
+// The tar archive of `dir`, with the entries that `tar -C dir -cf - .` of the
+// sandbox writes. Node writes it, so the archive is the same on every host:
+// macOS bsdtar and GNU tar write different archives. A path longer than 100
+// bytes gets a GNU long-name entry.
+async function tarOf(dir: string): Promise<Uint8Array> {
+  const blocks: Buffer[] = []
+  const padding = (size: number) => Buffer.alloc((512 - (size % 512)) % 512)
+  const header = (name: string, type: string, size: number) => {
+    const block = Buffer.alloc(512)
+    block.write(name, 0, 100, "utf8")
+    block.write(type === "5" ? "0000755\0" : "0000644\0", 100)
+    block.write("0000000\0", 108)
+    block.write("0000000\0", 116)
+    block.write(`${size.toString(8).padStart(11, "0")}\0`, 124)
+    block.write("00000000000\0", 136)
+    block.fill(" ", 148, 156)
+    block.write(type, 156)
+    block.write("ustar  \0", 257)
+    const sum = block.reduce((total, byte) => total + byte, 0)
+    block.write(`${sum.toString(8).padStart(6, "0")}\0 `, 148)
+    return block
+  }
+  const add = (name: string, type: string, data = Buffer.alloc(0)) => {
+    if (Buffer.byteLength(name) > 100) {
+      const long = Buffer.from(`${name}\0`)
+      blocks.push(header("././@LongLink", "L", long.length), long)
+      blocks.push(padding(long.length))
+    }
+    blocks.push(header(name, type, data.length), data, padding(data.length))
+  }
+  add("./", "5")
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true })
+  const paths = entries
+    .map((entry) => ({
+      entry,
+      path: relative(dir, join(entry.parentPath, entry.name)),
+    }))
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+  for (const { entry, path } of paths) {
+    if (entry.isDirectory()) add(`./${path}/`, "5")
+    else if (entry.isFile())
+      add(`./${path}`, "0", await readFile(join(dir, path)))
+  }
+  blocks.push(Buffer.alloc(1024))
+  return new Uint8Array(Buffer.concat(blocks))
 }
