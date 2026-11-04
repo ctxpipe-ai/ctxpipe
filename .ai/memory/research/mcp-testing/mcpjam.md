@@ -10,8 +10,9 @@ product runtime dependency, proxy, sidecar, or second MCP server.
 - Keep the official MCP Inspector and conformance runner as independent
   standards references.
 - Use the local MCPJam Inspector for interactive OAuth and JSON-RPC diagnosis.
-- Use the version-pinned MCPJam CLI for deterministic probes and protocol
-  checks.
+- Use the version-pinned MCPJam CLI (through `pnpm dlx`) for manual probes.
+  The automated protocol check runs in-process with `@mcpjam/sdk`, not with the
+  CLI.
 - Keep OAuth conformance manual until ctxpipe has a dedicated non-interactive
   test identity or machine grant.
 - Defer hosted LLM evals until deterministic transport and auth checks are
@@ -27,8 +28,13 @@ As researched on 2026-08-18:
 - `@mcpjam/cli` 3.24.0 provides `server doctor`, OAuth login/conformance,
   protocol conformance, direct tool calls, JSON/JUnit output, and exit codes
   suitable for automation.
-- `@mcpjam/sdk` 5.0.0 provides programmable clients and evals, but ctxpipe does
-  not need it for the initial diagnostic layer.
+- `@mcpjam/sdk` 9.3.0 provides programmable clients, evals, and
+  `MCPConformanceTest`. `apps/backend/src/routes/mcp.conformance.test.ts` runs
+  `new MCPConformanceTest({ serverUrl, protocolVersion }).run()` and asserts on
+  the typed result. This replaced the `mcpjam protocol conformance`
+  subprocess, which used SDK 5.0.0 through CLI 3.24.0, so the test now runs the
+  checks of the current SDK. Against the same server, SDK 9.3.0 reports 0 failed
+  checks. A failed run names each failed check id and its message.
 - The hosted application accepts public HTTPS endpoints only. It cannot reach
   `*.localhost` or refresh against a local authorisation server.
 - MCPJam does not provide a dedicated assertion suite for refresh-token races,

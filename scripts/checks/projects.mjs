@@ -206,15 +206,33 @@ const definitions = () => [
     ["workflow-inputs", [".github/**"]],
     ["ui-motion", ["apps/ui/src/**"]],
     ["story-play-timing", ["apps/ui/src/**"]],
-    ["claude-plugin", ["plugins/**", ".claude-plugin/**"]],
-  ].map(([lane, reads]) => {
+    ["claude-plugin", ["plugins/**", ".claude-plugin/**", "scripts/ci/claude-cli/**"]],
+    // The next two read the git diff against origin/main, so a result
+    // cannot be reused from the files alone.
+    [
+      "adr",
+      [".ai/memory/decisions/**"],
+      "Catches a new ADR file that the decisions index does not list. Run it when a file under .ai/memory/decisions changes; never for a change outside it.",
+    ],
+    [
+      "module-scope-values",
+      ["apps/**", "packages/**", "scripts/**"],
+      "Catches a new module-scope string or number constant that the file reads once, which AGENTS.md says to inline. Run it when app, package, or script source changes; never for a change only to tests or docs.",
+    ],
+  ].map(([lane, reads, intent]) => {
     const file = `scripts/ci/check-${lane}.mjs`
     return {
       family: "policy",
       lane,
       file,
       root: "",
-      inputs: [...shared, file, ...reads],
+      inputs: [
+        ...shared,
+        file,
+        ...(intent ? ["scripts/ci/changed-files.mjs"] : []),
+        ...reads,
+      ],
+      ...(intent && { intent, cacheable: false }),
       commands: [node(file)],
     }
   }),
@@ -406,12 +424,18 @@ const definitions = () => [
 ]
 
 export function listProjects() {
+  // An image build and a deploy depend on the platform that builds the image;
+  // the result of each other check does not depend on the OS or the CPU.
+  const portable = ({ family, lane }) =>
+    ["typecheck", "lint", "policy"].includes(family) ||
+    (family === "build" && lane.startsWith("package-"))
   return definitions().map(
     ({ commands: _commands, prerequisites, runtime, ...check }) => ({
       id: `${check.family}:${check.lane}:${check.file}`,
       ...check,
       runtime: runtime ?? "node",
       ...(prerequisites && { prerequisites }),
+      ...(portable(check) && { portable: true }),
     }),
   )
 }

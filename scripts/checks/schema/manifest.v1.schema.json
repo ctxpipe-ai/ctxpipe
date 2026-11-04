@@ -115,6 +115,16 @@
           "type": "array",
           "items": { "type": "string" },
           "uniqueItems": true
+        },
+        "portable": {
+          "description": "true: the result does not depend on the OS or the CPU architecture of the host. A result cache leaves the OS, the architecture and TZ out of the key (the runner sets TZ=UTC and LANG=C.UTF-8 for each check), so a pass on one platform counts on another. A check in scripts/checks/non-portable.json is never portable. Optional; without it, false.",
+          "type": "boolean"
+        },
+        "programs": {
+          "description": "The host programs that the lane runs and whose version changes the result. A result cache adds the version of each (the toolchain record `programs`) to the key; without the version, the check has no key. Optional; without it, none.",
+          "type": "array",
+          "items": { "enum": ["git", "bun", "bash", "zoekt", "ast-grep"] },
+          "uniqueItems": true
         }
       }
     }

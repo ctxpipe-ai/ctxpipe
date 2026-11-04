@@ -55,6 +55,7 @@ export async function listEvals() {
     ],
     runtime: "bun",
     env,
+    portable: true,
     prerequisites: [
       "workbench",
       "postgres",

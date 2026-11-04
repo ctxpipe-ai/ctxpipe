@@ -15,6 +15,7 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
 
+import { markPortable } from "../checks/families.mjs"
 import { deploySteps, fullRunResults, stepResults } from "../checks/gate.mjs"
 import { jobOutputs } from "../checks/plan.mjs"
 import { prerequisites } from "../checks/prerequisites.mjs"
@@ -22,6 +23,7 @@ import { uiBundledImports } from "../checks/projects.mjs"
 import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
 import { lintSteps, runsInOf } from "../checks/shard.mjs"
 import { requiredStories } from "../ci/storybook-golden-select.mjs"
+import { vitestCommand } from "../ci/vitest-launch.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const evalCaseCount = () =>
@@ -201,7 +203,9 @@ test("the manifest matches its schema and lists each check of each family", asyn
       !(
         check.lane === "terraform-plan" ||
         check.lane.startsWith("image-") ||
-        check.family === "deploy"
+        check.family === "deploy" ||
+        // These policy checks read the git diff, not only the files.
+        ["adr", "module-scope-values"].includes(check.lane)
       ),
       check.id,
     )
@@ -255,6 +259,169 @@ test("the runner runs exactly the given ids and writes one schema result for eac
     assert.match(none.stderr, /no check ids given/)
   } finally {
     rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("the runner sets the time zone and the locale of each check", () => {
+  // A check of the ui lane that fails unless the runner set TZ and LANG.
+  const name = `host-pins-${process.pid}.test.ts`
+  const file = join(root, "apps/ui/src", name)
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-checks-"))
+  try {
+    writeFileSync(
+      file,
+      `import { expect, it } from "vitest"
+it("runs in UTC with the C.UTF-8 locale", () => {
+  expect(process.env.TZ).toBe("UTC")
+  expect(process.env.LANG).toBe("C.UTF-8")
+  expect(process.env.LC_ALL).toBe("C.UTF-8")
+  expect(new Date(0).getHours()).toBe(0)
+})
+`,
+    )
+    const check = {
+      id: `vitest:ui:apps/ui/src/${name}`,
+      family: "vitest",
+      lane: "ui",
+      root: "apps/ui",
+      file: `apps/ui/src/${name}`,
+      inputs: [],
+      runtime: "node",
+    }
+    const manifest = join(directory, "manifest.json")
+    writeFileSync(
+      manifest,
+      JSON.stringify({ schemaVersion: 1, checks: [check] }),
+    )
+    const result = spawnSync(
+      process.execPath,
+      [script("run.mjs"), "--manifest", manifest],
+      {
+        cwd: root,
+        encoding: "utf8",
+        input: `${check.id}\n`,
+        env: {
+          ...process.env,
+          TZ: "Pacific/Auckland",
+          LANG: "de_DE.UTF-8",
+          LC_ALL: "de_DE.UTF-8",
+        },
+      },
+    )
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    assert.equal(JSON.parse(result.stdout).status, "passed")
+    // The CI test jobs start Vitest through the same launcher.
+    const launch = vitestCommand(
+      { name: "ui", directory: "apps/ui", runtime: "node" },
+      root,
+      [],
+      join(directory, "report.json"),
+    )
+    assert.deepEqual(
+      [launch.env.TZ, launch.env.LANG, launch.env.LC_ALL],
+      ["UTC", "C.UTF-8", "C.UTF-8"],
+    )
+  } finally {
+    rmSync(file, { force: true })
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("the manifest marks exactly the platform-independent checks portable", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const { checks } = JSON.parse(result.stdout)
+  const lanes = (portable) => [
+    ...new Set(
+      checks
+        .filter((check) => Boolean(check.portable) === portable)
+        .map(({ family, lane }) =>
+          family === "build"
+            ? `build:${lane.split("-")[0]}`
+            : `${family}:${lane}`,
+        ),
+    ),
+  ]
+  const notPortable = lanes(false).sort()
+  assert.deepEqual(
+    notPortable,
+    [
+      "build:image",
+      ...notPortable.filter((lane) => lane.startsWith("deploy:")),
+      "vitest:codesearch",
+      "vitest:codesearch-bun",
+      "vitest:contracts",
+      "vitest:latency",
+    ].sort(),
+  )
+  for (const lane of [
+    "vitest:backend",
+    "vitest:vercel",
+    "vitest:upgrade",
+    "vitest:ui",
+    "vitest:cli",
+    "vitest:aws-cdk",
+    "storybook:golden",
+    "storybook:plays",
+    "eval:mcp",
+    "build:package",
+  ])
+    assert.ok(lanes(true).includes(lane), lane)
+  assert.ok(
+    lanes(true).every((lane) =>
+      /^(vitest|storybook|eval|typecheck|lint|policy|build):/.test(lane),
+    ),
+  )
+  const programs = (lane) =>
+    new Set(
+      checks
+        .filter((check) => check.lane === lane && check.family === "vitest")
+        .map((check) => JSON.stringify(check.programs)),
+    )
+  assert.deepEqual(
+    programs("backend"),
+    new Set(['["git"]', '["git","ast-grep"]', '["git","bun"]']),
+  )
+  assert.deepEqual(programs("cli"), new Set(['["git"]', '["git","bash"]']))
+  assert.deepEqual(programs("upgrade"), new Set(['["git","zoekt","ast-grep"]']))
+  // A check that the denylist names is never portable.
+  const denied = JSON.parse(readFileSync(script("non-portable.json"), "utf8"))
+  for (const check of checks.filter(({ id }) => denied.includes(id)))
+    assert.equal(check.portable, undefined, check.id)
+  const listed = { id: "vitest:ui:a.test.ts", portable: true }
+  assert.deepEqual(markPortable([listed], new Set([listed.id])), [
+    { id: listed.id },
+  ])
+  assert.deepEqual(markPortable([listed], new Set()), [listed])
+})
+
+test("the backend files that start Docker or host tools run in the contracts lane", () => {
+  const moved = JSON.parse(
+    readFileSync(join(root, "scripts/ci/contracts.json"), "utf8"),
+  )["host Docker, zoekt and process environment (not portable)"]
+  assert.ok(moved.length >= 10)
+  const backend = JSON.parse(
+    node([join(root, "scripts/ci/test-suite.mjs"), "backend", "--list"]).stdout,
+  )
+  const contracts = JSON.parse(
+    node([join(root, "scripts/ci/test-suite.mjs"), "contracts", "--list"])
+      .stdout,
+  )
+  for (const file of moved) {
+    assert.ok(!backend.includes(file), file)
+    assert.ok(contracts.includes(file), file)
+  }
+  // No file left in the portable backend lane starts Docker through the
+  // TanStack Docker sandbox or a native fixture.
+  const starts =
+    /from "@tanstack\/ai-sandbox-docker"|native-index-fixture|docker-workspace-base|agent-vault-fixture/
+  for (const file of backend) {
+    const text = readFileSync(join(root, "apps/backend", file), "utf8")
+    const imports = text.match(/^import .*$/gm)?.join("\n") ?? ""
+    assert.ok(
+      !starts.test(imports) || /DockerHandle/.test(imports),
+      `${file} starts Docker; add it to the not portable group of scripts/ci/contracts.json`,
+    )
   }
 })
 
