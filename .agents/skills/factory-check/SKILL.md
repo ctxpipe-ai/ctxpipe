@@ -1,6 +1,6 @@
 ---
 name: factory-check
-description: Verify a change with `factory check` before each push. It selects the checks that the change can break, reuses earlier passes, runs only the misses, runs the review critics beside them, and stores the passes and the verdicts so that CI reuses them. Use before each push, instead of a full test suite, tests one by one, a sub-agent that only runs tests, or a review sub-agent.
+description: Verify a change with `factory check` before each push. It runs the checks that the change can break and the review critics, and it stores the passes and the verdicts so that CI reuses them. Use before each push, instead of a full test suite, tests one by one, a sub-agent that only runs tests, or a review sub-agent.
 ---
 
 # Verify a change with `factory check`
@@ -11,7 +11,7 @@ description: Verify a change with `factory check` before each push. It selects t
 2. It reads the shared result store. A check whose inputs did not change since an earlier pass (from CI, a person, or an agent) is a hit and does not run.
 3. It runs the misses with the public runner (`pnpm -s checks:run`).
 4. It stores each new pass in the shared store. The merge gate of the pull request reads the store, so CI does not run that check again.
-5. At the same time, it runs the review critics of the code-review skill on the committed diff of the branch: one headless reviewer (`claude` or `codex`) for each critic that has a hunk to review. It stores each verdict for the merge gate. A rerun reviews only the hunks that changed or had a finding.
+5. At the same time, it runs the review critics of the code-review skill on the committed diff of the branch. Each critic that has a hunk to review gets one headless reviewer (`claude` or `codex`). It stores each verdict for the merge gate. A rerun reviews only the hunks that changed or had a finding.
 
 The contract of the checks is public: [`scripts/checks/README.md`](../../../scripts/checks/README.md).
 

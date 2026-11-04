@@ -1455,7 +1455,7 @@ jobs:
 
   # The review critics (`factory review gate`, .agents/skills/code-review):
   # for the PR diff and the critics of the merge base, the stored verdict of
-  # each critic. An agent stores them when it runs /code-review. It runs on
+  # each critic. An agent stores them when it runs `factory check`. It runs on
   # each same-repo PR in every mode, apart from the selection, so a full run
   # checks the critics too. It holds the read-only role of the select job and
   # runs no package manager and no repository script. Its artifact is the only

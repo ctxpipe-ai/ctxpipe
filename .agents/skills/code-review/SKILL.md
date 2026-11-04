@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Review a branch along the critics of `critics.json` — Standards, Spec, Simplicity, and Security when its triggers match. `factory check` runs the critics and stores their verdicts for the merge gate; this skill is the entry to it, and its step 4 holds the critic prompts that the reviewers read. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to "review since X".
+description: Review a branch along the critics of `critics.json` — Standards, Spec, Simplicity, and Security when its triggers match. `factory check` runs the critics and stores their verdicts for the merge gate. This skill is the entry to it; its step 4 holds the critic prompts. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to "review since X".
 ---
 
 The critics review the diff between `HEAD` and a fixed point along separate axes:
@@ -16,10 +16,10 @@ The issue tracker should have been provided to you — run `/setup-matt-pocock-s
 
 ## Run the critics with `factory check`
 
-The critics are in [`critics.json`](critics.json): each one has its intent, its triggers, when it may be skipped, its reviewers (model and effort), and its `inputs`, the files that hold its rules and its prompt. `factory check` runs them beside the selected checks ([factory-check skill](../factory-check/SKILL.md)). Do not start review sub-agents.
+The critics are in [`critics.json`](critics.json). Each one has its intent, its triggers, and the reasons for which it may be skipped. It also has its reviewers (model and effort) and its `inputs`: the files that hold its rules and its prompt. `factory check` runs them beside the selected checks ([factory-check skill](../factory-check/SKILL.md)). Do not start review sub-agents.
 
 1. Commit the change. The critics review the committed diff of the branch against `origin/main`. The merge gate looks up their verdicts for that diff.
-2. Run `AWS_PROFILE=ctxpipe-factory factory check --input <ticket or brief file>`. It plans each critic (`run-full`, `run-delta`, `carried` or `not-applicable`, with a reason). It runs one headless reviewer for each planned reviewer, records each verdict, and prints each finding with its file and line.
+2. Run `AWS_PROFILE=ctxpipe-factory factory check --repo . --input <ticket or brief file>`. It plans each critic (`run-full`, `run-delta`, `carried` or `not-applicable`, with a reason). It runs one headless reviewer for each planned reviewer, records each verdict, and prints each finding with its file and line.
 3. Fix each blocker and should-fix finding, commit, and run `factory check` again. It reviews only the hunks that changed or that had a finding; it carries the other hunks.
 4. Give the user the findings under one heading for each critic. Do not merge or rerank them (see _Why separate axes_).
 
