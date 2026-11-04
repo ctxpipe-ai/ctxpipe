@@ -509,8 +509,8 @@ export function code(text) {
 // The review critics of the PR, from `factory review gate` in the critics
 // job (critics.json): each critic of the merge base is carried (a stored
 // verdict covers the PR diff), not-applicable, or missing. Each other status
-// counts as missing. Without a record that lists critics, `checked` is false and `cause` says why (critics-cause.txt, or the
-// result of the critics job). A same-repo PR needs the record (`required`):
+// counts as missing. Without a record that lists critics, `checked` is false
+// and `cause` says why (critics-cause.txt, or the result of the critics job). A same-repo PR needs the record (`required`):
 // without it the gate fails. A fork PR gets no role for the result store.
 export function critics(inputs, { needs, fork = false } = {}) {
   const record = readJson(join(inputs, "critics.json"))
