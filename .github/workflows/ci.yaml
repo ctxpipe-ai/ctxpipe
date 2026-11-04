@@ -203,7 +203,7 @@ jobs:
       postgres:
         # Same pgvector image as the migrate job so default-suite persist tests
         # hit the live unique index instead of a dummy DATABASE_URL.
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
         env:
           POSTGRES_USER: ctxpipe
           POSTGRES_PASSWORD: ctxpipe
@@ -921,7 +921,7 @@ jobs:
     environment: workbench
     services:
       postgres:
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
         env:
           POSTGRES_USER: ctxpipe
           POSTGRES_PASSWORD: ctxpipe
@@ -1043,7 +1043,7 @@ jobs:
     services:
       postgres:
         # Matches local Compose (pgvector); plain postgres:16 lacks the vector extension.
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
         env:
           POSTGRES_USER: ctxpipe
           POSTGRES_PASSWORD: ctxpipe
@@ -1100,7 +1100,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     services:
       postgres:
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
         env:
           POSTGRES_USER: ctxpipe
           POSTGRES_PASSWORD: ctxpipe
@@ -1127,12 +1127,12 @@ jobs:
         with:
           bun-version: 1.4.4
       - name: Checkout of the previous release with its dependencies
-        env:
-          # The release that operators run now, not main. Main holds the new
-          # code. Move this to the newest release tag when the next release
-          # changes the upgrade path.
-          PREVIOUS_RELEASE_REF: "@ctxpipe/aws-cdk@3.2.0"
         run: |
+          # The release that operators run now, not main. Main holds the new
+          # code. Move previousRelease.ref in scripts/ci/service-pins.json to
+          # the newest release tag when the next release changes the upgrade
+          # path.
+          PREVIOUS_RELEASE_REF=$(jq -r .previousRelease.ref scripts/ci/service-pins.json)
           git worktree add --detach "$RUNNER_TEMP/previous-release" "$PREVIOUS_RELEASE_REF"
           cd "$RUNNER_TEMP/previous-release"
           pnpm install --frozen-lockfile --filter "@ctxpipe/backend..."
