@@ -21,7 +21,7 @@ jobs:
   terraform-plan:
     timeout-minutes: 30
     name: Terraform Plan (PR)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
 
     # Only branches on this repository (not forks). Fork PRs lack secrets anyway; this avoids noise.
     if: github.event.pull_request.head.repo.full_name == github.repository

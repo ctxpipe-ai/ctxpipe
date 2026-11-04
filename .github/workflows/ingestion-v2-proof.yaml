@@ -69,7 +69,7 @@ permissions: {}
 jobs:
   proof:
     name: Ingestion v2 proof (Docker)
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404-arm
     timeout-minutes: 360
     # GH_APP_ID, GH_PRIVATE_KEY and MODEL_PROVIDER_API_KEY are secrets
     # of the workbench environment. The job builds images and runs dependency
