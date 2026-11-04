@@ -16,6 +16,7 @@ import {
   code,
   comment,
   critics,
+  criticsFail,
   criticsText,
   decideMode,
   describe,
@@ -1175,7 +1176,7 @@ test("a critic with no stored verdict fails the gate, and the comment links each
   )
 })
 
-test("critics that the select job could not check do not fail the gate, and the cause shows", () => {
+test("a same-repo PR whose critics were not checked fails the gate with the cause; a fork PR does not", () => {
   const directory = inputs({})
   writeFileSync(
     join(directory, "critics-cause.txt"),
@@ -1184,12 +1185,36 @@ test("critics that the select job could not check do not fail the gate, and the 
   const checked = critics(directory)
   assert.deepEqual(checked.missing, [])
   assert.equal(checked.checked, false)
+  assert.equal(criticsFail(checked), true)
+  const text = criticsText(checked)
   assert.ok(
-    criticsText(checked).includes(
+    text.includes(
       "Not checked: `factory review gate failed with exit code 2`.",
     ),
   )
-  assert.ok(criticsText(critics(inputs({}))).includes("did not run"))
+  assert.ok(text.includes("the gate fails"))
+  const skipped = critics(inputs({}), {
+    needs: { "merge-gate-critics": { result: "skipped" } },
+  })
+  assert.equal(skipped.cause, "the critics job skipped")
+  assert.equal(criticsFail(skipped), true)
+  const fork = critics(inputs({}), { fork: true })
+  assert.equal(criticsFail(fork), false)
+  assert.ok(criticsText(fork).includes("a fork PR gets no role"))
+})
+
+test("the critics section says that the gate proves an attested review, not a sound one", () => {
+  const directory = inputs({
+    "critics.json": {
+      head: sha(8),
+      critics: [
+        { critic: "critic:spec", status: "carried", reason: "1 passes" },
+      ],
+    },
+  })
+  const text = criticsText(critics(directory))
+  assert.ok(text.includes("an agent recorded a review of these hunks"))
+  assert.ok(text.includes("open CTO decision"))
 })
 
 test("a lint or policy check takes the result of its step in the Lint and format job", () => {

@@ -33,7 +33,9 @@ If `factory` is on `PATH`, run `factory review plan --repo . --pr <owner>/<repo>
 - Put the plan's reasons for `carried` and `not-applicable` in the aggregate (step 5).
 - If the plan has `audit`, also run every `briefs/<critic>.audit.md` in full.
 - After each run, write its report as JSON (`status`, `reviewers` with tokens, `findings` with `severity`, `file`, `line`, `summary`) and run `factory review record --repo . --pr <pr> --critic <id> --round <n> --report <file>`. Use the round of the brief, also when a newer round exists. Add `--audit` for an audit run.
-- The merge gate runs `factory review gate` on the PR head. It fails when a critic has no stored verdict for the PR diff. After the last push, plan and run the review again; unchanged hunks are carried, so only the new hunks cost a review.
+- When the ticket or the brief (`--input`) changes, the next plan carries no verdict. The plan finds this change only in the rounds of this clone (below `.git`). Another clone does not know the earlier input, so it carries the passes of an older ticket. Plan a review after a ticket change in the same clone.
+- The merge gate runs `factory review gate` on the PR head in every mode. It fails when a critic has no stored verdict for the PR diff, or when it cannot look up the critics of a same-repo PR. After the last push, plan and run the review again; unchanged hunks are carried, so only the new hunks cost a review.
+- The gate proves that an agent recorded a review of the hunks. It does not prove that the review was sound.
 
 ### 2. Identify the spec source
 

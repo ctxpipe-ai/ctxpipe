@@ -94,6 +94,7 @@
         "**/*sandbox*",
         "**/*sandbox*/**",
         ".agents/hooks/**",
+        ".agents/skills/code-review/**",
         ".mcp.json",
         ".codex/**",
         ".github/**",
