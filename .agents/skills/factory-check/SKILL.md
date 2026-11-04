@@ -30,19 +30,33 @@ The contract of the checks is public: [`scripts/checks/README.md`](../../../scri
 
 3. Read the result. Each line is `CACHED`, a passed check, or a failed check. A failure gives its log in `.ci-results/checks/`.
 4. Fix each failure, then do step 2 again. A failed check always runs again; only a pass is stored.
-5. Read the last line. It counts the passes that the store holds now for CI, and the passes that are not storable, with the cause:
+5. Read the stored passes and the last line. Each `STORED <id>` line says if the key is `portable` (CI can reuse the pass) or `host-specific` (only a host of the same OS and CPU architecture can reuse it). The last line counts the cache hits, the new passes, and the passes that are not storable, with the cause:
 
    ```text
-   CI reuse: stored 4 passes for CI reuse; 1 not storable (1 without a cache key (stochastic, uncacheable or a missing key input)).
+   Result store: 3 cache hits reused; stored 4 new passes (4 portable, CI can reuse them; 0 host-specific, only this platform can reuse them); 1 not storable (1 without a cache key (stochastic, uncacheable or a missing key input)).
    ```
 
 6. Commit and push. The merge gate shows each reused pass as a hit with class `agent`.
+
+## Make your passes count in CI
+
+A laptop pass counts in CI only when its key is portable and your local tool versions are the same as in CI:
+
+- the Node version of `.node-version`,
+- the pnpm version of `packageManager` in `package.json`,
+- the Bun version of CI,
+- a git with the same major and minor version as CI. Apple git is older: install git with `brew install git`.
+
+`factory check` prints a `WARNING` line, with the fix, for each version that is not the same as in the newest nightly run on `main`. Fix each warning before you trust the cache. A different version gives a different key, so CI cannot reuse any of your passes, and no error tells you.
+
+Until the factory release that the merge gate pins makes keys portable (the factory change "portable keys"), the key of each check holds the OS and the CPU architecture. Then a pass from macOS is `host-specific`, and CI on Linux cannot reuse it.
 
 ## When a pass is not stored
 
 - **No AWS credentials, or an expired SSO session.** The run still selects and runs the checks, but every check is a miss and no pass is stored. The output says `the shared store is off`. Do step 1, then run again: the earlier passes ran on your laptop only.
 - **A check without a cache key.** A stochastic check (an eval, a latency bound) or an uncacheable check (an image build, a preview deploy) always runs in CI.
 - **The inputs changed during the run.** Do not edit files while the checks run.
+- **A host-specific key.** The pass is stored, but CI cannot reuse it. See [Make your passes count in CI](#make-your-passes-count-in-ci).
 - **A dirty tree.** The pass is stored with the key of the working-tree text. CI reuses it only when a commit holds the same text. Commit before you push, and do not change the files after the run.
 
 ## Useful flags
