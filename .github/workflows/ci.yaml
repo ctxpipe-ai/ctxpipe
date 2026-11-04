@@ -266,7 +266,7 @@ jobs:
       - name: Required native revision index tools
         run: |
           npm install --global @ast-grep/cli@0.45.0
-          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ]; then
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ] || [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-index" ]; then
             mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
             # proxy.golang.org occasionally resets the zoekt zip mid-download.
             for tool in zoekt-index zoekt-webserver; do
@@ -1154,7 +1154,7 @@ jobs:
       - name: Required native revision index tools
         run: |
           npm install --global @ast-grep/cli@0.45.0
-          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ]; then
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ] || [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-index" ]; then
             mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
             for tool in zoekt-index zoekt-webserver; do
               n=0
@@ -1313,7 +1313,7 @@ jobs:
           npm install --global @ast-grep/cli@0.45.0
           # Install both binaries: the cache that this job saves is the one
           # the test jobs restore, and they need zoekt-index too.
-          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ]; then
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ] || [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-index" ]; then
             mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
             for tool in zoekt-index zoekt-webserver; do
               n=0
