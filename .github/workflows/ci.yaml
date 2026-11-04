@@ -1912,9 +1912,16 @@ jobs:
                 cat -v "$list"
               } >> "$RUNNER_TEMP/store.txt"
             done
-          if grep -q '^SUSPECT WRITER' "$RUNNER_TEMP/store.txt"; then
-            hashes="$(grep -o '^SUSPECT WRITER sha256 [0-9a-f]*' "$RUNNER_TEMP/store.txt" | awk '{print $4}' | tr '\n' ' ')"
-            echo "::error::Suspect agent writers (sha256 of the writer): ${hashes}. The run had an infrastructure fault or many confirmed failures, so no writer was quarantined. A person or the nightly agent reviews the markers under quarantine/suspect/."
+          # Suspect agent writers (sha256 of the writer), by cause. A person or
+          # the nightly agent reviews the markers under quarantine/suspect/.
+          held="$(jq -r '.writersHeld // empty' "$RUNNER_TEMP/store.json" 2> /dev/null || true)"
+          if [ -n "$held" ]; then
+            hashes="$(jq -r '[.contradictions[] | select(.rerun == "failed" and (.crossPlatform | not)) | .writers[]] | unique | join(" ")' "$RUNNER_TEMP/store.json")"
+            echo "::error::Suspect agent writers: ${hashes}. No writer was quarantined, because ${held}."
+          fi
+          cross="$(jq -r '[.contradictions[]? | select(.rerun == "failed" and .crossPlatform) | .writers[]] | unique | join(" ")' "$RUNNER_TEMP/store.json" 2> /dev/null || true)"
+          if [ -n "$cross" ]; then
+            echo "::error::Suspect agent writers: ${cross}. Their pass of a portable check came from another platform, so either the check is not portable or the pass is false. The Non-portable checks job marks the check not portable."
           fi
           # The portable checks that failed here and in the rerun, while every
           # stored pass of their key came from another platform: their result

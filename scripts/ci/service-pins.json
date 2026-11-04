@@ -9,7 +9,10 @@
     "tag": "pg17",
     "digest": "sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8",
     "serverVersion": "17.11",
-    "pgvectorVersion": "0.8.7"
+    "pgvectorVersion": "0.8.7",
+    "collate": "en_US.utf8",
+    "ctype": "en_US.utf8",
+    "collationVersion": "2.36"
   },
   "previousRelease": {
     "ref": "@ctxpipe/aws-cdk@3.2.0"

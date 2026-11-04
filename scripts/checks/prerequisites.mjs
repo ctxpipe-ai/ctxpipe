@@ -168,17 +168,29 @@ export const prerequisites = {
   postgres: {
     prepare: async () => {
       const [server] = await pgQuery("SHOW server_version")
+      // The installed extension wins over the default of the image: an old
+      // volume can hold an older one.
       const [vector] = await pgQuery(
-        "SELECT default_version FROM pg_available_extensions WHERE name = 'vector'",
+        "SELECT coalesce((SELECT extversion FROM pg_extension WHERE extname = 'vector'), (SELECT default_version FROM pg_available_extensions WHERE name = 'vector')) AS version",
+      )
+      // The collation decides text ORDER BY: macOS libc and the glibc of the
+      // image sort differently.
+      const [database] = await pgQuery(
+        "SELECT datcollate, datctype, datcollversion FROM pg_database WHERE datname = current_database()",
       )
       const found = {
-        server: server.server_version.split(" ")[0],
-        pgvector: vector?.default_version,
+        serverVersion: server.server_version.split(" ")[0],
+        pgvectorVersion: vector?.version,
+        collate: database?.datcollate,
+        ctype: database?.datctype,
+        collationVersion: database?.datcollversion,
       }
-      const { serverVersion, pgvectorVersion } = pins.postgres
-      if (found.server !== serverVersion || found.pgvector !== pgvectorVersion)
+      const wrong = Object.keys(found).filter(
+        (name) => found[name] !== pins.postgres[name],
+      )
+      if (wrong.length)
         throw new Error(
-          `Postgres must be ${serverVersion} with pgvector ${pgvectorVersion}; found ${found.server} with pgvector ${found.pgvector}. Run: docker compose pull postgres && pnpm dev:infra`,
+          `Postgres differs from the pinned image (scripts/ci/service-pins.json): ${wrong.map((name) => `${name} ${found[name]}, not ${pins.postgres[name]}`).join("; ")}. Run: docker compose pull postgres && pnpm dev:infra, and make the database from the default template.`,
         )
     },
   },
