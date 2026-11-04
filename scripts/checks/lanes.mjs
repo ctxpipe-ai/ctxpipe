@@ -202,18 +202,19 @@ const lanes = {
     ],
     portable: true,
   },
-  // CI runs codesearch in its Docker test image (zoekt and the SCIP indexers).
+  // Both lanes run in the Docker test image (zoekt and the SCIP indexers), on a
+  // laptop as in CI (runCodesearchImage).
   codesearch: {
     directory: "apps/codesearch",
     runtime: "node",
     inputs: codesearchInputs,
-    prerequisites: ["zoekt"],
+    prerequisites: ["docker"],
   },
   "codesearch-bun": {
     directory: "apps/codesearch",
     runtime: "bun",
     inputs: codesearchInputs,
-    prerequisites: ["bun", "zoekt"],
+    prerequisites: ["docker"],
   },
 }
 
@@ -334,7 +335,11 @@ export function runVitest(checks, trace) {
   const records = []
   const traced = []
   let traceFailed = false
+  // Both codesearch lanes run in one container run, in the test image.
+  const image = checks.filter(({ lane }) => codesearchLanes.includes(lane))
+  if (image.length) records.push(...runCodesearchImage(image))
   for (const [lane, laneChecks] of groups) {
+    if (codesearchLanes.includes(lane)) continue
     const { directory } = lanes[lane]
     const log = logFile(lane)
     const report = join(root, ".ci-results", "checks", `${lane}.json`)
@@ -395,6 +400,44 @@ export function runVitest(checks, trace) {
     records.push(...(run ? markExitFailure(laneRecords, run) : laneRecords))
   }
   return { records, traced, traceFailed }
+}
+
+const codesearchLanes = ["codesearch", "codesearch-bun"]
+
+// Runs the codesearch lanes in the test image (zoekt and the SCIP indexers),
+// as CI does, so that a laptop and CI give the same result. The image has the
+// platform of the Docker server (run-vitest-docker.sh). The container runs the
+// Node and the Bun lane and writes one result record for each test file; this
+// returns the records of the selected checks. The lanes have no trace here.
+export function runCodesearchImage(checks) {
+  const log = logFile("codesearch")
+  const directory = join(root, ".ci-results", "checks", "codesearch-records")
+  rmSync(directory, { recursive: true, force: true })
+  const run = logged(
+    log.path,
+    "bash",
+    [
+      join(root, "apps/codesearch/scripts/run-vitest-docker.sh"),
+      "--records",
+      directory,
+    ],
+    { cwd: root, timeout: 2_700_000 },
+  )
+  const written = new Map()
+  try {
+    for (const line of readFileSync(join(directory, "records.ndjson"), "utf8")
+      .split("\n")
+      .filter(Boolean)) {
+      const { schemaVersion: _, ...record } = JSON.parse(line)
+      written.set(record.id, { ...record, log: log.relative })
+    }
+  } catch {}
+  const message = `The codesearch image run wrote no result (${run.error?.message ?? run.signal ?? `exit ${run.status}`})`
+  const records = checks.map(
+    ({ id }) =>
+      written.get(id) ?? suiteRecord(id, undefined, log.relative, message),
+  )
+  return markExitFailure(records, run)
 }
 
 // The result record (schema/result.v1.schema.json, without schemaVersion) of

@@ -29,9 +29,18 @@ while [ "$#" -gt 0 ]; do
 done
 [ "${#args[@]}" -eq 0 ] || args=(pnpm run test:vitest "${args[@]}")
 
+# The image has the platform of the Docker server: linux/arm64 on an Apple
+# silicon laptop and on an arm64 CI runner, linux/amd64 on an amd64 machine.
+# Docker runs another platform under emulation, which is slow, so none is forced.
+case "$(docker info --format '{{.Architecture}}')" in
+  aarch64 | arm64) platform=linux/arm64 ;;
+  x86_64 | amd64) platform=linux/amd64 ;;
+  *) echo "Unsupported Docker server architecture" >&2; exit 1 ;;
+esac
+
 # CI fills .release-cache with checksum-verified release files (fetch-releases.sh).
 context=()
 [ ! -d "${ROOT}/.release-cache" ] || context=(--build-context "releases=${ROOT}/.release-cache")
-docker build --platform linux/amd64 ${context[@]+"${context[@]}"} -f "${ROOT}/apps/codesearch/Dockerfile" --target test -t "${IMAGE}" "${ROOT}"
-docker run --platform linux/amd64 --rm ${mount[@]+"${mount[@]}"} "${IMAGE}" ${args[@]+"${args[@]}"}
+docker build --platform "${platform}" ${context[@]+"${context[@]}"} -f "${ROOT}/apps/codesearch/Dockerfile" --target test -t "${IMAGE}" "${ROOT}"
+docker run --platform "${platform}" --rm ${mount[@]+"${mount[@]}"} "${IMAGE}" ${args[@]+"${args[@]}"}
 bash "${ROOT}/apps/codesearch/scripts/oom-simulation.sh" "${IMAGE}"
