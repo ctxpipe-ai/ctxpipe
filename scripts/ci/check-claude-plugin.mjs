@@ -3,8 +3,9 @@
 // into an empty Claude config directory, and checks that the installed plugin
 // is enabled and points its MCP server at the hosted product.
 //
-// The Claude Code version is pinned. npx downloads it, so the check needs the
-// network.
+// The Claude Code CLI is an exact-pinned devDependency of the root
+// package.json. pnpm exec runs the installed binary, so the check does not
+// need the network.
 //
 // Usage: node scripts/ci/check-claude-plugin.mjs
 
@@ -18,8 +19,8 @@ const root = fileURLToPath(new URL("../..", import.meta.url))
 const config = mkdtempSync(join(tmpdir(), "claude-plugin-"))
 const claude = (...args) => {
   const run = spawnSync(
-    "npx",
-    ["-y", "@anthropic-ai/claude-code@2.1.251", ...args],
+    "pnpm",
+    ["exec", "claude", ...args],
     {
       cwd: root,
       encoding: "utf8",

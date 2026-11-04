@@ -24,7 +24,7 @@
     "test:policy": "node scripts/ci/check-test-policy.mjs",
     "test:storybook-golden": "node scripts/ci/storybook-golden.mjs",
     "lint": "oxlint -c .oxlintrc.json apps packages",
-    "knip": "pnpm dlx knip@5.88.1",
+    "knip": "knip",
     "format": "oxfmt apps packages",
     "format:check": "oxfmt --check apps packages",
     "mcp:inspect": "pnpm --filter @ctxpipe/backend run mcp:inspect",
@@ -41,9 +41,11 @@
     "release": "pnpm -r --filter \"./packages/*\" run --if-present build && pnpm -r --filter \"./packages/*\" run --if-present test && changeset publish"
   },
   "devDependencies": {
+    "@anthropic-ai/claude-code": "2.1.251",
     "@changesets/cli": "^2.29.7",
     "@jridgewell/sourcemap-codec": "1.5.5",
     "concurrently": "^9.1.0",
+    "knip": "5.88.1",
     "oxfmt": "0.74.0",
     "oxlint": "1.89.0",
     "portless": "^0.9.4",
