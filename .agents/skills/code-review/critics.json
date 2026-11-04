@@ -1,0 +1,121 @@
+{
+  "critics": [
+    {
+      "name": "spec",
+      "intent": "Does the diff do what the ticket and the brief ask, and does it do it correctly: missing or partial requirements, scope creep, and wrong behavior (false cache hits, exit codes, missed inputs, edge cases). It runs on every change.",
+      "inputs": [".agents/skills/code-review/SKILL.md"],
+      "notApplicable": [],
+      "triggers": ["**"],
+      "models": {
+        "full": [
+          {
+            "model": "claude-opus",
+            "effort": "high"
+          }
+        ],
+        "delta": [
+          {
+            "model": "gpt-6-luna",
+            "effort": "medium"
+          }
+        ]
+      }
+    },
+    {
+      "name": "standards",
+      "intent": "Does the diff follow the documented repo rules (the root AGENTS.md, the AGENTS.md of each app, and lessons-learned) and the smell baseline of the code-review skill. It runs on every change.",
+      "inputs": [
+        ".agents/skills/code-review/SKILL.md",
+        "**/AGENTS.md",
+        ".ai/memory/lessons-learned.md"
+      ],
+      "notApplicable": [],
+      "triggers": ["**"],
+      "models": {
+        "full": [
+          {
+            "model": "gpt-6.1-sol",
+            "effort": "high"
+          }
+        ],
+        "delta": [
+          {
+            "model": "gpt-6-luna",
+            "effort": "medium"
+          }
+        ]
+      }
+    },
+    {
+      "name": "simplicity",
+      "intent": "Is each part of the diff essential for the job, or accidental machinery: unused options, wrappers, fields and modes, and leftover analogue design. Spec-match is not a defense. It runs on every change.",
+      "inputs": [
+        ".agents/skills/simplicity-audit/REVIEW-BRIEF.md",
+        ".agents/skills/simplicity-audit/SKILL.md"
+      ],
+      "notApplicable": [],
+      "triggers": ["**"],
+      "models": {
+        "full": [
+          {
+            "model": "gpt-6-sol",
+            "effort": "high"
+          }
+        ],
+        "delta": [
+          {
+            "model": "gpt-6-luna",
+            "effort": "medium"
+          }
+        ]
+      }
+    },
+    {
+      "name": "security",
+      "intent": "Trust surfaces. They are credentials and tokens, auth and organization isolation, and OIDC and IAM trust. They are CI workflow trust: permissions, secrets, environments, triggers and third-party actions. They are sandboxes and egress, and model routing to an outside provider. They are code that runs at install, at check listing or at check discovery: dependency scripts, bin entries and git dependencies. They are data that leaves to a public artifact or an outside provider. A change that touches none of these is not a reason to run it. A workflow or package edit that does not change its trust is not a reason either.",
+      "inputs": [".agents/skills/code-review/SKILL.md", "AGENTS.md"],
+      "notApplicable": [
+        "no trust surface: the diff touches no credential, auth, CI workflow, IAM or infrastructure, install or discovery path, sandbox or egress, model routing, and no data that leaves to a public artifact or an outside provider"
+      ],
+      "triggers": [
+        "infra/**",
+        "packages/aws-cdk/**",
+        "**/*.tf",
+        "**/auth/**",
+        "**/*auth*",
+        "**/*token*",
+        "**/*secret*",
+        "**/*credential*",
+        "**/*oidc*",
+        "**/*iam*",
+        ".npmrc",
+        "ops/**",
+        "**/*egress*",
+        "**/*sandbox*",
+        "**/*sandbox*/**",
+        ".agents/hooks/**",
+        ".agents/skills/code-review/**",
+        ".mcp.json",
+        ".codex/**",
+        ".github/**",
+        "**/package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "scripts/checks/**"
+      ],
+      "fullReview": true,
+      "models": {
+        "full": [
+          {
+            "model": "claude-opus",
+            "effort": "high"
+          },
+          {
+            "model": "gpt-6.1-sol",
+            "effort": "high"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -170,6 +170,8 @@ This repository is public. **Never** put the name, slug, email, username, id (`o
 
 ## Testing
 
+Verify a change with `factory check` before you push, not with a full suite or a sub-agent that only runs tests. It runs only the checks that the change can break, and CI reuses its passes. See the [factory-check skill](.agents/skills/factory-check/SKILL.md), with the fallback when `factory` is not installed.
+
 Test through the module's public interface with its real collaborators. Fake the **environment**, not our own modules:
 
 - **HTTP** (codesearch, GitHub, Railway, OTLP, model providers): `msw` — `setupServer` from `msw/node`, handlers beside the test. In `apps/ui`, `apps/backend`, and `apps/codesearch`.

@@ -9,6 +9,7 @@ import { createServer } from "node:net"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { MCPConformanceTest } from "@mcpjam/sdk"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -152,39 +153,19 @@ describe("MCP conformance (Vitest-integrated)", () => {
     expect(result.status).toBe(0)
   }, 180_000)
 
-  it("passes MCPJam protocol conformance against the production transport", () => {
-    const result = spawnSync(
-      "pnpm",
-      [
-        "exec",
-        "mcpjam",
-        "protocol",
-        "conformance",
-        "--url",
-        `${baseUrl}/mcp`,
-        "--protocol-version",
-        "2025-11-25",
-        "--reporter",
-        "json-summary",
-      ],
-      {
-        encoding: "utf8",
-        env: process.env,
-        timeout: 120_000,
-      },
-    )
+  it("passes MCPJam protocol conformance against the production transport", async () => {
+    const result = await new MCPConformanceTest({
+      serverUrl: `${baseUrl}/mcp`,
+      protocolVersion: "2025-11-25",
+    }).run()
 
+    const failed = result.checks
+      .filter((check) => check.status === "failed")
+      .map((check) => `${check.id}: ${check.error?.message ?? check.title}`)
     expect(
-      {
-        status: result.status,
-        stdout: result.stdout,
-        stderr: result.stderr,
-      },
-      `MCPJam conformance failed.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
-    ).toMatchObject({
-      status: 0,
-      stdout: expect.stringContaining('"passed":true'),
-    })
+      { passed: result.passed, outcome: result.outcome, failed },
+      `MCPJam conformance failed.\n${result.summary}\n${failed.join("\n")}`,
+    ).toEqual({ passed: true, outcome: "passed", failed: [] })
   }, 180_000)
 
   it("serves framework instructions, a read tool, and structuredContent to the MCP SDK Client", async () => {
