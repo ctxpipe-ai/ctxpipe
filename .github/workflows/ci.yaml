@@ -620,7 +620,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    # amd64: production codesearch and the amd64 chat sandbox use this cache.
+    # amd64: it writes the codesearch layer cache, and codesearch builds only for amd64.
     runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       fail-fast: false
