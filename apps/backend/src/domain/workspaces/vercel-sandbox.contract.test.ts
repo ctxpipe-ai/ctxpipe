@@ -21,6 +21,7 @@ import {
   type SandboxGitTokenStore,
   sandboxGitTokenStore,
 } from "../../models/sandbox-git-tokens.js"
+import { withinDeadline } from "./call-deadline.js"
 import { WORKSPACE_CHAT_VERCEL_SETUP } from "./chat-runtime.js"
 import {
   GITHUB_RATE_LIMIT_COMMAND,
@@ -135,6 +136,15 @@ function agentSnapshot(): Promise<string> {
   return agent
 }
 
+/**
+ * The time limit of each test. The slowest test takes about 80 s in CI, and
+ * the two files of the lane take about 260 s together. With one hung test,
+ * the lane then ends in about 500 s, before the 600 s limit of
+ * `scripts/ci/test-suite.mjs` (CTX-1122). A test limit of 600 s let one hung
+ * test stop the lane with no failed test.
+ */
+const testLimit = { timeout: 240_000 }
+
 /** Timings and measurements go to the CI log; ticket 02 records them. */
 function report(line: string) {
   process.stderr.write(`${line}\n`)
@@ -221,7 +231,7 @@ afterAll(async () => {
       )
 })
 
-describe("Vercel Sandbox", { timeout: 600_000 }, () => {
+describe("Vercel Sandbox", testLimit, () => {
   it("resumes a stopped persistent sandbox with its files", async () => {
     const sandbox = await create({
       runtime: VERCEL_SANDBOX.runtime,
@@ -452,7 +462,7 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
   })
 })
 
-describe("hosted conversation provider", { timeout: 600_000 }, () => {
+describe("hosted conversation provider", testLimit, () => {
   it("authenticates GitHub only through the firewall and rotates the token", async () => {
     // The Actions token stands in for a minted Workspace read token; revoking
     // it would end the job, so revocations are recorded instead.
@@ -486,16 +496,39 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
       base: async () => ({ failed: async () => undefined }),
       agentSnapshot,
     })
-    const handle = await provider.create({
-      workspace: { source: { type: "none" } },
-    } as Parameters<typeof provider.create>[0])
+    // CTX-1122: each outside call has its own deadline, so a hung call fails
+    // this test with its name and does not stop the lane. The SDK reads the
+    // response of a command with no body timeout, so a command stream that
+    // stops never ends by itself.
+    // About 40 s: the first create also builds the agent snapshot.
+    const handle = await withinDeadline(
+      "provider.create (agent snapshot build and start)",
+      180_000,
+      () =>
+        provider.create({
+          workspace: { source: { type: "none" } },
+        } as Parameters<typeof provider.create>[0]),
+    )
     created.push(handle.id)
+    // Each command takes under 2 s; `curl -m 20` limits the GitHub request.
+    const exec = (
+      sandboxHandle: typeof handle,
+      call: string,
+      command: string,
+    ) =>
+      withinDeadline(`Sandbox command: ${call}`, 60_000, (signal) =>
+        sandboxHandle.process.exec(command, { signal }),
+      )
     const coreLimit = async (sandboxHandle: typeof handle) => {
       // An outside fault gets three tries; a firewall fault fails at once.
       for (let attempt = 1; ; attempt += 1) {
         try {
           return parseGithubCoreLimit(
-            await sandboxHandle.process.exec(GITHUB_RATE_LIMIT_COMMAND),
+            await exec(
+              sandboxHandle,
+              "GitHub rate limit read",
+              GITHUB_RATE_LIMIT_COMMAND,
+            ),
           )
         } catch (error) {
           if (attempt >= 3 || !isOutsideFault(error)) throw error
@@ -505,13 +538,25 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
     }
     // Unauthenticated callers get 60 requests an hour.
     expect(await coreLimit(handle)).toBeGreaterThan(60)
-    const environment = await handle.process.exec(
+    const environment = await exec(
+      handle,
+      "environment read",
       "env; cat /proc/1/environ 2>/dev/null | tr '\\0' '\\n'",
     )
     expect(environment.stdout.includes(githubToken)).toBe(false)
-    const clone = await gitWithCaDiagnostics(
-      handle,
-      "GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/ctxpipe-ai/ctxpipe.git HEAD",
+    const clone = await withinDeadline(
+      "Sandbox command: git ls-remote of GitHub",
+      60_000,
+      (signal) =>
+        gitWithCaDiagnostics(
+          {
+            process: {
+              exec: (command: string) =>
+                handle.process.exec(command, { signal }),
+            },
+          },
+          "GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/ctxpipe-ai/ctxpipe.git HEAD",
+        ),
     )
     expect(clone.exitCode, clone.stderr).toBe(0)
     const connected = await handle.ports.connect(4096)
@@ -519,8 +564,13 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
     expect(mints).toBe(1)
 
     // A token younger than 10 minutes is left alone on resume.
+    // Each resume takes under 5 s.
+    const resume = (call: string) =>
+      withinDeadline(`provider.resume (${call})`, 60_000, () =>
+        provider.resume({ id: handle.id }),
+      )
     let started = Date.now()
-    await provider.resume({ id: handle.id })
+    await resume("fresh token")
     report(`[vercel] resume with a fresh token ${Date.now() - started}ms`)
     expect(mints).toBe(1)
 
@@ -532,27 +582,31 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
         .where(eq(workspaceSandboxGitTokens.sandboxId, handle.id)),
     )
     started = Date.now()
-    await provider.resume({ id: handle.id })
+    await resume("aged token")
     report(`[vercel] resume with an aged token ${Date.now() - started}ms`)
     await expect.poll(() => mints, { timeout: 30_000 }).toBe(2)
     await expect.poll(() => revoked.length, { timeout: 60_000 }).toBe(1)
 
     // A stop revokes the token; the next resume replaces it before use.
-    await stopVercelSandbox({
-      credentials,
-      name: handle.id,
-      tokens,
-      revoke: access.revokeGitToken,
-    })
+    await withinDeadline("stopVercelSandbox", 60_000, () =>
+      stopVercelSandbox({
+        credentials,
+        name: handle.id,
+        tokens,
+        revoke: access.revokeGitToken,
+      }),
+    )
     expect(revoked).toHaveLength(2)
     expect(await tokens.get(handle.id)).toBeNull()
     started = Date.now()
-    const resumed = await provider.resume({ id: handle.id })
+    const resumed = await resume("after stop")
     report(`[vercel] resume after stop ${Date.now() - started}ms`)
     expect(mints).toBe(3)
     if (!resumed) throw new Error("Stopped sandbox did not resume")
     expect(await coreLimit(resumed)).toBeGreaterThan(60)
-    await provider.destroy({ id: handle.id })
+    await withinDeadline("provider.destroy", 60_000, () =>
+      provider.destroy({ id: handle.id }),
+    )
     expect(revoked).toHaveLength(3)
     expect(await tokens.get(handle.id)).toBeNull()
     await closeDb()
@@ -598,7 +652,7 @@ async function startEchoHost(): Promise<string> {
   )
 }
 
-describe("hosted turn credentials", { timeout: 600_000 }, () => {
+describe("hosted turn credentials", testLimit, () => {
   it("adds a turn's credentials outside the sandbox on exact paths and the pinned host, and removes them at turn end; the internet stays open", async () => {
     // An echo service on a second sandbox's public port stands in for the
     // backend: it shows the headers that the firewall set. A public echo
@@ -741,7 +795,7 @@ describe("hosted turn credentials", { timeout: 600_000 }, () => {
   })
 })
 
-describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
+describe("agent snapshot and Workspace base", testLimit, () => {
   const githubToken = () => {
     const token = process.env.GITHUB_TOKEN?.trim()
     if (!token)

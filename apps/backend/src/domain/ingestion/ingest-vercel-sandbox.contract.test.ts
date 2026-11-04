@@ -607,7 +607,10 @@ async function agentStatus(curlArgs: string): Promise<number> {
 // The hosted gate is open for this test only.
 const runtime = ingestShardRuntimeFactory({ hostedEgressProven: true })
 
-describe("hosted ingest shard", { timeout: 1_200_000 }, () => {
+// The slowest test takes about 65 s in CI. A limit above the 600 s lane limit
+// of `scripts/ci/test-suite.mjs` let a hung test stop the lane with no failed
+// test (CTX-1122); see testLimit in vercel-sandbox.contract.test.ts.
+describe("hosted ingest shard", { timeout: 240_000 }, () => {
   it("runs one shard end to end: prepare, discover-roots, and a model step whose usage comes back, all egress through the backend proxy", async () => {
     const shard = runtime(shardSpec(await readIngestSkillBundle()))
     let started = Date.now()
@@ -648,7 +651,7 @@ describe("hosted ingest shard", { timeout: 1_200_000 }, () => {
       workspaceId,
       baseCommit: HELLO_SHA,
       rootMap: { roots: [] },
-      signal: AbortSignal.timeout(600_000),
+      signal: AbortSignal.timeout(180_000),
     })
     report(`[vercel] ingest model step ${Date.now() - started}ms`)
     // The agent wrote a context file through the model step: the patch
