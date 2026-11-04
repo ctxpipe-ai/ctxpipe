@@ -233,7 +233,8 @@ jobs:
   verify_connector_assets:
     name: Verify connector asset contracts
     needs: [resolve_pr, build_pr_images]
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # amd64: it runs the amd64 PR images with docker run, and the arm64 runner has no emulation.
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
     # Runs branch code. It reads the PR file list and pulls the PR images.
     permissions:
