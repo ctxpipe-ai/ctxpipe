@@ -13,6 +13,7 @@ import {
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { SandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import { log } from "../../observability/logger.js"
+import { CallDeadlineError, withinDeadline } from "./call-deadline.js"
 import {
   VERCEL_INGEST_TOOLS,
   WORKSPACE_CHAT_OPENCODE_PORT,
@@ -477,9 +478,9 @@ async function refreshGitAccess(
  * Vercel lane, the boot time after a resume is earlier than the change time
  * of the link from before the stop, so the old link would pass.
  *
- * `startedAt` can be a function. A resume of a stopping sandbox returns before
- * the start, and the first command starts it. The function is read for each
- * check, so a start that happens during the wait is seen.
+ * `startedAt` can be a function. The function is read for each check, so a
+ * start that happens during the wait is seen. (`resume` starts a stopping
+ * sandbox before the wait, because a check has a short deadline.)
  */
 async function waitForCaBundle(
   handle: SandboxHandle,
@@ -495,12 +496,20 @@ async function waitForCaBundle(
         // because the rewrite recreates the link.
         `${whole} && [ "$(stat -c %Z ${bundle})" -ge ${threshold} ] && ! pgrep -x update-ca-trust >/dev/null && ! pgrep -x trust >/dev/null`
   }
+  // A check takes well under 1 s. A hung check counts as a failed one
+  // (CTX-1122). In the worst case, each of the 20 rounds has a first check
+  // that passes at its deadline and a second check that hangs. Then the
+  // wait ends after 20 x (5 + 0.25 + 5 + 0.5) s, about 3.6 minutes.
+  const check = () =>
+    withinDeadline("A CA bundle check", 5_000, (signal) =>
+      handle.process.exec(checkNow(), { signal }),
+    ).catch(() => undefined)
   for (let attempt = 0; attempt < 20; attempt++) {
-    const result = await handle.process.exec(checkNow()).catch(() => undefined)
+    const result = await check()
     if (result?.exitCode === 0) {
       // The same file, read again, shows a finished write.
       await new Promise((resolve) => setTimeout(resolve, 250))
-      const again = await handle.process.exec(checkNow()).catch(() => undefined)
+      const again = await check()
       if (again?.exitCode === 0) return
     }
     await new Promise((resolve) => setTimeout(resolve, 500))
@@ -581,21 +590,39 @@ export function vercelConversationProvider(input: {
     async create() {
       // Secrets reach the session through `env.set`, not the create request.
       const gitToken = await access.mintGitToken()
+      const revoke = access.revokeGitToken ?? revokeGithubToken
       let startedAt = 0
-      const start = (snapshotId: string) => {
+      const start = async (snapshotId: string) => {
         startedAt = beforeStart()
-        return Sandbox.create({
-          ...credentials,
-          source: { type: "snapshot", snapshotId },
-          resources: VERCEL_SANDBOX.resources,
-          ports: input.ports ?? [WORKSPACE_CHAT_OPENCODE_PORT],
-          persistent: true,
-          timeout: input.timeoutMs ?? SESSION_TIMEOUT_MS,
-          snapshotExpiration: STATE_RETENTION_MS,
-          keepLastSnapshots: { count: 1, expiration: STATE_RETENTION_MS },
-          networkPolicy: access.firewall.policy(gitToken),
-          tags: input.tags,
-        })
+        // The name is set here, not by Vercel: when the deadline fires,
+        // Vercel can still make the sandbox, and only its name finds it.
+        const name = `ctxpipe-${randomBytes(12).toString("hex")}`
+        try {
+          // Measured in the Vercel lane: under 1 s (CTX-1122).
+          return await withinDeadline(
+            "Starting a sandbox from a snapshot",
+            60_000,
+            (signal) =>
+              Sandbox.create({
+                ...credentials,
+                name,
+                source: { type: "snapshot", snapshotId },
+                resources: VERCEL_SANDBOX.resources,
+                ports: input.ports ?? [WORKSPACE_CHAT_OPENCODE_PORT],
+                persistent: true,
+                timeout: input.timeoutMs ?? SESSION_TIMEOUT_MS,
+                snapshotExpiration: STATE_RETENTION_MS,
+                keepLastSnapshots: { count: 1, expiration: STATE_RETENTION_MS },
+                networkPolicy: access.firewall.policy(gitToken),
+                tags: input.tags,
+                signal,
+              }),
+          )
+        } catch (error) {
+          if (error instanceof CallDeadlineError)
+            await deleteLateSandbox(credentials, name, input.logContext)
+          throw error
+        }
       }
       const fromAgent = async () => {
         const snapshotId = await input.agentSnapshot()
@@ -605,11 +632,11 @@ export function vercelConversationProvider(input: {
           throw error
         })
       }
-      const base = await input.base()
-      let sandbox: Sandbox
-      if (base.ref) {
+      const startSandbox = async () => {
+        const base = await input.base()
+        if (!base.ref) return fromAgent()
         try {
-          sandbox = await start(base.ref)
+          return await start(base.ref)
         } catch (error) {
           // This start goes on from the agent snapshot, once. The base is
           // marked failed (cleanup removes it, the next start asks for a
@@ -622,21 +649,28 @@ export function vercelConversationProvider(input: {
           })
           if (await baseSnapshotIsBad(credentials, base.ref))
             await base.failed()
-          sandbox = await fromAgent()
+          return fromAgent()
         }
-      } else sandbox = await fromAgent()
+      }
+      let sandbox: Sandbox
+      try {
+        sandbox = await startSandbox()
+      } catch (error) {
+        // No sandbox and no row holds the token: revoke it here, or it stays
+        // valid with no owner.
+        await revoke(gitToken).catch(() => undefined)
+        throw error
+      }
       try {
         await access.firewall.attach(sandbox, gitToken)
+        await access.tokens.put(sandbox.name, gitToken)
       } catch (error) {
         // No row holds the token yet: stop the sandbox and revoke it here,
         // or both stay orphaned.
         await sandbox.stop().catch(() => undefined)
-        await (access.revokeGitToken ?? revokeGithubToken)(gitToken).catch(
-          () => undefined,
-        )
+        await revoke(gitToken).catch(() => undefined)
         throw error
       }
-      await access.tokens.put(sandbox.name, gitToken)
       const handle = conversationHandle(sandbox, input.agentPassword)
       await waitForCaBundle(handle, startedAt)
       return handle
@@ -660,6 +694,15 @@ export function vercelConversationProvider(input: {
         return null
       }
       await refreshGitAccess(sandbox, access)
+      // A stopping sandbox starts again only at its next call. Start it here,
+      // so that `onResume` sets `started` before the CA wait. In the CA wait,
+      // the 5 s deadline of a check would also cut the stop poll and the
+      // start, and an aborted start never calls `onResume` (CTX-1122). A
+      // detached command is one request, with no output stream.
+      if (sandbox.status === "stopping" || sandbox.status === "snapshotting")
+        await withinDeadline("Starting a stopping sandbox", 120_000, (signal) =>
+          sandbox.runCommand({ cmd: "true", detached: true, signal }),
+        )
       const handle = conversationHandle(sandbox, input.agentPassword)
       await waitForCaBundle(handle, () => started)
       return handle
@@ -685,6 +728,31 @@ type SandboxTarget = {
    */
   tokens?: SandboxGitTokenStore
   revoke?: (token: string) => Promise<void>
+}
+
+/**
+ * Delete a sandbox whose start passed its deadline: Vercel can still make it,
+ * with the GitHub token in its firewall, and no row records it. It is not
+ * resumed, and "not found" counts as deleted. The delete has its own
+ * deadline; a failure is logged and the start goes on.
+ */
+async function deleteLateSandbox(
+  credentials: VercelCredentials,
+  name: string,
+  logContext?: { orgId: string; workspaceId: string },
+): Promise<void> {
+  await withinDeadline(
+    "Deleting a sandbox whose start passed its deadline",
+    30_000,
+    () => deleteVercelSandbox({ credentials, name }),
+  ).catch((error: unknown) =>
+    log.warn({
+      step: "workspace-sandbox-late-delete",
+      message: `Deleting a sandbox whose start passed its deadline failed: ${String(error)}`,
+      sandboxId: name,
+      ...logContext,
+    }),
+  )
 }
 
 /**
@@ -971,28 +1039,51 @@ async function buildAgentSnapshot(
   credentials: VercelCredentials,
   environment: string,
 ): Promise<string> {
-  const sandbox = await Sandbox.create({
-    ...credentials,
-    runtime: VERCEL_SANDBOX.runtime,
-    resources: VERCEL_SANDBOX.resources,
-    timeout: 15 * 60_000,
-    networkPolicy: { allow: ["registry.npmjs.org"] },
-    tags: { ...agentSnapshotTags(environment), opencode: AGENT_VERSION },
-  })
+  // Each call has a deadline: a hung call would hold this build, and every
+  // conversation start that waits for it, for ever (CTX-1122). Measured in
+  // the Vercel lane: create < 1 s, install about 15 s, snapshot about 3 s.
+  // A create that Vercel finishes after its deadline leaves a builder that
+  // nobody deletes at once. That is safe: the builder holds no secret, it
+  // stops after 15 minutes, and `deleteOldAgentBuilders` deletes it later.
+  const sandbox = await withinDeadline(
+    "Creating the agent builder sandbox",
+    60_000,
+    (signal) =>
+      Sandbox.create({
+        ...credentials,
+        runtime: VERCEL_SANDBOX.runtime,
+        resources: VERCEL_SANDBOX.resources,
+        timeout: 15 * 60_000,
+        networkPolicy: { allow: ["registry.npmjs.org"] },
+        tags: { ...agentSnapshotTags(environment), opencode: AGENT_VERSION },
+        signal,
+      }),
+  )
   try {
-    const installed = await new VercelHandle({
-      sandbox,
-      workdir: WORKDIR,
-      ports: [],
-    }).process.exec(WORKSPACE_CHAT_VERCEL_AGENT_INSTALL)
+    const installed = await withinDeadline(
+      "Installing OpenCode in the agent builder",
+      120_000,
+      (signal) =>
+        new VercelHandle({
+          sandbox,
+          workdir: WORKDIR,
+          ports: [],
+        }).process.exec(WORKSPACE_CHAT_VERCEL_AGENT_INSTALL, { signal }),
+    )
     if (installed.exitCode !== 0)
       throw new Error(
         `Installing OpenCode failed (exit ${installed.exitCode}): ${installed.stderr.slice(-500)}`,
       )
     return (
-      await sandbox.snapshot({
-        expiration: builderSnapshotExpiration(environment),
-      })
+      await withinDeadline(
+        "Snapshotting the agent builder",
+        120_000,
+        (signal) =>
+          sandbox.snapshot({
+            expiration: builderSnapshotExpiration(environment),
+            signal,
+          }),
+      )
     ).snapshotId
   } catch (error) {
     await deleteVercelBuilder({ credentials, builderName: sandbox.name })

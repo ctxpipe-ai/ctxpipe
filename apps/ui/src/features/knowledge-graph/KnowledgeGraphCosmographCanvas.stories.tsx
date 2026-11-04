@@ -6,6 +6,11 @@ import {
   type KnowledgeGraphSelectionEvent,
 } from "./KnowledgeGraphCosmographCanvas"
 
+// The canvas shows its controls only after the layout settles. That wait is
+// bound by CPU, so it is a ceiling, not a delay: a play continues as soon as the
+// control mounts. It stays under the 120 s limit of the story runner.
+const layoutSettleTimeout = 60_000
+
 const meta = {
   title: "Components/Knowledge Graph/Cosmograph Canvas",
   component: KnowledgeGraphCosmographCanvas,
@@ -152,7 +157,7 @@ export const DrawerOpenDimsOverlays: Story = {
     const search = await within(canvasElement).findByLabelText(
       "Search nodes",
       {},
-      { timeout: 10_000 },
+      { timeout: layoutSettleTimeout },
     )
     const overlay = search.closest("[inert]")
     await expect(overlay).not.toBeNull()
@@ -175,9 +180,11 @@ export const TimelinePlaysWithoutRange: Story = {
     const playButton = await canvas.findByRole(
       "button",
       { name: "Play history" },
-      { timeout: 10_000 },
+      { timeout: layoutSettleTimeout },
     )
-    await waitFor(() => expect(playButton).toBeEnabled())
+    await waitFor(() => expect(playButton).toBeEnabled(), {
+      timeout: layoutSettleTimeout,
+    })
     timelineSelections.mockClear()
     await userEvent.click(playButton)
     const pauseButton = await canvas.findByRole("button", {
