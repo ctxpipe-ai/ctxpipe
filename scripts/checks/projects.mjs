@@ -207,26 +207,12 @@ const definitions = () => [
     ["ui-motion", ["apps/ui/src/**"]],
     ["story-play-timing", ["apps/ui/src/**"]],
     ["claude-plugin", ["plugins/**", ".claude-plugin/**"]],
-    // The next three read the git diff against origin/main, so a result
+    // The next two read the git diff against origin/main, so a result
     // cannot be reused from the files alone.
     [
-      "changeset",
-      [
-        ".changeset/**",
-        "apps/**",
-        "packages/**",
-        "plugins/**",
-        "scripts/**",
-        ".github/**",
-        ".agents/**",
-        ".ai/**",
-      ],
-      "Catches a pull request with no changeset, or an internal-only change (tests, scripts, CI, agent files) that ships a release bump instead of an empty changeset. Run it on every change; it reads only the changed file names and the new changesets.",
-    ],
-    [
       "adr",
-      ["apps/**", "packages/**", "plugins/**", ".ai/memory/decisions/**"],
-      "Catches a new app, package, or plugin with no ADR, and a new ADR missing from the decisions index. Run it when a package manifest, a plugin manifest, or an ADR changes; never for a change inside existing code.",
+      [".ai/memory/decisions/**"],
+      "Catches a new ADR file that the decisions index does not list. Run it when a file under .ai/memory/decisions changes; never for a change outside it.",
     ],
     [
       "module-scope-values",

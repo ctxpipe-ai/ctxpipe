@@ -64,7 +64,16 @@ export function singleUseValues(fileName, text) {
   }
   const uses = new Map(candidates.map((c) => [c.name.text, 0]))
   const visit = (node) => {
-    if (ts.isIdentifier(node) && uses.has(node.text)) {
+    // `export { X }`, `export { X as Y }` and `export default X` publish the
+    // value: it is not single-use.
+    if (
+      ts.isIdentifier(node) &&
+      uses.has(node.text) &&
+      (ts.isExportSpecifier(node.parent) ||
+        (ts.isExportAssignment(node.parent) && !node.parent.isExportEquals))
+    ) {
+      uses.set(node.text, Infinity)
+    } else if (ts.isIdentifier(node) && uses.has(node.text)) {
       const parent = node.parent
       const isDeclaration = candidates.some((c) => c.name === node)
       const isKey =

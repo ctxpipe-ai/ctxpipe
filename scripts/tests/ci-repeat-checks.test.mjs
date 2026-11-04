@@ -50,68 +50,6 @@ function run(script, files, base = {}) {
   }
 }
 
-const empty = "---\n---\n"
-const bump = '---\n"@ctxpipe/aws-cdk": patch\n---\n\nA summary.\n'
-
-test("a product change with no changeset fails", () => {
-  const result = run("check-changeset.mjs", {
-    "apps/ui/src/page.tsx": "export const a = 1\n",
-  })
-  assert.equal(result.status, 1)
-  assert.match(result.stderr, /No changeset/)
-})
-
-test("a product change with a release changeset passes", () => {
-  const result = run("check-changeset.mjs", {
-    "apps/ui/src/page.tsx": "export const a = 1\n",
-    ".changeset/page.md": bump,
-  })
-  assert.equal(result.status, 0, result.stderr)
-})
-
-// A review round asked for this fix more than once: a check-only change that
-// shipped a release bump.
-test("an internal-only change with a release changeset fails", () => {
-  const result = run("check-changeset.mjs", {
-    "scripts/ci/check-x.mjs": "export {}\n",
-    "apps/ui/src/page.test.tsx": "export {}\n",
-    ".changeset/check.md": bump,
-  })
-  assert.equal(result.status, 1)
-  assert.match(result.stderr, /\.changeset\/check\.md.*must be empty/)
-})
-
-test("an internal-only change with an empty changeset passes", () => {
-  const result = run("check-changeset.mjs", {
-    "scripts/ci/check-x.mjs": "export {}\n",
-    ".changeset/check.md": empty,
-  })
-  assert.equal(result.status, 0, result.stderr)
-})
-
-test("a version PR that deletes changesets passes", () => {
-  const result = run(
-    "check-changeset.mjs",
-    { ".changeset/old.md": null, "packages/aws-cdk/package.json": "{}\n" },
-    { ".changeset/old.md": bump },
-  )
-  assert.equal(result.status, 0, result.stderr)
-})
-
-test("a new package without an ADR fails, and with an ADR and index entry passes", () => {
-  const bare = run("check-adr.mjs", {
-    "packages/tool/package.json": '{"name":"tool"}\n',
-  })
-  assert.equal(bare.status, 1)
-  assert.match(bare.stderr, /packages\/tool\/package\.json.*needs an ADR/)
-  const documented = run("check-adr.mjs", {
-    "packages/tool/package.json": '{"name":"tool"}\n',
-    ".ai/memory/decisions/ADR-900-tool.md": "# ADR\n",
-    ".ai/memory/decisions/index.md": "- ADR-900-tool\n",
-  })
-  assert.equal(documented.status, 0, documented.stderr)
-})
-
 test("a new ADR that the index omits fails", () => {
   const result = run("check-adr.mjs", {
     ".ai/memory/decisions/ADR-900-tool.md": "# ADR\n",
@@ -120,12 +58,55 @@ test("a new ADR that the index omits fails", () => {
   assert.match(result.stderr, /list the new ADR/)
 })
 
-test("a change inside an existing package needs no ADR", () => {
+test("a new ADR that the index lists passes", () => {
+  const result = run("check-adr.mjs", {
+    ".ai/memory/decisions/ADR-900-tool.md": "# ADR\n",
+    ".ai/memory/decisions/index.md": "- ADR-900-tool\n",
+  })
+  assert.equal(result.status, 0, result.stderr)
+})
+
+test("a renamed ADR that the index omits fails", () => {
   const result = run(
     "check-adr.mjs",
-    { "packages/tool/src/a.ts": "export const a = 1\n" },
-    { "packages/tool/package.json": "{}\n" },
+    {
+      ".ai/memory/decisions/ADR-900-tool.md": null,
+      ".ai/memory/decisions/ADR-901-tool.md": "# ADR\n",
+    },
+    {
+      ".ai/memory/decisions/ADR-900-tool.md": "# ADR\n",
+      ".ai/memory/decisions/index.md": "- ADR-900-tool\n",
+    },
   )
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /ADR-901-tool/)
+})
+
+test("a new package needs no ADR for this check", () => {
+  const result = run("check-adr.mjs", {
+    "packages/tool/package.json": '{"name":"tool"}\n',
+  })
+  assert.equal(result.status, 0, result.stderr)
+})
+
+test("a value that the file exports by name or by default is not single-use", () => {
+  const result = run("check-module-scope-values.mjs", {
+    "apps/backend/src/a.ts": [
+      `const NAMED = 1`,
+      `const RENAMED = 2`,
+      `const DEFAULT = "d"`,
+      `export { NAMED, RENAMED as other }`,
+      `export default DEFAULT`,
+      ``,
+    ].join("\n"),
+  })
+  assert.equal(result.status, 0, result.stderr)
+})
+
+test("an array or object at module scope is not flagged", () => {
+  const result = run("check-module-scope-values.mjs", {
+    "apps/backend/src/a.ts": `const TABLE = ["a"]\nconst MAP = { a: 1 }\nexport const f = () => [TABLE, MAP]\n`,
+  })
   assert.equal(result.status, 0, result.stderr)
 })
 

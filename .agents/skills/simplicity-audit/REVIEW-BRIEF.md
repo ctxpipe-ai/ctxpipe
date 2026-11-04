@@ -8,10 +8,7 @@ Do not treat the current implementation, the spec, or the ADR as correct or as s
 
 ## Already checked by CI
 
-Do not report these. A deterministic check covers each one (CTX-1120):
-
-- An empty or release changeset on a change: `scripts/ci/check-changeset.mjs` (`policy:changeset`).
-- A single-use value pulled to module scope: `scripts/ci/check-module-scope-values.mjs` (`policy:module-scope-values`).
+Do not report this exact case: a single-use scalar constant (a string or number) at module scope. `scripts/ci/check-module-scope-values.mjs` (`policy:module-scope-values`) covers it (CTX-1120). Arrays, objects, and calls at module scope stay yours to judge.
 
 ## Job, then thinnest machine
 
