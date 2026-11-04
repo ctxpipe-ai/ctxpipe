@@ -216,7 +216,7 @@ jobs:
       postgres:
         # Same pgvector image as the migrate job so default-suite persist tests
         # hit the live unique index instead of a dummy DATABASE_URL.
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
         env:
           POSTGRES_USER: ctxpipe
           POSTGRES_PASSWORD: ctxpipe
@@ -266,7 +266,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/ctxpipe-zoekt
-          key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1
+          key: zoekt-both-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1-v2
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: steps.zoekt.outputs.cache-hit != 'true'
         with:
@@ -275,7 +275,7 @@ jobs:
       - name: Required native revision index tools
         run: |
           npm install --global @ast-grep/cli@0.45.0
-          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ]; then
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ] || [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-index" ]; then
             mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
             # proxy.golang.org occasionally resets the zoekt zip mid-download.
             for tool in zoekt-index zoekt-webserver; do
@@ -891,11 +891,13 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .release-cache
-          key: codesearch-releases-${{ hashFiles('apps/codesearch/release-assets.txt') }}
+          key: codesearch-releases-${{ runner.arch }}-${{ hashFiles('apps/codesearch/release-assets.txt') }}
       # Fills the cache with checksum-verified files. When GitHub stays down,
       # this step fails in minutes with "Outside service unavailable".
       - name: Download pinned release files
         timeout-minutes: 10
+        env:
+          TARGETARCH: ${{ runner.arch == 'ARM64' && 'arm64' || 'amd64' }}
         run: bash apps/codesearch/scripts/fetch-releases.sh apps/codesearch/release-assets.txt "$RUNNER_TEMP/releases" .release-cache
       # The trace (scripts/checks/README.md) is data only; PR runs skip it.
       # The result records go to the merge gate and the Results writer.
@@ -937,7 +939,7 @@ jobs:
     environment: workbench
     services:
       postgres:
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
         env:
           POSTGRES_USER: ctxpipe
           POSTGRES_PASSWORD: ctxpipe
@@ -1059,7 +1061,7 @@ jobs:
     services:
       postgres:
         # Matches local Compose (pgvector); plain postgres:16 lacks the vector extension.
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
         env:
           POSTGRES_USER: ctxpipe
           POSTGRES_PASSWORD: ctxpipe
@@ -1116,7 +1118,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     services:
       postgres:
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
         env:
           POSTGRES_USER: ctxpipe
           POSTGRES_PASSWORD: ctxpipe
@@ -1143,12 +1145,12 @@ jobs:
         with:
           bun-version: 1.4.4
       - name: Checkout of the previous release with its dependencies
-        env:
-          # The release that operators run now, not main. Main holds the new
-          # code. Move this to the newest release tag when the next release
-          # changes the upgrade path.
-          PREVIOUS_RELEASE_REF: "@ctxpipe/aws-cdk@3.2.0"
         run: |
+          # The release that operators run now, not main. Main holds the new
+          # code. Move previousRelease.ref in scripts/ci/service-pins.json to
+          # the newest release tag when the next release changes the upgrade
+          # path.
+          PREVIOUS_RELEASE_REF=$(jq -r .previousRelease.ref scripts/ci/service-pins.json)
           git worktree add --detach "$RUNNER_TEMP/previous-release" "$PREVIOUS_RELEASE_REF"
           cd "$RUNNER_TEMP/previous-release"
           pnpm install --frozen-lockfile --filter "@ctxpipe/backend..."
@@ -1157,7 +1159,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/ctxpipe-zoekt
-          key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1
+          key: zoekt-both-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1-v2
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: steps.zoekt.outputs.cache-hit != 'true'
         with:
@@ -1166,7 +1168,7 @@ jobs:
       - name: Required native revision index tools
         run: |
           npm install --global @ast-grep/cli@0.45.0
-          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ]; then
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ] || [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-index" ]; then
             mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
             for tool in zoekt-index zoekt-webserver; do
               n=0
@@ -1303,6 +1305,42 @@ jobs:
           bun-version: 1.4.4
       - run: pnpm install --frozen-lockfile
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+      # The toolchain record holds the versions of the host programs that a
+      # check declares (scripts/checks/toolchain.mjs), so this job installs the
+      # same pinned zoekt and ast-grep as the upgrade job. Go reads the zoekt
+      # module version.
+      - name: Restore native revision index tools
+        id: zoekt
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/ctxpipe-zoekt
+          key: zoekt-both-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1-v2
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+        with:
+          go-version: 1.25.12
+          cache: false
+      - name: Host programs of the checks
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+        run: |
+          npm install --global @ast-grep/cli@0.45.0
+          # Install both binaries: the cache that this job saves is the one
+          # the test jobs restore, and they need zoekt-index too.
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ] || [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-index" ]; then
+            mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
+            for tool in zoekt-index zoekt-webserver; do
+              n=0
+              until GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install \
+                "github.com/sourcegraph/zoekt/cmd/${tool}@596c362fcf1388fe0082acfcfc80c4d172efb7c1"
+              do
+                n=$((n + 1))
+                [ "$n" -lt 4 ] || exit 1
+                sleep $((n * 4))
+              done
+            done
+          fi
+          echo "$RUNNER_TEMP/ctxpipe-zoekt" >> "$GITHUB_PATH"
       - name: Manifest and toolchain
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
         run: |
@@ -1818,6 +1856,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    outputs:
+      non_portable: ${{ steps.store.outputs.non_portable }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1873,6 +1913,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
       - name: Store the passes and audit the failures
+        id: store
         if: steps.pin.outputs.pinned == 'true'
         run: |
           mapfile -d '' records < <(find "$RUNNER_TEMP/results" -name records.ndjson -print0 | sort -z)
@@ -1885,6 +1926,7 @@ jobs:
             --toolchain "$RUNNER_TEMP/inputs/toolchain.json" \
             --trace "$RUNNER_TEMP/trace/trace.json.gz" \
             --records "${records[@]}" \
+            --json-file "$RUNNER_TEMP/store.json" \
             "${rerun_args[@]}" > "$RUNNER_TEMP/store.txt" 2>&1 || code=$?
           cat "$RUNNER_TEMP/store.txt"
           find "$RUNNER_TEMP/results" -name not-rerun.txt -print0 | sort -z |
@@ -1895,9 +1937,24 @@ jobs:
                 cat -v "$list"
               } >> "$RUNNER_TEMP/store.txt"
             done
-          if grep -q '^SUSPECT WRITER' "$RUNNER_TEMP/store.txt"; then
-            hashes="$(grep -o '^SUSPECT WRITER sha256 [0-9a-f]*' "$RUNNER_TEMP/store.txt" | awk '{print $4}' | tr '\n' ' ')"
-            echo "::error::Suspect agent writers (sha256 of the writer): ${hashes}. The run had an infrastructure fault or many confirmed failures, so no writer was quarantined. A person or the nightly agent reviews the markers under quarantine/suspect/."
+          # Suspect agent writers (sha256 of the writer), by cause. A person or
+          # the nightly agent reviews the markers under quarantine/suspect/.
+          held="$(jq -r '.writersHeld // empty' "$RUNNER_TEMP/store.json" 2> /dev/null || true)"
+          if [ -n "$held" ]; then
+            hashes="$(jq -r '[.contradictions[] | select(.rerun == "failed" and (.crossPlatform | not)) | .writers[]] | unique | join(" ")' "$RUNNER_TEMP/store.json")"
+            echo "::error::Suspect agent writers: ${hashes}. No writer was quarantined, because ${held}."
+          fi
+          cross="$(jq -r '[.contradictions[]? | select(.rerun == "failed" and .crossPlatform) | .writers[]] | unique | join(" ")' "$RUNNER_TEMP/store.json" 2> /dev/null || true)"
+          if [ -n "$cross" ]; then
+            echo "::error::Suspect agent writers: ${cross}. Their pass of a portable check came from another platform, so either the check is not portable or the pass is false. The Non-portable checks job marks the check not portable."
+          fi
+          # The portable checks that failed here and in the rerun, while every
+          # stored pass of their key came from another platform: their result
+          # depends on the platform. The Non-portable checks job lists them.
+          ids="$(jq -c '.nonPortable // []' "$RUNNER_TEMP/store.json" 2> /dev/null || echo '[]')"
+          echo "non_portable=${ids}" >> "$GITHUB_OUTPUT"
+          if [ "$ids" != "[]" ]; then
+            echo "::error::Checks whose result depends on the platform: ${ids}. The Non-portable checks job opens a pull request that adds them to the denylist of the manifest."
           fi
           if grep -q '^AUDIT FAILED' "$RUNNER_TEMP/store.txt"; then
             echo "::error::The audit of the result store failed, so no key was quarantined. See the Results writer summary."
@@ -1910,3 +1967,53 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$code"
+
+  # Adds the checks that the Results writer found not portable to the
+  # committed denylist, in a draft pull request: the manifest then marks them
+  # not portable, so a laptop pass no longer counts in CI for them. It runs no
+  # repository script and has no AWS role. When GitHub refuses the pull
+  # request, the error annotation names the checks to add by hand.
+  non-portable-checks:
+    timeout-minutes: 10
+    name: Non-portable checks
+    needs: [results-writer]
+    if: always() && needs.results-writer.outputs.non_portable != '' && needs.results-writer.outputs.non_portable != '[]'
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Open or update the pull request that marks the checks not portable
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IDS: ${{ needs.results-writer.outputs.non_portable }}
+        run: |
+          # One fixed branch and one pull request: each night adds its checks
+          # to the same list, so an unmerged pull request never doubles.
+          branch=ci/non-portable-checks
+          list=scripts/checks/non-portable.json
+          open="$(gh pr list --head "$branch" --state open --json number --jq '.[].number')"
+          # Without an open pull request, start again from main.
+          if [ -n "$open" ] && git fetch -q origin "$branch"; then
+            git switch -q -c "$branch" FETCH_HEAD
+          else
+            git switch -q -c "$branch"
+          fi
+          jq --argjson ids "$IDS" '. + $ids | unique' "$list" > "$RUNNER_TEMP/list.json"
+          mv "$RUNNER_TEMP/list.json" "$list"
+          if git diff --quiet; then
+            echo "The denylist already holds ${IDS}."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qam "Mark checks not portable from the nightly audit"
+          git push -q --force origin "$branch"
+          [ -z "$open" ] || exit 0
+          body="The nightly Results writer found portable checks that failed in CI and in the rerun, while every stored pass of the same key came from another platform. The manifest now marks them not portable. Find and fix the platform dependency, then remove them from the list. Each night adds its checks to this branch."
+          if ! gh pr create --draft --base main --head "$branch" \
+            --title "Mark checks not portable from the nightly audit" --body "$body"; then
+            echo "::error::No pull request opened. Add ${IDS} to ${list} by hand (branch ${branch})."
+            exit 1
+          fi

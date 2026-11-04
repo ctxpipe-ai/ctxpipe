@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { createRequire } from "node:module"
+import { connect } from "node:net"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -72,6 +73,46 @@ const answers = async (url, fix) => {
     throw new Error(`${url} does not answer (${error.message}). ${fix}`)
   }
 }
+// The pinned versions of the services, the digest of each image and the
+// previous release (scripts/ci/service-pins.json). A lane lists the file as
+// an input, so a change of a pin changes the key of a check.
+const pins = JSON.parse(
+  readFileSync(join(root, "scripts/ci/service-pins.json"), "utf8"),
+)
+// Asks FalkorDB for the version of its graph module through the Redis
+// protocol (MODULE LIST), so no client library is needed.
+export const falkordbModuleVersion = (uri) =>
+  new Promise((resolve, reject) => {
+    const url = new URL(uri)
+    const bulk = (value) => `$${Buffer.byteLength(value)}\r\n${value}\r\n`
+    const socket = connect({
+      host: url.hostname,
+      port: Number(url.port || 6379),
+    })
+    let reply = ""
+    const timer = setTimeout(
+      () => socket.destroy(new Error("no reply")),
+      10_000,
+    )
+    socket.setEncoding("utf8")
+    socket.on("connect", () => {
+      if (url.password)
+        socket.write(
+          `*2\r\n${bulk("AUTH")}${bulk(decodeURIComponent(url.password))}`,
+        )
+      socket.write(`*2\r\n${bulk("MODULE")}${bulk("LIST")}`)
+    })
+    socket.on("data", (chunk) => {
+      reply += chunk
+      const found = reply.match(/\$5\r\ngraph\r\n\$3\r\nver\r\n:(\d+)\r\n/)
+      if (!found) return
+      socket.destroy()
+      resolve(Number(found[1]))
+    })
+    socket.on("close", () => reject(new Error("no graph module in the reply")))
+    socket.on("error", reject)
+    socket.on("close", () => clearTimeout(timer))
+  })
 const workbenchFix =
   "Evals call paid models, so they run only with the workbench environment: set MODEL_PROVIDER, MODEL_PROVIDER_API_KEY (the spend-capped workbench key) and MCP_EVAL_MODELS (two or more provider/model ids, comma-separated)."
 
@@ -122,8 +163,36 @@ export const prerequisites = {
         )
     },
   },
+  // The key of a check holds the pins file, not the running server, so a
+  // server of another version must fail here.
   postgres: {
-    prepare: () => pgQuery("SELECT 1"),
+    prepare: async () => {
+      const [server] = await pgQuery("SHOW server_version")
+      // The installed extension wins over the default of the image: an old
+      // volume can hold an older one.
+      const [vector] = await pgQuery(
+        "SELECT coalesce((SELECT extversion FROM pg_extension WHERE extname = 'vector'), (SELECT default_version FROM pg_available_extensions WHERE name = 'vector')) AS version",
+      )
+      // The collation decides text ORDER BY: macOS libc and the glibc of the
+      // image sort differently.
+      const [database] = await pgQuery(
+        "SELECT datcollate, datctype, datcollversion FROM pg_database WHERE datname = current_database()",
+      )
+      const found = {
+        serverVersion: server.server_version.split(" ")[0],
+        pgvectorVersion: vector?.version,
+        collate: database?.datcollate,
+        ctype: database?.datctype,
+        collationVersion: database?.datcollversion,
+      }
+      const wrong = Object.keys(found).filter(
+        (name) => found[name] !== pins.postgres[name],
+      )
+      if (wrong.length)
+        throw new Error(
+          `Postgres differs from the pinned image (scripts/ci/service-pins.json): ${wrong.map((name) => `${name} ${found[name]}, not ${pins.postgres[name]}`).join("; ")}. Run: docker compose pull postgres && pnpm dev:infra, and make the database from the default template.`,
+        )
+    },
   },
   migrations: {
     needs: ["postgres"],
@@ -138,13 +207,18 @@ export const prerequisites = {
     },
   },
   falkordb: {
-    prepare: () =>
-      graphReady(
-        required(
-          "GRAPH_DB_URI",
-          "Start FalkorDB (pnpm dev:infra) and set GRAPH_DB_URI.",
-        ),
-      ),
+    prepare: async () => {
+      const uri = required(
+        "GRAPH_DB_URI",
+        "Start FalkorDB (pnpm dev:infra) and set GRAPH_DB_URI.",
+      )
+      await graphReady(uri)
+      const found = await falkordbModuleVersion(uri)
+      if (found !== pins.falkordb.moduleVersion)
+        throw new Error(
+          `FalkorDB module version must be ${pins.falkordb.moduleVersion}; found ${found}. Run: docker compose pull falkordb && pnpm dev:infra`,
+        )
+    },
   },
   "chat-sandbox-image": {
     needs: ["docker"],
@@ -198,6 +272,21 @@ export const prerequisites = {
       if (!existsSync(join(tree, "apps/backend/node_modules")))
         throw new Error(
           `RELEASE_TREE ${tree} has no apps/backend/node_modules. Run pnpm install --frozen-lockfile --filter "@ctxpipe/backend..." in it.`,
+        )
+      const { ref } = pins.previousRelease
+      const expected = quiet(
+        "git",
+        ["rev-parse", `${ref}^{commit}`],
+        `Run: git fetch origin tag ${ref}`,
+      )
+      const found = quiet(
+        "git",
+        ["-C", tree, "rev-parse", "HEAD"],
+        `RELEASE_TREE ${tree} is not a git checkout.`,
+      )
+      if (found !== expected)
+        throw new Error(
+          `RELEASE_TREE ${tree} is at ${found}, not ${ref} (${expected}). Run: git -C ${tree} checkout --detach ${ref}`,
         )
     },
   },

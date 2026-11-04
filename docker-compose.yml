@@ -58,7 +58,7 @@ x-dind-image: &dind-image docker:29.8.2-dind@sha256:7dcdfc4a20246236f558175182cc
 services:
   postgres:
     profiles: [infra, deploy]
-    image: pgvector/pgvector:pg17
+    image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-ctxpipe}
@@ -74,13 +74,13 @@ services:
 
   falkordb:
     profiles: [infra, deploy]
-    image: falkordb/falkordb:latest
+    image: falkordb/falkordb@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
     restart: unless-stopped
     environment:
       # CMD_INFO no: in 4.20.7 the module load can start a cron task before
       # its lock is ready, and the server then stops answering (see
       # .github/actions/falkordb).
-      FALKORDB_ARGS: "BOLT_PORT 7687 CMD_INFO no"
+      FALKORDB_ARGS: "CMD_INFO no"
     # Never published, like postgres.
 
   # Host dev only: Postgres and FalkorDB on host ports, forwarded so the data

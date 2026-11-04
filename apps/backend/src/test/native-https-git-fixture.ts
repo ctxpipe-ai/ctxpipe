@@ -23,6 +23,8 @@ interface NativeHttpsGitRemote {
   url: string
   sync(): Promise<void>
   observedRequests(): Promise<Array<NativeHttpsGitRequest>>
+  /** A client on this network reaches the server by its hostname alias. */
+  networkName: string
 }
 
 interface NativeHttpsGitRequest {
@@ -49,7 +51,9 @@ interface NativeHttpsGitFixture {
 
 /**
  * Create a one-test CA trusted by a derived prebuilt chat image, then serve the
- * repository through smart Git HTTPS on the nested daemon's bridge gateway.
+ * repository through smart Git HTTPS from a container on a user-defined network.
+ * A client on that network reaches the server by its alias; a client on the
+ * default bridge reaches it through `host.docker.internal` and the published port.
  */
 export async function withNativeHttpsGitFixture<T>(
   input: {
@@ -67,6 +71,7 @@ export async function withNativeHttpsGitFixture<T>(
   const serverName = `${derivedRepository}-server`
   let customizer: Docker.Container | undefined
   let server: Docker.Container | undefined
+  let network: Docker.Network | undefined
   let result: T | undefined
   let primaryError: unknown
   const cleanupErrors: unknown[] = []
@@ -178,11 +183,6 @@ export async function withNativeHttpsGitFixture<T>(
         serveOptions?: { githubAuth: NativeHttpsGitGithubAuth },
       ) {
         step = "start the Git server"
-        const bridge = await input.docker.getNetwork("bridge").inspect()
-        const gateway = bridge.IPAM?.Config?.[0]?.Gateway
-        if (!gateway || !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(gateway))
-          throw new Error("Native HTTPS Git fixture bridge gateway missing")
-
         const githubAuth = serveOptions?.githubAuth
         if (githubAuth) {
           if (
@@ -203,6 +203,7 @@ export async function withNativeHttpsGitFixture<T>(
         const port = githubAuth
           ? 443
           : 30_000 + (Number.parseInt(suffix.slice(0, 8), 16) % 20_000)
+        const networkName = `${derivedRepository}-net`
         const requestLog = "/tmp/ctxpipe-git-fixture/requests.log"
 
         const staging = join(root, "staging")
@@ -230,6 +231,10 @@ export async function withNativeHttpsGitFixture<T>(
           ["--no-xattrs", "-C", staging, "-cf", serverArchive, "tmp", "srv"],
           { timeout: 30_000 },
         )
+        network = await input.docker.createNetwork({
+          Name: networkName,
+          Labels: { "ai.ctxpipe.purpose": "native-https-git-fixture" },
+        })
         server = await input.docker.createContainer({
           name: serverName,
           Image: derivedImage,
@@ -237,7 +242,7 @@ export async function withNativeHttpsGitFixture<T>(
           Entrypoint: ["node"],
           Cmd: ["/tmp/ctxpipe-git-fixture/server.mjs"],
           Env: [
-            `GIT_FIXTURE_BIND=${gateway}`,
+            `GIT_FIXTURE_BIND=0.0.0.0`,
             `GIT_FIXTURE_PORT=${port}`,
             `GIT_FIXTURE_REPOSITORY_PATH=${repositoryPath}`,
             `GIT_FIXTURE_REQUEST_LOG=${requestLog}`,
@@ -248,12 +253,31 @@ export async function withNativeHttpsGitFixture<T>(
                 ]
               : []),
           ],
-          HostConfig: { NetworkMode: "host" },
+          HostConfig: {
+            NetworkMode: networkName,
+            // Docker Desktop has no host network: publish the port instead.
+            // A sandbox on the default bridge dials `host.docker.internal`.
+            // The GitHub-auth server needs no published port: its client
+            // joins the network and finds "github.com" by alias.
+            ...(githubAuth
+              ? {}
+              : {
+                  PortBindings: {
+                    [`${port}/tcp`]: [{ HostPort: String(port) }],
+                  },
+                }),
+          },
+          ...(githubAuth ? {} : { ExposedPorts: { [`${port}/tcp`]: {} } }),
+          NetworkingConfig: {
+            EndpointsConfig: {
+              [networkName]: { Aliases: [hostname] },
+            },
+          },
           Labels: { "ai.ctxpipe.purpose": "native-https-git-fixture" },
         })
         await server.putArchive(await readFile(serverArchive), { path: "/" })
         await server.start()
-        await waitForListener(server, gateway, port)
+        await waitForListener(server, port)
 
         const sync = async () => {
           const bundle = join(root, `update-${randomUUID()}.bundle`)
@@ -304,6 +328,7 @@ export async function withNativeHttpsGitFixture<T>(
             url: remoteUrl.href,
             sync,
             observedRequests,
+            networkName,
           })
         } catch (error) {
           const logs = (await server.logs({ stdout: true, stderr: true }))
@@ -318,6 +343,8 @@ export async function withNativeHttpsGitFixture<T>(
           step = "remove the Git server"
           await server.remove({ force: true, v: true })
           server = undefined
+          await network.remove()
+          network = undefined
           step = "run the fixture callback"
         }
       },
@@ -330,6 +357,14 @@ export async function withNativeHttpsGitFixture<T>(
       if (!container) continue
       try {
         await container.remove({ force: true, v: true })
+      } catch (error) {
+        if ((error as { statusCode?: number }).statusCode !== 404)
+          cleanupErrors.push(error)
+      }
+    }
+    if (network) {
+      try {
+        await network.remove()
       } catch (error) {
         if ((error as { statusCode?: number }).statusCode !== 404)
           cleanupErrors.push(error)
@@ -397,9 +432,9 @@ async function runExecOutput(
 
 async function waitForListener(
   container: Docker.Container,
-  host: string,
   port: number,
 ): Promise<void> {
+  const host = "127.0.0.1"
   // The nested daemon can take longer than 10s to start the server under load:
   // CI run 39007680133 showed the address listening only after a 10s window.
   const startedAt = Date.now()
@@ -429,7 +464,7 @@ async function waitForListener(
         `Native HTTPS Git fixture exited (code ${info.State.ExitCode}) before it listened on ${host}:${port}; server logs: ${logs || "<empty>"}`,
       )
     if (Date.now() >= deadline) {
-      // Listening sockets in the host network namespace, as hex address:port.
+      // Listening sockets in the container, as hex address:port.
       const listeners = await runExecOutput(container, [
         "sh",
         "-c",

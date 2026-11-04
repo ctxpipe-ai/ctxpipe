@@ -2,9 +2,11 @@
 #
 # The language SDKs are copied from their official images and release binaries
 # are downloaded in isolated stages. This keeps package-manager build caches
-# separate from application dependencies. The complete indexer matrix currently
-# targets linux/amd64 because scip-clang and scip-ruby do not publish Linux arm64
-# binaries.
+# separate from application dependencies. The image builds for linux/amd64 and
+# linux/arm64. The complete indexer matrix needs linux/amd64, because scip-clang
+# and scip-ruby do not publish Linux arm64 binaries. The linux/arm64 image has
+# every other tool, which is enough for the Vitest contracts (their tests run
+# fake scip-clang and scip-ruby commands). Production deploys linux/amd64.
 
 # ── Stage 1: Go toolchain and Zoekt binaries ─────────────────────────────────
 FROM golang:1.24-bookworm AS go-tools
@@ -61,9 +63,7 @@ RUN dart pub global activate scip_dart "${SCIP_DART_VERSION}"
 FROM scratch AS releases
 
 FROM debian:bookworm-slim AS release-tools
-ARG TARGETARCH=amd64
-RUN test "${TARGETARCH}" = "amd64" || \
-    (echo "The full SCIP matrix requires linux/amd64 (scip-clang/scip-ruby upstream limitation)." >&2; exit 1)
+ARG TARGETARCH
 # Versions and checksums live in release-assets.txt. fetch-releases.sh bounds
 # each download (connect, stall and total timeouts, 3 attempts) and fails with
 # "Outside service unavailable" when GitHub stays down. CI can pass verified
@@ -76,12 +76,15 @@ RUN --mount=type=bind,source=apps/codesearch/release-assets.txt,target=/release-
     curl \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /out /tmp/releases \
-  && bash /fetch-releases.sh /release-assets.txt /tmp/releases /releases \
+  && TARGETARCH="${TARGETARCH}" bash /fetch-releases.sh /release-assets.txt /tmp/releases /releases \
   && cd /tmp/releases \
-  && tar -xzf scip-go.tar.gz -C /out scip-go \
-  && tar -xzf scip.tar.gz -C /out scip \
-  && cp scip-java scip-clang scip-ruby /out/ \
-  && gzip -dc rust-analyzer.gz > /out/rust-analyzer \
+  && tar -xzf "scip-go-${TARGETARCH}.tar.gz" -C /out scip-go \
+  && tar -xzf "scip-${TARGETARCH}.tar.gz" -C /out scip \
+  && cp scip-java /out/ \
+  && gzip -dc "rust-analyzer-${TARGETARCH}.gz" > /out/rust-analyzer \
+  && if [ "${TARGETARCH}" = amd64 ]; then \
+    cp scip-clang-amd64 /out/scip-clang && cp scip-ruby-amd64 /out/scip-ruby; \
+  fi \
   && chmod +x /out/*
 
 # ── Stage 7: Install application dependencies ────────────────────────────────
@@ -100,6 +103,7 @@ RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 # Keep the indexer OS contract on Bookworm. Bun's newer slim image uses
 # Trixie, which no longer supplies the JDK 17 package required by this matrix.
 FROM debian:bookworm-slim AS runtime
+ARG TARGETARCH
 COPY --from=bun-runtime /usr/local/bin/bun /usr/local/bin/bun
 ENV BUN_INSTALL=/usr/local
 
@@ -144,7 +148,7 @@ ENV CARGO_HOME=/usr/local/cargo \
     COMPOSER_ALLOW_SUPERUSER=1 \
     COMPOSER_HOME=/opt/composer \
     DOTNET_ROOT=/usr/share/dotnet \
-    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-${TARGETARCH} \
     PUB_CACHE=/opt/pub-cache \
     RUSTUP_HOME=/usr/local/rustup \
     GOPATH=/tmp/ctxpipe-go \
@@ -169,9 +173,10 @@ RUN ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet \
   && composer clear-cache \
   && for binary in \
     go node npm python3 javac mvn rustc cargo clang ruby dotnet dart php \
-    scip-go scip-typescript scip-python scip-java scip-clang scip-ruby \
+    scip-go scip-typescript scip-python scip-java \
     scip-dotnet scip_dart scip-php debian-lsp rust-analyzer ast-grep scip; \
     do command -v "${binary}"; done \
+  && if [ "${TARGETARCH}" = amd64 ]; then command -v scip-clang scip-ruby; fi \
   && ! command -v src \
   && ! command -v sourcegraph-cli
 

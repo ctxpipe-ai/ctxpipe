@@ -206,7 +206,7 @@ const definitions = () => [
     ["workflow-inputs", [".github/**"]],
     ["ui-motion", ["apps/ui/src/**"]],
     ["story-play-timing", ["apps/ui/src/**"]],
-    ["claude-plugin", ["plugins/**", ".claude-plugin/**"]],
+    ["claude-plugin", ["plugins/**", ".claude-plugin/**", "scripts/ci/claude-cli/**"]],
     // The next two read the git diff against origin/main, so a result
     // cannot be reused from the files alone.
     [
@@ -424,12 +424,18 @@ const definitions = () => [
 ]
 
 export function listProjects() {
+  // An image build and a deploy depend on the platform that builds the image;
+  // the result of each other check does not depend on the OS or the CPU.
+  const portable = ({ family, lane }) =>
+    ["typecheck", "lint", "policy"].includes(family) ||
+    (family === "build" && lane.startsWith("package-"))
   return definitions().map(
     ({ commands: _commands, prerequisites, runtime, ...check }) => ({
       id: `${check.family}:${check.lane}:${check.file}`,
       ...check,
       runtime: runtime ?? "node",
       ...(prerequisites && { prerequisites }),
+      ...(portable(check) && { portable: true }),
     }),
   )
 }

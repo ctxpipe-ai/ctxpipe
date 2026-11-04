@@ -1,9 +1,7 @@
 {
   "backend": {
-    "src/domain/ingestion/ingest-root.contract.test.ts": 150,
     "src/domain/workspaces/confluence-mirror-native.contract.test.ts": 12,
     "src/domain/workspaces/connector-finalization-native.contract.test.ts": 52,
-    "src/domain/workspaces/conversation-branch-push-native.contract.test.ts": 206,
     "src/domain/workspaces/conversation-publish-native.contract.test.ts": 6,
     "src/domain/workspaces/hydrate-planner-native.contract.test.ts": 17,
     "src/domain/workspaces/linear-mirror-native.contract.test.ts": 12,
@@ -57,6 +55,8 @@
     "src/openworkflow/workspace-admission-ack-native.contract.test.ts": 20,
     "src/routes/v1/conversation-files-routes.live.test.ts": 13,
     "src/routes/v1/conversation-publish-native.contract.test.ts": 13,
-    "src/routes/v1/workspace-files.contract.test.ts": 31
+    "src/routes/v1/workspace-files.contract.test.ts": 31,
+    "src/domain/ingestion/ingest-root.contract.test.ts": 150,
+    "src/domain/workspaces/conversation-branch-push-native.contract.test.ts": 206
   }
 }

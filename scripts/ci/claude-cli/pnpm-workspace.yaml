@@ -1,0 +1,5 @@
+packages: []
+
+# The CLI links its native binary in postinstall.
+onlyBuiltDependencies:
+  - '@anthropic-ai/claude-code'

@@ -106,6 +106,9 @@ export async function listStorybook() {
         file,
         inputs,
         prerequisites: ["storybook-build", "chromium"],
+        // The play browser pins the time zone, the locale, the pixel ratio
+        // and the hardware that a story can read (storybook-play.mjs).
+        portable: true,
         ...(intent && { intent }),
       }
     })

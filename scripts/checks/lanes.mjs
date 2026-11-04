@@ -33,6 +33,8 @@ const backendInputs = [
   "apps/backend/src/test/setup-openworkflow-runs.ts",
   "apps/backend/migrations/**",
   "scripts/ci/contracts.json",
+  "scripts/ci/service-pins.json",
+  "scripts/checks/prerequisites.mjs",
 ]
 // The files that pin the tools and images of the native backend tests:
 // the prerequisite check (it compares the OpenCode version with the declared
@@ -83,6 +85,13 @@ const nativePrerequisites = [
   "ast-grep",
   "chat-sandbox-image",
 ]
+// `portable`: the result does not depend on the OS or the CPU architecture,
+// so a result cache leaves them out of the key and a pass on a laptop counts
+// in CI (manifest.v1.schema.json). A lane is portable only when no file of it
+// starts Docker or runs a host tool other than git and Node: such a file
+// belongs to the contracts lane (the "not portable" group of
+// scripts/ci/contracts.json). `programs`: the host tools that the lane runs;
+// the key holds their versions.
 const lanes = {
   backend: {
     directory: "apps/backend",
@@ -91,7 +100,10 @@ const lanes = {
     traceInputs: backendTraceInputs,
     env: backendEnv,
     prerequisites: nativePrerequisites,
+    portable: true,
+    programs: ["git"],
   },
+  // Not portable: its files start Docker containers, zoekt and OpenCode.
   contracts: {
     directory: "apps/backend",
     runtime: "node",
@@ -109,6 +121,7 @@ const lanes = {
     // The Vercel contracts do not use the graph, and the CI job has no
     // FalkorDB.
     prerequisites: ["postgres", "migrations"],
+    portable: true,
   },
   // The files that do not end in `.test.ts` have their own Vitest config,
   // so the PR suite never runs them. Wall-clock bounds vary on shared
@@ -143,6 +156,8 @@ const lanes = {
       "ast-grep",
       "previous-release",
     ],
+    portable: true,
+    programs: ["git", "zoekt", "ast-grep"],
   },
   ui: {
     directory: "apps/ui",
@@ -153,6 +168,7 @@ const lanes = {
       "apps/ui/tsconfig.json",
       "apps/ui/vite.config.ts",
     ],
+    portable: true,
   },
   cli: {
     directory: "packages/cli",
@@ -172,6 +188,8 @@ const lanes = {
       "packages/cli/src/**": "lines",
       "packages/cli/bin/**": "lines",
     },
+    portable: true,
+    programs: ["git"],
   },
   "aws-cdk": {
     directory: "packages/aws-cdk",
@@ -182,20 +200,34 @@ const lanes = {
       "packages/aws-cdk/tsconfig.json",
       "packages/aws-cdk/scripts/stamp-image-tag.mjs",
     ],
+    portable: true,
   },
-  // CI runs codesearch in its Docker test image (zoekt and the SCIP indexers).
+  // Both lanes run in the Docker test image (zoekt and the SCIP indexers), on a
+  // laptop as in CI (runCodesearchImage).
   codesearch: {
     directory: "apps/codesearch",
     runtime: "node",
     inputs: codesearchInputs,
-    prerequisites: ["zoekt"],
+    prerequisites: ["docker"],
   },
   "codesearch-bun": {
     directory: "apps/codesearch",
     runtime: "bun",
     inputs: codesearchInputs,
-    prerequisites: ["bun", "zoekt"],
+    prerequisites: ["docker"],
   },
+}
+
+// The host programs that one test file runs in addition to those of its lane.
+const filePrograms = {
+  // The ingest skill scripts run ast-grep.
+  "apps/backend/src/domain/ingestion/apis-skill.test.ts": ["ast-grep"],
+  "apps/backend/src/domain/ingestion/dependencies-skill.test.ts": ["ast-grep"],
+  // It starts a Bun child process.
+  "apps/backend/src/openworkflow/workflows/repository-ingestion-v2.integration.test.ts":
+    ["bun"],
+  // It runs the capture shell script with the host bash.
+  "packages/cli/test/memory/memory-capture-sh.test.ts": ["bash"],
 }
 
 const json = async (script, args) => {
@@ -238,8 +270,19 @@ export async function listVitest() {
   return Object.entries(files).flatMap(([lane, list]) =>
     list.map((relative) => {
       const file = `${lanes[lane].directory}/${relative}`
-      const { inputs, runtime, env, traceInputs, prerequisites, stochastic } =
-        lanes[lane]
+      const {
+        inputs,
+        runtime,
+        env,
+        traceInputs,
+        prerequisites,
+        stochastic,
+        portable,
+      } = lanes[lane]
+      const programs = [
+        ...(lanes[lane].programs ?? []),
+        ...(filePrograms[file] ?? []),
+      ]
       // An expensive check states its intent in a file next to it.
       const intent = join(root, file.replace(/\.[cm]?[jt]sx?$/, ".intent.md"))
       // A check id is `<family>:<lane>:<file>`. A later version adds case ids
@@ -256,6 +299,8 @@ export async function listVitest() {
         ...(traceInputs && { traceInputs }),
         ...(prerequisites && { prerequisites }),
         ...(stochastic && { stochastic }),
+        ...(portable && { portable }),
+        ...(programs.length && { programs }),
         ...(existsSync(intent) && {
           intent: readFileSync(intent, "utf8").trim(),
         }),
@@ -290,7 +335,11 @@ export function runVitest(checks, trace) {
   const records = []
   const traced = []
   let traceFailed = false
+  // Both codesearch lanes run in one container run, in the test image.
+  const image = checks.filter(({ lane }) => codesearchLanes.includes(lane))
+  if (image.length) records.push(...runCodesearchImage(image))
   for (const [lane, laneChecks] of groups) {
+    if (codesearchLanes.includes(lane)) continue
     const { directory } = lanes[lane]
     const log = logFile(lane)
     const report = join(root, ".ci-results", "checks", `${lane}.json`)
@@ -351,6 +400,48 @@ export function runVitest(checks, trace) {
     records.push(...(run ? markExitFailure(laneRecords, run) : laneRecords))
   }
   return { records, traced, traceFailed }
+}
+
+const codesearchLanes = ["codesearch", "codesearch-bun"]
+
+// Runs the codesearch lanes in the test image (zoekt and the SCIP indexers),
+// as CI does, so that a laptop and CI give the same result. The image has the
+// platform of the Docker server (run-vitest-docker.sh). The container runs the
+// selected files in their runtime and writes one result record for each file.
+// The lanes have no trace here.
+export function runCodesearchImage(checks) {
+  const log = logFile("codesearch")
+  const directory = join(root, ".ci-results", "checks", "codesearch-records")
+  rmSync(directory, { recursive: true, force: true })
+  const run = logged(
+    log.path,
+    "bash",
+    [
+      join(root, "apps/codesearch/scripts/run-vitest-docker.sh"),
+      "--records",
+      directory,
+      ...checks.flatMap(({ runtime, file }) => [
+        `--${runtime}`,
+        relative(join(root, "apps/codesearch"), join(root, file)),
+      ]),
+    ],
+    { cwd: root, timeout: 2_700_000 },
+  )
+  const written = new Map()
+  try {
+    for (const line of readFileSync(join(directory, "records.ndjson"), "utf8")
+      .split("\n")
+      .filter(Boolean)) {
+      const { schemaVersion: _, ...record } = JSON.parse(line)
+      written.set(record.id, { ...record, log: log.relative })
+    }
+  } catch {}
+  const message = `The codesearch image run wrote no result (${run.error?.message ?? run.signal ?? `exit ${run.status}`})`
+  const records = checks.map(
+    ({ id }) =>
+      written.get(id) ?? suiteRecord(id, undefined, log.relative, message),
+  )
+  return markExitFailure(records, run)
 }
 
 // The result record (schema/result.v1.schema.json, without schemaVersion) of
