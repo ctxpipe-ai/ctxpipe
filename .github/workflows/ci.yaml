@@ -1287,6 +1287,38 @@ jobs:
           bun-version: 1.4.4
       - run: pnpm install --frozen-lockfile
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+      # The toolchain record holds the versions of the host programs that a
+      # check declares (scripts/checks/toolchain.mjs), so this job installs the
+      # same pinned zoekt and ast-grep as the upgrade job. Go reads the zoekt
+      # module version.
+      - name: Restore native revision index tools
+        id: zoekt
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/ctxpipe-zoekt
+          key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+        with:
+          go-version: 1.25.12
+          cache: false
+      - name: Host programs of the checks
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+        run: |
+          npm install --global @ast-grep/cli@0.45.0
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ]; then
+            mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
+            n=0
+            until GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install \
+              "github.com/sourcegraph/zoekt/cmd/zoekt-webserver@596c362fcf1388fe0082acfcfc80c4d172efb7c1"
+            do
+              n=$((n + 1))
+              [ "$n" -lt 4 ] || exit 1
+              sleep $((n * 4))
+            done
+          fi
+          echo "$RUNNER_TEMP/ctxpipe-zoekt" >> "$GITHUB_PATH"
       - name: Manifest and toolchain
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
         run: |
@@ -1869,6 +1901,7 @@ jobs:
             --toolchain "$RUNNER_TEMP/inputs/toolchain.json" \
             --trace "$RUNNER_TEMP/trace/trace.json.gz" \
             --records "${records[@]}" \
+            --json-file "$RUNNER_TEMP/store.json" \
             "${rerun_args[@]}" > "$RUNNER_TEMP/store.txt" 2>&1 || code=$?
           cat "$RUNNER_TEMP/store.txt"
           find "$RUNNER_TEMP/results" -name not-rerun.txt -print0 | sort -z |
@@ -1883,11 +1916,10 @@ jobs:
             hashes="$(grep -o '^SUSPECT WRITER sha256 [0-9a-f]*' "$RUNNER_TEMP/store.txt" | awk '{print $4}' | tr '\n' ' ')"
             echo "::error::Suspect agent writers (sha256 of the writer): ${hashes}. The run had an infrastructure fault or many confirmed failures, so no writer was quarantined. A person or the nightly agent reviews the markers under quarantine/suspect/."
           fi
-          # A portable check that failed here and in the rerun, while every
-          # stored pass of its key came from another platform: its result
-          # depends on the platform. The Non-portable checks job lists it.
-          ids="$(sed -n 's/^  NOT PORTABLE \(.*\): every stored pass of the key came from another platform.*/\1/p' "$RUNNER_TEMP/store.txt" |
-            jq -Rsc 'split("\n") | map(select(length > 0))')"
+          # The portable checks that failed here and in the rerun, while every
+          # stored pass of their key came from another platform: their result
+          # depends on the platform. The Non-portable checks job lists them.
+          ids="$(jq -c '.nonPortable // []' "$RUNNER_TEMP/store.json" 2> /dev/null || echo '[]')"
           echo "non_portable=${ids}" >> "$GITHUB_OUTPUT"
           if [ "$ids" != "[]" ]; then
             echo "::error::Checks whose result depends on the platform: ${ids}. The Non-portable checks job opens a pull request that adds them to the denylist of the manifest."
@@ -1920,25 +1952,34 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - name: Open a pull request that marks the checks not portable
+      - name: Open or update the pull request that marks the checks not portable
         env:
           GH_TOKEN: ${{ github.token }}
           IDS: ${{ needs.results-writer.outputs.non_portable }}
         run: |
+          # One fixed branch and one pull request: each night adds its checks
+          # to the same list, so an unmerged pull request never doubles.
+          branch=ci/non-portable-checks
           list=scripts/checks/non-portable.json
+          open="$(gh pr list --head "$branch" --state open --json number --jq '.[].number')"
+          # Without an open pull request, start again from main.
+          if [ -n "$open" ] && git fetch -q origin "$branch"; then
+            git switch -q -c "$branch" FETCH_HEAD
+          else
+            git switch -q -c "$branch"
+          fi
           jq --argjson ids "$IDS" '. + $ids | unique' "$list" > "$RUNNER_TEMP/list.json"
           mv "$RUNNER_TEMP/list.json" "$list"
           if git diff --quiet; then
             echo "The denylist already holds ${IDS}."
             exit 0
           fi
-          branch="ci/non-portable-${GITHUB_RUN_ID}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -c "$branch"
           git commit -qam "Mark checks not portable from the nightly audit"
-          git push -q origin "$branch"
-          body="The nightly Results writer (run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}) found these portable checks failed in CI and in the rerun, while every stored pass of the same key came from another platform. The manifest now marks them not portable. Find and fix the platform dependency, then remove them from the list."
+          git push -q --force origin "$branch"
+          [ -z "$open" ] || exit 0
+          body="The nightly Results writer found portable checks that failed in CI and in the rerun, while every stored pass of the same key came from another platform. The manifest now marks them not portable. Find and fix the platform dependency, then remove them from the list. Each night adds its checks to this branch."
           if ! gh pr create --draft --base main --head "$branch" \
             --title "Mark checks not portable from the nightly audit" --body "$body"; then
             echo "::error::No pull request opened. Add ${IDS} to ${list} by hand (branch ${branch})."

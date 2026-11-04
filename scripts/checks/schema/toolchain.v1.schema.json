@@ -24,6 +24,8 @@
       "additionalProperties": false,
       "properties": {
         "git": { "$ref": "#/$defs/version" },
+        "bun": { "$ref": "#/$defs/version" },
+        "bash": { "$ref": "#/$defs/version" },
         "zoekt": { "$ref": "#/$defs/version" },
         "ast-grep": { "$ref": "#/$defs/version" }
       }

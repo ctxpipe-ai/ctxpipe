@@ -20,6 +20,8 @@ import { pathToFileURL } from "node:url"
 // from `go install`, so the Go build info holds the module version.
 const programCommands = {
   git: "git --version",
+  bun: "bun --version",
+  bash: "bash --version",
   "ast-grep": "ast-grep --version",
   zoekt: 'go version -m "$(command -v zoekt-webserver)"',
 }

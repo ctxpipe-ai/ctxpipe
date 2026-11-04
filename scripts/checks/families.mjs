@@ -19,6 +19,12 @@ export const runners = {
   deploy: runProjects,
 }
 
+// The checks with `portable` removed from each id in `denied`.
+export const markPortable = (checks, denied) =>
+  checks.map(({ portable, ...check }) =>
+    portable && !denied.has(check.id) ? { ...check, portable } : check,
+  )
+
 export async function listChecks() {
   const lists = await Promise.all([
     listVitest(),
@@ -33,11 +39,7 @@ export async function listChecks() {
       readFileSync(new URL("non-portable.json", import.meta.url), "utf8"),
     ),
   )
-  const checks = lists
-    .flat()
-    .map(({ portable, ...check }) =>
-      portable && !denied.has(check.id) ? { ...check, portable } : check,
-    )
+  const checks = markPortable(lists.flat(), denied)
   checks.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   return { schemaVersion: 1, checks }
 }

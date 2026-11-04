@@ -187,6 +187,7 @@ const lanes = {
       "packages/cli/bin/**": "lines",
     },
     portable: true,
+    programs: ["git"],
   },
   "aws-cdk": {
     directory: "packages/aws-cdk",
@@ -212,6 +213,18 @@ const lanes = {
     inputs: codesearchInputs,
     prerequisites: ["bun", "zoekt"],
   },
+}
+
+// The host programs that one test file runs in addition to those of its lane.
+const filePrograms = {
+  // The ingest skill scripts run ast-grep.
+  "apps/backend/src/domain/ingestion/apis-skill.test.ts": ["ast-grep"],
+  "apps/backend/src/domain/ingestion/dependencies-skill.test.ts": ["ast-grep"],
+  // It starts a Bun child process.
+  "apps/backend/src/openworkflow/workflows/repository-ingestion-v2.integration.test.ts":
+    ["bun"],
+  // It runs the capture shell script with the host bash.
+  "packages/cli/test/memory/memory-capture-sh.test.ts": ["bash"],
 }
 
 const json = async (script, args) => {
@@ -262,8 +275,11 @@ export async function listVitest() {
         prerequisites,
         stochastic,
         portable,
-        programs,
       } = lanes[lane]
+      const programs = [
+        ...(lanes[lane].programs ?? []),
+        ...(filePrograms[file] ?? []),
+      ]
       // An expensive check states its intent in a file next to it.
       const intent = join(root, file.replace(/\.[cm]?[jt]sx?$/, ".intent.md"))
       // A check id is `<family>:<lane>:<file>`. A later version adds case ids
@@ -281,7 +297,7 @@ export async function listVitest() {
         ...(prerequisites && { prerequisites }),
         ...(stochastic && { stochastic }),
         ...(portable && { portable }),
-        ...(programs && { programs }),
+        ...(programs.length && { programs }),
         ...(existsSync(intent) && {
           intent: readFileSync(intent, "utf8").trim(),
         }),

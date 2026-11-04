@@ -75,8 +75,9 @@ export const waitFor = async (url) => {
 
 // The browser context of every play. The time zone, the locale and the pixel
 // ratio are fixed, so that a play gives the same result on each host: a
-// Storybook check is portable (scripts/checks/storybook.mjs).
-export const playContext = {
+// Storybook check is portable (scripts/checks/storybook.mjs). The story
+// Testing/Play host (apps/ui/src/lib/play-host.stories.tsx) proves the pins.
+const playContext = {
   viewport: { width: 1440, height: 900 },
   timezoneId: "UTC",
   locale: "en-US",

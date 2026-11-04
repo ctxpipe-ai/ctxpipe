@@ -15,6 +15,7 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
 
+import { markPortable } from "../checks/families.mjs"
 import { deploySteps, fullRunResults, stepResults } from "../checks/gate.mjs"
 import { jobOutputs } from "../checks/plan.mjs"
 import { prerequisites } from "../checks/prerequisites.mjs"
@@ -375,13 +376,21 @@ test("the manifest marks exactly the platform-independent checks portable", () =
         .filter((check) => check.lane === lane && check.family === "vitest")
         .map((check) => JSON.stringify(check.programs)),
     )
-  assert.deepEqual(programs("backend"), new Set(['["git"]']))
-  assert.deepEqual(programs("upgrade"), new Set(['["git","zoekt","ast-grep"]']))
-  // The denylist of the nightly audit wins over the lane.
   assert.deepEqual(
-    JSON.parse(readFileSync(script("non-portable.json"), "utf8")),
-    [],
+    programs("backend"),
+    new Set(['["git"]', '["git","ast-grep"]', '["git","bun"]']),
   )
+  assert.deepEqual(programs("cli"), new Set(['["git"]', '["git","bash"]']))
+  assert.deepEqual(programs("upgrade"), new Set(['["git","zoekt","ast-grep"]']))
+  // A check that the denylist names is never portable.
+  const denied = JSON.parse(readFileSync(script("non-portable.json"), "utf8"))
+  for (const check of checks.filter(({ id }) => denied.includes(id)))
+    assert.equal(check.portable, undefined, check.id)
+  const listed = { id: "vitest:ui:a.test.ts", portable: true }
+  assert.deepEqual(markPortable([listed], new Set([listed.id])), [
+    { id: listed.id },
+  ])
+  assert.deepEqual(markPortable([listed], new Set()), [listed])
 })
 
 test("the backend files that start Docker or host tools run in the contracts lane", () => {
