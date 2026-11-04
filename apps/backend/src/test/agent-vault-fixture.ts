@@ -1,6 +1,13 @@
 import { execFile } from "node:child_process"
 import { randomBytes, randomUUID } from "node:crypto"
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises"
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import { type AddressInfo, createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -12,6 +19,23 @@ const exec = promisify(execFile)
 
 const docker = async (...args: string[]) =>
   (await exec("docker", args, { timeout: 180_000 })).stdout.trim()
+
+/**
+ * Create a container, copy host directories into it, then start it. A bind
+ * mount shows host file ownership inside the container, and the host uid
+ * differs between Linux and Docker Desktop. A copy gives the same result on
+ * both: the files are readable by any user (mode 0644, directory 0755).
+ */
+async function dockerRunWithFiles(
+  name: string,
+  createArgs: string[],
+  files: { directory: string; target: string }[],
+) {
+  await docker("create", "--name", name, ...createArgs)
+  for (const { directory, target } of files)
+    await docker("cp", `${directory}/.`, `${name}:${target}`)
+  await docker("start", name)
+}
 
 /**
  * An upstream on the test network: it echoes the request headers at
@@ -200,34 +224,30 @@ export async function withAgentVault<T>(
   await chmod(tls, 0o755)
   await docker("network", "create", network)
   try {
-    await docker(
-      "run",
-      "-d",
-      "--name",
+    await dockerRunWithFiles(
       upstreamName,
-      "--network",
-      network,
-      "--network-alias",
-      "upstream.ctxpipe.test",
-      "--user",
-      "0:0",
-      "-v",
-      `${tls}:/tls:ro`,
-      "-e",
-      `GIT_TOKEN=${gitToken}`,
-      ...(input.backendPort
-        ? [
-            "--add-host",
-            "host.docker.internal:host-gateway",
-            "-e",
-            `BACKEND_PORT=${input.backendPort}`,
-          ]
-        : []),
-      "--entrypoint",
-      "sh",
-      input.image,
-      "-c",
-      `git init -q --bare /srv/repo.git &&
+      [
+        "--network",
+        network,
+        "--network-alias",
+        "upstream.ctxpipe.test",
+        "--user",
+        "0:0",
+        "-e",
+        `GIT_TOKEN=${gitToken}`,
+        ...(input.backendPort
+          ? [
+              "--add-host",
+              "host.docker.internal:host-gateway",
+              "-e",
+              `BACKEND_PORT=${input.backendPort}`,
+            ]
+          : []),
+        "--entrypoint",
+        "sh",
+        input.image,
+        "-c",
+        `git init -q --bare /srv/repo.git &&
 git -C /srv/repo.git config http.receivepack true &&
 git init -q /tmp/seed && cd /tmp/seed &&
 git -c user.name=t -c user.email=t@t commit -q --allow-empty -m seed &&
@@ -237,6 +257,8 @@ cat > /tmp/upstream.cjs <<'EOF'
 ${UPSTREAM}
 EOF
 exec node /tmp/upstream.cjs`,
+      ],
+      [{ directory: tls, target: "/tls" }],
     )
     // The upstream seeds a Git repository before it listens. A call through the
     // proxy before that gets 502 "bad gateway", so wait until both ports answer.
@@ -271,40 +293,41 @@ exec node /tmp/upstream.cjs`,
       await new Promise((resolve) => setTimeout(resolve, 250))
     }
     const upstreamIp = await ipOn(upstreamName, network)
-    await docker(
-      "run",
-      "-d",
-      "--name",
+    const extraCaDirectory = join(tls, "extra-ca")
+    await mkdir(extraCaDirectory)
+    await copyFile(join(tls, "ca.crt"), join(extraCaDirectory, "ca.crt"))
+    await dockerRunWithFiles(
       vaultName,
-      "--network",
-      network,
-      "-p",
-      "127.0.0.1::14321",
-      "-e",
-      `AGENT_VAULT_MASTER_PASSWORD=${randomBytes(16).toString("hex")}`,
-      "-e",
-      "AGENT_VAULT_RATELIMIT_PROXY_RATE=200",
-      "-e",
-      "AGENT_VAULT_RATELIMIT_PROXY_BURST=2000",
-      "-e",
-      "AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256",
-      "-v",
-      `${join(tls, "ca.crt")}:/extra-ca/ca.crt:ro`,
-      "-e",
-      "SSL_CERT_DIR=/etc/ssl/certs:/extra-ca",
-      "-e",
-      "AGENT_VAULT_TELEMETRY=false",
-      "-e",
-      `AGENT_VAULT_NETWORK_ALLOWLIST=${upstreamIp}`,
-      "infisical/agent-vault:latest",
-      // A fixed proxy port, for the closed network's forwarder.
-      "server",
-      "--host",
-      "0.0.0.0",
-      "--port",
-      "14321",
-      "--mitm-port",
-      "14322",
+      [
+        "--network",
+        network,
+        "-p",
+        "127.0.0.1::14321",
+        "-e",
+        `AGENT_VAULT_MASTER_PASSWORD=${randomBytes(16).toString("hex")}`,
+        "-e",
+        "AGENT_VAULT_RATELIMIT_PROXY_RATE=200",
+        "-e",
+        "AGENT_VAULT_RATELIMIT_PROXY_BURST=2000",
+        "-e",
+        "AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256",
+        "-e",
+        "SSL_CERT_DIR=/etc/ssl/certs:/extra-ca",
+        "-e",
+        "AGENT_VAULT_TELEMETRY=false",
+        "-e",
+        `AGENT_VAULT_NETWORK_ALLOWLIST=${upstreamIp}`,
+        "infisical/agent-vault:latest",
+        // A fixed proxy port, for the closed network's forwarder.
+        "server",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "14321",
+        "--mitm-port",
+        "14322",
+      ],
+      [{ directory: extraCaDirectory, target: "/extra-ca" }],
     )
     const port = (await docker("port", vaultName, "14321/tcp"))
       .split("\n")[0]
@@ -447,42 +470,46 @@ export async function startTestAgentVaultEnv(
     // Agent Vault reports its proxy port, and sandboxes dial that port on
     // their Docker host: publish it on the same host port.
     const proxyPort = await freePort()
-    await docker(
-      "run",
-      "-d",
-      "--name",
+    const extraCaDirectory = options.extraCa
+      ? await mkdtemp(join(tmpdir(), "ctxpipe-av-extra-ca-"))
+      : undefined
+    if (options.extraCa && extraCaDirectory)
+      await copyFile(options.extraCa, join(extraCaDirectory, "ca.crt"))
+    if (extraCaDirectory) await chmod(extraCaDirectory, 0o755)
+    await dockerRunWithFiles(
       name,
-      "--add-host",
-      "host.docker.internal:host-gateway",
-      "-p",
-      "127.0.0.1::14321",
-      "-p",
-      `${proxyPort}:${proxyPort}`,
-      "-e",
-      `AGENT_VAULT_MASTER_PASSWORD=${randomBytes(16).toString("hex")}`,
-      ...AGENT_VAULT_RATE_LIMIT_ENV.flatMap((entry) => ["-e", entry]),
-      "-e",
-      "AGENT_VAULT_TELEMETRY=false",
-      // Test only: the Docker host (the test backend) and test networks.
-      "-e",
-      "AGENT_VAULT_NETWORK_ALLOWLIST=172.16.0.0/12,192.168.0.0/16",
-      ...(options.extraCa
-        ? [
-            "-v",
-            `${options.extraCa}:/extra-ca/ca.crt:ro`,
-            "-e",
-            "SSL_CERT_DIR=/etc/ssl/certs:/extra-ca",
-          ]
-        : []),
-      "infisical/agent-vault:latest",
-      "server",
-      "--host",
-      "0.0.0.0",
-      "--port",
-      "14321",
-      "--mitm-port",
-      String(proxyPort),
+      [
+        "--add-host",
+        "host.docker.internal:host-gateway",
+        "-p",
+        "127.0.0.1::14321",
+        "-p",
+        `${proxyPort}:${proxyPort}`,
+        "-e",
+        `AGENT_VAULT_MASTER_PASSWORD=${randomBytes(16).toString("hex")}`,
+        ...AGENT_VAULT_RATE_LIMIT_ENV.flatMap((entry) => ["-e", entry]),
+        "-e",
+        "AGENT_VAULT_TELEMETRY=false",
+        // Test only: the Docker host (the test backend) and test networks.
+        "-e",
+        "AGENT_VAULT_NETWORK_ALLOWLIST=172.16.0.0/12,192.168.0.0/16",
+        ...(options.extraCa
+          ? ["-e", "SSL_CERT_DIR=/etc/ssl/certs:/extra-ca"]
+          : []),
+        "infisical/agent-vault:latest",
+        "server",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "14321",
+        "--mitm-port",
+        String(proxyPort),
+      ],
+      extraCaDirectory
+        ? [{ directory: extraCaDirectory, target: "/extra-ca" }]
+        : [],
     )
+    if (extraCaDirectory) await rm(extraCaDirectory, { recursive: true })
     const published = (await docker("port", name, "14321/tcp"))
       .split("\n")[0]
       ?.split(":")
