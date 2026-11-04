@@ -12,6 +12,7 @@ import {
   vi,
 } from "vitest"
 
+import { log } from "../../observability/logger.js"
 import { CallDeadlineError } from "./call-deadline.js"
 import { openIngestEgressScope } from "./ingest-egress-proxy.js"
 import { ingestNetworkPolicy } from "./ingest-sandbox-egress.js"
@@ -891,6 +892,7 @@ describe("vercelConversationProvider start failures", () => {
   })
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   it("deletes the sandbox of a start that passed its deadline, by the name it sent, before it starts from the agent snapshot", async () => {
@@ -952,6 +954,117 @@ describe("vercelConversationProvider start failures", () => {
     expect(deleted).toEqual([late])
     expect(state.put).toEqual([used])
     expect(state.revoked).toEqual([])
+  })
+
+  // The first start never answers. Vercel makes that sandbox only after the
+  // first delete reads it (the read gets 404), as a queued create can.
+  const lateCreateHandlers = (
+    created: string[],
+    deleted: string[],
+    deleteStatus: () => number,
+  ) => {
+    const made = new Set<string>()
+    return [
+      http.post("https://vercel.com/api/v2/sandboxes", async ({ request }) => {
+        const { name = "" } = (await request.json()) as { name?: string }
+        created.push(name)
+        if (created.length === 1) await delay("infinite")
+        made.add(name)
+        return HttpResponse.json({
+          sandbox: sandboxNamed(name),
+          session,
+          routes: [],
+        })
+      }),
+      http.get(
+        "https://vercel.com/api/v2/sandboxes/snapshots/:id",
+        ({ params }) =>
+          HttpResponse.json(snapshot(String(params.id), "created")),
+      ),
+      http.get("https://vercel.com/api/v2/sandboxes/snapshots", () =>
+        HttpResponse.json({
+          snapshots: [],
+          pagination: { count: 0, next: null },
+        }),
+      ),
+      http.get("https://vercel.com/api/v2/sandboxes/:name", ({ params }) => {
+        const name = String(params.name)
+        if (!made.has(name)) {
+          // The queued create: Vercel makes the sandbox after this read.
+          made.add(name)
+          return HttpResponse.json(
+            { error: { code: "not_found", message: "no sandbox" } },
+            { status: 404 },
+          )
+        }
+        return HttpResponse.json({
+          sandbox: sandboxNamed(name),
+          session,
+          routes: [],
+        })
+      }),
+      http.delete("https://vercel.com/api/v2/sandboxes/:name", ({ params }) => {
+        const status = deleteStatus()
+        if (status !== 200)
+          return HttpResponse.json(
+            { error: { code: "internal", message: "no delete" } },
+            { status },
+          )
+        deleted.push(String(params.name))
+        return HttpResponse.json({ sandbox: sandboxNamed(String(params.name)) })
+      }),
+      http.post(
+        "https://vercel.com/api/v2/sandboxes/sessions/:id/cmd",
+        () =>
+          new HttpResponse(passingCheck, {
+            headers: { "content-type": "application/x-ndjson" },
+          }),
+      ),
+    ]
+  }
+
+  it("deletes a late sandbox a second time when Vercel makes it after the first delete", async () => {
+    const state = { put: [] as string[], revoked: [] as string[] }
+    const created: string[] = []
+    const deleted: string[] = []
+    server.use(...lateCreateHandlers(created, deleted, () => 200))
+    const handle = await settle(
+      provider(state).create({
+        workspace: { source: { type: "none" } },
+      } as Parameters<ReturnType<typeof provider>["create"]>[0]),
+    )
+    expect(handle).not.toBeInstanceOf(Error)
+    const [late] = created
+    // The first read found nothing; the start did not wait for more.
+    expect(deleted).toEqual([])
+    await vi.advanceTimersByTimeAsync(120_000)
+    await vi.waitFor(() => expect(deleted).toEqual([late]))
+  })
+
+  it("logs a failed second delete of a late sandbox, and nothing throws", async () => {
+    const warn = vi.spyOn(log, "warn")
+    const state = { put: [] as string[], revoked: [] as string[] }
+    const created: string[] = []
+    const deleted: string[] = []
+    server.use(...lateCreateHandlers(created, deleted, () => 500))
+    const handle = await settle(
+      provider(state).create({
+        workspace: { source: { type: "none" } },
+      } as Parameters<ReturnType<typeof provider>["create"]>[0]),
+    )
+    expect(handle).not.toBeInstanceOf(Error)
+    const [late] = created
+    await vi.advanceTimersByTimeAsync(120_000)
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          step: "workspace-sandbox-late-delete",
+          sandboxId: late,
+          attempt: 2,
+        }),
+      ),
+    )
+    expect(deleted).toEqual([])
   })
 
   it("revokes the GitHub token when no start succeeds", async () => {
