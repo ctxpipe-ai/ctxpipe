@@ -24,7 +24,7 @@ In this repo, read [REPO.md](REPO.md) first.
 
 ## Review
 
-1. Pin the diff (`git diff <fixed-point>...HEAD`) if `code-review` has not already.
+1. Pin the diff (`git diff <fixed-point>...HEAD`) if `code-review` has not already. If the prompt names a context pack, read it first.
 2. Apply every rule in [REVIEW-BRIEF.md](REVIEW-BRIEF.md).
 3. Report under `## Simplicity` when this run is part of `code-review`; otherwise use the brief’s report shape as the whole answer.
 

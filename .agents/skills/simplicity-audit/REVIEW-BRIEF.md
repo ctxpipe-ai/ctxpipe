@@ -2,6 +2,10 @@
 
 Paste this file in full into the Simplicity sub-agent. Apply every rule to the pinned diff.
 
+## Context pack
+
+If the prompt names a context pack, read it first. It has the diff with whole functions, the callers and callees, and the rules for the changed paths. Read the repo only for what the pack does not have, for example the consumers and git history of the justification search below.
+
 ## Stance
 
 Do not treat the current implementation, the spec, or the ADR as correct or as something to preserve for consistency with itself. Spec-match is not a defense. The goal is to find accidental complexity.

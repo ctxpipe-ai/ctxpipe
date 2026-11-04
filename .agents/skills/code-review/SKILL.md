@@ -23,6 +23,14 @@ Capture the diff command once: `git diff <fixed-point>...HEAD` (three-dot, so th
 
 Before going further, confirm the fixed point resolves (`git rev-parse <fixed-point>`) and the diff is non-empty. A bad ref or empty diff should fail here — not inside parallel sub-agents.
 
+### 1b. Build the context pack (when the factory is installed)
+
+If `factory` is on `PATH`, and the review request does not say `Context pack: off`, run `factory review pack <fixed-point>..HEAD`. Add `--ticket <file>` and `--brief <file>` when you have the spec text in a file. In a follow-up round, add `--findings <file>` for each earlier report. The command prints the path of the pack.
+
+The pack is one Markdown file (first line `<!-- factory-review-pack/1 -->`). It holds the rules that apply to the changed paths, the task, the diff with whole functions, the direct callers and callees, and the earlier findings. Give the same path to each sub-agent. Then each sub-agent does not read the same files again.
+
+If `factory` is not on `PATH`, or the request says `Context pack: off`, skip this step. Each sub-agent then reads the repo as before. The live audit of the review critics uses `Context pack: off` for its control sample.
+
 ### 2. Identify the spec source
 
 Look for the originating spec, in this order:
@@ -61,6 +69,8 @@ A single switch that replaced a one-adapter seam is not Repeated Switches. A typ
 ### 4. Spawn three sub-agents in parallel
 
 Spawn all three on Opus at high effort (use the harness's own name for the model and effort setting). Always spawn **Simplicity**. Skip Spec only when step 2 found no spec.
+
+When step 1b made a pack, start each prompt with this text: "Context pack: `<path>`. Read the pack first. Read a file from the repo only when the pack does not have what you need, for example a file that the pack lists under Not in the pack. In the report, name each file that you read from the repo."
 
 **Standards sub-agent prompt** — include:
 
