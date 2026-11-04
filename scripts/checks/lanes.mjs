@@ -33,6 +33,8 @@ const backendInputs = [
   "apps/backend/src/test/setup-openworkflow-runs.ts",
   "apps/backend/migrations/**",
   "scripts/ci/contracts.json",
+  "scripts/ci/service-pins.json",
+  "scripts/checks/prerequisites.mjs",
 ]
 // The files that pin the tools and images of the native backend tests:
 // the prerequisite check (it compares the OpenCode version with the declared
