@@ -1507,7 +1507,7 @@ jobs:
             mv "$RUNNER_TEMP/critics.json" "$out/critics.json"
             rm "$out/critics-cause.txt"
           else
-            echo "factory review gate failed with exit code $code (the pinned release may not have it yet)" > "$out/critics-cause.txt"
+            echo "factory review gate failed with exit code $code: $(tail -n 1 "$RUNNER_TEMP/critics.err" | cut -c1-300)" > "$out/critics-cause.txt"
             cat "$RUNNER_TEMP/critics.err" >&2
           fi
       - name: Preserve the critics
