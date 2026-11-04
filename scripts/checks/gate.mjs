@@ -582,7 +582,7 @@ export function criticsText(checked, repoUrl) {
   if (checked.missing.length > 0)
     lines.push(
       "",
-      `Critics with no stored verdict for this diff: ${checked.missing.length}. Fix: run \`/code-review\` on the PR head (it stores the verdicts). Then use **Re-run all jobs**, or push again: the job \`Merge gate critics\` must look up the verdicts again.`,
+      `Critics with no stored verdict for this diff: ${checked.missing.length}. Fix: run \`factory check\` on the PR head (it runs the critics and stores their verdicts), and fix what it reports. Then use **Re-run all jobs**, or push again: the job \`Merge gate critics\` must look up the verdicts again.`,
     )
   lines.push("", attested)
   return `${lines.join("\n")}\n`

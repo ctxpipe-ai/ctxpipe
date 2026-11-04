@@ -10,8 +10,6 @@ Use Opus at medium effort for implementation sub-agents.
 
 Use /tdd where possible, at pre-agreed seams.
 
-Run typechecking regularly, single test files regularly, and the full test suite once at the end.
+Run typechecking regularly and single test files regularly.
 
-Once done, use /code-review (Opus, high effort) to review the work. That review is three axes — Standards, Spec, and Simplicity.
-
-Commit your work to the current branch.
+Once done, commit your work to the current branch. Then run `factory check --input <the spec or ticket file>`: it runs the checks that the change can break and the review critics (Standards, Spec, Simplicity, and Security when it applies). Fix what it reports, commit, and run it again until it passes. Do not start review sub-agents.

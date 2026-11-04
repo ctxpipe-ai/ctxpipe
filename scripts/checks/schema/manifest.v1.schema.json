@@ -91,7 +91,7 @@
           }
         },
         "prerequisites": {
-          "description": "The named prerequisites (scripts/checks/prerequisites.mjs) that the runner makes or verifies before the check runs; `pnpm checks:prepare <name>` makes or verifies one. A check whose prerequisite fails does not run, and its result is `error`. Optional; without it, none.",
+          "description": "The named prerequisites (scripts/checks/prerequisites.mjs) that the runner makes or verifies before the check runs; `pnpm checks:prepare <name>` makes or verifies one. The list holds each prerequisite that a listed one needs, too, so a selector sees every need (for example `docker`). A check whose prerequisite fails does not run, and its result is `error`. Optional; without it, none.",
           "type": "array",
           "items": {
             "type": "string"

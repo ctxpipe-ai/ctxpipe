@@ -50,7 +50,7 @@ When you edit a file, write each new sentence to the standard. Change an old sen
 
 ## Agent skills
 
-After completing requested code changes, commit and push the current feature branch, then create or update a draft PR against `main` before the final response. Analysis-only work needs no commit. Never merge unless the user asks. Proving a fix uses the [tdd](.agents/skills/tdd/SKILL.md) skill; _proof_ is a real collaborator ([mocking.md](.agents/skills/tdd/mocking.md)).
+After completing requested code changes, commit, then run `factory check`; fix what it reports, commit, and run it again until it passes. Then push the current feature branch, and create or update a draft PR against `main` before the final response. Analysis-only work needs no commit. Never merge unless the user asks. Proving a fix uses the [tdd](.agents/skills/tdd/SKILL.md) skill; _proof_ is a real collaborator ([mocking.md](.agents/skills/tdd/mocking.md)).
 
 ### Sub-agent models
 
@@ -102,7 +102,7 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 
 ### Adversarial review
 
-Every adversarial review of a diff is three axes — **Standards**, **Spec**, and **Simplicity** — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
+Every adversarial review of a diff is three axes — **Standards**, **Spec**, and **Simplicity** — and Security when its triggers match. `factory check` runs these critics ([`code-review`](.agents/skills/code-review/SKILL.md)) and stores their verdicts for the merge gate. Do not start review sub-agents, and do not run `/code-review` rounds by hand. Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
 
 ## Architecture decisions & ADRs
 
@@ -170,7 +170,7 @@ This repository is public. **Never** put the name, slug, email, username, id (`o
 
 ## Testing
 
-Verify a change with `factory check` before you push, not with a full suite or a sub-agent that only runs tests. It runs only the checks that the change can break, and CI reuses its passes. See the [factory-check skill](.agents/skills/factory-check/SKILL.md), with the fallback when `factory` is not installed.
+Before each push, run `factory check`; fix what it reports; run it again. Do not run a full suite, tests one by one, or a sub-agent that only runs tests. It runs the checks that the change can break and the review critics, and CI reuses its passes and verdicts. See the [factory-check skill](.agents/skills/factory-check/SKILL.md), with the fallback when `factory` is not installed.
 
 Test through the module's public interface with its real collaborators. Fake the **environment**, not our own modules:
 

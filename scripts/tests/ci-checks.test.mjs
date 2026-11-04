@@ -18,7 +18,7 @@ import { gunzipSync } from "node:zlib"
 import { markPortable } from "../checks/families.mjs"
 import { deploySteps, fullRunResults, stepResults } from "../checks/gate.mjs"
 import { jobOutputs } from "../checks/plan.mjs"
-import { prerequisites } from "../checks/prerequisites.mjs"
+import { prerequisites, withNeeds } from "../checks/prerequisites.mjs"
 import { uiBundledImports } from "../checks/projects.mjs"
 import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
 import { lintSteps, runsInOf } from "../checks/shard.mjs"
@@ -393,6 +393,33 @@ test("the manifest marks exactly the platform-independent checks portable", () =
     { id: listed.id },
   ])
   assert.deepEqual(markPortable([listed], new Set()), [listed])
+})
+
+test("the manifest lists each prerequisite that a prerequisite needs", () => {
+  assert.deepEqual(withNeeds(["chat-sandbox-image", "migrations"]), [
+    "chat-sandbox-image",
+    "migrations",
+    "docker",
+    "postgres",
+  ])
+  assert.deepEqual(withNeeds(["docker", "chat-sandbox-image"]), [
+    "docker",
+    "chat-sandbox-image",
+  ])
+  // A selector leaves a Docker lane to CI when Docker does not answer
+  // (factory check), so the backend lanes must name Docker.
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const { checks } = JSON.parse(result.stdout)
+  for (const check of checks.filter(
+    ({ family, lane }) =>
+      family === "vitest" && ["backend", "contracts"].includes(lane),
+  ))
+    assert.ok(check.prerequisites.includes("docker"), check.id)
+  for (const check of checks)
+    for (const name of check.prerequisites ?? [])
+      for (const need of prerequisites[name]?.needs ?? [])
+        assert.ok(check.prerequisites.includes(need), `${check.id}: ${need}`)
 })
 
 test("the backend files that start Docker or host tools run in the contracts lane", () => {

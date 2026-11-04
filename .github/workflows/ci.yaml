@@ -1510,14 +1510,16 @@ jobs:
         timeout-minutes: 20
         env:
           REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
+          # The verdicts are scoped to the head branch, so that an agent can
+          # store them before it opens the pull request (factory check).
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           out="$RUNNER_TEMP/out"
           echo "the critics lookup did not finish in 20 minutes" > "$out/critics-cause.txt"
           code=0
-          "$RUNNER_TEMP/bin/factory" review gate --repo . --pr "$REPO#$PR" \
+          "$RUNNER_TEMP/bin/factory" review gate --repo . --branch "$REPO@$HEAD_REF" \
             --base "$BASE_SHA" --head "$HEAD_SHA" --json \
             > "$RUNNER_TEMP/critics.json" 2> "$RUNNER_TEMP/critics.err" || code=$?
           if [ "$code" -le 1 ] && jq -e '.critics | type == "array"' "$RUNNER_TEMP/critics.json" > /dev/null; then

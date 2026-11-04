@@ -1,19 +1,37 @@
 ---
 name: code-review
-description: Review the changes since a fixed point (commit, branch, tag, or merge-base) along three axes — Standards, Spec, and Simplicity. Runs the three reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to "review since X".
+description: Review a branch along the critics of `critics.json` — Standards, Spec, Simplicity, and Security when its triggers match. `factory check` runs the critics and stores their verdicts for the merge gate; this skill is the entry to it, and its step 4 holds the critic prompts that the reviewers read. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to "review since X".
 ---
 
-Three-axis review of the diff between `HEAD` and a fixed point the user supplies:
+The critics review the diff between `HEAD` and a fixed point along separate axes:
 
 - **Standards** — does the code conform to this repo's documented coding standards?
 - **Spec** — does the code faithfully implement the originating issue / spec?
 - **Simplicity** — is the machinery essential for the job, or accidental leftover?
+- **Security** — only when the diff touches a trust surface (the `triggers` of `critics.json`).
 
-All three axes run as **parallel sub-agents** (Opus, high effort) so they don't pollute each other's context, then this skill aggregates their findings. Do **not** run the review as spec-only.
+Each axis reviews alone, so that one axis cannot hide the findings of another. Do **not** run the review as spec-only.
 
 The issue tracker should have been provided to you — run `/setup-matt-pocock-skills` if `.ai/agents/issue-tracker.md` is missing.
 
-## Process
+## Run the critics with `factory check`
+
+The critics are in [`critics.json`](critics.json): each one has its intent, its triggers, when it may be skipped, its reviewers (model and effort), and its `inputs`, the files that hold its rules and its prompt. `factory check` runs them beside the selected checks ([factory-check skill](../factory-check/SKILL.md)). Do not start review sub-agents.
+
+1. Commit the change. The critics review the committed diff of the branch against `origin/main`. The merge gate looks up their verdicts for that diff.
+2. Run `AWS_PROFILE=ctxpipe-factory factory check --input <ticket or brief file>`. It plans each critic (`run-full`, `run-delta`, `carried` or `not-applicable`, with a reason). It runs one headless reviewer for each planned reviewer, records each verdict, and prints each finding with its file and line.
+3. Fix each blocker and should-fix finding, commit, and run `factory check` again. It reviews only the hunks that changed or that had a finding; it carries the other hunks.
+4. Give the user the findings under one heading for each critic. Do not merge or rerank them (see _Why separate axes_).
+
+Give the same `--input` files in each run of a branch. A changed ticket or brief makes the next round review every hunk again.
+
+The reviewers read the prompts of step 4 below through the `inputs` of `critics.json`, at the merge base. To change a review rule, change it here, not in the factory.
+
+The merge gate checks that each critic has a stored verdict for the PR diff (job `Merge gate critics`). When it says that a critic is missing, run `factory check` on the PR head, then use **Re-run all jobs**. The gate proves that an agent recorded a review of the hunks. It does not prove that the review was sound.
+
+## Without the factory
+
+When `factory` is not installed (for example, for a contributor from a fork), run the review by hand with the steps below. All three axes run as **parallel sub-agents** (Opus, high effort), so that they do not pollute each other's context. Then this skill aggregates their findings. Run Security as `AGENTS.md` says.
 
 ### 1. Pin the fixed point
 
@@ -22,20 +40,6 @@ Whatever the user said is the fixed point — a commit SHA, branch name, tag, `m
 Capture the diff command once: `git diff <fixed-point>...HEAD` (three-dot, so the comparison is against the merge-base). Also note the list of commits via `git log <fixed-point>..HEAD --oneline`.
 
 Before going further, confirm the fixed point resolves (`git rev-parse <fixed-point>`) and the diff is non-empty. A bad ref or empty diff should fail here — not inside parallel sub-agents.
-
-### 1b. Plan the critics with the factory (if installed)
-
-The critics are in [`critics.json`](critics.json): Spec, Standards, Simplicity and Security, each with its intent, its triggers, when it may be skipped, and its reviewers. Without the factory, run every axis as below, and Security as `AGENTS.md` says.
-
-If `factory` is on `PATH`, run `factory review plan --repo . --pr <owner>/<repo>#<number> --base <fixed point> --input <ticket or brief file>`. Add `--context-pack <file>` when a context pack of this diff exists. The plan reads the critics at the merge base. It gives each critic `run-full`, `run-delta`, `carried` or `not-applicable`, with a reason. It prints the round directory (`round-<n>`) last. If the command fails, run every axis as below.
-
-- Start one sub-agent for each critic with `run-full` or `run-delta`, on the reviewers that the plan names. Do not let two critics share an agent, even if they use the same model. Give each one its brief, `briefs/<critic>.md`, with the prompt of step 4.
-- Put the plan's reasons for `carried` and `not-applicable` in the aggregate (step 5).
-- If the plan has `audit`, also run every `briefs/<critic>.audit.md` in full.
-- After each run, write its report as JSON (`status`, `reviewers` with tokens, `findings` with `severity`, `file`, `line`, `summary`) and run `factory review record --repo . --pr <pr> --critic <id> --round <n> --report <file>`. Use the round of the brief, even if a newer round exists. Add `--audit` for an audit run.
-- When the ticket or the brief (`--input`) changes, the next plan carries no verdict. The plan finds this change only in the rounds of this clone (below `.git`). Another clone does not know the earlier input, so it carries the passes of an older ticket. Plan a review after a ticket change in the same clone.
-- The merge gate runs `factory review gate` on the PR head in every mode. In gate mode, it fails when a critic has no stored verdict for the PR diff, or when it cannot look up the critics of a same-repo PR. After the last push, plan and run the review again; unchanged hunks are carried, so only the new hunks cost a review. Then use **Re-run all jobs** in CI, or push again, so that the job `Merge gate critics` looks up the new verdicts.
-- The gate proves that an agent recorded a review of the hunks. It does not prove that the review was sound.
 
 ### 2. Identify the spec source
 
@@ -102,11 +106,11 @@ Spawn all three on Opus at high effort (use the harness's own name for the model
 
 ### 5. Aggregate
 
-Present the reports under `## Standards`, `## Spec`, and `## Simplicity`, verbatim or lightly cleaned. Do **not** merge or rerank findings — the axes are deliberately separate (see _Why three axes_). If Spec was skipped, say so under `## Spec`.
+Present the reports under `## Standards`, `## Spec`, and `## Simplicity`, verbatim or lightly cleaned. Do **not** merge or rerank findings — the axes are deliberately separate (see _Why separate axes_). If Spec was skipped, say so under `## Spec`.
 
 End with a one-line summary: total findings per axis, and the worst issue _within each axis_ (if any). Don't pick a single winner across axes — that's the reranking the separation exists to prevent.
 
-## Why three axes
+## Why separate axes
 
 A change can pass one axis and fail another:
 

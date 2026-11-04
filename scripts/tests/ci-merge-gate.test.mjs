@@ -1150,7 +1150,7 @@ test("a critic with no stored verdict fails the gate, and the comment links each
       {
         critic: "critic:security",
         status,
-        reason: "1 of 1 diffs have no stored verdict; run /code-review",
+        reason: "1 of 1 diffs have no stored verdict; run `factory check` on the branch head",
         verdicts: [],
       },
     ],
@@ -1211,7 +1211,7 @@ test("a critic with no stored verdict fails the gate, and the comment links each
       `[${sha(7).slice(0, 7)}](https://github.com/o/r/commit/${sha(7)})`,
     ),
   )
-  assert.ok(missing.comment.includes("Fix: run `/code-review`"))
+  assert.ok(missing.comment.includes("Fix: run `factory check` on the PR head"))
   // Shadow mode only reports it; a gate whose critics all have a verdict passes.
   assert.equal(
     decideWith("shadow", { "critics.json": record("missing") }).status,

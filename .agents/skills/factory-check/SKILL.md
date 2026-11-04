@@ -1,16 +1,17 @@
 ---
 name: factory-check
-description: Verify a change with `factory check`. It selects the checks that the change can break, reuses earlier passes, runs only the misses, and stores the new passes so that CI reuses them. Use before you commit or push a change, instead of a full test suite or a sub-agent that only runs tests.
+description: Verify a change with `factory check` before each push. It selects the checks that the change can break, reuses earlier passes, runs only the misses, runs the review critics beside them, and stores the passes and the verdicts so that CI reuses them. Use before each push, instead of a full test suite, tests one by one, a sub-agent that only runs tests, or a review sub-agent.
 ---
 
 # Verify a change with `factory check`
 
-`factory check` is the private factory CLI. It does these steps on your working tree (uncommitted and untracked files included):
+`factory check` is the private factory CLI. It runs all the checks of a change with one command. It does these steps on your working tree (uncommitted and untracked files included):
 
 1. It selects the checks that the change can break, in every family (Vitest, Storybook, typecheck, lint, policy, build). Each selected check has a reason.
 2. It reads the shared result store. A check whose inputs did not change since an earlier pass (from CI, a person, or an agent) is a hit and does not run.
 3. It runs the misses with the public runner (`pnpm -s checks:run`).
 4. It stores each new pass in the shared store. The merge gate of the pull request reads the store, so CI does not run that check again.
+5. At the same time, it runs the review critics of the code-review skill on the committed diff of the branch: one headless reviewer (`claude` or `codex`) for each critic that has a hunk to review. It stores each verdict for the merge gate. A rerun reviews only the hunks that changed or had a finding.
 
 The contract of the checks is public: [`scripts/checks/README.md`](../../../scripts/checks/README.md).
 
@@ -22,21 +23,24 @@ The contract of the checks is public: [`scripts/checks/README.md`](../../../scri
    aws sso login --profile ctxpipe-factory
    ```
 
-2. Run the check from the repo root:
+2. Commit the change. The critics review commits: with changes that are not committed, the run prints `CRITICS NOT RUN` and fails.
+3. Run the check from the repo root. Give the ticket or the brief of the change with `--input`, so that the Spec critic can compare the change with it. Give the same files in each run of the branch:
 
    ```sh
-   AWS_PROFILE=ctxpipe-factory factory check --repo .
+   AWS_PROFILE=ctxpipe-factory factory check --repo . --input <ticket or brief file>
    ```
 
-3. Read the result. Each line is `CACHED`, a passed check, or a failed check. A failure gives its log in `.ci-results/checks/`.
-4. Fix each failure, then do step 2 again. A failed check always runs again; only a pass is stored.
-5. Read the stored passes and the last line. Each `STORED <id>` line says if the key is `portable` (CI can reuse the pass) or `host-specific` (only a host of the same OS and CPU architecture can reuse it). The last line counts the cache hits, the new passes, and the passes that are not storable, with the cause:
+4. Read the result. Each check line is `CACHED`, a passed check, or a failed check. A failure gives its log in `.ci-results/checks/`. Each critic line is `CARRIED`, `NOT APPLICABLE`, `PASSED`, `FAILED` or `ERROR`. Below a critic, each finding shows as `<severity> <file>:<line>: <summary>`.
+5. Fix each failed check and each blocker and should-fix finding. Commit, then do step 3 again. A failed check always runs again; only a pass is stored. A critic reviews again only the hunks that changed or had a finding. A nit does not fail the run.
+6. Read the stored passes and the last line. Each `STORED <id>` line says if the key is `portable` (CI can reuse the pass) or `host-specific` (only a host of the same OS and CPU architecture can reuse it). The last line counts the cache hits, the new passes, and the passes that are not storable, with the cause:
 
    ```text
    Result store: 3 cache hits reused; stored 4 new passes (4 portable, CI can reuse them; 0 host-specific, only this platform can reuse them); 1 not storable (1 without a cache key (stochastic, uncacheable or a missing key input)).
    ```
 
-6. Commit and push. The merge gate shows each reused pass as a hit with class `agent`.
+7. Push when the last line says that the checks and the critics passed. The merge gate shows each reused pass as a hit with class `agent`, and each critic as `carried` or `not-applicable`.
+
+The verdicts belong to the branch (`<owner>/<repo>@<branch>`, from the `origin` remote), so you can run the critics before the pull request exists.
 
 ## Make your passes count in CI
 
@@ -50,6 +54,13 @@ A laptop pass counts in CI only when its key is portable and your local tool ver
 `factory check` prints a `WARNING` line, with the fix, for each version that is not the same as in the newest nightly run on `main`. Fix each warning before you trust the cache. A different version gives a different key, so CI cannot reuse any of your passes, and no error tells you.
 
 Until the factory release that the merge gate pins makes keys portable (the factory change "portable keys"), the key of each check holds the OS and the CPU architecture. Then a pass from macOS is `host-specific`, and CI on Linux cannot reuse it.
+
+## Other lines in the output
+
+- `LEFT TO CI <id>`: the check needs Docker, and Docker does not answer. The run does not fail, and no pass is stored: CI runs the check. Start Docker to run it here.
+- `Waiting for a check slot`: other agents on this host run checks. The run waits for a free slot (one for each 4 CPUs), so that parallel agents do not overload the host.
+- `ERROR critic:<name>` with a cause and a fix: a reviewer did not finish (the CLI is missing, a login or a quota, a timeout). The critic stores nothing, so the merge gate finds it missing. Do the fix and run again. Do not change the model.
+- `CRITICS NOT RUN` with a fix: the tree is not committed, HEAD is not on a branch, or the shared store did not answer. Do the fix and run again.
 
 ## When a pass is not stored
 
@@ -70,4 +81,4 @@ Until the factory release that the merge gate pins makes keys portable (the fact
 
 `factory` is in the private factory repo (`machines/cli`, build it with `cargo build --release` and put `target/release/factory` on `PATH`). Without it, run the lane commands as before: `pnpm -s checks:run <ids>` with the check ids from `pnpm -s checks:list`, or the test command of the package that you changed. A contributor from a fork never needs `factory`: CI runs the full suite for a pull request from a fork.
 
-Do not start a sub-agent only to run tests. `factory check` gives the same answer in less time, and CI can reuse it.
+Do not start a sub-agent only to run tests, and do not start review sub-agents. `factory check` gives the same answer in less time, and CI can reuse it. Without `factory`, follow the code-review skill ("Without the factory") for the review.
