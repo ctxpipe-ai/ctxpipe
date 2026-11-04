@@ -105,7 +105,9 @@ export const falkordbModuleVersion = (uri) =>
     socket.on("data", (chunk) => {
       reply += chunk
       const found = reply.match(/\$5\r\ngraph\r\n\$3\r\nver\r\n:(\d+)\r\n/)
-      if (found) (socket.destroy(), resolve(Number(found[1])))
+      if (!found) return
+      socket.destroy()
+      resolve(Number(found[1]))
     })
     socket.on("close", () => reject(new Error("no graph module in the reply")))
     socket.on("error", reject)
