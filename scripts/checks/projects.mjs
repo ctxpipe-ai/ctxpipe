@@ -206,7 +206,7 @@ const definitions = () => [
     ["workflow-inputs", [".github/**"]],
     ["ui-motion", ["apps/ui/src/**"]],
     ["story-play-timing", ["apps/ui/src/**"]],
-    ["claude-plugin", ["plugins/**", ".claude-plugin/**"]],
+    ["claude-plugin", ["plugins/**", ".claude-plugin/**", "scripts/ci/claude-cli/**"]],
     // The next two read the git diff against origin/main, so a result
     // cannot be reused from the files alone.
     [

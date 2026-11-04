@@ -15,7 +15,7 @@
     ".": {
       "entry": ["scripts/**/*.{mjs,js,ts}"],
       "project": ["scripts/**/*.{mjs,js,ts}"],
-      "ignoreDependencies": ["vitest", "@anthropic-ai/claude-code"]
+      "ignoreDependencies": ["vitest"]
     },
     "apps/backend": {
       "entry": [

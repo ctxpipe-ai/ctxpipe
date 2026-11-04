@@ -41,7 +41,6 @@
     "release": "pnpm -r --filter \"./packages/*\" run --if-present build && pnpm -r --filter \"./packages/*\" run --if-present test && changeset publish"
   },
   "devDependencies": {
-    "@anthropic-ai/claude-code": "2.1.251",
     "@changesets/cli": "^2.29.7",
     "@jridgewell/sourcemap-codec": "1.5.5",
     "concurrently": "^9.1.0",

@@ -15,7 +15,3 @@ patchedDependencies:
   # CTX-576: open a tool call when its input is known, not at the empty "pending" state.
   # CTX-1061: resolve a prompt only at the session idle after its reply, because a late message update can show the reply finished before its text.
   '@tanstack/ai-opencode@0.4.14': patches/@tanstack__ai-opencode@0.4.14.patch
-
-# The Claude Code CLI of the plugin check links its native binary in postinstall.
-onlyBuiltDependencies:
-  - '@anthropic-ai/claude-code'
