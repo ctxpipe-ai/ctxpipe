@@ -77,6 +77,8 @@ export const lintSteps = {
   "Reject outside values in run scripts and workflows without permissions":
     "policy:workflow-inputs:",
   "Validate and install the Claude plugin": "policy:claude-plugin:",
+  "Reject an ADR that the index omits": "policy:adr:",
+  "Reject new single-use module-scope values": "policy:module-scope-values:",
 }
 // The jobs of today's full run that run a check.
 export const checkJobs = new Set(Object.values(runsIn).map((run) => run.job))

@@ -6,6 +6,10 @@ Paste this file in full into the Simplicity sub-agent. Apply every rule to the p
 
 Do not treat the current implementation, the spec, or the ADR as correct or as something to preserve for consistency with itself. Spec-match is not a defense. The goal is to find accidental complexity.
 
+## Already checked by CI
+
+Do not report this exact case: a single-use scalar constant (a string or number) at module scope. `scripts/ci/check-module-scope-values.mjs` (`policy:module-scope-values`) covers it (CTX-1120). Arrays, objects, and calls at module scope stay yours to judge.
+
 ## Job, then thinnest machine
 
 1. **Name the job** in one concrete sentence from what the change actually does for a user (mention → commit; webhook → files in git). Not the ADR title. Not “handles Slack integration.”
