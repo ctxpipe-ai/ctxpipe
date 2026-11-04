@@ -12,6 +12,7 @@ import {
   vi,
 } from "vitest"
 
+import { CallDeadlineError } from "./call-deadline.js"
 import { openIngestEgressScope } from "./ingest-egress-proxy.js"
 import { ingestNetworkPolicy } from "./ingest-sandbox-egress.js"
 import {
@@ -22,6 +23,7 @@ import {
   hostedNetworkPolicy,
   listTaggedSandboxes,
   turnAgentPassword,
+  vercelAgentSnapshot,
   vercelConversationProvider,
 } from "./vercel-sandbox-provider.js"
 
@@ -716,6 +718,117 @@ describe("vercelConversationProvider CA bundle after a start", () => {
     const vm = withSandboxApi(false)
     await settle(provider().resume({ id: "sbx-ca" }))
     expect(vm.rewritten).toBe(false)
+  })
+})
+
+describe("vercelAgentSnapshot deadline", () => {
+  // CTX-1122: the SDK reads a command's response as one stream with no body
+  // timeout. Here the stream sends the command line and then nothing more,
+  // and it never closes.
+  const session = {
+    id: "ses_hung",
+    memory: 2048,
+    vcpus: 1,
+    region: "iad1",
+    runtime: "node24",
+    timeout: 60_000,
+    status: "running",
+    requestedAt: 1,
+    createdAt: 1,
+    cwd: "/vercel/sandbox",
+    updatedAt: 1,
+  }
+  const sandbox = {
+    name: "agent-hung",
+    persistent: false,
+    createdAt: 1,
+    updatedAt: 1,
+    currentSessionId: "ses_hung",
+    status: "running",
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("fails a build whose install command never ends at the install deadline, names the call, and deletes the builder", async () => {
+    const commandLine = `${JSON.stringify({
+      command: {
+        id: "cmd_hung",
+        name: "sh",
+        args: [],
+        cwd: "/vercel/sandbox",
+        sessionId: "ses_hung",
+        startedAt: 1,
+        exitCode: null,
+      },
+    })}\n`
+    const deleted: string[] = []
+    let commandStarted = false
+    server.use(
+      http.post("https://vercel.com/api/v2/sandboxes", () =>
+        HttpResponse.json({ sandbox, session, routes: [] }),
+      ),
+      http.post("https://vercel.com/api/v2/sandboxes/sessions/:id/cmd", () => {
+        commandStarted = true
+        return new HttpResponse(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode(commandLine))
+            },
+          }),
+          { headers: { "content-type": "application/x-ndjson" } },
+        )
+      }),
+      http.get("https://vercel.com/api/v2/sandboxes/snapshots", () =>
+        HttpResponse.json({
+          snapshots: [],
+          pagination: { count: 0, next: null },
+        }),
+      ),
+      http.get("https://vercel.com/api/v2/sandboxes/:name", () =>
+        HttpResponse.json({ sandbox, session, routes: [] }),
+      ),
+      http.delete("https://vercel.com/api/v2/sandboxes/:name", ({ params }) => {
+        deleted.push(String(params.name))
+        return HttpResponse.json({ sandbox })
+      }),
+    )
+    const started = Date.now()
+    const build = vercelAgentSnapshot({
+      credentials,
+      environment: "pr-hung",
+    })
+    const outcome = build.then(
+      () => "built",
+      (error: unknown) => error,
+    )
+    let ended = false
+    void outcome.then(() => {
+      ended = true
+    })
+    // The real HTTP exchange runs on the event loop; the fake clock does
+    // not move it.
+    const loop = () => new Promise((resolve) => setImmediate(resolve))
+    while (!commandStarted && !ended) await loop()
+    // Then move the fake clock on until the build ends, but stop well past
+    // the deadline, so that a build without a deadline fails here and not
+    // at the test timeout.
+    while (!ended && Date.now() - started < 10 * 60_000) {
+      await vi.advanceTimersByTimeAsync(1_000)
+      await loop()
+    }
+    expect(ended, "the build ended").toBe(true)
+    const error = await outcome
+    expect(error).toBeInstanceOf(CallDeadlineError)
+    expect(String(error)).toContain(
+      "Installing OpenCode in the agent builder did not finish within 120 s",
+    )
+    expect(Date.now() - started).toBeLessThanOrEqual(121_000)
+    expect(deleted).toEqual(["agent-hung"])
   })
 })
 

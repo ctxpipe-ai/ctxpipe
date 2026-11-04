@@ -13,6 +13,7 @@ import {
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { SandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import { log } from "../../observability/logger.js"
+import { withinDeadline } from "./call-deadline.js"
 import {
   VERCEL_INGEST_TOOLS,
   WORKSPACE_CHAT_OPENCODE_PORT,
@@ -495,12 +496,18 @@ async function waitForCaBundle(
         // because the rewrite recreates the link.
         `${whole} && [ "$(stat -c %Z ${bundle})" -ge ${threshold} ] && ! pgrep -x update-ca-trust >/dev/null && ! pgrep -x trust >/dev/null`
   }
+  // A check takes well under 1 s. A hung check counts as a failed one
+  // (CTX-1122), so 20 hung checks end the wait in about 2 minutes.
+  const check = () =>
+    withinDeadline("A CA bundle check", 5_000, (signal) =>
+      handle.process.exec(checkNow(), { signal }),
+    ).catch(() => undefined)
   for (let attempt = 0; attempt < 20; attempt++) {
-    const result = await handle.process.exec(checkNow()).catch(() => undefined)
+    const result = await check()
     if (result?.exitCode === 0) {
       // The same file, read again, shows a finished write.
       await new Promise((resolve) => setTimeout(resolve, 250))
-      const again = await handle.process.exec(checkNow()).catch(() => undefined)
+      const again = await check()
       if (again?.exitCode === 0) return
     }
     await new Promise((resolve) => setTimeout(resolve, 500))
@@ -584,18 +591,25 @@ export function vercelConversationProvider(input: {
       let startedAt = 0
       const start = (snapshotId: string) => {
         startedAt = beforeStart()
-        return Sandbox.create({
-          ...credentials,
-          source: { type: "snapshot", snapshotId },
-          resources: VERCEL_SANDBOX.resources,
-          ports: input.ports ?? [WORKSPACE_CHAT_OPENCODE_PORT],
-          persistent: true,
-          timeout: input.timeoutMs ?? SESSION_TIMEOUT_MS,
-          snapshotExpiration: STATE_RETENTION_MS,
-          keepLastSnapshots: { count: 1, expiration: STATE_RETENTION_MS },
-          networkPolicy: access.firewall.policy(gitToken),
-          tags: input.tags,
-        })
+        // Measured in the Vercel lane: under 1 s (CTX-1122).
+        return withinDeadline(
+          "Starting a sandbox from a snapshot",
+          60_000,
+          (signal) =>
+            Sandbox.create({
+              ...credentials,
+              source: { type: "snapshot", snapshotId },
+              resources: VERCEL_SANDBOX.resources,
+              ports: input.ports ?? [WORKSPACE_CHAT_OPENCODE_PORT],
+              persistent: true,
+              timeout: input.timeoutMs ?? SESSION_TIMEOUT_MS,
+              snapshotExpiration: STATE_RETENTION_MS,
+              keepLastSnapshots: { count: 1, expiration: STATE_RETENTION_MS },
+              networkPolicy: access.firewall.policy(gitToken),
+              tags: input.tags,
+              signal,
+            }),
+        )
       }
       const fromAgent = async () => {
         const snapshotId = await input.agentSnapshot()
@@ -971,28 +985,48 @@ async function buildAgentSnapshot(
   credentials: VercelCredentials,
   environment: string,
 ): Promise<string> {
-  const sandbox = await Sandbox.create({
-    ...credentials,
-    runtime: VERCEL_SANDBOX.runtime,
-    resources: VERCEL_SANDBOX.resources,
-    timeout: 15 * 60_000,
-    networkPolicy: { allow: ["registry.npmjs.org"] },
-    tags: { ...agentSnapshotTags(environment), opencode: AGENT_VERSION },
-  })
+  // Each call has a deadline: a hung call would hold this build, and every
+  // conversation start that waits for it, for ever (CTX-1122). Measured in
+  // the Vercel lane: create < 1 s, install about 15 s, snapshot about 3 s.
+  const sandbox = await withinDeadline(
+    "Creating the agent builder sandbox",
+    60_000,
+    (signal) =>
+      Sandbox.create({
+        ...credentials,
+        runtime: VERCEL_SANDBOX.runtime,
+        resources: VERCEL_SANDBOX.resources,
+        timeout: 15 * 60_000,
+        networkPolicy: { allow: ["registry.npmjs.org"] },
+        tags: { ...agentSnapshotTags(environment), opencode: AGENT_VERSION },
+        signal,
+      }),
+  )
   try {
-    const installed = await new VercelHandle({
-      sandbox,
-      workdir: WORKDIR,
-      ports: [],
-    }).process.exec(WORKSPACE_CHAT_VERCEL_AGENT_INSTALL)
+    const installed = await withinDeadline(
+      "Installing OpenCode in the agent builder",
+      120_000,
+      (signal) =>
+        new VercelHandle({
+          sandbox,
+          workdir: WORKDIR,
+          ports: [],
+        }).process.exec(WORKSPACE_CHAT_VERCEL_AGENT_INSTALL, { signal }),
+    )
     if (installed.exitCode !== 0)
       throw new Error(
         `Installing OpenCode failed (exit ${installed.exitCode}): ${installed.stderr.slice(-500)}`,
       )
     return (
-      await sandbox.snapshot({
-        expiration: builderSnapshotExpiration(environment),
-      })
+      await withinDeadline(
+        "Snapshotting the agent builder",
+        120_000,
+        (signal) =>
+          sandbox.snapshot({
+            expiration: builderSnapshotExpiration(environment),
+            signal,
+          }),
+      )
     ).snapshotId
   } catch (error) {
     await deleteVercelBuilder({ credentials, builderName: sandbox.name })
