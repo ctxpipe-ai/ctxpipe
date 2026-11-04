@@ -19,7 +19,7 @@
       "pattern": "^[A-Za-z0-9.+_-]{1,64}$"
     },
     "programs": {
-      "description": "The version of each host program that a check of the manifest declares in `programs`: the first dotted number of `git --version` and `ast-grep --version`, and the Go module version of `zoekt-webserver` (`go version -m`). A program that is not installed is absent; a check that declares it then has no key.",
+      "description": "The version of each host program that a check of the manifest declares in `programs`: the major and minor version of `git --version`, the first dotted number of `ast-grep --version`, and the Go module version of `zoekt-webserver` (`go version -m`). A program that is not installed is absent; a check that declares it then has no key.",
       "type": "object",
       "additionalProperties": false,
       "properties": {

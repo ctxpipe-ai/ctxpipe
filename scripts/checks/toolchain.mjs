@@ -25,11 +25,13 @@ const programCommands = {
 }
 
 // The version in the output of the command of `program`, or undefined.
+// Git changes behavior in a minor release, so the record holds only its major
+// and minor version; the nightly audit finds a check that a patch changes.
 export function programVersion(program, output) {
-  const version =
-    program === "zoekt"
-      ? /^\s*mod\s+\S+\s+(\S+)/m.exec(output)?.[1]
-      : /\d+(?:\.\d+)+/.exec(output)?.[0]
+  const version = {
+    git: () => /\d+\.\d+/.exec(output)?.[0],
+    zoekt: () => /^\s*mod\s+\S+\s+(\S+)/m.exec(output)?.[1],
+  }[program]?.() ?? /\d+(?:\.\d+)+/.exec(output)?.[0]
   return version && /^[A-Za-z0-9.+_-]{1,64}$/.test(version)
     ? version
     : undefined

@@ -1017,7 +1017,7 @@ test("the toolchain record holds the version of each host program that a check d
   )
   // ast-grep is not installed, so it is absent and its checks get no key.
   assert.deepEqual(record.programs, {
-    git: "2.50.1",
+    git: "2.50",
     zoekt: "v0.0.0-20250925130127-596c362fcf13",
   })
   assert.equal(asked.length, 3)
