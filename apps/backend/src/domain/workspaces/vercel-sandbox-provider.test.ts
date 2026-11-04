@@ -1,5 +1,5 @@
 import { type NetworkPolicy, Sandbox } from "@vercel/sandbox"
-import { HttpResponse, http } from "msw"
+import { HttpResponse, delay, http } from "msw"
 import { setupServer } from "msw/node"
 import {
   afterAll,
@@ -621,6 +621,19 @@ describe("vercelConversationProvider CA bundle after a start", () => {
             )
           }
           const command = await request.text()
+          // A detached command (the start of a stopping sandbox) is no check.
+          if (!(JSON.parse(command) as { wait?: boolean }).wait)
+            return HttpResponse.json({
+              command: {
+                id: "cmd_start",
+                name: "true",
+                args: [],
+                cwd: "/vercel/sandbox",
+                sessionId: "ses_ca",
+                startedAt: 1,
+                exitCode: null,
+              },
+            })
           vm.checks += 1
           if (vm.checks > 2) vm.rewritten = true
           const linkChangedAt = vm.rewritten ? Math.floor(Date.now() / 1000) : 1
@@ -718,6 +731,252 @@ describe("vercelConversationProvider CA bundle after a start", () => {
     const vm = withSandboxApi(false)
     await settle(provider().resume({ id: "sbx-ca" }))
     expect(vm.rewritten).toBe(false)
+  })
+
+  it("waits for the rewrite when the start of a stopping sandbox takes longer than the deadline of a CA check", async () => {
+    // CTX-1122: the stop poll and the start ran inside the first CA check,
+    // under its 5 s deadline. The deadline aborted the start request after
+    // Vercel had started the session, so `onResume` never ran, and the
+    // check then had no start time.
+    const vm = { checks: 0, rewritten: false, started: false }
+    const command = (id: string, sessionId: string, exitCode: number | null) =>
+      `${JSON.stringify({
+        command: {
+          id,
+          name: "sh",
+          args: [],
+          cwd: "/vercel/sandbox",
+          sessionId,
+          startedAt: 1,
+          exitCode,
+        },
+      })}\n`
+    server.use(
+      http.get(
+        "https://vercel.com/api/v2/sandboxes/:name",
+        async ({ request }) => {
+          const resuming =
+            new URL(request.url).searchParams.get("resume") === "true"
+          if (!resuming)
+            return HttpResponse.json({
+              sandbox,
+              session: { ...session, status: "stopping" },
+              routes: [],
+              resumed: false,
+            })
+          const first = !vm.started
+          vm.started = true
+          // Starting from saved state takes 6 s; the session runs from now.
+          // (`setTimeout` here, not msw's `delay`, so the fake clock moves it.)
+          if (first) await new Promise((resolve) => setTimeout(resolve, 6_000))
+          return HttpResponse.json({
+            sandbox,
+            session: { ...session, id: "ses_new" },
+            routes: [],
+            resumed: first,
+          })
+        },
+      ),
+      http.post(
+        "https://vercel.com/api/v2/sandboxes/sessions/:id/cmd",
+        async ({ params, request }) => {
+          // The old session ended: the SDK starts the sandbox, then sends
+          // the command again. (The SDK polls a "stopping" session with
+          // timers that the fake clock does not move.)
+          if (params.id === "ses_ca")
+            return HttpResponse.json(
+              { error: { code: "sandbox_stopped", message: "stopped" } },
+              { status: 410 },
+            )
+          const body = await request.text()
+          if (!(JSON.parse(body) as { wait?: boolean }).wait)
+            return new HttpResponse(command("cmd_start", "ses_new", null), {
+              headers: { "content-type": "application/json" },
+            })
+          vm.checks += 1
+          if (vm.checks > 2) vm.rewritten = true
+          const linkChangedAt = vm.rewritten ? Math.floor(Date.now() / 1000) : 1
+          const newerThan = /-ge (\d+)/.exec(body)?.[1]
+          const passes = newerThan === undefined || linkChangedAt >= +newerThan
+          return new HttpResponse(
+            command("cmd_ca", "ses_new", null) +
+              command("cmd_ca", "ses_new", passes ? 0 : 1),
+            { headers: { "content-type": "application/x-ndjson" } },
+          )
+        },
+      ),
+    )
+    const handle = await settle(provider().resume({ id: "sbx-ca" }))
+    expect(handle).not.toBeNull()
+    expect(vm.rewritten).toBe(true)
+  })
+})
+
+describe("vercelConversationProvider start failures", () => {
+  const session = {
+    id: "ses_start",
+    memory: 2048,
+    vcpus: 1,
+    region: "iad1",
+    runtime: "node24",
+    timeout: 60_000,
+    status: "running",
+    requestedAt: 1,
+    createdAt: 1,
+    cwd: "/vercel/sandbox",
+    updatedAt: 1,
+  }
+  const sandboxNamed = (name: string) => ({
+    name,
+    persistent: true,
+    createdAt: 1,
+    updatedAt: 1,
+    currentSessionId: "ses_start",
+    status: "running",
+  })
+  const passingCheck = `${JSON.stringify({
+    command: {
+      id: "cmd_ca",
+      name: "sh",
+      args: [],
+      cwd: "/vercel/sandbox",
+      sessionId: "ses_start",
+      startedAt: 1,
+      exitCode: 0,
+    },
+  })}\n`
+  const provider = (state: { put: string[]; revoked: string[] }) =>
+    vercelConversationProvider({
+      credentials,
+      agentPassword: "password",
+      access: {
+        firewall: conversationFirewall("app.example.test"),
+        mintGitToken: async () => "git-start",
+        revokeGitToken: async (token) => {
+          state.revoked.push(token)
+        },
+        tokens: {
+          get: async () => null,
+          put: async (name) => {
+            state.put.push(name)
+          },
+          take: async () => null,
+        },
+      },
+      tags: {},
+      base: async () => ({ ref: "snap_base", failed: async () => undefined }),
+      agentSnapshot: async () => "snap_agent",
+    })
+  const settle = async <T>(call: Promise<T>) => {
+    let done = false
+    const outcome = call.then(
+      (value) => {
+        done = true
+        return value
+      },
+      (error: unknown) => {
+        done = true
+        return error
+      },
+    )
+    while (!done) {
+      await vi.advanceTimersByTimeAsync(1_000)
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    return outcome
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("deletes the sandbox of a start that passed its deadline, by the name it sent, before it starts from the agent snapshot", async () => {
+    const state = { put: [] as string[], revoked: [] as string[] }
+    const created: (string | undefined)[] = []
+    const deleted: string[] = []
+    server.use(
+      http.post("https://vercel.com/api/v2/sandboxes", async ({ request }) => {
+        const { name } = (await request.json()) as { name?: string }
+        created.push(name)
+        // Vercel makes the first sandbox, but its answer never comes.
+        if (created.length === 1) await delay("infinite")
+        return HttpResponse.json({
+          sandbox: sandboxNamed(name ?? "sbx-vercel-named"),
+          session,
+          routes: [],
+        })
+      }),
+      http.get(
+        "https://vercel.com/api/v2/sandboxes/snapshots/:id",
+        ({ params }) =>
+          HttpResponse.json(snapshot(String(params.id), "created")),
+      ),
+      http.get("https://vercel.com/api/v2/sandboxes/snapshots", () =>
+        HttpResponse.json({
+          snapshots: [],
+          pagination: { count: 0, next: null },
+        }),
+      ),
+      http.get("https://vercel.com/api/v2/sandboxes/:name", ({ params }) =>
+        HttpResponse.json({
+          sandbox: sandboxNamed(String(params.name)),
+          session,
+          routes: [],
+        }),
+      ),
+      http.delete("https://vercel.com/api/v2/sandboxes/:name", ({ params }) => {
+        deleted.push(String(params.name))
+        return HttpResponse.json({ sandbox: sandboxNamed(String(params.name)) })
+      }),
+      http.post(
+        "https://vercel.com/api/v2/sandboxes/sessions/:id/cmd",
+        () =>
+          new HttpResponse(passingCheck, {
+            headers: { "content-type": "application/x-ndjson" },
+          }),
+      ),
+    )
+    const handle = await settle(
+      provider(state).create({
+        workspace: { source: { type: "none" } },
+      } as Parameters<ReturnType<typeof provider>["create"]>[0]),
+    )
+    expect(handle).not.toBeInstanceOf(Error)
+    const [late, used] = created
+    expect(late).toMatch(/^ctxpipe-[0-9a-f]{24}$/)
+    expect(used).toMatch(/^ctxpipe-[0-9a-f]{24}$/)
+    expect(used).not.toBe(late)
+    expect(deleted).toEqual([late])
+    expect(state.put).toEqual([used])
+    expect(state.revoked).toEqual([])
+  })
+
+  it("revokes the GitHub token when no start succeeds", async () => {
+    const state = { put: [] as string[], revoked: [] as string[] }
+    server.use(
+      http.post("https://vercel.com/api/v2/sandboxes", () =>
+        HttpResponse.json(
+          { error: { code: "bad_request", message: "no start" } },
+          { status: 400 },
+        ),
+      ),
+      http.get(
+        "https://vercel.com/api/v2/sandboxes/snapshots/:id",
+        ({ params }) =>
+          HttpResponse.json(snapshot(String(params.id), "created")),
+      ),
+    )
+    const error = await settle(
+      provider(state).create({
+        workspace: { source: { type: "none" } },
+      } as Parameters<ReturnType<typeof provider>["create"]>[0]),
+    )
+    expect(error).toBeInstanceOf(Error)
+    expect(state.put).toEqual([])
+    expect(state.revoked).toEqual(["git-start"])
   })
 })
 
