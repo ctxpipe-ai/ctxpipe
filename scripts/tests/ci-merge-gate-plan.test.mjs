@@ -820,11 +820,15 @@ test("a gated step has the setup of its full-run step and of the prerequisites o
 test("a failed plan job gives a full run, and the merge gate reports its verdict", () => {
   // The plan job failed before it wrote plan.json or any output: each check
   // job runs in full, and the merge gate fails with the full run.
-  const decide = (result) => {
+  const decide = (
+    result,
+    critics = { critics: [{ critic: "critic:spec", status: "carried" }] },
+  ) => {
     const directory = inputs({
       "mode.json": { mode: "select", reason: "gate" },
       "selection.json": selectRecord(),
       "llm-selection.json": llmRecord(),
+      ...(critics ? { "critics.json": critics } : {}),
       "config.json": config(),
       "needs.json": {
         ...needs,
@@ -866,6 +870,12 @@ test("a failed plan job gives a full run, and the merge gate reports its verdict
   const passed = decide("success")
   assert.equal(passed.status, 0)
   assert.equal(passed.decision.fullRun.verdict, "pass")
+  // A full run checks the critics too: a same-repo PR without the critics
+  // record fails, with the cause.
+  const unchecked = decide("success", null)
+  assert.equal(unchecked.status, 1)
+  assert.equal(unchecked.decision.critics.checked, false)
+  assert.equal(unchecked.decision.critics.cause, "the critics job did not run")
 })
 
 test("the selected checks of a job run through the public runner, with records", () => {

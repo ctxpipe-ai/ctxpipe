@@ -15,6 +15,9 @@ import { fileURLToPath } from "node:url"
 import {
   code,
   comment,
+  critics,
+  criticsFail,
+  criticsText,
   decideMode,
   describe,
   marker,
@@ -1126,6 +1129,151 @@ test("the CLI writes the decision files from artifacts", () => {
     ),
   )
   assert.ok(readFileSync(join(out, "comment.md"), "utf8").startsWith(marker))
+})
+
+test("a critic with no stored verdict fails the gate, and the comment links each verdict", () => {
+  const verdict = {
+    commit: sha(7),
+    createdAt: "2026-11-04T10:00:00Z",
+    source: "agent",
+  }
+  const record = (status) => ({
+    pr: "o/r#1",
+    head: sha(8),
+    critics: [
+      {
+        critic: "critic:spec",
+        status: "carried",
+        reason: "2 passes",
+        verdicts: [verdict],
+      },
+      {
+        critic: "critic:security",
+        status,
+        reason: "1 of 1 diffs have no stored verdict; run /code-review",
+        verdicts: [],
+      },
+    ],
+  })
+  const decideWith = (mode, files) => {
+    const directory = inputs({
+      "mode.json": { mode: "select", reason: "shadow" },
+      "selection.json": selection(),
+      ...files,
+    })
+    const passing = Object.fromEntries(
+      Object.keys(needs()).map((name) => [name, "success"]),
+    )
+    writeFileSync(join(directory, "needs.json"), JSON.stringify(passing))
+    writeFileSync(
+      join(directory, "config.json"),
+      JSON.stringify({ ...pinned, mode }),
+    )
+    const out = join(directory, "out")
+    const run = spawnSync(
+      process.execPath,
+      [
+        join(root, "scripts/checks/gate.mjs"),
+        "decide",
+        "--config",
+        join(directory, "config.json"),
+        "--inputs",
+        directory,
+        "--results",
+        join(directory, "results"),
+        "--needs",
+        join(directory, "needs.json"),
+        "--out",
+        out,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          PATH: process.env.PATH,
+          GITHUB_SERVER_URL: "https://github.com",
+          GITHUB_REPOSITORY: "o/r",
+        },
+      },
+    )
+    return {
+      status: run.status,
+      stderr: run.stderr,
+      comment: readFileSync(join(out, "comment.md"), "utf8"),
+    }
+  }
+  const missing = decideWith("gate", {
+    "critics.json": record("missing"),
+  })
+  assert.equal(missing.status, 1, missing.stderr)
+  assert.ok(missing.comment.includes("#### Review critics"))
+  assert.ok(
+    missing.comment.includes(
+      `[${sha(7).slice(0, 7)}](https://github.com/o/r/commit/${sha(7)})`,
+    ),
+  )
+  assert.ok(missing.comment.includes("Fix: run `/code-review`"))
+  // Shadow mode only reports it; a gate whose critics all have a verdict passes.
+  assert.equal(
+    decideWith("shadow", { "critics.json": record("missing") }).status,
+    0,
+  )
+  assert.equal(
+    decideWith("gate", { "critics.json": record("not-applicable") }).status,
+    0,
+  )
+})
+
+test("a same-repo PR whose critics were not checked fails the gate with the cause; a fork PR does not", () => {
+  const directory = inputs({})
+  writeFileSync(
+    join(directory, "critics-cause.txt"),
+    "factory review gate failed with exit code 2\n",
+  )
+  const checked = critics(directory)
+  assert.deepEqual(checked.missing, [])
+  assert.equal(checked.checked, false)
+  assert.equal(criticsFail(checked), true)
+  const text = criticsText(checked)
+  assert.ok(
+    text.includes(
+      "Not checked: `factory review gate failed with exit code 2`.",
+    ),
+  )
+  assert.ok(text.includes("the gate fails"))
+  const skipped = critics(inputs({}), {
+    needs: { "merge-gate-critics": { result: "skipped" } },
+  })
+  assert.equal(skipped.cause, "the critics job skipped")
+  assert.equal(criticsFail(skipped), true)
+  // An empty list or an unknown status never passes.
+  const empty = critics(inputs({ "critics.json": { critics: [] } }))
+  assert.equal(empty.cause, "the critics record lists no critics")
+  assert.equal(criticsFail(empty), true)
+  const unknown = critics(
+    inputs({
+      "critics.json": {
+        critics: [{ critic: "critic:spec", status: "stale" }],
+      },
+    }),
+  )
+  assert.deepEqual(unknown.missing, ["critic:spec"])
+  const fork = critics(inputs({}), { fork: true })
+  assert.equal(criticsFail(fork), false)
+  assert.ok(criticsText(fork).includes("a fork PR gets no role"))
+})
+
+test("the critics section says that the gate proves an attested review, not a sound one", () => {
+  const directory = inputs({
+    "critics.json": {
+      head: sha(8),
+      critics: [
+        { critic: "critic:spec", status: "carried", reason: "1 passes" },
+      ],
+    },
+  })
+  const text = criticsText(critics(directory))
+  assert.ok(text.includes("an agent recorded a review of these hunks"))
+  assert.ok(text.includes("open CTO decision"))
 })
 
 test("a lint or policy check takes the result of its step in the Lint and format job", () => {

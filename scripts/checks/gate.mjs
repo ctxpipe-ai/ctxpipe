@@ -60,6 +60,9 @@ import {
 //     <needs> the `needs` context, <jobs> the jobs of this run attempt from
 //     the GitHub API, <earlier> the jobs of the earlier attempts of this
 //     run, <deploy> the jobs of the newest PR Deploy run of the PR head.
+//     The decision also holds the review critics (critics.json of the
+//     critics job). In gate mode, the exit code is 1 when a critic has no
+//     stored verdict, or when a same-repo PR has no critics record.
 
 // The steps of the job `Deploy PR environment (Railway + Neon)` of
 // pr-deploy.yaml that run one deploy check each. A test keeps these names
@@ -501,6 +504,88 @@ export function code(text) {
     .replace(/`/g, "'")
     .replace(/\|/g, "\\|")
   return `\`${clean.length > 200 ? `${clean.slice(0, 200)}…` : clean}\``
+}
+
+// The review critics of the PR, from `factory review gate` in the critics
+// job (critics.json): each critic of the merge base is carried (a stored
+// verdict covers the PR diff), not-applicable, or missing. Each other status
+// counts as missing. Without a record that lists critics, `checked` is false
+// and `cause` says why (critics-cause.txt, or the result of the critics job). A same-repo PR needs the record (`required`):
+// without it the gate fails. A fork PR gets no role for the result store.
+export function critics(inputs, { needs, fork = false } = {}) {
+  const record = readJson(join(inputs, "critics.json"))
+  if (record?.critics?.length > 0)
+    return {
+      checked: true,
+      required: !fork,
+      critics: record.critics,
+      missing: record.critics
+        .filter(
+          (critic) => !["carried", "not-applicable"].includes(critic.status),
+        )
+        .map((critic) => critic.critic),
+    }
+  const cause = join(inputs, "critics-cause.txt")
+  return {
+    checked: false,
+    required: !fork,
+    cause: existsSync(cause)
+      ? readFileSync(cause, "utf8").trim()
+      : record
+        ? "the critics record lists no critics"
+        : fork
+          ? "a fork PR gets no role for the result store"
+          : `the critics job ${needs?.["merge-gate-critics"]?.result ?? "did not run"}`,
+    missing: [],
+  }
+}
+
+// True when the review critics fail the gate: a critic is missing, or a
+// same-repo PR has no critics record (fail closed).
+export function criticsFail(checked) {
+  return checked.missing.length > 0 || (checked.required && !checked.checked)
+}
+
+// The critics section of the summary and the PR comment. Each stored verdict
+// links to the commit that the agent reviewed.
+export function criticsText(checked, repoUrl) {
+  const lines = ["", "#### Review critics", ""]
+  // The verdicts are attested, not verified: any writer of the agent class,
+  // also the agent of the PR, can store them.
+  const attested =
+    "The gate proves that an agent recorded a review of these hunks, not that the review was sound. To run the critics in CI, which closes this gap, is an open CTO decision."
+  if (!checked?.checked) {
+    lines.push(`Not checked: ${code(checked?.cause ?? "no record")}.`)
+    if (checked?.required)
+      lines.push(
+        "",
+        "A same-repo PR needs the critics record, so the gate fails in gate mode. Fix: use **Re-run all jobs**, so that the job `Merge gate critics` runs again. When the cause stays, look at the log of that job.",
+      )
+    return `${lines.join("\n")}\n`
+  }
+  lines.push(
+    "| Critic | Status | Why | Verdicts |",
+    "| --- | --- | --- | --- |",
+  )
+  for (const critic of checked.critics) {
+    const links = (critic.verdicts ?? [])
+      .filter((verdict) => /^[0-9a-f]{40}$/.test(verdict.commit))
+      .map((verdict) =>
+        repoUrl
+          ? `[${verdict.commit.slice(0, 7)}](${repoUrl}/commit/${verdict.commit})`
+          : verdict.commit.slice(0, 7),
+      )
+    lines.push(
+      `| ${code(critic.critic)} | ${code(critic.status)} | ${code(critic.reason)} | ${links.join(" ") || "none"} |`,
+    )
+  }
+  if (checked.missing.length > 0)
+    lines.push(
+      "",
+      `Critics with no stored verdict for this diff: ${checked.missing.length}. Fix: run \`/code-review\` on the PR head (it stores the verdicts). Then use **Re-run all jobs**, or push again: the job \`Merge gate critics\` must look up the verdicts again.`,
+    )
+  lines.push("", attested)
+  return `${lines.join("\n")}\n`
 }
 
 // One line for a selection reason.
@@ -1292,6 +1377,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
           entries: next.entries.filter((entry) => !failed.has(entry.id)),
         }
       }
+      const pr = event?.pull_request
+      decision.critics = critics(options.inputs, {
+        needs,
+        fork:
+          pr !== undefined &&
+          pr.head?.repo?.full_name !== pr.base?.repo?.full_name,
+      })
+      const repoUrl =
+        env.GITHUB_SERVER_URL && env.GITHUB_REPOSITORY
+          ? `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}`
+          : undefined
+      const reviewText = criticsText(decision.critics, repoUrl)
       mkdirSync(options.out, { recursive: true })
       writeFileSync(
         join(options.out, "decision.json"),
@@ -1304,23 +1401,32 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
       const gated = decision.mode === "gate"
       writeFileSync(
         join(options.out, "summary.md"),
-        gated ? gateText(decision, runUrl) : summary(decision, runUrl),
+        (gated ? gateText(decision, runUrl) : summary(decision, runUrl)) +
+          reviewText,
       )
       writeFileSync(
         join(options.out, "comment.md"),
-        gated
+        (gated
           ? gateText(decision, runUrl, { limit: 25, comment: true })
-          : comment(decision, runUrl),
+          : comment(decision, runUrl)) + reviewText,
       )
       // In gate mode this job is the required status: it fails with the
       // gated verdict, or with the verdict of a full run.
       const verdict = gated
         ? decision.gatedRun.verdict
         : decision.fullRun.verdict
+      // In gate mode, a critic with no stored verdict fails the gate (the
+      // review did not run on this diff), and so does a same-repo PR whose
+      // critics could not be checked.
+      const missing = decision.critics.missing
       process.stdout.write(
-        `Merge gate: config ${config.mode}; mode ${decision.mode}; verdict ${verdict}\n`,
+        `Merge gate: config ${config.mode}; mode ${decision.mode}; verdict ${verdict}; critics ${decision.critics.checked ? `missing ${missing.length}` : "not checked"}\n`,
       )
-      if (config.mode === "gate" && verdict === "fail") process.exitCode = 1
+      if (
+        config.mode === "gate" &&
+        (verdict === "fail" || criticsFail(decision.critics))
+      )
+        process.exitCode = 1
     } else throw new Error("Usage: gate.mjs mode|plan|decide --config <file> …")
   } catch (error) {
     process.stderr.write(`${error.message}\n`)

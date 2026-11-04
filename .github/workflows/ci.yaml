@@ -1444,6 +1444,88 @@ jobs:
           path: ${{ runner.temp }}/out/
           if-no-files-found: ignore
 
+  # The review critics (`factory review gate`, .agents/skills/code-review):
+  # for the PR diff and the critics of the merge base, the stored verdict of
+  # each critic. An agent stores them when it runs /code-review. It runs on
+  # each same-repo PR in every mode, apart from the selection, so a full run
+  # checks the critics too. It holds the read-only role of the select job and
+  # runs no package manager and no repository script. Its artifact is the only
+  # source of critics.json: a job that runs PR code cannot write it. Each step
+  # writes out/critics-cause.txt before a part that can fail, and the Merge
+  # gate job fails a same-repo PR without a critics record. The job runs
+  # beside the test jobs, so it adds no time to the run. A lookup of 16 hunks
+  # and 4 critics took 5 s. The timeout is large, because a large diff (a
+  # lockfile) has many hunks and so many store keys.
+  merge-gate-critics:
+    timeout-minutes: 25
+    name: Merge gate critics
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    continue-on-error: true
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Start the cause record
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          echo "the read-only role of the result store was not assumed" > "$RUNNER_TEMP/out/critics-cause.txt"
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::134416647419:role/check-results-gate-reader
+          aws-region: us-west-2
+      - name: Factory release, checked against the pin
+        run: |
+          cause="$RUNNER_TEMP/out/critics-cause.txt"
+          version="$(jq -er .factory.version .github/merge-gate.json)"
+          sha256="$(jq -er .factory.sha256 .github/merge-gate.json)"
+          echo "the download of the factory release $version failed" > "$cause"
+          aws s3api get-object --bucket ctxpipe-factory-check-results-134416647419 \
+            --expected-bucket-owner 134416647419 \
+            --key "releases/factory/$version/factory-linux-x64.tar.gz" \
+            "$RUNNER_TEMP/factory.tar.gz" > /dev/null
+          echo "the factory release does not match the pinned SHA-256" > "$cause"
+          echo "$sha256  $RUNNER_TEMP/factory.tar.gz" | sha256sum --check --strict
+          echo "the factory release did not unpack" > "$cause"
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
+      # The step never fails the job: the Merge gate job decides, and a
+      # lookup that could not run is a cause, not a missing critic.
+      - name: Look up the review critics
+        timeout-minutes: 20
+        env:
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          out="$RUNNER_TEMP/out"
+          echo "the critics lookup did not finish in 20 minutes" > "$out/critics-cause.txt"
+          code=0
+          "$RUNNER_TEMP/bin/factory" review gate --repo . --pr "$REPO#$PR" \
+            --base "$BASE_SHA" --head "$HEAD_SHA" --json \
+            > "$RUNNER_TEMP/critics.json" 2> "$RUNNER_TEMP/critics.err" || code=$?
+          if [ "$code" -le 1 ] && jq -e '.critics | type == "array"' "$RUNNER_TEMP/critics.json" > /dev/null; then
+            mv "$RUNNER_TEMP/critics.json" "$out/critics.json"
+            rm "$out/critics-cause.txt"
+          else
+            echo "factory review gate failed with exit code $code: $(tail -n 1 "$RUNNER_TEMP/critics.err" | cut -c1-300)" > "$out/critics-cause.txt"
+            cat "$RUNNER_TEMP/critics.err" >&2
+          fi
+      - name: Preserve the critics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: merge-gate-critics
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: ignore
+
   # The LLM stage of the selection (`factory check --llm-select`, Claude
   # Haiku 5.5 through OpenRouter) for the select job's run. It holds the
   # model key of the workbench environment and no cloud role. It runs only
@@ -1570,12 +1652,30 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
+      # Each artifact downloads by its name. The manifest job runs PR code, so
+      # only its mode.json is read. The selection and the LLM selection come
+      # only from the jobs that wrote them.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:
-          pattern: merge-gate-*
+          name: merge-gate-inputs
+          path: ${{ runner.temp }}/manifest
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          name: merge-gate-selection
           path: ${{ runner.temp }}/inputs
-          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          name: merge-gate-llm
+          path: ${{ runner.temp }}/inputs
+      - name: The mode of the manifest job
+        run: |
+          mkdir -p "$RUNNER_TEMP/inputs"
+          if [ -f "$RUNNER_TEMP/manifest/mode.json" ]; then
+            cp "$RUNNER_TEMP/manifest/mode.json" "$RUNNER_TEMP/inputs/mode.json"
+          fi
       - name: Restore the PR store
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -1667,6 +1767,7 @@ jobs:
         merge-gate-select,
         merge-gate-llm,
         merge-gate-plan,
+        merge-gate-critics,
         lint,
         typecheck,
         test-shards,
@@ -1697,12 +1798,40 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
+      # Each artifact downloads by its name. The manifest job runs PR code, so
+      # only its mode.json is read. The selection, the LLM selection, the plan
+      # and the critics come only from the jobs that wrote them.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:
-          pattern: merge-gate-*
+          name: merge-gate-inputs
+          path: ${{ runner.temp }}/manifest
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          name: merge-gate-selection
           path: ${{ runner.temp }}/inputs
-          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          name: merge-gate-llm
+          path: ${{ runner.temp }}/inputs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          name: merge-gate-plan
+          path: ${{ runner.temp }}/inputs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          name: merge-gate-critics
+          path: ${{ runner.temp }}/inputs
+      - name: The mode of the manifest job
+        run: |
+          mkdir -p "$RUNNER_TEMP/inputs"
+          if [ -f "$RUNNER_TEMP/manifest/mode.json" ]; then
+            cp "$RUNNER_TEMP/manifest/mode.json" "$RUNNER_TEMP/inputs/mode.json"
+          fi
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:
