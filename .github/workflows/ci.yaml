@@ -917,11 +917,13 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .release-cache
-          key: codesearch-releases-${{ hashFiles('apps/codesearch/release-assets.txt') }}
+          key: codesearch-releases-${{ runner.arch }}-${{ hashFiles('apps/codesearch/release-assets.txt') }}
       # Fills the cache with checksum-verified files. When GitHub stays down,
       # this step fails in minutes with "Outside service unavailable".
       - name: Download pinned release files
         timeout-minutes: 10
+        env:
+          TARGETARCH: ${{ runner.arch == 'ARM64' && 'arm64' || 'amd64' }}
         run: bash apps/codesearch/scripts/fetch-releases.sh apps/codesearch/release-assets.txt "$RUNNER_TEMP/releases" .release-cache
       # The trace (scripts/checks/README.md) is data only; PR runs skip it.
       # The result records go to the merge gate and the Results writer.

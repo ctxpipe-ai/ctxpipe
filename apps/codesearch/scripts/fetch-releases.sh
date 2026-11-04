@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
 # Download the pinned release files from release-assets.txt into OUT_DIR.
-# Usage: fetch-releases.sh MANIFEST OUT_DIR [CACHE_DIR]
+# Usage: TARGETARCH=amd64|arm64 fetch-releases.sh MANIFEST OUT_DIR [CACHE_DIR]
 # A file in CACHE_DIR with the right checksum is copied, not downloaded.
 # A download has a connect timeout, a stall check, a total timeout, and 3
 # attempts, so the worst case per file is bounded (about 6 minutes). When the
 # source stays down, the script fails with "Outside service unavailable".
 set -euo pipefail
 manifest=$1 out=$2 cache=${3:-}
+case "${TARGETARCH:-}" in
+  amd64 | arm64) ;;
+  *) echo "TARGETARCH must be amd64 or arm64" >&2; exit 2 ;;
+esac
 mkdir -p "$out"
 [ -z "$cache" ] || mkdir -p "$cache" 2>/dev/null || true
 sha_ok() { echo "$1  $2" | sha256sum -c - >/dev/null 2>&1; }
 while IFS=$'\t' read -r name sha url; do
   case "$name" in '' | '#'*) continue ;; esac
+  case "$name" in
+    *-"$TARGETARCH" | *-"$TARGETARCH".*) ;;
+    *-amd64 | *-amd64.* | *-arm64 | *-arm64.*) continue ;;
+  esac
   if [ -n "$cache" ] && [ -f "$cache/$name" ] && sha_ok "$sha" "$cache/$name"; then
     cp "$cache/$name" "$out/$name"
     continue

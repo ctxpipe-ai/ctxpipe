@@ -9,7 +9,8 @@ IMAGE="${CTXPIPE_CODESEARCH_TEST_IMAGE:-ctxpipe-codesearch:test}"
 # file). The container writes them to the mounted directories.
 args=()
 mount=()
-usage="Usage: run-vitest-docker.sh [--trace <dir>] [--records <dir>]"
+selected=0
+usage="Usage: run-vitest-docker.sh [--trace <dir>] [--records <dir>] [--node <file>] [--bun <file>]"
 while [ "$#" -gt 0 ]; do
   [ "$#" -ge 2 ] || { echo "$usage" >&2; exit 2; }
   case "$1" in
@@ -22,6 +23,10 @@ while [ "$#" -gt 0 ]; do
       mkdir -p "$2"
       mount+=(-v "$(cd "$2" && pwd):/records")
       args+=(--records /records)
+      ;;
+    --node | --bun)
+      args+=("$1" "$2")
+      selected=1
       ;;
     *) echo "$usage" >&2; exit 2 ;;
   esac
@@ -43,4 +48,6 @@ context=()
 [ ! -d "${ROOT}/.release-cache" ] || context=(--build-context "releases=${ROOT}/.release-cache")
 docker build --platform "${platform}" ${context[@]+"${context[@]}"} -f "${ROOT}/apps/codesearch/Dockerfile" --target test -t "${IMAGE}" "${ROOT}"
 docker run --platform "${platform}" --rm ${mount[@]+"${mount[@]}"} "${IMAGE}" ${args[@]+"${args[@]}"}
-bash "${ROOT}/apps/codesearch/scripts/oom-simulation.sh" "${IMAGE}"
+if [ "$selected" -eq 0 ]; then
+  bash "${ROOT}/apps/codesearch/scripts/oom-simulation.sh" "${IMAGE}"
+fi

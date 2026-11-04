@@ -26,7 +26,10 @@ before(async () => {
     res.writeHead(200, { "content-length": "100" })
     res.write("x")
   })
-  await new Promise((r) => server.listen(0, "127.0.0.1", r))
+  await new Promise((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", resolve)
+  })
   base = `http://127.0.0.1:${server.address().port}`
 })
 after(() => {
@@ -45,6 +48,7 @@ function run(manifestText, extraArgs = [], env = {}) {
       {
         env: {
           ...process.env,
+          TARGETARCH: "amd64",
           FETCH_STALL_TIMEOUT: "1",
           FETCH_MAX_TIME: "3",
           FETCH_RETRY_DELAY: "0",
