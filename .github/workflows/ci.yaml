@@ -1311,15 +1311,19 @@ jobs:
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
         run: |
           npm install --global @ast-grep/cli@0.45.0
+          # Install both binaries: the cache that this job saves is the one
+          # the test jobs restore, and they need zoekt-index too.
           if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ]; then
             mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
-            n=0
-            until GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install \
-              "github.com/sourcegraph/zoekt/cmd/zoekt-webserver@596c362fcf1388fe0082acfcfc80c4d172efb7c1"
-            do
-              n=$((n + 1))
-              [ "$n" -lt 4 ] || exit 1
-              sleep $((n * 4))
+            for tool in zoekt-index zoekt-webserver; do
+              n=0
+              until GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install \
+                "github.com/sourcegraph/zoekt/cmd/${tool}@596c362fcf1388fe0082acfcfc80c4d172efb7c1"
+              do
+                n=$((n + 1))
+                [ "$n" -lt 4 ] || exit 1
+                sleep $((n * 4))
+              done
             done
           fi
           echo "$RUNNER_TEMP/ctxpipe-zoekt" >> "$GITHUB_PATH"
