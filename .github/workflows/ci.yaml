@@ -1799,6 +1799,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    outputs:
+      non_portable: ${{ steps.store.outputs.non_portable }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1854,6 +1856,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
       - name: Store the passes and audit the failures
+        id: store
         if: steps.pin.outputs.pinned == 'true'
         run: |
           mapfile -d '' records < <(find "$RUNNER_TEMP/results" -name records.ndjson -print0 | sort -z)
@@ -1880,6 +1883,15 @@ jobs:
             hashes="$(grep -o '^SUSPECT WRITER sha256 [0-9a-f]*' "$RUNNER_TEMP/store.txt" | awk '{print $4}' | tr '\n' ' ')"
             echo "::error::Suspect agent writers (sha256 of the writer): ${hashes}. The run had an infrastructure fault or many confirmed failures, so no writer was quarantined. A person or the nightly agent reviews the markers under quarantine/suspect/."
           fi
+          # A portable check that failed here and in the rerun, while every
+          # stored pass of its key came from another platform: its result
+          # depends on the platform. The Non-portable checks job lists it.
+          ids="$(sed -n 's/^  NOT PORTABLE \(.*\): every stored pass of the key came from another platform.*/\1/p' "$RUNNER_TEMP/store.txt" |
+            jq -Rsc 'split("\n") | map(select(length > 0))')"
+          echo "non_portable=${ids}" >> "$GITHUB_OUTPUT"
+          if [ "$ids" != "[]" ]; then
+            echo "::error::Checks whose result depends on the platform: ${ids}. The Non-portable checks job opens a pull request that adds them to the denylist of the manifest."
+          fi
           if grep -q '^AUDIT FAILED' "$RUNNER_TEMP/store.txt"; then
             echo "::error::The audit of the result store failed, so no key was quarantined. See the Results writer summary."
           fi
@@ -1891,3 +1903,44 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$code"
+
+  # Adds the checks that the Results writer found not portable to the
+  # committed denylist, in a draft pull request: the manifest then marks them
+  # not portable, so a laptop pass no longer counts in CI for them. It runs no
+  # repository script and has no AWS role. When GitHub refuses the pull
+  # request, the error annotation names the checks to add by hand.
+  non-portable-checks:
+    timeout-minutes: 10
+    name: Non-portable checks
+    needs: [results-writer]
+    if: always() && needs.results-writer.outputs.non_portable != '' && needs.results-writer.outputs.non_portable != '[]'
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Open a pull request that marks the checks not portable
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IDS: ${{ needs.results-writer.outputs.non_portable }}
+        run: |
+          list=scripts/checks/non-portable.json
+          jq --argjson ids "$IDS" '. + $ids | unique' "$list" > "$RUNNER_TEMP/list.json"
+          mv "$RUNNER_TEMP/list.json" "$list"
+          if git diff --quiet; then
+            echo "The denylist already holds ${IDS}."
+            exit 0
+          fi
+          branch="ci/non-portable-${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -qam "Mark checks not portable from the nightly audit"
+          git push -q origin "$branch"
+          body="The nightly Results writer (run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}) found these portable checks failed in CI and in the rerun, while every stored pass of the same key came from another platform. The manifest now marks them not portable. Find and fix the platform dependency, then remove them from the list."
+          if ! gh pr create --draft --base main --head "$branch" \
+            --title "Mark checks not portable from the nightly audit" --body "$body"; then
+            echo "::error::No pull request opened. Add ${IDS} to ${list} by hand (branch ${branch})."
+            exit 1
+          fi

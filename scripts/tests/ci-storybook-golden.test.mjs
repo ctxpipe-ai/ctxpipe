@@ -12,6 +12,7 @@ import {
   selectPlayStories,
   shardStories,
 } from "../ci/storybook-golden-select.mjs"
+import { playContext } from "../ci/storybook-play.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 
@@ -457,4 +458,18 @@ test("every scripts/ci file that the golden runner reads at run time is a Storyb
   )
   assert.ok(paths.has("scripts/ci/failures/storybook-golden.json"))
   for (const path of paths) assert.ok(inputs.includes(path), path)
+})
+
+test("each play runs in a pinned time zone, locale, pixel ratio and device", () => {
+  assert.equal(playContext.timezoneId, "UTC")
+  assert.equal(playContext.locale, "en-US")
+  assert.equal(playContext.deviceScaleFactor, 1)
+  const runner = readFileSync(
+    new URL("../../scripts/ci/storybook-play.mjs", import.meta.url),
+    "utf8",
+  )
+  assert.match(runner, /browser\.newContext\(playContext\)/)
+  // AnimatedBackground branches on the CPU count and the memory of the host.
+  assert.match(runner, /\["hardwareConcurrency", 4\]/)
+  assert.match(runner, /\["deviceMemory", 4\]/)
 })

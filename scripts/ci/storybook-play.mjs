@@ -73,8 +73,29 @@ export const waitFor = async (url) => {
   throw new Error(`Storybook did not become ready at ${url}`)
 }
 
+// The browser context of every play. The time zone, the locale and the pixel
+// ratio are fixed, so that a play gives the same result on each host: a
+// Storybook check is portable (scripts/checks/storybook.mjs).
+export const playContext = {
+  viewport: { width: 1440, height: 900 },
+  timezoneId: "UTC",
+  locale: "en-US",
+  deviceScaleFactor: 1,
+}
+
 const playInitScript = () => {
   window.__CTXPIPE_GOLDEN__ = { result: null, waiters: [] }
+  // A component can read the CPU count and the memory of the host (for
+  // example AnimatedBackground skips its animation on a small device), so
+  // every play sees the same small device.
+  for (const [name, value] of [
+    ["hardwareConcurrency", 4],
+    ["deviceMemory", 4],
+  ])
+    Object.defineProperty(Navigator.prototype, name, {
+      configurable: true,
+      get: () => value,
+    })
   // Storybook ends a play in the "errored" phase, with no error event, when the
   // page had an unhandled error during the play. Keep the errors to name them.
   const unhandled = []
@@ -159,9 +180,7 @@ export async function playStories(storybookUrl, stories, onStory, trace) {
   const { chromium } = createRequire(join(ui, "package.json"))("playwright")
   const browser = await chromium.launch({ headless: true })
   try {
-    const context = await browser.newContext({
-      viewport: { width: 1440, height: 900 },
-    })
+    const context = await browser.newContext(playContext)
     for (const story of stories) {
       const page = await context.newPage()
       const pageErrors = []

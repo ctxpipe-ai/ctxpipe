@@ -3,6 +3,12 @@ import { dirname, join } from "node:path"
 
 // The steps that must run before Vitest for a lane. The CI script and the
 // check runner both use them, so that a subset run starts Vitest as CI does.
+// The time zone and the locale of every check run (Vitest here, every family
+// in scripts/checks/run.mjs). The host cannot change a result through them, so
+// a result cache can reuse a pass of a portable check from another platform.
+// LC_ALL wins over LANG.
+export const hostPins = { TZ: "UTC", LANG: "C.UTF-8", LC_ALL: "C.UTF-8" }
+
 export function setupSteps(lane, root) {
   const cwd = join(root, lane.directory)
   const require = createRequire(join(cwd, "package.json"))
@@ -55,6 +61,10 @@ export function vitestCommand(lane, root, files, report, parts) {
         : []),
     ],
     cwd,
-    env: parts ? { ...process.env, CTXPIPE_TRACE_PARTS: parts } : process.env,
+    env: {
+      ...process.env,
+      ...hostPins,
+      ...(parts && { CTXPIPE_TRACE_PARTS: parts }),
+    },
   }
 }

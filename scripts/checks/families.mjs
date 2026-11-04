@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+
 import { listEvals, runEvals } from "./evals.mjs"
 import { listVitest, runVitest } from "./lanes.mjs"
 import { listProjects, runProjects } from "./projects.mjs"
@@ -24,7 +26,18 @@ export async function listChecks() {
     listEvals(),
     listProjects(),
   ])
-  const checks = lists.flat()
+  // The checks that the nightly audit found not portable: their result
+  // differed between platforms (the factory store report, NOT PORTABLE).
+  const denied = new Set(
+    JSON.parse(
+      readFileSync(new URL("non-portable.json", import.meta.url), "utf8"),
+    ),
+  )
+  const checks = lists
+    .flat()
+    .map(({ portable, ...check }) =>
+      portable && !denied.has(check.id) ? { ...check, portable } : check,
+    )
   checks.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   return { schemaVersion: 1, checks }
 }

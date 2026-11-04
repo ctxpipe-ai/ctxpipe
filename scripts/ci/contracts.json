@@ -93,5 +93,19 @@
   ],
   "knowledge search at scale": [
     "src/domain/workspaces/knowledge-search.contract.test.ts"
+  ],
+  "host Docker, zoekt and process environment (not portable)": [
+    "src/domain/ingestion/classify-kind-skill.contract.test.ts",
+    "src/domain/ingestion/ingest-decisions-skill.contract.test.ts",
+    "src/domain/ingestion/ingest-root.contract.test.ts",
+    "src/domain/ingestion/ingest-shard-ops.contract.test.ts",
+    "src/domain/ingestion/ingest-skill-steps.contract.test.ts",
+    "src/domain/upgrades/reingest-sandbox.test.ts",
+    "src/domain/workspaces/conversation-branch-push-native.contract.test.ts",
+    "src/domain/workspaces/ingest-sandbox.integration.test.ts",
+    "src/domain/workspaces/sandbox-process-guards-native.contract.test.ts",
+    "src/domain/workspaces/workspace-chat-unsandboxed-env.test.ts",
+    "src/openworkflow/enqueue-follow-up-native.contract.test.ts",
+    "src/test/docker-outside-msw.test.ts"
   ]
 }

@@ -83,6 +83,13 @@ const nativePrerequisites = [
   "ast-grep",
   "chat-sandbox-image",
 ]
+// `portable`: the result does not depend on the OS or the CPU architecture,
+// so a result cache leaves them out of the key and a pass on a laptop counts
+// in CI (manifest.v1.schema.json). A lane is portable only when no file of it
+// starts Docker or runs a host tool other than git and Node: such a file
+// belongs to the contracts lane (the "not portable" group of
+// scripts/ci/contracts.json). `programs`: the host tools that the lane runs;
+// the key holds their versions.
 const lanes = {
   backend: {
     directory: "apps/backend",
@@ -91,7 +98,10 @@ const lanes = {
     traceInputs: backendTraceInputs,
     env: backendEnv,
     prerequisites: nativePrerequisites,
+    portable: true,
+    programs: ["git"],
   },
+  // Not portable: its files start Docker containers, zoekt and OpenCode.
   contracts: {
     directory: "apps/backend",
     runtime: "node",
@@ -109,6 +119,7 @@ const lanes = {
     // The Vercel contracts do not use the graph, and the CI job has no
     // FalkorDB.
     prerequisites: ["postgres", "migrations"],
+    portable: true,
   },
   // The files that do not end in `.test.ts` have their own Vitest config,
   // so the PR suite never runs them. Wall-clock bounds vary on shared
@@ -143,6 +154,8 @@ const lanes = {
       "ast-grep",
       "previous-release",
     ],
+    portable: true,
+    programs: ["git", "zoekt", "ast-grep"],
   },
   ui: {
     directory: "apps/ui",
@@ -153,6 +166,7 @@ const lanes = {
       "apps/ui/tsconfig.json",
       "apps/ui/vite.config.ts",
     ],
+    portable: true,
   },
   cli: {
     directory: "packages/cli",
@@ -172,6 +186,7 @@ const lanes = {
       "packages/cli/src/**": "lines",
       "packages/cli/bin/**": "lines",
     },
+    portable: true,
   },
   "aws-cdk": {
     directory: "packages/aws-cdk",
@@ -182,6 +197,7 @@ const lanes = {
       "packages/aws-cdk/tsconfig.json",
       "packages/aws-cdk/scripts/stamp-image-tag.mjs",
     ],
+    portable: true,
   },
   // CI runs codesearch in its Docker test image (zoekt and the SCIP indexers).
   codesearch: {
@@ -238,8 +254,16 @@ export async function listVitest() {
   return Object.entries(files).flatMap(([lane, list]) =>
     list.map((relative) => {
       const file = `${lanes[lane].directory}/${relative}`
-      const { inputs, runtime, env, traceInputs, prerequisites, stochastic } =
-        lanes[lane]
+      const {
+        inputs,
+        runtime,
+        env,
+        traceInputs,
+        prerequisites,
+        stochastic,
+        portable,
+        programs,
+      } = lanes[lane]
       // An expensive check states its intent in a file next to it.
       const intent = join(root, file.replace(/\.[cm]?[jt]sx?$/, ".intent.md"))
       // A check id is `<family>:<lane>:<file>`. A later version adds case ids
@@ -256,6 +280,8 @@ export async function listVitest() {
         ...(traceInputs && { traceInputs }),
         ...(prerequisites && { prerequisites }),
         ...(stochastic && { stochastic }),
+        ...(portable && { portable }),
+        ...(programs && { programs }),
         ...(existsSync(intent) && {
           intent: readFileSync(intent, "utf8").trim(),
         }),
