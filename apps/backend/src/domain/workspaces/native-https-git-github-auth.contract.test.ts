@@ -44,18 +44,14 @@ it(
               expect(remote.url).toBe(
                 "https://github.com/fixture/workspace.git",
               )
-              const bridge = await docker.getNetwork("bridge").inspect()
-              const gateway = bridge.IPAM?.Config?.[0]?.Gateway
-              if (!gateway)
-                throw new Error("Nested Docker bridge gateway missing")
               const denied = await runGitRemote(docker, {
                 image: fixture.image,
-                extraHosts: [`github.com:${gateway}`],
+                network: remote.networkName,
               })
               expect(denied.code).not.toBe(0)
               const allowed = await runGitRemote(docker, {
                 image: fixture.image,
-                extraHosts: [`github.com:${gateway}`],
+                network: remote.networkName,
                 token: "fixture-read-1",
               })
               expect(allowed.code).toBe(0)
@@ -89,9 +85,58 @@ it(
   },
 )
 
+it(
+  "removes the fixture network when the Git server image is missing",
+  { timeout: 180_000 },
+  async () => {
+    const docker = new Docker({ timeout: 120_000 })
+    const directory = await mkdtemp(
+      join(tmpdir(), "ctxpipe-https-git-cleanup-"),
+    )
+    let networkName: string | undefined
+    try {
+      execFileSync("git", ["init", "--bare", directory])
+      await expect(
+        withNativeHttpsGitFixture(
+          {
+            baseImage:
+              process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() ||
+              "ctxpipe-chat-sandbox:opencode-1.18.34-r4",
+            docker,
+          },
+          async (fixture) => {
+            networkName = `${fixture.image.split(":")[0]}-net`
+            // Remove the image so that server creation fails after network creation.
+            await docker.getImage(fixture.image).remove()
+            await fixture.serve(directory, async () => {
+              throw new Error("The remote callback must not run")
+            })
+          },
+        ),
+      ).rejects.toThrow("failed to start the Git server")
+      if (!networkName) throw new Error("The fixture callback must run")
+      await expect(
+        docker.getNetwork(networkName).inspect(),
+      ).rejects.toMatchObject({
+        statusCode: 404,
+      })
+    } finally {
+      // Also remove a leaked network when this regression test fails.
+      if (networkName)
+        await docker
+          .getNetwork(networkName)
+          .remove()
+          .catch((error: { statusCode?: number }) => {
+            if (error.statusCode !== 404) throw error
+          })
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+)
+
 async function runGitRemote(
   docker: Docker,
-  input: { image: string; extraHosts: string[]; token?: string },
+  input: { image: string; network: string; token?: string },
 ) {
   const header = input.token
     ? `Authorization: Basic ${Buffer.from(`x-access-token:${input.token}`).toString("base64")}`
@@ -107,7 +152,7 @@ async function runGitRemote(
       "https://github.com/fixture/workspace.git",
       "refs/heads/main",
     ],
-    HostConfig: { ExtraHosts: input.extraHosts },
+    HostConfig: { NetworkMode: input.network },
     Labels: { "ai.ctxpipe.purpose": "native-https-git-auth-client" },
   })
   try {
