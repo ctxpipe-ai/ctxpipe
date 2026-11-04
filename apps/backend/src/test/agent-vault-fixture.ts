@@ -475,6 +475,7 @@ export async function startTestAgentVaultEnv(
       : undefined
     if (options.extraCa && extraCaDirectory)
       await copyFile(options.extraCa, join(extraCaDirectory, "ca.crt"))
+    if (extraCaDirectory) await chmod(extraCaDirectory, 0o755)
     await dockerRunWithFiles(
       name,
       [
