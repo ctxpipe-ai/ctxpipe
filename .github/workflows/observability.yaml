@@ -125,7 +125,8 @@ jobs:
     name: Build observability images
     needs: tags
     if: github.repository == 'ctxpipe-ai/ctxpipe' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # amd64: preserve image targets and run the amd64 Blacksmith cost-telemetry CLI.
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
     permissions:
       contents: read
