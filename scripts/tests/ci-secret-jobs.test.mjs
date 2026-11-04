@@ -1,6 +1,12 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
@@ -10,18 +16,24 @@ const scripts = fileURLToPath(new URL("..", import.meta.url))
 const script = join(scripts, "ci", "check-secret-jobs.mjs")
 
 // Runs the check on a copy of scripts/ with only the given files: each key is
-// a path from the repository root.
+// a path from the repository root. The copy skips node_modules (the Claude CLI
+// install is large) and the directory goes away after the run.
 function check(files) {
   const root = mkdtempSync(join(tmpdir(), "ctxpipe-secret-jobs-"))
-  cpSync(scripts, join(root, "scripts"), { recursive: true })
+  cpSync(scripts, join(root, "scripts"), {
+    recursive: true,
+    filter: (path) => !path.includes("node_modules"),
+  })
   mkdirSync(join(root, ".github", "workflows"), { recursive: true })
   for (const [path, text] of Object.entries(files))
     writeFileSync(join(root, path), text)
-  return spawnSync(
+  const result = spawnSync(
     process.execPath,
     [join(root, "scripts", "ci", "check-secret-jobs.mjs")],
     { encoding: "utf8" },
   )
+  rmSync(root, { recursive: true, force: true })
+  return result
 }
 
 const workflow = (jobs) => ({
