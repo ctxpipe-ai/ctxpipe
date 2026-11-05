@@ -10,6 +10,6 @@ Use Opus at medium effort for implementation sub-agents.
 
 Use /tdd where possible, at pre-agreed seams.
 
-Run typechecking regularly and single test files regularly.
+Run typechecking regularly. During a red-green loop, run the one test file that you work on. Before each push, run `factory check`. Do not start review or test sub-agents.
 
-Once done, commit your work to the current branch. Then run `factory check --input <the spec or ticket file>`: it runs the checks that the change can break and the review critics (Standards, Spec, Simplicity, and Security when it applies). Fix what it reports, commit, and run it again until it passes. Do not start review sub-agents.
+Once done, commit your work to the current branch. Then run `factory check --input <the spec or ticket file>`. It runs the checks that the change can break. It also runs the review critics: Standards, Spec, Simplicity, and Security when it applies. Fix what it reports and commit. Run it again until it passes. Do not start review sub-agents.

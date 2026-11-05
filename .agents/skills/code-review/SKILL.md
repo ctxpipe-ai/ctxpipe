@@ -31,7 +31,7 @@ The merge gate checks that each critic has a stored verdict for the PR diff (job
 
 ## Without the factory
 
-When `factory` is not installed (for example, for a contributor from a fork), run the review by hand with the steps below. All three axes run as **parallel sub-agents** (Opus, high effort), so that they do not pollute each other's context. Then this skill aggregates their findings. Run Security as `AGENTS.md` says.
+When `factory` is not installed (for example, for a contributor from a fork), run the review by hand with the steps below. You are the one agent. Review the three axes in this order: Standards, Spec, Simplicity. Finish one axis before you start the next. Do not start sub-agents. Then aggregate the findings. Run Security as `AGENTS.md` says.
 
 ### 1. Pin the fixed point
 
@@ -39,7 +39,7 @@ Whatever the user said is the fixed point — a commit SHA, branch name, tag, `m
 
 Capture the diff command once: `git diff <fixed-point>...HEAD` (three-dot, so the comparison is against the merge-base). Also note the list of commits via `git log <fixed-point>..HEAD --oneline`.
 
-Before going further, confirm the fixed point resolves (`git rev-parse <fixed-point>`) and the diff is non-empty. A bad ref or empty diff should fail here — not inside parallel sub-agents.
+Before going further, confirm the fixed point resolves (`git rev-parse <fixed-point>`) and the diff is non-empty. A bad ref or empty diff must fail here, before the review starts.
 
 ### 2. Identify the spec source
 
@@ -48,7 +48,7 @@ Look for the originating spec, in this order:
 1. Issue references in the commit messages (`#123`, `Closes #45`, GitLab `!67`, etc.) — fetch via the workflow in `.ai/agents/issue-tracker.md`.
 2. A path the user passed as an argument.
 3. A spec file under `docs/`, `specs/`, or `.scratch/`, or a Linear issue or document, matching the branch name or feature.
-4. If nothing is found, ask the user where the spec is. If they say there isn't one, the **Spec** sub-agent will skip and report "no spec available".
+4. If nothing is found, ask the user where the spec is. If they say there isn't one, skip the **Spec** axis and report "no spec available".
 
 ### 3. Identify the standards sources
 
@@ -76,9 +76,9 @@ Each smell reads *what it is* → *how to fix*; match it against the diff:
 
 A single switch that replaced a one-adapter seam is not Repeated Switches. A type that matches `.ai/memory/glossary.md` is not Primitive Obsession. Speculative Generality is a local hint; leftover analogue / “should this table exist?” belongs on **Simplicity**.
 
-### 4. Spawn three sub-agents in parallel
+### 4. Review the three axes in order
 
-Spawn all three on Opus at high effort (use the harness's own name for the model and effort setting). Always spawn **Simplicity**. Skip Spec only when step 2 found no spec.
+Use each prompt below as the brief for one axis. Always review **Simplicity**. Skip Spec only when step 2 found no spec.
 
 **Rules that a check decides.** The repo CI already enforces these exact cases (CTX-1120). Do not report them:
 

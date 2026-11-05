@@ -54,7 +54,9 @@ After completing requested code changes, commit, then run `factory check --input
 
 ### Sub-agent models
 
-The orchestrator app (Paseo) or the harness's own sub-agent tool starts each agent. Always set the model and the effort explicitly. Use the harness's own name for each model and its effort setting. The token total is the limit, not the number of agents in parallel. Use a second model family (Codex GPT) for reviews and mechanical work, so that review findings come from different blind spots. When the Codex plan has no tokens left, use the Claude fallback in the same row.
+The orchestrator app (Paseo) or the harness's own sub-agent tool starts each agent. Always set the model and the effort explicitly. Use the harness's own name for each model and its effort setting. The token total is the limit. The number of agents in parallel is not the limit. Use a second model family (Codex GPT) for reviews and mechanical work. Then the review findings come from different blind spots. When the Codex plan has no tokens left, use the Claude fallback in the same row.
+
+The review rows name the reviewers that `factory check` starts (from `critics.json`). Do not start them by hand as sub-agents.
 
 | Work | Model and effort | Fallback |
 | --- | --- | --- |
@@ -170,7 +172,7 @@ This repository is public. **Never** put the name, slug, email, username, id (`o
 
 ## Testing
 
-Before each push, run `factory check`; fix what it reports; run it again. Do not run a full suite, tests one by one, or a sub-agent that only runs tests. It runs the checks that the change can break and the review critics, and CI reuses its passes and verdicts. See the [factory-check skill](.agents/skills/factory-check/SKILL.md), with the fallback when `factory` is not installed.
+Before each push, run `factory check`; fix what it reports; run it again. During a red-green loop, you may run the one test file that you work on. Do not run a full suite. Do not start a review or test sub-agent. `factory check` runs the checks that the change can break and the review critics, and CI reuses its passes and verdicts. See the [factory-check skill](.agents/skills/factory-check/SKILL.md), with the fallback when `factory` is not installed.
 
 Test through the module's public interface with its real collaborators. Fake the **environment**, not our own modules:
 
