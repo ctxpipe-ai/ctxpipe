@@ -50,6 +50,7 @@
       "name": "simplicity",
       "intent": "Is each part of the diff essential for the job, or accidental machinery: unused options, wrappers, fields and modes, and leftover analogue design. Spec-match is not a defense. It runs on every change.",
       "inputs": [
+        "AGENTS.md",
         ".agents/skills/simplicity-audit/REVIEW-BRIEF.md",
         ".agents/skills/simplicity-audit/SKILL.md"
       ],
