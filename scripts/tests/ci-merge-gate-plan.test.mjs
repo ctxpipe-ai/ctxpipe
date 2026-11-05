@@ -228,13 +228,14 @@ test("each planned check goes to the job that runs it, and a job without one doe
     { name: "ui", dockerfile: "apps/ui/Dockerfile" },
   ])
   // A lint or policy check is a step of the Lint and format job, which runs
-  // on each run. Evals, the Terraform plan and the deployment run in their
-  // own workflows.
+  // on each run. Evals and the deployment run in their own workflows.
   assert.deepEqual(placeOf(lint), { job: "lint" })
   assert.match(placeOf(evalCase).workflow, /mcp-evals\.yaml/)
-  assert.match(
+  // The Terraform plan starts from the files of the PR, not from the
+  // selection, so no job of the gated run owns its check.
+  assert.equal(
     placeOf("policy:terraform-plan:infra/main.tf").workflow,
-    /terraform-plan-pr\.yaml/,
+    "no job of PR CI runs it",
   )
   assert.match(placeOf(deploy).workflow, /pr-deploy\.yaml/)
   // Every Storybook check runs in the plays shards, after the build.

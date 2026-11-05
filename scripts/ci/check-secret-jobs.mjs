@@ -375,29 +375,29 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
       }
     }
 
+    // Jobs with a secret that download an artifact of an earlier job of
+    // the run. The artifact carries data or code of another job into the
+    // job with the secret, so each entry names the reason.
+    const artifactJobs = new Map(
+      Object.entries({
+        // These jobs read the JSON records of earlier jobs and the
+        // factory release (checked against its pinned SHA-256). They run
+        // no downloaded script.
+        "ci.yaml:merge-gate-select": "the manifest and toolchain records",
+        "ci.yaml:merge-gate-llm":
+          "the manifest, selection and factory release artifacts",
+        "ci.yaml:results-writer": "the manifest, trace and result records",
+        // The Resolve job checks out the merge commit (it holds no
+        // secret) and uploads infra/. The plan job may check out only the
+        // workflow commit, and it already runs branch Terraform code: the
+        // reviewers of the terraform-plan environment are the boundary.
+        "terraform-plan-pr.yaml:terraform-plan":
+          "the plan covers the merge commit that the Resolve job checked out",
+      }),
+    )
     if (holdsSecret || hasOidc)
       for (const { text, number } of job.lines) {
         const action = /^\s+(?:-\s+)?uses:\s*['"]?([^\s'"#]+)/.exec(text)?.[1]
-        // Jobs with a secret that download an artifact of an earlier job of
-        // the run. The artifact carries data or code of another job into the
-        // job with the secret, so each entry names the reason.
-        const artifactJobs = new Map(
-          Object.entries({
-            // These jobs read the JSON records of earlier jobs and the
-            // factory release (checked against its pinned SHA-256). They run
-            // no downloaded script.
-            "ci.yaml:merge-gate-select": "the manifest and toolchain records",
-            "ci.yaml:merge-gate-llm":
-              "the manifest, selection and factory release artifacts",
-            "ci.yaml:results-writer": "the manifest, trace and result records",
-            // The Resolve job checks out the merge commit (it holds no
-            // secret) and uploads infra/. The plan job may check out only the
-            // workflow commit, and it already runs branch Terraform code: the
-            // reviewers of the terraform-plan environment are the boundary.
-            "terraform-plan-pr.yaml:terraform-plan":
-              "the plan covers the merge commit that the Resolve job checked out",
-          }),
-        )
         if (
           action?.startsWith("actions/download-artifact@") &&
           !artifactJobs.has(`${name}:${job.name}`)
