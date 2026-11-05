@@ -22,12 +22,16 @@ Changesets’ `status` command only fails when **versionable workspace packages*
 
 4. **Release bot PRs:** Continue to skip the guard when the PR author is `github-actions[bot]` (version PRs consume changesets and do not add new ones).
 
-5. **No `privatePackages.version: false`:** Keeping the Changesets default avoids app-only PRs passing `status` with zero changesets.
+5. **Every PR carries a changeset:** The guard fails only for a versionable package without a changeset. The author and the reviewer apply the wider rule: every PR has one changeset file.
+   - A change that an operator does not see or act on gets an **empty** changeset (only the two `---` lines, no text). This covers CI, workflows, scripts, tests, types, telemetry, internal refactors, agent instructions, and docs.
+   - An operator-visible change to a publishable package gets a patch or minor for that package (see item 3).
+
+6. **No `privatePackages.version: false`:** Keeping the Changesets default avoids app-only PRs passing `status` with zero changesets.
 
 ## Consequences
 
 - Simpler [changeset-guard workflow](../../.github/workflows/changeset-guard.yaml) and easier maintenance.
-- **Risk accepted:** A changeset for the wrong package (or `changeset add --empty`) can pass CI; release review must catch missing `@ctxpipe/aws-cdk` on app-only work.
+- **Risk accepted:** A changeset for the wrong package (or an empty changeset on an operator-visible change) can pass CI; release review must catch missing `@ctxpipe/aws-cdk` on app-only work.
 - [`.changeset/README.md`](../../.changeset/README.md) documents author expectations.
 
 ## Alternatives Considered

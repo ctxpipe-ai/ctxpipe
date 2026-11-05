@@ -1,6 +1,6 @@
 # Changesets
 
-Run `pnpm changeset` when a PR changes code under `apps/` or `packages/`.
+Every PR carries a changeset. Run `pnpm changeset` (or `pnpm changeset add --empty`).
 
 ## What to include in a changeset
 
@@ -12,7 +12,7 @@ CI runs `changeset status` on pull requests and fails when a versionable workspa
 | Publishable package code (`packages/*`) | The package you changed (`ctxpipe` CLI or `@ctxpipe/aws-cdk`) |
 | Both | One changeset can list multiple packages |
 
-Do not use `changeset add --empty` for real product changes.
+Use an **empty** changeset (only the two `---` lines, no text) for a change that an operator does not see or act on: CI, workflows, scripts, tests, types, telemetry, internal refactors, agent instructions, and docs. Do not use an empty changeset for an operator-visible change.
 
 App packages (`@ctxpipe/backend`, `@ctxpipe/ui`, etc.) may appear in the changeset picker — **do not select them**. Apps are not published to npm; for app-only work, include only **`@ctxpipe/aws-cdk`** in the changeset.
 
