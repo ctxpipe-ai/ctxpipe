@@ -1,0 +1,43 @@
+name: Set up Node, pnpm and the installed dependencies
+description: >
+  Install the pinned Node and pnpm, and put node_modules in place. The action
+  restores node_modules (the root and each workspace package) from the
+  Actions cache. The key holds the runner architecture, the Node version, the
+  pnpm version and the hash of the lockfile, so it is one fixed key for one
+  set of dependencies. A hit skips `pnpm install`. A miss runs it and saves
+  the result before any later step changes the folders. A step with a secret
+  does not use this action (scripts/ci/check-secret-jobs.mjs).
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+    - id: node
+      uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      with:
+        node-version-file: .node-version
+    - id: pnpm
+      shell: bash
+      run: echo "version=$(pnpm --version)" >> "$GITHUB_OUTPUT"
+    - id: modules
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: |
+          node_modules
+          apps/*/node_modules
+          packages/*/node_modules
+          examples/*/node_modules
+          ops/observability/*/node_modules
+        key: node-modules-${{ runner.arch }}-node${{ steps.node.outputs.node-version }}-pnpm${{ steps.pnpm.outputs.version }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'patches/**') }}
+    - if: steps.modules.outputs.cache-hit != 'true'
+      shell: bash
+      run: pnpm install --frozen-lockfile
+    - if: steps.modules.outputs.cache-hit != 'true'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: |
+          node_modules
+          apps/*/node_modules
+          packages/*/node_modules
+          examples/*/node_modules
+          ops/observability/*/node_modules
+        key: ${{ steps.modules.outputs.cache-primary-key }}
