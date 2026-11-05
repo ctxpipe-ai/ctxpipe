@@ -186,7 +186,7 @@ Test through the module's public interface with its real collaborators. Fake the
 ## Package releases
 
 - Changes that should ship in **`@ctxpipe/aws-cdk`** must include a new `.changeset/*.md` file created with `pnpm changeset` (patch/minor/major + short summary).
-- Each PR has a changeset. A change that an operator does not see or act on (CI, workflows, scripts, tests, types, telemetry, refactors) gets an empty one: only the two `---` lines, no text. Only an operator-visible change to `@ctxpipe/aws-cdk` gets a patch or minor.
+- Each PR has a changeset. A change that an operator does not see or act on (CI, scripts, tests, types, telemetry, refactors) gets an empty one: two `---` lines, no text. Only an operator-visible change to `@ctxpipe/aws-cdk` gets a patch or minor.
 - Releases use [Changesets](https://github.com/changesets/changesets): merge to `main` opens a **version packages** PR via `.github/workflows/deploy.yaml`; merging that PR publishes to npm.
 - `packages/aws-cdk/src/pinned-service-image-tag.ts` is generated during `@ctxpipe/aws-cdk` build by `scripts/release/stamp-aws-cdk-image-tag.mjs` (`IMAGE_TAG`/`GITHUB_SHA`, fallback to latest known `main` SHA via git refs, then `latest`).
 - Keep package changes buildable with `pnpm turbo build --filter @ctxpipe/aws-cdk`.
