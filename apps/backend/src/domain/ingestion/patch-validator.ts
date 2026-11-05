@@ -1391,19 +1391,11 @@ function contentProblem(text: string): CheckFailure | null {
   return null
 }
 
-// A heading that addresses a model is an injection vector. A heading that
-// only names a model product ("Claude plugin MCP distribution") is
-// knowledge, so a product name alone does not match (CTX-1134).
-const MODEL_PRODUCT = String.raw`(?:claude|chatgpt|gpt(?:-?\d[\w.]*)?|copilot|cursor|gemini)`
 const DENIED_HEADINGS = [
   /\bsystem\s+prompts?\b/i,
   /\b(?:ai|llm|coding|autonomous)\s+(?:agents?|assistants?|models?)\b/i,
-  new RegExp(
-    String.raw`\b(?:for|to|attention)\s+(?:the\s+|all\s+)?(?:ai|llms?|agents?|assistants?|models?|${MODEL_PRODUCT})\b`,
-    "i",
-  ),
-  // The heading speaks to the product: "Claude, read this first".
-  new RegExp(String.raw`^(?:hey\s+|dear\s+)?${MODEL_PRODUCT}\s*[,:!]`, "i"),
+  /\b(?:for|to|attention)\s+(?:the\s+|all\s+)?(?:ai|llms?|agents?|assistants?|models?|claude|gpt|chatgpt|copilot|cursor)\b/i,
+  /\b(?:claude|chatgpt|gpt-?\d*|copilot|gemini)\b/i,
   /^(?:ai|llms?|agents?|assistants?|prompts?)$/i,
 ]
 
