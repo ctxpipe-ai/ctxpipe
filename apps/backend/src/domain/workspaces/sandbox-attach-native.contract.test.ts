@@ -1,9 +1,10 @@
 import Docker from "dockerode"
 import { expect, it } from "vitest"
 
+import { contractImage } from "../../test/contract-images.js"
 import { attachProviderSandbox } from "./sandbox-provider.js"
 
-const IMAGE = "alpine:3.22"
+const IMAGE = contractImage("alpine")
 const docker = new Docker({ timeout: 30_000 })
 
 async function pullImage(): Promise<void> {

@@ -30,7 +30,7 @@ jobs:
   test:
     name: Test observability packages
     if: github.event_name == 'pull_request' && github.repository == 'ctxpipe-ai/ctxpipe'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     timeout-minutes: 15
     steps:
       - name: Checkout repository
@@ -69,7 +69,7 @@ jobs:
   validate:
     name: Validate observability Terraform
     if: github.repository == 'ctxpipe-ai/ctxpipe'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     timeout-minutes: 10
     concurrency:
       group: observability-validate-${{ github.ref }}
@@ -100,7 +100,7 @@ jobs:
   tags:
     name: Observability image tags
     if: github.repository == 'ctxpipe-ai/ctxpipe' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     timeout-minutes: 10
     outputs:
       collector: ${{ steps.tags.outputs.collector }}
@@ -125,6 +125,7 @@ jobs:
     name: Build observability images
     needs: tags
     if: github.repository == 'ctxpipe-ai/ctxpipe' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    # amd64: preserve image targets and run the amd64 Blacksmith cost-telemetry CLI.
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
     permissions:
@@ -162,7 +163,7 @@ jobs:
     name: Observability Terraform plan (PR)
     needs: [validate, images, tags]
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     timeout-minutes: 20
     concurrency:
       group: observability-plan-${{ github.event.pull_request.number }}
@@ -271,7 +272,7 @@ jobs:
     name: Observability Terraform apply
     needs: [validate, images, tags]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.repository == 'ctxpipe-ai/ctxpipe'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     timeout-minutes: 180
     concurrency:
       group: observability-apply

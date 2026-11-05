@@ -27,6 +27,11 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Node on the arm64 runner stops at a 2 GB heap, so the Typecheck and
+  # Storybook build jobs run out of memory without this.
+  NODE_OPTIONS: --max-old-space-size=6144
+
 jobs:
   lint:
     timeout-minutes: 15
@@ -34,7 +39,7 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -103,7 +108,7 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.typecheck != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -183,7 +188,7 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.test-shards != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     strategy:
       fail-fast: false
       matrix:
@@ -241,7 +246,7 @@ jobs:
       - name: Required test container images
         if: matrix.lane != 'backend'
         run: |
-          for image in infisical/agent-vault:latest alpine:3.22 node:24 curlimages/curl:8.17.0; do
+          for image in $(jq -r '.contracts[] | "\(.image):\(.tag)@\(.digest)"' scripts/ci/service-pins.json); do
             n=0
             until docker pull --quiet "$image"; do
               n=$((n + 1))
@@ -257,7 +262,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/ctxpipe-zoekt
-          key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1
+          key: zoekt-both-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1-v2
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: steps.zoekt.outputs.cache-hit != 'true'
         with:
@@ -266,7 +271,7 @@ jobs:
       - name: Required native revision index tools
         run: |
           npm install --global @ast-grep/cli@0.45.0
-          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ]; then
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ] || [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-index" ]; then
             mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
             # proxy.golang.org occasionally resets the zoekt zip mid-download.
             for tool in zoekt-index zoekt-webserver; do
@@ -297,7 +302,7 @@ jobs:
           context: scripts/chat-sandbox
           tags: ctxpipe-chat-sandbox:opencode-1.18.34-r4
           load: true
-          cache-from: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox
+          cache-from: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox-arm64
       - name: Required ${{ matrix.lane }} tests
         if: matrix.lane != 'selected'
         env:
@@ -359,7 +364,7 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.package-tests != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     env:
       EVENT: ${{ github.event_name }}
     steps:
@@ -417,7 +422,7 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       needs.merge-gate-plan.outputs.mode != 'gate'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - name: Require every test job
         env:
@@ -469,7 +474,7 @@ jobs:
     if: |
       always() &&
       (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -502,7 +507,7 @@ jobs:
     timeout-minutes: 45
     name: Project check times
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -549,6 +554,7 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.production-builds != '')
+    # amd64: the images ship for linux/amd64, and codesearch builds only for amd64 (scip-clang and scip-ruby have no arm64 build).
     runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       fail-fast: false
@@ -614,6 +620,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+    # amd64: it writes the codesearch layer cache, and codesearch builds only for amd64.
     runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       fail-fast: false
@@ -645,6 +652,33 @@ jobs:
           cache-from: type=registry,ref=${{ matrix.cache }}
           cache-to: type=registry,ref=${{ matrix.cache }},mode=max,ignore-error=true
 
+  layer-cache-chat-sandbox-arm64:
+    timeout-minutes: 45
+    name: Layer cache (chat-sandbox-arm64)
+    if: github.ref == 'refs/heads/main' && github.event_name != 'schedule'
+    continue-on-error: true
+    permissions:
+      contents: read
+      packages: write
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: scripts/chat-sandbox
+          file: scripts/chat-sandbox/Dockerfile
+          push: false
+          cache-from: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox-arm64
+          cache-to: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox-arm64,mode=max,ignore-error=true
+
   packages:
     timeout-minutes: 20
     name: Runnable packages and examples
@@ -657,7 +691,7 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.packages != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
@@ -709,7 +743,7 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-build != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -739,7 +773,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request') &&
       needs.merge-gate-plan.outputs.mode != 'gate'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -782,7 +816,7 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-plays != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     strategy:
       fail-fast: false
       matrix:
@@ -865,7 +899,11 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.codesearch != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # The test image builds for the platform of the runner. This job, the
+    # contracts jobs and the Merge gate manifest job (which records the
+    # container platform in the toolchain record) all run on arm64, so the
+    # keys of the container lanes name the platform the tests ran on.
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
@@ -879,11 +917,13 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .release-cache
-          key: codesearch-releases-${{ hashFiles('apps/codesearch/release-assets.txt') }}
+          key: codesearch-releases-${{ runner.arch }}-${{ hashFiles('apps/codesearch/release-assets.txt') }}
       # Fills the cache with checksum-verified files. When GitHub stays down,
       # this step fails in minutes with "Outside service unavailable".
       - name: Download pinned release files
         timeout-minutes: 10
+        env:
+          TARGETARCH: ${{ runner.arch == 'ARM64' && 'arm64' || 'amd64' }}
         run: bash apps/codesearch/scripts/fetch-releases.sh apps/codesearch/release-assets.txt "$RUNNER_TEMP/releases" .release-cache
       # The trace (scripts/checks/README.md) is data only; PR runs skip it.
       # The result records go to the merge gate and the Results writer.
@@ -919,7 +959,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.vercel-sandbox != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     # The workbench VERCEL_ACCESS_TOKEN is a test-scoped value for the
     # preview Vercel project, never production.
     environment: workbench
@@ -1009,7 +1049,7 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
@@ -1043,7 +1083,7 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     services:
       postgres:
         # Matches local Compose (pgvector); plain postgres:16 lacks the vector extension.
@@ -1101,7 +1141,7 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.upgrade-from-previous-release != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     services:
       postgres:
         image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
@@ -1145,7 +1185,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/ctxpipe-zoekt
-          key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1
+          key: zoekt-both-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1-v2
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: steps.zoekt.outputs.cache-hit != 'true'
         with:
@@ -1154,7 +1194,7 @@ jobs:
       - name: Required native revision index tools
         run: |
           npm install --global @ast-grep/cli@0.45.0
-          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ]; then
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ] || [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-index" ]; then
             mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
             for tool in zoekt-index zoekt-webserver; do
               n=0
@@ -1252,7 +1292,7 @@ jobs:
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request'
     continue-on-error: true
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     outputs:
       mode: ${{ steps.mode.outputs.mode }}
     steps:
@@ -1301,7 +1341,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/ctxpipe-zoekt
-          key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1
+          key: zoekt-both-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1-v2
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
         with:
@@ -1311,15 +1351,19 @@ jobs:
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
         run: |
           npm install --global @ast-grep/cli@0.45.0
-          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ]; then
+          # Install both binaries: the cache that this job saves is the one
+          # the test jobs restore, and they need zoekt-index too.
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ] || [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-index" ]; then
             mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
-            n=0
-            until GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install \
-              "github.com/sourcegraph/zoekt/cmd/zoekt-webserver@596c362fcf1388fe0082acfcfc80c4d172efb7c1"
-            do
-              n=$((n + 1))
-              [ "$n" -lt 4 ] || exit 1
-              sleep $((n * 4))
+            for tool in zoekt-index zoekt-webserver; do
+              n=0
+              until GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install \
+                "github.com/sourcegraph/zoekt/cmd/${tool}@596c362fcf1388fe0082acfcfc80c4d172efb7c1"
+              do
+                n=$((n + 1))
+                [ "$n" -lt 4 ] || exit 1
+                sleep $((n * 4))
+              done
             done
           fi
           echo "$RUNNER_TEMP/ctxpipe-zoekt" >> "$GITHUB_PATH"
@@ -1350,6 +1394,7 @@ jobs:
     needs: merge-gate-manifest
     if: needs.merge-gate-manifest.outputs.mode == 'select'
     continue-on-error: true
+    # amd64: the factory CLI release is linux-x64 only.
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -1457,6 +1502,7 @@ jobs:
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
     continue-on-error: true
+    # amd64: the factory CLI release is linux-x64 only.
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -1535,6 +1581,7 @@ jobs:
     if: needs.merge-gate-select.result == 'success'
     continue-on-error: true
     environment: workbench
+    # amd64: the factory CLI release is linux-x64 only.
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -1622,7 +1669,7 @@ jobs:
     if: |
       !cancelled() && github.event_name == 'pull_request'
     continue-on-error: true
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       actions: read
@@ -1709,7 +1756,7 @@ jobs:
       (needs.merge-gate-plan.outputs.deploy == 'true' ||
       needs.merge-gate-plan.outputs.mode == '') &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
       actions: write
     steps:
@@ -1780,7 +1827,7 @@ jobs:
       ]
     if: |
       always() && github.event_name == 'pull_request'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       actions: read
@@ -1960,6 +2007,7 @@ jobs:
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
       needs.merge-gate-manifest.result == 'success' && needs.trace.result == 'success'
     continue-on-error: true
+    # amd64: the factory CLI release is linux-x64 only.
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -2086,7 +2134,7 @@ jobs:
     name: Non-portable checks
     needs: [results-writer]
     if: always() && needs.results-writer.outputs.non_portable != '' && needs.results-writer.outputs.non_portable != '[]'
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: write
       pull-requests: write

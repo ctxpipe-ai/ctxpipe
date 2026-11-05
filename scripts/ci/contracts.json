@@ -94,7 +94,7 @@
   "knowledge search at scale": [
     "src/domain/workspaces/knowledge-search.contract.test.ts"
   ],
-  "host Docker, zoekt and process environment (not portable)": [
+  "host Docker, zoekt and process environment": [
     "src/domain/ingestion/classify-kind-skill.contract.test.ts",
     "src/domain/ingestion/ingest-decisions-skill.contract.test.ts",
     "src/domain/ingestion/ingest-root.contract.test.ts",

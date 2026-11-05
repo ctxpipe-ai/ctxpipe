@@ -1,6 +1,7 @@
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { contractImage } from "../../test/contract-images.js"
 import { workspaceChatDockerImage } from "../workspaces/chat-runtime.js"
 import {
   INGEST_AGENT_USER,
@@ -159,7 +160,7 @@ describe("dockerRootExec with a step limit", () => {
       // A model step sends `opencode run` through `grep`, so the exec can
       // write nothing for minutes. A Docker client timeout of 120 s ended
       // each model step of the CTX-630 proof runs after 120 s.
-      const provider = dockerSandbox({ image: "alpine:3.22" })
+      const provider = dockerSandbox({ image: contractImage("alpine") })
       const handle = await provider.create({
         id: `ingest-silent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       })

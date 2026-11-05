@@ -25,6 +25,8 @@ const cwd = fileURLToPath(new URL("../", import.meta.url))
 const root = fileURLToPath(new URL("../../../", import.meta.url))
 const require = createRequire(join(cwd, "package.json"))
 try {
+  // --node <file> and --bun <file> select files; repeat each flag as needed.
+  // Without file arguments, run both full lanes.
   // --list prints the test files of each runtime as JSON and runs nothing.
   // --trace <dir> --commit <sha> also writes <dir>/trace.json.gz for the Node
   // runtime (scripts/checks/README.md). The commit is an argument, because
@@ -44,7 +46,7 @@ try {
     (listOnly && (trace || records))
   )
     throw new Error(
-      "Usage: run-vitest-contracts.mjs [--list | [--trace <dir> --commit <sha>] [--records <dir>]]",
+      "Usage: run-vitest-contracts.mjs [--list | [--trace <dir> --commit <sha>] [--records <dir>]] [--node <file>] [--bun <file>]",
     )
   if (records) {
     mkdirSync(records, { recursive: true })
@@ -69,9 +71,25 @@ try {
   ]
   for (const file of bun)
     if (!files.includes(file)) throw new Error(`Missing Bun contract: ${file}`)
+  const inventoryByRuntime = {
+    node: files.filter((file) => !bun.includes(file)).sort(),
+    bun: [...bun].sort(),
+  }
+  const selection = { node: [], bun: [] }
+  for (let index = 0; index < args.length; index++) {
+    if (args[index] !== "--node" && args[index] !== "--bun") continue
+    const runtime = args[index].slice(2)
+    const file = args[++index]
+    if (!inventoryByRuntime[runtime].includes(file))
+      throw new Error(`Unknown ${runtime} test file: ${file}`)
+    if (!selection[runtime].includes(file)) selection[runtime].push(file)
+  }
+  const selectedFiles =
+    selection.node.length || selection.bun.length
+      ? selection
+      : inventoryByRuntime
   if (listOnly) {
-    const node = files.filter((file) => !bun.includes(file)).sort()
-    process.stdout.write(`${JSON.stringify({ node, bun: [...bun].sort() })}\n`)
+    process.stdout.write(`${JSON.stringify(selectedFiles)}\n`)
     process.exit()
   }
   const vitest = join(
@@ -84,8 +102,8 @@ try {
   writeFileSync(baseline, JSON.stringify({ version: 1, failures: [] }))
   let failed = false
   for (const runtime of ["node", "bun"]) {
-    const selected =
-      runtime === "bun" ? bun : files.filter((file) => !bun.includes(file))
+    const selected = selectedFiles[runtime]
+    if (!selected.length) continue
     const report = join(directory, `${runtime}.json`)
     const inventory = join(directory, `${runtime}-inventory.json`)
     writeFileSync(inventory, JSON.stringify(selected, null, 2))

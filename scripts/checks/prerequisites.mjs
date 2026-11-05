@@ -220,6 +220,27 @@ export const prerequisites = {
         )
     },
   },
+  "contract-images": {
+    needs: ["docker"],
+    prepare: () => {
+      for (const pin of Object.values(pins.contracts)) {
+        const image = `${pin.image}:${pin.tag}@${pin.digest}`
+        const fix = `Run: docker pull ${image}`
+        const digests = JSON.parse(
+          quiet(
+            "docker",
+            ["image", "inspect", "--format", "{{json .RepoDigests}}", image],
+            fix,
+          ),
+        )
+        if (
+          !Array.isArray(digests) ||
+          !digests.includes(`${pin.image}@${pin.digest}`)
+        )
+          throw new Error(`${image} does not have the pinned digest. ${fix}`)
+      }
+    },
+  },
   "chat-sandbox-image": {
     needs: ["docker"],
     prepare: () => {
@@ -227,15 +248,11 @@ export const prerequisites = {
         "apps/backend/src/domain/workspaces/chat-runtime.ts",
         /"(ctxpipe-chat-sandbox:[^"]+)"/,
       )
-      const inspect = spawnSync("docker", ["image", "inspect", tag], {
-        stdio: "ignore",
-      })
-      if (inspect.status !== 0)
-        step(
-          "docker",
-          ["build", "-t", tag, "scripts/chat-sandbox"],
-          "See scripts/chat-sandbox/README.md.",
-        )
+      step(
+        "docker",
+        ["build", "-t", tag, "scripts/chat-sandbox"],
+        "See scripts/chat-sandbox/README.md.",
+      )
     },
   },
   chromium: {

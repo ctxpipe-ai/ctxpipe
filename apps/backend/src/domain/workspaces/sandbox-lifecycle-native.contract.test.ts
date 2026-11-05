@@ -24,6 +24,7 @@ import { getSandboxInstance } from "../../models/workspaces.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { scheduleConversationSandboxSweep } from "../../openworkflow/workflows/conversation-sandbox-sweep.js"
 import { startTestAgentVaultEnv } from "../../test/agent-vault-fixture.js"
+import { contractImage } from "../../test/contract-images.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import {
   CHAT_SANDBOX_DELETE_AFTER_MS,
@@ -54,7 +55,7 @@ beforeAll(async () => {
 }, 120_000)
 afterAll(() => agentVault?.stop())
 
-const IMAGE = "alpine:3.22"
+const IMAGE = contractImage("alpine")
 const FIVE_MINUTES = 5 * 60_000
 const docker = new Docker({ timeout: 30_000 })
 
