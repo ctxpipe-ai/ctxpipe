@@ -56,7 +56,7 @@ After you complete the requested code changes, commit them. Then run `factory ch
 
 The orchestrator app (Paseo) or the harness's own sub-agent tool starts each agent. Always set the model and the effort explicitly. Use the harness's own name for each model and its effort setting. The token total is the limit. The number of agents in parallel is not the limit. Use a second model family (Codex GPT) for reviews and mechanical work. Then the review findings come from different blind spots. When the Codex plan has no tokens left, use the Claude fallback in the same row.
 
-The security rows describe what `critics.json` runs: Opus high plus GPT-6.1-Sol high in each round. `factory check` starts the reviewers. Do not start them by hand as sub-agents.
+The review rows are what `critics.json` runs. `factory check` starts the reviewers and unites the findings of the reviewers of a critic. Do not start them by hand as sub-agents.
 
 | Work | Model and effort | Fallback |
 | --- | --- | --- |
@@ -65,9 +65,9 @@ The security rows describe what `critics.json` runs: Opus high plus GPT-6.1-Sol 
 | Small fix that has acceptance tests in the brief, on a host where `list_profiles` shows `local` | The local model through the `local` profile; read its notes. Review its diff before you accept it | Codex GPT-6-Luna, low |
 | Review fix that needs a security design | Opus, medium | — |
 | First review round, Standards axis | Codex GPT-6.1-Sol | Opus, high |
-| First review round, Spec axis | Opus, high | — |
-| First review round, Simplicity axis | Codex GPT-6-Sol, high | Opus, high |
-| Security-sensitive diff (auth, sandboxes, egress, tokens, org isolation) | Opus, high, **and** Codex GPT-6.1-Sol, as two separate reviews | Opus, high only |
+| First review round, Spec axis | Opus, medium, **and** Codex GPT-6.1-Sol, medium | Opus, high |
+| First review round, Simplicity axis | Codex GPT-6-Sol, high, **and** Sonnet, medium | Opus, high |
+| Security-sensitive diff (auth, sandboxes, egress, tokens, org isolation) | Opus, medium, **and** Codex GPT-6.1-Sol, medium | Opus, high only |
 | Follow-up review round (check that the listed findings are fixed and the fix adds no new problem) | Codex GPT-6-Luna, medium | Sonnet, medium |
 | Re-review of a security fix | Opus, high | — |
 | Status checks, file search, log triage | Haiku, low | — |
