@@ -62,6 +62,15 @@ const snapshot: GithubPullRequestSnapshot = {
       path: "src/http/createUser.ts",
       line: 18,
     },
+    {
+      id: 12,
+      kind: "conversation",
+      author: { login: "merge-gate", type: "bot" },
+      body: "## Merge gate\n\nAll checks passed on the default branch base.",
+      createdAt: "2026-03-02T10:25:00.000Z",
+      path: null,
+      line: null,
+    },
   ],
   requiredChecks: [{ name: "ci", conclusion: "success" }],
 }
@@ -75,6 +84,9 @@ describe("renderGithubPullRequest", () => {
     expect(file.content).toContain("bob — APPROVED")
     expect(file.content).toContain("coderabbitai (bot)")
     expect(file.content).toContain("`src/http/createUser.ts:18`")
+    // A bot comment is the same long report on each pull request (CTX-1140).
+    expect(file.content).not.toContain("Merge gate")
+    expect(file.content).not.toContain("merge-gate")
 
     const parsed = parseGithubPullRequestMarkdown(file.content)
     expect(parsed).toMatchObject({

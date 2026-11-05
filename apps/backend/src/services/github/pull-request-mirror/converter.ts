@@ -76,10 +76,16 @@ export function renderGithubPullRequest(
     )
   }
 
-  if (snapshot.comments.length > 0) {
+  // A bot comment (a merge gate report, a preview environment) is almost the
+  // same long text on each pull request, so it wins searches that the pull
+  // request is not about (CTX-1140). A review keeps its bot author.
+  const comments = snapshot.comments.filter(
+    (comment) => comment.author.type !== "bot",
+  )
+  if (comments.length > 0) {
     sections.push(
       "## Conversation",
-      ...snapshot.comments.map((comment) => {
+      ...comments.map((comment) => {
         const loc =
           comment.path != null
             ? `\n\n\`${comment.path}${comment.line != null ? `:${comment.line}` : ""}\``
