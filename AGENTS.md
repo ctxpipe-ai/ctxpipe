@@ -50,11 +50,13 @@ When you edit a file, write each new sentence to the standard. Change an old sen
 
 ## Agent skills
 
-After completing requested code changes, commit and push the current feature branch, then create or update a draft PR against `main` before the final response. Analysis-only work needs no commit. Never merge unless the user asks. Proving a fix uses the [tdd](.agents/skills/tdd/SKILL.md) skill; _proof_ is a real collaborator ([mocking.md](.agents/skills/tdd/mocking.md)).
+After you complete the requested code changes, commit them. Then run `factory check --input <ticket or brief file>`. Fix what it reports, commit, and run it again until it passes. Then push the current feature branch. Before the final response, create or update a draft PR against `main`. Analysis-only work needs no commit. Never merge unless the user asks. Proving a fix uses the [tdd](.agents/skills/tdd/SKILL.md) skill; _proof_ is a real collaborator ([mocking.md](.agents/skills/tdd/mocking.md)).
 
 ### Sub-agent models
 
-The orchestrator app (Paseo) or the harness's own sub-agent tool starts each agent. Always set the model and the effort explicitly. Use the harness's own name for each model and its effort setting. The token total is the limit, not the number of agents in parallel. Use a second model family (Codex GPT) for reviews and mechanical work, so that review findings come from different blind spots. When the Codex plan has no tokens left, use the Claude fallback in the same row.
+The orchestrator app (Paseo) or the harness's own sub-agent tool starts each agent. Always set the model and the effort explicitly. Use the harness's own name for each model and its effort setting. The token total is the limit. The number of agents in parallel is not the limit. Use a second model family (Codex GPT) for reviews and mechanical work. Then the review findings come from different blind spots. When the Codex plan has no tokens left, use the Claude fallback in the same row.
+
+The security rows describe what `critics.json` runs: Opus high plus GPT-6.1-Sol high in each round. `factory check` starts the reviewers. Do not start them by hand as sub-agents.
 
 | Work | Model and effort | Fallback |
 | --- | --- | --- |
@@ -102,7 +104,7 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 
 ### Adversarial review
 
-Every adversarial review of a diff is three axes — **Standards**, **Spec**, and **Simplicity** — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
+Every adversarial review of a diff is three axes — **Standards**, **Spec**, and **Simplicity** — and Security when its triggers match. `factory check` runs these critics ([`code-review`](.agents/skills/code-review/SKILL.md)) and stores their verdicts for the merge gate. Do not start review sub-agents, and do not run `/code-review` rounds by hand. Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
 
 ## Architecture decisions & ADRs
 
@@ -170,7 +172,7 @@ This repository is public. **Never** put the name, slug, email, username, id (`o
 
 ## Testing
 
-Verify a change with `factory check` before you push, not with a full suite or a sub-agent that only runs tests. It runs only the checks that the change can break, and CI reuses its passes. See the [factory-check skill](.agents/skills/factory-check/SKILL.md), with the fallback when `factory` is not installed.
+Before each push, run `factory check`; fix what it reports; run it again. During a red-green loop, you may run the one test file that you work on. Do not run a full suite. Do not start a review or test sub-agent. `factory check` runs the checks that the change can break and the review critics, and CI reuses its passes and verdicts. See the [factory-check skill](.agents/skills/factory-check/SKILL.md), with the fallback when `factory` is not installed.
 
 Test through the module's public interface with its real collaborators. Fake the **environment**, not our own modules:
 
@@ -184,6 +186,7 @@ Test through the module's public interface with its real collaborators. Fake the
 ## Package releases
 
 - Changes that should ship in **`@ctxpipe/aws-cdk`** must include a new `.changeset/*.md` file created with `pnpm changeset` (patch/minor/major + short summary).
+- Every PR carries a changeset; an internal change gets an empty one ([ADR-020](.ai/memory/decisions/ADR-020-changeset-ci-guard-policy.md), item 5).
 - Releases use [Changesets](https://github.com/changesets/changesets): merge to `main` opens a **version packages** PR via `.github/workflows/deploy.yaml`; merging that PR publishes to npm.
 - `packages/aws-cdk/src/pinned-service-image-tag.ts` is generated during `@ctxpipe/aws-cdk` build by `scripts/release/stamp-aws-cdk-image-tag.mjs` (`IMAGE_TAG`/`GITHUB_SHA`, fallback to latest known `main` SHA via git refs, then `latest`).
 - Keep package changes buildable with `pnpm turbo build --filter @ctxpipe/aws-cdk`.

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 
 import { listEvals, runEvals } from "./evals.mjs"
 import { listVitest, runVitest } from "./lanes.mjs"
+import { withNeeds } from "./prerequisites.mjs"
 import { listProjects, runProjects } from "./projects.mjs"
 import { listStorybook, runStorybook } from "./storybook.mjs"
 
@@ -39,7 +40,11 @@ export async function listChecks() {
       readFileSync(new URL("non-portable.json", import.meta.url), "utf8"),
     ),
   )
-  const checks = markPortable(lists.flat(), denied)
+  const checks = markPortable(lists.flat(), denied).map((check) =>
+    check.prerequisites
+      ? { ...check, prerequisites: withNeeds(check.prerequisites) }
+      : check,
+  )
   checks.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   return { schemaVersion: 1, checks }
 }

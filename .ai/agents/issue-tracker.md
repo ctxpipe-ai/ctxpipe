@@ -26,7 +26,7 @@ Issues, plans, and specs (you may know a spec as a PRD) for this repo live in Li
 - **Plan review gate.** A ticket gets a plan (in its description) before work starts. No ticket moves to `Todo`, or to `In Progress`, before the user approves its plan. A material change of the plan goes back to the user.
 - **Delegation brief.** Before you give a ticket to a sub-agent, write a brief that a cold agent can work from alone: inputs, files to read first, constraints, acceptance checks, and what to report back. Keep the brief outside the repo. Follow the sub-agent model rules in root `AGENTS.md`. Record the agent in a comment.
 - **Claim.** Set `In Progress` and the assignee before you start. One owner per ticket.
-- **Review before Done.** Each diff gets the three-axis adversarial review (Standards, Spec, Simplicity) through the [code-review skill](../../.agents/skills/code-review/SKILL.md), and the fixes, before the ticket is `Waiting for human` or `Done`.
+- **Review before Done.** Each diff gets the adversarial review (Standards, Spec, Simplicity, and Security when it applies), and the fixes, before the ticket is `Waiting for human` or `Done`. `factory check` runs these critics before each push ([code-review skill](../../.agents/skills/code-review/SKILL.md)); do not start review sub-agents.
 - **Split.** When a ticket grows, create follow-up issues and relate them in both directions.
 
 ## When a skill says "publish to the issue tracker"

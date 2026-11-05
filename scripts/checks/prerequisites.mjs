@@ -120,8 +120,24 @@ const workbenchFix =
 // or verifies). Keep this a small map; it is not a build system.
 export const prerequisites = {
   bun: {
-    prepare: () =>
-      quiet("bun", ["--version"], "Install Bun (package.json engines)."),
+    // `bun check` (the Typecheck check) needs the version of `engines`. An
+    // older Bun runs the `check` script of a package, or finds none.
+    prepare: () => {
+      const wanted = declared("package.json", /"bun": "\^([\d.]+)"/)
+      const found = quiet(
+        "bun",
+        ["--version"],
+        `Install Bun ${wanted} or newer (package.json engines).`,
+      )
+      const parts = (version) => version.split(".").map(Number)
+      const [have, want] = [parts(found), parts(wanted)]
+      const index = have.findIndex((part, i) => part !== want[i])
+      const older = index !== -1 && have[index] < want[index]
+      if (older)
+        throw new Error(
+          `Bun ${found} is older than ${wanted}, so it has no \`bun check\`. Install Bun ${wanted} or newer (package.json engines).`,
+        )
+    },
   },
   docker: {
     prepare: () => quiet("docker", ["info"], "Start Docker."),
@@ -403,6 +419,18 @@ export const prerequisites = {
         "Fix the docs content.",
       ),
   },
+}
+
+// The names, then each prerequisite that they need, directly or not. The
+// manifest lists this closure, so that a selector can see that a check needs
+// Docker (for example through the chat sandbox image) and leave it to CI on a
+// host where Docker does not answer.
+export function withNeeds(names) {
+  const out = [...names]
+  for (let i = 0; i < out.length; i++)
+    for (const need of prerequisites[out[i]]?.needs ?? [])
+      if (!out.includes(need)) out.push(need)
+  return out
 }
 
 // Makes or verifies the named prerequisites and the ones that they need,

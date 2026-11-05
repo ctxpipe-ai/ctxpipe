@@ -6,7 +6,7 @@ Cursor is not in use now. Its files under `.cursor/` (`Dockerfile`, `environment
 
 ## Headless VM (any harness)
 
-Use this section when you need the running app (API, proxied UI, and auth in the browser) on a machine without a desktop. Do not use `pnpm dev` there. Portless needs HTTPS on port 443 and a local CA, and a headless machine has neither. A job that only runs lint or tests needs no servers: run `pnpm lint`, `pnpm --filter @ctxpipe/backend test`, or `pnpm --filter @ctxpipe/ui test`.
+Use this section when you need the running app (API, proxied UI, and auth in the browser) on a machine without a desktop. Do not use `pnpm dev` there. Portless needs HTTPS on port 443 and a local CA, and a headless machine has neither. A job that only runs lint or tests needs no servers. When `factory` is installed, run `factory check`. When it is not installed, run `pnpm lint`, `pnpm --filter @ctxpipe/backend test`, or `pnpm --filter @ctxpipe/ui test`.
 
 Preconditions:
 
@@ -64,7 +64,7 @@ Cursor is not in use now. Use this section only when Cursor Cloud runs again. Fo
 
 [`.claude/hooks/session-start.sh`](../../.claude/hooks/session-start.sh) runs on every cloud session (no-op locally): starts `dockerd` with the `mirror.gcr.io` Docker Hub mirror, brings up Compose **`infra`**, runs `pnpm install`, stamps the `@ctxpipe/aws-cdk` image tag, installs Zoekt with `go install`, writes `apps/backend/.env.local`, migrates, exports `DATABASE_URL` / `AUTH_SECRET` / `GRAPH_DB_URI` to the shell, and starts Storybook for the `ctxpipe-storybook` MCP.
 
-- **Tests:** run them as in CI; no extra env needed (`pnpm --filter @ctxpipe/backend test`, `@ctxpipe/ui`, `ctxpipe`, `@ctxpipe/aws-cdk`). For codesearch use `pnpm --filter @ctxpipe/codesearch test:vitest`; `test` builds the Docker image, which cannot build here.
+- **Tests:** when `factory` is installed, run `factory check`. When it is not installed, run them as in CI; no extra env needed (`pnpm --filter @ctxpipe/backend test`, `@ctxpipe/ui`, `ctxpipe`, `@ctxpipe/aws-cdk`). For codesearch use `pnpm --filter @ctxpipe/codesearch test:vitest`; `test` builds the Docker image, which cannot build here.
 - **App:** `bash scripts/dev-headless.sh` runs codesearch (host, [`scripts/codesearch-host-dev.sh`](../../scripts/codesearch-host-dev.sh)), backend, worker, and UI; browse `http://localhost:3000`. The backend will not boot without `MODEL_PROVIDER_API_KEY`.
 - **Sandbox quirks:** no IPv6, so the hook writes a gitignored `docker-compose.override.yml` that turns off FalkorDB's Bolt listener, which the backend never uses. Container egress is TLS-intercepted, so Docker image builds that download over HTTPS fail. Hosts the environment's network policy blocks fail with `403` on CONNECT; `curl -sS "$HTTPS_PROXY/__agentproxy/status"` lists them.
 - **MCP:** [`.mcp.json`](../../.mcp.json) reads API keys from environment variables, so it works with no browser. [`mcp-servers.md`](mcp-servers.md) lists the variables. A claude.ai HyperDX connector, if connected, exposes the same tools as `mcp__HyperDX__*`; the repo server works for every account.

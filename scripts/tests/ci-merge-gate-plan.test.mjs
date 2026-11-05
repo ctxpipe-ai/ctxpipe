@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url"
 
 import { parse as parseYaml } from "yaml"
 
-import { gateDecision, gateText, marker } from "../checks/gate.mjs"
+import { fullVerdict, gateDecision, gateText, marker } from "../checks/gate.mjs"
 import { jobOutputs, plan, placeOf, readStore } from "../checks/plan.mjs"
 import { runsInOf } from "../checks/shard.mjs"
 
@@ -482,6 +482,7 @@ test("the PR comment shows the selection, the hits, the LLM decisions and the mi
   for (const part of [
     "**Verdict:** pass",
     "3 ran, 2 hits (ci 1, agent 1), 2 in other workflows",
+    "**Cache hits:** ci 1, pr 0, agent 1 of ",
     "renames a UI prop",
     "dropped 1, added 1",
     "<summary>LLM decisions (2)</summary>",
@@ -834,11 +835,15 @@ test("a gated step has the setup of its full-run step and of the prerequisites o
 test("a failed plan job gives a full run, and the merge gate reports its verdict", () => {
   // The plan job failed before it wrote plan.json or any output: each check
   // job runs in full, and the merge gate fails with the full run.
-  const decide = (result) => {
+  const decide = (
+    result,
+    critics = { critics: [{ critic: "critic:spec", status: "carried" }] },
+  ) => {
     const directory = inputs({
       "mode.json": { mode: "select", reason: "gate" },
       "selection.json": selectRecord(),
       "llm-selection.json": llmRecord(),
+      ...(critics ? { "critics.json": critics } : {}),
       "config.json": config(),
       "needs.json": {
         ...needs,
@@ -880,6 +885,12 @@ test("a failed plan job gives a full run, and the merge gate reports its verdict
   const passed = decide("success")
   assert.equal(passed.status, 0)
   assert.equal(passed.decision.fullRun.verdict, "pass")
+  // A full run checks the critics too: a same-repo PR without the critics
+  // record fails, with the cause.
+  const unchecked = decide("success", null)
+  assert.equal(unchecked.status, 1)
+  assert.equal(unchecked.decision.critics.checked, false)
+  assert.equal(unchecked.decision.critics.cause, "the critics job did not run")
 })
 
 test("the selected checks of a job run through the public runner, with records", () => {
@@ -919,4 +930,60 @@ test("the selected checks of a job run through the public runner, with records",
   )
   assert.equal(empty.status, 1)
   assert.match(empty.stderr, /PLAN has no check ids/)
+})
+
+test("the gate reads each record of a trusted job only by the artifact id that the job gives", () => {
+  // A job that runs PR code holds the artifact token, so it can upload an
+  // artifact with the name of a trusted record. The readers download a
+  // trusted record only by the id from the upload step of its writer.
+  const { jobs } = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  const writers = {
+    "merge-gate-select": "merge-gate-selection",
+    "merge-gate-llm": "merge-gate-llm",
+    "merge-gate-plan": "merge-gate-plan",
+    "merge-gate-critics": "merge-gate-critics",
+  }
+  for (const [writer, name] of Object.entries(writers)) {
+    const upload = jobs[writer].steps.find((step) => step.with?.name === name)
+    assert.equal(upload.id, "preserve", writer)
+    assert.match(
+      jobs[writer].outputs["artifact-id"],
+      /^\$\{\{ steps\.preserve\.outputs\.artifact-id \}\}$/,
+      writer,
+    )
+  }
+  for (const [reader, job] of Object.entries(jobs))
+    for (const step of job.steps ?? []) {
+      if (!step.uses?.startsWith("actions/download-artifact@")) continue
+      assert.ok(
+        !Object.values(writers).includes(step.with?.name) &&
+          !/^merge-gate-\*/.test(step.with?.pattern ?? ""),
+        `${reader} downloads a trusted record by its name`,
+      )
+      const id = /^\$\{\{ needs\.([\w-]+)\.outputs\.artifact-id \}\}$/.exec(
+        step.with?.["artifact-ids"] ?? "",
+      )
+      if (!id) continue
+      assert.ok(id[1] in writers, `${reader}: ${id[1]}`)
+      assert.ok([job.needs].flat().includes(id[1]), `${reader} needs ${id[1]}`)
+      assert.equal(step.with["merge-multiple"], true, reader)
+      // An empty id downloads every artifact of the run, so each reader needs the guard.
+      assert.equal(
+        step.if,
+        `needs.${id[1]}.outputs.artifact-id != ''`,
+        `${reader} downloads ${id[1]} without the empty-id guard`,
+      )
+    }
+  // A failed upload of the critics shows as a failed job, and the critics
+  // never fail the full verdict: gate.mjs decides them (criticsFail).
+  assert.equal(jobs["merge-gate-critics"]["continue-on-error"], undefined)
+  assert.equal(
+    fullVerdict({
+      "merge-gate-critics": { result: "failure" },
+      lint: { result: "success" },
+    }).verdict,
+    "pass",
+  )
 })

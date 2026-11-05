@@ -28,8 +28,8 @@ permissions:
   contents: read
 
 env:
-  # Node on the arm64 runner stops at a 2 GB heap, so the Typecheck and
-  # Storybook build jobs run out of memory without this.
+  # Node on the arm64 runner stops at a 2 GB heap, so the Storybook build
+  # jobs run out of memory without this.
   NODE_OPTIONS: --max-old-space-size=6144
 
 jobs:
@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
@@ -98,9 +98,9 @@ jobs:
   typecheck:
     timeout-minutes: 30
     name: Typecheck
-    # A push to main also runs this job, so that the cache has the build info
-    # of main for each pull request. In gate mode it runs only when the plan
-    # selects a typecheck check (scripts/checks/README.md, Merge gate).
+    # A push to main also runs this job, so that a bad merge fails on main.
+    # In gate mode it runs only when the plan selects a typecheck check
+    # (scripts/checks/README.md, Merge gate).
     needs: merge-gate-plan
     if: |
       !cancelled() &&
@@ -113,28 +113,17 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # The build info of the last typecheck (scripts/ci/typecheck.mjs). The
-      # newest one with the same lockfile and tsconfig files comes first. A
-      # pull request without its own entry gets the entry of main. A build
-      # info from a different TypeScript version is not used. A push to main
-      # does not restore it: that run is cold, so a bad merge fails on main.
-      - name: Compute the typecheck cache key
-        id: typecheck-cache
-        run: echo "prefix=${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig.json', 'apps/*/tsconfig.json', 'packages/*/tsconfig.json', 'examples/*/tsconfig.json') }}-" >> "$GITHUB_OUTPUT"
-      - name: Restore the typecheck build info
-        if: github.event_name != 'push'
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      # `bun check` is the checker (scripts/ci/typecheck.mjs). The pinned Bun
+      # version is the TypeScript 7 version that it matches.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          path: node_modules/.cache/typecheck
-          key: typecheck-${{ steps.typecheck-cache.outputs.prefix }}${{ github.sha }}
-          restore-keys: |
-            typecheck-${{ steps.typecheck-cache.outputs.prefix }}
+          bun-version: 1.4.4
       # The check runner runs each project with its diagnostic allowance and
       # writes one result record for each, for the merge gate. The output of
       # each project is in .ci-results/checks (the next step prints it).
@@ -152,14 +141,6 @@ jobs:
         env:
           PLAN: ${{ needs.merge-gate-plan.outputs.typecheck }}
         run: node scripts/checks/selected.mjs .ci-results/typecheck
-      # A failed typecheck also writes the build info: it holds the result of
-      # each file, and the next run checks only the changed files again.
-      - name: Save the typecheck build info
-        if: always()
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: node_modules/.cache/typecheck
-          key: typecheck-${{ steps.typecheck-cache.outputs.prefix }}${{ github.sha }}
       - name: Typecheck output
         if: always()
         run: cat .ci-results/checks/*.log || true
@@ -229,7 +210,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/falkordb
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
@@ -371,7 +352,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
@@ -512,12 +493,16 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The typecheck checks run `bun check`.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
       - name: Project checks through the check runner
         run: |
           set -o pipefail
@@ -694,7 +679,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
@@ -748,7 +733,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
@@ -778,7 +763,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
@@ -830,7 +815,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
@@ -906,7 +891,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
@@ -987,7 +972,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
@@ -1103,7 +1088,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
@@ -1161,7 +1146,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/falkordb
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
@@ -1318,7 +1303,7 @@ jobs:
             > "$RUNNER_TEMP/merge-gate/mode.json"
           cat "$RUNNER_TEMP/merge-gate/mode.json"
           echo "mode=$(jq -r .mode "$RUNNER_TEMP/merge-gate/mode.json")" >> "$GITHUB_OUTPUT"
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - run: corepack enable
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
@@ -1400,6 +1385,11 @@ jobs:
       contents: read
       actions: read
       id-token: write
+    # The id of the artifact that this job uploaded. Each reader downloads
+    # the selection by this id, not by its name: a job that runs PR code can
+    # upload an artifact with the same name.
+    outputs:
+      artifact-id: ${{ steps.preserve.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1476,10 +1466,105 @@ jobs:
           rm "$out/select-cause.txt"
           find "$XDG_CACHE_HOME/factory/traces" -name '*.json.gz' -exec cp {} "$out/trace.json.gz" \; -quit || true
       - name: Preserve the selection
+        id: preserve
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: merge-gate-selection
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: ignore
+
+  # The review critics (`factory review gate`, .agents/skills/code-review):
+  # for the PR diff and the critics of the merge base, the stored verdict of
+  # each critic. An agent stores them when it runs `factory check`. It runs on
+  # each same-repo PR in every mode, apart from the selection, so a full run
+  # checks the critics too. It holds the read-only role of the select job and
+  # runs no package manager and no repository script. The Merge gate job
+  # downloads critics.json only by the artifact id that this job gives as an
+  # output: a job that runs PR code can upload an artifact with the same name,
+  # but not with this id. Each step writes out/critics-cause.txt before a part
+  # that can fail. A same-repo PR without a critics record fails the gate: no
+  # id (the upload failed, or the job did not run), or no critics.json in the
+  # artifact. The job has no continue-on-error, so a failed upload shows as a
+  # failed job. The job runs beside the test jobs, so it adds no time to the
+  # run. A lookup of 16 hunks and 4 critics took 5 s. The timeout is large, because a large diff (a
+  # lockfile) has many hunks and so many store keys.
+  merge-gate-critics:
+    timeout-minutes: 25
+    name: Merge gate critics
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    # amd64: the factory CLI release is linux-x64 only.
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      artifact-id: ${{ steps.preserve.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Start the cause record
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          echo "the read-only role of the result store was not assumed" > "$RUNNER_TEMP/out/critics-cause.txt"
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::134416647419:role/check-results-gate-reader
+          aws-region: us-west-2
+      - name: Factory release, checked against the pin
+        run: |
+          cause="$RUNNER_TEMP/out/critics-cause.txt"
+          version="$(jq -er .factory.version .github/merge-gate.json)"
+          sha256="$(jq -er .factory.sha256 .github/merge-gate.json)"
+          echo "the download of the factory release $version failed" > "$cause"
+          aws s3api get-object --bucket ctxpipe-factory-check-results-134416647419 \
+            --expected-bucket-owner 134416647419 \
+            --key "releases/factory/$version/factory-linux-x64.tar.gz" \
+            "$RUNNER_TEMP/factory.tar.gz" > /dev/null
+          echo "the factory release does not match the pinned SHA-256" > "$cause"
+          echo "$sha256  $RUNNER_TEMP/factory.tar.gz" | sha256sum --check --strict
+          echo "the factory release did not unpack" > "$cause"
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
+      # The step never fails the job: the Merge gate job decides, and a
+      # lookup that could not run is a cause, not a missing critic.
+      - name: Look up the review critics
+        timeout-minutes: 20
+        env:
+          REPO: ${{ github.repository }}
+          # The verdicts are scoped to the head branch, so that an agent can
+          # store them before it opens the pull request (factory check).
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          out="$RUNNER_TEMP/out"
+          echo "the critics lookup did not finish in 20 minutes" > "$out/critics-cause.txt"
+          code=0
+          "$RUNNER_TEMP/bin/factory" review gate --repo . --branch "$REPO@$HEAD_REF" \
+            --base "$BASE_SHA" --head "$HEAD_SHA" --json \
+            > "$RUNNER_TEMP/critics.json" 2> "$RUNNER_TEMP/critics.err" || code=$?
+          if [ "$code" -le 1 ] && jq -e '.critics | type == "array"' "$RUNNER_TEMP/critics.json" > /dev/null; then
+            # The artifact keeps only the fields that gate.mjs reads.
+            echo "the critics record did not parse" > "$out/critics-cause.txt"
+            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}]}]}' \
+              "$RUNNER_TEMP/critics.json" > "$RUNNER_TEMP/critics.min.json"
+            mv "$RUNNER_TEMP/critics.min.json" "$out/critics.json"
+            rm "$out/critics-cause.txt"
+          else
+            echo "factory review gate failed with exit code $code: $(tail -n 1 "$RUNNER_TEMP/critics.err" | cut -c1-300)" > "$out/critics-cause.txt"
+            cat "$RUNNER_TEMP/critics.err" >&2
+          fi
+      - name: Preserve the critics
+        id: preserve
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: merge-gate-critics
           path: ${{ runner.temp }}/out/
           if-no-files-found: ignore
 
@@ -1503,6 +1588,8 @@ jobs:
     permissions:
       contents: read
       actions: read
+    outputs:
+      artifact-id: ${{ steps.preserve.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1516,9 +1603,11 @@ jobs:
         with:
           name: merge-gate-inputs
           path: ${{ runner.temp }}/inputs
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - if: needs.merge-gate-select.outputs.artifact-id != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: merge-gate-selection
+          artifact-ids: ${{ needs.merge-gate-select.outputs.artifact-id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/selection
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -1564,6 +1653,7 @@ jobs:
           rm "$out/llm-cause.txt"
           jq -c '.llm | {fallback, cached, latencyMs, usage, kept: (.kept | length), dropped: (.dropped | length), added: (.added | length)}' "$out/llm-selection.json"
       - name: Preserve the LLM selection
+        id: preserve
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -1591,6 +1681,7 @@ jobs:
       contents: read
       actions: read
     outputs:
+      artifact-id: ${{ steps.preserve.outputs.artifact-id }}
       mode: ${{ steps.plan.outputs.mode }}
       deploy: ${{ steps.plan.outputs.deploy }}
       typecheck: ${{ steps.plan.outputs.typecheck }}
@@ -1610,12 +1701,36 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
+      # The manifest job runs PR code, so only its mode.json is read. The
+      # selection and the LLM selection download by the artifact id that the
+      # job that wrote them gives: a job that runs PR code can upload an
+      # artifact with the same name. Without an id, the record is missing and
+      # the plan is full.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:
-          pattern: merge-gate-*
-          path: ${{ runner.temp }}/inputs
+          name: merge-gate-inputs
+          path: ${{ runner.temp }}/manifest
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-select.outputs.artifact-id != ''
+        continue-on-error: true
+        with:
+          artifact-ids: ${{ needs.merge-gate-select.outputs.artifact-id }}
           merge-multiple: true
+          path: ${{ runner.temp }}/inputs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-llm.outputs.artifact-id != ''
+        continue-on-error: true
+        with:
+          artifact-ids: ${{ needs.merge-gate-llm.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/inputs
+      - name: The mode of the manifest job
+        run: |
+          mkdir -p "$RUNNER_TEMP/inputs"
+          if [ -f "$RUNNER_TEMP/manifest/mode.json" ]; then
+            cp "$RUNNER_TEMP/manifest/mode.json" "$RUNNER_TEMP/inputs/mode.json"
+          fi
       - name: Restore the PR store
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -1635,6 +1750,7 @@ jobs:
             --store .merge-gate-store/store.json --fork "$FORK" \
             --out "$RUNNER_TEMP/plan" --github-output "$GITHUB_OUTPUT"
       - name: Preserve the plan
+        id: preserve
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -1737,6 +1853,7 @@ jobs:
         merge-gate-select,
         merge-gate-llm,
         merge-gate-plan,
+        merge-gate-critics,
         lint,
         typecheck,
         test-shards,
@@ -1767,12 +1884,51 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
+      # The manifest job runs PR code, so only its mode.json is read. The
+      # selection, the LLM selection, the plan and the critics download by the
+      # artifact id that the job that wrote them gives: a job that runs PR
+      # code can upload an artifact with the same name. Without an id, the
+      # record is missing: the run is full, and a same-repo PR fails on its
+      # critics (gate.mjs decide).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:
-          pattern: merge-gate-*
-          path: ${{ runner.temp }}/inputs
+          name: merge-gate-inputs
+          path: ${{ runner.temp }}/manifest
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-select.outputs.artifact-id != ''
+        continue-on-error: true
+        with:
+          artifact-ids: ${{ needs.merge-gate-select.outputs.artifact-id }}
           merge-multiple: true
+          path: ${{ runner.temp }}/inputs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-llm.outputs.artifact-id != ''
+        continue-on-error: true
+        with:
+          artifact-ids: ${{ needs.merge-gate-llm.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/inputs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-plan.outputs.artifact-id != ''
+        continue-on-error: true
+        with:
+          artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/inputs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-critics.outputs.artifact-id != ''
+        continue-on-error: true
+        with:
+          artifact-ids: ${{ needs.merge-gate-critics.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/inputs
+      - name: The mode of the manifest job
+        run: |
+          mkdir -p "$RUNNER_TEMP/inputs"
+          if [ -f "$RUNNER_TEMP/manifest/mode.json" ]; then
+            cp "$RUNNER_TEMP/manifest/mode.json" "$RUNNER_TEMP/inputs/mode.json"
+          fi
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:

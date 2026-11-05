@@ -36,3 +36,4 @@ When the shape of that interface is itself in question — how deep the module i
 - **Red before green.** Write the failing test first, then only enough code to pass it. Don't anticipate future tests or add speculative features.
 - **One slice at a time.** One seam, one test, one minimal implementation per cycle.
 - **Refactoring is not part of the loop.** It belongs to the review stage (see the `code-review` skill), not the red → green implementation cycle.
+- **Run the tests through `factory check`.** During a red-green loop, run the one test file that you work on. Before each push, run `factory check`. It runs every check that the change can break, and the review critics. Fix what it reports and run it again. Do not run the full suite. Do not start review or test sub-agents (see the [factory-check skill](../factory-check/SKILL.md)).
