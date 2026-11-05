@@ -25,8 +25,12 @@ on:
         required: true
         type: string
 
+# One group for each PR, and a new run replaces an older one. A run that waits
+# for the environment reviewers holds its group, so a shared group would block
+# the plan of every other PR until someone approves or rejects that run.
 concurrency:
-  group: terraform-infra-plan
+  group: terraform-infra-plan-${{ inputs.pr_number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
