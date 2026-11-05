@@ -1155,7 +1155,8 @@ test("a critic with no stored verdict fails the gate, and the comment links each
       {
         critic: "critic:security",
         status,
-        reason: "1 of 1 diffs have no stored verdict; run `factory check` on the branch head",
+        reason:
+          "1 of 1 diffs have no stored verdict; run `factory check` on the branch head",
         verdicts: [],
       },
     ],
@@ -1248,8 +1249,25 @@ test("a same-repo PR whose critics were not checked fails the gate with the caus
   const skipped = critics(inputs({}), {
     needs: { "merge-gate-critics": { result: "skipped" } },
   })
-  assert.equal(skipped.cause, "the critics job skipped")
+  assert.equal(skipped.cause, "the critics job (skipped) uploaded no record")
   assert.equal(criticsFail(skipped), true)
+  // The record downloads only by the id that the critics job gives: a job
+  // without the id (a failed upload) has no record, whatever its result.
+  const noId = critics(inputs({}), {
+    needs: { "merge-gate-critics": { result: "success", outputs: {} } },
+  })
+  assert.equal(noId.cause, "the critics job (success) uploaded no record")
+  assert.equal(criticsFail(noId), true)
+  const lost = critics(inputs({}), {
+    needs: {
+      "merge-gate-critics": {
+        result: "success",
+        outputs: { "artifact-id": "123" },
+      },
+    },
+  })
+  assert.equal(lost.cause, "the critics record (artifact 123) did not download")
+  assert.equal(criticsFail(lost), true)
   // An empty list or an unknown status never passes.
   const empty = critics(inputs({ "critics.json": { critics: [] } }))
   assert.equal(empty.cause, "the critics record lists no critics")

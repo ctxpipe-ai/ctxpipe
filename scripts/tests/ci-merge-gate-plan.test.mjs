@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url"
 
 import { parse as parseYaml } from "yaml"
 
-import { gateDecision, gateText, marker } from "../checks/gate.mjs"
+import { fullVerdict, gateDecision, gateText, marker } from "../checks/gate.mjs"
 import { jobOutputs, plan, placeOf, readStore } from "../checks/plan.mjs"
 import { runsInOf } from "../checks/shard.mjs"
 
@@ -916,4 +916,54 @@ test("the selected checks of a job run through the public runner, with records",
   )
   assert.equal(empty.status, 1)
   assert.match(empty.stderr, /PLAN has no check ids/)
+})
+
+test("the gate reads each record of a trusted job only by the artifact id that the job gives", () => {
+  // A job that runs PR code holds the artifact token, so it can upload an
+  // artifact with the name of a trusted record. The readers download a
+  // trusted record only by the id from the upload step of its writer.
+  const { jobs } = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  const writers = {
+    "merge-gate-select": "merge-gate-selection",
+    "merge-gate-llm": "merge-gate-llm",
+    "merge-gate-plan": "merge-gate-plan",
+    "merge-gate-critics": "merge-gate-critics",
+  }
+  for (const [writer, name] of Object.entries(writers)) {
+    const upload = jobs[writer].steps.find((step) => step.with?.name === name)
+    assert.equal(upload.id, "preserve", writer)
+    assert.match(
+      jobs[writer].outputs["artifact-id"],
+      /^\$\{\{ steps\.preserve\.outputs\.artifact-id \}\}$/,
+      writer,
+    )
+  }
+  for (const [reader, job] of Object.entries(jobs))
+    for (const step of job.steps ?? []) {
+      if (!step.uses?.startsWith("actions/download-artifact@")) continue
+      assert.ok(
+        !Object.values(writers).includes(step.with?.name) &&
+          !/^merge-gate-\*/.test(step.with?.pattern ?? ""),
+        `${reader} downloads a trusted record by its name`,
+      )
+      const id = /^\$\{\{ needs\.([\w-]+)\.outputs\.artifact-id \}\}$/.exec(
+        step.with?.["artifact-ids"] ?? "",
+      )
+      if (!id) continue
+      assert.ok(id[1] in writers, `${reader}: ${id[1]}`)
+      assert.ok([job.needs].flat().includes(id[1]), `${reader} needs ${id[1]}`)
+      assert.equal(step.with["merge-multiple"], true, reader)
+    }
+  // A failed upload of the critics shows as a failed job, and the critics
+  // never fail the full verdict: gate.mjs decides them (criticsFail).
+  assert.equal(jobs["merge-gate-critics"]["continue-on-error"], undefined)
+  assert.equal(
+    fullVerdict({
+      "merge-gate-critics": { result: "failure" },
+      lint: { result: "success" },
+    }).verdict,
+    "pass",
+  )
 })

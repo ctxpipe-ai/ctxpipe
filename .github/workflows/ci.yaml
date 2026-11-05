@@ -1400,6 +1400,11 @@ jobs:
       contents: read
       actions: read
       id-token: write
+    # The id of the artifact that this job uploaded. Each reader downloads
+    # the selection by this id, not by its name: a job that runs PR code can
+    # upload an artifact with the same name.
+    outputs:
+      artifact-id: ${{ steps.preserve.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1476,6 +1481,7 @@ jobs:
           rm "$out/select-cause.txt"
           find "$XDG_CACHE_HOME/factory/traces" -name '*.json.gz' -exec cp {} "$out/trace.json.gz" \; -quit || true
       - name: Preserve the selection
+        id: preserve
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -1488,12 +1494,15 @@ jobs:
   # each critic. An agent stores them when it runs `factory check`. It runs on
   # each same-repo PR in every mode, apart from the selection, so a full run
   # checks the critics too. It holds the read-only role of the select job and
-  # runs no package manager and no repository script. Its artifact is the only
-  # source of critics.json: a job that runs PR code cannot write it. Each step
-  # writes out/critics-cause.txt before a part that can fail, and the Merge
-  # gate job fails a same-repo PR without a critics record. The job runs
-  # beside the test jobs, so it adds no time to the run. A lookup of 16 hunks
-  # and 4 critics took 5 s. The timeout is large, because a large diff (a
+  # runs no package manager and no repository script. The Merge gate job
+  # downloads critics.json only by the artifact id that this job gives as an
+  # output: a job that runs PR code can upload an artifact with the same name,
+  # but not with this id. Each step writes out/critics-cause.txt before a part
+  # that can fail. A same-repo PR without a critics record fails the gate: no
+  # id (the upload failed, or the job did not run), or no critics.json in the
+  # artifact. The job has no continue-on-error, so a failed upload shows as a
+  # failed job. The job runs beside the test jobs, so it adds no time to the
+  # run. A lookup of 16 hunks and 4 critics took 5 s. The timeout is large, because a large diff (a
   # lockfile) has many hunks and so many store keys.
   merge-gate-critics:
     timeout-minutes: 25
@@ -1501,12 +1510,13 @@ jobs:
     if: |
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    continue-on-error: true
     # amd64: the factory CLI release is linux-x64 only.
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
       id-token: write
+    outputs:
+      artifact-id: ${{ steps.preserve.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1554,13 +1564,18 @@ jobs:
             --base "$BASE_SHA" --head "$HEAD_SHA" --json \
             > "$RUNNER_TEMP/critics.json" 2> "$RUNNER_TEMP/critics.err" || code=$?
           if [ "$code" -le 1 ] && jq -e '.critics | type == "array"' "$RUNNER_TEMP/critics.json" > /dev/null; then
-            mv "$RUNNER_TEMP/critics.json" "$out/critics.json"
+            # The artifact keeps only the fields that gate.mjs reads.
+            echo "the critics record did not parse" > "$out/critics-cause.txt"
+            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}]}]}' \
+              "$RUNNER_TEMP/critics.json" > "$RUNNER_TEMP/critics.min.json"
+            mv "$RUNNER_TEMP/critics.min.json" "$out/critics.json"
             rm "$out/critics-cause.txt"
           else
             echo "factory review gate failed with exit code $code: $(tail -n 1 "$RUNNER_TEMP/critics.err" | cut -c1-300)" > "$out/critics-cause.txt"
             cat "$RUNNER_TEMP/critics.err" >&2
           fi
       - name: Preserve the critics
+        id: preserve
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -1588,6 +1603,8 @@ jobs:
     permissions:
       contents: read
       actions: read
+    outputs:
+      artifact-id: ${{ steps.preserve.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1603,7 +1620,8 @@ jobs:
           path: ${{ runner.temp }}/inputs
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: merge-gate-selection
+          artifact-ids: ${{ needs.merge-gate-select.outputs.artifact-id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/selection
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -1649,6 +1667,7 @@ jobs:
           rm "$out/llm-cause.txt"
           jq -c '.llm | {fallback, cached, latencyMs, usage, kept: (.kept | length), dropped: (.dropped | length), added: (.added | length)}' "$out/llm-selection.json"
       - name: Preserve the LLM selection
+        id: preserve
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -1676,6 +1695,7 @@ jobs:
       contents: read
       actions: read
     outputs:
+      artifact-id: ${{ steps.preserve.outputs.artifact-id }}
       mode: ${{ steps.plan.outputs.mode }}
       deploy: ${{ steps.plan.outputs.deploy }}
       typecheck: ${{ steps.plan.outputs.typecheck }}
@@ -1695,23 +1715,29 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
-      # Each artifact downloads by its name. The manifest job runs PR code, so
-      # only its mode.json is read. The selection and the LLM selection come
-      # only from the jobs that wrote them.
+      # The manifest job runs PR code, so only its mode.json is read. The
+      # selection and the LLM selection download by the artifact id that the
+      # job that wrote them gives: a job that runs PR code can upload an
+      # artifact with the same name. Without an id, the record is missing and
+      # the plan is full.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:
           name: merge-gate-inputs
           path: ${{ runner.temp }}/manifest
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-select.outputs.artifact-id != ''
         continue-on-error: true
         with:
-          name: merge-gate-selection
+          artifact-ids: ${{ needs.merge-gate-select.outputs.artifact-id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/inputs
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-llm.outputs.artifact-id != ''
         continue-on-error: true
         with:
-          name: merge-gate-llm
+          artifact-ids: ${{ needs.merge-gate-llm.outputs.artifact-id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/inputs
       - name: The mode of the manifest job
         run: |
@@ -1738,6 +1764,7 @@ jobs:
             --store .merge-gate-store/store.json --fork "$FORK" \
             --out "$RUNNER_TEMP/plan" --github-output "$GITHUB_OUTPUT"
       - name: Preserve the plan
+        id: preserve
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -1841,33 +1868,44 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
-      # Each artifact downloads by its name. The manifest job runs PR code, so
-      # only its mode.json is read. The selection, the LLM selection, the plan
-      # and the critics come only from the jobs that wrote them.
+      # The manifest job runs PR code, so only its mode.json is read. The
+      # selection, the LLM selection, the plan and the critics download by the
+      # artifact id that the job that wrote them gives: a job that runs PR
+      # code can upload an artifact with the same name. Without an id, the
+      # record is missing: the run is full, and a same-repo PR fails on its
+      # critics (gate.mjs decide).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:
           name: merge-gate-inputs
           path: ${{ runner.temp }}/manifest
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-select.outputs.artifact-id != ''
         continue-on-error: true
         with:
-          name: merge-gate-selection
+          artifact-ids: ${{ needs.merge-gate-select.outputs.artifact-id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/inputs
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-llm.outputs.artifact-id != ''
         continue-on-error: true
         with:
-          name: merge-gate-llm
+          artifact-ids: ${{ needs.merge-gate-llm.outputs.artifact-id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/inputs
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-plan.outputs.artifact-id != ''
         continue-on-error: true
         with:
-          name: merge-gate-plan
+          artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/inputs
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-critics.outputs.artifact-id != ''
         continue-on-error: true
         with:
-          name: merge-gate-critics
+          artifact-ids: ${{ needs.merge-gate-critics.outputs.artifact-id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/inputs
       - name: The mode of the manifest job
         run: |

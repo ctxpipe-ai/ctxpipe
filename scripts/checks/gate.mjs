@@ -279,6 +279,8 @@ export function fullVerdict(needs) {
         "merge-gate-select",
         "merge-gate-llm",
         "merge-gate-plan",
+        // The critics decide through criticsFail, in gate mode only.
+        "merge-gate-critics",
       ].includes(name),
   )
   const failed = jobs
@@ -510,8 +512,11 @@ export function code(text) {
 // job (critics.json): each critic of the merge base is carried (a stored
 // verdict covers the PR diff), not-applicable, or missing. Each other status
 // counts as missing. Without a record that lists critics, `checked` is false
-// and `cause` says why (critics-cause.txt, or the result of the critics job). A same-repo PR needs the record (`required`):
-// without it the gate fails. A fork PR gets no role for the result store.
+// and `cause` says why (critics-cause.txt, or the result of the critics job).
+// The Merge gate job downloads the record only by the artifact id that the
+// critics job gives, so a critics job without that id has no record. A
+// same-repo PR needs the record (`required`): without it the gate fails. A
+// fork PR gets no role for the result store.
 export function critics(inputs, { needs, fork = false } = {}) {
   const record = readJson(join(inputs, "critics.json"))
   if (record?.critics?.length > 0)
@@ -535,9 +540,18 @@ export function critics(inputs, { needs, fork = false } = {}) {
         ? "the critics record lists no critics"
         : fork
           ? "a fork PR gets no role for the result store"
-          : `the critics job ${needs?.["merge-gate-critics"]?.result ?? "did not run"}`,
+          : criticsJobCause(needs?.["merge-gate-critics"]),
     missing: [],
   }
+}
+
+// The cause when no critics record downloaded: the result of the critics
+// job, and whether it gave the id of its artifact.
+function criticsJobCause(job) {
+  if (!job) return "the critics job did not run"
+  if (!job.outputs?.["artifact-id"])
+    return `the critics job (${job.result}) uploaded no record`
+  return `the critics record (artifact ${job.outputs["artifact-id"]}) did not download`
 }
 
 // True when the review critics fail the gate: a critic is missing, or a
