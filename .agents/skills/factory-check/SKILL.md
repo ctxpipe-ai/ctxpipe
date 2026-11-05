@@ -17,17 +17,13 @@ The contract of the checks is public: [`scripts/checks/README.md`](../../../scri
 
 ## Procedure
 
-1. Log in to the factory account once each day. The SSO session expires:
-
-   ```sh
-   aws sso login --profile ctxpipe-factory
-   ```
+1. Make sure that the host has its agent host certificate. A person provisions each host once (the factory CLI README, "Agent hosts"). Then `factory check` uses the `ctxpipe-factory-agent` profile, and no login is necessary. Do not set `AWS_PROFILE`, and do not use an admin SSO profile: an admin session writes no stored passes. When the run says that the shared store is off, or that the certificate expires soon, tell the user.
 
 2. Commit the change. The critics review commits: with changes that are not committed, the run prints `CRITICS NOT RUN` and fails.
 3. Run the check from the repo root. Give the ticket or the brief of the change with `--input`, so that the Spec critic can compare the change with it. Give the same files in each run of the branch:
 
    ```sh
-   AWS_PROFILE=ctxpipe-factory factory check --repo . --input <ticket or brief file>
+   factory check --repo . --input <ticket or brief file>
    ```
 
 4. Read the result. Each check line is `CACHED`, a passed check, or a failed check. A failure gives its log in `.ci-results/checks/`. Each critic line is `CARRIED`, `NOT APPLICABLE`, `PASSED`, `FAILED` or `ERROR`. Below a critic, each finding shows as `<severity> <file>:<line>: <summary>`.
