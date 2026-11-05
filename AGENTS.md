@@ -64,7 +64,7 @@ The review rows are what `critics.json` runs. `factory check` starts the reviewe
 | Plumbing build or mechanical review fix | Codex GPT-6-Luna (simple) or GPT-6-Astra (larger); effort from the estimated complexity | Sonnet, same effort |
 | Small fix that has acceptance tests in the brief, on a host where `list_profiles` shows `local` | The local model through the `local` profile; read its notes. Review its diff before you accept it | Codex GPT-6-Luna, low |
 | Review fix that needs a security design | Opus, medium | — |
-| First review round, Standards axis | Codex GPT-6.1-Sol | Opus, high |
+| First review round, Standards axis | Codex GPT-6.1-Sol, high | Opus, high |
 | First review round, Spec axis | Opus, medium, **and** Codex GPT-6.1-Sol, medium | Opus, high |
 | First review round, Simplicity axis | Codex GPT-6-Sol, high, **and** Sonnet, medium | Opus, high |
 | Security-sensitive diff (auth, sandboxes, egress, tokens, org isolation) | Opus, medium, **and** Codex GPT-6.1-Sol, medium | Opus, high only |
