@@ -1031,6 +1031,11 @@ test("the toolchain record holds the version of each host program that a check d
   )
   assert.equal(programVersion("ast-grep", "ast-grep 0.45.0\n"), "0.45.0")
   assert.equal(programVersion("git", "no version"), undefined)
+  assert.equal(
+    programVersion("container-platform", "linux-arm64\n"),
+    "linux-arm64",
+  )
+  assert.equal(programVersion("container-platform", ""), undefined)
   assert.throws(
     () => toolchain({ checks: [{ programs: ["curl"] }] }, {}, () => "1"),
     /unknown program curl/,

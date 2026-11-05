@@ -16,5 +16,27 @@
   },
   "previousRelease": {
     "ref": "@ctxpipe/aws-cdk@3.2.0"
+  },
+  "contracts": {
+    "agentVault": {
+      "image": "infisical/agent-vault",
+      "tag": "latest",
+      "digest": "sha256:d09894c86c9b8df64ea37442ace9907dcdf82dabd2730b78b9e0c4c5e070e79a"
+    },
+    "node": {
+      "image": "node",
+      "tag": "24",
+      "digest": "sha256:e7add2a490bb17d97b485b8641bd88455fff7839ade0f5eba493c3508124d413"
+    },
+    "alpine": {
+      "image": "alpine",
+      "tag": "3.22",
+      "digest": "sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f"
+    },
+    "curl": {
+      "image": "curlimages/curl",
+      "tag": "8.17.0",
+      "digest": "sha256:935d9100e9ba842cdb060de42472c7ca90cfe9a7c96e4dacb55e79e560b3ff40"
+    }
   }
 }

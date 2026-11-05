@@ -20,6 +20,7 @@ import {
 import { generateObjectId } from "../../lib/id.js"
 import { getSandboxInstance } from "../../models/workspaces.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
+import { contractImage } from "../../test/contract-images.js"
 import {
   INGESTION_V2_WORKFLOW_NAME,
   type IngestionV2RunInput,
@@ -41,7 +42,7 @@ import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import { destroySandboxesForWorkspace } from "./workspace-sandbox-cleanup.js"
 
-const IMAGE = "alpine:3.22"
+const IMAGE = contractImage("alpine")
 
 function databaseUrl(): string {
   const url = process.env.DATABASE_URL

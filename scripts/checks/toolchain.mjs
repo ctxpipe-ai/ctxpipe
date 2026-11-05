@@ -22,6 +22,9 @@ const programCommands = {
   git: "git --version",
   bun: "bun --version",
   bash: "bash --version",
+  // The platform of the Docker server, for code under test in containers.
+  "container-platform":
+    "docker version --format '{{.Server.Os}}-{{.Server.Arch}}'",
   "ast-grep": "ast-grep --version",
   zoekt: 'go version -m "$(command -v zoekt-webserver)"',
 }
@@ -34,6 +37,7 @@ export function programVersion(program, output) {
     {
       git: () => /\d+\.\d+/.exec(output)?.[0],
       zoekt: () => /^\s*mod\s+\S+\s+(\S+)/m.exec(output)?.[1],
+      "container-platform": () => output.trim(),
     }[program]?.() ?? /\d+(?:\.\d+)+/.exec(output)?.[0]
   return version && /^[A-Za-z0-9.+_-]{1,64}$/.test(version)
     ? version
@@ -89,6 +93,8 @@ function shell(command) {
     return execFileSync("sh", ["-c", command], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
+      // A Docker server that does not answer must not stop the record.
+      timeout: 20_000,
     })
   } catch {
     return undefined

@@ -1,1 +1,3 @@
-[]
+[
+  "vitest:contracts:apps/backend/src/domain/workspaces/workspace-chat-unsandboxed-env.test.ts"
+]

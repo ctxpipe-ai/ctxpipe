@@ -6,6 +6,7 @@ import { promisify } from "node:util"
 import { expect, it } from "vitest"
 
 import { withAgentVault } from "../../test/agent-vault-fixture.js"
+import { contractImage } from "../../test/contract-images.js"
 import { openRunVault, writeProxyCaCommand } from "./agent-vault.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
 
@@ -67,14 +68,19 @@ it(
           // DinD has its own image store. Load the image from the runner's
           // daemon (the CI job pulls it with retries) so a Docker Hub token
           // timeout inside DinD cannot fail the test.
-          const curlImage = "curlimages/curl:8.17.0"
+          const curlImage = contractImage("curl")
+          // BuildKit reads a bare image id in FROM as a registry name, and the
+          // id on the runner is not the id inside DinD. A local tag survives
+          // save and load.
+          const curlLocal = "ctxpipe-test-curl:local"
           try {
             await exec("docker", ["image", "inspect", curlImage]).catch(() =>
               exec("docker", ["pull", "-q", curlImage]),
             )
+            await docker("tag", curlImage, curlLocal)
             await exec("sh", [
               "-c",
-              `docker save ${curlImage} | docker exec -i ${name} docker load`,
+              `docker save ${curlLocal} | docker exec -i ${name} docker load`,
             ])
           } catch (error) {
             throw new Error(
@@ -89,7 +95,7 @@ it(
               name,
               "sh",
               "-c",
-              `printf 'FROM curlimages/curl:8.17.0\\nRUN curl -sS -m 10 -o /dev/null https://example.com\\n' | docker build -q --network ${network} -`,
+              `printf 'FROM ${curlLocal}\\nRUN curl -sS -m 10 -o /dev/null https://example.com\\n' | docker build -q --network ${network} -`,
             ])
           // curl exit codes: 6 no DNS, 7 no connection, 28 timeout.
           await expect(build("default")).rejects.toThrow(
@@ -125,7 +131,7 @@ it(
                     "-e",
                     `${key}=${value}`,
                   ]),
-                  "curlimages/curl:8.17.0",
+                  curlLocal,
                   "sh",
                   "-c",
                   script,
