@@ -68,8 +68,6 @@ const snapshot: GithubPullRequestSnapshot = {
       author: { login: "merge-gate", type: "bot" },
       body: "## Merge gate\n\nAll checks passed on the default branch base.",
       createdAt: "2026-03-02T10:25:00.000Z",
-      path: null,
-      line: null,
     },
   ],
   requiredChecks: [{ name: "ci", conclusion: "success" }],
