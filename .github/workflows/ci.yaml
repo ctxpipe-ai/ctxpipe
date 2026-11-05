@@ -152,6 +152,17 @@ jobs:
         env:
           PLAN: ${{ needs.merge-gate-plan.outputs.typecheck }}
         run: node scripts/checks/selected.mjs .ci-results/typecheck
+      # CTX-1145 experiment: time `bun check` on the same projects, after the
+      # runner above has made the prerequisites. It does not change the job
+      # result.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: needs.merge-gate-plan.outputs.mode != 'gate'
+        with:
+          bun-version: 1.4.4
+      - name: Time bun check beside tsc (experiment)
+        if: needs.merge-gate-plan.outputs.mode != 'gate'
+        continue-on-error: true
+        run: node scripts/ci/bun-check-experiment.mjs
       # A failed typecheck also writes the build info: it holds the result of
       # each file, and the next run checks only the changed files again.
       - name: Save the typecheck build info
