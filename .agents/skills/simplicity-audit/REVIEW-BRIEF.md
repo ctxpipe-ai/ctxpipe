@@ -1,6 +1,6 @@
 # Simplicity review brief
 
-Paste this file in full into the Simplicity sub-agent. Apply every rule to the pinned diff.
+This brief holds the rules of the Simplicity critic. The headless reviewer of `factory check` reads it through the `inputs` of `critics.json`, and the single-agent fallback of the code-review skill uses it too. Apply every rule to the diff under review.
 
 ## Stance
 

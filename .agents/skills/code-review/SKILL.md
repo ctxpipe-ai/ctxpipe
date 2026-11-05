@@ -64,6 +64,17 @@ A single switch that replaced a one-adapter seam is not Repeated Switches. A typ
 
 **Spec critic.** Report (a) the requirements of the spec that are missing or partial; (b) the behavior in the diff that the spec did not ask for (scope creep); and (c) the requirements that look implemented, but where the implementation looks wrong. Quote the spec line for each finding.
 
+**Security critic.** Review only the trust surfaces that the `intent` of `critics.json` names. Report each place where the diff does one of these:
+
+- It gives a job, a token, or a role more permission than its job needs. Or it gives a credential to a job that runs PR code, or to a third-party action that is not pinned by commit.
+- It breaks the GitHub environment rules of `AGENTS.md`: `Production` and `Preview` share a credential, or a check that calls an outside service does not use `workbench`.
+- It lets one organization read or change the data of another organization, or it skips an auth check.
+- It trusts data that a less trusted writer can make (PR code, a fork, an artifact found by name, a model answer) for a decision that needs trust.
+- It sends a secret, a customer identifier, or private data to a public artifact, a log, a PR comment, or an outside provider (_Customer privacy_ in `AGENTS.md`).
+- It runs new code at install, at check listing, or at check discovery.
+
+For each finding, give the writer who can do it, the effect, and the fix. A guardrail bypass inside a sandbox is not a finding: the sandbox is the security boundary. A change that keeps the same trust is not a finding.
+
 **Simplicity critic.** Apply each rule of [`.agents/skills/simplicity-audit/REVIEW-BRIEF.md`](../simplicity-audit/REVIEW-BRIEF.md) to the diff, and report in the shape of that brief. Spec-match is not a defense.
 
 ## Without the factory
@@ -73,8 +84,8 @@ Use this procedure only when `factory` is not installed (for example, for a cont
 1. Get the fixed point from the user. If the user gave none, ask for it. Make sure that `git rev-parse <fixed-point>` resolves and that `git diff <fixed-point>...HEAD` is not empty. Read the diff and `git log <fixed-point>..HEAD`.
 2. Find the spec: an issue in the commit messages (use `.ai/agents/issue-tracker.md`), a path from the user, or a Linear issue or document for the branch. If you find none, ask the user. If there is none, skip Spec.
 3. Review the diff on one axis at a time, in this order: Standards, Spec, Simplicity. Use the rules of that critic above. Write the findings of an axis before you start the next axis.
-4. Review Security as `AGENTS.md` says, when the diff touches a trust surface.
-5. Give the findings under `## Standards`, `## Spec` and `## Simplicity`. Do not merge or rerank them. If you skipped Spec, say so. End with one line: the count of findings and the worst finding of each axis.
+4. When the diff touches a trust surface (the `triggers` of `critics.json`), review Security with the rules of the Security critic above.
+5. Give the findings under `## Standards`, `## Spec`, `## Simplicity` and, when step 4 ran, `## Security`. Do not merge or rerank them. If you skipped Spec or Security, say so. End with one line: the count of findings and the worst finding of each axis.
 
 ## Why separate axes
 
