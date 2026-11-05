@@ -205,7 +205,6 @@ export function withStoreHits(selection, store) {
 // and policy check as a step, on each run. Every Storybook check runs in the
 // Storybook plays shards. A check that ci.yaml does not run is `external`:
 // another workflow runs it, and its own status reports the result.
-const terraformPlanCheck = "policy:terraform-plan:infra/main.tf"
 const external = {
   deploy: "PR Deploy (pr-deploy.yaml, started by the merge gate)",
   eval: "MCP evals (mcp-evals.yaml, starts with the label mcp-evals)",
@@ -377,6 +376,6 @@ export function plan({ config, inputs, needs, store, fork }) {
     outputs,
     shards: gate ? packing(ran, seconds) : {},
     deploy: gate && !fork && ran.some((id) => id.startsWith("deploy:")),
-    terraformPlan: gate && !fork && ran.includes(terraformPlanCheck),
+    terraformPlan: gate && !fork && ran.includes("policy:terraform-plan:infra/main.tf"),
   }
 }
