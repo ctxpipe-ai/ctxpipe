@@ -219,10 +219,13 @@ const start = (names, options = {}) =>
   run(
     "start-terraform-plan",
     setup({
-      api: { [`repos/${repo}/pulls/7/files`]: files(...names) },
+      api: {
+        [`repos/${repo}/pulls/7/files`]: files(...names),
+        [`repos/${repo}/branches/feature`]: {},
+      },
       ...options,
     }),
-    { REPO: repo, PR: "7" },
+    { REPO: repo, PR: "7", BRANCH: "feature" },
   )
 
 test("the plan is called for a change under infra/, whatever else changes", () => {
@@ -244,9 +247,10 @@ test("the plan is called when a file moves out of infra/", () => {
         [`repos/${repo}/pulls/7/files`]: [
           { filename: "modules/a.tf", previous_filename: "infra/a.tf" },
         ],
+        [`repos/${repo}/branches/feature`]: {},
       },
     }),
-    { REPO: repo, PR: "7" },
+    { REPO: repo, PR: "7", BRANCH: "feature" },
   )
   assert.equal(result.status, 0)
   assert.equal(result.outputs.at(-1), "plan=true")
@@ -270,6 +274,23 @@ test("the plan is not called for a closed PR", () => {
   assert.equal(result.status, 0)
   assert.match(result.stdout, /PR is closed/)
   assert.deepEqual(result.outputs, ["plan=false"])
+})
+
+test("the plan is not called when the branch is gone, and the step fails on another error", () => {
+  const gone = start(["infra/main.tf"], {
+    errors: { [`repos/${repo}/branches/feature`]: "gh: Not Found (HTTP 404)" },
+  })
+  assert.equal(gone.status, 0)
+  assert.match(gone.stdout, /closed or its branch is gone/)
+  assert.deepEqual(gone.outputs, ["plan=false"])
+  const broken = start(["infra/main.tf"], {
+    errors: {
+      [`repos/${repo}/branches/feature`]: "gh: Server Error (HTTP 500)",
+    },
+  })
+  assert.equal(broken.status, 1)
+  assert.match(broken.stderr, /HTTP 500/)
+  assert.deepEqual(broken.outputs, ["plan=false"])
 })
 
 const remind = ({ names, labels }) => {

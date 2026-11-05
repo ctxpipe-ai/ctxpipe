@@ -1819,6 +1819,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
+      contents: read
       pull-requests: read
     outputs:
       plan: ${{ steps.changes.outputs.plan }}
@@ -1828,6 +1829,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          BRANCH: ${{ github.head_ref }}
           PR: ${{ github.event.pull_request.number }}
         run: |
           echo "plan=false" >> "$GITHUB_OUTPUT"
@@ -1838,11 +1840,22 @@ jobs:
             echo "::notice::The PR changes no file under infra/; no Terraform plan"
             exit 0
           fi
-          # The PR can merge while the gate goes on.
+          # The PR can merge and lose its branch while the gate goes on.
+          # Skip only on a definite answer; any other failure fails the step.
           state=$(gh pr view "$PR" --repo "$REPO" --json state --jq .state)
           if [ "$state" != "OPEN" ]; then
-            echo "::notice::PR is closed; no Terraform plan"
+            echo "::notice::PR is closed or its branch is gone; no Terraform plan"
             exit 0
+          fi
+          if ! out=$(gh api "repos/$REPO/branches/$BRANCH" --silent 2>&1); then
+            case "$out" in
+              *"HTTP 404"*)
+                echo "::notice::PR is closed or its branch is gone; no Terraform plan"
+                exit 0
+                ;;
+            esac
+            echo "$out" >&2
+            exit 1
           fi
           echo "plan=true" >> "$GITHUB_OUTPUT"
 
