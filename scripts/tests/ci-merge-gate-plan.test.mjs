@@ -168,9 +168,9 @@ test("a failed LLM job, an invalid LLM record or a provider fallback keeps the d
     [
       {
         "llm-selection.json": "",
-        "llm-cause.txt": "the selector did not finish in 75 seconds",
+        "llm-cause.txt": "the selector did not finish in 105 seconds",
       },
-      "the selector did not finish in 75 seconds",
+      "the selector did not finish in 105 seconds",
     ],
     [
       { "llm-selection.json": { ...llmRecord(), selected: "all" } },
