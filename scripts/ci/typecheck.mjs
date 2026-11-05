@@ -58,6 +58,10 @@ try {
       // The real path: Bun prints a path relative to its real working
       // directory, and a symlinked directory would give a ../ path.
       cwd: realpathSync(dirname(configPath)),
+      // In GitHub Actions, Bun also prints a `::error` annotation line for
+      // each error. This script parses the plain lines and prints the
+      // annotations itself, through the CI problem matcher.
+      env: { ...process.env, GITHUB_ACTIONS: undefined },
       encoding: "utf8",
       maxBuffer: 1 << 28,
     },

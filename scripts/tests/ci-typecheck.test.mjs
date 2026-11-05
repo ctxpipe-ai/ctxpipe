@@ -54,6 +54,25 @@ test("a known diagnostic cannot hide a new error outside the workspace paths", (
     const known = check()
     assert.equal(known.status, 0, known.stdout + known.stderr)
     assert.match(known.stdout, /ACKNOWLEDGED.*1/)
+    // In GitHub Actions, Bun adds `::error` annotation lines to its output.
+    const actions = spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL("../ci/typecheck.mjs", import.meta.url)),
+        join(directory, "tsconfig.json"),
+        join(directory, "baseline.json"),
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          PATH: process.env.PATH,
+          HOME: process.env.HOME,
+          GITHUB_ACTIONS: "true",
+          GITHUB_WORKSPACE: directory,
+        },
+      },
+    )
+    assert.equal(actions.status, 0, actions.stdout + actions.stderr)
 
     writeFileSync(
       join(directory, "src/elsewhere.ts"),
