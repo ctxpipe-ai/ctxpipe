@@ -138,7 +138,7 @@ To rotate the `ctxpipe_app` password, change `keepers.rotation` of `random_passw
 
 ## PR Terraform plans (GitHub Actions)
 
-The workflow [.github/workflows/terraform-plan-pr.yaml](../.github/workflows/terraform-plan-pr.yaml) runs `terraform plan` on infra changes. It gets no app secret and no Railway or Neon token: it runs `terraform plan -refresh=false` against the state, so it needs only the R2 keys. Give the `terraform-plan` environment a read-only R2 token. Before it can run:
+The workflow [.github/workflows/terraform-plan-pr.yaml](../.github/workflows/terraform-plan-pr.yaml) runs `terraform plan` when the merge gate of CI selects the Terraform plan check (a change under `infra/`). The gate starts it on the PR branch; you can also start it with **Run workflow**. It gets no app secret and no Railway or Neon token: it runs `terraform plan -refresh=false` against the state, so it needs only the R2 keys. Give the `terraform-plan` environment a read-only R2 token. Before it can run:
 
 1. Create a GitHub **Environment** named `terraform-plan` (Settings → Environments).
 2. Add **required reviewers** (and optional wait timers) so the job only runs after infra approval. That limits unreviewed HCL that runs with the state and the provider tokens on in-repo branches.

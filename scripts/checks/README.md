@@ -74,22 +74,25 @@ The `deploy` checks are the PR preview of `pr-deploy.yaml` (Railway and Neon) an
 
 ## Other pull request workflows
 
-Some checks also run in a workflow other than `ci.yaml`. These workflows keep their own triggers. In gate mode the merge gate lists a selected check of such a workflow as `in other workflows`: the status of that workflow is its result, and it is not part of the gated verdict. Each job maps to a check as follows:
+A workflow other than `ci.yaml` does not start on its own for a pull request, unless it has no check to select. The merge gate starts it, or runs its checks in `ci.yaml`. In gate mode the merge gate lists a selected check that runs in another workflow as `in other workflows`: the status of that workflow is its result, and it is not part of the gated verdict.
 
-| Workflow | Job | Check |
-| --- | --- | --- |
-| `cli-test.yaml` | `ctxpipe-cli` | the `vitest:cli` lane |
-| `claude-plugin-test.yaml` | `backend` | its files in the `vitest:backend` lane |
-| `claude-plugin-test.yaml` | `ui` | the `vitest:ui` lane |
-| `mcp-evals.yaml` | `evals` | the `eval:mcp` cases |
-| `terraform-plan-pr.yaml` | `terraform-plan` | `policy:terraform-plan:infra/main.tf` |
-| `ingestion-v2-proof.yaml` | `proof` | none |
-| `mcp-evals-reminder.yaml` | `remind` | none |
+| Workflow | Trigger on a pull request | Check | How it runs |
+| --- | --- | --- | --- |
+| `cli-test.yaml` (removed) | none | the `vitest:cli` lane | The Tests job group of `ci.yaml` (UI, CLI and CDK tests) runs it when the plan selects it. |
+| `claude-plugin-test.yaml` (removed) | none | its backend files in the `vitest:backend` lane, and the `vitest:ui` lane | The backend shards and the UI, CLI and CDK tests job of `ci.yaml` run them when the plan selects them. |
+| `terraform-plan-pr.yaml` | none; the merge gate starts it with `workflow_dispatch` | `policy:terraform-plan:infra/main.tf` | The job `merge-gate-terraform-plan` of `ci.yaml` starts it on the PR branch when the plan selects the check. |
+| `mcp-evals.yaml` | the label `mcp-evals` (kept on purpose) | the `eval:mcp` cases | A person adds the label. Each run calls paid models. The merge gate comment tells the author when the selection holds an eval case. |
+| `mcp-evals-reminder.yaml` (removed) | none | none | The merge gate comment replaces it. |
+| `changeset-guard.yaml` | every pull request (kept on purpose) | none | It reads the diff against the base branch, not an input of a check. A changeset that a PR lacks cannot show in a selection. |
+| `pr-deploy.yaml` | a push (gate mode: it stops, and the merge gate starts it) | the `deploy` checks | See Preview deployment. |
+| `observability.yaml` | `ops/observability/**` and the Railway scripts (not yet in the manifest) | none | Its jobs are not checks yet. A path filter still decides. |
+| `ingestion-v2-proof.yaml` | none (a push to `proof/ingestion-v2-*`, or by hand) | none | Only the CTO starts it by hand. |
 
-- The `claude-plugin` check runs as a step of the Lint and format job of `ci.yaml`. It needs the network: `npx` downloads the pinned Claude Code. `claude-plugin-test.yaml` has no job for it.
+- The `claude-plugin` check runs as a step of the Lint and format job of `ci.yaml`. It needs the network: `npx` downloads the pinned Claude Code.
 - The Terraform plan has `cacheable: false`: its result comes from the remote Terraform state, so a result cache never reuses it. Its inputs are `infra/**`, so a selector selects it when a Terraform file changes. It has the `terraform-plan` prerequisite: the Terraform CLI and the state keys (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`) of the `terraform-plan` environment. The check does not write the PR comment; the workflow does. The `ci.yaml` Terraform job, which runs on each pull request, validates the code.
+- The job `merge-gate-terraform-plan` starts the plan only for a same-repository PR. A run that is not gated (a full run, or a failed plan job) has no selection: the job then starts the plan only when the PR changes a file under `infra/`. The workflow checks that it runs from the PR branch and that the branch head is the head of the run; a stale run stops. A person can start it with **Run workflow** from the PR branch, with the PR number as input.
+- Changeset Guard stays on every pull request on purpose. A missing changeset is a property of the whole diff against `main`, and it is cheap. No check input describes it, so the selector cannot decide when it matters.
 - The ingestion proof has no check. It needs a Compose `deploy` stack, a Workspace repository and the repository list from the workbench secrets, and the script `scripts/ci/ingestion-v2-proof.sh` reads them from the workflow. Listing it needs a runner that starts that stack, which is more than a command. Only the CTO starts it by hand, and it spends model money on real repositories.
-- The reminder has no check. It only writes a PR comment.
 
 ## Intent
 

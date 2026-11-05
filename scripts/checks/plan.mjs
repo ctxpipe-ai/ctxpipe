@@ -205,10 +205,12 @@ export function withStoreHits(selection, store) {
 // and policy check as a step, on each run. Every Storybook check runs in the
 // Storybook plays shards. A check that ci.yaml does not run is `external`:
 // another workflow runs it, and its own status reports the result.
+const terraformPlanCheck = "policy:terraform-plan:infra/main.tf"
 const external = {
   deploy: "PR Deploy (pr-deploy.yaml, started by the merge gate)",
-  eval: "MCP evals (mcp-evals.yaml)",
-  "policy:terraform-plan": "Terraform plan (terraform-plan-pr.yaml)",
+  eval: "MCP evals (mcp-evals.yaml, starts with the label mcp-evals)",
+  "policy:terraform-plan":
+    "Terraform plan (terraform-plan-pr.yaml, started by the merge gate)",
 }
 export function placeOf(id) {
   const [family, lane] = id.split(":")
@@ -313,6 +315,8 @@ export function fallbackOf({ mode, selection, inputs, needs }) {
 // gate mode and the selector gave a selection; else the run is full.
 // `deploy` is true when the merge gate starts PR Deploy: in gate mode,
 // PR Deploy runs on a push only when the merge gate starts it.
+// `terraformPlan` is true when the plan selects the Terraform plan check: the
+// merge gate then starts terraform-plan-pr.yaml.
 export function plan({ config, inputs, needs, store, fork }) {
   const mode = readJson(join(inputs, "mode.json"))
   const select = readJson(join(inputs, "selection.json"))
@@ -326,6 +330,7 @@ export function plan({ config, inputs, needs, store, fork }) {
       reason: fallback,
       outputs: {},
       deploy: gate && !fork,
+      terraformPlan: false,
     }
   let selection = combine(
     select,
@@ -372,5 +377,6 @@ export function plan({ config, inputs, needs, store, fork }) {
     outputs,
     shards: gate ? packing(ran, seconds) : {},
     deploy: gate && !fork && ran.some((id) => id.startsWith("deploy:")),
+    terraformPlan: gate && !fork && ran.includes(terraformPlanCheck),
   }
 }

@@ -113,4 +113,4 @@ pnpm --filter ctxpipe build
 pnpm --filter ctxpipe test
 ```
 
-CI runs `pnpm --filter ctxpipe test` on every PR ([`.github/workflows/cli-test.yaml`](../../.github/workflows/cli-test.yaml)).
+The merge gate in [`ci.yaml`](../../.github/workflows/ci.yaml) runs the CLI tests on a PR when its selection reaches them.

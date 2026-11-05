@@ -43,7 +43,7 @@ import {
 //                 --store <file> --fork <true|false> --out <dir>
 //                 [--github-output <file>]
 //     The plan of a PR run (plan.mjs): writes plan.json to <dir>, and the
-//     outputs of the plan job (`mode`, `config`, `deploy`, and the checks of
+//     outputs of the plan job (`mode`, `config`, `deploy`, `terraform-plan`, and the checks of
 //     each job that runs them) to <file>. <inputs> holds the artifacts of the
 //     manifest, select and LLM jobs, <store> the PR store.
 //
@@ -918,6 +918,13 @@ export function gateText(
       "",
       `**Shards:** ${shards.map(([job, item]) => `${code(job)} ${item.shards} of ${item.fullShards} (about ${item.minutes} min of tests, longest shard ${item.longestMinutes} min)`).join("; ")}.`,
     )
+  // The evals call paid models, so only the label starts them
+  // (mcp-evals.yaml). This line tells the author.
+  if (decision.external.some((item) => item.id.startsWith("eval:")))
+    lines.push(
+      "",
+      "**MCP evals:** the selection holds MCP eval cases. They call paid models, so they start only when this pull request has the label `mcp-evals`. Add the label before you merge.",
+    )
   const llm = s.llm
   if (llm)
     lines.push(
@@ -1207,6 +1214,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
         mode: planned.mode,
         config: planned.config,
         deploy: String(planned.deploy),
+        "terraform-plan": String(planned.terraformPlan),
         ...planned.outputs,
       }
       if (options["github-output"])

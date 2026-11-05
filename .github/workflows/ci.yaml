@@ -1593,6 +1593,7 @@ jobs:
     outputs:
       mode: ${{ steps.plan.outputs.mode }}
       deploy: ${{ steps.plan.outputs.deploy }}
+      terraform-plan: ${{ steps.plan.outputs.terraform-plan }}
       typecheck: ${{ steps.plan.outputs.typecheck }}
       test-shards: ${{ steps.plan.outputs.test-shards }}
       package-tests: ${{ steps.plan.outputs.package-tests }}
@@ -1684,6 +1685,41 @@ jobs:
             exit 1
           fi
           gh workflow run pr-deploy.yaml --repo "$REPO" --ref "$BRANCH" -f pr_number="$PR"
+
+  # Starts terraform-plan-pr.yaml on the PR branch when the plan selects the
+  # Terraform plan check. A run that is not gated (a full run, or a failed
+  # plan job) has no selection, so the job starts the plan only when the PR
+  # changes a file under infra/. It runs no repository code.
+  merge-gate-terraform-plan:
+    timeout-minutes: 5
+    name: Merge gate starts the Terraform plan
+    needs: merge-gate-plan
+    if: |
+      !cancelled() &&
+      (needs.merge-gate-plan.outputs.terraform-plan == 'true' ||
+      needs.merge-gate-plan.outputs.mode != 'gate') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    permissions:
+      actions: write
+      pull-requests: read
+    steps:
+      - name: Start the Terraform plan on the PR branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.head_ref }}
+          PR: ${{ github.event.pull_request.number }}
+          SELECTED: ${{ needs.merge-gate-plan.outputs.terraform-plan }}
+        run: |
+          if [ "$SELECTED" != true ]; then
+            files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename')
+            if ! grep -q '^infra/' <<<"$files"; then
+              echo "::notice::The PR changes no file under infra/; no Terraform plan"
+              exit 0
+            fi
+          fi
+          gh workflow run terraform-plan-pr.yaml --repo "$REPO" --ref "$BRANCH" -f pr_number="$PR"
 
   # Publishes the decision of each PR run: the job summary, the artifact
   # merge-gate-decision, and one PR comment that it updates. In gate mode

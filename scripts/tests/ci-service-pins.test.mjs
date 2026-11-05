@@ -20,7 +20,6 @@ test("every Postgres image in compose and the workflows is the pinned one", () =
     "docker-compose.yml",
     ".github/workflows/ci.yaml",
     ".github/workflows/mcp-evals.yaml",
-    ".github/workflows/claude-plugin-test.yaml",
   ]) {
     const images = [...read(file).matchAll(/image: (pgvector\/pgvector\S*)/g)]
     assert.ok(images.length > 0, `${file} has no pgvector image`)
