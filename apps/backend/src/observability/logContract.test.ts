@@ -132,6 +132,9 @@ describe("span and db helpers kept for other lanes", () => {
     expect(
       redactSecretPath("/.auth/api/v1/public/invitations/inv_secret"),
     ).toBe("/.auth/api/v1/public/invitations/{invitation}")
+    expect(
+      redactSecretPath("/api/v1/sandbox-egress/SEALED/api/v1/x/tool-bridge"),
+    ).toBe("/api/v1/sandbox-egress/{scope}/api/v1/x/tool-bridge")
   })
 
   it("drops Drizzle params from the span exception", () => {
@@ -163,6 +166,7 @@ describe("evlog redact and OTLP drain", () => {
     const token = "RESETTOKEN1790327887"
     const querySecret = "QUERYSECRET1790327887"
     const invitationId = "INVITESECRET1790327887"
+    const sealedScope = "SEALEDSCOPE1790327887"
     const bodies: unknown[] = []
     const seenHeaders: Array<string | null> = []
     const server = setupServer(
@@ -204,6 +208,7 @@ describe("evlog redact and OTLP drain", () => {
           email: "ada@example.com",
           user: { id: "user_1", email: "ada@example.com", name: "Ada" },
           invite: `https://backend.example/.auth/api/v1/public/invitations/${invitationId}`,
+          egress: `/api/v1/sandbox-egress/${sealedScope}/api/v1/workspace-ingest/tool-bridge`,
         })
         c.get("log").error(drizzleDuplicateKeyError())
         return c.json({ ok: false }, 400)
@@ -228,6 +233,7 @@ describe("evlog redact and OTLP drain", () => {
         token,
         querySecret,
         invitationId,
+        sealedScope,
         "PARAMSECRET",
         "DETAILSECRET",
         "WHERESECRET",

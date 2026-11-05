@@ -223,6 +223,7 @@ describe("backendOtelMiddleware", () => {
     app.get("/.auth/api/v1/public/invitations/:invitationId", (c) =>
       c.json({ ok: true }),
     )
+    app.all("/api/v1/sandbox-egress/*", (c) => c.json({ ok: true }))
 
     const token = "RVPATHPROBE1790327887NOTASECRET"
     const invitationId = "inv_secret_capability"
@@ -231,6 +232,11 @@ describe("backendOtelMiddleware", () => {
     )
     await app.request(
       `http://backend.test/.auth/api/v1/public/invitations/${invitationId}`,
+    )
+    const sealedScope = "SEALEDSCOPE1790327887"
+    await app.request(
+      `http://backend.test/api/v1/sandbox-egress/${sealedScope}/api/v1/workspace-ingest/tool-bridge`,
+      { method: "POST" },
     )
 
     const spans = serverSpans()
@@ -246,6 +252,11 @@ describe("backendOtelMiddleware", () => {
     expect(invitation?.attributes["url.path"]).toBe(
       "/.auth/api/v1/public/invitations/{invitation}",
     )
+    expect(
+      spans.find((span) =>
+        String(span.attributes["url.path"]).includes("sandbox-egress"),
+      )?.attributes["url.path"],
+    ).toBe("/api/v1/sandbox-egress/{scope}/api/v1/workspace-ingest/tool-bridge")
     const serialized = JSON.stringify(
       spans.map((span) => ({
         name: span.name,
@@ -254,6 +265,7 @@ describe("backendOtelMiddleware", () => {
     )
     expect(serialized).not.toContain(token)
     expect(serialized).not.toContain(invitationId)
+    expect(serialized).not.toContain(sealedScope)
   })
 
   it("names mcp and the registered otel relay from the route", async () => {

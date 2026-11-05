@@ -7,6 +7,8 @@
  * - `reset-password/:token` — credential (email link).
  * - `/.auth/api/v1/public/invitations/:invitationId` — unauthenticated
  *   capability; the id returns the invitee's email.
+ * - `/api/v1/sandbox-egress/:sealed/…` — the sealed scope of an ingest
+ *   sandbox.
  * - verify-email, magic link, device/OAuth/MCP — token is a query param or
  *   body, not a path segment. Magic link is not enabled.
  * - `/callback/:id` is the provider name. OAuth client ids are public.
@@ -24,6 +26,12 @@ const SECRET_PATH_RULES: { pattern: RegExp; replacement: string }[] = [
   {
     pattern: /\/public\/invitations\/[^/?#]+/g,
     replacement: "/public/invitations/{invitation}",
+  },
+  // The sealed ingest egress scope (about 1.5 KB). It is a capability for
+  // one sandbox, and in the path it makes each request a new path (CTX-1143).
+  {
+    pattern: /\/sandbox-egress\/[^/?#]+/g,
+    replacement: "/sandbox-egress/{scope}",
   },
 ]
 
