@@ -4,8 +4,8 @@
 # branch name or an input stays data. The workflow file comes from the PR
 # branch, so this script is a sanity check, not a security boundary.
 #
-# Environment: GH_TOKEN, REPO, INPUT_PR_NUMBER, BRANCH, REF, RUN_SHA,
-# GITHUB_OUTPUT.
+# Environment: GH_TOKEN, REPO, INPUT_PR_NUMBER, BRANCH (the PR branch), REF,
+# RUN_SHA (the head of the PR when the run started), GITHUB_OUTPUT.
 # Outputs: base_sha, merge_sha (the merge commit that the plan checks out) and
 # current (false when the PR head moved on after the run started).
 set -euo pipefail
@@ -21,8 +21,11 @@ if [[ "$(jq -r .head.repo.full_name <<<"$PR_JSON")" != "$REPO" ]]; then
   echo "::error::Refusing to plan fork PR #${INPUT_PR_NUMBER}"
   exit 1
 fi
-if [[ "$(jq -r .head.ref <<<"$PR_JSON")" != "$BRANCH" || "$REF" != "refs/heads/${BRANCH}" ]]; then
-  echo "::error::Run this workflow from the branch of PR #${INPUT_PR_NUMBER}, not from ${BRANCH}."
+# A run by hand is on the PR branch. A call from the merge gate is on the merge
+# ref of this PR.
+if [[ "$(jq -r .head.ref <<<"$PR_JSON")" != "$BRANCH" ||
+  ( "$REF" != "refs/heads/${BRANCH}" && "$REF" != "refs/pull/${INPUT_PR_NUMBER}/merge" ) ]]; then
+  echo "::error::Run this workflow from the branch of PR #${INPUT_PR_NUMBER}, not from ${REF}."
   exit 1
 fi
 # The plan covers the merge of the PR into its base, as the pull_request

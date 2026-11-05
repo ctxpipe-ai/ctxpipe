@@ -1,8 +1,10 @@
 # Terraform speculative plans on infra PRs.
 #
-# The merge gate of ci.yaml starts this workflow on the PR branch when the PR
-# changes a file under infra/ (job merge-gate-terraform-plan), in every mode
-# of the gate. A person can start it with Run workflow from the PR branch.
+# The merge gate of ci.yaml calls this workflow (job merge-gate-terraform-plan)
+# when the PR changes a file under infra/, in every mode of the gate. A call
+# keeps the PR author as the actor, so the environment setting "Prevent
+# self-review" works. A person can start it with Run workflow from the PR
+# branch (for a stacked PR, which does not run ci.yaml).
 #
 # Security: terraform plan executes provider/external code with secrets present. Assign this job to a
 # GitHub Environment named below and enable required reviewers under repo Settings → Environments
@@ -10,6 +12,12 @@
 name: Terraform Infra Plan (PR)
 
 on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: "PR number to plan (e.g. 255)"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       pr_number:
@@ -45,9 +53,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           INPUT_PR_NUMBER: ${{ inputs.pr_number }}
-          BRANCH: ${{ github.ref_name }}
+          # A call from a pull_request run has the head branch in head_ref and
+          # the merge ref in ref. A run by hand has the branch in ref_name.
+          BRANCH: ${{ github.head_ref || github.ref_name }}
           REF: ${{ github.ref }}
-          RUN_SHA: ${{ github.sha }}
+          RUN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bash scripts/ci/resolve-terraform-plan-pr.sh
       # The merge commit has the head of this run as a parent (the script
       # checks it). This job holds no secret, so it can check out that commit.

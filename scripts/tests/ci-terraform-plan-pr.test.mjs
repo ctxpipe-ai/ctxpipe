@@ -28,14 +28,9 @@ const head = "a".repeat(40)
 // `gh api <path> [--paginate|--silent] [--jq <expr>]` prints the file of that
 // path (slashes become underscores), through jq when --jq is given, or fails
 // with the text in `<name>.error`. `gh pr view` prints the state file.
-// `gh workflow run` appends its arguments to calls.log.
 const fakeGh = `#!/usr/bin/env bash
 set -euo pipefail
 dir="$FAKE_GH_DIR"
-if [ "$1" = workflow ]; then
-  echo "$*" >> "$dir/calls.log"
-  exit 0
-fi
 if [ "$1" = pr ]; then
   cat "$dir/pr-state"
   exit 0
@@ -68,13 +63,14 @@ const setup = ({ api = {}, errors = {}, state = "OPEN" } = {}) => {
   return dir
 }
 
-// The shell of the step that starts the plan, as ci.yaml holds it.
+// The shell of the step that looks for a change under infra/, as ci.yaml holds
+// it.
 const startStep = () => {
   const workflow = parseYaml(
     readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
   )
-  const step = workflow.jobs["merge-gate-terraform-plan"].steps.find(
-    ({ name }) => name === "Start the Terraform plan on the PR branch",
+  const step = workflow.jobs["merge-gate-terraform-changes"].steps.find(
+    ({ name }) => name === "Look for a change under infra/",
   )
   return step.run
 }
@@ -95,15 +91,11 @@ const run = (script, dir, env, args = []) => {
       ...env,
     },
   })
-  const calls = join(dir, "calls.log")
   return {
     status: result.status,
     stdout: result.stdout,
     stderr: result.stderr,
     outputs: readFileSync(output, "utf8").trim().split("\n").filter(Boolean),
-    calls: existsSync(calls)
-      ? readFileSync(calls, "utf8").trim().split("\n")
-      : [],
   }
 }
 
@@ -168,12 +160,20 @@ test("resolve refuses a run from another ref than the PR branch", () => {
     { BRANCH: "main", REF: "refs/heads/main" },
     { REF: "refs/tags/feature" },
     { BRANCH: "feature", REF: "refs/heads/other" },
+    { REF: "refs/pull/8/merge" },
+    { REF: "refs/pull/7/head" },
   ]) {
     const result = resolve(pull(), env)
     assert.equal(result.status, 1, JSON.stringify(env))
     assert.match(result.stdout, /Run this workflow from the branch of PR #7/)
     assert.deepEqual(result.outputs, [])
   }
+})
+
+test("resolve accepts a call from the merge ref of the PR", () => {
+  const result = resolve(pull(), { REF: "refs/pull/7/merge" })
+  assert.equal(result.status, 0)
+  assert.ok(result.outputs.includes("current=true"))
 })
 
 test("resolve outputs the merge commit and the base for the current head", () => {
@@ -219,47 +219,40 @@ const start = (names, options = {}) =>
   run(
     "start-terraform-plan",
     setup({
-      api: {
-        [`repos/${repo}/pulls/7/files`]: files(...names),
-        [`repos/${repo}/branches/feature`]: {},
-      },
+      api: { [`repos/${repo}/pulls/7/files`]: files(...names) },
       ...options,
     }),
-    { REPO: repo, BRANCH: "feature", PR: "7" },
+    { REPO: repo, PR: "7" },
   )
 
-test("the plan starts for a change under infra/, whatever else changes", () => {
+test("the plan is called for a change under infra/, whatever else changes", () => {
   for (const names of [
     ["infra/main.tf"],
     ["pnpm-lock.yaml", "infra/modules/a/main.tf"],
   ]) {
     const result = start(names)
     assert.equal(result.status, 0)
-    assert.deepEqual(result.calls, [
-      `workflow run terraform-plan-pr.yaml --repo ${repo} --ref feature -f pr_number=7`,
-    ])
+    assert.deepEqual(result.outputs, ["plan=false", "plan=true"])
   }
 })
 
-test("the plan starts when a file moves out of infra/", () => {
-  const dir = setup({
-    api: {
-      [`repos/${repo}/pulls/7/files`]: [
-        { filename: "modules/a.tf", previous_filename: "infra/a.tf" },
-      ],
-      [`repos/${repo}/branches/feature`]: {},
-    },
-  })
-  const result = run("start-terraform-plan", dir, {
-    REPO: repo,
-    BRANCH: "feature",
-    PR: "7",
-  })
+test("the plan is called when a file moves out of infra/", () => {
+  const result = run(
+    "start-terraform-plan",
+    setup({
+      api: {
+        [`repos/${repo}/pulls/7/files`]: [
+          { filename: "modules/a.tf", previous_filename: "infra/a.tf" },
+        ],
+      },
+    }),
+    { REPO: repo, PR: "7" },
+  )
   assert.equal(result.status, 0)
-  assert.equal(result.calls.length, 1)
+  assert.equal(result.outputs.at(-1), "plan=true")
 })
 
-test("the plan does not start for a PR with no change under infra/", () => {
+test("the plan is not called for a PR with no change under infra/", () => {
   for (const names of [
     ["pnpm-lock.yaml"],
     ["package.json", "apps/backend/src/a.ts"],
@@ -268,32 +261,15 @@ test("the plan does not start for a PR with no change under infra/", () => {
     const result = start(names)
     assert.equal(result.status, 0)
     assert.match(result.stdout, /no file under infra\//)
-    assert.deepEqual(result.calls, [])
+    assert.deepEqual(result.outputs, ["plan=false"])
   }
 })
 
-test("the plan does not start for a closed PR", () => {
+test("the plan is not called for a closed PR", () => {
   const result = start(["infra/main.tf"], { state: "MERGED" })
   assert.equal(result.status, 0)
-  assert.match(result.stdout, /closed or its branch is gone/)
-  assert.deepEqual(result.calls, [])
-})
-
-test("the plan does not start when the branch is gone, and fails on another error", () => {
-  const gone = start(["infra/main.tf"], {
-    errors: { [`repos/${repo}/branches/feature`]: "gh: Not Found (HTTP 404)" },
-  })
-  assert.equal(gone.status, 0)
-  assert.match(gone.stdout, /closed or its branch is gone/)
-  assert.deepEqual(gone.calls, [])
-  const broken = start(["infra/main.tf"], {
-    errors: {
-      [`repos/${repo}/branches/feature`]: "gh: Server Error (HTTP 500)",
-    },
-  })
-  assert.equal(broken.status, 1)
-  assert.match(broken.stderr, /HTTP 500/)
-  assert.deepEqual(broken.calls, [])
+  assert.match(result.stdout, /PR is closed/)
+  assert.deepEqual(result.outputs, ["plan=false"])
 })
 
 const remind = ({ names, labels }) => {

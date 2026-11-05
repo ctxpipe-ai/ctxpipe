@@ -1801,33 +1801,36 @@ jobs:
           fi
           gh workflow run pr-deploy.yaml --repo "$REPO" --ref "$BRANCH" -f pr_number="$PR"
 
-  # Starts terraform-plan-pr.yaml on the PR branch when the PR changes a file
-  # under infra/. It does not depend on the selection or the mode: the check
-  # of the plan has the lockfile among its inputs, and a lockfile change must
-  # not ask the reviewers of the terraform-plan environment for approval. A
-  # stacked PR (a base other than main) does not run ci.yaml, so it gets no
-  # plan: a person uses Run workflow. The job runs no repository code.
-  merge-gate-terraform-plan:
+  # Calls terraform-plan-pr.yaml when the PR changes a file under infra/. It
+  # does not depend on the selection or the mode: the check of the plan has
+  # the lockfile among its inputs, and a lockfile change must not ask the
+  # reviewers of the terraform-plan environment for approval. A call keeps the
+  # PR author as the actor, so "Prevent self-review" of the environment works.
+  # Neither job runs on ready_for_review: it adds no new code, and it would ask
+  # the reviewers for one more approval. A stacked PR (a base other than main)
+  # does not run ci.yaml, so it gets no plan: a person uses Run workflow. The
+  # first job runs no repository code.
+  merge-gate-terraform-changes:
     timeout-minutes: 5
-    name: Merge gate starts the Terraform plan
-    # Not on ready_for_review: it adds no new code, and it would ask the
-    # reviewers for one more approval.
+    name: Merge gate looks for Terraform changes
     if: |
       github.event_name == 'pull_request' &&
       github.event.action != 'ready_for_review' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
-      actions: write
       pull-requests: read
+    outputs:
+      plan: ${{ steps.changes.outputs.plan }}
     steps:
-      - name: Start the Terraform plan on the PR branch
+      - name: Look for a change under infra/
+        id: changes
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          BRANCH: ${{ github.head_ref }}
           PR: ${{ github.event.pull_request.number }}
         run: |
+          echo "plan=false" >> "$GITHUB_OUTPUT"
           # A renamed file counts at its old path too.
           files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate \
             --jq '.[] | .filename, (.previous_filename // empty)')
@@ -1835,24 +1838,24 @@ jobs:
             echo "::notice::The PR changes no file under infra/; no Terraform plan"
             exit 0
           fi
-          # The PR can merge and lose its branch while the gate goes on.
-          # Skip only on a definite answer; any other failure fails the step.
+          # The PR can merge while the gate goes on.
           state=$(gh pr view "$PR" --repo "$REPO" --json state --jq .state)
           if [ "$state" != "OPEN" ]; then
-            echo "::notice::PR is closed or its branch is gone; no Terraform plan"
+            echo "::notice::PR is closed; no Terraform plan"
             exit 0
           fi
-          if ! out=$(gh api "repos/$REPO/branches/$BRANCH" --silent 2>&1); then
-            case "$out" in
-              *"HTTP 404"*)
-                echo "::notice::PR is closed or its branch is gone; no Terraform plan"
-                exit 0
-                ;;
-            esac
-            echo "$out" >&2
-            exit 1
-          fi
-          gh workflow run terraform-plan-pr.yaml --repo "$REPO" --ref "$BRANCH" -f pr_number="$PR"
+          echo "plan=true" >> "$GITHUB_OUTPUT"
+
+  merge-gate-terraform-plan:
+    name: Terraform plan
+    needs: merge-gate-terraform-changes
+    if: needs.merge-gate-terraform-changes.outputs.plan == 'true'
+    uses: ./.github/workflows/terraform-plan-pr.yaml
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+    permissions:
+      contents: read
+      pull-requests: write
 
   # Publishes the decision of each PR run: the job summary, the artifact
   # merge-gate-decision, and one PR comment that it updates. In gate mode

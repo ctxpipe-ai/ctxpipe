@@ -727,20 +727,30 @@ test("each job of the plan needs the plan job, starts only with its output, and 
   assert.match(gate, /\n {4}name: Merge gate\n/)
   assert.doesNotMatch(gate, /\n {4}continue-on-error:/)
   assert.match(gate, /\n {4}if: \|\n {6}always\(\) && /)
-  // The Terraform plan workflow has no pull_request trigger: only the merge
-  // gate starts it, for a same-repository PR, whatever the mode or the
-  // selection (the step decides from the files of the PR).
+  // The Terraform plan workflow has no pull_request trigger: the merge gate
+  // calls it as a reusable workflow, so the PR author stays the actor. It
+  // does so for a same-repository PR that changes a file under infra/,
+  // whatever the mode or the selection.
+  const changes = job("merge-gate-terraform-changes")
+  assert.doesNotMatch(changes, /\n {4}needs:/)
+  assert.doesNotMatch(changes, /merge-gate-plan/)
+  assert.ok(changes.includes("head.repo.full_name == github.repository"))
+  assert.ok(changes.includes("github.event.action != 'ready_for_review'"))
+  assert.doesNotMatch(changes, /actions\/checkout/)
   const terraform = job("merge-gate-terraform-plan")
-  assert.doesNotMatch(terraform, /\n {4}needs:/)
+  assert.match(terraform, /\n {4}needs: merge-gate-terraform-changes\n/)
+  assert.ok(terraform.includes("outputs.plan == 'true'"))
+  assert.match(
+    terraform,
+    /\n {4}uses: \.\/\.github\/workflows\/terraform-plan-pr\.yaml\n/,
+  )
   assert.doesNotMatch(terraform, /merge-gate-plan/)
-  assert.ok(terraform.includes("head.repo.full_name == github.repository"))
-  assert.ok(terraform.includes("github.event.action != 'ready_for_review'"))
-  assert.doesNotMatch(terraform, /actions\/checkout/)
   const terraformWorkflow = readFileSync(
     join(root, ".github/workflows/terraform-plan-pr.yaml"),
     "utf8",
   )
   assert.doesNotMatch(terraformWorkflow, /^ {2}pull_request:/m)
+  assert.match(terraformWorkflow, /^ {2}workflow_call:/m)
   assert.match(terraformWorkflow, /^ {2}workflow_dispatch:/m)
   // A failed plan job gives no mode: the run is full, so PR Deploy starts.
   assert.ok(
