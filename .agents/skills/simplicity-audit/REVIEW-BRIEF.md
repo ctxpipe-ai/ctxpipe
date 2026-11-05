@@ -25,7 +25,7 @@ A control-plane piece is a table, queue, phase machine, dual-write, extra file, 
 - **Legacy** — served a past job that no longer applies. Cite the evidence.
 - **Uncertain** — checked what you could; the team must weigh a specific question.
 
-A rule written in AGENTS.md or an ADR is essential, not ceremony. To question it, name the rule and raise it as a nit, not a should-fix.
+A rule written in AGENTS.md or an ADR is evidence of intent. Do not call it ceremony unless you name the rule and say why it fails here; raise that as a nit.
 
 Leftover from a pivot, copied analogue, and “ugly, not a security issue” are findings, not nits — even if tests pass.
 

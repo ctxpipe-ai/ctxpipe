@@ -955,6 +955,12 @@ test("the gate reads each record of a trusted job only by the artifact id that t
       assert.ok(id[1] in writers, `${reader}: ${id[1]}`)
       assert.ok([job.needs].flat().includes(id[1]), `${reader} needs ${id[1]}`)
       assert.equal(step.with["merge-multiple"], true, reader)
+      // An empty id downloads every artifact of the run, so each reader needs the guard.
+      assert.equal(
+        step.if,
+        `needs.${id[1]}.outputs.artifact-id != ''`,
+        `${reader} downloads ${id[1]} without the empty-id guard`,
+      )
     }
   // A failed upload of the critics shows as a failed job, and the critics
   // never fail the full verdict: gate.mjs decides them (criticsFail).
