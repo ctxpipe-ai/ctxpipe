@@ -34,7 +34,7 @@ describe("chunkKnowledgeBody", () => {
   it("starts a chunk at each heading outside a code fence, with its heading path and lines", () => {
     expect(
       chunkKnowledgeBody(
-        "Intro.\n\n# One\nFirst.\n\n```md\n# not a heading\n```\n## Two\nSecond.\n# Three\n",
+        "Intro.\n\n# One\nFirst.\n\n```md\n# not a heading\n```\n## Two\nSecond.\n# Three\nThird.\n",
       ),
     ).toEqual([
       { headingPath: [], text: "Intro.", startLine: 1, endLine: 1 },
@@ -50,8 +50,32 @@ describe("chunkKnowledgeBody", () => {
         startLine: 9,
         endLine: 10,
       },
-      { headingPath: ["Three"], text: "# Three", startLine: 11, endLine: 11 },
+      {
+        headingPath: ["Three"],
+        text: "# Three\nThird.",
+        startLine: 11,
+        endLine: 12,
+      },
     ])
+  })
+
+  it("makes no chunk for a section that holds only its heading line", () => {
+    expect(
+      chunkKnowledgeBody(
+        "# Plan\n\n## Phase 4: tests\n\nRun the evals.\n# End\n",
+      ),
+    ).toEqual([
+      {
+        headingPath: ["Plan", "Phase 4: tests"],
+        text: "## Phase 4: tests\n\nRun the evals.",
+        startLine: 3,
+        endLine: 5,
+      },
+    ])
+  })
+
+  it("keeps the headings when the body has no other text", () => {
+    expect(texts("# Only\n\n## Sub\n")).toEqual(["# Only", "## Sub"])
   })
 
   it("drops empty sections and returns nothing for a blank body", () => {

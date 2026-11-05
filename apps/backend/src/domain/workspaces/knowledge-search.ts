@@ -289,11 +289,27 @@ async function runSearch(
         SELECT DISTINCT ON (workspace_id, unit_id) *
         FROM fused
         ORDER BY workspace_id, unit_id, score DESC, occurrence, chunk_hash
+      ),
+      -- The Linear mirror writes one item under each team and project root
+      -- that selects it, and older Workspaces keep the retired flat layout.
+      -- The file name ends with the Linear id, so it keys the item. Keep the
+      -- copy in the current layout (it has a kind), then the best score.
+      item AS (
+        SELECT DISTINCT ON (b.workspace_id, item_key) b.*
+        FROM (
+          SELECT b.*, u.kind, u.path,
+            CASE WHEN starts_with(u.path, 'linear/')
+              THEN substring(u.path from '[^/]+$') ELSE u.serving_id END AS item_key
+          FROM best AS b
+          JOIN workspace_knowledge_units AS u
+            ON u.workspace_id = b.workspace_id AND u.serving_id = b.unit_id
+        ) AS b
+        ORDER BY b.workspace_id, item_key, (b.kind IS NULL), b.score DESC, b.path
       )
       SELECT b.workspace_id, b.unit_id, u.path, u.kind, u.title,
         coalesce(u.source, 'authored') AS source, u.updated_at, u.projection_sha,
         c.start_line, c.end_line, c.text, coalesce(u.claims, '[]'::jsonb) AS claims, b.score
-      FROM best AS b
+      FROM item AS b
       JOIN workspace_knowledge_chunks AS c
         ON c.workspace_id = b.workspace_id AND c.unit_id = b.unit_id
         AND c.chunk_hash = b.chunk_hash AND c.occurrence = b.occurrence

@@ -16,6 +16,7 @@ import {
 } from "vitest"
 
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
+import { recordSpans } from "../../../test/spans.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -30,6 +31,7 @@ import {
 import { searchKnowledgeTool } from "./search-knowledge.js"
 
 const modelServer = embeddingModelServer()
+const spans = recordSpans()
 const sha = "a".repeat(40)
 let seed: SeededOrg
 let client: Client
@@ -150,6 +152,27 @@ describe("search_knowledge through the MCP client", () => {
           served: { branch: "main", sha },
         },
       ],
+    })
+  })
+  it("puts the result count and the argument names on the tool span, and no query text", async () => {
+    await call({ query: "gateway downtime", workspaces: ["handbook"] })
+    const found = spans.attributes(spans.spanNamed("mcp.tool search_knowledge"))
+    expect(found).toMatchObject({
+      "ctxpipe.mcp.args": "limit,query,workspaces",
+      "ctxpipe.mcp.query.length": 16,
+      "ctxpipe.mcp.result.count": 1,
+      "ctxpipe.mcp.result.empty": false,
+      "ctxpipe.mcp.result.top_score": expect.any(Number),
+    })
+    expect(JSON.stringify(found)).not.toContain("gateway")
+
+    await call({ query: "zzzqqq", workspaces: ["handbook"], kinds: ["Nope"] })
+    expect(
+      spans.attributes(spans.spanNamed("mcp.tool search_knowledge")),
+    ).toMatchObject({
+      "ctxpipe.mcp.args": "kinds,limit,query,workspaces",
+      "ctxpipe.mcp.result.count": 0,
+      "ctxpipe.mcp.result.empty": true,
     })
   })
   it("defaults to 8 hits, allows at most 20, and sums up the claims of each hit", async () => {
