@@ -28,9 +28,14 @@ const head = "a".repeat(40)
 // `gh api <path> [--paginate|--silent] [--jq <expr>]` prints the file of that
 // path (slashes become underscores), through jq when --jq is given, or fails
 // with the text in `<name>.error`. `gh pr view` prints the state file.
+// `gh workflow run` appends its arguments to calls.log.
 const fakeGh = `#!/usr/bin/env bash
 set -euo pipefail
 dir="$FAKE_GH_DIR"
+if [ "$1" = workflow ]; then
+  echo "$*" >> "$dir/calls.log"
+  exit 0
+fi
 if [ "$1" = pr ]; then
   cat "$dir/pr-state"
   exit 0
@@ -63,24 +68,28 @@ const setup = ({ api = {}, errors = {}, state = "OPEN" } = {}) => {
   return dir
 }
 
-// The shell of the step that looks for a change under infra/, as ci.yaml holds
-// it.
-const startStep = () => {
+// The shell of a step of ci.yaml, as the workflow holds it.
+const stepShell = (job, stepName) => {
   const workflow = parseYaml(
     readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
   )
-  const step = workflow.jobs["merge-gate-terraform-changes"].steps.find(
-    ({ name }) => name === "Look for a change under infra/",
-  )
-  return step.run
+  return workflow.jobs[job].steps.find(({ name }) => name === stepName).run
+}
+
+const steps = {
+  "start-terraform-plan": [
+    "merge-gate-terraform-changes",
+    "Look for a change under infra/",
+  ],
+  "start-pr-deploy": ["merge-gate-deploy", "Start PR Deploy on the PR branch"],
 }
 
 const run = (script, dir, env, args = []) => {
   const output = join(dir, "github-output")
   writeFileSync(output, "")
   const command =
-    script === "start-terraform-plan"
-      ? ["-c", `set -eo pipefail\n${startStep()}`]
+    script in steps
+      ? ["-c", `set -eo pipefail\n${stepShell(...steps[script])}`]
       : [join(root, "scripts/ci", script), ...args]
   const result = spawnSync("bash", command, {
     encoding: "utf8",
@@ -96,6 +105,9 @@ const run = (script, dir, env, args = []) => {
     stdout: result.stdout,
     stderr: result.stderr,
     outputs: readFileSync(output, "utf8").trim().split("\n").filter(Boolean),
+    calls: existsSync(join(dir, "calls.log"))
+      ? readFileSync(join(dir, "calls.log"), "utf8").trim().split("\n")
+      : [],
   }
 }
 
@@ -291,6 +303,40 @@ test("the plan is not called when the branch is gone, and the step fails on anot
   assert.equal(broken.status, 1)
   assert.match(broken.stderr, /HTTP 500/)
   assert.deepEqual(broken.outputs, ["plan=false"])
+})
+
+test("both dispatch steps look up a branch with a slash by its encoded name", () => {
+  const branch = "jakub/ctx-1-topic"
+  const encoded = `repos/${repo}/branches/jakub%2Fctx-1-topic`
+  const terraform = run(
+    "start-terraform-plan",
+    setup({
+      api: {
+        [`repos/${repo}/pulls/7/files`]: files("infra/main.tf"),
+        [encoded]: {},
+      },
+    }),
+    { REPO: repo, PR: "7", BRANCH: branch },
+  )
+  assert.equal(terraform.status, 0, terraform.stderr)
+  assert.equal(terraform.outputs.at(-1), "plan=true")
+  const deploy = run("start-pr-deploy", setup({ api: { [encoded]: {} } }), {
+    REPO: repo,
+    PR: "7",
+    BRANCH: branch,
+  })
+  assert.equal(deploy.status, 0, deploy.stderr)
+  assert.deepEqual(deploy.calls, [
+    `workflow run pr-deploy.yaml --repo ${repo} --ref ${branch} -f pr_number=7`,
+  ])
+  // A missing branch is a definite 404: no deploy.
+  const gone = run(
+    "start-pr-deploy",
+    setup({ errors: { [encoded]: "gh: Not Found (HTTP 404)" } }),
+    { REPO: repo, PR: "7", BRANCH: branch },
+  )
+  assert.equal(gone.status, 0)
+  assert.deepEqual(gone.calls, [])
 })
 
 const remind = ({ names, labels }) => {

@@ -208,8 +208,8 @@ export function withStoreHits(selection, store) {
 const external = {
   deploy: "PR Deploy (pr-deploy.yaml, started by the merge gate)",
   eval: "MCP evals (mcp-evals.yaml, starts with the label mcp-evals)",
-  // Without this entry the `policy` family maps to the Lint and format job,
-  // which has no step for the check: the gated verdict would miss its result.
+  // The check runs in terraform-plan-pr.yaml; without this entry the policy
+  // family maps it to the lint job, which has no step for it.
   "policy:terraform-plan":
     "Terraform plan (terraform-plan-pr.yaml, started by the merge gate for a change under infra/)",
 }

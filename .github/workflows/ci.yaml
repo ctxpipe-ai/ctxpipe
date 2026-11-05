@@ -1789,7 +1789,9 @@ jobs:
             echo "::notice::PR is closed or its branch is gone; no preview deploy"
             exit 0
           fi
-          if ! out=$(gh api "repos/$REPO/branches/$BRANCH" --silent 2>&1); then
+          # A branch name can hold a slash: encode it for the path.
+          encoded=$(jq -rn --arg branch "$BRANCH" '$branch | @uri')
+          if ! out=$(gh api "repos/$REPO/branches/$encoded" --silent 2>&1); then
             case "$out" in
               *"HTTP 404"*)
                 echo "::notice::PR is closed or its branch is gone; no preview deploy"
@@ -1847,7 +1849,9 @@ jobs:
             echo "::notice::PR is closed or its branch is gone; no Terraform plan"
             exit 0
           fi
-          if ! out=$(gh api "repos/$REPO/branches/$BRANCH" --silent 2>&1); then
+          # A branch name can hold a slash: encode it for the path.
+          encoded=$(jq -rn --arg branch "$BRANCH" '$branch | @uri')
+          if ! out=$(gh api "repos/$REPO/branches/$encoded" --silent 2>&1); then
             case "$out" in
               *"HTTP 404"*)
                 echo "::notice::PR is closed or its branch is gone; no Terraform plan"
