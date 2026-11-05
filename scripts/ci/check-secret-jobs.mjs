@@ -315,6 +315,24 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
   const workflowOidc = workflowPermissions.some(({ text }) =>
     oidcToken.test(text),
   )
+  // Jobs with a secret that download an artifact of an earlier job of
+  // the run. The artifact carries data or code of another job into the
+  // job with the secret, so each job is on a reviewed list.
+  // The rationale is in the comments, one for each group.
+  const artifactJobs = new Set([
+    // These jobs read the JSON records of earlier jobs and the factory
+    // release (checked against its pinned SHA-256). They run no downloaded
+    // script.
+    "ci.yaml:merge-gate-select",
+    "ci.yaml:merge-gate-llm",
+    "ci.yaml:results-writer",
+    // The Resolve job checks out the merge commit (it holds no secret) and
+    // uploads infra/. The plan job may check out only the workflow commit, and
+    // it already runs branch Terraform code: the reviewers of the
+    // terraform-plan environment are the boundary. The job downloads the
+    // artifact by its id, so another job of the run cannot replace it.
+    "terraform-plan-pr.yaml:terraform-plan",
+  ])
   for (const job of jobs) {
     // A job has an OIDC token when it asks for one, or when the workflow
     // does and the job has no `permissions:` of its own.
@@ -378,6 +396,13 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     if (holdsSecret || hasOidc)
       for (const { text, number } of job.lines) {
         const action = /^\s+(?:-\s+)?uses:\s*['"]?([^\s'"#]+)/.exec(text)?.[1]
+        if (
+          action?.startsWith("actions/download-artifact@") &&
+          !artifactJobs.has(`${name}:${job.name}`)
+        )
+          failures.push(
+            `${file}:${number}: job ${job.name} holds a secret or an OIDC token and downloads an artifact. The artifact can carry code of another job into this job. Move the download to a job without the secret, or add the job to artifactJobs in scripts/ci/check-secret-jobs.mjs, with the reason in a comment.`,
+          )
         if (
           action &&
           !action.startsWith("actions/") &&

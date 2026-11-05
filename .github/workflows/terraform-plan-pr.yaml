@@ -1,30 +1,108 @@
 # Terraform speculative plans on infra PRs.
 #
+# The merge gate of ci.yaml calls this workflow (job merge-gate-terraform-plan)
+# when the PR changes a file under infra/, in every mode of the gate. A call
+# keeps the PR author as the actor, so the environment setting "Prevent
+# self-review" works. A person can start it with Run workflow from the PR
+# branch (for a stacked PR, which does not run ci.yaml).
+#
 # Security: terraform plan executes provider/external code with secrets present. Assign this job to a
 # GitHub Environment named below and enable required reviewers under repo Settings → Environments
 
 name: Terraform Infra Plan (PR)
 
 on:
-  pull_request:
-    paths:
-      - "infra/**"
+  workflow_call:
+    inputs:
+      pr_number:
+        description: "PR number to plan (e.g. 255)"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to plan (e.g. 255)"
+        required: true
+        type: string
 
+# One group for each PR, and a new run replaces an older one. A run that waits
+# for the environment reviewers holds its group, so a shared group would block
+# the plan of every other PR until someone approves or rejects that run.
 concurrency:
-  group: terraform-infra-plan
+  group: terraform-infra-plan-${{ inputs.pr_number }}
+  cancel-in-progress: true
 
-defaults:
-  run:
-    working-directory: infra
+permissions:
+  contents: read
 
 jobs:
+  resolve:
+    timeout-minutes: 5
+    name: Resolve the PR
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      current: ${{ steps.resolve.outputs.current }}
+      base_sha: ${{ steps.resolve.outputs.base_sha }}
+      # The plan job downloads this artifact by its id: a reusable workflow
+      # shares the artifact names of the whole ci.yaml run, and other jobs of
+      # that run execute PR code.
+      artifact_id: ${{ steps.keep.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/resolve-terraform-plan-pr.sh
+      - name: Resolve
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          # A call from a pull_request run has the head branch in head_ref and
+          # the merge ref in ref. A run by hand has the branch in ref_name.
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          REF: ${{ github.ref }}
+          RUN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/ci/resolve-terraform-plan-pr.sh
+      # The merge commit has the head of this run as a parent (the script
+      # checks it). This job holds no secret, so it can check out that commit.
+      - name: Check out the merge commit
+        if: steps.resolve.outputs.current == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ steps.resolve.outputs.merge_sha }}
+          path: merged
+          persist-credentials: false
+          sparse-checkout: infra
+      - name: Keep the Terraform code
+        id: keep
+        if: steps.resolve.outputs.current == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: terraform-plan-infra
+          path: merged/infra
+          include-hidden-files: true
+          # The plan waits for the reviewers of the terraform-plan
+          # environment, so the artifact must outlive a late approval.
+          retention-days: 30
+          if-no-files-found: error
+
   terraform-plan:
     timeout-minutes: 30
     name: Terraform Plan (PR)
+    needs: resolve
+    # An empty artifact id would make the download take every artifact of the
+    # run, so the job needs the id.
+    if: |
+      needs.resolve.outputs.current == 'true' &&
+      needs.resolve.outputs.artifact_id != ''
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
-
-    # Only branches on this repository (not forks). Fork PRs lack secrets anyway; this avoids noise.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    defaults:
+      run:
+        working-directory: infra
 
     # Required reviewers → Settings → Environments → terraform-plan
     environment: terraform-plan
@@ -37,15 +115,23 @@ jobs:
     # that need it: Terraform Init gets the state keys only.
     env:
       TF_IN_AUTOMATION: "true"
-      TF_VAR_image_tag: ${{ github.event.pull_request.base.sha }}
+      TF_VAR_image_tag: ${{ needs.resolve.outputs.base_sha }}
       TF_VAR_model_provider: ${{ vars.MODEL_PROVIDER || 'openrouter' }}
       TF_VAR_linear_redirect_uri: ${{ vars.LINEAR_REDIRECT_URI }}
       TF_VAR_pagerduty_redirect_uri: ${{ vars.PAGERDUTY_REDIRECT_URI }}
       # No secret value: Terraform does not hold the app secrets
       # (scripts/railway-sync-variables.mjs writes them to Railway).
     steps:
-      - name: Checkout repository
-        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
+      # The Resolve job checked out the merge of the PR into its base, as the
+      # pull_request trigger planned it. A job with the state keys checks out
+      # only the workflow commit (check-secret-jobs.mjs), so it takes the
+      # Terraform code from the artifact of that job, by its id.
+      - name: Download the Terraform code
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.resolve.outputs.artifact_id }}
+          merge-multiple: true
+          path: infra
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
@@ -114,7 +200,7 @@ jobs:
         id: find-plan-comment
         uses: peter-evans/find-comment@3eae4d37986fb5a8592848f6a574fdf654e61f9e # v3
         with:
-          issue-number: ${{ github.event.pull_request.number }}
+          issue-number: ${{ inputs.pr_number }}
           comment-author: 'github-actions[bot]'
           body-includes: '## Terraform Plan'
 
@@ -124,6 +210,6 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment-id: ${{ steps.find-plan-comment.outputs.comment-id }}
-          issue-number: ${{ github.event.pull_request.number }}
+          issue-number: ${{ inputs.pr_number }}
           body-path: infra/plan-comment.md
           edit-mode: replace
