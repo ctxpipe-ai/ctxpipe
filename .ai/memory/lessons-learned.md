@@ -76,7 +76,6 @@ Read this when you set up or change a deployment: Railway production or previews
 
 ### Changesets and releases
 - **Rule:** PRs run `changeset status --since=origin/main` (release-bot PRs are skipped); it fails when a versionable workspace package changed without a changeset ([ADR-020](decisions/ADR-020-changeset-ci-guard-policy.md)). Authors and reviewers pick the package: `@ctxpipe/aws-cdk` for app or deploy work, otherwise the changed publishable package under `packages/*`. CI does not verify package names. Keep private runnable examples (for example `@ctxpipe/aws-cdk-self-host`) in `.changeset/config.json` `ignore`, so release PRs do not change their versions. Do not rely on release-bot commits to `main`: `@ctxpipe/aws-cdk` generates `src/pinned-service-image-tag.ts` at build and publish time, and the file stays untracked.
-- **Every PR carries a changeset:** the guard fails only for a versionable package, but each PR still has a changeset. A change that an operator does not see or act on (CI, scripts, tests, types, telemetry, refactors) gets an empty one: two `---` lines, no text. Only an operator-visible change to `@ctxpipe/aws-cdk` gets a patch or minor.
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md (three entries)
