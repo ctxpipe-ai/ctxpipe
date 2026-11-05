@@ -1,12 +1,6 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import {
-  cpSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs"
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
@@ -500,6 +494,24 @@ test("rejects a production job whose if: does not limit it to the push to main",
     },
     /job terraform is a production job, but its if: does not limit it to the push to main/,
   )
+})
+
+test("rejects an artifact download in a job with a secret that is not a reviewed job", () => {
+  rejects(
+    workflow(
+      `  plan:\n    steps:\n      - uses: actions/download-artifact@v4\n        with:\n          name: code\n${tokenStep}`,
+    ),
+    /job plan holds a secret or an OIDC token and downloads an artifact/,
+  )
+})
+
+test("accepts an artifact download in a job without a secret", () => {
+  const result = check(
+    workflow(
+      "  plan:\n    steps:\n      - uses: actions/download-artifact@v4\n        with:\n          name: code\n",
+    ),
+  )
+  assert.equal(result.status, 0, result.stderr)
 })
 
 test("accepts the workflows of this repository", () => {

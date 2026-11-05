@@ -1810,8 +1810,11 @@ jobs:
   merge-gate-terraform-plan:
     timeout-minutes: 5
     name: Merge gate starts the Terraform plan
+    # Not on ready_for_review: it adds no new code, and it would ask the
+    # reviewers for one more approval.
     if: |
       github.event_name == 'pull_request' &&
+      github.event.action != 'ready_for_review' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
