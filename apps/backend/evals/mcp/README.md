@@ -87,7 +87,7 @@ CI is `.github/workflows/mcp-evals.yaml`. It runs nightly, by hand, and on a pul
 
 The model provider key is the only secret. Only the steps that need it get it. The job runs in the GitHub environment `workbench`. It reads `MODEL_PROVIDER_API_KEY` for the backend and for the client models. `run.ts` sends every client model through OpenRouter (`MODEL_PROVIDER_URL`, default `https://openrouter.ai/api/v1`) and maps each id to its OpenRouter id (`models.ts`). OpenRouter BYOK covers the Anthropic and OpenAI models. The key is a spend-capped key for CI. `run.ts` stops when `MODEL_PROVIDER_API_KEY` is missing. The variable `MCP_EVAL_MODELS` names the client models, at least two.
 
-A pull request that changes `apps/backend/src/mcp` does not run the suite, because each run calls paid models. The merge gate comment on the PR asks for the label when the selection holds an eval case.
+A pull request that changes `apps/backend/src/mcp` does not run the suite, because each run calls paid models. The merge gate comment on the PR asks for the label when the PR changes a file under `apps/backend/src/mcp/` and has no `mcp-evals` label. It does so in every mode of the gate.
 
 ### Record the baseline (one time)
 

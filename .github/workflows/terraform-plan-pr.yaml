@@ -66,7 +66,9 @@ jobs:
           name: terraform-plan-infra
           path: merged/infra
           include-hidden-files: true
-          retention-days: 1
+          # The plan waits for the reviewers of the terraform-plan
+          # environment, so the artifact must outlive a late approval.
+          retention-days: 30
           if-no-files-found: error
 
   terraform-plan:

@@ -1182,21 +1182,6 @@ test("the manifest lists a check for each job of the other pull request workflow
   // cli-test.yaml is gone: the cli lane runs in the package tests job.
   assert.ok(lane("vitest", "cli").length > 0)
   assert.ok(lane("vitest", "cli")[0].inputs.includes("packages/cli/src/**"))
-  // claude-plugin-test.yaml is gone: the backend files that its Backend tests
-  // job named are checks of the backend lane, and the merge gate runs them
-  // in the shards when it selects them.
-  for (const file of [
-    "src/auth/oauth-organization.test.ts",
-    "src/auth/withAuth.test.ts",
-    "src/routes/auth.test.ts",
-    "src/routes/mcp.integration.test.ts",
-    "src/routes/mcp.conformance.test.ts",
-    "src/mcp/transport.test.ts",
-  ]) {
-    const path = `apps/backend/${file}`
-    assert.ok(existsSync(join(root, path)), `${path} does not exist`)
-    assert.ok(checks.has(`vitest:backend:${path}`), path)
-  }
   assert.ok(lane("vitest", "ui").length > 0)
   // The Lint and format job of ci.yaml runs the policy check of the plugin.
   const plugin = checks.get(

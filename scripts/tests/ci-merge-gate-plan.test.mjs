@@ -727,13 +727,13 @@ test("each job of the plan needs the plan job, starts only with its output, and 
   assert.match(gate, /\n {4}if: \|\n {6}always\(\) && /)
   // The Terraform plan workflow has no pull_request trigger: only the merge
   // gate starts it, for a same-repository PR, whatever the mode or the
-  // selection (scripts/ci/start-terraform-plan.sh decides from the files).
+  // selection (the step decides from the files of the PR).
   const terraform = job("merge-gate-terraform-plan")
   assert.doesNotMatch(terraform, /\n {4}needs:/)
   assert.doesNotMatch(terraform, /merge-gate-plan/)
   assert.ok(terraform.includes("head.repo.full_name == github.repository"))
   assert.ok(terraform.includes("github.event.action != 'ready_for_review'"))
-  assert.ok(terraform.includes("scripts/ci/start-terraform-plan.sh"))
+  assert.doesNotMatch(terraform, /actions\/checkout/)
   const terraformWorkflow = readFileSync(
     join(root, ".github/workflows/terraform-plan-pr.yaml"),
     "utf8",

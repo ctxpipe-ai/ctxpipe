@@ -13,9 +13,11 @@ import { join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 
-// The scripts that start the Terraform plan and the MCP evals reminder
-// (scripts/checks/README.md, Other pull request workflows). Each script runs
-// as the workflow runs it, with a `gh` on PATH that answers from files: the
+import { parse as parseYaml } from "yaml"
+
+// The Terraform plan start and the MCP evals reminder (scripts/checks/README.md,
+// Other pull request workflows). Each runs as the workflow runs it (a script,
+// or the `run` text of the step in ci.yaml), with a `gh` on PATH that answers from files: the
 // GitHub API is the environment, so it is the only fake.
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -66,22 +68,33 @@ const setup = ({ api = {}, errors = {}, state = "OPEN" } = {}) => {
   return dir
 }
 
+// The shell of the step that starts the plan, as ci.yaml holds it.
+const startStep = () => {
+  const workflow = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  const step = workflow.jobs["merge-gate-terraform-plan"].steps.find(
+    ({ name }) => name === "Start the Terraform plan on the PR branch",
+  )
+  return step.run
+}
+
 const run = (script, dir, env, args = []) => {
   const output = join(dir, "github-output")
   writeFileSync(output, "")
-  const result = spawnSync(
-    "bash",
-    [join(root, "scripts/ci", script), ...args],
-    {
-      encoding: "utf8",
-      env: {
-        PATH: `${join(dir, "bin")}:${process.env.PATH}`,
-        FAKE_GH_DIR: dir,
-        GITHUB_OUTPUT: output,
-        ...env,
-      },
+  const command =
+    script === "start-terraform-plan"
+      ? ["-c", `set -eo pipefail\n${startStep()}`]
+      : [join(root, "scripts/ci", script), ...args]
+  const result = spawnSync("bash", command, {
+    encoding: "utf8",
+    env: {
+      PATH: `${join(dir, "bin")}:${process.env.PATH}`,
+      FAKE_GH_DIR: dir,
+      GITHUB_OUTPUT: output,
+      ...env,
     },
-  )
+  })
   const calls = join(dir, "calls.log")
   return {
     status: result.status,
@@ -204,7 +217,7 @@ test("resolve fails when the PR has no merge commit", () => {
 const files = (...names) => names.map((filename) => ({ filename }))
 const start = (names, options = {}) =>
   run(
-    "start-terraform-plan.sh",
+    "start-terraform-plan",
     setup({
       api: {
         [`repos/${repo}/pulls/7/files`]: files(...names),
@@ -226,6 +239,24 @@ test("the plan starts for a change under infra/, whatever else changes", () => {
       `workflow run terraform-plan-pr.yaml --repo ${repo} --ref feature -f pr_number=7`,
     ])
   }
+})
+
+test("the plan starts when a file moves out of infra/", () => {
+  const dir = setup({
+    api: {
+      [`repos/${repo}/pulls/7/files`]: [
+        { filename: "modules/a.tf", previous_filename: "infra/a.tf" },
+      ],
+      [`repos/${repo}/branches/feature`]: {},
+    },
+  })
+  const result = run("start-terraform-plan", dir, {
+    REPO: repo,
+    BRANCH: "feature",
+    PR: "7",
+  })
+  assert.equal(result.status, 0)
+  assert.equal(result.calls.length, 1)
 })
 
 test("the plan does not start for a PR with no change under infra/", () => {
