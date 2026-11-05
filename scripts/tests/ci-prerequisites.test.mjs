@@ -76,3 +76,34 @@ test("contract images refuse a local image with another digest", async () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("the bun prerequisite needs the version of the engines", async () => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs")
+  const { tmpdir } = await import("node:os")
+  const { join } = await import("node:path")
+  const dir = mkdtempSync(join(tmpdir(), "prerequisite-bun-"))
+  const run = (version) => {
+    writeFileSync(
+      join(dir, "bun"),
+      `#!${process.execPath}\nprocess.stdout.write(${JSON.stringify(`${version}\n`)})\n`,
+      { mode: 0o755 },
+    )
+    return spawnSync(
+      process.execPath,
+      ["scripts/checks/prerequisites.mjs", "bun"],
+      { encoding: "utf8", env: { ...process.env, PATH: dir } },
+    )
+  }
+  try {
+    const older = run("1.4.2")
+    assert.equal(older.status, 1)
+    assert.match(older.stdout, /Bun 1\.4\.2 is older than 1\.4\.4/)
+    assert.match(older.stdout, /Install Bun 1\.4\.4 or newer/)
+    assert.equal(run("1.3.9").status, 1)
+    assert.equal(run("1.4.4").status, 0)
+    assert.equal(run("1.5.0").status, 0)
+    assert.equal(run("2.0.0").status, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
