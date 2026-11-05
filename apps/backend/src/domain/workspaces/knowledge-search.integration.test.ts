@@ -257,6 +257,8 @@ describe("searchKnowledge (Postgres)", () => {
         "Issue",
       ),
       issue("flat", "linear/issues/ctx-77--issue-77.md"),
+      // The issue moved to another team after the flat copy was written.
+      issue("moved", "linear/issues/ops-12--issue-77.md"),
       {
         id: `unit_linear_other_${suffix}`,
         workspaceId: linear,

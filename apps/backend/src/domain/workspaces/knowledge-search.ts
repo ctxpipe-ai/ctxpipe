@@ -292,14 +292,18 @@ async function runSearch(
       ),
       -- The Linear mirror writes one item under each team and project root
       -- that selects it, and older Workspaces keep the retired flat layout.
-      -- The file name ends with the Linear id, so it keys the item. Keep the
-      -- copy in the current layout (it has a kind), then the best score.
+      -- Each file name ends with \`--<Linear id>.md\`, which keys the item also
+      -- when its identifier changed. Keep the copy in the current layout (it
+      -- has a kind), then the best score.
       item AS (
         SELECT DISTINCT ON (b.workspace_id, item_key) b.*
         FROM (
           SELECT b.*, u.kind, u.path,
-            CASE WHEN starts_with(u.path, 'linear/')
-              THEN substring(u.path from '[^/]+$') ELSE u.serving_id END AS item_key
+            coalesce(
+              CASE WHEN starts_with(u.path, 'linear/')
+                THEN substring(u.path from '--[^/-][^/]*$') END,
+              u.serving_id
+            ) AS item_key
           FROM best AS b
           JOIN workspace_knowledge_units AS u
             ON u.workspace_id = b.workspace_id AND u.serving_id = b.unit_id

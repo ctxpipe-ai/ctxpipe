@@ -161,7 +161,6 @@ describe("search_knowledge through the MCP client", () => {
       "ctxpipe.mcp.args": "limit,query,workspaces",
       "ctxpipe.mcp.query.length": 16,
       "ctxpipe.mcp.result.count": 1,
-      "ctxpipe.mcp.result.empty": false,
       "ctxpipe.mcp.result.top_score": expect.any(Number),
     })
     expect(JSON.stringify(found)).not.toContain("gateway")
@@ -172,7 +171,6 @@ describe("search_knowledge through the MCP client", () => {
     ).toMatchObject({
       "ctxpipe.mcp.args": "kinds,limit,query,workspaces",
       "ctxpipe.mcp.result.count": 0,
-      "ctxpipe.mcp.result.empty": true,
     })
   })
   it("defaults to 8 hits, allows at most 20, and sums up the claims of each hit", async () => {

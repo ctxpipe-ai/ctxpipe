@@ -241,7 +241,7 @@ function contentLoss(
     value.replace(/<!--[\s\S]*?-->/g, "").trim().length
   if (text(content) * 2 < Math.min(text(current), text(incoming)))
     return "Semantic merge gave content much shorter than both sides"
-  const frontMatter = (value: string) => value.startsWith("---\n")
+  const frontMatter = (value: string) => /^---\r?\n/.test(value)
   if (frontMatter(current) && frontMatter(incoming) && !frontMatter(content))
     return "Semantic merge drops the front matter that both sides have"
   return null

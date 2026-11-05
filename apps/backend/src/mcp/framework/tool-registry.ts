@@ -169,7 +169,6 @@ export function defineMcpReadTool<
       if (result)
         span?.setAttributes({
           "ctxpipe.mcp.result.count": result.count,
-          "ctxpipe.mcp.result.empty": result.count === 0,
           ...(result.topScore === undefined
             ? {}
             : { "ctxpipe.mcp.result.top_score": result.topScore }),
