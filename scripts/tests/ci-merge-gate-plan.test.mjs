@@ -482,6 +482,7 @@ test("the PR comment shows the selection, the hits, the LLM decisions and the mi
   for (const part of [
     "**Verdict:** pass",
     "3 ran, 2 hits (ci 1, agent 1), 2 in other workflows",
+    "**Cache hits:** ci 1, pr 0, agent 1 of ",
     "renames a UI prop",
     "dropped 1, added 1",
     "<summary>LLM decisions (2)</summary>",

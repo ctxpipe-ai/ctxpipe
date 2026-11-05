@@ -995,6 +995,10 @@ export function gateText(
         .join(", ") || "none"
     }), ${decision.external.length} in other workflows, ${s.counts.total - s.counts.selected} omitted.`,
     "",
+    // The cache hits of each class: the store of the nightly CI run, the PR
+    // store, and the passes that an agent stored (factory check).
+    `**Cache hits:** ${["ci", "pr", "agent"].map((k) => `${k} ${classes[k] ?? 0}`).join(", ")} of ${s.counts.selected} selected checks.`,
+    "",
     `**Runner minutes:** this run ${decision.cost.gatedRunMinutes}; a full run about ${decision.cost.fullRunMinutesEstimate} (estimate of the tests and their setup, without builds).`,
   )
   const shards = Object.entries(decision.shards ?? {})
