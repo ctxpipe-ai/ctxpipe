@@ -1620,8 +1620,8 @@ jobs:
           echo "$sha256  $RUNNER_TEMP/release/factory.tar.gz" | sha256sum --check --strict
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/release/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
-      # A slow model call delays every check job, so the selector has 75
-      # seconds. The plan keeps the deterministic selection when this step
+      # A slow model call delays every check job, so the selector has 105
+      # seconds (90 for the model). The plan keeps the deterministic selection when this step
       # fails or times out.
       - name: Select with the LLM stage
         timeout-minutes: 2
@@ -1634,12 +1634,12 @@ jobs:
           trace=()
           [ ! -f "$RUNNER_TEMP/selection/trace.json.gz" ] || trace=(--trace "$RUNNER_TEMP/selection/trace.json.gz")
           code=0
-          timeout 75 "$RUNNER_TEMP/bin/factory" check --repo . --base HEAD^1 --k 3 \
+          timeout 105 "$RUNNER_TEMP/bin/factory" check --repo . --base HEAD^1 --k 3 \
             --manifest "$RUNNER_TEMP/inputs/manifest.json" "${trace[@]}" \
             --include-stochastic --llm-select --llm-provider openrouter \
             --dry-run --json > "$RUNNER_TEMP/raw.json" || code=$?
           if [ "$code" = 124 ]; then
-            echo "the selector did not finish in 75 seconds" > "$out/llm-cause.txt"
+            echo "the selector did not finish in 105 seconds" > "$out/llm-cause.txt"
             exit 1
           fi
           if [ "$code" -gt 1 ]; then
