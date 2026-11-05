@@ -16,7 +16,7 @@
     {
       "file": "src/routes/mcp.conformance.server.ts",
       "code": 2769,
-      "message": "No overload matches this call.\n  The last overload gave the following error.\n    Type 'Promise<void> | Response' is not assignable to type 'Promise<void | Response>'.\n      Type 'Response' is missing the following properties from type 'Promise<void | Response>': then, catch, finally, [Symbol.toStringTag]",
+      "message": "No overload matches this call.\n  The last overload gave the following error.\n    Type 'Promise<void> | Response' is not assignable to type 'Promise<void | Response>'.\n      Type 'Response' is missing the following properties from type 'Promise<void | Response>': then, catch, [Symbol.toStringTag], finally",
       "count": 1
     },
     {

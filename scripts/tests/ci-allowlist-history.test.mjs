@@ -3,8 +3,8 @@ import { spawnSync } from "node:child_process"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
 import { test } from "node:test"
+import { fileURLToPath } from "node:url"
 
 test("a diagnostic removed from the committed baseline cannot be added back", () => {
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-allowlist-"))
@@ -60,6 +60,49 @@ test("a diagnostic removed from the committed baseline cannot be added back", ()
     git("commit", "-m", "Unauthorized expansion")
     write(1)
     assert.equal(check().status, 1)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("a checker change may rewrite the message of a diagnostic entry, but not add a count", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-allowlist-"))
+  const git = (...args) => {
+    const result = spawnSync("git", args, { cwd: directory, encoding: "utf8" })
+    assert.equal(result.status, 0, result.stderr)
+  }
+  const write = (message, count) =>
+    writeFileSync(
+      join(directory, "baseline.json"),
+      JSON.stringify({
+        version: 1,
+        diagnostics: [{ file: "src/a.ts", code: 2322, message, count }],
+      }),
+    )
+  const check = () =>
+    spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(
+          new URL("../ci/check-allowlist-history.mjs", import.meta.url),
+        ),
+        "baseline.json",
+      ],
+      { cwd: directory, encoding: "utf8" },
+    )
+  try {
+    git("init", "-b", "main")
+    git("config", "user.email", "fixture@example.test")
+    git("config", "user.name", "Fixture")
+    write("Type 'a | b'", 1)
+    git("add", "baseline.json")
+    git("commit", "-m", "Initial reviewed baseline")
+    write("Type 'b | a'", 1)
+    assert.equal(check().status, 0)
+    write("Type 'b | a'", 2)
+    const expanded = check()
+    assert.equal(expanded.status, 1)
+    assert.match(expanded.stderr, /may only shrink/)
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
