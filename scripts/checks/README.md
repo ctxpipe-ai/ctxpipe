@@ -74,7 +74,7 @@ The `deploy` checks are the PR preview of `pr-deploy.yaml` (Railway and Neon) an
 
 ## Other pull request workflows
 
-A workflow other than `ci.yaml` does not start on its own for a pull request, unless it has no check to select. Two starts are intentional: Changeset Guard on each PR, and the MCP evals with their label. The merge gate starts it, or runs its checks in `ci.yaml`. In gate mode, the merge gate lists a selected check of another workflow as `in other workflows`. The status of that workflow is the result of the check. For `policy:terraform-plan`, it is the status of the called job `Terraform plan / Terraform Plan (PR)` in the `ci.yaml` run. It is not part of the gated verdict.
+A workflow other than `ci.yaml` does not start on its own for a pull request, unless it has no check to select. Three starts are intentional. Changeset Guard starts on each PR. The MCP evals start with their label. `observability.yaml` keeps its path filter. The merge gate starts it, or runs its checks in `ci.yaml`. In gate mode, the merge gate lists a selected check of another workflow as `in other workflows`. The status of that workflow is the result of the check. For `policy:terraform-plan`, it is the status of the called job `Terraform plan / Terraform Plan (PR)` in the `ci.yaml` run. It is not part of the gated verdict.
 
 | Workflow | Trigger on a pull request | Check | How it runs |
 | --- | --- | --- | --- |
@@ -92,7 +92,7 @@ A workflow other than `ci.yaml` does not start on its own for a pull request, un
 - The workflow `terraform-plan-pr.yaml` plans the merge commit of the PR, as the old `pull_request` trigger did. The script `scripts/ci/resolve-terraform-plan-pr.sh` checks four facts. The PR is not a fork. The run is from the PR branch (a run by hand) or from the merge ref of the PR (a call from the gate). The PR has a merge commit. The branch head is the head of the run, and a stale run stops. The plan job may check out only the workflow commit, so the resolve job checks out the merge commit and the plan job takes `infra/` from an artifact. A person can start the workflow with **Run workflow** from the PR branch, with the PR number as input.
 - A pull request to a base other than `main` does not run `ci.yaml`, so it gets no automatic Terraform plan. A person uses **Run workflow**.
 - `observability.yaml` keeps its path filter until its jobs are checks (follow-up [CTX-1152](https://linear.app/ctxpipe/issue/CTX-1152)).
-- The removed `claude-plugin-test.yaml` also ran its tests on each push to `main`. A push to `main` does not run the test jobs of `ci.yaml`. Thus a failure of those tests shows in the nightly run, up to about 24 hours later. This is accepted: the nightly run is the safety net.
+- A push to `main` does not run the test jobs of `ci.yaml`. A failure of the Vitest lanes that moved into `ci.yaml` thus shows in the nightly run, up to about 24 hours later. This is accepted: the nightly run is the safety net.
 - The ingestion proof has no check. It needs a Compose `deploy` stack, a Workspace repository and the repository list from the workbench secrets, and the script `scripts/ci/ingestion-v2-proof.sh` reads them from the workflow. Listing it needs a runner that starts that stack, which is more than a command. Only the CTO starts it by hand, and it spends model money on real repositories.
 
 ## Intent
