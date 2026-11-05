@@ -152,11 +152,13 @@ export async function resolveSemanticConflicts(
         throw error
       })
       const [file] = answer?.files ?? []
-      if (answer && file && resolvesExactly(answer.files, [conflict]))
+      const loss = file ? contentLoss(file.content, conflict) : null
+      if (answer && file && resolvesExactly(answer.files, [conflict]) && !loss)
         return { file, flagged: false }
       if (answer)
         slip = new Error(
-          "Semantic merge did not resolve exactly the conflicting files",
+          loss ??
+            "Semantic merge did not resolve exactly the conflicting files",
         )
     }
     if (!options.flagUnresolved)
@@ -218,6 +220,31 @@ export async function resolveSemanticConflicts(
       paths: flagged.map((result) => result.file.path),
     })
   return results.map((result) => result.file)
+}
+
+/**
+ * Why a resolution loses content that both sides keep (CTX-1138), or null.
+ * The model has answered with a delete, an empty file, a lone HTML comment,
+ * and a unit with no front matter. Each answer is a slip: ask again, then
+ * flag or fail as for no answer. A conflict where one side deletes the file
+ * can resolve to a delete.
+ */
+function contentLoss(
+  content: string | null,
+  conflict: GitMergeConflict,
+): string | null {
+  const { current, incoming } = conflict
+  if (current === null || incoming === null) return null
+  if (content === null)
+    return "Semantic merge deletes a file that both sides keep"
+  const text = (value: string) =>
+    value.replace(/<!--[\s\S]*?-->/g, "").trim().length
+  if (text(content) * 2 < Math.min(text(current), text(incoming)))
+    return "Semantic merge gave content much shorter than both sides"
+  const frontMatter = (value: string) => value.startsWith("---\n")
+  if (frontMatter(current) && frontMatter(incoming) && !frontMatter(content))
+    return "Semantic merge drops the front matter that both sides have"
+  return null
 }
 
 /** True when `files` holds each conflicting path exactly once, and no other path. */

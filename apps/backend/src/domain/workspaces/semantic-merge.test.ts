@@ -492,3 +492,37 @@ it("lets a host write change sources/ and refuses an agent or extraction write",
       /host-only/,
     )
 })
+
+// CTX-1138: an answer that removes the content of a file both sides keep.
+it.each([
+  ["a delete", null, "deletes a file that both sides keep"],
+  ["an empty file", "", "much shorter than both sides"],
+  [
+    "an HTML comment only",
+    "<!-- Resolved merge: preserve the incoming relation and the current text of the issue. -->\n",
+    "much shorter than both sides",
+  ],
+  [
+    "a unit with no front matter",
+    "# Checkout\n\nCurrent.\n\nIncoming.\n",
+    "drops the front matter",
+  ],
+])(
+  "refuses %s as a merge answer and keeps both versions",
+  async (_, content, cause) => {
+    answer = [{ path: "knowledge/services/checkout.md", content }]
+    await expect(
+      resolveSemanticConflicts(ingestConflicts, { origin: "extraction" }),
+    ).rejects.toThrow(cause)
+    expect(calls).toBe(3)
+    calls = 0
+    const [kept] = await resolveSemanticConflicts(ingestConflicts, {
+      origin: "extraction",
+      flagUnresolved: true,
+    })
+    expect(kept?.content).toContain("Current.")
+    expect(kept?.content).toContain("Incoming.")
+    expect(kept?.content).toContain("<<<<<<< default branch")
+  },
+  30_000,
+)
