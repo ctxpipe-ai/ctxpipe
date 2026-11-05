@@ -348,8 +348,7 @@ test("the manifest marks exactly the platform-independent checks portable", () =
     [
       "build:image",
       ...notPortable.filter((lane) => lane.startsWith("deploy:")),
-      "vitest:codesearch",
-      "vitest:codesearch-bun",
+      // Only the contracts file of the denylist.
       "vitest:contracts",
       "vitest:latency",
     ].sort(),
@@ -384,6 +383,14 @@ test("the manifest marks exactly the platform-independent checks portable", () =
   )
   assert.deepEqual(programs("cli"), new Set(['["git"]', '["git","bash"]']))
   assert.deepEqual(programs("upgrade"), new Set(['["git","zoekt","ast-grep"]']))
+  // The contracts lane runs Linux containers: its key holds the platform of
+  // the Docker server.
+  for (const lane of ["codesearch", "codesearch-bun"])
+    assert.deepEqual(programs(lane), new Set(['["container-platform"]']))
+  assert.deepEqual(
+    programs("contracts"),
+    new Set(['["git","bun","zoekt","ast-grep","container-platform"]']),
+  )
   // A check that the denylist names is never portable.
   const denied = JSON.parse(readFileSync(script("non-portable.json"), "utf8"))
   for (const check of checks.filter(({ id }) => denied.includes(id)))
@@ -395,10 +402,28 @@ test("the manifest marks exactly the platform-independent checks portable", () =
   assert.deepEqual(markPortable([listed], new Set()), [listed])
 })
 
+test("the container lanes run on the platform that the toolchain record names", () => {
+  // The Merge gate manifest job records container-platform from its own
+  // Docker server. Each job that runs a lane with container-platform in its
+  // key must run on the same runner architecture.
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const runner = (job) => {
+    const start = workflow.indexOf(`\n  ${job}:\n`)
+    assert.notEqual(start, -1, job)
+    const end = workflow.slice(start + 1).search(/\n  [a-z0-9-]+:\n/)
+    const body = workflow.slice(start, end === -1 ? undefined : start + 1 + end)
+    return /\n    runs-on: (\S+)/.exec(body)?.[1]
+  }
+  const arch = (label) => (label.endsWith("-arm") ? "arm64" : "x64")
+  const recorded = arch(runner("merge-gate-manifest"))
+  for (const job of ["test-shards", "codesearch"])
+    assert.equal(arch(runner(job)), recorded, job)
+})
+
 test("the backend files that start Docker or host tools run in the contracts lane", () => {
   const moved = JSON.parse(
     readFileSync(join(root, "scripts/ci/contracts.json"), "utf8"),
-  )["host Docker, zoekt and process environment (not portable)"]
+  )["host Docker, zoekt and process environment"]
   assert.ok(moved.length >= 10)
   const backend = JSON.parse(
     node([join(root, "scripts/ci/test-suite.mjs"), "backend", "--list"]).stdout,

@@ -46,9 +46,23 @@ test("every check that needs a pinned service lists the pins file", async () => 
   const checks = await listVitest()
   const pinned = checks.filter((check) =>
     check.prerequisites?.some((name) =>
-      ["postgres", "falkordb", "previous-release"].includes(name),
+      ["postgres", "falkordb", "previous-release", "contract-images"].includes(
+        name,
+      ),
     ),
   )
+  const contracts = checks.filter((check) => check.lane === "contracts")
+  assert.ok(contracts.length > 0)
+  for (const check of contracts) {
+    assert.ok(check.prerequisites.includes("contract-images"), check.id)
+    assert.ok(
+      check.env.some(
+        (entry) =>
+          entry.name === "DOCKER_DEFAULT_PLATFORM" && entry.mode === "value",
+      ),
+      check.id,
+    )
+  }
   assert.ok(pinned.length > 0)
   for (const check of pinned) {
     assert.ok(check.inputs.includes("scripts/ci/service-pins.json"), check.id)

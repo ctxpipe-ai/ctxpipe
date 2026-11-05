@@ -66,8 +66,16 @@ const codesearchInputs = [
   "apps/codesearch/vitest.config.ts",
   "apps/codesearch/src/test/setup-evlog.ts",
   "apps/codesearch/scripts/run-vitest-contracts.mjs",
-  // The test image pins zoekt and the SCIP indexers.
+  // The tests run in the codesearch test image on every host. The image pins
+  // zoekt and the SCIP indexers; these files build and start it.
   "apps/codesearch/Dockerfile",
+  "apps/codesearch/release-assets.txt",
+  "apps/codesearch/start.sh",
+  "apps/codesearch/scripts/**",
+  "apps/codesearch/src/**",
+  "patches/**",
+  "scripts/checks/lanes.mjs",
+  "scripts/ci/check-test-report.mjs",
 ]
 // `traceInputs` names the inputs for which a reader with a trace may select
 // from the trace instead of the whole lane (manifest.v1.schema.json).
@@ -84,6 +92,7 @@ const nativePrerequisites = [
   "zoekt",
   "ast-grep",
   "chat-sandbox-image",
+  "contract-images",
 ]
 // `portable`: the result does not depend on the OS or the CPU architecture,
 // so a result cache leaves them out of the key and a pass on a laptop counts
@@ -103,14 +112,19 @@ const lanes = {
     portable: true,
     programs: ["git"],
   },
-  // Not portable: its files start Docker containers, zoekt and OpenCode.
+  // Its files start Linux containers, so the key holds the platform of the
+  // Docker server (container-platform), with the host tools that the lane
+  // runs. The prerequisite pins the OpenCode version to a lane input. A file
+  // that depends on the host itself is in scripts/checks/non-portable.json.
   contracts: {
     directory: "apps/backend",
     runtime: "node",
     inputs: [...backendInputs, ...nativeInputs],
     traceInputs: backendTraceInputs,
-    env: backendEnv,
+    env: [...backendEnv, { name: "DOCKER_DEFAULT_PLATFORM", mode: "value" }],
     prerequisites: nativePrerequisites,
+    portable: true,
+    programs: ["git", "bun", "zoekt", "ast-grep", "container-platform"],
   },
   vercel: {
     directory: "apps/backend",
@@ -204,17 +218,23 @@ const lanes = {
   },
   // Both lanes run in the Docker test image (zoekt and the SCIP indexers), on a
   // laptop as in CI (runCodesearchImage).
+  // Both codesearch lanes run in the test image, so they are portable with
+  // the platform of the Docker server in the key.
   codesearch: {
     directory: "apps/codesearch",
     runtime: "node",
     inputs: codesearchInputs,
     prerequisites: ["docker"],
+    portable: true,
+    programs: ["container-platform"],
   },
   "codesearch-bun": {
     directory: "apps/codesearch",
     runtime: "bun",
     inputs: codesearchInputs,
     prerequisites: ["docker"],
+    portable: true,
+    programs: ["container-platform"],
   },
 }
 

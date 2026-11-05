@@ -123,7 +123,16 @@
         "programs": {
           "description": "The host programs that the lane runs and whose version changes the result. A result cache adds the version of each (the toolchain record `programs`) to the key; without the version, the check has no key. Optional; without it, none.",
           "type": "array",
-          "items": { "enum": ["git", "bun", "bash", "zoekt", "ast-grep"] },
+          "items": {
+            "enum": [
+              "git",
+              "bun",
+              "bash",
+              "zoekt",
+              "ast-grep",
+              "container-platform"
+            ]
+          },
           "uniqueItems": true
         }
       }

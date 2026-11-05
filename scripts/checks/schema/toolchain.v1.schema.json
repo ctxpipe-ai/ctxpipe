@@ -27,7 +27,8 @@
         "bun": { "$ref": "#/$defs/version" },
         "bash": { "$ref": "#/$defs/version" },
         "zoekt": { "$ref": "#/$defs/version" },
-        "ast-grep": { "$ref": "#/$defs/version" }
+        "ast-grep": { "$ref": "#/$defs/version" },
+        "container-platform": { "$ref": "#/$defs/version" }
       }
     },
     "os": {

@@ -14,6 +14,7 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 
 import type { AgentVaultAccess } from "../domain/workspaces/agent-vault.js"
+import { contractImage } from "./contract-images.js"
 
 const exec = promisify(execFile)
 
@@ -143,7 +144,7 @@ async function ipOn(container: string, network: string): Promise<string> {
 }
 
 /**
- * A real Agent Vault (`infisical/agent-vault:latest`) on its own network, as
+ * A real Agent Vault (the pinned `agentVault` contract image) on its own network, as
  * Compose runs it: the proxy may dial only the upstream (the backend's place).
  *
  * With `closed`, sandboxes run on an internal network, as the DinD and AWS
@@ -317,7 +318,7 @@ exec node /tmp/upstream.cjs`,
         "AGENT_VAULT_TELEMETRY=false",
         "-e",
         `AGENT_VAULT_NETWORK_ALLOWLIST=${upstreamIp}`,
-        "infisical/agent-vault:latest",
+        contractImage("agentVault"),
         // A fixed proxy port, for the closed network's forwarder.
         "server",
         "--host",
@@ -496,7 +497,7 @@ export async function startTestAgentVaultEnv(
         ...(options.extraCa
           ? ["-e", "SSL_CERT_DIR=/etc/ssl/certs:/extra-ca"]
           : []),
-        "infisical/agent-vault:latest",
+        contractImage("agentVault"),
         "server",
         "--host",
         "0.0.0.0",
