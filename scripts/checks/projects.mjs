@@ -109,11 +109,16 @@ const definitions = () => [
         "scripts/ci/typecheck.mjs",
         "scripts/ci/check-allowlist-history.mjs",
       ],
-      prerequisites: {
-        "aws-cdk": ["aws-cdk-image-tag"],
-        "self-host": ["aws-cdk-build"],
-        docs: ["docs-mdx"],
-      }[name],
+      // `bun check` is the checker, so a result key holds the Bun version.
+      programs: ["bun"],
+      prerequisites: [
+        "bun",
+        ...({
+          "aws-cdk": ["aws-cdk-image-tag"],
+          "self-host": ["aws-cdk-build"],
+          docs: ["docs-mdx"],
+        }[name] ?? []),
+      ],
       commands: [
         node("scripts/ci/check-allowlist-history.mjs", diagnostics),
         node("scripts/ci/typecheck.mjs", project, diagnostics),
@@ -206,7 +211,10 @@ const definitions = () => [
     ["workflow-inputs", [".github/**"]],
     ["ui-motion", ["apps/ui/src/**"]],
     ["story-play-timing", ["apps/ui/src/**"]],
-    ["claude-plugin", ["plugins/**", ".claude-plugin/**", "scripts/ci/claude-cli/**"]],
+    [
+      "claude-plugin",
+      ["plugins/**", ".claude-plugin/**", "scripts/ci/claude-cli/**"],
+    ],
     // The next two read the git diff against origin/main, so a result
     // cannot be reused from the files alone.
     [

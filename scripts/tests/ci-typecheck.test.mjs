@@ -1,16 +1,16 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import {
-  existsSync,
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, relative } from "node:path"
-import { fileURLToPath } from "node:url"
+import { join } from "node:path"
 import { test } from "node:test"
+import { fileURLToPath } from "node:url"
 
 test("a known diagnostic cannot hide a new error outside the workspace paths", () => {
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-typecheck-"))
@@ -68,16 +68,16 @@ test("a known diagnostic cannot hide a new error outside the workspace paths", (
   }
 })
 
-test("a warm run reads the build info, and a mismatch checks again without it", () => {
+test("a package check script does not replace the checker, and a multi-line message is one diagnostic", () => {
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-typecheck-"))
-  const repository = fileURLToPath(new URL("../../", import.meta.url))
-  const buildInfo = join(
-    repository,
-    "node_modules/.cache/typecheck",
-    `${relative(repository, join(directory, "tsconfig.json")).replaceAll(/[\\/]/g, "_")}.tsbuildinfo`,
-  )
   try {
     mkdirSync(join(directory, "src"))
+    // `bun check` runs this script instead of the checker, unless the runner
+    // passes --no-script.
+    writeFileSync(
+      join(directory, "package.json"),
+      JSON.stringify({ scripts: { check: "exit 7" } }),
+    )
     writeFileSync(
       join(directory, "tsconfig.json"),
       JSON.stringify({
@@ -87,14 +87,16 @@ test("a warm run reads the build info, and a mismatch checks again without it", 
     )
     writeFileSync(
       join(directory, "src/legacy.ts"),
-      'export const value: number = "legacy"\n',
+      "declare const inner: { b: string }\nexport const value: { a: { b: number } } = { a: inner }\n",
     )
     const baseline = (message) =>
       writeFileSync(
         join(directory, "baseline.json"),
         JSON.stringify({
           version: 1,
-          diagnostics: [{ file: "src/legacy.ts", code: 2322, message, count: 1 }],
+          diagnostics: [
+            { file: "src/legacy.ts", code: 2322, message, count: 1 },
+          ],
         }),
       )
     const check = () =>
@@ -104,29 +106,30 @@ test("a warm run reads the build info, and a mismatch checks again without it", 
           fileURLToPath(new URL("../ci/typecheck.mjs", import.meta.url)),
           join(directory, "tsconfig.json"),
           join(directory, "baseline.json"),
+          join(directory, "report.json"),
         ],
         { encoding: "utf8" },
       )
-    baseline("Type 'string' is not assignable to type 'number'.")
-    const cold = check()
-    assert.equal(cold.status, 0, cold.stdout + cold.stderr)
-    assert.match(cold.stdout, /\(full\)/)
-    assert.ok(existsSync(buildInfo))
+    baseline("anything")
+    const first = check()
+    assert.equal(first.status, 1, first.stdout + first.stderr)
+    const report = JSON.parse(
+      readFileSync(join(directory, "report.json"), "utf8"),
+    )
+    assert.equal(report.diagnostics.length, 1)
+    assert.equal(report.diagnostics[0].file, "src/legacy.ts")
+    assert.equal(report.diagnostics[0].code, 2322)
+    assert.match(report.diagnostics[0].message, /\n {2}/)
+    // The text of the allowance is not equal to the observed text: the
+    // diagnostic is new, and the old entry is stale.
+    assert.match(first.stdout, /UNEXPECTED src\/legacy\.ts TS2322/)
+    assert.match(first.stdout, /STALE allowance/)
 
-    const warm = check()
-    assert.equal(warm.status, 0, warm.stdout + warm.stderr)
-    assert.match(warm.stdout, /\(incremental\)/)
-
-    // The text of a cached diagnostic is not equal to the allowance. The run
-    // checks again without the build info, and reports the failure.
-    baseline("Type 'string' is not assignable to type 'other'.")
-    const mismatch = check()
-    assert.equal(mismatch.status, 1, mismatch.stdout + mismatch.stderr)
-    assert.match(mismatch.stdout, /full after an incremental mismatch/)
-    assert.match(mismatch.stdout, /UNEXPECTED/)
-    assert.ok(existsSync(buildInfo))
+    baseline(report.diagnostics[0].message)
+    const known = check()
+    assert.equal(known.status, 0, known.stdout + known.stderr)
+    assert.match(known.stdout, /ACKNOWLEDGED 1 /)
   } finally {
-    rmSync(buildInfo, { force: true })
     rmSync(directory, { recursive: true, force: true })
   }
 })

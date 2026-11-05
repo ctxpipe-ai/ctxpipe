@@ -36,17 +36,32 @@ try {
       if (current.version !== 1 || !Array.isArray(entries))
         throw new Error(`Invalid baseline ${path}`)
       if (previous) {
-        for (const item of entries) {
-          const before = previous.find(
-            (entry) =>
-              entry.file === item.file &&
-              entry.code === item.code &&
-              entry.title === item.title &&
-              entry.message === item.message,
-          )
-          if (!before || (item.count ?? 1) > (before.count ?? 1)) {
+        // A diagnostic entry has the text of the checker that wrote it, and a
+        // checker change rewrites the text. Thus the allowance of a typecheck
+        // compares the count of each file and code. A failure entry (a test
+        // baseline) keeps its title and message in the identity.
+        const key = (entry) =>
+          JSON.stringify([
+            entry.file,
+            entry.code,
+            entry.title,
+            current.diagnostics ? undefined : entry.message,
+          ])
+        const total = (list) => {
+          const counts = new Map()
+          for (const entry of list)
+            counts.set(
+              key(entry),
+              (counts.get(key(entry)) ?? 0) + (entry.count ?? 1),
+            )
+          return counts
+        }
+        const before = total(previous)
+        for (const [entry, count] of total(entries)) {
+          if (!before.has(entry) || count > before.get(entry)) {
+            const item = JSON.parse(entry)
             throw new Error(
-              `${path} may only shrink: ${item.file} ${item.title ?? `TS${item.code}`} expanded at ${revision ?? "working tree"}`,
+              `${path} may only shrink: ${item[0]} ${item[2] ?? `TS${item[1]}`} expanded at ${revision ?? "working tree"}`,
             )
           }
         }

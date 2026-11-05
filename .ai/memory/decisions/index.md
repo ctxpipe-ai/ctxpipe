@@ -66,5 +66,6 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-056](ADR-056-oxlint-and-oxfmt-replace-biome.md) | Oxlint and Oxfmt replace Biome: one Oxc parser ecosystem, lint and format checked in CI, recorded rule gaps | Accepted |
 | [ADR-057](ADR-057-buildkite-connector-sources-only.md) | Buildkite connector, Workspace sources only | Accepted |
 | [ADR-059](ADR-059-plain-connector-sources-only.md) | Plain connector, Workspace sources only | Accepted |
+| [ADR-060](ADR-060-typecheck-with-bun-check.md) | The Typecheck check runs `bun check`: TypeScript 6 stays the dependency, allowances compare file, code, and count | Accepted |
 
-Numbers 035 and 036 are unused. ADR-058 is reserved for the Zendesk connector. The next new ADR is 060.
+Numbers 035 and 036 are unused. ADR-058 is reserved for the Zendesk connector. The next new ADR is 061.
