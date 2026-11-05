@@ -7,7 +7,6 @@ import {
   workspaceKnowledgeUnits,
 } from "../../db/schema/workspaces.js"
 import { fetchCheckoutFileBytes } from "../../domain/codeIngestion/codesearchClient.js"
-import { chunkKnowledgeBody } from "../../domain/workspaces/knowledge-chunks.js"
 import { log } from "../../observability/logger.js"
 import { fitPage, measureResult, truncateText } from "../framework/budget.js"
 import {
@@ -104,7 +103,10 @@ async function readUnit(
       .limit(1)
     if (!row) return null
     const [first] = await db
-      .select({ startLine: workspaceKnowledgeChunks.startLine })
+      .select({
+        startLine: workspaceKnowledgeChunks.startLine,
+        text: workspaceKnowledgeChunks.text,
+      })
       .from(workspaceKnowledgeChunks)
       .where(
         and(
@@ -115,7 +117,7 @@ async function readUnit(
         ),
       )
       .limit(1)
-    const bodyStart = chunkKnowledgeBody(row.body)[0]?.startLine
+    const bodyStart = first ? bodyLineOf(row.body, first.text) : undefined
     const lineOffset =
       first && bodyStart !== undefined
         ? Math.max(0, first.startLine - bodyStart)
@@ -377,3 +379,19 @@ export const readFileTool = defineMcpReadTool({
   outputSchema: readFileOutputSchema,
   run: (input, { org }) => readFileByRef(org, input),
 })
+
+/**
+ * The 1-based body line where a stored chunk starts, or undefined. The
+ * stored text is the title and heading path, a blank line, then a slice of
+ * the body. Find that slice, not the first chunk of the current chunk rule:
+ * the stored chunks can come from an older rule (CTX-1133).
+ */
+function bodyLineOf(body: string, chunkText: string): number | undefined {
+  const split = chunkText.indexOf("\n\n")
+  for (const slice of [chunkText, chunkText.slice(split + 2)]) {
+    const at = slice ? body.indexOf(slice) : -1
+    if (at >= 0) return body.slice(0, at).split("\n").length
+    if (split < 0) break
+  }
+  return undefined
+}
