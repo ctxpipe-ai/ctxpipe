@@ -2,8 +2,8 @@
   "$comment": "The merge gate (scripts/checks/README.md, Merge gate). mode: gate (a same-repo PR runs only the selected checks, and the Merge gate job is the verdict) or shadow (the full run gates; the gated verdict is published beside it). factory: the pinned selector release (the factory commit and the SHA-256 of factory-linux-x64.tar.gz); null until the first release. acceptAgentResults: a pass that an agent or a person stored satisfies the gate. acceptPrResults: a pass of an earlier CI run of the same PR (the PR store) satisfies the gate.",
   "mode": "gate",
   "factory": {
-    "version": "6b587e2b45f65370a78e96def4988e9bc0f237d2",
-    "sha256": "c7e182516eebdf648dde8c8bfed6313d796a720d04f0669585f6aa24adf3ba8d"
+    "version": "03a1939331bc1f148b29061ca500660b26c6f189",
+    "sha256": "1075711f5b4bde1fb915014e234468a00d42a2e3386355a3a349ce1ddc3f8285"
   },
   "acceptAgentResults": true,
   "acceptPrResults": true
