@@ -1,45 +1,49 @@
 ---
 name: code-review
-description: Review the changes since a fixed point (commit, branch, tag, or merge-base) along three axes — Standards, Spec, and Simplicity. Runs the three reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to "review since X".
+description: Review a branch along the critics of `critics.json` — Standards, Spec, Simplicity, and Security when its triggers match. `factory check` runs the critics and stores their verdicts for the merge gate. This skill is the entry to it; it holds the rules of each critic. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to "review since X".
 ---
 
-Three-axis review of the diff between `HEAD` and a fixed point the user supplies:
+The critics review the diff between `HEAD` and a fixed point along separate axes:
 
 - **Standards** — does the code conform to this repo's documented coding standards?
 - **Spec** — does the code faithfully implement the originating issue / spec?
 - **Simplicity** — is the machinery essential for the job, or accidental leftover?
+- **Security** — only when the diff touches a trust surface (the `triggers` of `critics.json`).
 
-All three axes run as **parallel sub-agents** (Opus, high effort) so they don't pollute each other's context, then this skill aggregates their findings. Do **not** run the review as spec-only.
+Each axis reviews alone, so that one axis cannot hide the findings of another. Do **not** run the review as spec-only.
 
 The issue tracker should have been provided to you — run `/setup-matt-pocock-skills` if `.ai/agents/issue-tracker.md` is missing.
 
-## Process
+## Run the critics with `factory check`
 
-### 1. Pin the fixed point
+The critics are in [`critics.json`](critics.json). Each one has its intent, its triggers, and the reasons for which it may be skipped. It also has its reviewers (model and effort) and its `inputs`: the files that hold its rules and its prompt. `factory check` runs them beside the selected checks ([factory-check skill](../factory-check/SKILL.md)). Do not start review sub-agents.
 
-Whatever the user said is the fixed point — a commit SHA, branch name, tag, `main`, `HEAD~5`, etc. If they didn't specify one, ask for it.
+1. Commit the change. The critics review the committed diff of the branch against `origin/main`. The merge gate looks up their verdicts for that diff.
+2. Run `AWS_PROFILE=ctxpipe-factory factory check --repo . --input <ticket or brief file>`. It plans each critic (`run-full`, `run-delta`, `carried` or `not-applicable`, with a reason). It runs one headless reviewer for each planned reviewer, records each verdict, and prints each finding with its file and line.
+3. Fix each blocker and should-fix finding, commit, and run `factory check` again. It reviews only the hunks that changed or that had a finding; it carries the other hunks.
+4. Give the user the findings under one heading for each critic. Do not merge or rerank them (see _Why separate axes_).
 
-Capture the diff command once: `git diff <fixed-point>...HEAD` (three-dot, so the comparison is against the merge-base). Also note the list of commits via `git log <fixed-point>..HEAD --oneline`.
+Give the same `--input` files in each run of a branch. A changed ticket or brief makes the next round review every hunk again.
 
-Before going further, confirm the fixed point resolves (`git rev-parse <fixed-point>`) and the diff is non-empty. A bad ref or empty diff should fail here — not inside parallel sub-agents.
+The reviewers read the rules of each critic below through the `inputs` of `critics.json`, at the merge base. To change a review rule, change it here, not in the factory.
 
-### 2. Identify the spec source
+The merge gate checks that each critic has a stored verdict for the PR diff (job `Merge gate critics`). When it says that a critic is missing, run `factory check` on the PR head, then use **Re-run all jobs**. The gate proves that an agent recorded a review of the hunks. It does not prove that the review was sound.
 
-Look for the originating spec, in this order:
+## The rules of each critic
 
-1. Issue references in the commit messages (`#123`, `Closes #45`, GitLab `!67`, etc.) — fetch via the workflow in `.ai/agents/issue-tracker.md`.
-2. A path the user passed as an argument.
-3. A spec file under `docs/`, `specs/`, or `.scratch/`, or a Linear issue or document, matching the branch name or feature.
-4. If nothing is found, ask the user where the spec is. If they say there isn't one, the **Spec** sub-agent will skip and report "no spec available".
+The reviewers of `factory check` read this section through the `inputs` of `critics.json`. The fallback below uses it too.
 
-### 3. Identify the standards sources
+**Rules that a check decides.** The repo CI already enforces these exact cases (CTX-1120). Do not report them:
 
-Anything in the repo that documents how code should be written, such as `CODING_STANDARDS.md` or `CONTRIBUTING.md`.
+- A new ADR file that `.ai/memory/decisions/index.md` does not list: `scripts/ci/check-adr.mjs` (`policy:adr`). Whether a change needs an ADR stays a review judgement.
+- A single-use scalar constant (a string or number) at module scope: `scripts/ci/check-module-scope-values.mjs` (`policy:module-scope-values`). Arrays, objects, and calls at module scope stay a review judgement.
 
-On top of whatever the repo documents, the Standards axis always carries the **smell baseline** below — a fixed set of Fowler code smells (_Refactoring_, ch.3) that applies even when a repo documents nothing. Two rules bind it:
+**Standards critic.** The standards sources are the files in the repo that document how to write code: each `AGENTS.md`, `.ai/memory/lessons-learned.md`, and files such as `CONTRIBUTING.md`. Report, for each file or hunk, (a) each place where the diff breaks a documented standard, with the file and the rule; and (b) each baseline smell below, with its name and the hunk. A documented standard can be a hard violation. A baseline smell is always a judgement call. Skip what tooling enforces, including the two cases above.
+
+The smell baseline is a fixed set of Fowler code smells (_Refactoring_, ch.3). It applies even when a repo documents nothing. Two rules bind it:
 
 - **The repo overrides.** A documented repo standard always wins; where it endorses something the baseline would flag, suppress the smell.
-- **Always a judgement call.** Each smell is a labelled heuristic ("possible Feature Envy"), never a hard violation — and, like any standard here, skip anything tooling already enforces.
+- **Always a judgement call.** Each smell is a labelled heuristic ("possible Feature Envy"), never a hard violation.
 
 Each smell reads *what it is* → *how to fix*; match it against the diff:
 
@@ -58,41 +62,32 @@ Each smell reads *what it is* → *how to fix*; match it against the diff:
 
 A single switch that replaced a one-adapter seam is not Repeated Switches. A type that matches `.ai/memory/glossary.md` is not Primitive Obsession. Speculative Generality is a local hint; leftover analogue / “should this table exist?” belongs on **Simplicity**.
 
-### 4. Spawn three sub-agents in parallel
+**Spec critic.** Report (a) the requirements of the spec that are missing or partial; (b) the behavior in the diff that the spec did not ask for (scope creep); and (c) the requirements that look implemented, but where the implementation looks wrong. Quote the spec line for each finding.
 
-Spawn all three on Opus at high effort (use the harness's own name for the model and effort setting). Always spawn **Simplicity**. Skip Spec only when step 2 found no spec.
+**Security critic.** Review only the trust surfaces that the `intent` of `critics.json` names. Report each place where the diff does one of these:
 
-**Rules that a check decides.** The repo CI already enforces these exact cases (CTX-1120). Do not report them:
+- It gives a job, a token, or a role more permission than its job needs. Or it gives a credential to a job that runs PR code, or to a third-party action that is not pinned by commit.
+- It breaks the GitHub environment rules of `AGENTS.md`: `Production` and `Preview` share a credential, or a check that calls an outside service does not use `workbench`.
+- It lets one organization read or change the data of another organization, or it skips an auth check.
+- It trusts data that a less trusted writer can make (PR code, a fork, an artifact found by name, a model answer) for a decision that needs trust.
+- It sends a secret, a customer identifier, or private data to a public artifact, a log, a PR comment, or an outside provider (_Customer privacy_ in `AGENTS.md`).
+- It runs new code at install, at check listing, or at check discovery.
 
-- A new ADR file that `.ai/memory/decisions/index.md` does not list: `scripts/ci/check-adr.mjs` (`policy:adr`). Whether a change needs an ADR stays a review judgement.
-- A single-use scalar constant (a string or number) at module scope: `scripts/ci/check-module-scope-values.mjs` (`policy:module-scope-values`). Arrays, objects, and calls at module scope stay a review judgement.
+For each finding, give the writer who can do it, the effect, and the fix. A guardrail bypass inside a sandbox is not a finding: the sandbox is the security boundary. A change that keeps the same trust is not a finding.
 
-**Standards sub-agent prompt** — include:
+**Simplicity critic.** Apply each rule of [`.agents/skills/simplicity-audit/REVIEW-BRIEF.md`](../simplicity-audit/REVIEW-BRIEF.md) to the diff, and report in the shape of that brief. Spec-match is not a defense.
 
-- The full diff command and commit list.
-- The list of standards-source files you found in step 3, **plus the smell baseline from step 3** pasted in full — the sub-agent has no other access to it.
-- The brief: "Report — per file/hunk where relevant — (a) every place the diff violates a documented standard: cite the standard (file + the rule); and (b) any baseline smell you spot: name it and quote the hunk. Distinguish hard violations from judgement calls — documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces, including the two cases that a check decides (list above). Under 400 words."
+## Without the factory
 
-**Spec sub-agent prompt** — include:
+Use this procedure only when `factory` is not installed (for example, for a contributor from a fork). You are the one agent. Do not start sub-agents.
 
-- The diff command and commit list.
-- The path or fetched contents of the spec.
-- The brief: "Report: (a) requirements the spec asked for that are missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong. Quote the spec line for each finding. Under 400 words."
+1. Get the fixed point from the user. If the user gave none, ask for it. Make sure that `git rev-parse <fixed-point>` resolves and that `git diff <fixed-point>...HEAD` is not empty. Read the diff and `git log <fixed-point>..HEAD`.
+2. Find the spec: an issue in the commit messages (use `.ai/agents/issue-tracker.md`), a path from the user, or a Linear issue or document for the branch. If you find none, ask the user. If there is none, skip Spec.
+3. Review the diff on one axis at a time, in this order: Standards, Spec, Simplicity. Use the rules of that critic above. Write the findings of an axis before you start the next axis.
+4. When the diff touches a trust surface (the `triggers` of `critics.json`), review Security with the rules of the Security critic above.
+5. Give the findings under `## Standards`, `## Spec`, `## Simplicity` and, when step 4 ran, `## Security`. Do not merge or rerank them. If you skipped Spec or Security, say so. End with one line: the count of findings and the worst finding of each axis.
 
-**Simplicity sub-agent prompt** — include:
-
-- The full diff command and commit list.
-- The spec path or a note that none was found.
-- The **entire** contents of [`.agents/skills/simplicity-audit/REVIEW-BRIEF.md`](../simplicity-audit/REVIEW-BRIEF.md), pasted in full — the sub-agent has no other access to it.
-- The brief: "You are the Simplicity axis. Apply every rule in the pasted brief to this diff. Report in the brief's shape. Spec-match is not a defense."
-
-### 5. Aggregate
-
-Present the reports under `## Standards`, `## Spec`, and `## Simplicity`, verbatim or lightly cleaned. Do **not** merge or rerank findings — the axes are deliberately separate (see _Why three axes_). If Spec was skipped, say so under `## Spec`.
-
-End with a one-line summary: total findings per axis, and the worst issue _within each axis_ (if any). Don't pick a single winner across axes — that's the reranking the separation exists to prevent.
-
-## Why three axes
+## Why separate axes
 
 A change can pass one axis and fail another:
 

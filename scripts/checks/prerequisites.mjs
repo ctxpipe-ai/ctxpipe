@@ -421,6 +421,18 @@ export const prerequisites = {
   },
 }
 
+// The names, then each prerequisite that they need, directly or not. The
+// manifest lists this closure, so that a selector can see that a check needs
+// Docker (for example through the chat sandbox image) and leave it to CI on a
+// host where Docker does not answer.
+export function withNeeds(names) {
+  const out = [...names]
+  for (let i = 0; i < out.length; i++)
+    for (const need of prerequisites[out[i]]?.needs ?? [])
+      if (!out.includes(need)) out.push(need)
+  return out
+}
+
 // Makes or verifies the named prerequisites and the ones that they need,
 // each once, in order. Returns a map from each name to its error message;
 // a name whose prerequisite failed fails too, and is not tried.
