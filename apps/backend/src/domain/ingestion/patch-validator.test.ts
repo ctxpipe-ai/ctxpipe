@@ -604,6 +604,26 @@ const ruleCases: RuleCase[] = [
     accepted: ["knowledge/services/data-models.md"],
   },
   {
+    rule: "heading_denylist",
+    name: "accepts a heading that only names a model product, and rejects one that addresses it (CTX-1134)",
+    files: {
+      "knowledge/services/plugin.md": service(
+        "Plugin",
+        "# Plugin\n\n## Claude plugin MCP distribution\n\n### Gemini and GPT-5 support\n\nText.\n",
+      ),
+      "knowledge/services/vocative.md": service(
+        "Vocative",
+        "# Vocative\n\n## Claude, read this first\n\nText.\n",
+      ),
+      "knowledge/services/note.md": service(
+        "Note",
+        "# Note\n\n## Note to Gemini\n\nText.\n",
+      ),
+    },
+    rejected: ["knowledge/services/note.md", "knowledge/services/vocative.md"],
+    accepted: ["knowledge/services/plugin.md"],
+  },
+  {
     rule: "suspected_injection",
     name: "rejects injection phrases outside quotes",
     files: {
