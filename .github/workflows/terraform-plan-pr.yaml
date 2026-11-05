@@ -42,6 +42,10 @@ jobs:
     outputs:
       current: ${{ steps.resolve.outputs.current }}
       base_sha: ${{ steps.resolve.outputs.base_sha }}
+      # The plan job downloads this artifact by its id: a reusable workflow
+      # shares the artifact names of the whole ci.yaml run, and other jobs of
+      # that run execute PR code.
+      artifact_id: ${{ steps.keep.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -70,6 +74,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: infra
       - name: Keep the Terraform code
+        id: keep
         if: steps.resolve.outputs.current == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -85,7 +90,11 @@ jobs:
     timeout-minutes: 30
     name: Terraform Plan (PR)
     needs: resolve
-    if: needs.resolve.outputs.current == 'true'
+    # An empty artifact id would make the download take every artifact of the
+    # run, so the job needs the id.
+    if: |
+      needs.resolve.outputs.current == 'true' &&
+      needs.resolve.outputs.artifact_id != ''
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     defaults:
       run:
@@ -112,11 +121,12 @@ jobs:
       # The Resolve job checked out the merge of the PR into its base, as the
       # pull_request trigger planned it. A job with the state keys checks out
       # only the workflow commit (check-secret-jobs.mjs), so it takes the
-      # Terraform code from the artifact of that job.
+      # Terraform code from the artifact of that job, by its id.
       - name: Download the Terraform code
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: terraform-plan-infra
+          artifact-ids: ${{ needs.resolve.outputs.artifact_id }}
+          merge-multiple: true
           path: infra
 
       - name: Setup Terraform

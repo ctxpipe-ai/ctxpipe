@@ -11,7 +11,7 @@ set -euo pipefail
 comment="${1:?usage: mcp-evals-reminder.sh <comment-file>}"
 # No comment text (the decision failed): the comment step posts nothing new.
 [ -f "$comment" ] || exit 0
-files="$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename')"
+files="$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')"
 if ! grep -q '^apps/backend/src/mcp/' <<<"$files"; then
   exit 0
 fi

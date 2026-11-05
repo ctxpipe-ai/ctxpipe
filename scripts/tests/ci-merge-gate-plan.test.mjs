@@ -751,6 +751,17 @@ test("each job of the plan needs the plan job, starts only with its output, and 
   )
   assert.doesNotMatch(terraformWorkflow, /^ {2}pull_request:/m)
   assert.match(terraformWorkflow, /^ {2}workflow_call:/m)
+  // The plan job takes the code by artifact id: a reusable workflow shares the
+  // artifact names of the run, and other jobs of the run execute PR code.
+  assert.match(
+    terraformWorkflow,
+    /artifact-ids: \$\{\{ needs\.resolve\.outputs\.artifact_id \}\}/,
+  )
+  assert.match(terraformWorkflow, /artifact_id != ''/)
+  assert.doesNotMatch(
+    terraformWorkflow,
+    /download-artifact[^\n]*\n\s+with:\n\s+name:/,
+  )
   assert.match(terraformWorkflow, /^ {2}workflow_dispatch:/m)
   // A failed plan job gives no mode: the run is full, so PR Deploy starts.
   assert.ok(

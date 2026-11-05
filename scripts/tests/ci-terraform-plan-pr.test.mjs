@@ -299,6 +299,24 @@ test("the evals reminder shows for a change under apps/backend/src/mcp/ without 
   }
 })
 
+test("the evals reminder shows when a file moves out of apps/backend/src/mcp/", () => {
+  const dir = setup({
+    api: {
+      [`repos/${repo}/pulls/7/files`]: [
+        {
+          filename: "apps/backend/src/tools.ts",
+          previous_filename: "apps/backend/src/mcp/tools.ts",
+        },
+      ],
+      [`repos/${repo}/issues/7/labels`]: [],
+    },
+  })
+  const comment = join(dir, "comment.md")
+  writeFileSync(comment, "<!-- merge-gate -->\n")
+  run("mcp-evals-reminder.sh", dir, { REPO: repo, PR: "7" }, [comment])
+  assert.match(readFileSync(comment, "utf8"), /\*\*MCP evals:\*\*/)
+})
+
 test("the evals reminder stays away with the label or without an MCP change", () => {
   const labeled = remind({
     names: ["apps/backend/src/mcp/tools.ts"],

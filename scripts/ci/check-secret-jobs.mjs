@@ -329,7 +329,8 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     // The Resolve job checks out the merge commit (it holds no secret) and
     // uploads infra/. The plan job may check out only the workflow commit, and
     // it already runs branch Terraform code: the reviewers of the
-    // terraform-plan environment are the boundary.
+    // terraform-plan environment are the boundary. The job downloads the
+    // artifact by its id, so another job of the run cannot replace it.
     "terraform-plan-pr.yaml:terraform-plan",
   ])
   for (const job of jobs) {
