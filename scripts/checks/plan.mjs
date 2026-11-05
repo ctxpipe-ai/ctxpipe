@@ -314,8 +314,6 @@ export function fallbackOf({ mode, selection, inputs, needs }) {
 // gate mode and the selector gave a selection; else the run is full.
 // `deploy` is true when the merge gate starts PR Deploy: in gate mode,
 // PR Deploy runs on a push only when the merge gate starts it.
-// `terraformPlan` is true when the plan selects the Terraform plan check: the
-// merge gate then starts terraform-plan-pr.yaml.
 export function plan({ config, inputs, needs, store, fork }) {
   const mode = readJson(join(inputs, "mode.json"))
   const select = readJson(join(inputs, "selection.json"))
@@ -329,7 +327,6 @@ export function plan({ config, inputs, needs, store, fork }) {
       reason: fallback,
       outputs: {},
       deploy: gate && !fork,
-      terraformPlan: false,
     }
   let selection = combine(
     select,
@@ -376,6 +373,5 @@ export function plan({ config, inputs, needs, store, fork }) {
     outputs,
     shards: gate ? packing(ran, seconds) : {},
     deploy: gate && !fork && ran.some((id) => id.startsWith("deploy:")),
-    terraformPlan: gate && !fork && ran.includes("policy:terraform-plan:infra/main.tf"),
   }
 }

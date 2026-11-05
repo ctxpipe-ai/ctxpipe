@@ -1,9 +1,8 @@
 # Terraform speculative plans on infra PRs.
 #
-# The merge gate of ci.yaml starts this workflow on the PR branch when its
-# plan selects the check policy:terraform-plan:infra/main.tf (job
-# merge-gate-terraform-plan), so a PR that changes no Terraform input never
-# starts it. A person can start it with Run workflow from the PR branch.
+# The merge gate of ci.yaml starts this workflow on the PR branch when the PR
+# changes a file under infra/ (job merge-gate-terraform-plan), in every mode
+# of the gate. A person can start it with Run workflow from the PR branch.
 #
 # Security: terraform plan executes provider/external code with secrets present. Assign this job to a
 # GitHub Environment named below and enable required reviewers under repo Settings → Environments
@@ -36,10 +35,12 @@ jobs:
       current: ${{ steps.resolve.outputs.current }}
       base_sha: ${{ steps.resolve.outputs.base_sha }}
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/resolve-terraform-plan-pr.sh
       - name: Resolve
         id: resolve
-        # The script reads each context value from the environment, never from
-        # an inline expression, so a branch name or an input stays data.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -47,32 +48,26 @@ jobs:
           BRANCH: ${{ github.ref_name }}
           REF: ${{ github.ref }}
           RUN_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          if [[ ! "$INPUT_PR_NUMBER" =~ ^[0-9]+$ ]]; then
-            echo "The pr_number input must be a number" >&2
-            exit 1
-          fi
-          PR_JSON="$(gh api "repos/${REPO}/pulls/${INPUT_PR_NUMBER}")"
-          # Only branches of this repository (not forks): the plan runs the
-          # code of the branch with the state keys.
-          if [[ "$(jq -r .head.repo.full_name <<<"$PR_JSON")" != "$REPO" ]]; then
-            echo "::error::Refusing to plan fork PR #${INPUT_PR_NUMBER}"
-            exit 1
-          fi
-          if [[ "$(jq -r .head.ref <<<"$PR_JSON")" != "$BRANCH" || "$REF" != "refs/heads/${BRANCH}" ]]; then
-            echo "::error::Run this workflow from the branch of PR #${INPUT_PR_NUMBER}, not from ${BRANCH}."
-            exit 1
-          fi
-          echo "base_sha=$(jq -r .base.sha <<<"$PR_JSON")" >> "$GITHUB_OUTPUT"
-          # A newer push started its own run of the merge gate. This run is
-          # stale: it would plan old code and replace the newer comment.
-          if [[ "$(jq -r .head.sha <<<"$PR_JSON")" != "$RUN_SHA" ]]; then
-            echo "::notice::The PR head moved on; a newer run plans it"
-            echo "current=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "current=true" >> "$GITHUB_OUTPUT"
-          fi
+        run: bash scripts/ci/resolve-terraform-plan-pr.sh
+      # The merge commit has the head of this run as a parent (the script
+      # checks it). This job holds no secret, so it can check out that commit.
+      - name: Check out the merge commit
+        if: steps.resolve.outputs.current == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ steps.resolve.outputs.merge_sha }}
+          path: merged
+          persist-credentials: false
+          sparse-checkout: infra
+      - name: Keep the Terraform code
+        if: steps.resolve.outputs.current == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: terraform-plan-infra
+          path: merged/infra
+          include-hidden-files: true
+          retention-days: 1
+          if-no-files-found: error
 
   terraform-plan:
     timeout-minutes: 30
@@ -102,8 +97,15 @@ jobs:
       # No secret value: Terraform does not hold the app secrets
       # (scripts/railway-sync-variables.mjs writes them to Railway).
     steps:
-      - name: Checkout repository
-        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
+      # The Resolve job checked out the merge of the PR into its base, as the
+      # pull_request trigger planned it. A job with the state keys checks out
+      # only the workflow commit (check-secret-jobs.mjs), so it takes the
+      # Terraform code from the artifact of that job.
+      - name: Download the Terraform code
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: terraform-plan-infra
+          path: infra
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3

@@ -1593,7 +1593,6 @@ jobs:
     outputs:
       mode: ${{ steps.plan.outputs.mode }}
       deploy: ${{ steps.plan.outputs.deploy }}
-      terraform-plan: ${{ steps.plan.outputs.terraform-plan }}
       typecheck: ${{ steps.plan.outputs.typecheck }}
       test-shards: ${{ steps.plan.outputs.test-shards }}
       package-tests: ${{ steps.plan.outputs.package-tests }}
@@ -1686,40 +1685,35 @@ jobs:
           fi
           gh workflow run pr-deploy.yaml --repo "$REPO" --ref "$BRANCH" -f pr_number="$PR"
 
-  # Starts terraform-plan-pr.yaml on the PR branch when the plan selects the
-  # Terraform plan check. A run that is not gated (a full run, or a failed
-  # plan job) has no selection, so the job starts the plan only when the PR
-  # changes a file under infra/. It runs no repository code.
+  # Starts terraform-plan-pr.yaml on the PR branch when the PR changes a file
+  # under infra/. It does not depend on the selection or the mode: the check
+  # of the plan has the lockfile among its inputs, and a lockfile change must
+  # not ask the reviewers of the terraform-plan environment for approval. A
+  # stacked PR (a base other than main) does not run ci.yaml, so it gets no
+  # plan: a person uses Run workflow. The job runs only the one script.
   merge-gate-terraform-plan:
     timeout-minutes: 5
     name: Merge gate starts the Terraform plan
-    needs: merge-gate-plan
     if: |
-      !cancelled() &&
-      (needs.merge-gate-plan.outputs.terraform-plan == 'true' ||
-      needs.merge-gate-plan.outputs.mode != 'gate') &&
+      github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
       actions: write
+      contents: read
       pull-requests: read
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/start-terraform-plan.sh
       - name: Start the Terraform plan on the PR branch
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           BRANCH: ${{ github.head_ref }}
           PR: ${{ github.event.pull_request.number }}
-          SELECTED: ${{ needs.merge-gate-plan.outputs.terraform-plan }}
-        run: |
-          if [ "$SELECTED" != true ]; then
-            files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename')
-            if ! grep -q '^infra/' <<<"$files"; then
-              echo "::notice::The PR changes no file under infra/; no Terraform plan"
-              exit 0
-            fi
-          fi
-          gh workflow run terraform-plan-pr.yaml --repo "$REPO" --ref "$BRANCH" -f pr_number="$PR"
+        run: bash scripts/ci/start-terraform-plan.sh
 
   # Publishes the decision of each PR run: the job summary, the artifact
   # merge-gate-decision, and one PR comment that it updates. In gate mode
@@ -1868,6 +1862,16 @@ jobs:
             ${{ runner.temp }}/decision/decision.json
             ${{ runner.temp }}/inputs/selection.json
           if-no-files-found: warn
+      # The evals call paid models: only the label starts them. The reminder
+      # reads the PR files and labels, so it shows in every mode.
+      - name: Remind the author of the MCP evals
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: bash scripts/ci/mcp-evals-reminder.sh "$RUNNER_TEMP/decision/comment.md"
       # A fork PR has a read-only token, so it gets only the summary.
       - name: Post or update the PR comment
         if: always() && github.event.pull_request.head.repo.full_name == github.repository

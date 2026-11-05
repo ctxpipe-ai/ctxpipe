@@ -40,7 +40,6 @@ const lint = "lint:oxlint:.oxlintrc.json"
 const image = "build:image-ui:apps/ui/Dockerfile"
 const evalCase = "eval:mcp:apps/backend/evals/mcp/cases.ts#stale-cursor"
 const deploy = "deploy:preview:.github/workflows/pr-deploy.yaml"
-const terraformPlan = "policy:terraform-plan:infra/main.tf"
 const omitted = "vitest:backend:apps/backend/src/e.test.ts"
 
 const check = (id, reason = { kind: "changed" }) => ({
@@ -162,24 +161,6 @@ test("the plan takes the LLM selection with the cache lookup of the select job",
   assert.equal(planned.selection.llm.change, "renames a UI prop")
   // The LLM added the deployment, so the merge gate starts PR Deploy.
   assert.equal(planned.deploy, true)
-  // No selected check is the Terraform plan.
-  assert.equal(planned.terraformPlan, false)
-})
-
-test("the merge gate starts the Terraform plan only when the plan selects it", () => {
-  const llm = llmRecord()
-  const files = {
-    "llm-selection.json": {
-      ...llm,
-      selected: [...llm.selected, check(terraformPlan)],
-    },
-  }
-  const selected = planOf({ files })
-  assert.ok(selected.ran.includes(terraformPlan))
-  assert.equal(selected.terraformPlan, true)
-  // A fork PR never starts it, and a plan that is not gated gives no selection.
-  assert.equal(planOf({ files, fork: true }).terraformPlan, false)
-  assert.equal(planOf({ files, mode: "shadow" }).terraformPlan, false)
 })
 
 test("a failed LLM job, an invalid LLM record or a provider fallback keeps the deterministic selection", () => {
@@ -508,7 +489,6 @@ test("the PR comment shows the selection, the hits, the LLM decisions and the mi
     "<summary>Omitted (2)</summary>",
     "a full run about",
     "**Shards:** `test-shards` 1 of 9 (about",
-    "**MCP evals:**",
   ])
     assert.ok(text.includes(part), part)
 })
@@ -745,15 +725,13 @@ test("each job of the plan needs the plan job, starts only with its output, and 
   assert.doesNotMatch(gate, /\n {4}continue-on-error:/)
   assert.match(gate, /\n {4}if: \|\n {6}always\(\) && /)
   // The Terraform plan workflow has no pull_request trigger: only the merge
-  // gate starts it, for a same-repository PR, when the plan selects it. A run
-  // that is not gated starts it only when the PR changes a file under infra/.
+  // gate starts it, for a same-repository PR, whatever the mode or the
+  // selection (scripts/ci/start-terraform-plan.sh decides from the files).
   const terraform = job("merge-gate-terraform-plan")
-  assert.ok(
-    terraform.includes("needs.merge-gate-plan.outputs.terraform-plan == 'true'"),
-  )
-  assert.ok(terraform.includes("needs.merge-gate-plan.outputs.mode != 'gate'"))
+  assert.doesNotMatch(terraform, /\n {4}needs:/)
+  assert.doesNotMatch(terraform, /merge-gate-plan/)
   assert.ok(terraform.includes("head.repo.full_name == github.repository"))
-  assert.ok(terraform.includes("grep -q '^infra/'"))
+  assert.ok(terraform.includes("scripts/ci/start-terraform-plan.sh"))
   const terraformWorkflow = readFileSync(
     join(root, ".github/workflows/terraform-plan-pr.yaml"),
     "utf8",
