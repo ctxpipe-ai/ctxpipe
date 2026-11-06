@@ -103,13 +103,12 @@ export function singleUseValues(fileName, text) {
 
 function main() {
   const root = resolve(process.argv[2] ?? ".")
-  const baselinePath = join(
-    root,
-    "scripts/ci/module-scope-values-baseline.json",
+  const baseline = JSON.parse(
+    readFileSync(
+      join(root, "scripts/ci/module-scope-values-baseline.json"),
+      "utf8",
+    ),
   )
-  const baseline = existsSync(baselinePath)
-    ? JSON.parse(readFileSync(baselinePath, "utf8"))
-    : {}
   // Tracked and untracked files, so that uncommitted work is checked too.
   const files = execFileSync(
     "git",

@@ -222,7 +222,8 @@ const definitions = () => [
     ],
     [
       "module-scope-values",
-      ["apps/**", "packages/**", "scripts/**"],
+      // .gitignore decides which untracked files the check reads.
+      ["apps/**", "packages/**", "scripts/**", ".gitignore"],
       "Catches a new module-scope string or number constant that the file reads once, which AGENTS.md says to inline. Run it when app, package, or script source changes; never for a change only to tests or docs.",
     ],
   ].map(([lane, reads, intent]) => {
