@@ -1564,7 +1564,7 @@ jobs:
             # text of a dispute is redacted: the factory accepts a stored
             # dispute record only when each text value is redacted.
             echo "the critics record did not parse" > "$out/critics-cause.txt"
-            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}], disputes: [(.disputes // [])[] | {finding, critic, severity, file, line, summary, outcome, decidedBy, reason}]}]}' \
+            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}], disputes: [(.disputes // [])[] | {finding, critic, severity, file, line, summary, outcome, decidedBy, implementer, reason}]}]}' \
               "$RUNNER_TEMP/critics.json" > "$RUNNER_TEMP/critics.min.json"
             mv "$RUNNER_TEMP/critics.min.json" "$out/critics.json"
             rm "$out/critics-cause.txt"

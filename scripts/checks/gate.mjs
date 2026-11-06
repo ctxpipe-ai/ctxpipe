@@ -756,7 +756,7 @@ function disputesText(checked) {
       ? answer.url
         ? `[comment](${answer.url})`
         : "a PR comment"
-      : code(decision.decidedBy ?? "")
+      : `${code(decision.decidedBy ?? "")}${decision.implementer?.length ? ` (implementer: ${code(decision.implementer.join("+"))})` : ""}`
     const place = decision.line
       ? `${decision.file}:${decision.line}`
       : decision.file
@@ -764,6 +764,10 @@ function disputesText(checked) {
       `| ${code(decision.finding)} | ${code(decision.critic)} | ${code(decision.severity)} | ${code(place ?? "")} | ${code(redact(decision.summary ?? ""))} | ${outcome} | ${by} | ${code(redact(answer?.reason ?? decision.reason ?? ""))} |`,
     )
   }
+  lines.push(
+    "",
+    "The agent host stores each dispute outcome and who decided it: like a verdict, it is attested, not verified.",
+  )
   return lines
 }
 

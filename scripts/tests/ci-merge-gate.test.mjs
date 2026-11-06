@@ -1461,6 +1461,7 @@ test("an escalated dispute passes only with an override of a ctxpipe developer f
           decision("f:0123abcd", "escalated"),
           decision("f:99999999", "overruled", {
             decidedBy: "gpt-6.1-sol",
+            implementer: ["claude"],
             reason: "the rule allows it",
           }),
         ],
@@ -1501,6 +1502,10 @@ test("an escalated dispute passes only with an override of a ctxpipe developer f
     text,
   )
   assert.ok(text.includes("`the rule allows it`"), text)
+  // The arbiter shows beside the implementer's family, and the outcomes are
+  // marked as attested.
+  assert.ok(text.includes("`gpt-6.1-sol` (implementer: `claude`)"), text)
+  assert.ok(text.includes("it is attested, not verified"), text)
   // Each row shows the text of the finding.
   assert.ok(text.includes("`rename it`"), text)
   // These do not count: a bot or an app, an author without write access, an
