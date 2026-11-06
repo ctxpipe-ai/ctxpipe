@@ -141,6 +141,7 @@ describe("redactOAuthParams", () => {
     expect(r.refresh_token_present).toBe(true)
     expect(r.refresh_token_len).toBe(12)
     expect(JSON.stringify(r)).not.toContain("abc123secret")
+    expect(Object.keys(r)).toContain("client_id")
     expect(r.refresh_token).toBeUndefined()
   })
 })
