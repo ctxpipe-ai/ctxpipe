@@ -36,7 +36,14 @@ You cannot close a finding alone. When you think that a blocker or should-fix fi
 1. Write a file such as `{"disputes": [{"finding": "f:0123abcd", "kind": "factual", "reason": "...", "evidence": {"kind": "code", "path": "src/a.ts", "line": 12}}]}`. `finding` is the id that `factory check` prints before the finding. `kind` is `factual`, `rule-unseen`, `stale`, `duplicate`, `out-of-scope` (add `"followUp": "CTX-123"`, the follow-up ticket), or `rule-or-scope`.
 2. Give evidence: a `rule` (`AGENTS.md`, an ADR, a skill or `lessons-learned.md` as it is on `main` before the PR), a `test` that disproves the finding, or `code` that the critic missed. A rule that the PR adds or changes is not evidence. A dispute without valid evidence counts as no answer.
 3. Run `factory check --repo . --input <ticket> --disputes <file> --implementer <your model>`. The same critic withdraws or upholds the finding. A model of another family arbitrates an upheld should-fix.
-4. A ctxpipe developer decides a disputed blocker, a Security finding, a dispute about a rule or the ticket scope, a dispute that the arbiter upholds, and the same rule dispute on a second PR. `factory check` creates a Linear issue for each one (status "Waiting for human") as the `factory` app user of the host and prints `ESCALATED` with the issue id. The merge gate waits. A developer answers in the issue with a comment whose first line is `override: <reason>` or `accept: <reason>` (then fix it).
+4. In some cases, only a ctxpipe developer can decide. The cases are:
+   - You dispute a blocker.
+   - You dispute a Security finding.
+   - Your dispute is about a rule or about the ticket scope.
+   - The arbiter upholds the finding.
+   - Another PR disputed the same finding with the same rule. A rule can be missing.
+5. For each of these cases, `factory check` creates a Linear issue in the status "Waiting for human". The `factory` app user of the host creates the issue. `factory check` prints `ESCALATED` and the issue id.
+6. The merge gate waits. A developer answers in the issue. The first line of the comment is `override: <reason>` (the finding is overruled) or `accept: <reason>` (the finding stays). After an `accept`, fix the finding.
 
 The merge gate comment lists each disputed finding with its outcome, who decided it and why.
 
