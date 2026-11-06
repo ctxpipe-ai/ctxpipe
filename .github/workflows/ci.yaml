@@ -1379,8 +1379,7 @@ jobs:
     needs: merge-gate-manifest
     if: needs.merge-gate-manifest.outputs.mode == 'select'
     continue-on-error: true
-    # amd64: the factory CLI release is linux-x64 only.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       actions: read
@@ -1420,7 +1419,7 @@ jobs:
           echo "the download of the selector release $version failed" > "$cause"
           aws s3api get-object --bucket ctxpipe-factory-check-results-134416647419 \
             --expected-bucket-owner 134416647419 \
-            --key "releases/factory/$version/factory-linux-x64.tar.gz" \
+            --key "releases/factory/$version/factory-linux-arm64.tar.gz" \
             "$RUNNER_TEMP/factory.tar.gz" > /dev/null
           echo "the selector release does not match the pinned SHA-256" > "$cause"
           echo "$sha256  $RUNNER_TEMP/factory.tar.gz" | sha256sum --check --strict
@@ -1495,8 +1494,7 @@ jobs:
     if: |
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    # amd64: the factory CLI release is linux-x64 only.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       id-token: write
@@ -1523,7 +1521,7 @@ jobs:
           echo "the download of the factory release $version failed" > "$cause"
           aws s3api get-object --bucket ctxpipe-factory-check-results-134416647419 \
             --expected-bucket-owner 134416647419 \
-            --key "releases/factory/$version/factory-linux-x64.tar.gz" \
+            --key "releases/factory/$version/factory-linux-arm64.tar.gz" \
             "$RUNNER_TEMP/factory.tar.gz" > /dev/null
           echo "the factory release does not match the pinned SHA-256" > "$cause"
           echo "$sha256  $RUNNER_TEMP/factory.tar.gz" | sha256sum --check --strict
@@ -1583,8 +1581,7 @@ jobs:
     if: needs.merge-gate-select.result == 'success'
     continue-on-error: true
     environment: workbench
-    # amd64: the factory CLI release is linux-x64 only.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       actions: read
@@ -2116,8 +2113,7 @@ jobs:
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
       needs.merge-gate-manifest.result == 'success' && needs.trace.result == 'success'
     continue-on-error: true
-    # amd64: the factory CLI release is linux-x64 only.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       id-token: write
@@ -2172,7 +2168,7 @@ jobs:
           sha256="$(jq -er .factory.sha256 .github/merge-gate.json)"
           aws s3api get-object --bucket ctxpipe-factory-check-results-134416647419 \
             --expected-bucket-owner 134416647419 \
-            --key "releases/factory/$version/factory-linux-x64.tar.gz" \
+            --key "releases/factory/$version/factory-linux-arm64.tar.gz" \
             "$RUNNER_TEMP/factory.tar.gz" > /dev/null
           echo "$sha256  $RUNNER_TEMP/factory.tar.gz" | sha256sum --check --strict
           mkdir -p "$RUNNER_TEMP/bin"

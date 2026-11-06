@@ -1,9 +1,9 @@
 {
-  "$comment": "The merge gate (scripts/checks/README.md, Merge gate). mode: gate (a same-repo PR runs only the selected checks, and the Merge gate job is the verdict) or shadow (the full run gates; the gated verdict is published beside it). factory: the pinned selector release (the factory commit and the SHA-256 of factory-linux-x64.tar.gz); null until the first release. acceptAgentResults: a pass that an agent or a person stored satisfies the gate. acceptPrResults: a pass of an earlier CI run of the same PR (the PR store) satisfies the gate.",
+  "$comment": "The merge gate (scripts/checks/README.md, Merge gate). mode: gate (a same-repo PR runs only the selected checks, and the Merge gate job is the verdict) or shadow (the full run gates; the gated verdict is published beside it). factory: the pinned selector release (the factory commit and the SHA-256 of factory-linux-arm64.tar.gz); null until the first release. acceptAgentResults: a pass that an agent or a person stored satisfies the gate. acceptPrResults: a pass of an earlier CI run of the same PR (the PR store) satisfies the gate.",
   "mode": "gate",
   "factory": {
-    "version": "91726f7068db404c3a8533b8cc014992a8dc2f7a",
-    "sha256": "28419b376c745d28845369fdd66d8cbbf5798e7a4a70a2c5923bc1b3bf7bd5cd"
+    "version": "6384ceb67cd8c6dfd6fc6aad7b0a9e9b0ee6fc8c",
+    "sha256": "e6dc96bc904d5b64467fb72d89899a664b65f0441801ac8aa55f4238a472f9d0"
   },
   "acceptAgentResults": true,
   "acceptPrResults": true
