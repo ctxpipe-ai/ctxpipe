@@ -1386,6 +1386,11 @@ test("the critics cause and the log of factory review gate hold no URL or creden
     redact("the store failed: AccessDenied"),
     "the store failed: AccessDenied",
   )
+  const json = redact(
+    '{"token":"abc123","password": "made-up!pass"} Authorization: Basic dXNlcjpwYXNz',
+  )
+  for (const leak of ["abc123", "made-up!pass", "dXNlcjpwYXNz"])
+    assert.ok(!json.includes(leak), `${leak}: ${json}`)
   // The critics job redacts with sed before the line reaches the log or the
   // cause file: the same rules as redact.
   const ci = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
@@ -1394,6 +1399,7 @@ test("the critics cause and the log of factory review gate hold no URL or creden
   for (const sample of [
     line,
     "token xyz and password=hunter2 sk-abc123 eyJhbGciOi.x.y",
+    '{"token":"abc123","password": "made-up!pass", "key":1} Authorization: Basic dXNlcjpwYXNz',
     "plain text, a path src/a.ts:12",
   ]) {
     const run = spawnSync("bash", ["-c", `${fn}\nredact`], {
@@ -1456,6 +1462,8 @@ test("an escalated dispute passes only with an override of a ctxpipe developer f
     body,
     user: { type: "User" },
     permission: "write",
+    editedByAuthor: true,
+    prAuthor: false,
     ...extra,
   })
   const check = (comments) =>
@@ -1477,6 +1485,8 @@ test("an escalated dispute passes only with an override of a ctxpipe developer f
     text,
   )
   assert.ok(text.includes("`the rule allows it`"), text)
+  // Each row shows the text of the finding.
+  assert.ok(text.includes("`rename it`"), text)
   // These do not count: a bot or an app, an author without write access, an
   // id that this round does not escalate, an override without a reason, and
   // a comment whose current text (after an edit) holds no command.
@@ -1487,6 +1497,16 @@ test("an escalated dispute passes only with an override of a ctxpipe developer f
     [comment("/critic override f:aaaaaaaa fine")],
     [comment("/critic override f:0123abcd")],
     [comment("edited: I take back /critic override f:0123abcd fine")],
+    // Another account (a bot or an app) edited a developer's comment.
+    [comment("/critic override f:0123abcd fine", { editedByAuthor: false })],
+    [
+      comment("/critic override f:0123abcd fine", {
+        editedByAuthor: undefined,
+      }),
+    ],
+    // The PR author is the login that the implementer agent uses.
+    [comment("/critic override f:0123abcd fine", { prAuthor: true })],
+    [comment("/critic override f:0123abcd fine", { prAuthor: undefined })],
   ])
     assert.deepEqual(
       check(comments).missing,

@@ -519,7 +519,7 @@ export function redact(text) {
   return String(text)
     .replace(/[A-Za-z][A-Za-z0-9+.-]*:\/\/\S+/g, "[REDACTED-URL]")
     .replace(
-      /(^|[^A-Za-z0-9_])(Bearer|bearer|token|Token)\s+\S+/g,
+      /(^|[^A-Za-z0-9_])(Basic|basic|Bearer|bearer|token|Token)\s+\S+/g,
       "$1$2 [REDACTED]",
     )
     .replace(
@@ -527,30 +527,31 @@ export function redact(text) {
       "[REDACTED]",
     )
     .replace(
-      /([A-Za-z_]*(?:key|token|secret|password|credential)[A-Za-z_]*)=\S+/gi,
-      "$1=[REDACTED]",
+      /("?[A-Za-z_]*(?:key|token|secret|password|credential|authorization)[A-Za-z_]*"?\s*[=:]\s*)"?[^\s",}]+"?/gi,
+      "$1[REDACTED]",
     )
     .replace(/[A-Za-z0-9/+_=-]{32,}/g, "[REDACTED]")
 }
-
-// The repo permissions whose holder may answer an escalated dispute: a
-// ctxpipe developer with write access or more.
-const answering = new Set(["admin", "maintain", "write"])
 
 // The answers of ctxpipe developers to the escalated disputes of this round,
 // by finding id: `/critic accept <id>` (the finding stands; the PR fixes it)
 // or `/critic override <id> <reason>` (the finding is overruled). The Merge
 // gate job writes critic-commands.json: each PR comment with a `/critic`
 // line, as the GitHub API gives it now (the current text of an edited
-// comment; the author never changes), with the repo permission of its
-// author. A command counts only from a user account (not a bot or an app)
-// with write, maintain or admin permission, and only for an id that this
-// record escalates. The newest command for an id wins.
+// comment), with the repo permission of its author, whether its last editor
+// is its author (`editedByAuthor`), and whether its author opened the PR
+// (`prAuthor`). A command counts only from a user account (not a bot or an
+// app) with write, maintain or admin permission, in a comment that only its
+// author edited, from another person than the PR author (an agent opens a
+// PR with the login of its developer, so the implementer never closes its
+// own finding), and only for an id that this record escalates. The newest
+// command for an id wins.
 export function criticAnswers(escalated, commands, repoUrl) {
   const answers = new Map()
   for (const comment of commands?.comments ?? []) {
     if (comment?.user?.type !== "User") continue
-    if (!answering.has(comment.permission)) continue
+    if (!["admin", "maintain", "write"].includes(comment.permission)) continue
+    if (comment.editedByAuthor !== true || comment.prAuthor !== false) continue
     const url =
       repoUrl &&
       typeof comment.url === "string" &&
@@ -590,29 +591,28 @@ export function criticAnswers(escalated, commands, repoUrl) {
 export function critics(inputs, { needs, fork = false, repoUrl } = {}) {
   const record = readJson(join(inputs, "critics.json"))
   if (record?.critics?.length > 0) {
-    const escalated = new Set(
-      record.critics.flatMap((critic) =>
-        critic.status === "escalated"
-          ? (critic.disputes ?? [])
-              .filter((decision) => decision.outcome === "escalated")
-              .map((decision) => decision.finding)
-          : [],
-      ),
-    )
+    const open = (critic) =>
+      critic.status === "escalated"
+        ? (critic.disputes ?? []).filter(
+            (decision) => decision.outcome === "escalated",
+          )
+        : []
     const answers = criticAnswers(
-      escalated,
+      new Set(
+        record.critics.flatMap((critic) =>
+          open(critic).map((decision) => decision.finding),
+        ),
+      ),
       readJson(join(inputs, "critic-commands.json")),
       repoUrl,
     )
+    // An escalated critic passes when each escalated finding has an override.
     const passes = (critic) =>
       ["carried", "not-applicable"].includes(critic.status) ||
-      (critic.status === "escalated" &&
-        (critic.disputes ?? []).some((d) => d.outcome === "escalated") &&
-        (critic.disputes ?? [])
-          .filter((decision) => decision.outcome === "escalated")
-          .every(
-            (decision) => answers.get(decision.finding)?.action === "override",
-          ))
+      (open(critic).length > 0 &&
+        open(critic).every(
+          (decision) => answers.get(decision.finding)?.action === "override",
+        ))
     return {
       checked: true,
       required: !fork,
@@ -711,7 +711,9 @@ export function criticsText(checked, repoUrl) {
 // The disputed findings of the critics, with their outcomes: each withdrawn
 // and overruled finding is named, so a person sees it (the dispute records
 // are attested, not verified). An escalated finding shows the answer of a
-// ctxpipe developer, or that it waits.
+// ctxpipe developer, or that it waits. The factory accepts a stored record
+// only when its text is already redacted, so only a developer's reason goes
+// through redact here (criticAnswers).
 function disputesText(checked) {
   const decisions = checked.critics.flatMap((critic) => critic.disputes ?? [])
   if (decisions.length === 0) return []
@@ -719,8 +721,8 @@ function disputesText(checked) {
     "",
     "Disputed findings:",
     "",
-    "| Finding | Critic | Severity | File | Outcome | Decided by | Reason |",
-    "| --- | --- | --- | --- | --- | --- | --- |",
+    "| Finding | Critic | Severity | File | Finding text | Outcome | Decided by | Reason |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
   ]
   for (const decision of decisions) {
     const answer =
@@ -743,7 +745,7 @@ function disputesText(checked) {
       ? `${decision.file}:${decision.line}`
       : decision.file
     lines.push(
-      `| ${code(decision.finding)} | ${code(decision.critic)} | ${code(decision.severity)} | ${code(redact(place ?? ""))} | ${outcome} | ${by} | ${code(redact(answer?.reason ?? decision.reason ?? ""))} |`,
+      `| ${code(decision.finding)} | ${code(decision.critic)} | ${code(decision.severity)} | ${code(place ?? "")} | ${code(decision.summary ?? "")} | ${outcome} | ${by} | ${code(answer?.reason ?? decision.reason ?? "")} |`,
     )
   }
   return lines
