@@ -66,6 +66,50 @@ export const ApiKeysEmpty: Story = {
   },
 }
 
+/** The index route `/.auth/account/` opens the settings view, in the shell. */
+export const Settings: Story = {
+  tags: ["page"],
+  args: { accountView: "settings" },
+  decorators: orgPageDecorators,
+  parameters: {
+    route: "/.auth/account/",
+    storyRoute: {
+      pattern: "flat",
+      path: "/.auth/account",
+    } satisfies StoryRouteParams,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("heading", { name: "user account" }),
+      ).toBeVisible(),
+    )
+  },
+}
+
+/** The whole page of an account view: the shell, the nav and the view. */
+export const OrganizationsView: Story = {
+  tags: ["page"],
+  args: { accountView: "organizations" },
+  decorators: orgPageDecorators,
+  parameters: {
+    route: "/.auth/account/$accountView",
+    storyRoute: {
+      pattern: "flat",
+      path: "/.auth/account/organizations",
+    } satisfies StoryRouteParams,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("heading", { name: "user account" }),
+      ).toBeVisible(),
+    )
+  },
+}
+
 const connectedApp = {
   id: "ocs_story_agent",
   legacy: false,

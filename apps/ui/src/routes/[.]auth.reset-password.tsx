@@ -7,7 +7,8 @@ export const Route = createFileRoute("/.auth/reset-password")({
   component: ResetPasswordPage,
 })
 
-function ResetPasswordPage() {
+/** Exported for Storybook: the same page as `/.auth/reset-password`. */
+export function ResetPasswordPage() {
   return (
     <main className="mx-auto max-w-md px-6 py-16 text-zinc-100">
       <AuthView

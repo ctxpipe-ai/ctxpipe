@@ -1,0 +1,14 @@
+{
+  "__root__": "layout: the document shell around every route; it has no page of its own",
+  "/": "redirect relay: shows only a loading skeleton, then sends the user to sign-in, onboarding or the org; the onboarding journey stories follow it",
+  "/$orgSlug": "layout: the org shell and the session and org gate; each child route has its own page story",
+  "/$orgSlug/chat/$": "redirect: an old bookmark that opens the org home",
+  "/$orgSlug/knowledge-graph": "redirect: an old bookmark that opens the org home",
+  "/$orgSlug/repositories/$": "redirect: an old bookmark that opens the org home",
+  "/.auth/account": "layout: renders only the outlet of the account views",
+  "/.auth/organization/$organizationView": "redirect relay: sends the user to the organization settings of the selected org",
+  "/.notion/setup": "redirect relay: a server route that returns a small document, with no React page",
+  "/.slack/setup": "popup relay: stores the setup result and closes its own window",
+  "/.otel/v1/$signal": "API route: a server proxy for browser telemetry, with no page",
+  "/.auth/$authView": "backfill: the route picks its view from the route params and window.location, and no story renders the whole route yet"
+}

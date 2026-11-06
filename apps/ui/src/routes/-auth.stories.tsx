@@ -6,6 +6,8 @@ import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   authConfigHandler,
   organizationListEmptyHandler,
+  organizationListHandler,
+  sessionSignedInHandler,
   sessionSignedOutHandler,
 } from "@/mocks/handlers"
 
@@ -13,6 +15,8 @@ import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { InviteAcceptSignUp } from "./[.]auth.$authView"
 import { DeviceAuthorizationPage } from "./[.]auth.device"
+import { ResetPasswordPage } from "./[.]auth.reset-password"
+import { OAuthOrganizationSelectionRoutePage } from "./[.]auth.select-organization"
 import { SignInRoutePage } from "./[.]auth.sign-in"
 
 const meta = {
@@ -28,8 +32,10 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const DeviceLoading: Story = {
+  tags: ["page"],
   render: () => <DeviceAuthorizationPage />,
   parameters: {
+    route: "/.auth/device",
     storyRoute: {
       pattern: "flat",
       path: "/.auth/device?user_code=ABCD-1234",
@@ -52,9 +58,11 @@ export const DeviceLoading: Story = {
 }
 
 export const SignIn: Story = {
+  tags: ["page"],
   name: "Sign-in",
   render: () => <SignInRoutePage />,
   parameters: {
+    route: "/.auth/sign-in",
     storyRoute: {
       pattern: "flat",
       path: "/.auth/sign-in",
@@ -72,6 +80,7 @@ export const SignIn: Story = {
  * (sendOnSignIn) and answers 403, so the toast is a notice, not an error.
  */
 export const SignInUnverifiedEmail: Story = {
+  tags: ["page"],
   name: "Sign-in, unverified email",
   render: () => <SignInRoutePage />,
   decorators: [
@@ -83,6 +92,7 @@ export const SignInUnverifiedEmail: Story = {
     ),
   ],
   parameters: {
+    route: "/.auth/sign-in",
     storyRoute: {
       pattern: "flat",
       path: "/.auth/sign-in",
@@ -187,6 +197,86 @@ export const InviteAcceptAccountExists: Story = {
       `/.auth/sign-in?redirectTo=${encodeURIComponent(
         "/.auth/accept-invitation?invitationId=invitation_1&email=member%40example.com",
       )}`,
+    )
+  },
+}
+
+/** The page that a reset-password email opens, with the token in the URL. */
+export const ResetPassword: Story = {
+  tags: ["page"],
+  name: "Reset password",
+  // The form reads the token from window.location, not from the story router.
+  // Without a token it leaves for sign-in.
+  render: () => {
+    const url = new URL(window.location.href)
+    url.searchParams.set("token", "story-token")
+    window.history.replaceState(null, "", url)
+    return <ResetPasswordPage />
+  },
+  parameters: {
+    route: "/.auth/reset-password",
+    storyRoute: {
+      pattern: "flat",
+      path: "/.auth/reset-password",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        // Replaces the preview's signed-in session: the user follows an email link.
+        defaults: [
+          authConfigHandler,
+          sessionSignedOutHandler,
+          organizationListEmptyHandler,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByLabelText("New Password")).toBeVisible(),
+    )
+  },
+}
+
+/** The OAuth step where a signed-in user picks the organization for the connection. */
+export const SelectOrganization: Story = {
+  tags: ["page"],
+  name: "Select organization",
+  render: () => <OAuthOrganizationSelectionRoutePage />,
+  parameters: {
+    route: "/.auth/select-organization",
+    storyRoute: {
+      pattern: "flat",
+      path: "/.auth/select-organization",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        defaults: [
+          authConfigHandler,
+          sessionSignedInHandler({
+            id: "user_storybook",
+            onboardingCompletedAt: "2025-01-01T00:00:00.000Z",
+          }),
+          organizationListHandler([
+            { id: "org_north", name: "North Labs", slug: "north-labs" },
+            { id: "org_south", name: "South Works", slug: "south-works" },
+          ]),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("heading", { name: "Choose an organization" }),
+      ).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByRole("radio", { name: /North Labs/ })).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByRole("radio", { name: /South Works/ })).toBeVisible(),
     )
   },
 }

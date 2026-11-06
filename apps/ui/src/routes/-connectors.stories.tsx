@@ -27,9 +27,11 @@ const orgSlug = "acme"
 
 const meta = {
   title: "Pages/Connections",
+  tags: ["page"],
   decorators: orgPageDecorators,
   parameters: {
     layout: "fullscreen",
+    route: "/$orgSlug/connectors",
   },
 } satisfies Meta
 

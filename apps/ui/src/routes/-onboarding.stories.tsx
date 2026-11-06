@@ -22,9 +22,11 @@ import { OnboardingPageContent } from "./onboarding"
 
 const meta = {
   title: "Pages/Onboarding",
+  tags: ["page"],
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",
+    route: "/onboarding",
     storyRoute: {
       pattern: "flat",
       path: "/onboarding",

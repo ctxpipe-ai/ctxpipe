@@ -31,8 +31,13 @@ export const Route = createFileRoute("/$orgSlug/github/setup")({
 })
 
 function GitHubSetupPage() {
-  const { data: session, isPending: sessionPending } = useSession()
   const { orgSlug } = Route.useParams()
+  return <GitHubSetupPageContent orgSlug={orgSlug} />
+}
+
+/** Exported for Storybook: the same page as `/$orgSlug/github/setup`. */
+export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
+  const { data: session, isPending: sessionPending } = useSession()
   const location = useLocation()
   const returnTo = useMemo(
     () => returnToFromSearch(location.search),

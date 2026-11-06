@@ -12,10 +12,12 @@ const consentRequests: { organizations: string | null; body: unknown }[] = []
 
 const meta = {
   title: "Pages/OAuth consent",
+  tags: ["page"],
   component: ConsentPage,
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",
+    route: "/.auth/consent",
     storyRoute: {
       pattern: "flat",
       path: "/.auth/consent",

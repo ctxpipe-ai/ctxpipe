@@ -10,9 +10,11 @@ import { GithubLinkStep } from "./[.]github.link"
 
 const meta = {
   title: "Pages/GitHub link",
+  tags: ["page"],
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",
+    route: "/.github/link",
     storyRoute: {
       pattern: "flat",
       path: "/.github/link",

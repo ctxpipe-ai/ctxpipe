@@ -25,7 +25,19 @@ The project registers the Storybook MCP in **[.mcp.json](../../../.mcp.json)** a
 When you add a **reusable component** or a **new page/screen** (a route that represents user-visible UI) in `apps/ui`, also add a **colocated** `*.stories.tsx` in the same PR (unless the user explicitly defers it). Trivial re-exports with no new UI are optional to discuss with the team.
 
 - **Reusable component**: e.g. `MyCard.tsx` → `MyCard.stories.tsx` next to it.
-- **Page / route content**: a story file **beside the route** with a **`-` prefix** so TanStack Router does not treat it as a route (e.g. `src/routes/-home.stories.tsx`).
+- **Page / route content**: a story file **beside the route** with a **`-` prefix** so TanStack Router does not treat it as a route (e.g. `src/routes/-home.stories.tsx`). Tag it as a page story (see Page stories).
+
+## Page stories
+
+Every route that renders a page has a page story. Tag it `page` and name its route.
+
+- The contract is `tags: ["page"]` and `parameters: { route: "<TanStack route id>" }`. The route id is a key of `FileRoutesById` in `apps/ui/src/routeTree.gen.ts` (for example `/$orgSlug/connectors`). The route must be a string literal.
+- Put both in the `meta` when every story of the file renders the page. Put them in one story when only that story does. A story `route` replaces the `route` of the `meta`, so one file can cover a layout route and its child routes. A story that shows only a part of the page, or that ends on another page, removes the inherited tag with `tags: ["!page"]`.
+- A page story may render the feature component and not import the route file. This is why the route id is explicit.
+- A story that shows only a part of a page (a dialog, a card, a page without its shell) is not a page story. Do not tag it. A page story renders the whole page as the route does: with the org shell for a route under `/$orgSlug` (`orgPageDecorators`).
+- A route that does not render a page (a layout, a redirect relay, an API route) needs an entry with a reason in [`scripts/ci/page-story-exemptions.json`](../../../scripts/ci/page-story-exemptions.json). A page that is too costly to story gets the reason `backfill: <why>`. Do not exempt a real page to save work.
+- **Guard:** `node scripts/ci/check-page-stories.mjs` runs in CI (the lint job, as the policy check `page-stories`). It fails when a route has no page story and no exemption, a page story has no route or names a route that does not exist, or an exemption has no reason, names an unknown route, or names a route that has a page story.
+- To tell a page from a part, the visual review reads the `page` tag. Do not tag a part.
 
 ## Colocation and naming
 

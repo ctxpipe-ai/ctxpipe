@@ -212,6 +212,15 @@ const definitions = () => [
     ["ui-motion", ["apps/ui/src/**"]],
     ["story-play-timing", ["apps/ui/src/**"]],
     [
+      "page-stories",
+      [
+        "apps/ui/src/**",
+        "apps/ui/.storybook/check-modules.mjs",
+        "scripts/ci/page-story-exemptions.json",
+      ],
+      "Catches a route with no page story and no exemption, or a page story that names a route that does not exist. Run it when a route or a story under apps/ui/src changes; never for a change outside it.",
+    ],
+    [
       "claude-plugin",
       ["plugins/**", ".claude-plugin/**", "scripts/ci/claude-cli/**"],
     ],

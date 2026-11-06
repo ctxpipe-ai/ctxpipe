@@ -69,6 +69,8 @@ jobs:
         run: node scripts/ci/check-ui-motion.mjs
       - name: Reject racy Storybook play checks
         run: node scripts/ci/check-story-play-timing.mjs
+      - name: Reject a route with no page story
+        run: node scripts/ci/check-page-stories.mjs
       - name: Reject non-Blacksmith runners
         run: node scripts/ci/check-runners.mjs
       - name: Reject outside values in run scripts and workflows without permissions

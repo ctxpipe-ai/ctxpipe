@@ -54,10 +54,12 @@ const workspaceSlug = "docs"
 
 const meta = {
   title: "Pages/Workspaces",
+  tags: ["page"],
   component: WorkspaceSurface,
   decorators: [...orgPageDecorators],
   parameters: {
     layout: "fullscreen",
+    route: "/$orgSlug/ws/$workspaceSlug",
   },
   args: {
     orgSlug,
@@ -304,6 +306,7 @@ export const PrepareFailed: Story = {
 
 export const Compose: Story = {
   parameters: {
+    route: "/$orgSlug/ws/$workspaceSlug/",
     storyRoute: workspaceRoute(),
     msw: {
       handlers: {
@@ -320,6 +323,7 @@ export const Compose: Story = {
  */
 export const ComposeNeedsFormatUpgrade: Story = {
   parameters: {
+    route: "/$orgSlug/ws/$workspaceSlug/",
     storyRoute: workspaceRoute(),
     msw: {
       handlers: {
@@ -349,6 +353,7 @@ export const ComposeNeedsFormatUpgrade: Story = {
 export const ConversationNeedsFormatUpgrade: Story = {
   args: { conversationId: "conv_1" },
   parameters: {
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -373,6 +378,7 @@ export const ConversationNeedsFormatUpgrade: Story = {
 export const Conversation: Story = {
   args: { conversationId: "conv_1" },
   parameters: {
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -409,6 +415,7 @@ function workspaceMovedStatus(ownChanges: boolean) {
 export const ConversationWorkspaceMovedNoChanges: Story = {
   args: { conversationId: "conv_1" },
   parameters: {
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -434,6 +441,7 @@ export const ConversationWorkspaceMovedNoChanges: Story = {
 export const ConversationWorkspaceMovedWithChanges: Story = {
   args: { conversationId: "conv_1" },
   parameters: {
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -461,6 +469,7 @@ export const ConversationWorkspaceMovedWithChanges: Story = {
 export const ConversationLoading: Story = {
   args: { conversationId: "conv_1" },
   parameters: {
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -565,6 +574,7 @@ export const ConversationKeepsExplicitPaneSearch: Story = {
 export const ConversationMissing: Story = {
   args: { conversationId: "conv_missing" },
   parameters: {
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_missing" }),
     msw: {
       handlers: {
@@ -618,6 +628,7 @@ export const PublishErrorsToast: Story = {
   parameters: {
     intent:
       "Catches a failed push that shows no error to the user. A rejected push must show a toast with the cause. Not for a successful push or PR creation.",
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -677,6 +688,7 @@ export const PublishPrErrorToast: Story = {
   parameters: {
     intent:
       "Catches a failed pull request creation that shows no error to the user. A rejected request must show a toast with the cause. Not for push errors.",
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -733,6 +745,7 @@ export const SyncAddsThreadEntry: Story = {
   parameters: {
     intent:
       "Catches a successful sync that adds no entry to the conversation. The thread shows a push entry that links the branch. Not for failed syncs or PRs.",
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -835,6 +848,7 @@ export const SharedPublishPending: Story = {
   parameters: {
     intent:
       "Catches two publish buttons that do not share one pending state. While a push runs, every Sync button is pending and disabled. Not for push results.",
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -918,6 +932,7 @@ export const SingleCreatePr: Story = {
   parameters: {
     intent:
       "Catches a second Create PR button when the pane is open. Only the conversation header has the button. Not for a closed pane or PR creation.",
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -970,6 +985,7 @@ export const SingleCreatePrPaneClosed: Story = {
   parameters: {
     intent:
       "Catches a closed pane that hides Create PR or shows it twice. One button shows with a PR icon, and pane triggers have no border. Not for an open pane.",
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -1008,6 +1024,7 @@ export const CreatePrMatchesPaneTriggers: Story = {
   parameters: {
     intent:
       "Catches a Create PR button that sits in another row from the pane triggers, or has the wrong size. It shares the header row and is smaller. Not for PR creation.",
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -1056,6 +1073,7 @@ export const DiffTriggerPaneClosed: Story = {
   parameters: {
     intent:
       "Catches a Diff trigger that is missing from a closed pane, or styled unlike the Files trigger. Both share one parent and class. Not for the diff content.",
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
@@ -1107,6 +1125,7 @@ export const DiffTriggerNoChanges: Story = {
   parameters: {
     intent:
       "Catches a Diff tab on a branch with no changes that shows a blank pane. It shows that there are no changes on the branch. Not for diffs with files.",
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -1138,6 +1157,7 @@ export const PaneTabsStayInPlace: Story = {
   parameters: {
     intent:
       "Catches a tab switch that moves other tabs. Each trigger keeps its box and the new active tab keeps its x and width. Not for tab content.",
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -1188,6 +1208,7 @@ export const DiffTabRoundedCorner: Story = {
   parameters: {
     intent:
       "Catches a wrong joined corner on the pane card. The Diff and Graph tabs give the same rounded corner, and the first tab, Files, keeps it square. Not for tab content.",
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "diff" }),
     msw: {
       handlers: {
@@ -1235,6 +1256,7 @@ export const MaximizedPaneMatchesHeader: Story = {
   parameters: {
     intent:
       "Catches a maximized pane whose header differs from the conversation header. The Create PR call to action shows in the pane header with the same layout. Not for PR creation.",
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -1297,6 +1319,7 @@ export const StableRequestBudget: Story = {
   parameters: {
     intent:
       "Catches an idle workspace page that keeps sending requests. Conversation, tree, and status reads must stay at a fixed count. Not for response content.",
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
@@ -1865,7 +1888,7 @@ const deleteFlowDecorators = [
 
 /** Deleting the open Workspace goes Home with a toast and no error page. */
 export const DeleteWorkspaceShowsNoError: Story = {
-  tags: ["workspace-golden"],
+  tags: ["workspace-golden", "!page"],
   args: { paneParam: "settings" },
   render: (args) => <DeleteFlowStage {...args} />,
   decorators: deleteFlowDecorators,
@@ -1885,7 +1908,7 @@ export const DeleteWorkspaceShowsNoError: Story = {
 /** The same, when the Workspace is the last one. */
 export const DeleteLastWorkspaceShowsNoError: Story = {
   ...DeleteWorkspaceShowsNoError,
-  tags: ["workspace-golden"],
+  tags: ["workspace-golden", "!page"],
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
   parameters: {
     intent:
@@ -1898,7 +1921,7 @@ export const DeleteLastWorkspaceShowsNoError: Story = {
 /** The same, from a conversation URL. */
 export const DeleteFromConversationShowsNoError: Story = {
   ...DeleteWorkspaceShowsNoError,
-  tags: ["workspace-golden"],
+  tags: ["workspace-golden", "!page"],
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
   args: { paneParam: "settings", conversationId: "conv_1" },
   parameters: {

@@ -11,7 +11,10 @@ import {
   organizationListWithOrgHandler,
 } from "@/mocks/handlers"
 
-import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
+import {
+  entryPageInnerDecorators,
+  orgPageDecorators,
+} from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import {
   OrganizationSettingsBody,
@@ -40,11 +43,15 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/** The whole page: the org shell, the settings frame and the Settings view. */
 export const Settings: Story = {
+  tags: ["page"],
   args: {
     organizationView: "settings",
   },
+  decorators: orgPageDecorators,
   parameters: {
+    route: "/$orgSlug/organization/$organizationView",
     msw: {
       handlers: {
         page: [organizationListWithOrgHandler, organizationFullWithOrgHandler],
