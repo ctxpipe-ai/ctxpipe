@@ -1577,7 +1577,7 @@ jobs:
             # text of a dispute is redacted: the factory accepts a stored
             # dispute record only when each text value is redacted.
             echo "the critics record did not parse" > "$out/critics-cause.txt"
-            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}], disputes: [(.disputes // [])[] | {finding, critic, severity, file, line, summary, outcome, decidedBy, implementer, reason, linear, escalation}]}]}' \
+            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}], disputes: [(.disputes // [])[] | {finding, critic, severity, file, line, summary, outcome, decidedBy, implementer, reason}]}]}' \
               "$RUNNER_TEMP/critics.json" > "$RUNNER_TEMP/critics.min.json"
             mv "$RUNNER_TEMP/critics.min.json" "$out/critics.json"
             rm "$out/critics-cause.txt"
@@ -1591,154 +1591,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: merge-gate-critics
-          path: ${{ runner.temp }}/out/
-          if-no-files-found: ignore
-
-  # The answers of ctxpipe developers to escalated critic findings
-  # (CTX-1127). `factory check` creates a Linear issue for each escalated
-  # finding, in the status "Waiting for human". A developer answers it with a
-  # comment whose first line is `override: <reason>` or `accept: <reason>`.
-  # This job reads each issue with the read-only Linear key of the
-  # workbench environment. It does no checkout, runs no repository script and
-  # holds no cloud role: it reads the critics record, by the artifact id of
-  # the critics job, and the Linear API (curl and jq). An answer counts only
-  # on an issue that the factory app created and whose description holds
-  # the escalation key of the dispute record (the finding, this PR branch,
-  # the critic version and the disputed units). It counts only from a
-  # comment of a person (not an app, a bot, an integration, a guest or the
-  # creator of the issue, and not on behalf of another user) that was
-  # written after the issue and after the last change of its description. The record holds the answer and the link of the comment:
-  # no reason (the artifact is public), no name and no user id. A new answer
-  # needs **Re-run all jobs**. Without an escalated finding, the
-  # job makes no Linear call.
-  merge-gate-answers:
-    timeout-minutes: 5
-    name: Merge gate critic answers
-    needs: merge-gate-critics
-    if: needs.merge-gate-critics.outputs.artifact-id != ''
-    environment: workbench
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
-    permissions:
-      actions: read
-    outputs:
-      artifact-id: ${{ steps.preserve.outputs.artifact-id }}
-    steps:
-      - name: Start the cause record
-        run: |
-          mkdir -p "$RUNNER_TEMP/out"
-          echo "the critics record did not download" > "$RUNNER_TEMP/out/answers-cause.txt"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: needs.merge-gate-critics.outputs.artifact-id != ''
-        with:
-          artifact-ids: ${{ needs.merge-gate-critics.outputs.artifact-id }}
-          merge-multiple: true
-          path: ${{ runner.temp }}/critics
-      - name: Read the Linear answers
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          LINEAR_URL: https://api.linear.app/graphql
-          # The Linear user id of the `factory` app, which creates each
-          # escalation issue (agent hosts act as it; see the factory CLI README).
-          FACTORY_APP: 012ed5af-d5e6-4ee4-803f-dbbeb45fb7b7
-          # The escalation key of factory names the SHA-256 of this scope.
-          BRANCH: ${{ github.repository }}@${{ github.event.pull_request.head.ref }}
-        run: |
-          out="$RUNNER_TEMP/out"
-          cause="$out/answers-cause.txt"
-          echo "the critics record did not parse" > "$cause"
-          hash="$(printf '%s' "$BRANCH" | sha256sum | cut -c1-16)"
-          # The escalation key of factory: the finding, the hash of this PR
-          # branch, and a hash of the critic version and the disputed units.
-          jq -c --arg hash "$hash" '[.critics[]? | select(.status == "escalated") | .disputes[]?
-              | select(.outcome == "escalated" and (.finding | test("^f:[0-9a-f]{8}$"))
-                and ((.linear // "") | test("^CTX-[0-9]{1,7}$"))
-                and ((.escalation // "") | test("^factory-escalation:f:[0-9a-f]{8}:[0-9a-f]{16}:[0-9a-f]{16}$"))
-                and (.finding as $finding | .escalation
-                  | startswith("factory-escalation:\($finding):\($hash):")))
-              | {finding, linear, escalation}] | unique_by(.finding)
-              # An issue that two findings name answers neither.
-              | group_by(.linear) | map(select(length == 1)) | .[][]' \
-            "$RUNNER_TEMP/critics/critics.json" > "$RUNNER_TEMP/escalated.jsonl"
-          # Each node of a list of the issue ($1, with the fields $2), page
-          # by page, as JSON lines; issue.json keeps the last page, and
-          # descriptions.jsonl the description of each page.
-          nodes() {
-            local after=null
-            while :; do
-              jq -n --arg id "$issue" --argjson after "$after" \
-                --arg query "query(\$id: String!, \$after: String) { issue(id: \$id) { createdAt description creator { id app } $1(first: 100, after: \$after) { pageInfo { hasNextPage endCursor } nodes { $2 } } } }" \
-                '{query: $query, variables: {id: $id, after: $after}}' \
-                | curl -sS --fail --max-time 30 -H "Authorization: $LINEAR_API_KEY" \
-                  -H "Content-Type: application/json" --data @- "$LINEAR_URL" > "$RUNNER_TEMP/issue.json"
-              if ! jq -e '.errors == null and .data.issue != null' "$RUNNER_TEMP/issue.json" > /dev/null; then
-                echo "Linear gave no issue $issue for $finding: $(jq -c '[.errors[]?.message]' "$RUNNER_TEMP/issue.json" | cut -c1-200)" > "$cause"
-                exit 1
-              fi
-              jq -c ".data.issue.$1.nodes[]" "$RUNNER_TEMP/issue.json"
-              jq -c .data.issue.description "$RUNNER_TEMP/issue.json" >> "$RUNNER_TEMP/descriptions.jsonl"
-              jq -e ".data.issue.$1.pageInfo.hasNextPage" "$RUNNER_TEMP/issue.json" > /dev/null || break
-              after="$(jq -c ".data.issue.$1.pageInfo.endCursor" "$RUNNER_TEMP/issue.json")"
-            done
-          }
-          : > "$RUNNER_TEMP/answers.jsonl"
-          while read -r escalated; do
-            finding="$(jq -r .finding <<< "$escalated")"
-            issue="$(jq -r .linear <<< "$escalated")"
-            key="$(jq -r .escalation <<< "$escalated")"
-            if [ -z "$LINEAR_API_KEY" ]; then
-              echo "LINEAR_API_KEY is not set in the workbench environment" > "$cause"
-              exit 1
-            fi
-            echo "the Linear issue $issue of $finding was not read" > "$cause"
-            nodes comments "body createdAt url user { id app guest active } botActor { id } externalUser { id } onBehalfOf { id }" > "$RUNNER_TEMP/comments.jsonl"
-            # The history comes after the comments, and the description
-            # stays the same on each history page: a description change
-            # before the last page is in the history, so no comment that
-            # was read counts from before it. (`IssueHistory.updatedDescription`
-            # is in the Linear schema, packages/sdk/src/schema.graphql of
-            # linear/linear: "Whether the issue's description was updated".)
-            : > "$RUNNER_TEMP/descriptions.jsonl"
-            nodes history "createdAt updatedAt updatedDescription" > "$RUNNER_TEMP/history.jsonl"
-            if ! jq -se 'unique | length == 1' "$RUNNER_TEMP/descriptions.jsonl" > /dev/null; then
-              echo "the description of the Linear issue $issue changed during the read; re-run the job" > "$cause"
-              exit 1
-            fi
-            # The newest answer of a person on the issue of this finding and
-            # this PR branch, written after the issue and after the last
-            # change of its description (an agent cannot move an old answer
-            # to a new finding).
-            jq -c --arg finding "$finding" --arg key "$key" --arg app "$FACTORY_APP" \
-              --slurpfile history "$RUNNER_TEMP/history.jsonl" --slurpfile comments "$RUNNER_TEMP/comments.jsonl" '
-              .data.issue as $issue
-              # The key is on the key line, and no other text holds a key (ASCII
-              # case only, as factory counts it).
-              | select(($issue.description // "")
-                  | (ascii_downcase | [match("factory-escalation:"; "g")] | length) == 1
-                    and ([split("\n")[] | select(gsub("^\\s+|\\s+$"; "") == "Escalation key: `\($key)`")] | length) == 1)
-              # The factory app created the issue, and it never answers it.
-              | select($issue.creator.app == true and $issue.creator.id == $app)
-              | ([$issue.createdAt] + [$history[] | select(.updatedDescription == true) | .createdAt, .updatedAt] | max) as $since
-              | [$comments[]
-                  | select(.user != null and .user.app == false and .user.guest == false
-                      and .user.active == true and .user.id != $issue.creator.id
-                      and .botActor == null
-                      and .externalUser == null and .onBehalfOf == null
-                      and .createdAt > $since)
-                  | ((.body // "") | split("\n")[0]
-                      | capture("^\\s*(?<action>override|accept):\\s*\\S"; "i")) as $answer
-                  | {createdAt, url, action: ($answer.action | ascii_downcase)}]
-              | sort_by(.createdAt) | last // empty
-              | {finding: $finding, action, url}' \
-              "$RUNNER_TEMP/issue.json" >> "$RUNNER_TEMP/answers.jsonl"
-          done < "$RUNNER_TEMP/escalated.jsonl"
-          jq -s '{answers: .}' "$RUNNER_TEMP/answers.jsonl" > "$out/critic-answers.json"
-          rm "$cause"
-      - name: Preserve the answers
-        id: preserve
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: merge-gate-answers
           path: ${{ runner.temp }}/out/
           if-no-files-found: ignore
 
@@ -2070,7 +1922,6 @@ jobs:
         merge-gate-llm,
         merge-gate-plan,
         merge-gate-critics,
-        merge-gate-answers,
         lint,
         typecheck,
         test-shards,
@@ -2138,13 +1989,6 @@ jobs:
         continue-on-error: true
         with:
           artifact-ids: ${{ needs.merge-gate-critics.outputs.artifact-id }}
-          merge-multiple: true
-          path: ${{ runner.temp }}/inputs
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: needs.merge-gate-answers.outputs.artifact-id != ''
-        continue-on-error: true
-        with:
-          artifact-ids: ${{ needs.merge-gate-answers.outputs.artifact-id }}
           merge-multiple: true
           path: ${{ runner.temp }}/inputs
       - name: The mode of the manifest job

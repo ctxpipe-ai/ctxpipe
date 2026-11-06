@@ -104,9 +104,9 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 
 ### Adversarial review
 
-Every adversarial review of a diff is three axes — **Standards**, **Spec**, and **Simplicity** — and Security when triggered. `factory check` runs these critics ([`code-review`](.agents/skills/code-review/SKILL.md)) and stores verdicts for the merge gate. Do not start review sub-agents or run `/code-review` by hand, and never review spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense ([`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md)).
+Review has three axes (Standards, Spec, Simplicity), plus Security when triggered: the [`code-review`](.agents/skills/code-review/SKILL.md) critics that `factory check` runs. Never run `/code-review` by hand or review spec-only. Simplicity names the job, the thinnest machine and leftover machinery; spec-match is not a defense ([`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md)).
 
-Fix or dispute each finding. Never answer one in Linear, or open a PR or edit a ticket, AGENTS.md, an ADR or a skill to avoid one. The CTO changes rules.
+Fix or dispute each finding. Raise an escalated finding with the human in your conversation; on their decision run `factory risk propose` and show them the PR link. Never write, approve or merge a register entry, or edit tickets, AGENTS.md, ADRs or skills to get around a critic.
 
 ## Architecture decisions & ADRs
 

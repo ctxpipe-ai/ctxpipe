@@ -43,9 +43,11 @@ You cannot close a finding alone. When you think that a blocker or should-fix fi
    - Your dispute is about a rule or about the ticket scope.
    - The arbiter upholds the finding.
    - Another PR disputed the same finding with the same rule. A rule can be missing.
-5. For each of these cases, `factory check` creates a Linear issue in the status "Waiting for human". The `factory` app user of the host creates the issue. `factory check` prints `ESCALATED` and the issue id.
-6. The merge gate waits. A developer answers in the issue. The first line of the comment is `override: <reason>` (the finding is overruled) or `accept: <reason>` (the finding stays). After an `accept`, fix the finding.
-7. As an agent, never write an `override:` or `accept:` comment, also when you act for a person. Only a person answers.
+5. For each of these cases, `factory check` fails and prints `ESCALATED` with the finding, your dispute and its evidence, and the answers of the critic and the arbiter.
+6. Ask the human in your conversation. Show them that text. Do not ask in a ticket or a PR comment.
+7. When the human decides that the finding stays, fix it.
+8. When the human accepts the risk, run `factory risk propose --finding <id> --area <paths or component> --reasons "<their words>" --decider <their role>`. It opens a PR in the private factory repo and prints the PR link as its last line. Show the human that link, so that they can open it. A ctxpipe developer approves and merges it. Then run `factory check` again.
+9. Never write, approve or merge a register entry yourself, also when you act for a person.
 
 The merge gate comment lists each disputed finding with its outcome, who decided it and why.
 

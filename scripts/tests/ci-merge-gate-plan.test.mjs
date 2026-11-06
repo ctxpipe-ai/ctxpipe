@@ -968,7 +968,6 @@ test("the gate reads each record of a trusted job only by the artifact id that t
     "merge-gate-llm": "merge-gate-llm",
     "merge-gate-plan": "merge-gate-plan",
     "merge-gate-critics": "merge-gate-critics",
-    "merge-gate-answers": "merge-gate-answers",
   }
   for (const [writer, name] of Object.entries(writers)) {
     const upload = jobs[writer].steps.find((step) => step.with?.name === name)

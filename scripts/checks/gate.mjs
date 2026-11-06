@@ -62,9 +62,8 @@ import {
 //     run, <deploy> the jobs of the newest PR Deploy run of the PR head.
 //     The decision also holds the review critics (critics.json of the
 //     critics job). In gate mode, the exit code is 1 when a critic has no
-//     stored verdict, when a same-repo PR has no critics record, or when an
-//     escalated dispute has no override of a ctxpipe developer
-//     (critic-answers.json in <inputs>, from the Linear issue of the finding).
+//     stored verdict (also a critic with an escalated dispute), or when a
+//     same-repo PR has no critics record.
 
 // The steps of the job `Deploy PR environment (Railway + Neon)` of
 // pr-deploy.yaml that run one deploy check each. A test keeps these names
@@ -283,7 +282,6 @@ export function fullVerdict(needs) {
         "merge-gate-plan",
         // The critics decide through criticsFail, in gate mode only.
         "merge-gate-critics",
-        "merge-gate-answers",
       ].includes(name),
   )
   const failed = jobs
@@ -512,8 +510,8 @@ export function code(text) {
 }
 
 // `text` with each URL and each credential-like string replaced. The cause of
-// the critics job (the last stderr line of `factory review gate`) and a
-// developer's override reason reach the public PR comment through it. The
+// the critics job (the last stderr line of `factory review gate`) and the
+// text of a dispute reach the public PR comment through it. The
 // critics job applies the same rules with sed before the line reaches the
 // log; a test keeps both the same.
 export function redact(text) {
@@ -545,34 +543,6 @@ export function redact(text) {
   )
 }
 
-// The answers of ctxpipe developers to the escalated findings of this record,
-// by finding id: an override (the finding is overruled) or an accept (the
-// finding stands; the PR fixes it). The job `Merge gate critic answers`
-// writes critic-answers.json. It reads the Linear issue of each escalated
-// finding and keeps the newest comment that a person wrote after the issue
-// (and after the last change of its description), with the first line
-// `override: <reason>` or `accept: <reason>`, on an issue that holds the
-// escalation key of the finding and the PR branch. The record holds the
-// answer and the link of the comment: no reason, no name and no user id.
-// Here, an answer counts only for an id that this record escalates, and only
-// a Linear link is shown.
-export function criticAnswers(escalated, record) {
-  const answers = new Map()
-  for (const answer of record?.answers ?? []) {
-    if (!escalated.has(answer?.finding)) continue
-    if (!["accept", "override"].includes(answer.action)) continue
-    answers.set(answer.finding, {
-      action: answer.action,
-      url:
-        typeof answer.url === "string" &&
-        /^https:\/\/linear\.app\/[\w./#-]+$/.test(answer.url)
-          ? answer.url
-          : undefined,
-    })
-  }
-  return answers
-}
-
 // The review critics of the PR, from `factory review gate` in the critics
 // job (critics.json): each critic of the merge base is carried (a stored
 // verdict covers the PR diff), not-applicable, or missing. Each other status
@@ -583,60 +553,21 @@ export function criticAnswers(escalated, record) {
 // same-repo PR needs the record (`required`): without it the gate fails. A
 // fork PR gets no role for the result store.
 //
-// An `escalated` critic waits for a ctxpipe developer: it passes only when
-// each of its escalated disputes has an override (criticAnswers).
-// `answersCause` says why the Linear answers were not read.
+// An escalated dispute is decided by a person in the conversation of the
+// agent, never here: an `escalated` critic counts as missing.
 export function critics(inputs, { needs, fork = false } = {}) {
   const record = readJson(join(inputs, "critics.json"))
-  if (record?.critics?.length > 0) {
-    // The escalated findings of each critic.
-    const open = new Map(
-      record.critics.map((critic) => [
-        critic.critic,
-        critic.status === "escalated"
-          ? (critic.disputes ?? []).filter(
-              (decision) => decision.outcome === "escalated",
-            )
-          : [],
-      ]),
-    )
-    const escalated = new Set(
-      [...open.values()].flat().map((decision) => decision.finding),
-    )
-    const answers = criticAnswers(
-      escalated,
-      readJson(join(inputs, "critic-answers.json")),
-    )
-    const answersCause = join(inputs, "answers-cause.txt")
-    // An escalated critic passes when each escalated finding has an override.
-    const passes = (critic) => {
-      const escalated = open.get(critic.critic) ?? []
-      return (
-        ["carried", "not-applicable"].includes(critic.status) ||
-        (escalated.length > 0 &&
-          escalated.every(
-            (decision) => answers.get(decision.finding)?.action === "override",
-          ))
-      )
-    }
+  if (record?.critics?.length > 0)
     return {
       checked: true,
       required: !fork,
       critics: record.critics,
-      answers: Object.fromEntries(answers),
-      answersCause:
-        escalated.size === 0
-          ? undefined
-          : existsSync(answersCause)
-            ? redact(readFileSync(answersCause, "utf8").trim())
-            : existsSync(join(inputs, "critic-answers.json"))
-              ? undefined
-              : answersJobCause(needs?.["merge-gate-answers"]),
       missing: record.critics
-        .filter((critic) => !passes(critic))
+        .filter(
+          (critic) => !["carried", "not-applicable"].includes(critic.status),
+        )
         .map((critic) => critic.critic),
     }
-  }
   const cause = join(inputs, "critics-cause.txt")
   return {
     checked: false,
@@ -659,14 +590,6 @@ function criticsJobCause(job) {
   if (!job.outputs?.["artifact-id"])
     return `the critics job (${job.result}) uploaded no record`
   return `the critics record (artifact ${job.outputs["artifact-id"]}) did not download`
-}
-
-// The cause when no Linear answers downloaded: the result of the answers job.
-function answersJobCause(job) {
-  if (!job) return "the job `Merge gate critic answers` did not run"
-  if (!job.outputs?.["artifact-id"])
-    return `the job \`Merge gate critic answers\` (${job.result}) uploaded no record`
-  return `the Linear answers (artifact ${job.outputs["artifact-id"]}) did not download`
 }
 
 // True when the review critics fail the gate: a critic is missing, or a
@@ -709,38 +632,16 @@ export function criticsText(checked, repoUrl) {
     )
   }
   lines.push(...disputesText(checked))
-  const waiting = checked.critics.filter(
-    (critic) =>
-      critic.status === "escalated" && checked.missing.includes(critic.critic),
+  const escalated = checked.critics.filter(
+    (critic) => critic.status === "escalated",
   )
-  const unanswered = waiting.some((critic) =>
-    (critic.disputes ?? []).some(
-      (decision) =>
-        decision.outcome === "escalated" &&
-        !checked.answers?.[decision.finding],
-    ),
-  )
-  if (unanswered)
+  if (escalated.length > 0)
     lines.push(
       "",
-      'An escalated finding waits for a ctxpipe developer. Answer in its Linear issue (status "Waiting for human", linked in the table) with a comment whose first line is `override: <reason>` (the finding is overruled) or `accept: <reason>` (the finding stands: fix it). Then use **Re-run all jobs**.',
-    )
-  if (
-    Object.values(checked.answers ?? {}).some(
-      (answer) => answer.action === "accept",
-    )
-  )
-    lines.push(
-      "",
-      "A ctxpipe developer accepted a finding, so it stands. Fix it, run `factory check` on the PR head, and push again.",
-    )
-  if (waiting.length > 0 && checked.answersCause)
-    lines.push(
-      "",
-      `The Linear answers were not read: ${code(checked.answersCause)}. Fix: look at the log of the job \`Merge gate critic answers\` (it needs \`LINEAR_API_KEY\` in the \`workbench\` environment), then use **Re-run all jobs**.`,
+      "An escalated finding waits for a ctxpipe developer. The agent asks them in its conversation (`factory check` prints the next step), then fixes the finding or runs `factory check` again after their decision.",
     )
   const unverified = checked.missing.filter(
-    (id) => !waiting.some((critic) => critic.critic === id),
+    (id) => !escalated.some((critic) => critic.critic === id),
   )
   if (unverified.length > 0)
     lines.push(
@@ -753,10 +654,9 @@ export function criticsText(checked, repoUrl) {
 
 // The disputed findings of the critics, with their outcomes: each withdrawn
 // and overruled finding is named, so a person sees it (the dispute records
-// are attested, not verified). An escalated finding links to its Linear
-// issue and shows the answer of a ctxpipe developer, or that it waits. The factory stores only redacted
-// text; the summary and the reason go through redact again here (the file
-// does not, so that a long path stays readable).
+// are attested, not verified). The factory stores only redacted text; the
+// summary and the reason go through redact again here (the file does not, so
+// that a long path stays readable).
 function disputesText(checked) {
   const decisions = checked.critics.flatMap((critic) => critic.disputes ?? [])
   if (decisions.length === 0) return []
@@ -768,27 +668,12 @@ function disputesText(checked) {
     "| --- | --- | --- | --- | --- | --- | --- | --- |",
   ]
   for (const decision of decisions) {
-    const answer =
-      decision.outcome === "escalated"
-        ? checked.answers?.[decision.finding]
-        : undefined
-    const outcome = answer
-      ? answer.action === "override"
-        ? "overridden by a ctxpipe developer"
-        : "accepted by a ctxpipe developer: fix it"
-      : decision.outcome === "escalated"
-        ? `escalated: waits for a ctxpipe developer in ${issue(decision.linear)}`
-        : code(decision.outcome)
-    const by = answer
-      ? answer.url
-        ? `[Linear decision](${answer.url})`
-        : "a Linear comment"
-      : `${code(decision.decidedBy ?? "")}${decision.implementer?.length ? ` (implementer: ${code(decision.implementer.join("+"))})` : ""}`
+    const by = `${code(decision.decidedBy ?? "")}${decision.implementer?.length ? ` (implementer: ${code(decision.implementer.join("+"))})` : ""}`
     const place = decision.line
       ? `${decision.file}:${decision.line}`
       : decision.file
     lines.push(
-      `| ${code(decision.finding)} | ${code(decision.critic)} | ${code(decision.severity)} | ${code(place ?? "")} | ${code(redact(decision.summary ?? ""))} | ${outcome} | ${by} | ${answer ? "in the Linear decision" : code(redact(decision.reason ?? ""))} |`,
+      `| ${code(decision.finding)} | ${code(decision.critic)} | ${code(decision.severity)} | ${code(place ?? "")} | ${code(redact(decision.summary ?? ""))} | ${code(decision.outcome ?? "")} | ${by} | ${code(redact(decision.reason ?? ""))} |`,
     )
   }
   lines.push(
@@ -796,13 +681,6 @@ function disputesText(checked) {
     "The agent host stores each dispute outcome and who decided it: like a verdict, it is attested, not verified.",
   )
   return lines
-}
-
-// The link of the Linear issue of an escalated finding.
-function issue(id) {
-  return typeof id === "string" && /^CTX-\d{1,7}$/.test(id)
-    ? `[${id}](https://linear.app/ctxpipe/issue/${id})`
-    : "Linear (no issue: run `factory check` on an agent host with Linear access)"
 }
 
 // One line for a selection reason.

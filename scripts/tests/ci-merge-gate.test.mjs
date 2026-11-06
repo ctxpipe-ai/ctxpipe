@@ -1,6 +1,5 @@
 import assert from "node:assert/strict"
-import { spawn, spawnSync } from "node:child_process"
-import { createHash } from "node:crypto"
+import { spawnSync } from "node:child_process"
 import {
   existsSync,
   mkdirSync,
@@ -8,13 +7,10 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs"
-import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
-
-import { parse as parseYaml } from "yaml"
 
 import {
   code,
@@ -1437,48 +1433,35 @@ test("the critics cause and the log of factory review gate hold no URL or creden
   assert.ok(!cause.includes("https://") && !cause.includes("ghp_"), cause)
 })
 
-// The job `Merge gate critic answers` of ci.yaml: its script runs against a
-// fake Linear GraphQL API, and gate.mjs reads what it writes.
-test("an escalated finding passes only with an override of a person in its Linear issue", async () => {
-  const branch = "o/r@dev/ctx-1127-x"
-  const hash = createHash("sha256").update(branch).digest("hex").slice(0, 16)
-  // The escalation key of factory: the finding, the hash of the branch, and
-  // a hash of the critic version and the disputed units.
-  const escalationKey = (
-    finding,
-    dispute = "d".repeat(16),
-    branchHash = hash,
-  ) => `factory-escalation:${finding}:${branchHash}:${dispute}`
+// The gate lists each dispute outcome, so a person sees it. An escalated
+// dispute is decided in the conversation of the agent, never in the gate: its
+// critic counts as missing.
+test("the comment lists each dispute outcome, and an escalated critic fails the gate", () => {
   const decision = (finding, outcome, extra = {}) => ({
     finding,
     critic: "critic:spec",
-    severity: "blocker",
+    severity: "should-fix",
     file: "a.ts",
     line: 2,
     summary: "rename it",
     outcome,
-    decidedBy: "rule",
-    implementer: ["gpt"],
-    reason: "a disputed blocker needs a ctxpipe developer",
+    decidedBy: "gpt-6.1-sol",
+    implementer: ["claude"],
+    reason: "the rule allows it",
     ...extra,
   })
-  const record = {
+  const record = (status) => ({
     critics: [
       {
         critic: "critic:spec",
-        status: "escalated",
-        reason: "1 disputed findings wait for a ctxpipe developer: f:0123abcd",
+        status,
+        reason: "1 passes and 1 units decided by a dispute",
         verdicts: [],
         disputes: [
-          decision("f:0123abcd", "escalated", {
-            linear: "CTX-2001",
-            escalation: escalationKey("f:0123abcd"),
-          }),
-          decision("f:99999999", "overruled", {
-            severity: "should-fix",
-            decidedBy: "gpt-6.1-sol",
-            implementer: ["claude"],
-            reason: "the rule allows it",
+          decision("f:99999999", "overruled"),
+          decision("f:88888888", "withdrawn", {
+            decidedBy: "claude-opus",
+            reason: "New information: token=abc123 the test a.test.ts:9",
           }),
         ],
       },
@@ -1489,411 +1472,31 @@ test("an escalated finding passes only with an override of a person in its Linea
         verdicts: [],
       },
     ],
-  }
-  const person = { id: "user-1", app: false, guest: false, active: true }
-  const comment = (body, extra = {}) => ({
-    body,
-    createdAt: "2026-11-06T10:00:00.000Z",
-    url: "https://linear.app/ctxpipe/issue/CTX-2001/x#comment-1",
-    user: person,
-    botActor: null,
-    externalUser: null,
-    onBehalfOf: null,
-    ...extra,
   })
-  // The fake Linear API: the issue CTX-2001 with the comments and the history
-  // of a case, two nodes on each page.
-  let issue
-  const requests = []
-  const server = createServer((request, response) => {
-    let body = ""
-    request.on("data", (chunk) => {
-      body += chunk
-    })
-    request.on("end", () => {
-      const { query, variables } = JSON.parse(body)
-      requests.push({ auth: request.headers.authorization, variables })
-      response.setHeader("Content-Type", "application/json")
-      if (issue === null) {
-        response.end(
-          JSON.stringify({
-            data: null,
-            errors: [{ message: "Entity not found: Issue" }],
-          }),
-        )
-        return
-      }
-      const list = /\b(comments|history)\(/.exec(query)[1]
-      const start = Number(variables.after ?? 0)
-      const all = issue[list]
-      response.end(
-        JSON.stringify({
-          data: {
-            issue: {
-              createdAt: issue.createdAt,
-              creator: issue.creator,
-              // A description edit during the read of the history.
-              description:
-                list === "history" && start > 0 && issue.edited
-                  ? issue.edited
-                  : issue.description,
-              [list]: {
-                pageInfo: {
-                  hasNextPage: start + 2 < all.length,
-                  endCursor: String(start + 2),
-                },
-                nodes: all.slice(start, start + 2),
-              },
-            },
-          },
-        }),
-      )
-    })
-  })
-  await new Promise((done) => server.listen(0, "127.0.0.1", done))
-  const url = `http://127.0.0.1:${server.address().port}/graphql`
-  const ci = parseYaml(
-    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
-  )
-  const script = ci.jobs["merge-gate-answers"].steps.find(
-    (step) => step.name === "Read the Linear answers",
-  ).run
-  // Runs the script on the critics record with the issue, then the gate.
-  const check = async (
-    comments,
-    {
-      description,
-      history = [],
-      key = "lin_api_read",
-      critics: record_ = record,
-      missing = false,
-      edited,
-      creator = { id: "app-factory", app: true },
-    } = {},
-  ) => {
-    issue = missing
-      ? null
-      : {
-          createdAt: "2026-11-06T09:00:00.000Z",
-          description:
-            description ?? `Escalation key: \`${escalationKey("f:0123abcd")}\``,
-          comments,
-          history,
-          edited,
-          creator,
-        }
-    const temp = mkdtempSync(join(tmpdir(), "ctxpipe-answers-"))
-    mkdirSync(join(temp, "out"))
-    mkdirSync(join(temp, "critics"))
-    writeFileSync(
-      join(temp, "critics", "critics.json"),
-      JSON.stringify(record_),
-    )
-    const run = await new Promise((done) => {
-      const child = spawn("bash", ["-eo", "pipefail", "-c", script], {
-        env: {
-          PATH: process.env.PATH,
-          RUNNER_TEMP: temp,
-          LINEAR_API_KEY: key,
-          LINEAR_URL: url,
-          BRANCH: branch,
-          FACTORY_APP: "app-factory",
-        },
-      })
-      let stderr = ""
-      child.stderr.on("data", (chunk) => {
-        stderr += chunk
-      })
-      child.on("close", (status) => done({ status, stderr }))
-    })
-    const directory = inputs({ "critics.json": record_ })
-    for (const name of ["critic-answers.json", "answers-cause.txt"])
-      if (existsSync(join(temp, "out", name)))
-        writeFileSync(
-          join(directory, name),
-          readFileSync(join(temp, "out", name)),
-        )
-    return { run, temp, checked: critics(directory) }
-  }
   const repoUrl = "https://github.com/o/r"
-  try {
-    // No answer: the critic blocks, and the comment links the issue and says
-    // how to answer.
-    const waiting = (await check([])).checked
-    assert.deepEqual(waiting.missing, ["critic:spec"])
-    const text = criticsText(waiting, repoUrl)
-    assert.ok(
-      text.includes(
-        "escalated: waits for a ctxpipe developer in [CTX-2001](https://linear.app/ctxpipe/issue/CTX-2001)",
-      ),
-      text,
-    )
-    assert.ok(text.includes("`override: <reason>`"), text)
-    assert.ok(!text.includes("/critic "), text)
-    // The overruled finding is named, so a person sees it.
-    assert.ok(
-      text.includes("`f:99999999`") && text.includes("| `overruled` |"),
-      text,
-    )
-    assert.ok(text.includes("`gpt-6.1-sol` (implementer: `claude`)"), text)
-    assert.ok(text.includes("it is attested, not verified"), text)
-    assert.ok(text.includes("`rename it`"), text)
-    // The job read the issue of the finding with the key.
-    assert.equal(requests.at(-1).auth, "lin_api_read")
-    assert.equal(requests.at(-1).variables.id, "CTX-2001")
-    // These do not count: an app, a bot, an integration, a guest, a disabled
-    // user, a comment on behalf of another user, a comment from before the
-    // escalation, a first line without the answer, an override without a
-    // reason, an issue that does not hold the escalation key of this finding
-    // and this branch, and an answer from before the last change of the
-    // description (an agent moved an old issue to this finding).
-    const override = "override: the ADR allows it"
-    for (const [comments, options] of [
-      [[comment(override, { user: { ...person, app: true } })]],
-      [[comment(override, { user: null, botActor: { id: "b" } })]],
-      [[comment(override, { botActor: { id: "b" } })]],
-      [[comment(override, { externalUser: { id: "e" } })]],
-      [[comment(override, { user: { ...person, guest: true } })]],
-      [[comment(override, { user: { ...person, active: false } })]],
-      [[comment(override, { onBehalfOf: { id: "u" } })]],
-      [[comment(override, { createdAt: "2026-11-06T08:00:00.000Z" })]],
-      [[comment(`Looks fine.\n${override}`)]],
-      [[comment("override:")]],
-      [
-        [comment(override)],
-        {
-          description: `Escalation key: \`${escalationKey("f:0123abcd", "d".repeat(16), "0".repeat(16))}\``,
-        },
-      ],
-      // The issue of an earlier dispute of the same finding text (another
-      // critic version or other units): its old answer does not count.
-      [
-        [comment(override)],
-        {
-          description: `Escalation key: \`${escalationKey("f:0123abcd", "e".repeat(16))}\``,
-        },
-      ],
-      // A person, not the factory app, created the issue.
-      [[comment(override)], { creator: { id: "user-2", app: false } }],
-      // Another app (not the factory app) created the issue.
-      [[comment(override)], { creator: { id: "app-other", app: true } }],
-      // The creator of the issue answered it.
-      [
-        [comment(override, { user: { ...person, id: "app-factory" } })],
-        { creator: { id: "app-factory", app: true } },
-      ],
-      // The record names a key of another branch, or no key.
-      ...[
-        escalationKey("f:0123abcd", "d".repeat(16), "0".repeat(16)),
-        undefined,
-      ].map((escalation) => [
-        [comment(override)],
-        {
-          description: `Escalation key: \`${escalation}\``,
-          critics: {
-            critics: [
-              {
-                ...record.critics[0],
-                disputes: [
-                  decision("f:0123abcd", "escalated", {
-                    linear: "CTX-2001",
-                    escalation,
-                  }),
-                ],
-              },
-            ],
-          },
-        },
-      ]),
-      [
-        [comment(override)],
-        { description: `Escalation key: \`${escalationKey("f:aaaaaaaa")}\`` },
-      ],
-      // The key is in the text, not on the key line.
-      [
-        [comment(override)],
-        {
-          description: `See ${escalationKey("f:0123abcd")} here.`,
-        },
-      ],
-      // A key in another case also counts as a second key.
-      [
-        [comment(override)],
-        {
-          description: `Escalation key: \`${escalationKey("f:0123abcd")}\`\nFACTORY-ESCALATION:x`,
-        },
-      ],
-      // An agent added the key of a second finding to the issue: one answer
-      // would count for both.
-      [
-        [comment(override)],
-        {
-          description: `Escalation key: \`${escalationKey("f:0123abcd")}\` \`${escalationKey("f:aaaaaaaa")}\``,
-        },
-      ],
-    ]) {
-      const { checked } = await check(comments, options)
-      assert.deepEqual(
-        checked.missing,
-        ["critic:spec"],
-        JSON.stringify([comments, options]),
-      )
-    }
-    // Two escalated findings name the same issue: it answers neither.
-    const shared = await check([comment(override)], {
-      critics: {
-        critics: [
-          {
-            ...record.critics[0],
-            disputes: [
-              ...record.critics[0].disputes,
-              decision("f:bbbbbbbb", "escalated", {
-                linear: "CTX-2001",
-                escalation: escalationKey("f:bbbbbbbb"),
-              }),
-            ],
-          },
-        ],
-      },
-    })
-    assert.equal(shared.run.status, 0, shared.run.stderr)
-    assert.deepEqual(shared.checked.answers, {})
-    // An accept keeps the finding: the PR must fix it.
-    const accepted = (await check([comment("accept: it is a real bug")]))
-      .checked
-    assert.deepEqual(accepted.missing, ["critic:spec"])
-    const acceptedText = criticsText(accepted, repoUrl)
-    assert.ok(acceptedText.includes("accepted by a ctxpipe developer: fix it"))
-    assert.ok(acceptedText.includes("so it stands. Fix it"), acceptedText)
-    assert.ok(
-      !acceptedText.includes("waits for a ctxpipe developer."),
-      acceptedText,
-    )
-    // An override of a person passes. The newest answer wins (on the second
-    // page of comments), and the comment links to the Linear decision with
-    // no name and no reason: the artifact and the comment are public.
-    // The key prefix counts in ASCII case only, as factory counts it: a
-    // non-ASCII look-alike in the text is not a second key.
-    const lookalike = await check([comment(override)], {
-      description: `Escalation key: \`${escalationKey("f:0123abcd")}\`\nfactory-e\u017fcalation: text`,
-    })
-    assert.deepEqual(lookalike.checked.missing, [])
-    const { checked: overridden, temp } = await check([
-      comment("accept: wait", { createdAt: "2026-11-06T09:30:00.000Z" }),
-      comment("a question", { createdAt: "2026-11-06T09:40:00.000Z" }),
-      comment(
-        "Override: the ADR allows it, see https://example.com/x\nmore text",
-      ),
-    ])
-    assert.deepEqual(overridden.missing, [])
-    assert.equal(criticsFail(overridden), false)
-    const done = criticsText(overridden, repoUrl)
-    assert.ok(done.includes("overridden by a ctxpipe developer"), done)
-    assert.ok(
-      done.includes(
-        "[Linear decision](https://linear.app/ctxpipe/issue/CTX-2001/x#comment-1)",
-      ),
-      done,
-    )
-    assert.ok(!done.includes("the ADR allows it"), done)
-    assert.deepEqual(
-      JSON.parse(
-        readFileSync(join(temp, "out", "critic-answers.json"), "utf8"),
-      ),
-      {
-        answers: [
-          {
-            finding: "f:0123abcd",
-            action: "override",
-            url: "https://linear.app/ctxpipe/issue/CTX-2001/x#comment-1",
-          },
-        ],
-      },
-    )
-    // A description edit while the job reads the history fails the job: the
-    // history it read may miss the edit.
-    const moved = await check([comment(override)], {
-      history: [{}, {}, {}].map(() => ({
-        createdAt: "2026-11-06T09:05:00.000Z",
-        updatedAt: "2026-11-06T09:05:00.000Z",
-        updatedDescription: false,
-      })),
-      edited: `Escalation key: \`${escalationKey("f:0123abcd")}\` (moved)`,
-    })
-    assert.equal(moved.run.status, 1)
-    assert.deepEqual(moved.checked.missing, ["critic:spec"])
-    assert.ok(
-      criticsText(moved.checked, repoUrl).includes(
-        "changed during the read; re-run the job",
-      ),
-    )
-    // An unknown issue fails the job with the cause.
-    const gone = await check([], { missing: true })
-    assert.equal(gone.run.status, 1)
-    assert.ok(
-      criticsText(gone.checked, repoUrl).includes(
-        "Linear gave no issue CTX-2001 for f:0123abcd",
-      ),
-    )
-    // Without the key, the job fails with the cause, and the gate shows it.
-    const { run, checked: nokey } = await check([comment(override)], {
-      key: "",
-    })
-    assert.equal(run.status, 1)
-    assert.deepEqual(nokey.missing, ["critic:spec"])
-    assert.ok(
-      criticsText(nokey, repoUrl).includes(
-        "The Linear answers were not read: `LINEAR_API_KEY is not set in the workbench environment`",
-      ),
-    )
-    // Without an escalated finding, the job makes no Linear call and needs
-    // no key.
-    const before = requests.length
-    const quiet = await check([], {
-      key: "",
-      critics: { critics: [record.critics[1]] },
-    })
-    assert.equal(quiet.run.status, 0, quiet.run.stderr)
-    assert.equal(requests.length, before)
-  } finally {
-    server.close()
-  }
-})
-
-test("an answer counts only for an id that the record escalates, with a Linear link", () => {
-  const record = {
-    critics: [
-      {
-        critic: "critic:spec",
-        status: "escalated",
-        reason: "",
-        verdicts: [],
-        disputes: [
-          { finding: "f:0123abcd", outcome: "escalated", linear: "CTX-2001" },
-        ],
-      },
-    ],
-  }
-  const check = (answers) =>
-    critics(
-      inputs({ "critics.json": record, "critic-answers.json": { answers } }),
-    )
-  const answer = (extra = {}) => ({
-    finding: "f:0123abcd",
-    action: "override",
-    url: "https://linear.app/ctxpipe/issue/CTX-2001#comment-1",
-    ...extra,
-  })
-  assert.deepEqual(check([answer()]).missing, [])
-  for (const extra of [{ finding: "f:aaaaaaaa" }, { action: "approve" }])
-    assert.deepEqual(
-      check([answer(extra)]).missing,
-      ["critic:spec"],
-      JSON.stringify(extra),
-    )
-  // A link that is not of Linear is not shown.
-  const foreign = check([answer({ url: "https://evil.example/x" })])
+  const carried = critics(inputs({ "critics.json": record("carried") }))
+  assert.deepEqual(carried.missing, [])
+  assert.equal(criticsFail(carried), false)
+  const text = criticsText(carried, repoUrl)
   assert.ok(
-    criticsText(foreign, "https://github.com/o/r").includes("a Linear comment"),
+    text.includes("| `f:99999999` |") && text.includes("| `overruled` |"),
+    text,
   )
+  assert.ok(text.includes("| `withdrawn` |"), text)
+  assert.ok(text.includes("`gpt-6.1-sol` (implementer: `claude`)"), text)
+  assert.ok(text.includes("it is attested, not verified"), text)
+  assert.ok(text.includes("token=[REDACTED]"), text)
+  assert.ok(!text.includes("abc123"), text)
+  assert.ok(!/linear/i.test(text), text)
+  // An escalated critic (an older factory release) waits for a person.
+  const escalated = critics(inputs({ "critics.json": record("escalated") }))
+  assert.deepEqual(escalated.missing, ["critic:spec"])
+  assert.equal(criticsFail(escalated), true)
+  const waiting = criticsText(escalated, repoUrl)
+  assert.ok(
+    waiting.includes("The agent asks them in its conversation"),
+    waiting,
+  )
+  assert.ok(!waiting.includes("Critics with no stored verdict"), waiting)
+  assert.ok(!/linear/i.test(waiting), waiting)
 })
