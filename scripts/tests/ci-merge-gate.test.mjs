@@ -1395,6 +1395,7 @@ test("the critics cause and the log of factory review gate hold no URL or creden
     '{"password":"made up pass',
     "a\npassword: 'made up https://x\nnext line",
     '{"password":"made up \\"pass',
+    '{"password":"made up\\',
   ])
     assert.ok(!redact(sample).includes("made"), redact(sample))
   for (const leak of ["abc123", "made", "up, pass", "b c", "dXNlcjpwYXNz"])
@@ -1413,6 +1414,7 @@ test("the critics cause and the log of factory review gate hold no URL or creden
     '{"password":"made up pass',
     "password: 'made up https://x",
     '{"password":"made up \\"pass',
+    '{"password":"made up\\',
     '{"password":"made up https://example.com/x","token": "Bearer a b"} y',
     "plain text, a path src/a.ts:12",
   ]) {

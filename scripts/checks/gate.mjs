@@ -525,7 +525,7 @@ export function redact(text) {
       // (a cut line) is redacted to the end of the line.
       .replace(
         new RegExp(
-          `(${name})("(?:[^"\\\\\\n]|\\\\.)*(?:"|$)|'(?:[^'\\\\\\n]|\\\\.)*(?:'|$))`,
+          `(${name})("(?:[^"\\\\\\n]|\\\\.)*\\\\?(?:"|$)|'(?:[^'\\\\\\n]|\\\\.)*\\\\?(?:'|$))`,
           "gim",
         ),
         "$1[REDACTED]",
