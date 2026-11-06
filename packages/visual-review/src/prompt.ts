@@ -57,13 +57,12 @@ const data = (name: string, text: string | undefined) =>
     text?.trim() ? text.replace(/<\/data/gi, "<\\/data") : "(none)"
   }\n</data>`
 
-const pageOnly = qualities
-  .filter((quality) => quality.pageOnly)
-  .map(({ name }) => name)
-  .join(", ")
-
 /** Build the prompt for one story: the fixed prefix, then the story part. */
 export function buildPrompt(input: StoryInput): Prompt {
+  const pageOnly = qualities
+    .filter((quality) => quality.pageOnly)
+    .map(({ name }) => name)
+    .join(", ")
   const regions = input.regions.length
     ? input.regions
         .map(

@@ -61,10 +61,6 @@ export type RunFacts = {
 export type Verdict = { storyId: string } & Judgement &
   RunFacts & { error?: string }
 
-const pageOnly = new Set<string>(
-  qualities.filter((quality) => quality.pageOnly).map(({ id }) => id),
-)
-
 /**
  * Read the text of a judge reply as a verdict on `story`. Text that is not
  * JSON, or JSON that does not match the schema, gives the verdict `unsure`
@@ -105,7 +101,7 @@ export function parseVerdict(
   const judgement = parsed.data
   if (story.scope !== "page")
     judgement.qualities = judgement.qualities.filter(
-      ({ name }) => !pageOnly.has(name),
+      ({ name }) => !qualities.find(({ id }) => id === name)?.pageOnly,
     )
   if (judgement.verdict === "intended") {
     const reason =
