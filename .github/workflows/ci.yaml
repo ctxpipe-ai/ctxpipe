@@ -1314,12 +1314,19 @@ jobs:
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
         with:
           bun-version: 1.4.4
-      - run: pnpm install --frozen-lockfile
+      # The manifest needs only the root scripts and the packages that
+      # scripts/checks/list.mjs loads: the root, and apps/ui for Storybook
+      # (apps/ui/.storybook/check-modules.mjs). The listing is the same as
+      # with the full install.
+      - run: pnpm install --frozen-lockfile --filter @ctxpipe-dev/root --filter @ctxpipe/ui
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
       # The toolchain record holds the versions of the host programs that a
       # check declares (scripts/checks/toolchain.mjs), so this job installs the
       # same pinned zoekt and ast-grep as the upgrade job. Go reads the zoekt
-      # module version.
+      # module version. Go and ast-grep come from a pinned download that the
+      # SHA-256 checks: setup-go takes about 5 s because it copies Go into the
+      # tool cache, and `npm install` takes 1 s to 20 s. When the Go version
+      # changes, change the URL, the hash, and the zoekt cache key.
       - name: Restore native revision index tools
         id: zoekt
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
@@ -1327,15 +1334,27 @@ jobs:
         with:
           path: ${{ runner.temp }}/ctxpipe-zoekt
           key: zoekt-both-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1-v2
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
-        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
-        with:
-          go-version: 1.25.12
-          cache: false
       - name: Host programs of the checks
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
         run: |
-          npm install --global @ast-grep/cli@0.45.0
+          download() {
+            n=0
+            until curl -fsSL -o "$2" "$1"; do
+              n=$((n + 1))
+              [ "$n" -lt 4 ] || return 1
+              sleep $((n * 2))
+            done
+          }
+          mkdir -p "$RUNNER_TEMP/host-programs/go" "$RUNNER_TEMP/host-programs/bin"
+          download https://go.dev/dl/go1.25.12.linux-arm64.tar.gz "$RUNNER_TEMP/host-programs/go.tar.gz"
+          echo "8b5884aef89600aef5b0b051fb971f11f49bb996521e911f30f02a66884f7bd2  $RUNNER_TEMP/host-programs/go.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/host-programs/go.tar.gz" -C "$RUNNER_TEMP/host-programs/go"
+          download https://github.com/ast-grep/ast-grep/releases/download/0.45.0/app-aarch64-unknown-linux-gnu.zip "$RUNNER_TEMP/host-programs/ast-grep.zip"
+          echo "62b60892dafacfa76d6de87157659f880bbf85ff38bdab52db12f1f14ec60f94  $RUNNER_TEMP/host-programs/ast-grep.zip" | sha256sum --check --strict
+          unzip -q "$RUNNER_TEMP/host-programs/ast-grep.zip" ast-grep -d "$RUNNER_TEMP/host-programs/bin"
+          echo "$RUNNER_TEMP/host-programs/go/go/bin" >> "$GITHUB_PATH"
+          echo "$RUNNER_TEMP/host-programs/bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/host-programs/go/go/bin:$PATH"
           # Install both binaries: the cache that this job saves is the one
           # the test jobs restore, and they need zoekt-index too.
           if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ] || [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-index" ]; then
