@@ -117,11 +117,11 @@
         "full": [
           {
             "model": "claude-opus",
-            "effort": "medium"
+            "effort": "high"
           },
           {
             "model": "gpt-6.1-sol",
-            "effort": "medium"
+            "effort": "high"
           }
         ]
       }

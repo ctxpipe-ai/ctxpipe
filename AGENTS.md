@@ -67,7 +67,7 @@ The review rows are what `critics.json` runs. `factory check` starts the reviewe
 | First review round, Standards axis | Codex GPT-6.1-Sol, high | Opus, high |
 | First review round, Spec axis | Opus, medium, **and** Codex GPT-6.1-Sol, medium | Opus, high |
 | First review round, Simplicity axis | Codex GPT-6-Sol, high, **and** Sonnet, medium | Opus, high |
-| Security-sensitive diff (auth, sandboxes, egress, tokens, org isolation) | Opus, medium, **and** Codex GPT-6.1-Sol, medium | Opus, high only |
+| Security-sensitive diff (auth, sandboxes, egress, tokens, org isolation) | Opus, high, **and** Codex GPT-6.1-Sol, high | Opus, high only |
 | Follow-up review round (check that the listed findings are fixed and the fix adds no new problem) | Codex GPT-6-Luna, medium | Sonnet, medium |
 | Re-review of a security fix | Opus, high | — |
 | Status checks, file search, log triage | Haiku, low | — |
