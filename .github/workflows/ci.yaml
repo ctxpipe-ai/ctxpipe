@@ -1707,8 +1707,10 @@ jobs:
             jq -c --arg finding "$finding" --arg key "$key" \
               --slurpfile history "$RUNNER_TEMP/history.jsonl" --slurpfile comments "$RUNNER_TEMP/comments.jsonl" '
               .data.issue as $issue
-              | select(($issue.description // "") | contains($key)
-                  and ([match("factory-escalation:"; "g")] | length) == 1)
+              # The key is on the key line, and no other text holds a key.
+              | select(($issue.description // "")
+                  | ([match("factory-escalation:"; "gi")] | length) == 1
+                    and ([split("\n")[] | select(gsub("^\\s+|\\s+$"; "") == "Escalation key: `\($key)`")] | length) == 1)
               # The factory app created the issue, and it never answers it.
               | select($issue.creator.app == true)
               | ([$issue.createdAt] + [$history[] | select(.updatedDescription == true) | .createdAt, .updatedAt] | max) as $since

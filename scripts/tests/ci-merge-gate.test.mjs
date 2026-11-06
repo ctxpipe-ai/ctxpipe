@@ -1706,6 +1706,20 @@ test("an escalated finding passes only with an override of a person in its Linea
         [comment(override)],
         { description: `Escalation key: \`${escalationKey("f:aaaaaaaa")}\`` },
       ],
+      // The key is in the text, not on the key line.
+      [
+        [comment(override)],
+        {
+          description: `See ${escalationKey("f:0123abcd")} here.`,
+        },
+      ],
+      // A key in another case also counts as a second key.
+      [
+        [comment(override)],
+        {
+          description: `Escalation key: \`${escalationKey("f:0123abcd")}\`\nFACTORY-ESCALATION:x`,
+        },
+      ],
       // An agent added the key of a second finding to the issue: one answer
       // would count for both.
       [
