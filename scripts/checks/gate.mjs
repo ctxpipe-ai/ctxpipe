@@ -521,11 +521,12 @@ export function redact(text) {
   return (
     String(text)
       // A whole quoted credential value first, before a URL or a bearer
-      // rule can take its closing quote.
+      // rule can take its closing quote. A value without a closing quote
+      // (a cut line) is redacted to the end of the line.
       .replace(
         new RegExp(
-          `(${name})("(?:[^"\\\\]|\\\\.)*"|'(?:[^'\\\\]|\\\\.)*')`,
-          "gi",
+          `(${name})("(?:[^"\\\\\\n]|\\\\.)*"|'(?:[^'\\\\\\n]|\\\\.)*'|"[^"\\n]*$|'[^'\\n]*$)`,
+          "gim",
         ),
         "$1[REDACTED]",
       )
@@ -726,9 +727,9 @@ export function criticsText(checked, repoUrl) {
 // The disputed findings of the critics, with their outcomes: each withdrawn
 // and overruled finding is named, so a person sees it (the dispute records
 // are attested, not verified). An escalated finding shows the answer of a
-// ctxpipe developer, or that it waits. The factory accepts a stored record
-// only when its text is already redacted, so only a developer's reason goes
-// through redact here (criticAnswers).
+// ctxpipe developer, or that it waits. The factory stores only redacted
+// text; the summary and the reason go through redact again here (the file
+// does not, so that a long path stays readable).
 function disputesText(checked) {
   const decisions = checked.critics.flatMap((critic) => critic.disputes ?? [])
   if (decisions.length === 0) return []
@@ -760,7 +761,7 @@ function disputesText(checked) {
       ? `${decision.file}:${decision.line}`
       : decision.file
     lines.push(
-      `| ${code(decision.finding)} | ${code(decision.critic)} | ${code(decision.severity)} | ${code(place ?? "")} | ${code(decision.summary ?? "")} | ${outcome} | ${by} | ${code(answer?.reason ?? decision.reason ?? "")} |`,
+      `| ${code(decision.finding)} | ${code(decision.critic)} | ${code(decision.severity)} | ${code(place ?? "")} | ${code(redact(decision.summary ?? ""))} | ${outcome} | ${by} | ${code(redact(answer?.reason ?? decision.reason ?? ""))} |`,
     )
   }
   return lines

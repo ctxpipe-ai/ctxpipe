@@ -1547,7 +1547,7 @@ jobs:
           redact() {
             local name='["'\'']?[A-Za-z_]*([Kk][Ee][Yy]|[Tt][Oo][Kk][Ee][Nn]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn])[A-Za-z_]*["'\'']?[[:space:]]*[=:][[:space:]]*'
             sed -E \
-              -e "s#(${name})(\"([^\"\\\\]|\\\\.)*\"|'([^'\\\\]|\\\\.)*')#\\1[REDACTED]#g" \
+              -e "s#(${name})(\"([^\"\\\\]|\\\\.)*\"|'([^'\\\\]|\\\\.)*'|\"[^\"]*\$|'[^']*\$)#\\1[REDACTED]#g" \
               -e 's#[A-Za-z][A-Za-z0-9+.-]*://[^[:space:]]+#[REDACTED-URL]#g' \
               -e 's#(^|[^A-Za-z0-9_])(Basic|basic|Bearer|bearer|token|Token)[[:space:]]+[^[:space:]]+#\1\2 [REDACTED]#g' \
               -e 's#(AKIA|ASIA|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|sk-|xox[abpr]-|AIza|eyJ)[A-Za-z0-9._/+=-]*#[REDACTED]#g' \
