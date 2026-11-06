@@ -290,7 +290,7 @@ A job without a planned check does not start. Each check job needs the plan job 
 
 Only a ctxpipe developer can decide an escalated finding. Its critic has the status `escalated`. The procedure is:
 
-1. `factory check` creates a Linear issue for the finding. The `factory` app user of the agent host creates it in the status "Waiting for human", related to the ticket of the branch.
+1. `factory check` creates a Linear issue for the finding. The `factory` app user of the agent host creates it in the status "Waiting for human", related to the ticket of the branch. The description names the human action (an answer, see step 3) and who does it (a ctxpipe developer), as the Linear status rule in `lessons-learned.md` asks.
 2. The issue description holds an escalation key: `factory-escalation:<finding>:<branch>:<dispute>`. `<branch>` is the first 16 hex characters of the SHA-256 of `<owner>/<repo>@<branch>`. `<dispute>` is a hash of the critic version and the disputed units. Thus the key connects the issue to one dispute of one finding on one PR branch. New code with the same finding text gets a new issue. The dispute record and the critics record hold the key (`escalation`).
 3. A developer answers in the issue. The first line of the comment is `override: <reason>` (the finding is overruled) or `accept: <reason>` (the finding stays, and the PR must fix it).
 4. The developer uses **Re-run all jobs** on the PR.
