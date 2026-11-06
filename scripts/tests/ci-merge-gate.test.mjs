@@ -1597,6 +1597,7 @@ test("an escalated finding passes only with an override of a person in its Linea
           LINEAR_API_KEY: key,
           LINEAR_URL: url,
           BRANCH: branch,
+          FACTORY_APP: "app-factory",
         },
       })
       let stderr = ""
@@ -1674,6 +1675,8 @@ test("an escalated finding passes only with an override of a person in its Linea
       ],
       // A person, not the factory app, created the issue.
       [[comment(override)], { creator: { id: "user-2", app: false } }],
+      // Another app (not the factory app) created the issue.
+      [[comment(override)], { creator: { id: "app-other", app: true } }],
       // The creator of the issue answered it.
       [
         [comment(override, { user: { ...person, id: "app-factory" } })],

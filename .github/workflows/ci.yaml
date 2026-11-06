@@ -1637,6 +1637,9 @@ jobs:
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           LINEAR_URL: https://api.linear.app/graphql
+          # The Linear user id of the `factory` app, which creates each
+          # escalation issue (agent hosts act as it; see the factory CLI README).
+          FACTORY_APP: 012ed5af-d5e6-4ee4-803f-dbbeb45fb7b7
           # The escalation key of factory names the SHA-256 of this scope.
           BRANCH: ${{ github.repository }}@${{ github.event.pull_request.head.ref }}
         run: |
@@ -1704,7 +1707,7 @@ jobs:
             # this PR branch, written after the issue and after the last
             # change of its description (an agent cannot move an old answer
             # to a new finding).
-            jq -c --arg finding "$finding" --arg key "$key" \
+            jq -c --arg finding "$finding" --arg key "$key" --arg app "$FACTORY_APP" \
               --slurpfile history "$RUNNER_TEMP/history.jsonl" --slurpfile comments "$RUNNER_TEMP/comments.jsonl" '
               .data.issue as $issue
               # The key is on the key line, and no other text holds a key (ASCII
@@ -1713,7 +1716,7 @@ jobs:
                   | (ascii_downcase | [match("factory-escalation:"; "g")] | length) == 1
                     and ([split("\n")[] | select(gsub("^\\s+|\\s+$"; "") == "Escalation key: `\($key)`")] | length) == 1)
               # The factory app created the issue, and it never answers it.
-              | select($issue.creator.app == true)
+              | select($issue.creator.app == true and $issue.creator.id == $app)
               | ([$issue.createdAt] + [$history[] | select(.updatedDescription == true) | .createdAt, .updatedAt] | max) as $since
               | [$comments[]
                   | select(.user != null and .user.app == false and .user.guest == false
