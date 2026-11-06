@@ -73,6 +73,7 @@ export const lintSteps = {
   "Reject skipped proof and owned mocks": "policy:test-policy:",
   "Reject slow UI motion": "policy:ui-motion:",
   "Reject racy Storybook play checks": "policy:story-play-timing:",
+  "Reject a route with no page story": "policy:page-stories:",
   "Reject non-Blacksmith runners": "policy:runners:",
   "Reject outside values in run scripts and workflows without permissions":
     "policy:workflow-inputs:",
