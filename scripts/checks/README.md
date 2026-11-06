@@ -298,7 +298,7 @@ Only a ctxpipe developer can decide an escalated finding. The gate never decides
 
 An escalated finding holds its hunk. Its critic counts as `missing` until the hunk changes or the critic marks the finding as covered. A critic with the status `escalated` (from an older factory release) also fails the gate.
 
-Nothing about an accepted risk goes into this repo, its PR comments or its artifacts. The gate names an accepted risk only by its entry id. The PR comment and the artifact show each disputed finding only by its id, critic, severity and outcome. They show no finding text, path, argument or reason.
+No text of an accepted risk goes into this repo, its PR comments or its artifacts. The PR comment and the artifact show each disputed finding only by its id, critic, severity and outcome. They show no finding text, path, argument or reason.
 
 The critics job removes each URL and each credential-like string from the stderr of `factory review gate` (sed). `gate.mjs` does the same for the cause. This occurs before the text goes into the log and the PR comment.
 
