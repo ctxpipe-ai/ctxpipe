@@ -162,6 +162,10 @@ A result cache adds the OS and the CPU architecture to the key of a check, unles
 
 To add a lane, add it to `lanes` in `lanes.mjs` and add its inventory to `listVitest`. To add a check family, add a new `family` value to the manifest schema, write its list and run functions, and add them to [`families.mjs`](families.mjs).
 
+## Unsampled lanes
+
+A selector can sample a lane: for each changed range, it selects only some of the checks that executed the range (for example the `k` cheapest). `selectAll: true` (optional; without it, false) tells a selector that it must not sample the lane. The selector then selects every check of the lane that a change reaches, and a model step does not remove one. The flag is a fact of the lane, so each check of the lane has the same value. Use it for a lane where each check compares the result with its own expected output, for example one screenshot of each story. If a change reaches such a check and the selector does not select it, the expected output on `main` stays incorrect. No lane has the flag at this time.
+
 ## Traces
 
 `pnpm -s checks:run --trace <dir>` also writes `<dir>/trace.json.gz`, a gzip-compressed JSON file. The schema is [`schema/trace.v1.schema.json`](schema/trace.v1.schema.json). For each check and each test case, the trace gives the source lines that the case executed (in the test process and in its Node and Bun child processes), the semantic edges that the case used, and the case duration. The line numbers are the lines at `commit`, the commit of the checkout. Thus, trace a clean working tree.
