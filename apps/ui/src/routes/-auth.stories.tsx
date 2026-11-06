@@ -272,11 +272,11 @@ export const SelectOrganization: Story = {
         canvas.getByRole("heading", { name: "Choose an organization" }),
       ).toBeVisible(),
     )
-    await expect(
-      canvas.getByRole("radio", { name: /North Labs/ }),
-    ).toBeVisible()
-    await expect(
-      canvas.getByRole("radio", { name: /South Works/ }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByRole("radio", { name: /North Labs/ })).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByRole("radio", { name: /South Works/ })).toBeVisible(),
+    )
   },
 }
