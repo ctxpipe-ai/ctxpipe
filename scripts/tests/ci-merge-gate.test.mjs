@@ -1522,7 +1522,11 @@ test("an escalated finding passes only with an override of a person in its Linea
           data: {
             issue: {
               createdAt: issue.createdAt,
-              description: issue.description,
+              // A description edit during the read of the history.
+              description:
+                list === "history" && start > 0 && issue.edited
+                  ? issue.edited
+                  : issue.description,
               [list]: {
                 pageInfo: {
                   hasNextPage: start + 2 < all.length,
@@ -1553,6 +1557,7 @@ test("an escalated finding passes only with an override of a person in its Linea
       key = "lin_api_read",
       critics: record_ = record,
       missing = false,
+      edited,
     } = {},
   ) => {
     issue = missing
@@ -1563,6 +1568,7 @@ test("an escalated finding passes only with an override of a person in its Linea
             description ?? `Escalation key: \`${escalationKey("f:0123abcd")}\``,
           comments,
           history,
+          edited,
         }
     const temp = mkdtempSync(join(tmpdir(), "ctxpipe-answers-"))
     mkdirSync(join(temp, "out"))
@@ -1725,6 +1731,23 @@ test("an escalated finding passes only with an override of a person in its Linea
           },
         ],
       },
+    )
+    // A description edit while the job reads the history fails the job: the
+    // history it read may miss the edit.
+    const moved = await check([comment(override)], {
+      history: [{}, {}, {}].map(() => ({
+        createdAt: "2026-11-06T09:05:00.000Z",
+        updatedAt: "2026-11-06T09:05:00.000Z",
+        updatedDescription: false,
+      })),
+      edited: `Escalation key: \`${escalationKey("f:0123abcd")}\` (moved)`,
+    })
+    assert.equal(moved.run.status, 1)
+    assert.deepEqual(moved.checked.missing, ["critic:spec"])
+    assert.ok(
+      criticsText(moved.checked, repoUrl).includes(
+        "changed during the read; re-run the job",
+      ),
     )
     // An unknown issue fails the job with the cause.
     const gone = await check([], { missing: true })

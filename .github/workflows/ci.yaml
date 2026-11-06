@@ -1649,7 +1649,8 @@ jobs:
             "$RUNNER_TEMP/critics/critics.json" > "$RUNNER_TEMP/escalated.jsonl"
           hash="$(printf '%s' "$BRANCH" | sha256sum | cut -c1-16)"
           # Each node of a list of the issue ($1, with the fields $2), page
-          # by page, as JSON lines; issue.json keeps the last page.
+          # by page, as JSON lines; issue.json keeps the last page, and
+          # descriptions.jsonl the description of each page.
           nodes() {
             local after=null
             while :; do
@@ -1663,6 +1664,7 @@ jobs:
                 exit 1
               fi
               jq -c ".data.issue.$1.nodes[]" "$RUNNER_TEMP/issue.json"
+              jq -c .data.issue.description "$RUNNER_TEMP/issue.json" >> "$RUNNER_TEMP/descriptions.jsonl"
               jq -e ".data.issue.$1.pageInfo.hasNextPage" "$RUNNER_TEMP/issue.json" > /dev/null || break
               after="$(jq -c ".data.issue.$1.pageInfo.endCursor" "$RUNNER_TEMP/issue.json")"
             done
@@ -1676,8 +1678,19 @@ jobs:
               exit 1
             fi
             echo "the Linear issue $issue of $finding was not read" > "$cause"
-            nodes history "createdAt updatedAt updatedDescription" > "$RUNNER_TEMP/history.jsonl"
             nodes comments "body createdAt url user { app guest active } botActor { id } externalUser { id } onBehalfOf { id }" > "$RUNNER_TEMP/comments.jsonl"
+            # The history comes after the comments, and the description
+            # stays the same on each history page: a description change
+            # before the last page is in the history, so no comment that
+            # was read counts from before it. (`IssueHistory.updatedDescription`
+            # is in the Linear schema, packages/sdk/src/schema.graphql of
+            # linear/linear: "Whether the issue's description was updated".)
+            : > "$RUNNER_TEMP/descriptions.jsonl"
+            nodes history "createdAt updatedAt updatedDescription" > "$RUNNER_TEMP/history.jsonl"
+            if ! jq -se 'unique | length == 1' "$RUNNER_TEMP/descriptions.jsonl" > /dev/null; then
+              echo "the description of the Linear issue $issue changed during the read; re-run the job" > "$cause"
+              exit 1
+            fi
             # The newest answer of a person on the issue of this finding and
             # this PR branch, written after the issue and after the last
             # change of its description (an agent cannot move an old answer
