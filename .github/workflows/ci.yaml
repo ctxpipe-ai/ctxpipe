@@ -1545,11 +1545,13 @@ jobs:
           # or credential-like text of the stderr reaches the log or the PR
           # comment. The job runs no repository script, so it uses sed.
           redact() {
+            local name='["'\'']?[A-Za-z_]*([Kk][Ee][Yy]|[Tt][Oo][Kk][Ee][Nn]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn])[A-Za-z_]*["'\'']?[[:space:]]*[=:][[:space:]]*'
             sed -E \
+              -e "s#(${name})(\"([^\"\\\\]|\\\\.)*\"|'([^'\\\\]|\\\\.)*')#\\1[REDACTED]#g" \
               -e 's#[A-Za-z][A-Za-z0-9+.-]*://[^[:space:]]+#[REDACTED-URL]#g' \
               -e 's#(^|[^A-Za-z0-9_])(Basic|basic|Bearer|bearer|token|Token)[[:space:]]+[^[:space:]]+#\1\2 [REDACTED]#g' \
               -e 's#(AKIA|ASIA|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|sk-|xox[abpr]-|AIza|eyJ)[A-Za-z0-9._/+=-]*#[REDACTED]#g' \
-              -e 's#("?[A-Za-z_]*([Kk][Ee][Yy]|[Tt][Oo][Kk][Ee][Nn]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn])[A-Za-z_]*"?[[:space:]]*[=:][[:space:]]*)("([^"\\]|\\.)*"|[^[:space:]",}]+)#\1[REDACTED]#g' \
+              -e "s#(${name})[^[:space:]\"',}]+#\\1[REDACTED]#g" \
               -e 's#[A-Za-z0-9/+_=-]{32,}#[REDACTED]#g'
           }
           echo "the critics lookup did not finish in 20 minutes" > "$out/critics-cause.txt"
@@ -1997,20 +1999,24 @@ jobs:
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           mkdir -p "$RUNNER_TEMP/inputs"
-          gh api "repos/$REPO/issues/$PR/comments?per_page=100" --paginate \
-            --jq '.[] | select(.body | test("(^|\\n)\\s*/critic\\s")) | .node_id' \
-            > "$RUNNER_TEMP/critic-comments.txt"
-          # The text, the author and the last editor come from one read, so
-          # an edit between two reads cannot pass with the author's name.
-          while read -r node; do
-            comment="$(gh api graphql -f query='query($id: ID!) { node(id: $id) { ... on IssueComment { url body author { __typename login } editor { login } } } }' \
-              -f id="$node" --jq '.data.node')" || continue
+          # The text, the author and the last editor of each comment come
+          # from one read, so an edit between two reads cannot pass with the
+          # author's name, and an edit that adds a command counts.
+          gh api graphql --paginate -F owner="${REPO%%/*}" -F name="${REPO#*/}" -F number="$PR" \
+            -f query='query($owner: String!, $name: String!, $number: Int!, $endCursor: String) {
+              repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+                comments(first: 100, after: $endCursor) {
+                  pageInfo { hasNextPage endCursor }
+                  nodes { url body author { __typename login } editor { login } } } } } }' \
+            --jq '.data.repository.pullRequest.comments.nodes[] | select(.body | test("(^|\\n)\\s*/critic\\s"))' \
+            > "$RUNNER_TEMP/critic-comments.jsonl"
+          while read -r comment; do
             login="$(jq -r '.author.login // ""' <<< "$comment")"
             [[ "$login" =~ ^[A-Za-z0-9-]+$ ]] || continue
             permission="$(gh api "repos/$REPO/collaborators/$login/permission" --jq .permission 2> /dev/null || echo none)"
             jq -c --arg permission "$permission" --arg author "$PR_AUTHOR" \
               '{url, body, user: {type: .author.__typename}, permission: $permission, editedByAuthor: (.editor == null or .editor.login == .author.login), prAuthor: (.author.login == $author)}' <<< "$comment"
-          done < "$RUNNER_TEMP/critic-comments.txt" | jq -s '{comments: .}' > "$RUNNER_TEMP/inputs/critic-commands.json"
+          done < "$RUNNER_TEMP/critic-comments.jsonl" | jq -s '{comments: .}' > "$RUNNER_TEMP/inputs/critic-commands.json"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:

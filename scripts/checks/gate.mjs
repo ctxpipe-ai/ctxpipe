@@ -516,21 +516,31 @@ export function code(text) {
 // critics job applies the same rules with sed before the line reaches the
 // log; a test keeps both the same.
 export function redact(text) {
-  return String(text)
-    .replace(/[A-Za-z][A-Za-z0-9+.-]*:\/\/\S+/g, "[REDACTED-URL]")
-    .replace(
-      /(^|[^A-Za-z0-9_])(Basic|basic|Bearer|bearer|token|Token)\s+\S+/g,
-      "$1$2 [REDACTED]",
-    )
-    .replace(
-      /(AKIA|ASIA|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|sk-|xox[abpr]-|AIza|eyJ)[A-Za-z0-9._/+=-]*/g,
-      "[REDACTED]",
-    )
-    .replace(
-      /("?[A-Za-z_]*(?:key|token|secret|password|credential|authorization)[A-Za-z_]*"?\s*[=:]\s*)("(?:[^"\\]|\\.)*"|[^\s",}]+)/gi,
-      "$1[REDACTED]",
-    )
-    .replace(/[A-Za-z0-9/+_=-]{32,}/g, "[REDACTED]")
+  const name =
+    "[\"']?[A-Za-z_]*(?:key|token|secret|password|credential|authorization)[A-Za-z_]*[\"']?\\s*[=:]\\s*"
+  return (
+    String(text)
+      // A whole quoted credential value first, before a URL or a bearer
+      // rule can take its closing quote.
+      .replace(
+        new RegExp(
+          `(${name})("(?:[^"\\\\]|\\\\.)*"|'(?:[^'\\\\]|\\\\.)*')`,
+          "gi",
+        ),
+        "$1[REDACTED]",
+      )
+      .replace(/[A-Za-z][A-Za-z0-9+.-]*:\/\/\S+/g, "[REDACTED-URL]")
+      .replace(
+        /(^|[^A-Za-z0-9_])(Basic|basic|Bearer|bearer|token|Token)\s+\S+/g,
+        "$1$2 [REDACTED]",
+      )
+      .replace(
+        /(AKIA|ASIA|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|sk-|xox[abpr]-|AIza|eyJ)[A-Za-z0-9._/+=-]*/g,
+        "[REDACTED]",
+      )
+      .replace(new RegExp(`(${name})[^\\s"',}]+`, "gi"), "$1[REDACTED]")
+      .replace(/[A-Za-z0-9/+_=-]{32,}/g, "[REDACTED]")
+  )
 }
 
 // The answers of ctxpipe developers to the escalated disputes of this round,
