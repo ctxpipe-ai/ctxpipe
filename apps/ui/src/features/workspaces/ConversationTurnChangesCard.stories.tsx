@@ -60,7 +60,7 @@ export const TurnCardCollapsed: Story = {
     intent:
       "Catches a changes card that does not collapse or expand its file list. The summary counts stay and the Show and Hide buttons toggle the folders. Not for diffs.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { defaultCollapsed: true },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -90,7 +90,7 @@ export const TurnCardExpanded: Story = {
     intent:
       "Catches a changes card whose folder does not add up its files, or whose Open diff button does not call the open action. Not for the collapsed state.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
     const folder = canvas.getByRole("button", { name: /apps\/ui\/src/ })
@@ -137,7 +137,7 @@ function CardAndPane() {
 }
 
 export const TurnCardOpensDiff: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   decorators: [() => <CardAndPane />],
   parameters: {
     intent:

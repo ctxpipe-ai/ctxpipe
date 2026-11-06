@@ -22,7 +22,7 @@ import { prerequisites, withNeeds } from "../checks/prerequisites.mjs"
 import { uiBundledImports } from "../checks/projects.mjs"
 import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
 import { lintSteps, runsInOf } from "../checks/shard.mjs"
-import { requiredStories } from "../ci/storybook-golden-select.mjs"
+import { requiredStories } from "../ci/storybook-select.mjs"
 import { vitestCommand } from "../ci/vitest-launch.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -172,9 +172,9 @@ test("the manifest matches its schema and lists each check of each family", asyn
   )
   assert.equal(count("vitest", "latency"), 2)
   assert.equal(count("vitest", "upgrade"), 1)
-  // The required golden stories are tagged (ci-storybook-golden.test.mjs),
-  // so the golden lane holds at least them.
-  assert.ok(count("storybook", "golden") >= requiredStories.length)
+  // The required required stories are tagged (ci-storybook-plays.test.mjs),
+  // so the required lane holds at least them.
+  assert.ok(count("storybook", "required") >= requiredStories.length)
   assert.ok(count("storybook", "plays") > 0)
   // An expensive check states its intent in under about 40 words. A check
   // that calls a model or a wall clock is stochastic; a check that reads
@@ -182,7 +182,7 @@ test("the manifest matches its schema and lists each check of each family", asyn
   for (const check of manifest.checks) {
     const expensive =
       check.family === "eval" ||
-      check.lane === "golden" ||
+      check.lane === "required" ||
       check.lane === "latency" ||
       check.lane === "upgrade" ||
       check.family === "build" ||
@@ -362,7 +362,7 @@ test("the manifest marks exactly the platform-independent checks portable", () =
     "vitest:cli",
     "vitest:aws-cdk",
     "vitest:visual-review",
-    "storybook:golden",
+    "storybook:required",
     "storybook:plays",
     "eval:mcp",
     "build:package",

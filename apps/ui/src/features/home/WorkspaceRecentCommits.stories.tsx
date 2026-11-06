@@ -120,7 +120,7 @@ export const CompactRowTruncates: Story = {
     intent:
       "Catches a long commit message that wraps or pushes the time and hash to a second line. The message truncates and the row stays on one line. Not for avatar images.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     commits: [longCommit, ...docsWorkspaceActivityRecent.slice(1)],
   },
@@ -192,7 +192,7 @@ export const CommitLineAligns: Story = {
     intent:
       "Catches a commit timeline line that does not span its row, or whose node does not align with the row content. Not for commit text or the workspace label.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     commits: [longCommit, ...docsWorkspaceActivityRecent.slice(1)],
     showWorkspace: true,
@@ -249,7 +249,7 @@ const avatarRequests: { login: string; authorization: string | null }[] = []
  * initial of the author.
  */
 export const AvatarAndInitialFallback: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     commits: [
       { ...docsWorkspaceActivityRecent[0], authorLogin: "ada-gh" },
@@ -347,7 +347,7 @@ export const RecentCommitsSkeletonMatches: Story = {
     intent:
       "Catches a recent commits skeleton whose size differs from the loaded list. This causes layout shift. Not for commit data or row content.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     commits: pageOfCommits.slice(0, 3),
   },

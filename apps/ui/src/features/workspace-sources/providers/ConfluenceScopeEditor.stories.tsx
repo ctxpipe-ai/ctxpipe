@@ -64,7 +64,7 @@ export const SelectAllPagesOfASpace: Story = {
     intent:
       "Catches a Confluence scope that stays not ready after the user picks a space. Picking a space must select all its pages in the scope. Not for saved page lists.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The auth decorator renders the story after the session loads.
@@ -85,7 +85,7 @@ export const EditsASavedPageList: Story = {
     intent:
       "Catches a saved page list that shows its space as fully or not selected. A partial list shows as partly selected, and a click selects all pages. Not for a new scope.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     label: "Docs",
     initialScope: { spaces: [{ key: "OPS", pages: ["101"] }] },

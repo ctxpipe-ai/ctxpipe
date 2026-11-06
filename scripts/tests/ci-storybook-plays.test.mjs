@@ -6,12 +6,12 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 
 import {
-  isGoldenPlaySuccess,
+  isPlaySuccess,
   requiredStories,
-  selectGoldenStories,
+  selectRequiredStories,
   selectPlayStories,
   shardStories,
-} from "../ci/storybook-golden-select.mjs"
+} from "../ci/storybook-select.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 
@@ -246,19 +246,19 @@ const required = [
   ["apps/ui/src/routes/-home.stories.tsx", "NoHistory"],
 ]
 
-test("required golden stories carry the workspace-golden tag and a play", () => {
+test("required required stories carry the required tag and a play", () => {
   for (const [file, name] of required) {
     const source = readFileSync(
       new URL(`../../${file}`, import.meta.url),
       "utf8",
     )
     const tagged = new RegExp(
-      `export const ${name}: Story = \\{[\\s\\S]*?tags: \\["workspace-golden"[\\],]`,
+      `export const ${name}: Story = \\{[\\s\\S]*?tags: \\["required"[\\],]`,
     )
     const play = new RegExp(
       `export const ${name}: Story = \\{[\\s\\S]*?\\bplay:`,
     )
-    assert.match(source, tagged, `${file} ${name} must tag workspace-golden`)
+    assert.match(source, tagged, `${file} ${name} must tag required`)
     assert.match(source, play, `${file} ${name} must declare a play function`)
   }
 })
@@ -266,11 +266,11 @@ test("required golden stories carry the workspace-golden tag and a play", () => 
 test("inventory rejects a tagged required story without play-fn", () => {
   assert.throws(
     () =>
-      selectGoldenStories({
+      selectRequiredStories({
         entries: {
           remap: {
             exportName: "LateErrorDoesNotClobberSuccess",
-            tags: ["workspace-golden"],
+            tags: ["required"],
           },
         },
       }),
@@ -281,19 +281,19 @@ test("inventory rejects a tagged required story without play-fn", () => {
 test("inventory rejects two tagged stories with one name", () => {
   assert.throws(
     () =>
-      selectGoldenStories({
+      selectRequiredStories({
         entries: {
           home: {
             exportName: "Loading",
-            tags: ["workspace-golden", "play-fn"],
+            tags: ["required", "play-fn"],
           },
           other: {
             exportName: "Loading",
-            tags: ["workspace-golden", "play-fn"],
+            tags: ["required", "play-fn"],
           },
         },
       }),
-    /More than one golden story is named Loading/,
+    /More than one required story is named Loading/,
   )
 })
 
@@ -302,41 +302,41 @@ test("inventory accepts only tagged required stories that list play-fn", () => {
     entries: Object.fromEntries(
       requiredStories.map((name) => [
         name,
-        { exportName: name, tags: ["workspace-golden", "play-fn"] },
+        { exportName: name, tags: ["required", "play-fn"] },
       ]),
     ),
   }
   assert.deepEqual(
-    selectGoldenStories(index).map((story) => story.exportName),
+    selectRequiredStories(index).map((story) => story.exportName),
     requiredStories,
   )
 })
 
-test("only the played phase counts as golden success", () => {
-  assert.equal(isGoldenPlaySuccess("played"), true)
-  assert.equal(isGoldenPlaySuccess("completed"), false)
-  assert.equal(isGoldenPlaySuccess("rendering"), false)
-  assert.equal(isGoldenPlaySuccess(undefined), false)
+test("only the played phase counts as play success", () => {
+  assert.equal(isPlaySuccess("played"), true)
+  assert.equal(isPlaySuccess("completed"), false)
+  assert.equal(isPlaySuccess("rendering"), false)
+  assert.equal(isPlaySuccess(undefined), false)
 })
 
-test("CI requires the Storybook Playwright golden job without retries", () => {
+test("CI requires the Storybook Playwright required job without retries", () => {
   const workflow = readFileSync(
     new URL("../../.github/workflows/ci.yaml", import.meta.url),
     "utf8",
   )
-  assert.match(workflow, /name: Storybook Playwright golden journey/)
-  assert.match(workflow, /node scripts\/ci\/storybook-golden\.mjs/)
+  assert.match(workflow, /name: Storybook required plays/)
+  assert.match(workflow, /node scripts\/ci\/storybook-plays\.mjs/)
   assert.doesNotMatch(workflow, /--retry/)
-  // storybook-golden.mjs plays the stories with storybook-play.mjs.
+  // storybook-plays.mjs plays the stories with storybook-play.mjs.
   const runner = readFileSync(
     new URL("../../scripts/ci/storybook-play.mjs", import.meta.url),
     "utf8",
   )
   const select = readFileSync(
-    new URL("../../scripts/ci/storybook-golden-select.mjs", import.meta.url),
+    new URL("../../scripts/ci/storybook-select.mjs", import.meta.url),
     "utf8",
   )
-  assert.match(select, /workspace-golden/)
+  assert.match(select, /required/)
   assert.match(select, /play-fn/)
   assert.match(runner, /playwright/)
   assert.match(runner, /phase === "played"/)
@@ -349,7 +349,7 @@ test("the all-plays selection keeps every story with a play function, sorted", (
   const index = {
     entries: {
       b: { id: "b", type: "story", tags: ["play-fn"] },
-      a: { id: "a", type: "story", tags: ["play-fn", "workspace-golden"] },
+      a: { id: "a", type: "story", tags: ["play-fn", "required"] },
       c: { id: "c", type: "story", tags: [] },
       d: { id: "d", type: "docs", tags: ["play-fn"] },
     },
@@ -402,7 +402,7 @@ test("CI runs every story with a play function in shards", () => {
   )
 })
 
-test("every required golden story is exported with the workspace-golden tag", () => {
+test("every required required story is exported with the required tag", () => {
   const sources = execFileSync(
     "git",
     ["ls-files", "apps/ui/src/**/*.stories.tsx"],
@@ -415,18 +415,18 @@ test("every required golden story is exported with the workspace-golden tag", ()
     )
   for (const name of requiredStories) {
     const tagged = new RegExp(
-      `export const ${name}: Story = \\{[\\s\\S]*?tags: \\["workspace-golden"[\\],]`,
+      `export const ${name}: Story = \\{[\\s\\S]*?tags: \\["required"[\\],]`,
     )
     assert.ok(
       sources.some((source) => tagged.test(source)),
-      `${name} is required but no story file exports it with workspace-golden`,
+      `${name} is required but no story file exports it with required`,
     )
   }
 })
 
 test("a failed run exits at once instead of waiting on the open server", () => {
   const runner = readFileSync(
-    new URL("../ci/storybook-golden.mjs", import.meta.url),
+    new URL("../ci/storybook-plays.mjs", import.meta.url),
     "utf8",
   )
   assert.match(runner, /catch \(error\) \{[\s\S]*process\.exit\(1\)/)
@@ -444,10 +444,10 @@ test("every script that ci.yaml runs for a Storybook job is a Storybook check in
   for (const script of scripts) assert.ok(inputs.includes(script), script)
 })
 
-test("every scripts/ci file that the golden runner reads at run time is a Storybook check input", async () => {
+test("every scripts/ci file that the play runner reads at run time is a Storybook check input", async () => {
   const { inputs } = await import("../checks/storybook.mjs")
   const runner = readFileSync(
-    join(root, "scripts/ci/storybook-golden.mjs"),
+    join(root, "scripts/ci/storybook-plays.mjs"),
     "utf8",
   )
   const paths = new Set(
@@ -455,6 +455,6 @@ test("every scripts/ci file that the golden runner reads at run time is a Storyb
       (match) => match[1],
     ),
   )
-  assert.ok(paths.has("scripts/ci/failures/storybook-golden.json"))
+  assert.ok(paths.has("scripts/ci/failures/storybook-required.json"))
   for (const path of paths) assert.ok(inputs.includes(path), path)
 })

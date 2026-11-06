@@ -244,7 +244,7 @@ export const Pushing: Story = {
     intent:
       "Catches a pending commit and push button that looks dimmed or stays pressable. It is disabled and marked pending, but keeps full opacity. Not for the idle button or PR actions.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     ...DirtyCommitPush.args,
     cta: {
@@ -303,7 +303,7 @@ export const ShowPr: Story = {
     intent:
       "Catches a chat header that hides the pull request link when a PR exists. It shows a Show PR link that opens in a new tab. Not for creating a PR or the sync button.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     title: "Repo layout",
     branch: {
@@ -439,7 +439,7 @@ export const CtaButtonStyle: Story = {
     intent:
       "Catches a sync button with the wrong look. It needs a filled face, small text, a low height, no external-link icon, and a hover change. Not for button actions.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { cta: syncCta },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -466,7 +466,7 @@ export const BranchLabel: Story = {
     intent:
       "Catches a branch label that wraps a long name, drops its icon, or shows a tooltip with the internal ref. The name truncates. Not for the branch link.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     title: "Repo layout",
     branch: {
@@ -514,7 +514,7 @@ export const SyncCtaWithSubtleShowPr: Story = {
     intent:
       "Catches a header with Sync and a PR where Show PR looks the same as Sync or a Create PR button shows. Show PR must look subtler. Not for the sync action.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { cta: { ...syncCta, pullRequest: prCta } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -535,7 +535,7 @@ export const DirtyShowsOnlySync: Story = {
     intent:
       "Catches a dirty branch with no PR that shows Create PR. It must show only Sync. Not for clean branches or existing PRs.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     cta: {
       ...syncCta,

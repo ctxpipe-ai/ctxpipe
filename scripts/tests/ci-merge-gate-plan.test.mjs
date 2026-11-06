@@ -35,7 +35,7 @@ const config = (mode = "gate") => ({
 const ui = "vitest:ui:apps/ui/src/a.test.tsx"
 const backend = "vitest:backend:apps/backend/src/b.test.ts"
 const contract = "vitest:contracts:apps/backend/src/c.contract.test.ts"
-const story = "storybook:golden:apps/ui/src/d.stories.tsx#d--one"
+const story = "storybook:required:apps/ui/src/d.stories.tsx#d--one"
 const lint = "lint:oxlint:.oxlintrc.json"
 const image = "build:image-ui:apps/ui/Dockerfile"
 const evalCase = "eval:mcp:apps/backend/evals/mcp/cases.ts#stale-cursor"
@@ -715,8 +715,8 @@ test("each job of the plan needs the plan job, starts only with its output, and 
       /PLAN: \$\{\{ (?:needs\.merge-gate-plan\.outputs\.[\w-]+|toJSON\(matrix\.plan\)) \}\}\n\s+run: node scripts\/checks\/selected\.mjs/,
       name,
     )
-  // A gated run has no full inventory and no golden job.
-  for (const name of ["test", "storybook-golden"])
+  // A gated run has no full inventory and no required job.
+  for (const name of ["test", "storybook-required"])
     assert.ok(
       job(name).includes("needs.merge-gate-plan.outputs.mode != 'gate'"),
       name,
@@ -852,7 +852,7 @@ test("a gated step has the setup of its full-run step and of the prerequisites o
     }
   }
   // typecheck, test-shards, package-tests, packages, storybook-plays (for its
-  // own stories and the golden ones), vercel-sandbox.
+  // own stories and the required ones), vercel-sandbox.
   assert.ok(compared >= 6, `${compared} gated steps compared`)
 })
 

@@ -133,7 +133,7 @@ export const WaitsForDelay: Story = {
     intent:
       "Catches a skeleton that shows before its delay ends, or that shifts the row height. Bones stay hidden until the delay ends. Not for hold time or content.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => (
     <div className="w-64 bg-zinc-950" data-testid="row">
       <SkeletonRow />
@@ -197,7 +197,7 @@ export const FastLoadSkipsSkeleton: Story = {
     intent:
       "Catches a fast load that still holds a skeleton. Data that arrives before the skeleton shows must appear at once. Not for slow loads or skeleton layout.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <HoldDemo />,
   play: async ({ canvasElement, mount }) => {
     await mount()
@@ -227,7 +227,7 @@ export const VisibleSkeletonHoldsMinimum: Story = {
     intent:
       "Catches a visible skeleton that goes away too early. It stays for the minimum time after it showed, not after the data arrived. Not for fast loads.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <HoldDemo />,
   play: async ({ canvasElement, mount }) => {
     await mount()
@@ -256,7 +256,7 @@ export const NoSecondHoldAfterMinimum: Story = {
     intent:
       "Catches a second hold after the minimum time is over. Data that arrives later must show at once. Not for the first hold or skeleton layout.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <HoldDemo />,
   play: async ({ canvasElement, mount }) => {
     await mount()
@@ -306,7 +306,7 @@ export const SuspenseHoldsMinimum: Story = {
     intent:
       "Catches a Suspense fallback that goes away before the minimum time. Ready content waits until the hold ends. Not for the data hook hold or fallback layout.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <SuspenseDemo />,
   play: async ({ canvasElement, mount }) => {
     content = new Promise((resolve) => {
@@ -341,7 +341,7 @@ export const DelayStartsAtFirstPaint: Story = {
     intent:
       "Catches a skeleton delay that starts at hydration. CSS must start the wait at the first paint of the server HTML. Not for hold time or hand-over.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => (
     <div className="w-64 bg-zinc-950">
       <SkeletonRow />
@@ -432,7 +432,7 @@ export const HandOverStaysVisible: Story = {
     intent:
       "Catches a hand-over between two skeletons that flashes hidden. The second skeleton stays visible at every frame. Not for timing values or loaded content.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <HandOverDemo />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -462,7 +462,7 @@ export const HandOverKeepsDelayStart: Story = {
     intent:
       "Catches a hand-over that restarts the delay. A second skeleton before the delay ends waits only for the rest of the first delay. Not for hold time.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <HandOverDemo idle />,
   play: async ({ canvasElement, mount }) => {
     await mount()
@@ -489,7 +489,7 @@ export const UnrelatedLoadKeepsItsDelay: Story = {
     intent:
       "Catches a fast load in another chain that inherits an earlier start and shows its skeleton at once. It keeps its own delay. Not for hand-over in one chain.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <HandOverDemo />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -511,7 +511,7 @@ export const HandOverHoldsMinimum: Story = {
     intent:
       "Catches a query skeleton that takes over a visible one and holds from the wrong time. The hold counts from when the first skeleton showed. Not for the delay.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <HandOverDemo idle />,
   play: async ({ canvasElement, mount }) => {
     await mount()
@@ -548,7 +548,7 @@ export const HandOverUsesPaintStart: Story = {
     intent:
       "Catches a hand-over that uses the React mount time as the chain start. It must use the CSS animation start of the first bone. Not for hold time.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <HandOverDemo idle firstStyle={{ animationDelay: "-600ms" }} />,
   play: async ({ canvasElement, mount }) => {
     await mount()

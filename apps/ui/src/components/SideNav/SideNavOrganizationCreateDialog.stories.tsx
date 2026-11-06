@@ -48,7 +48,7 @@ const userOnboardingCompleted = { value: false }
  * Get started guide is. There is no separate setup page.
  */
 export const CreateOpensHome: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <CreateOrganizationPage />,
   beforeEach: () => {
     userOnboardingCompleted.value = false

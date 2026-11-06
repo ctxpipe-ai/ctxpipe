@@ -108,7 +108,7 @@ export const PaletteShortcutTogglesAndRestoresFocus: Story = {
     intent:
       "Catches a command palette that does not toggle with the keyboard shortcut or lose focus on close. Focus returns to the trigger. Not for search or results.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { isOpen: false },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -133,7 +133,7 @@ export const PaletteFiltersAtOnce: Story = {
     intent:
       "Catches a palette search that does not filter at once or miss a slug match. It reports the result count and makes the first match active. Not for navigation keys.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   play: async () => {
     await screen.findByRole("menuitem", { name: /Handbook/ })
     await userEvent.type(await searchField(), "hand")
@@ -160,7 +160,7 @@ export const PaletteArrowKeysAndEnterKeepPane: Story = {
     intent:
       "Catches Enter in the palette that opens the wrong workspace, or drops the current pane. Arrow keys move the active item and Enter opens it. Not for search.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await screen.findByRole("menuitem", { name: /Handbook/ })
@@ -192,7 +192,7 @@ export const PaletteEscapeClearsThenCloses: Story = {
     intent:
       "Catches an Escape in the palette that closes it while text is in the field. The first Escape clears the text and the second closes the dialog. Not for search results.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   play: async ({ args }) => {
     const field = await searchField()
     await expect(screen.getByText("Close")).toBeInTheDocument()
@@ -218,7 +218,7 @@ export const PaletteNoResults: Story = {
     intent:
       "Catches a palette search with no match that shows an empty list with no message. It shows and announces a no results text. Not for matches.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   play: async () => {
     await screen.findByRole("menuitem", { name: /Handbook/ })
     await userEvent.type(await searchField(), "zzzz-no-match")
@@ -237,7 +237,7 @@ export const PaletteNoResults: Story = {
 }
 
 export const PaletteLoadingKeepsPages: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a palette that shows a lone header or a flash while workspaces load. The header and skeleton wait for the same delay. Not for loaded results.",
@@ -297,7 +297,7 @@ export const PaletteLoadingKeepsPages: Story = {
 }
 
 export const PaletteSkeletonHandsOverOnce: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a palette that shows two Workspaces headers when loading ends. The list replaces the skeleton in one step. Not for the loading delay.",
@@ -375,7 +375,7 @@ const pressAndExpect = async (key: string, name: RegExp) => {
 }
 
 export const PaletteArrowKeysWalkEveryItem: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches arrow keys in a long palette that skip an item, stop at a section, or fail to wrap. Home, End, and page keys keep an item active. Not for search.",
@@ -427,7 +427,7 @@ export const PaletteHoverAndKeysShareOneHighlight: Story = {
     intent:
       "Catches a palette that shows two highlighted items, one from the pointer and one from the keys. Only the active item has a fill. Not for item content.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   play: async () => {
     const home = await screen.findByRole("menuitem", { name: "Home" })
     // The pointer lands on the hover layer that covers the item.
@@ -456,7 +456,7 @@ export const PaletteEnterAfterDeleteRunsFirstMatch: Story = {
     intent:
       "Catches Enter after Backspace in the palette that does nothing. With no active item, Enter must open the first match. Not for arrow key use.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   play: async ({ canvasElement }) => {
     await screen.findByRole("menuitem", { name: /Handbook/ })
     const field = await searchField()
@@ -479,7 +479,7 @@ export const PaletteShortcutClosesAfterSyncRender: Story = {
     intent:
       "Catches a shortcut listener that opens the palette again right after it closes it. The shortcut must close the palette for good. Not for the first open.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { isOpen: false },
   render: (args) => <PaletteHarness {...args} syncRender />,
   play: async ({ canvasElement }) => {

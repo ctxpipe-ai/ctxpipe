@@ -215,7 +215,7 @@ export const ChatProgressDone: Story = {
     intent:
       "Catches a finished chat turn that shows a live status or an open activity log. The log stays closed with counts and the answer is visible. Not for log entries.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     messages: progressDoneMessages,
     status: "ready",
@@ -240,7 +240,7 @@ export const ChatProgressLogExpanded: Story = {
     intent:
       "Catches an open activity log that misses a thought or tool call, or shows raw markdown. Each entry shows its details. Not for spacing or the closed state.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     messages: progressDoneMessages,
   },
@@ -285,7 +285,7 @@ export const ChatProgressSpacing: Story = {
     intent:
       "Catches uneven gaps between the activity log button, its rows, and the live status. Tool names must stay bolder than their details. Not for log content.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     messages: progressWorkingMessages,
     status: "streaming",
@@ -344,7 +344,7 @@ export const OpeningLogKeepsScroll: Story = {
   },
   // The runner turns on reduced motion for this tag, so the thread jumps to
   // the bottom at once and no spring scroll runs.
-  tags: ["workspace-golden", "reduced-motion"],
+  tags: ["required", "reduced-motion"],
   args: {
     messages: [...earlierTurns, ...progressWorkingMessages],
     status: "streaming",
@@ -589,7 +589,7 @@ export const PushEntryUnderCard: Story = {
     intent:
       "Catches a push entry that sits beside or outside the changes card, or whose long branch name does not truncate. Not for card content or push data.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   decorators: [
     (Story) => (
       <div

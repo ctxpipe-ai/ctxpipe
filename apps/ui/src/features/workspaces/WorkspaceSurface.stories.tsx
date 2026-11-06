@@ -126,7 +126,7 @@ const columnBox = (column: Element | null | undefined) => {
  * workspace, so nothing moves when the workspace arrives.
  */
 export const SurfaceSkeletonMatches: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { paneParam: "files" },
   parameters: {
     intent:
@@ -188,7 +188,7 @@ const failedTouch = { count: 0, rejections: [] as unknown[] }
  * slug rename. The page stays, and the failure is not an uncaught error.
  */
 export const FailedTouchIsCaught: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a failed workspace touch request that raises an unhandled promise rejection. The page must catch the 404. Not for visible errors or touch success.",
@@ -615,7 +615,7 @@ const cleanAheadStatus = () =>
 
 /** A failed Sync shows why in a toast. */
 export const PublishErrorsToast: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   decorators: [
     (Story) => (
@@ -682,7 +682,7 @@ export const PublishErrorsToast: Story = {
 
 /** A failed Create PR shows why in a toast. */
 export const PublishPrErrorToast: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   decorators: PublishErrorsToast.decorators,
   parameters: {
@@ -732,7 +732,7 @@ export const PublishPrErrorToast: Story = {
  * and shows it after the last turn, with a link to the branch on GitHub.
  */
 export const SyncAddsThreadEntry: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1" },
   decorators: [
     (Story) => (
@@ -843,7 +843,7 @@ export const SyncAddsThreadEntry: Story = {
  * one pending push.
  */
 export const SharedPublishPending: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
     intent:
@@ -927,7 +927,7 @@ export const SharedPublishPending: Story = {
  * git-pull-request icon, and the buttons there have no border.
  */
 export const SingleCreatePr: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
     intent:
@@ -980,7 +980,7 @@ export const SingleCreatePr: Story = {
 
 /** With the tools pane closed, Create PR shows once, in the conversation header. */
 export const SingleCreatePrPaneClosed: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1" },
   parameters: {
     intent:
@@ -1019,7 +1019,7 @@ export const SingleCreatePrPaneClosed: Story = {
  * row, and they look the same.
  */
 export const CreatePrMatchesPaneTriggers: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1" },
   parameters: {
     intent:
@@ -1068,7 +1068,7 @@ export const CreatePrMatchesPaneTriggers: Story = {
  * beside Files, Graph and Settings, with the same style and the file-diff icon.
  */
 export const DiffTriggerPaneClosed: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1" },
   parameters: {
     intent:
@@ -1120,7 +1120,7 @@ export const DiffTriggerPaneClosed: Story = {
  * empty state.
  */
 export const DiffTriggerNoChanges: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
     intent:
@@ -1152,7 +1152,7 @@ export const DiffTriggerNoChanges: Story = {
  * keeps its x and width; it grows only to join the card.
  */
 export const PaneTabsStayInPlace: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
     intent:
@@ -1203,7 +1203,7 @@ export const PaneTabsStayInPlace: Story = {
  * corner of the pane card is round, as it is when Graph is active.
  */
 export const DiffTabRoundedCorner: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "diff" },
   parameters: {
     intent:
@@ -1251,7 +1251,7 @@ const publishActionNames = (root: HTMLElement) =>
  * shows the same publish actions as the conversation header.
  */
 export const MaximizedPaneMatchesHeader: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
     intent:
@@ -1307,7 +1307,7 @@ export const MaximizedPaneMatchesHeader: Story = {
 const idleBudget = { conversation: 0, tree: 0, status: 0, chat: 0, diff: 0 }
 
 export const StableRequestBudget: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   decorators: [
     (Story) => (
@@ -1588,7 +1588,7 @@ async function expectNoDetailPoll() {
 }
 
 export const WriteCheckFailedStopsPolling: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { paneParam: "settings" },
   beforeEach: () => {
     writeCheck.phase = "failed"
@@ -1679,7 +1679,7 @@ export const WriteCheckFailedStopsPolling: Story = {
 }
 
 export const WriteCheckStallStopsPolling: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   // A short cap, so the story does not wait three minutes.
   args: { paneParam: "settings", writeCheckPollCapMs: 3000 },
   beforeEach: () => {
@@ -1888,7 +1888,7 @@ const deleteFlowDecorators = [
 
 /** Deleting the open Workspace goes Home with a toast and no error page. */
 export const DeleteWorkspaceShowsNoError: Story = {
-  tags: ["workspace-golden", "!page"],
+  tags: ["required", "!page"],
   args: { paneParam: "settings" },
   render: (args) => <DeleteFlowStage {...args} />,
   decorators: deleteFlowDecorators,
@@ -1908,7 +1908,7 @@ export const DeleteWorkspaceShowsNoError: Story = {
 /** The same, when the Workspace is the last one. */
 export const DeleteLastWorkspaceShowsNoError: Story = {
   ...DeleteWorkspaceShowsNoError,
-  tags: ["workspace-golden", "!page"],
+  tags: ["required", "!page"],
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
   parameters: {
     intent:
@@ -1921,7 +1921,7 @@ export const DeleteLastWorkspaceShowsNoError: Story = {
 /** The same, from a conversation URL. */
 export const DeleteFromConversationShowsNoError: Story = {
   ...DeleteWorkspaceShowsNoError,
-  tags: ["workspace-golden", "!page"],
+  tags: ["required", "!page"],
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
   args: { paneParam: "settings", conversationId: "conv_1" },
   parameters: {

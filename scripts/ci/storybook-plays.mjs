@@ -6,10 +6,10 @@ import { fileURLToPath } from "node:url"
 import { browserTrace, storyCheck } from "../checks/storybook.mjs"
 import { writeTrace } from "../checks/trace.mjs"
 import {
-  selectGoldenStories,
+  selectRequiredStories,
   selectPlayStories,
   shardStories,
-} from "./storybook-golden-select.mjs"
+} from "./storybook-select.mjs"
 import {
   playStories,
   serveStatic,
@@ -32,18 +32,18 @@ const run = (command, args, cwd = ui) => {
 }
 
 // STORYBOOK_PLAYS=all runs every story that has a play function. The default
-// runs the required golden set. STORYBOOK_SHARD=i/n keeps every n-th story.
+// runs the required set. STORYBOOK_SHARD=i/n keeps every n-th story.
 // STORYBOOK_ONLY=a,b keeps stories whose id or file path contains a, or b.
 // --trace also writes trace.json.gz next to results.json: the browser lines
 // and the MSW handlers of each story (scripts/checks/README.md). It is data
 // only and does not change a result.
-const mode = process.env.STORYBOOK_PLAYS === "all" ? "all" : "golden"
+const mode = process.env.STORYBOOK_PLAYS === "all" ? "all" : "required"
 const trace = process.argv.slice(2).includes("--trace")
 
 const chosenStories = (index) => {
   try {
     const stories =
-      mode === "all" ? selectPlayStories(index) : selectGoldenStories(index)
+      mode === "all" ? selectPlayStories(index) : selectRequiredStories(index)
     const only = (process.env.STORYBOOK_ONLY ?? "").split(",").filter(Boolean)
     const filtered = only.length
       ? stories.filter((story) =>
@@ -64,14 +64,14 @@ try {
     process.execPath,
     [
       join(root, "scripts/ci/check-allowlist-history.mjs"),
-      "scripts/ci/failures/storybook-golden.json",
+      "scripts/ci/failures/storybook-required.json",
     ],
     root,
   )
   const output = resolve(
     root,
     process.env.CI_TEST_RESULTS_DIR ?? ".ci-results",
-    mode === "all" ? "storybook-plays" : "storybook-golden",
+    mode === "all" ? "storybook-plays" : "storybook-required",
   )
   mkdirSync(output, { recursive: true })
   const report = join(output, "results.json")
@@ -199,7 +199,7 @@ try {
     [
       join(root, "scripts/ci/check-test-report.mjs"),
       report,
-      join(root, "scripts/ci/failures/storybook-golden.json"),
+      join(root, "scripts/ci/failures/storybook-required.json"),
       String(status),
       join(output, "inventory.json"),
     ],

@@ -153,29 +153,29 @@ export const requiredStories = [
   "UserMenuLinksConnectedApps",
 ]
 
-export function isGoldenPlaySuccess(phase) {
+export function isPlaySuccess(phase) {
   return phase === "played"
 }
 
-export function selectGoldenStories(index) {
+export function selectRequiredStories(index) {
   const entries = Object.values(index.entries ?? {})
   // Names are matched without the file, so a tagged name must be unique.
   const tagged = entries
-    .filter((entry) => (entry.tags ?? []).includes("workspace-golden"))
+    .filter((entry) => (entry.tags ?? []).includes("required"))
     .map((entry) => entry.exportName)
   const twice = tagged.find((name, at) => tagged.indexOf(name) !== at)
   if (twice)
-    throw new Error(`More than one golden story is named ${twice}; rename one`)
+    throw new Error(`More than one required story is named ${twice}; rename one`)
   return requiredStories.map((name) => {
     const story = entries.find(
       (entry) =>
         entry.exportName === name &&
-        (entry.tags ?? []).includes("workspace-golden"),
+        (entry.tags ?? []).includes("required"),
     )
-    if (!story) throw new Error(`Missing tagged golden story ${name}`)
+    if (!story) throw new Error(`Missing tagged required story ${name}`)
     if (!(story.tags ?? []).includes("play-fn"))
       throw new Error(
-        `${name} is tagged workspace-golden but has no play function`,
+        `${name} is tagged required but has no play function`,
       )
     return story
   })

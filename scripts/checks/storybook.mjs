@@ -17,7 +17,7 @@ import {
 } from "./trace-lines.mjs"
 
 // The Storybook checks: one for each story with a play function. A story
-// with the `workspace-golden` tag is in the lane `golden` (the required CI
+// with the `required` tag is in the lane `required` (the required CI
 // set), and any other story is in the lane `plays`.
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -38,11 +38,11 @@ export const inputs = [
   "apps/ui/public/**",
   "scripts/checks/run.mjs",
   "scripts/checks/storybook.mjs",
-  "scripts/ci/storybook-golden.mjs",
+  "scripts/ci/storybook-plays.mjs",
   "scripts/ci/check-allowlist-history.mjs",
   "scripts/ci/check-test-report.mjs",
-  "scripts/ci/failures/storybook-golden.json",
-  "scripts/ci/storybook-golden-select.mjs",
+  "scripts/ci/failures/storybook-required.json",
+  "scripts/ci/storybook-select.mjs",
   "scripts/ci/storybook-play.mjs",
 ]
 
@@ -50,8 +50,8 @@ export const inputs = [
 // file, so a file id stays a prefix of the ids of its stories.
 export function storyCheck(story) {
   const file = `apps/ui/${story.importPath.replace(/^\.\//, "")}`
-  const lane = (story.tags ?? []).includes("workspace-golden")
-    ? "golden"
+  const lane = (story.tags ?? []).includes("required")
+    ? "required"
     : "plays"
   return { id: `storybook:${lane}:${file}#${story.id}`, lane, file }
 }
@@ -95,7 +95,7 @@ export async function listStorybook() {
         importPath: `./${relative(ui, resolve(entry.importPath))}`,
       }
       const { id, lane, file } = storyCheck(story)
-      if (lane === "golden" && !byFile.has(file))
+      if (lane === "required" && !byFile.has(file))
         byFile.set(file, intents(file, loadCsf))
       const intent = byFile.get(file)?.get(story.exportName)
       return {

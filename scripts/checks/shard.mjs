@@ -33,7 +33,7 @@ const runsIn = {
   lint: { job: "lint", profile: "project" },
   policy: { job: "lint", profile: "project" },
   typecheck: { job: "typecheck", profile: "project" },
-  "storybook:golden": { job: "storybook-golden", profile: "storybook" },
+  "storybook:required": { job: "storybook-required", profile: "storybook" },
   storybook: { job: "storybook-plays", profile: "storybook" },
   "vitest:backend": { job: "test-shards", profile: "database" },
   "vitest:contracts": { job: "test-shards", profile: "database" },

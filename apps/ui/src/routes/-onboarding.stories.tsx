@@ -144,7 +144,7 @@ async function finishJoiner(canvasElement: HTMLElement) {
 const joinerSession = onboardingSession()
 /** A joiner finishes and lands on Home, where the setup guide is (AUTH-5). */
 export const JoinerFinishLandsInApp: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <OnboardingJourney />,
   beforeEach: joinerSession.reset,
   parameters: {
@@ -266,7 +266,7 @@ const creatorState = { orgCreated: false, orgCompleted: false }
  * has that step.
  */
 export const AdminFlowCreateOrgLandsOnHome: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <OnboardingJourney />,
   beforeEach: () => {
     creatorSession.reset()
@@ -397,7 +397,7 @@ const doubleClickCreate = fn()
  * count.
  */
 export const DoubleClickMovesOneSlide: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <OnboardingPageContent />,
   beforeEach: () => {
     doubleClickCreate.mockClear()
