@@ -148,6 +148,15 @@ A lane is one Vitest run: one package directory, one config and one runtime. [`l
   - `tables`: the Drizzle migration directories of the backend. A changed `migration.sql` selects the checks that touched a table that a changed statement names, and the checks that read the file. `snapshot.json` is drizzle-kit state; no check reads it. A statement whose tables a reader cannot name (for example `DO $$ ... $$`) selects the whole lane.
 - `run.mjs` and `scripts/ci/test-suite.mjs` start Vitest through `scripts/ci/vitest-launch.mjs`. Thus a subset run and the CI run use the same setup steps and command line.
 
+## Own inputs
+
+`ownInputs` (optional) lists the files that change the result of one check, and of no check that does not list them. An example is the baseline image of a visual check: only the check of that story reads it. The schema gives the full rule.
+
+- Each entry is a repo-relative path, or a directory with `/**` at the end, as in `inputs`.
+- When a second check reads the file, list the file in the `ownInputs` of that check too.
+- An `inputs` directory of the lane can also hold the file. Then a reader that does not know `ownInputs` selects the whole lane, and its key holds the file.
+- `checks:list` does not write `ownInputs` yet. The visual lane will write it ([CTX-1191](https://linear.app/ctxpipe/issue/CTX-1191)).
+
 ## Portable checks
 
 A result cache adds the OS and the CPU architecture to the key of a check, unless the check is `portable`. The key of a portable check does not hold them, so a pass on a macOS laptop counts in Linux CI.
@@ -161,6 +170,10 @@ A result cache adds the OS and the CPU architecture to the key of a check, unles
 - [`non-portable.json`](non-portable.json) lists the check ids that are never portable. The nightly Results writer finds them: a portable check that failed in CI and in the rerun, while every stored pass of the same key came from another platform. The Non-portable checks job then opens a draft pull request that adds the ids. Find the platform dependency, fix it, and remove the id.
 
 To add a lane, add it to `lanes` in `lanes.mjs` and add its inventory to `listVitest`. To add a check family, add a new `family` value to the manifest schema, write its list and run functions, and add them to [`families.mjs`](families.mjs).
+
+## Unsampled lanes
+
+A selector can sample a lane: for each changed range, it selects only some of the checks that executed the range (for example the `k` cheapest). `selectAll: true` (optional; without it, false) tells a selector that it must not sample the lane. The selector then selects every check of the lane that a change reaches, and a model step does not remove one. The flag is a fact of the lane, so each check of the lane has the same value. Use it for a lane where each check compares the result with its own expected output, for example one screenshot of each story. If a change reaches such a check and the selector does not select it, the expected output on `main` stays incorrect. No lane has the flag at this time.
 
 ## Traces
 
