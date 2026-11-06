@@ -21,14 +21,16 @@ const judgementSchema = z.object({
   summary: z.string(),
   qualities: z.array(
     z.object({
-      name: z.enum(qualities.map(({ id }) => id) as [QualityId]),
+      name: z.enum(
+        qualities.map(({ id }) => id) as [QualityId, ...QualityId[]],
+      ),
       delta: z.enum(["better", "same", "worse"]),
       confidence: fraction,
     }),
   ),
   findings: z.array(
     z.object({
-      kind: z.enum(areas.map(({ id }) => id) as [AreaId]),
+      kind: z.enum(areas.map(({ id }) => id) as [AreaId, ...AreaId[]]),
       region: z.object({
         x: fraction,
         y: fraction,
