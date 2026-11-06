@@ -655,22 +655,18 @@ export function criticsText(checked, repoUrl) {
   return `${lines.join("\n")}\n`
 }
 
-// A dispute as the public decision record and PR comment keep it: a
-// withdrawn or overruled dispute whole, any other outcome only its id and
-// outcome (the critics job keeps the same fields).
+// A dispute as the public decision record and PR comment keep it: only the
+// finding id, the critic, the severity and the outcome, for each outcome
+// (the critics job keeps the same fields). No finding text, path, argument
+// or reason reaches a public place.
 function publicDispute(decision) {
-  if (["withdrawn", "overruled"].includes(decision?.outcome)) return decision
   const { finding, critic, severity, outcome } = decision ?? {}
   return { finding, critic, severity, outcome }
 }
 
 // The disputed findings of the critics, with their outcomes: each withdrawn
-// and overruled finding is named, so a person sees it (the dispute records
-// are attested, not verified). Any other outcome (an escalated finding of an
-// older factory release) shows only its id and outcome: its text may be about
-// a risk that a person decides in private. The factory stores only redacted text; the
-// summary and the reason go through redact again here (the file does not, so
-// that a long path stays readable).
+// and overruled finding is named by its id, so a person sees it (the dispute
+// records are attested, not verified). The text stays with the agent.
 function disputesText(checked) {
   const decisions = checked.critics.flatMap((critic) => critic.disputes ?? [])
   if (decisions.length === 0) return []
@@ -678,22 +674,12 @@ function disputesText(checked) {
     "",
     "Disputed findings:",
     "",
-    "| Finding | Critic | Severity | File | Finding text | Outcome | Decided by | Reason |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| Finding | Critic | Severity | Outcome |",
+    "| --- | --- | --- | --- |",
   ]
-  for (const decision of decisions) {
-    if (!["withdrawn", "overruled"].includes(decision.outcome)) {
-      lines.push(
-        `| ${code(decision.finding)} | ${code(decision.critic)} | ${code(decision.severity)} | | | ${code(decision.outcome ?? "")} | | |`,
-      )
-      continue
-    }
-    const by = `${code(decision.decidedBy ?? "")}${decision.implementer?.length ? ` (implementer: ${code(decision.implementer.join("+"))})` : ""}`
-    const place = decision.line
-      ? `${decision.file}:${decision.line}`
-      : decision.file
+  for (const decision of decisions.map(publicDispute)) {
     lines.push(
-      `| ${code(decision.finding)} | ${code(decision.critic)} | ${code(decision.severity)} | ${code(place ?? "")} | ${code(redact(decision.summary ?? ""))} | ${code(decision.outcome ?? "")} | ${by} | ${code(redact(decision.reason ?? ""))} |`,
+      `| ${code(decision.finding ?? "")} | ${code(decision.critic ?? "")} | ${code(decision.severity ?? "")} | ${code(decision.outcome ?? "")} |`,
     )
   }
   lines.push(

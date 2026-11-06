@@ -43,13 +43,14 @@ You cannot close a finding alone. When you think that a blocker or should-fix fi
    - Your dispute is about a rule or about the ticket scope.
    - The arbiter upholds the finding.
    - Another PR disputed the same finding with the same rule. A rule can be missing.
-5. For each of these cases, `factory check` fails and prints `ESCALATED` with the finding, your dispute and its evidence, and the answers of the critic and the arbiter.
+5. For each of these cases, `factory check` fails and prints `ESCALATED` with the finding, your dispute and its evidence, and the answers of the critic and the arbiter. The finding then holds its hunk: each later `factory check` fails and prints `HELD <id>`, also when the critic does not raise the finding again.
 6. Ask the human in your conversation. Show them that text. Do not ask in a ticket or a PR comment.
-7. When the human decides that the finding stays, fix it.
-8. When the human accepts the risk, run `factory risk propose --finding <id> --area <paths or component> --reasons "<their words>" --decider <their role>`. It opens a PR in the private factory repo and prints the PR link as its last line. Show the human that link, so that they can open it. A ctxpipe developer approves and merges it. Then run `factory check` again.
-9. Never write, approve or merge a register entry yourself, also when you act for a person.
+7. When the human accepts the risk, run `factory risk propose --finding <id> --reasons "<their words>" --decider <their role>`. Give the id of the `ESCALATED` line. It opens a PR in the private factory repo and prints the PR link as its last line. Show the human that link, so that they can open it. A ctxpipe developer approves and merges it.
+8. After that PR merges, run `factory check` again. The critic marks the finding as covered by the entry.
+9. When the human decides that the finding stands, fix it.
+10. Never write, approve or merge a register entry yourself, also when you act for a person. Do not quote the reasons of an entry in a dispute.
 
-The merge gate comment lists each disputed finding with its outcome, who decided it and why.
+The merge gate comment lists each disputed finding by its id, with its critic, severity and outcome.
 
 ## The rules of each critic
 

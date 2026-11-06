@@ -1433,21 +1433,24 @@ test("the critics cause and the log of factory review gate hold no URL or creden
   assert.ok(!cause.includes("https://") && !cause.includes("ghp_"), cause)
 })
 
-// The gate lists each dispute outcome, so a person sees it. An escalated
-// dispute is decided in the conversation of the agent, never in the gate: its
-// critic counts as missing.
-test("the comment lists each dispute outcome, and an escalated critic fails the gate", () => {
+// The gate lists each dispute outcome by its id, so a person sees it. No text
+// of the review or the dispute reaches the comment, the decision record or
+// the artifact: a reason can quote or paraphrase an accepted risk. An
+// escalated dispute is decided in the conversation of the agent, never in the
+// gate: its critic counts as missing.
+test("the comment lists each dispute outcome by its id only, and an escalated critic fails the gate", () => {
   const decision = (finding, outcome, extra = {}) => ({
     finding,
     critic: "critic:spec",
     severity: "should-fix",
-    file: "a.ts",
+    file: "apps/admin/a.ts",
     line: 2,
-    summary: "rename it",
+    summary: "the admin endpoint skips the CSRF check",
+    argument: "the admin API is reachable only from the office network",
     outcome,
     decidedBy: "gpt-6.1-sol",
     implementer: ["claude"],
-    reason: "the rule allows it",
+    reason: "VPN only",
     ...extra,
   })
   const record = (status) => ({
@@ -1461,7 +1464,8 @@ test("the comment lists each dispute outcome, and an escalated critic fails the 
           decision("f:99999999", "overruled"),
           decision("f:88888888", "withdrawn", {
             decidedBy: "claude-opus",
-            reason: "New information: token=abc123 the test a.test.ts:9",
+            reason:
+              "New information: R-1 says the admin endpoint is internal only and sits behind the VPN gateway",
           }),
         ],
       },
@@ -1473,32 +1477,42 @@ test("the comment lists each dispute outcome, and an escalated critic fails the 
       },
     ],
   })
+  const hidden = [
+    "apps/admin/a.ts",
+    "CSRF",
+    "office network",
+    "VPN",
+    "internal only",
+    "gpt-6.1-sol",
+    "claude-opus",
+  ]
   const repoUrl = "https://github.com/o/r"
   const carried = critics(inputs({ "critics.json": record("carried") }))
   assert.deepEqual(carried.missing, [])
   assert.equal(criticsFail(carried), false)
   const text = criticsText(carried, repoUrl)
   assert.ok(
-    text.includes("| `f:99999999` |") && text.includes("| `overruled` |"),
+    text.includes(
+      "| `f:99999999` | `critic:spec` | `should-fix` | `overruled` |",
+    ),
     text,
   )
-  assert.ok(text.includes("| `withdrawn` |"), text)
-  assert.ok(text.includes("`gpt-6.1-sol` (implementer: `claude`)"), text)
-  assert.ok(text.includes("it is attested, not verified"), text)
-  assert.ok(text.includes("token=[REDACTED]"), text)
-  assert.ok(!text.includes("abc123"), text)
-  assert.ok(!/linear/i.test(text), text)
-  // An escalated critic (an older factory release) waits for a person. Its
-  // escalated finding shows only its id and outcome, never its text.
-  const old = record("escalated")
-  old.critics[0].disputes.push(
-    decision("f:77777777", "escalated", {
-      file: "apps/private.ts",
-      summary: "a private risk",
-      decidedBy: "rule",
-      reason: "a person decides it",
-    }),
+  assert.ok(
+    text.includes(
+      "| `f:88888888` | `critic:spec` | `should-fix` | `withdrawn` |",
+    ),
+    text,
   )
+  assert.ok(text.includes("it is attested, not verified"), text)
+  assert.ok(!/linear/i.test(text), text)
+  for (const part of hidden) {
+    assert.ok(!text.includes(part), `${part}: ${text}`)
+    // The decision record (merge-gate-decision) does not keep it either.
+    assert.ok(!JSON.stringify(carried).includes(part), part)
+  }
+  // An escalated critic (an older factory release) waits for a person.
+  const old = record("escalated")
+  old.critics[0].disputes.push(decision("f:77777777", "escalated"))
   const escalated = critics(inputs({ "critics.json": old }))
   assert.deepEqual(escalated.missing, ["critic:spec"])
   assert.equal(criticsFail(escalated), true)
@@ -1510,16 +1524,11 @@ test("the comment lists each dispute outcome, and an escalated critic fails the 
   assert.ok(!waiting.includes("Critics with no stored verdict"), waiting)
   assert.ok(
     waiting.includes(
-      "| `f:77777777` | `critic:spec` | `should-fix` | | | `escalated` | | |",
+      "| `f:77777777` | `critic:spec` | `should-fix` | `escalated` |",
     ),
     waiting,
   )
-  const hidden = ["apps/private.ts", "a private risk", "a person decides it"]
-  for (const text of hidden) {
-    assert.ok(!waiting.includes(text), text)
-    // The decision record (merge-gate-decision) does not keep it either.
-    assert.ok(!JSON.stringify(escalated).includes(text), text)
-  }
+  for (const part of hidden) assert.ok(!waiting.includes(part), part)
   assert.ok(!/linear/i.test(waiting), waiting)
   // The critics job keeps the same fields in its public artifact.
   const ci = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
@@ -1530,14 +1539,17 @@ test("the comment lists each dispute outcome, and an escalated critic fails the 
     encoding: "utf8",
   })
   assert.equal(run.status, 0, run.stderr)
-  for (const text of hidden)
-    assert.ok(!run.stdout.includes(text), `${text}: ${run.stdout}`)
+  for (const part of hidden)
+    assert.ok(!run.stdout.includes(part), `${part}: ${run.stdout}`)
   const kept = JSON.parse(run.stdout).critics[0].disputes
-  assert.deepEqual(kept[2], {
-    finding: "f:77777777",
+  assert.deepEqual(
+    kept.map((each) => Object.keys(each).sort()),
+    Array(3).fill(["critic", "finding", "outcome", "severity"]),
+  )
+  assert.deepEqual(kept[0], {
+    finding: "f:99999999",
     critic: "critic:spec",
     severity: "should-fix",
-    outcome: "escalated",
+    outcome: "overruled",
   })
-  assert.equal(kept[0].summary, "rename it")
 })
