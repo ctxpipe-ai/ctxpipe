@@ -62,7 +62,9 @@ import {
 //     run, <deploy> the jobs of the newest PR Deploy run of the PR head.
 //     The decision also holds the review critics (critics.json of the
 //     critics job). In gate mode, the exit code is 1 when a critic has no
-//     stored verdict, or when a same-repo PR has no critics record.
+//     stored verdict, when a same-repo PR has no critics record, or when an
+//     escalated dispute has no override of a ctxpipe developer
+//     (critic-commands.json in <inputs>, from the `/critic` PR comments).
 
 // The steps of the job `Deploy PR environment (Railway + Neon)` of
 // pr-deploy.yaml that run one deploy check each. A test keeps these names
@@ -508,6 +510,71 @@ export function code(text) {
   return `\`${clean.length > 200 ? `${clean.slice(0, 200)}…` : clean}\``
 }
 
+// `text` with each URL and each credential-like string replaced. The cause of
+// the critics job (the last stderr line of `factory review gate`) and a
+// developer's override reason reach the public PR comment through it. The
+// critics job applies the same rules with sed before the line reaches the
+// log; a test keeps both the same.
+export function redact(text) {
+  return String(text)
+    .replace(/[A-Za-z][A-Za-z0-9+.-]*:\/\/\S+/g, "[REDACTED-URL]")
+    .replace(
+      /(^|[^A-Za-z0-9_])(Bearer|bearer|token|Token)\s+\S+/g,
+      "$1$2 [REDACTED]",
+    )
+    .replace(
+      /(AKIA|ASIA|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|sk-|xox[abpr]-|AIza|eyJ)[A-Za-z0-9._/+=-]*/g,
+      "[REDACTED]",
+    )
+    .replace(
+      /([A-Za-z_]*(?:key|token|secret|password|credential)[A-Za-z_]*)=\S+/gi,
+      "$1=[REDACTED]",
+    )
+    .replace(/[A-Za-z0-9/+_=-]{32,}/g, "[REDACTED]")
+}
+
+// The repo permissions whose holder may answer an escalated dispute: a
+// ctxpipe developer with write access or more.
+const answering = new Set(["admin", "maintain", "write"])
+
+// The answers of ctxpipe developers to the escalated disputes of this round,
+// by finding id: `/critic accept <id>` (the finding stands; the PR fixes it)
+// or `/critic override <id> <reason>` (the finding is overruled). The Merge
+// gate job writes critic-commands.json: each PR comment with a `/critic`
+// line, as the GitHub API gives it now (the current text of an edited
+// comment; the author never changes), with the repo permission of its
+// author. A command counts only from a user account (not a bot or an app)
+// with write, maintain or admin permission, and only for an id that this
+// record escalates. The newest command for an id wins.
+export function criticAnswers(escalated, commands, repoUrl) {
+  const answers = new Map()
+  for (const comment of commands?.comments ?? []) {
+    if (comment?.user?.type !== "User") continue
+    if (!answering.has(comment.permission)) continue
+    const url =
+      repoUrl &&
+      typeof comment.url === "string" &&
+      comment.url.startsWith(`${repoUrl}/pull/`) &&
+      /\/pull\/\d+#issuecomment-\d+$/.test(comment.url)
+        ? comment.url
+        : undefined
+    for (const line of String(comment.body ?? "").split(/\r?\n/)) {
+      const match =
+        /^\s*\/critic\s+(accept|override)\s+(f:[0-9a-f]{8})(?:\s+(.*\S))?\s*$/.exec(
+          line,
+        )
+      if (!match || !escalated.has(match[2])) continue
+      if (match[1] === "override" && !match[3]) continue
+      answers.set(match[2], {
+        action: match[1],
+        reason: match[3] ? redact(match[3]).slice(0, 300) : undefined,
+        url,
+      })
+    }
+  }
+  return answers
+}
+
 // The review critics of the PR, from `factory review gate` in the critics
 // job (critics.json): each critic of the merge base is carried (a stored
 // verdict covers the PR diff), not-applicable, or missing. Each other status
@@ -517,25 +584,51 @@ export function code(text) {
 // critics job gives, so a critics job without that id has no record. A
 // same-repo PR needs the record (`required`): without it the gate fails. A
 // fork PR gets no role for the result store.
-export function critics(inputs, { needs, fork = false } = {}) {
+//
+// An `escalated` critic waits for a ctxpipe developer: it passes only when
+// each of its escalated disputes has an override (criticAnswers).
+export function critics(inputs, { needs, fork = false, repoUrl } = {}) {
   const record = readJson(join(inputs, "critics.json"))
-  if (record?.critics?.length > 0)
+  if (record?.critics?.length > 0) {
+    const escalated = new Set(
+      record.critics.flatMap((critic) =>
+        critic.status === "escalated"
+          ? (critic.disputes ?? [])
+              .filter((decision) => decision.outcome === "escalated")
+              .map((decision) => decision.finding)
+          : [],
+      ),
+    )
+    const answers = criticAnswers(
+      escalated,
+      readJson(join(inputs, "critic-commands.json")),
+      repoUrl,
+    )
+    const passes = (critic) =>
+      ["carried", "not-applicable"].includes(critic.status) ||
+      (critic.status === "escalated" &&
+        (critic.disputes ?? []).some((d) => d.outcome === "escalated") &&
+        (critic.disputes ?? [])
+          .filter((decision) => decision.outcome === "escalated")
+          .every(
+            (decision) => answers.get(decision.finding)?.action === "override",
+          ))
     return {
       checked: true,
       required: !fork,
       critics: record.critics,
+      answers: Object.fromEntries(answers),
       missing: record.critics
-        .filter(
-          (critic) => !["carried", "not-applicable"].includes(critic.status),
-        )
+        .filter((critic) => !passes(critic))
         .map((critic) => critic.critic),
     }
+  }
   const cause = join(inputs, "critics-cause.txt")
   return {
     checked: false,
     required: !fork,
     cause: existsSync(cause)
-      ? readFileSync(cause, "utf8").trim()
+      ? redact(readFileSync(cause, "utf8").trim())
       : record
         ? "the critics record lists no critics"
         : fork
@@ -593,13 +686,67 @@ export function criticsText(checked, repoUrl) {
       `| ${code(critic.critic)} | ${code(critic.status)} | ${code(critic.reason)} | ${links.join(" ") || "none"} |`,
     )
   }
-  if (checked.missing.length > 0)
+  lines.push(...disputesText(checked))
+  const waiting = checked.critics.filter(
+    (critic) =>
+      critic.status === "escalated" && checked.missing.includes(critic.critic),
+  )
+  if (waiting.length > 0)
     lines.push(
       "",
-      `Critics with no stored verdict for this diff: ${checked.missing.length}. Fix: run \`factory check\` on the PR head (it runs the critics and stores their verdicts), and fix what it reports. Then push again, or use **Re-run all jobs** (a PR that changes \`infra/\` offers it only after the Terraform plan is approved or rejected): the job \`Merge gate critics\` must look up the verdicts again.`,
+      "An escalated dispute waits for a ctxpipe developer (write access or more). Answer on this PR with `/critic override <id> <reason>` (the finding is overruled) or `/critic accept <id>` (the finding stands: fix it), then use **Re-run all jobs**.",
+    )
+  const unverified = checked.missing.filter(
+    (id) => !waiting.some((critic) => critic.critic === id),
+  )
+  if (unverified.length > 0)
+    lines.push(
+      "",
+      `Critics with no stored verdict for this diff: ${unverified.length}. Fix: run \`factory check\` on the PR head (it runs the critics and stores their verdicts), and fix what it reports. Then push again, or use **Re-run all jobs** (a PR that changes \`infra/\` offers it only after the Terraform plan is approved or rejected): the job \`Merge gate critics\` must look up the verdicts again.`,
     )
   lines.push("", attested)
   return `${lines.join("\n")}\n`
+}
+
+// The disputed findings of the critics, with their outcomes: each withdrawn
+// and overruled finding is named, so a person sees it (the dispute records
+// are attested, not verified). An escalated finding shows the answer of a
+// ctxpipe developer, or that it waits.
+function disputesText(checked) {
+  const decisions = checked.critics.flatMap((critic) => critic.disputes ?? [])
+  if (decisions.length === 0) return []
+  const lines = [
+    "",
+    "Disputed findings:",
+    "",
+    "| Finding | Critic | Severity | File | Outcome | Decided by | Reason |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
+  ]
+  for (const decision of decisions) {
+    const answer =
+      decision.outcome === "escalated"
+        ? checked.answers?.[decision.finding]
+        : undefined
+    const outcome = answer
+      ? answer.action === "override"
+        ? "overridden by a ctxpipe developer"
+        : "accepted by a ctxpipe developer: fix it"
+      : decision.outcome === "escalated"
+        ? "escalated: waits for a ctxpipe developer"
+        : code(decision.outcome)
+    const by = answer
+      ? answer.url
+        ? `[comment](${answer.url})`
+        : "a PR comment"
+      : code(decision.decidedBy ?? "")
+    const place = decision.line
+      ? `${decision.file}:${decision.line}`
+      : decision.file
+    lines.push(
+      `| ${code(decision.finding)} | ${code(decision.critic)} | ${code(decision.severity)} | ${code(redact(place ?? ""))} | ${outcome} | ${by} | ${code(redact(answer?.reason ?? decision.reason ?? ""))} |`,
+    )
+  }
+  return lines
 }
 
 // One line for a selection reason.
@@ -1396,16 +1543,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
         }
       }
       const pr = event?.pull_request
+      const repoUrl =
+        env.GITHUB_SERVER_URL && env.GITHUB_REPOSITORY
+          ? `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}`
+          : undefined
       decision.critics = critics(options.inputs, {
         needs,
         fork:
           pr !== undefined &&
           pr.head?.repo?.full_name !== pr.base?.repo?.full_name,
+        repoUrl,
       })
-      const repoUrl =
-        env.GITHUB_SERVER_URL && env.GITHUB_REPOSITORY
-          ? `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}`
-          : undefined
       const reviewText = criticsText(decision.critics, repoUrl)
       mkdirSync(options.out, { recursive: true })
       writeFileSync(

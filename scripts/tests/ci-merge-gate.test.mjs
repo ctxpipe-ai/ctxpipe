@@ -21,6 +21,7 @@ import {
   decideMode,
   describe,
   marker,
+  redact,
   shadow,
   summary,
 } from "../checks/gate.mjs"
@@ -1364,4 +1365,164 @@ test("the step names of the Lint and format job are the steps in ci.yaml", async
       : lint.includes(`- name: ${name}\n`)
     assert.ok(named, name)
   }
+})
+
+test("the critics cause and the log of factory review gate hold no URL or credential", () => {
+  const line =
+    "error: GET https://bucket.s3.amazonaws.com/x?X-Amz-Signature=abc failed; Bearer abc.def AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG ghp_0123456789abcdefghijklmnopqrstuvwxyzAB AKIAIOSFODNN7EXAMPLE id 0123456789abcdef0123456789abcdef01"
+  const clean = redact(line)
+  for (const leak of [
+    "https://",
+    "amazonaws",
+    "abc.def",
+    "wJalrXUtnFEMI",
+    "ghp_",
+    "AKIAIOSFODNN7EXAMPLE",
+    "0123456789abcdef0123456789abcdef01",
+  ])
+    assert.ok(!clean.includes(leak), `${leak}: ${clean}`)
+  assert.ok(clean.startsWith("error: GET [REDACTED-URL] failed;"), clean)
+  assert.equal(
+    redact("the store failed: AccessDenied"),
+    "the store failed: AccessDenied",
+  )
+  // The critics job redacts with sed before the line reaches the log or the
+  // cause file: the same rules as redact.
+  const ci = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const fn = /^ {10}redact\(\) \{\n[\s\S]*?^ {10}\}$/m.exec(ci)?.[0]
+  assert.ok(fn, "the redact function of the critics job")
+  for (const sample of [
+    line,
+    "token xyz and password=hunter2 sk-abc123 eyJhbGciOi.x.y",
+    "plain text, a path src/a.ts:12",
+  ]) {
+    const run = spawnSync("bash", ["-c", `${fn}\nredact`], {
+      input: `${sample}\n`,
+      encoding: "utf8",
+    })
+    assert.equal(run.stdout, `${redact(sample)}\n`, sample)
+  }
+  const directory = inputs({})
+  writeFileSync(
+    join(directory, "critics-cause.txt"),
+    `factory review gate failed with exit code 2: ${line}\n`,
+  )
+  const cause = critics(directory).cause
+  assert.ok(!cause.includes("https://") && !cause.includes("ghp_"), cause)
+})
+
+test("an escalated dispute passes only with an override of a ctxpipe developer for an id of this round", () => {
+  const repoUrl = "https://github.com/o/r"
+  const decision = (finding, outcome, extra = {}) => ({
+    finding,
+    critic: "critic:spec",
+    severity: "should-fix",
+    file: "a.ts",
+    line: 2,
+    summary: "rename it",
+    kind: "factual",
+    argument: "misread",
+    evidence: { kind: "code", path: "a.ts" },
+    outcome,
+    decidedBy: "rule",
+    reason: "a disputed blocker needs a ctxpipe developer",
+    ...extra,
+  })
+  const record = {
+    critics: [
+      {
+        critic: "critic:spec",
+        status: "escalated",
+        reason: "1 disputed findings wait for a ctxpipe developer: f:0123abcd",
+        verdicts: [],
+        disputes: [
+          decision("f:0123abcd", "escalated"),
+          decision("f:99999999", "overruled", {
+            decidedBy: "gpt-6.1-sol",
+            reason: "the rule allows it",
+          }),
+        ],
+      },
+      {
+        critic: "critic:standards",
+        status: "carried",
+        reason: "2 passes",
+        verdicts: [],
+      },
+    ],
+  }
+  const comment = (body, extra = {}) => ({
+    url: `${repoUrl}/pull/7#issuecomment-1`,
+    body,
+    user: { type: "User" },
+    permission: "write",
+    ...extra,
+  })
+  const check = (comments) =>
+    critics(
+      inputs({ "critics.json": record, "critic-commands.json": { comments } }),
+      {
+        repoUrl,
+      },
+    )
+  // No answer: the critic blocks, and the comment says how to answer.
+  const waiting = check([])
+  assert.deepEqual(waiting.missing, ["critic:spec"])
+  const text = criticsText(waiting, repoUrl)
+  assert.ok(text.includes("escalated: waits for a ctxpipe developer"), text)
+  assert.ok(text.includes("/critic override <id> <reason>"), text)
+  // The overruled finding is named, so a person sees it.
+  assert.ok(
+    text.includes("`f:99999999`") && text.includes("| `overruled` |"),
+    text,
+  )
+  assert.ok(text.includes("`the rule allows it`"), text)
+  // These do not count: a bot or an app, an author without write access, an
+  // id that this round does not escalate, an override without a reason, and
+  // a comment whose current text (after an edit) holds no command.
+  for (const comments of [
+    [comment("/critic override f:0123abcd fine", { user: { type: "Bot" } })],
+    [comment("/critic override f:0123abcd fine", { permission: "read" })],
+    [comment("/critic override f:0123abcd fine", { permission: "triage" })],
+    [comment("/critic override f:aaaaaaaa fine")],
+    [comment("/critic override f:0123abcd")],
+    [comment("edited: I take back /critic override f:0123abcd fine")],
+  ])
+    assert.deepEqual(
+      check(comments).missing,
+      ["critic:spec"],
+      JSON.stringify(comments),
+    )
+  // An accept keeps the finding: the PR must fix it.
+  const accepted = check([comment("/critic accept f:0123abcd")])
+  assert.deepEqual(accepted.missing, ["critic:spec"])
+  assert.ok(
+    criticsText(accepted, repoUrl).includes(
+      "accepted by a ctxpipe developer: fix it",
+    ),
+  )
+  // An override from a developer passes; the newest command wins, and the
+  // reason is redacted before it reaches the public comment.
+  const overridden = check([
+    comment("/critic accept f:0123abcd"),
+    comment(
+      "Looked at it.\n/critic override f:0123abcd the ADR allows it, see https://example.com/x",
+      {
+        permission: "maintain",
+      },
+    ),
+  ])
+  assert.deepEqual(overridden.missing, [])
+  assert.equal(criticsFail(overridden), false)
+  const done = criticsText(overridden, repoUrl)
+  assert.ok(done.includes("overridden by a ctxpipe developer"), done)
+  assert.ok(done.includes(`[comment](${repoUrl}/pull/7#issuecomment-1)`), done)
+  assert.ok(done.includes("the ADR allows it, see [REDACTED-URL]"), done)
+  // A comment link that is not of this repo is not shown.
+  const foreign = check([
+    comment("/critic override f:0123abcd fine", {
+      url: "https://evil.example/pull/7#issuecomment-1",
+    }),
+  ])
+  assert.ok(criticsText(foreign, repoUrl).includes("a PR comment"))
 })

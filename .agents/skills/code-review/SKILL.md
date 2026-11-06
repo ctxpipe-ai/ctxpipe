@@ -29,6 +29,17 @@ The reviewers read the rules of each critic below through the `inputs` of `criti
 
 The merge gate checks that each critic has a stored verdict for the PR diff (job `Merge gate critics`). When it says that a critic is missing, run `factory check` on the PR head, then use **Re-run all jobs**. The gate proves that an agent recorded a review of the hunks. It does not prove that the review was sound.
 
+## Dispute a finding
+
+You cannot close a finding alone. When you think that a blocker or should-fix finding is wrong, dispute it with evidence:
+
+1. Write a file such as `{"disputes": [{"finding": "f:0123abcd", "kind": "factual", "reason": "...", "evidence": {"kind": "code", "path": "src/a.ts", "line": 12}}]}`. `finding` is the id that `factory check` prints before the finding. `kind` is `factual`, `rule-unseen`, `stale`, `duplicate`, `out-of-scope` (add `"followUp": "CTX-123"`, the follow-up ticket), or `rule-or-scope`.
+2. Give evidence: a `rule` (`AGENTS.md`, an ADR, a skill or `lessons-learned.md` as it is on `main` before the PR), a `test` that disproves the finding, or `code` that the critic missed. A rule that the PR adds or changes is not evidence. A dispute without valid evidence counts as no answer.
+3. Run `factory check --repo . --input <ticket> --disputes <file> --implementer <your model>`. The same critic withdraws or upholds the finding. A model of another family arbitrates an upheld should-fix.
+4. A ctxpipe developer decides a disputed blocker, a Security finding, a dispute about a rule or the ticket scope, a dispute that the arbiter upholds, and the same rule dispute on a second PR. `factory check` prints `ESCALATED` for each one, and the merge gate waits. A developer with write access answers on the PR with `/critic override <id> <reason>` or `/critic accept <id>` (then fix it).
+
+The merge gate comment lists each disputed finding with its outcome, who decided it and why.
+
 ## The rules of each critic
 
 The reviewers of `factory check` read this section through the `inputs` of `critics.json`. The fallback below uses it too.

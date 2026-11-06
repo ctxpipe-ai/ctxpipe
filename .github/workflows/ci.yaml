@@ -1541,6 +1541,17 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           out="$RUNNER_TEMP/out"
+          # The rules of gate.mjs redact (a test keeps them the same): no URL
+          # or credential-like text of the stderr reaches the log or the PR
+          # comment. The job runs no repository script, so it uses sed.
+          redact() {
+            sed -E \
+              -e 's#[A-Za-z][A-Za-z0-9+.-]*://[^[:space:]]+#[REDACTED-URL]#g' \
+              -e 's#(^|[^A-Za-z0-9_])(Bearer|bearer|token|Token)[[:space:]]+[^[:space:]]+#\1\2 [REDACTED]#g' \
+              -e 's#(AKIA|ASIA|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|sk-|xox[abpr]-|AIza|eyJ)[A-Za-z0-9._/+=-]*#[REDACTED]#g' \
+              -e 's#([A-Za-z_]*([Kk][Ee][Yy]|[Tt][Oo][Kk][Ee][Nn]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll])[A-Za-z_]*)=[^[:space:]]+#\1=[REDACTED]#g' \
+              -e 's#[A-Za-z0-9/+_=-]{32,}#[REDACTED]#g'
+          }
           echo "the critics lookup did not finish in 20 minutes" > "$out/critics-cause.txt"
           code=0
           "$RUNNER_TEMP/bin/factory" review gate --repo . --branch "$REPO@$HEAD_REF" \
@@ -1549,13 +1560,13 @@ jobs:
           if [ "$code" -le 1 ] && jq -e '.critics | type == "array"' "$RUNNER_TEMP/critics.json" > /dev/null; then
             # The artifact keeps only the fields that gate.mjs reads.
             echo "the critics record did not parse" > "$out/critics-cause.txt"
-            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}]}]}' \
+            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}], disputes: [(.disputes // [])[] | {finding, critic, severity, file, line, summary, kind, argument, evidence, followUp, outcome, decidedBy, reason}]}]}' \
               "$RUNNER_TEMP/critics.json" > "$RUNNER_TEMP/critics.min.json"
             mv "$RUNNER_TEMP/critics.min.json" "$out/critics.json"
             rm "$out/critics-cause.txt"
           else
-            echo "factory review gate failed with exit code $code: $(tail -n 1 "$RUNNER_TEMP/critics.err" | cut -c1-300)" > "$out/critics-cause.txt"
-            cat "$RUNNER_TEMP/critics.err" >&2
+            echo "factory review gate failed with exit code $code: $(tail -n 1 "$RUNNER_TEMP/critics.err" | redact | cut -c1-300)" > "$out/critics-cause.txt"
+            redact < "$RUNNER_TEMP/critics.err" >&2
           fi
       - name: Preserve the critics
         id: preserve
@@ -1969,6 +1980,30 @@ jobs:
           if [ -f "$RUNNER_TEMP/manifest/mode.json" ]; then
             cp "$RUNNER_TEMP/manifest/mode.json" "$RUNNER_TEMP/inputs/mode.json"
           fi
+      # The answers of ctxpipe developers to escalated critic disputes
+      # (gate.mjs criticAnswers): each PR comment with a `/critic` line, as
+      # the API gives it now, and the repo permission of its author. A new
+      # comment needs a re-run: no comment trigger, so the trust of the
+      # workflow triggers stays the same.
+      - name: The critic commands of the PR
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/inputs"
+          gh api "repos/$REPO/issues/$PR/comments?per_page=100" --paginate \
+            --jq '.[] | select(.body | test("(^|\\n)\\s*/critic\\s")) | {url: .html_url, body, login: .user.login, user: {type: .user.type}}' \
+            | jq -s '.' > "$RUNNER_TEMP/critic-comments.json"
+          jq -r '[.[].login] | unique | .[]' "$RUNNER_TEMP/critic-comments.json" | while read -r login; do
+            [[ "$login" =~ ^[A-Za-z0-9-]+$ ]] || continue
+            permission="$(gh api "repos/$REPO/collaborators/$login/permission" --jq .permission 2> /dev/null || echo none)"
+            jq -n --arg login "$login" --arg permission "$permission" '{($login): $permission}'
+          done | jq -s 'add // {}' > "$RUNNER_TEMP/critic-permissions.json"
+          jq --slurpfile permissions "$RUNNER_TEMP/critic-permissions.json" \
+            '{comments: [.[] | .permission = ($permissions[0][.login] // "none") | del(.login)]}' \
+            "$RUNNER_TEMP/critic-comments.json" > "$RUNNER_TEMP/inputs/critic-commands.json"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:
