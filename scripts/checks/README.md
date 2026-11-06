@@ -299,7 +299,7 @@ Only a ctxpipe developer can decide an escalated finding. Its critic has the sta
 
 An answer counts only when all of these conditions are true:
 
-- The factory app created the issue (`creator.app`).
+- An app user created the issue (`creator.app`): on an agent host, that is the `factory` app.
 - The issue description holds the escalation key of the dispute record. The key names this finding and the hash of this PR branch. The description holds no other escalation key.
 - No other escalated finding uses the same issue.
 - A person wrote the comment. An app, a bot, an integration, a guest, a disabled user or the creator of the issue does not count. A comment on behalf of another user does not count. An agent never writes an answer, also when it acts for a person.
