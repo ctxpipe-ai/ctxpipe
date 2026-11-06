@@ -1769,6 +1769,12 @@ test("an escalated finding passes only with an override of a person in its Linea
     // An override of a person passes. The newest answer wins (on the second
     // page of comments), and the comment links to the Linear decision with
     // no name and no reason: the artifact and the comment are public.
+    // The key prefix counts in ASCII case only, as factory counts it: a
+    // non-ASCII look-alike in the text is not a second key.
+    const lookalike = await check([comment(override)], {
+      description: `Escalation key: \`${escalationKey("f:0123abcd")}\`\nfactory-e\u017fcalation: text`,
+    })
+    assert.deepEqual(lookalike.checked.missing, [])
     const { checked: overridden, temp } = await check([
       comment("accept: wait", { createdAt: "2026-11-06T09:30:00.000Z" }),
       comment("a question", { createdAt: "2026-11-06T09:40:00.000Z" }),

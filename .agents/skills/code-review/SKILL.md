@@ -35,10 +35,11 @@ You cannot close a finding alone. When you think that a blocker or should-fix fi
 
 1. Write a file such as `{"disputes": [{"finding": "f:0123abcd", "kind": "factual", "reason": "...", "evidence": {"kind": "code", "path": "src/a.ts", "line": 12}}]}`. `finding` is the id that `factory check` prints before the finding. `kind` is `factual`, `rule-unseen`, `stale`, `duplicate`, `out-of-scope` (add `"followUp": "CTX-123"`, the follow-up ticket), or `rule-or-scope`.
 2. Give evidence: a `rule` (`AGENTS.md`, an ADR, a skill or `lessons-learned.md` as it is on `main` before the PR), a `test` that disproves the finding, or `code` that the critic missed. A rule that the PR adds or changes is not evidence. A dispute without valid evidence counts as no answer.
-3. Run `factory check --repo . --input <ticket> --disputes <file> --implementer <your model>`. The same critic withdraws or upholds the finding. A model of another family arbitrates an upheld should-fix.
+3. Run `factory check --repo . --input <ticket> --disputes <file> --implementer <your model>`. The same critic withdraws or upholds the finding. It withdraws only for new information that it names. A model of another family arbitrates an upheld should-fix, but never a Security finding.
 4. In some cases, only a ctxpipe developer can decide. The cases are:
    - You dispute a blocker.
-   - You dispute a Security finding.
+   - The Security critic upholds its finding. A Security finding closes without a person only when its critic withdraws it for new information.
+   - You defer a Security finding as `out-of-scope`. For a Security finding, scope is never a reason for the critic to withdraw.
    - Your dispute is about a rule or about the ticket scope.
    - The arbiter upholds the finding.
    - Another PR disputed the same finding with the same rule. A rule can be missing.
