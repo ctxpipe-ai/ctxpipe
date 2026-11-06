@@ -204,8 +204,8 @@ test("the manifest matches its schema and lists each check of each family", asyn
         check.lane === "terraform-plan" ||
         check.lane.startsWith("image-") ||
         check.family === "deploy" ||
-        // These policy checks read the git diff, not only the files.
-        ["adr", "module-scope-values"].includes(check.lane)
+        // This policy check reads the git diff, not only the files.
+        check.lane === "adr"
       ),
       check.id,
     )

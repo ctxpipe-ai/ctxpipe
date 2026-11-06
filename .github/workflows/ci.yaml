@@ -80,7 +80,7 @@ jobs:
       - name: Reject an ADR that the index omits
         run: node scripts/ci/check-adr.mjs . origin/main
       - name: Reject new single-use module-scope values
-        run: node scripts/ci/check-module-scope-values.mjs . origin/main
+        run: node scripts/ci/check-module-scope-values.mjs .
       - name: CI command regression tests
         run: |
           node --test scripts/tests/ci-*.test.mjs

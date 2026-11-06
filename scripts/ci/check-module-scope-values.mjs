@@ -1,24 +1,28 @@
-// Rejects a new single-use value at module scope (AGENTS.md "Code style":
+// Rejects a single-use value at module scope (AGENTS.md "Code style":
 // "Avoid pulling to globals").
 //
 // A non-exported top-level `const` that holds a plain value (a string, a
 // number, or a template with no substitution)
 // and that the file reads in only one place belongs at that place. The check
-// reads the lines that the change adds, in the files of the apps, packages,
-// and scripts that are not tests, stories, or generated. A value that must
-// stay at module scope (for example, a hot-path table) carries
-// `scope-allow: <reason>` on its line or the line before it.
+// reads every file of the apps, packages, and scripts that is not a test, a
+// story, or generated. A value that must stay at module scope (for example, a
+// hot-path table) carries `scope-allow: <reason>` on its line or the line
+// before it.
 //
-// Usage: node scripts/ci/check-module-scope-values.mjs [repository root] [base ref]
-//   (default base: origin/main)
+// The values that were there before the check are in
+// module-scope-values-baseline.json. The check fails on a value that the
+// baseline does not list, and on a baseline entry that the files no longer
+// have, so the baseline only shrinks. The result depends only on the files
+// (not on a git diff), so a result cache can reuse a pass.
+//
+// Usage: node scripts/ci/check-module-scope-values.mjs [repository root]
 
+import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import ts from "typescript"
-
-import { addedLines, changedFiles } from "./changed-files.mjs"
 
 const checked = /^(apps|packages|scripts)\/.*\.(ts|tsx|mjs|js)$/
 const skipped =
@@ -99,25 +103,46 @@ export function singleUseValues(fileName, text) {
 
 function main() {
   const root = resolve(process.argv[2] ?? ".")
-  const base = process.argv[3] ?? "origin/main"
-  let failed = false
-  for (const { status, path } of changedFiles(root, base)) {
-    if (status === "D" || !checked.test(path) || skipped.test(path)) continue
-    // Uncommitted work can delete a file that the diff still lists.
+  const baselinePath = join(
+    root,
+    "scripts/ci/module-scope-values-baseline.json",
+  )
+  const baseline = existsSync(baselinePath)
+    ? JSON.parse(readFileSync(baselinePath, "utf8"))
+    : {}
+  // Tracked and untracked files, so that uncommitted work is checked too.
+  const files = execFileSync(
+    "git",
+    ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+    { cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 },
+  )
+    .split("\0")
+    .filter((path) => checked.test(path) && !skipped.test(path))
+  const errors = []
+  const found = new Set()
+  for (const path of files) {
+    // A file that git lists can be deleted in the working tree.
     if (!existsSync(join(root, path))) continue
-    const added = addedLines(root, base, path)
+    const known = new Set(baseline[path] ?? [])
     for (const { name, line } of singleUseValues(
       path,
       readFileSync(join(root, path), "utf8"),
-    ))
-      if (added.has(line)) {
-        failed = true
-        console.error(
+    )) {
+      found.add(`${path}\0${name}`)
+      if (!known.has(name))
+        errors.push(
           `${path}:${line}: \`${name}\` is a module-scope value that the file reads once. Inline it where it is used, or write \`scope-allow: <reason>\` above it.`,
         )
-      }
+    }
   }
-  if (failed) process.exit(1)
+  for (const [path, names] of Object.entries(baseline))
+    for (const name of names)
+      if (!found.has(`${path}\0${name}`))
+        errors.push(
+          `scripts/ci/module-scope-values-baseline.json: ${path} no longer has the single-use value \`${name}\`. Remove it from the baseline.`,
+        )
+  for (const error of errors) console.error(error)
+  if (errors.length) process.exit(1)
   console.log("Module-scope value check passed.")
 }
 

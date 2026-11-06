@@ -147,19 +147,57 @@ test("an exported value, a value that is read twice, and an allowed value pass",
   assert.equal(result.status, 0, result.stderr)
 })
 
-test("a single-use value that the change did not add passes", () => {
-  const result = run(
-    "check-module-scope-values.mjs",
-    {
-      "apps/backend/src/a.ts":
-        "const OLD = 1\nexport const f = () => OLD\n// edit\n",
-    },
-    { "apps/backend/src/a.ts": "const OLD = 1\nexport const f = () => OLD\n" },
-  )
+test("a single-use value that the baseline lists passes", () => {
+  const result = run("check-module-scope-values.mjs", {
+    "apps/backend/src/a.ts": "const OLD = 1\nexport const f = () => OLD\n",
+    "scripts/ci/module-scope-values-baseline.json": JSON.stringify({
+      "apps/backend/src/a.ts": ["OLD"],
+    }),
+  })
   assert.equal(result.status, 0, result.stderr)
 })
 
-test("a file that the diff lists but the working tree lacks is skipped", () => {
+test("an uncommitted single-use value fails", () => {
+  const root = mkdtempSync(join(tmpdir(), "ctxpipe-repeat-checks-"))
+  try {
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root })
+    mkdirSync(join(root, "packages/tool"), { recursive: true })
+    writeFileSync(
+      join(root, "packages/tool/a.ts"),
+      "const NEW = 1\nexport const f = () => NEW\n",
+    )
+    const result = spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(
+          new URL("../ci/check-module-scope-values.mjs", import.meta.url),
+        ),
+        root,
+      ],
+      { encoding: "utf8" },
+    )
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /a\.ts:1: `NEW`/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("a baseline entry that the files no longer have fails", () => {
+  const result = run("check-module-scope-values.mjs", {
+    "apps/backend/src/a.ts": "export const f = () => 1\n",
+    "scripts/ci/module-scope-values-baseline.json": JSON.stringify({
+      "apps/backend/src/a.ts": ["OLD"],
+    }),
+  })
+  assert.equal(result.status, 1)
+  assert.match(
+    result.stderr,
+    /apps\/backend\/src\/a\.ts no longer has the single-use value `OLD`/,
+  )
+})
+
+test("a tracked file that the working tree lacks is skipped", () => {
   const root = mkdtempSync(join(tmpdir(), "ctxpipe-repeat-checks-"))
   const git = (...args) =>
     execFileSync(

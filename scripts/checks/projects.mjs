@@ -215,8 +215,6 @@ const definitions = () => [
       "claude-plugin",
       ["plugins/**", ".claude-plugin/**", "scripts/ci/claude-cli/**"],
     ],
-    // The next two read the git diff against origin/main, so a result
-    // cannot be reused from the files alone.
     [
       "adr",
       [".ai/memory/decisions/**"],
@@ -229,6 +227,9 @@ const definitions = () => [
     ],
   ].map(([lane, reads, intent]) => {
     const file = `scripts/ci/check-${lane}.mjs`
+    // The ADR check reads the git diff against origin/main, so a result
+    // cannot be reused from the files alone.
+    const diff = lane === "adr"
     return {
       family: "policy",
       lane,
@@ -237,10 +238,11 @@ const definitions = () => [
       inputs: [
         ...shared,
         file,
-        ...(intent ? ["scripts/ci/changed-files.mjs"] : []),
+        ...(diff ? ["scripts/ci/changed-files.mjs"] : []),
         ...reads,
       ],
-      ...(intent && { intent, cacheable: false }),
+      ...(intent && { intent }),
+      ...(diff && { cacheable: false }),
       commands: [node(file)],
     }
   }),
