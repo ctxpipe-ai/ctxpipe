@@ -98,6 +98,7 @@ test("the manifest matches its schema and lists each check of each family", asyn
     "ui",
     "cli",
     "aws-cdk",
+    "visual-review",
   ]) {
     const inventory = node([
       join(root, "scripts/ci/test-suite.mjs"),
@@ -360,6 +361,7 @@ test("the manifest marks exactly the platform-independent checks portable", () =
     "vitest:ui",
     "vitest:cli",
     "vitest:aws-cdk",
+    "vitest:visual-review",
     "storybook:golden",
     "storybook:plays",
     "eval:mcp",

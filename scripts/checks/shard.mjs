@@ -40,6 +40,7 @@ const runsIn = {
   "vitest:ui": { job: "package-tests", profile: "node" },
   "vitest:cli": { job: "package-tests", profile: "node" },
   "vitest:aws-cdk": { job: "package-tests", profile: "node" },
+  "vitest:visual-review": { job: "package-tests", profile: "node" },
   "vitest:upgrade": {
     job: "upgrade-from-previous-release",
     profile: "upgrade",

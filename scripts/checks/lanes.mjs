@@ -216,6 +216,19 @@ const lanes = {
     ],
     portable: true,
   },
+  "visual-review": {
+    directory: "packages/visual-review",
+    runtime: "node",
+    inputs: [
+      ...shared,
+      "packages/visual-review/package.json",
+      "packages/visual-review/tsconfig.json",
+      // The rubric test reads the design docs that the rubric cites.
+      "apps/ui/DESIGN.md",
+      ".agents/skills/product-ui/**",
+    ],
+    portable: true,
+  },
   // Both lanes run in the Docker test image (zoekt and the SCIP indexers), on a
   // laptop as in CI (runCodesearchImage).
   // Both codesearch lanes run in the test image, so they are portable with
@@ -271,7 +284,15 @@ const matching = async (lane) => {
 
 // The Vitest checks: one for each test file of each lane.
 export async function listVitest() {
-  const suites = ["backend", "contracts", "vercel", "ui", "cli", "aws-cdk"]
+  const suites = [
+    "backend",
+    "contracts",
+    "vercel",
+    "ui",
+    "cli",
+    "aws-cdk",
+    "visual-review",
+  ]
   const [codesearch, latency, upgrade, ...inventories] = await Promise.all([
     json("apps/codesearch/scripts/run-vitest-contracts.mjs", ["--list"]),
     matching("latency"),

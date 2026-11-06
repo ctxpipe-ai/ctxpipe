@@ -21,6 +21,7 @@ const packages = {
   ui: "apps/ui",
   cli: "packages/cli",
   "aws-cdk": "packages/aws-cdk",
+  "visual-review": "packages/visual-review",
 }
 try {
   const [name, ...extra] = process.argv.slice(2)
@@ -48,7 +49,7 @@ try {
     (listOnly && trace)
   )
     throw new Error(
-      "Usage: test-suite.mjs backend|contracts|vercel|ui|cli|aws-cdk [--list | --trace]\n" +
+      "Usage: test-suite.mjs backend|contracts|vercel|ui|cli|aws-cdk|visual-review [--list | --trace]\n" +
         "       test-suite.mjs backend|contracts [--shard=i/N] [--list | --trace] | --merge",
     )
   const cwd = join(root, packages[name])
