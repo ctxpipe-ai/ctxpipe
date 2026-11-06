@@ -114,6 +114,10 @@ export const searchKnowledgeTool = defineMcpReadTool({
     cursor: z.string().optional(),
     truncated: z.boolean().optional(),
   }),
+  describeResult: ({ hits }) => ({
+    count: hits.length,
+    topScore: hits[0]?.score,
+  }),
   async run(input, { org }) {
     const named = input.workspaces !== undefined
     const slugs = [

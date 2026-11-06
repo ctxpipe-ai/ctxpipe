@@ -189,6 +189,7 @@ export const listFilesTool = defineMcpReadTool({
       ),
     cursor: z.string().optional(),
   }),
+  describeResult: ({ entries }) => ({ count: entries.length }),
   async run(input, { org }) {
     const trimmed = (input.path ?? "").replace(/\/+$/, "")
     const folder =

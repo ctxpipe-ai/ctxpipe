@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto"
 
 /**
- * Chunk rule (ADR-051): one chunk per Markdown heading section. A section over
+ * Chunk rule (ADR-051): one chunk per Markdown heading section. A section with
+ * only its heading line gets no chunk, unless the body has no other text. A section over
  * the cap packs its paragraphs (blank-line runs) into chunks up to the cap, and
  * a paragraph over the cap splits on length.
  *
@@ -73,10 +74,20 @@ export function chunkKnowledgeBody(body: string): KnowledgeChunk[] {
     }
   })
   const blank = (index: number) => !lines[index]?.line.trim()
-  return sections.flatMap(({ headingPath, start, end }) => {
+  const trimmed = sections.flatMap(({ headingPath, start, end }) => {
     while (start < end && blank(start)) start += 1
     while (end > start && blank(end - 1)) end -= 1
-    if (start === end) return []
+    return start === end ? [] : [{ headingPath, start, end }]
+  })
+  // A section that holds only its heading line is almost only title text, so
+  // it wins title-like searches with no content. The next section already has
+  // the heading in its path. A body with no other text keeps its headings.
+  const headingOnly = ({ start, end }: { start: number; end: number }) =>
+    end - start === 1 && lines[start]?.heading != null
+  const kept = trimmed.every(headingOnly)
+    ? trimmed
+    : trimmed.filter((section) => !headingOnly(section))
+  return kept.flatMap(({ headingPath, start, end }) => {
     const piece = (from: number, to: number): KnowledgeChunk => ({
       headingPath,
       text: lines

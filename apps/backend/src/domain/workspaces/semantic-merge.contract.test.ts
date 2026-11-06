@@ -59,7 +59,8 @@ function replyWithToolCall(
 
 const conflicts = [
   { path: "a.md", base: "one", current: "two", incoming: "three" },
-  { path: "b.md", base: null, current: "x", incoming: "y" },
+  // One side deleted the file, so a delete is a valid resolution (CTX-1138).
+  { path: "b.md", base: "x", current: null, incoming: "y" },
 ]
 
 it("resolves each conflicting file with one forced structured call on the high tier", async () => {

@@ -629,6 +629,7 @@ export const getRelatedTool = defineMcpReadTool({
     cursor: z.string().optional(),
     truncated: z.boolean().optional(),
   }),
+  describeResult: ({ results }) => ({ count: results.length }),
   async run(input, { org }) {
     if (input.validAt && input.validBetween) {
       throw new McpToolError(

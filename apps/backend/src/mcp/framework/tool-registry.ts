@@ -3,6 +3,7 @@ import type {
   CallToolResult,
   ToolAnnotations,
 } from "@modelcontextprotocol/sdk/types.js"
+import { trace } from "@opentelemetry/api"
 import { z } from "zod"
 
 import { currentMcpActor } from "../../auth/context.js"
@@ -63,6 +64,11 @@ type McpReadToolDefinition<
     input: ToolInput<Shape, Mode>,
     context: ToolContext<Mode>,
   ): Promise<z.infer<Output>>
+  /** The hits, files, or entries of a result, for the tool span. */
+  describeResult?(output: z.infer<Output>): {
+    count: number
+    topScore?: number
+  }
 }
 
 export type McpReadTool = {
@@ -133,6 +139,25 @@ export function defineMcpReadTool<
   const call = async (
     args: Record<string, unknown>,
   ): Promise<CallToolResult> => {
+    // Retrieval facts for the tool span: the names of the arguments (also
+    // the ones that a schema default set), never their values, and only the
+    // length of a query. The mode and the intent are enums.
+    const span = trace.getActiveSpan()
+    span?.setAttributes({
+      "ctxpipe.mcp.args": Object.keys(args)
+        .filter((key) => key !== "org" && args[key] !== undefined)
+        .sort()
+        .join(","),
+      ...(typeof args.query === "string"
+        ? { "ctxpipe.mcp.query.length": args.query.length }
+        : {}),
+      ...(typeof args.mode === "string"
+        ? { "ctxpipe.mcp.mode": args.mode }
+        : {}),
+      ...(typeof args.intent === "string"
+        ? { "ctxpipe.mcp.intent": args.intent }
+        : {}),
+    })
     try {
       const slug = typeof args.org === "string" ? args.org : undefined
       const output = await withCallOrg(slug, async (org) => {
@@ -140,6 +165,14 @@ export function defineMcpReadTool<
         const context = { org } as ToolContext<Mode>
         return definition.run(input, context)
       })
+      const result = definition.describeResult?.(output)
+      if (result)
+        span?.setAttributes({
+          "ctxpipe.mcp.result.count": result.count,
+          ...(result.topScore === undefined
+            ? {}
+            : { "ctxpipe.mcp.result.top_score": result.topScore }),
+        })
       return toolSuccess(output as Record<string, unknown>)
     } catch (error) {
       if (error instanceof McpToolError) return toolFailure(error)

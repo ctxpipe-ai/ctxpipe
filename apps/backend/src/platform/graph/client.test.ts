@@ -1,10 +1,16 @@
+import { AsyncResource } from "node:async_hooks"
 import { EventEmitter } from "node:events"
 
-import { SpanStatusCode } from "@opentelemetry/api"
+import { context, SpanStatusCode, trace } from "@opentelemetry/api"
 import { initLogger } from "evlog"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { recordSpans } from "../../../test/spans.js"
+import {
+  applyAttribution,
+  contextWithAttributionBag,
+} from "../../observability/attribution.js"
+import { applyLogContract } from "../../observability/logContract.js"
 
 const mocks = vi.hoisted(() => ({
   connect: vi.fn(),
@@ -20,6 +26,8 @@ const spans = recordSpans()
 
 class FakeFalkorDb extends EventEmitter {
   close = vi.fn(async () => undefined)
+  /** A socket error, which fires in the async context that opened the socket. */
+  socketError = AsyncResource.bind((error: Error) => this.emit("error", error))
   selectGraph() {
     return { query: async () => ({ data: [{ n: 1 }] }) }
   }
@@ -65,6 +73,48 @@ describe("FalkorDB shared client lifecycle", () => {
       getGraphClient().executeQuery("RETURN 1"),
     )
     expect(mocks.connect).toHaveBeenCalledTimes(2)
+  })
+
+  it("logs a later socket error without the request that opened the client", async () => {
+    const events: Record<string, unknown>[] = []
+    initLogger({
+      pretty: false,
+      silent: true,
+      drain: (ctx) => {
+        applyLogContract(ctx.event)
+        events.push(ctx.event)
+      },
+    })
+    try {
+      // A request opens the shared client, then ends.
+      const request = contextWithAttributionBag(context.active()).context
+      await context.with(request, () =>
+        trace
+          .getTracer("test")
+          .startActiveSpan("mcp.tool get_related", async (span) => {
+            applyAttribution({
+              "request.id": "req_old",
+              "enduser.id": "user_old",
+              "ctxpipe.mcp.tool": "get_related",
+            })
+            await withGraphClient(scope, () =>
+              getGraphClient().executeQuery("RETURN 1"),
+            )
+            span.end()
+          }),
+      )
+      const db = (await mocks.connect.mock.results[0]?.value) as FakeFalkorDb
+      db.socketError(new Error("Socket closed unexpectedly"))
+      const [event] = events.filter(
+        (item) => item.step === "graph.falkordb.connection",
+      )
+      expect(event).toMatchObject({ error: "Socket closed unexpectedly" })
+      const text = JSON.stringify(event)
+      for (const leaked of ["req_old", "user_old", "get_related", "traceId"])
+        expect(text).not.toContain(leaked)
+    } finally {
+      initLogger({ enabled: false, env: { service: "ctxpipe-backend-test" } })
+    }
   })
 
   it("records an ERROR span when connect fails", async () => {

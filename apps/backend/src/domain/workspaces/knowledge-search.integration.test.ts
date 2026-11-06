@@ -27,6 +27,7 @@ const otherOrgId = `org_test_ksearch_other_${suffix}`
 const main = `ws_ksearch_main_${suffix}`
 const second = `ws_ksearch_second_${suffix}`
 const ties = `ws_ksearch_ties_${suffix}`
+const linear = `ws_ksearch_linear_${suffix}`
 const foreign = `ws_ksearch_foreign_${suffix}`
 const sha = "a".repeat(40)
 
@@ -208,7 +209,7 @@ describe("searchKnowledge (Postgres)", () => {
     vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
     vi.stubEnv("MODEL_PROVIDER_URL", "https://search-model.test/v1")
     initDb(connectionString)
-    for (const id of [main, second, ties])
+    for (const id of [main, second, ties, linear])
       await seedKnowledgeWorkspace(orgId, id, sha)
     await seedKnowledgeWorkspace(otherOrgId, foreign, sha)
     await seedKnowledgeUnits(orgId, sha, units)
@@ -236,11 +237,46 @@ describe("searchKnowledge (Postgres)", () => {
         body: "# Foreign runbook\n\nHandbook entry about downtime and ERR_LEDGER_7731.",
       },
     ])
+    // One Linear issue at its team path, its project path, and the retired
+    // flat path, and one other issue.
+    const issue = (id: string, path: string, kind?: string): SeedUnit => ({
+      id: `unit_linear_${id}_${suffix}`,
+      workspaceId: linear,
+      path,
+      kind,
+      title: "CTX-77: Quokka distribution plan",
+      source: "linear",
+      updatedAt: "2026-01-01T00:00:00Z",
+      body: "# CTX-77: Quokka distribution plan\n\nShip the quokka plugin to the store.",
+    })
+    await seedKnowledgeUnits(orgId, sha, [
+      issue("team", "linear/teams/CTX/issues/ctx-77--issue-77.md", "Issue"),
+      issue(
+        "project",
+        "linear/projects/p-1/issues/ctx-77--issue-77.md",
+        "Issue",
+      ),
+      issue("flat", "linear/issues/ctx-77--issue-77.md"),
+      // The issue moved to another team after the flat copy was written.
+      issue("moved", "linear/issues/ops-12--issue-77.md"),
+      {
+        id: `unit_linear_other_${suffix}`,
+        workspaceId: linear,
+        path: "linear/teams/CTX/issues/ctx-78--issue-78.md",
+        kind: "Issue",
+        title: "CTX-78: Quokka store listing",
+        source: "linear",
+        updatedAt: "2026-01-01T00:00:00Z",
+        body: "# CTX-78: Quokka store listing\n\nWrite the quokka listing text.",
+      },
+    ])
   }, 60_000)
 
   afterAll(async () => {
     await withOrgDbContext(orgId, (db) =>
-      db.delete(workspaces).where(inArray(workspaces.id, [main, second, ties])),
+      db
+        .delete(workspaces)
+        .where(inArray(workspaces.id, [main, second, ties, linear])),
     )
     await withOrgDbContext(otherOrgId, (db) =>
       db.delete(workspaces).where(inArray(workspaces.id, [foreign])),
@@ -287,6 +323,21 @@ describe("searchKnowledge (Postgres)", () => {
     expect(runbook).toHaveLength(1)
     expect(runbook[0]).toMatchObject({ startLine: 5, endLine: 7 })
     expect(runbook[0]?.text).toContain("Payment gateway runbook > Contacts")
+  })
+
+  it("returns one hit for each Linear item that the mirror writes at more than one path", async () => {
+    const hits = await search({
+      query: "quokka plugin distribution",
+      workspaceIds: [linear],
+    })
+    expect(hits.map((hit) => hit.path).sort()).toEqual([
+      expect.stringMatching(/\/ctx-77--issue-77\.md$/),
+      "linear/teams/CTX/issues/ctx-78--issue-78.md",
+    ])
+    // A copy in the current layout wins over the retired flat path.
+    expect(
+      hits.find((hit) => hit.path.endsWith("ctx-77--issue-77.md"))?.kind,
+    ).toBe("Issue")
   })
 
   it("searches only the given Workspaces", async () => {
