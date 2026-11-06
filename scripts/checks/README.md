@@ -295,7 +295,7 @@ Only a ctxpipe developer can decide an escalated finding. The gate never decides
 3. When the finding stays, the agent fixes it. When the human accepts the risk, the agent runs `factory risk propose`. This opens a PR in the private factory repo, and the agent shows the human its link. A ctxpipe developer approves that PR; an agent never approves or merges it.
 4. The critics get the accepted risks of this repo, so the same finding does not come back on the next commit or PR.
 
-An escalated finding stores no dispute record, so its critic counts as `missing` until it runs again. A critic with the status `escalated` (from an older factory release) also fails the gate. Nothing about an accepted risk goes into this repo, its PR comments or its artifacts, beyond the text `covered by register entry R-<n>`.
+An escalated finding stores no dispute record, so its critic counts as `missing` until it runs again. A critic with the status `escalated` (from an older factory release) also fails the gate. Nothing about an accepted risk goes into this repo, its PR comments or its artifacts, beyond the note that a finding is covered by a risk-register entry, with no detail. The PR comment shows the text of a disputed finding only when it was withdrawn or overruled; for any other outcome, it shows only the finding id and the outcome.
 
 The critics job removes each URL and each credential-like string from the stderr of `factory review gate` (sed). `gate.mjs` does the same for the cause. This occurs before the text goes into the log and the PR comment.
 

@@ -654,7 +654,9 @@ export function criticsText(checked, repoUrl) {
 
 // The disputed findings of the critics, with their outcomes: each withdrawn
 // and overruled finding is named, so a person sees it (the dispute records
-// are attested, not verified). The factory stores only redacted text; the
+// are attested, not verified). Any other outcome (an escalated finding of an
+// older factory release) shows only its id and outcome: its text may be about
+// a risk that a person decides in private. The factory stores only redacted text; the
 // summary and the reason go through redact again here (the file does not, so
 // that a long path stays readable).
 function disputesText(checked) {
@@ -668,6 +670,12 @@ function disputesText(checked) {
     "| --- | --- | --- | --- | --- | --- | --- | --- |",
   ]
   for (const decision of decisions) {
+    if (!["withdrawn", "overruled"].includes(decision.outcome)) {
+      lines.push(
+        `| ${code(decision.finding)} | ${code(decision.critic)} | ${code(decision.severity)} | | | ${code(decision.outcome ?? "")} | | |`,
+      )
+      continue
+    }
     const by = `${code(decision.decidedBy ?? "")}${decision.implementer?.length ? ` (implementer: ${code(decision.implementer.join("+"))})` : ""}`
     const place = decision.line
       ? `${decision.file}:${decision.line}`

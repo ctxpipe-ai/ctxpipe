@@ -1488,8 +1488,18 @@ test("the comment lists each dispute outcome, and an escalated critic fails the 
   assert.ok(text.includes("token=[REDACTED]"), text)
   assert.ok(!text.includes("abc123"), text)
   assert.ok(!/linear/i.test(text), text)
-  // An escalated critic (an older factory release) waits for a person.
-  const escalated = critics(inputs({ "critics.json": record("escalated") }))
+  // An escalated critic (an older factory release) waits for a person. Its
+  // escalated finding shows only its id and outcome, never its text.
+  const old = record("escalated")
+  old.critics[0].disputes.push(
+    decision("f:77777777", "escalated", {
+      file: "apps/private.ts",
+      summary: "a private risk",
+      decidedBy: "rule",
+      reason: "a person decides it",
+    }),
+  )
+  const escalated = critics(inputs({ "critics.json": old }))
   assert.deepEqual(escalated.missing, ["critic:spec"])
   assert.equal(criticsFail(escalated), true)
   const waiting = criticsText(escalated, repoUrl)
@@ -1498,5 +1508,17 @@ test("the comment lists each dispute outcome, and an escalated critic fails the 
     waiting,
   )
   assert.ok(!waiting.includes("Critics with no stored verdict"), waiting)
+  assert.ok(
+    waiting.includes(
+      "| `f:77777777` | `critic:spec` | `should-fix` | | | `escalated` | | |",
+    ),
+    waiting,
+  )
+  for (const text of [
+    "apps/private.ts",
+    "a private risk",
+    "a person decides it",
+  ])
+    assert.ok(!waiting.includes(text), text)
   assert.ok(!/linear/i.test(waiting), waiting)
 })
