@@ -148,6 +148,15 @@ A lane is one Vitest run: one package directory, one config and one runtime. [`l
   - `tables`: the Drizzle migration directories of the backend. A changed `migration.sql` selects the checks that touched a table that a changed statement names, and the checks that read the file. `snapshot.json` is drizzle-kit state; no check reads it. A statement whose tables a reader cannot name (for example `DO $$ ... $$`) selects the whole lane.
 - `run.mjs` and `scripts/ci/test-suite.mjs` start Vitest through `scripts/ci/vitest-launch.mjs`. Thus a subset run and the CI run use the same setup steps and command line.
 
+## Own inputs
+
+`ownInputs` (optional) lists the files that change the result of one check, and of no check that does not list them. An example is the baseline image of a visual check: only the check of that story reads it. The schema gives the full rule.
+
+- Each entry is a repo-relative path, or a directory with `/**` at the end, as in `inputs`.
+- When a second check reads the file, list the file in the `ownInputs` of that check too.
+- An `inputs` directory of the lane can also hold the file. Then a reader that does not know `ownInputs` selects the whole lane, and its key holds the file.
+- `checks:list` does not write `ownInputs` yet. The visual lane will write it ([CTX-1191](https://linear.app/ctxpipe/issue/CTX-1191)).
+
 ## Portable checks
 
 A result cache adds the OS and the CPU architecture to the key of a check, unless the check is `portable`. The key of a portable check does not hold them, so a pass on a macOS laptop counts in Linux CI.
