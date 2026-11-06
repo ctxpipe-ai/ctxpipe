@@ -48,8 +48,6 @@ const judgementSchema = z.object({
 /** The model's part of a verdict, as JSON Schema for `response_format`. */
 export const judgementJsonSchema = z.toJSONSchema(judgementSchema)
 
-export type Judgement = z.infer<typeof judgementSchema>
-
 /** The facts of one judge call. `costUsd` is null when the cost is unknown. */
 export type RunFacts = {
   model: string
@@ -57,9 +55,20 @@ export type RunFacts = {
   latencyMs: number
 }
 
-/** The verdict on one story. `error` is set when the reply was not usable. */
-export type Verdict = { storyId: string } & Judgement &
-  RunFacts & { error?: string }
+/**
+ * The verdict on one story: the judgement, the story id and the run facts.
+ * `error` is set when the reply was not usable. A reader of a stored verdict
+ * (for example the output of `pnpm visual:review`) validates it with this.
+ */
+export const verdictSchema = judgementSchema.extend({
+  storyId: z.string(),
+  model: z.string(),
+  costUsd: z.number().min(0).nullable(),
+  latencyMs: z.number().min(0),
+  error: z.string().optional(),
+})
+
+export type Verdict = z.infer<typeof verdictSchema>
 
 /**
  * Read the text of a judge reply as a verdict on `story`. Text that is not

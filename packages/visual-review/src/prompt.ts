@@ -43,14 +43,6 @@ ${qualities
 Reply with one JSON object that matches this JSON Schema, and with no other text:
 ${JSON.stringify(judgementJsonSchema)}`
 
-const roles: Record<StoryImage["role"], string> = {
-  regions: "one [before | after] row for each region, at native resolution",
-  locator: "an overview of the after image, each region outlined in red",
-  before: "the full before image",
-  after: "the full after image",
-  diff: "the full diff image, changed pixels in red",
-}
-
 // A closing tag inside the data cannot end its block.
 const data = (name: string, text: string | undefined) =>
   `<data name="${name}">\n${
@@ -59,6 +51,13 @@ const data = (name: string, text: string | undefined) =>
 
 /** Build the prompt for one story: the fixed prefix, then the story part. */
 export function buildPrompt(input: StoryInput): Prompt {
+  const roles: Record<StoryImage["role"], string> = {
+    regions: "one [before | after] row for each region, at native resolution",
+    locator: "an overview of the after image, each region outlined in red",
+    before: "the full before image",
+    after: "the full after image",
+    diff: "the full diff image, changed pixels in red",
+  }
   const pageOnly = qualities
     .filter((quality) => quality.pageOnly)
     .map(({ name }) => name)

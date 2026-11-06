@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest"
 
-import { judgementJsonSchema, parseVerdict, type StoryInput } from "./index.ts"
+import {
+  judgementJsonSchema,
+  parseVerdict,
+  verdictSchema,
+  type StoryInput,
+} from "./index.ts"
 
 const story: StoryInput = {
   storyId: "connectors-catalog--default",
@@ -130,6 +135,33 @@ describe("parseVerdict", () => {
     expect(
       parseVerdict(text, { ...story, scope: "page" }, run).qualities,
     ).toHaveLength(2)
+  })
+
+  test("each verdict that the parser gives, usable or not, matches the verdict schema", () => {
+    const verdicts = [
+      parseVerdict(JSON.stringify(judgement), story, run),
+      parseVerdict("not JSON", story, run),
+      parseVerdict(
+        JSON.stringify(judgement),
+        { ...story, brief: undefined, sourceDiff: undefined },
+        {
+          ...run,
+          costUsd: null,
+        },
+      ),
+    ]
+
+    for (const verdict of verdicts)
+      expect(verdictSchema.safeParse(verdict).error).toBeUndefined()
+  })
+
+  test("the verdict schema rejects a stored verdict without its story id or run facts", () => {
+    const result = verdictSchema.safeParse(judgement)
+
+    expect(result.success).toBe(false)
+    expect(result.error?.issues.map(({ path }) => path.join("."))).toEqual(
+      expect.arrayContaining(["storyId", "model", "latencyMs"]),
+    )
   })
 
   test("the JSON schema fits strict structured output: every field is required, no extra field is allowed", () => {
