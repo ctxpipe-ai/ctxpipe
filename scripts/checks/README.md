@@ -311,7 +311,7 @@ The job can fail. For example, the key is not set, or Linear does not find the i
 
 The gate reads Linear only when the workflow runs. If a developer edits or deletes an answer, the result of the last run stays until the next run. To change the result, use **Re-run all jobs**.
 
-Known limit: on `pull_request`, a same-repo PR runs its own `ci.yaml` and `gate.mjs`. Thus a PR can change the answers job. It can write its own `critic-answers.json`, or show the read-only `LINEAR_API_KEY` of `workbench`. This key can read the whole Linear workspace. A required workflow or a gate that runs from the base commit would close this gap. This is the same limit as for the other jobs of the merge gate.
+Known limit: on `pull_request`, a same-repo PR runs its own `ci.yaml` and `gate.mjs`. Thus a PR can change the answers job. It can write its own `critic-answers.json`, or show the read-only `LINEAR_API_KEY` of `workbench`. Thus make the key read-only, and limit it to the team CTX when Linear allows that. A required workflow or a gate that runs from the base commit would close this gap. This is the same limit as for the other jobs of the merge gate.
 
 The critics job removes each URL and each credential-like string from the stderr of `factory review gate` (sed). `gate.mjs` does the same for the cause. This occurs before the text goes into the log and the PR comment.
 
