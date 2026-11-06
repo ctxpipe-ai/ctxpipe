@@ -137,14 +137,12 @@ export const SignInUnverifiedEmail: Story = {
  * gets Better Auth's 422 on a PR preview, and the page says to sign in.
  */
 export const InviteAcceptAccountExists: Story = {
-  tags: ["page"],
   render: () => (
     <div className="mx-auto max-w-sm px-6 py-16">
       <InviteAcceptSignUp invitationId="invitation_1" />
     </div>
   ),
   parameters: {
-    route: "/.auth/$authView",
     storyRoute: {
       pattern: "flat",
       path: "/.auth/accept-invitation",
@@ -223,7 +221,12 @@ export const ResetPassword: Story = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        page: [sessionSignedOutHandler, organizationListEmptyHandler],
+        // Replaces the preview's signed-in session: the user follows an email link.
+        defaults: [
+          authConfigHandler,
+          sessionSignedOutHandler,
+          organizationListEmptyHandler,
+        ],
       },
     },
   },

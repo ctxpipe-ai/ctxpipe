@@ -142,24 +142,34 @@ export const Loaded = { render: () => null }
   assert.match(result.stderr, /story "Loaded" has the page tag/)
 })
 
-test("a story that names a route without the page tag fails", () => {
+test("a story that removes the inherited page tag does not cover its route", () => {
+  const result = check({
+    routes: ["/connectors"],
+    stories: {
+      "routes/-connectors.stories.tsx": `
+export default { title: "Pages/Connectors", tags: ["page"], parameters: { route: "/connectors" } }
+export const Part = { tags: ["!page"] }
+`,
+    },
+    exemptions: rootReason,
+  })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /\/connectors has no page story/)
+})
+
+test("a story that removes the inherited page tag leaves the other stories as pages", () => {
   const result = check({
     routes: ["/connectors"],
     stories: {
       "routes/-connectors.stories.tsx": `
 export default { title: "Pages/Connectors", tags: ["page"], parameters: { route: "/connectors" } }
 export const Loaded = { render: () => null }
-export const Part = { tags: [], parameters: { route: "/connectors" } }
-`,
-      "components/-part.stories.tsx": `
-export default { title: "Components/Part" }
-export const Part = { parameters: { route: "/connectors" } }
+export const Part = { tags: ["!page"] }
 `,
     },
     exemptions: rootReason,
   })
-  assert.equal(result.status, 1)
-  assert.match(result.stderr, /-part\.stories\.tsx.*story "Part" names a route/)
+  assert.equal(result.status, 0, result.stderr)
 })
 
 test("a story route overrides the route of its file", () => {

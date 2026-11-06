@@ -100,7 +100,9 @@ export const CheckFails: Story = {
     await waitFor(() =>
       expect(canvas.getByText("Could not check GitHub")).toBeVisible(),
     )
-    await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible(),
+    )
   },
 }
 
@@ -123,8 +125,10 @@ export const ChooseWorkspace: Story = {
         canvas.getByRole("list", { name: "Existing workspaces" }),
       ).toBeVisible(),
     )
-    await expect(
-      canvas.getByRole("button", { name: "Close wizard" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Close wizard" }),
+      ).toBeVisible(),
+    )
   },
 }

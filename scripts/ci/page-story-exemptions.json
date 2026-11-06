@@ -9,5 +9,6 @@
   "/.auth/organization/$organizationView": "redirect relay: sends the user to the organization settings of the selected org",
   "/.notion/setup": "redirect relay: a server route that returns a small document, with no React page",
   "/.slack/setup": "popup relay: stores the setup result and closes its own window",
-  "/.otel/v1/$signal": "API route: a server proxy for browser telemetry, with no page"
+  "/.otel/v1/$signal": "API route: a server proxy for browser telemetry, with no page",
+  "/.auth/$authView": "backfill: the route picks its view from the route params and window.location, and no story renders the whole route yet"
 }
