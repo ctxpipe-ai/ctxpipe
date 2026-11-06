@@ -12,7 +12,7 @@ Before PR 280's recovery, CI filtered TypeScript diagnostics by path, excluded d
 - **Tests** run from an inventory with Vitest's structured results. A missing file, empty suite, skip, todo, or unexpected failure fails CI; known failures need exact entries in `scripts/ci/failures/` (currently none). The test-policy check rejects test selection modifiers, expected-failure tests, retries, and mocks of our own modules in proof tests; third-party SDK and network boundaries may be faked (MSW, SDK mocks on an allowlist).
 - **Contract lanes** (`scripts/ci/contracts.json`) run real collaborators: migrated Postgres as the `ctxpipe_app` role, native git, OpenWorkflow, hydrate, the chat engine with a scripted model upstream and a real OpenCode binary, sandbox ownership, and codesearch with real indexers (Node and Bun).
 - **Builds**: production images (backend, worker, UI, codesearch, docs) build without publishing; CDK and CLI packages build and the self-host example typechecks; Terraform validates without credentials.
-- **UI journeys**: Storybook `play` functions tagged `workspace-golden` run in Chromium; a missing or skipped required play fails CI.
+- **UI journeys**: Storybook `play` functions tagged `required` run in Chromium; a missing or skipped required play fails CI.
 - **Migrations** apply on a fresh database and on the previous schema.
 
 ## Consequences
