@@ -319,7 +319,7 @@ test("only the played phase counts as play success", () => {
   assert.equal(isPlaySuccess(undefined), false)
 })
 
-test("CI requires the Storybook Playwright required job without retries", () => {
+test("CI requires the Storybook required plays job without retries", () => {
   const workflow = readFileSync(
     new URL("../../.github/workflows/ci.yaml", import.meta.url),
     "utf8",
