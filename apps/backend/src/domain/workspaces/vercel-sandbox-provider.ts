@@ -735,24 +735,33 @@ type SandboxTarget = {
  * with the GitHub token in its firewall, and no row records it. It is not
  * resumed, and "not found" counts as deleted. The delete has its own
  * deadline; a failure is logged and the start goes on.
+ *
+ * Vercel can make the sandbox after this delete reads it (CTX-1125). Thus a
+ * second delete by the same name runs 90 s later, off the start. Its timer
+ * does not keep the process alive. If the process stops before the timer,
+ * the second delete does not occur.
  */
 async function deleteLateSandbox(
   credentials: VercelCredentials,
   name: string,
   logContext?: { orgId: string; workspaceId: string },
 ): Promise<void> {
-  await withinDeadline(
-    "Deleting a sandbox whose start passed its deadline",
-    30_000,
-    () => deleteVercelSandbox({ credentials, name }),
-  ).catch((error: unknown) =>
-    log.warn({
-      step: "workspace-sandbox-late-delete",
-      message: `Deleting a sandbox whose start passed its deadline failed: ${String(error)}`,
-      sandboxId: name,
-      ...logContext,
-    }),
-  )
+  const remove = (attempt: number) =>
+    withinDeadline(
+      "Deleting a sandbox whose start passed its deadline",
+      30_000,
+      () => deleteVercelSandbox({ credentials, name }),
+    ).catch((error: unknown) =>
+      log.warn({
+        step: "workspace-sandbox-late-delete",
+        message: `Deleting a sandbox whose start passed its deadline failed: ${String(error)}`,
+        sandboxId: name,
+        attempt,
+        ...logContext,
+      }),
+    )
+  await remove(1)
+  setTimeout(() => void remove(2), 90_000).unref?.()
 }
 
 /**
