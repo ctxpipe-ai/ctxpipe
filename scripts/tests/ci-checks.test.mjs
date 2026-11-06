@@ -172,7 +172,7 @@ test("the manifest matches its schema and lists each check of each family", asyn
   )
   assert.equal(count("vitest", "latency"), 2)
   assert.equal(count("vitest", "upgrade"), 1)
-  // The required required stories are tagged (ci-storybook-plays.test.mjs),
+  // The required stories are tagged (ci-storybook-plays.test.mjs),
   // so the required lane holds at least them.
   assert.ok(count("storybook", "required") >= requiredStories.length)
   assert.ok(count("storybook", "plays") > 0)

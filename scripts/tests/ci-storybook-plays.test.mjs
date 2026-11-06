@@ -6,7 +6,6 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 
 import {
-  isPlaySuccess,
   requiredStories,
   selectRequiredStories,
   selectPlayStories,
@@ -246,7 +245,7 @@ const required = [
   ["apps/ui/src/routes/-home.stories.tsx", "NoHistory"],
 ]
 
-test("required required stories carry the required tag and a play", () => {
+test("required stories carry the required tag and a play", () => {
   for (const [file, name] of required) {
     const source = readFileSync(
       new URL(`../../${file}`, import.meta.url),
@@ -310,13 +309,6 @@ test("inventory accepts only tagged required stories that list play-fn", () => {
     selectRequiredStories(index).map((story) => story.exportName),
     requiredStories,
   )
-})
-
-test("only the played phase counts as play success", () => {
-  assert.equal(isPlaySuccess("played"), true)
-  assert.equal(isPlaySuccess("completed"), false)
-  assert.equal(isPlaySuccess("rendering"), false)
-  assert.equal(isPlaySuccess(undefined), false)
 })
 
 test("CI requires the Storybook required plays job without retries", () => {
@@ -402,7 +394,7 @@ test("CI runs every story with a play function in shards", () => {
   )
 })
 
-test("every required required story is exported with the required tag", () => {
+test("every required story is exported with the required tag", () => {
   const sources = execFileSync(
     "git",
     ["ls-files", "apps/ui/src/**/*.stories.tsx"],

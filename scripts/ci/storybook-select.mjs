@@ -153,10 +153,6 @@ export const requiredStories = [
   "UserMenuLinksConnectedApps",
 ]
 
-export function isPlaySuccess(phase) {
-  return phase === "played"
-}
-
 export function selectRequiredStories(index) {
   const entries = Object.values(index.entries ?? {})
   // Names are matched without the file, so a tagged name must be unique.
