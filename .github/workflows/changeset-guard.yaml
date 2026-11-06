@@ -1,5 +1,10 @@
 name: Changeset Guard
 
+# Runs on every pull request on purpose, not through the merge gate of ci.yaml.
+# A missing changeset is a property of the whole diff against the base branch.
+# It is cheap, and no check input describes it, so a selector cannot decide
+# when it matters (scripts/checks/README.md, Other pull request workflows).
+
 on:
   pull_request:
     branches:

@@ -1179,24 +1179,9 @@ test("the manifest lists a check for each job of the other pull request workflow
     [...checks.values()].filter(
       (check) => check.family === family && check.lane === name,
     )
-  // cli-test.yaml runs the cli lane.
+  // cli-test.yaml is gone: the cli lane runs in the package tests job.
   assert.ok(lane("vitest", "cli").length > 0)
   assert.ok(lane("vitest", "cli")[0].inputs.includes("packages/cli/src/**"))
-  // claude-plugin-test.yaml: each backend test file that its Backend tests job
-  // names exists and is a check of the backend lane. The UI tests job runs
-  // the ui lane.
-  const workflow = readFileSync(
-    join(root, ".github/workflows/claude-plugin-test.yaml"),
-    "utf8",
-  )
-  const named = workflow
-    .match(/^\s+src\/\S+\.test\.ts$/gm)
-    .map((line) => `apps/backend/${line.trim()}`)
-  assert.ok(named.length >= 5)
-  for (const file of named) {
-    assert.ok(existsSync(join(root, file)), `${file} does not exist`)
-    assert.ok(checks.has(`vitest:backend:${file}`), file)
-  }
   assert.ok(lane("vitest", "ui").length > 0)
   // The Lint and format job of ci.yaml runs the policy check of the plugin.
   const plugin = checks.get(

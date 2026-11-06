@@ -138,9 +138,9 @@ To rotate the `ctxpipe_app` password, change `keepers.rotation` of `random_passw
 
 ## PR Terraform plans (GitHub Actions)
 
-The workflow [.github/workflows/terraform-plan-pr.yaml](../.github/workflows/terraform-plan-pr.yaml) runs `terraform plan` on infra changes. It gets no app secret and no Railway or Neon token: it runs `terraform plan -refresh=false` against the state, so it needs only the R2 keys. Give the `terraform-plan` environment a read-only R2 token. Before it can run:
+The workflow [.github/workflows/terraform-plan-pr.yaml](../.github/workflows/terraform-plan-pr.yaml) runs `terraform plan` when a PR changes a file under `infra/`. The merge gate of CI calls it, in every mode, whatever the selection; you can also start it with **Run workflow**. It gets no app secret and no Railway or Neon token: it runs `terraform plan -refresh=false` against the state, so it needs only the R2 keys. Give the `terraform-plan` environment a read-only R2 token. Before it can run:
 
 1. Create a GitHub **Environment** named `terraform-plan` (Settings → Environments).
-2. Add **required reviewers** (and optional wait timers) so the job only runs after infra approval. That limits unreviewed HCL that runs with the state and the provider tokens on in-repo branches.
+2. Add **required reviewers** (and optional wait timers) so the job only runs after infra approval. That limits unreviewed HCL that runs with the state and the provider tokens on in-repo branches. Turn on **Prevent self-review** for the environment. The person who started the run cannot approve it: for a call from the gate, that is the person who pushed last or used **Re-run all jobs**. A run by hand has the person who starts it as the actor. A reviewer must not approve the plan of their own PR.
 3. Fork PRs skip this job by design (same-repo branches only).
 

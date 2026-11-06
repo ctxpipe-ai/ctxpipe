@@ -16,7 +16,7 @@ The issue tracker should have been provided to you — run `/setup-matt-pocock-s
 
 ## Run the critics with `factory check`
 
-The critics are in [`critics.json`](critics.json). Each one has its intent, its triggers, and the reasons for which it may be skipped. It also has its reviewers (model and effort) and its `inputs`: the files that hold its rules and its prompt. `factory check` runs them beside the selected checks ([factory-check skill](../factory-check/SKILL.md)). Do not start review sub-agents.
+The critics are in [`critics.json`](critics.json). Each one has its intent, its triggers, and the reasons for which it may be skipped. It also has its reviewers (model and effort) and its `inputs`: the files that hold its rules and its prompt. When a critic has two reviewers, they run in parallel and the critic reports the union of their findings. `factory check` runs them beside the selected checks ([factory-check skill](../factory-check/SKILL.md)). Do not start review sub-agents.
 
 1. Commit the change. The critics review the committed diff of the branch against `origin/main`. The merge gate looks up their verdicts for that diff.
 2. Run `factory check --repo . --input <ticket or brief file>`. It uses the agent host profile (see the [factory-check skill](../factory-check/SKILL.md)). It plans each critic (`run-full`, `run-delta`, `carried` or `not-applicable`, with a reason). It runs one headless reviewer for each planned reviewer, records each verdict, and prints each finding with its file and line.

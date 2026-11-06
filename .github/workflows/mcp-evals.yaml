@@ -5,7 +5,7 @@ name: MCP evals
 # FalkorDB as service containers and made-up fixture data. It never reaches a
 # preview or production. Runs: nightly, by hand, and on a pull request with the
 # label `mcp-evals`. A model call costs money, so a pull request does not run
-# the suite by default; see mcp-evals-reminder.yaml.
+# the suite by default. The merge gate comment asks the author for the label.
 on:
   schedule:
     - cron: "17 3 * * *"

@@ -1620,8 +1620,8 @@ jobs:
           echo "$sha256  $RUNNER_TEMP/release/factory.tar.gz" | sha256sum --check --strict
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/release/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
-      # A slow model call delays every check job, so the selector has 75
-      # seconds. The plan keeps the deterministic selection when this step
+      # A slow model call delays every check job, so the selector has 105
+      # seconds (90 for the model). The plan keeps the deterministic selection when this step
       # fails or times out.
       - name: Select with the LLM stage
         timeout-minutes: 2
@@ -1634,12 +1634,12 @@ jobs:
           trace=()
           [ ! -f "$RUNNER_TEMP/selection/trace.json.gz" ] || trace=(--trace "$RUNNER_TEMP/selection/trace.json.gz")
           code=0
-          timeout 75 "$RUNNER_TEMP/bin/factory" check --repo . --base HEAD^1 --k 3 \
+          timeout 105 "$RUNNER_TEMP/bin/factory" check --repo . --base HEAD^1 --k 3 \
             --manifest "$RUNNER_TEMP/inputs/manifest.json" "${trace[@]}" \
             --include-stochastic --llm-select --llm-provider openrouter \
             --dry-run --json > "$RUNNER_TEMP/raw.json" || code=$?
           if [ "$code" = 124 ]; then
-            echo "the selector did not finish in 75 seconds" > "$out/llm-cause.txt"
+            echo "the selector did not finish in 105 seconds" > "$out/llm-cause.txt"
             exit 1
           fi
           if [ "$code" -gt 1 ]; then
@@ -1789,7 +1789,9 @@ jobs:
             echo "::notice::PR is closed or its branch is gone; no preview deploy"
             exit 0
           fi
-          if ! out=$(gh api "repos/$REPO/branches/$BRANCH" --silent 2>&1); then
+          # A branch name can hold a slash: encode it for the path.
+          encoded=$(jq -rn --arg branch "$BRANCH" '$branch | @uri')
+          if ! out=$(gh api "repos/$REPO/branches/$encoded" --silent 2>&1); then
             case "$out" in
               *"HTTP 404"*)
                 echo "::notice::PR is closed or its branch is gone; no preview deploy"
@@ -1800,6 +1802,77 @@ jobs:
             exit 1
           fi
           gh workflow run pr-deploy.yaml --repo "$REPO" --ref "$BRANCH" -f pr_number="$PR"
+
+  # Calls terraform-plan-pr.yaml when the PR changes a file under infra/. It
+  # does not depend on the selection or the mode: the check of the plan has
+  # the lockfile among its inputs, and a lockfile change must not ask the
+  # reviewers of the terraform-plan environment for approval. A call keeps the
+  # PR author as the actor, so "Prevent self-review" of the environment works.
+  # Neither job runs on ready_for_review: it adds no new code, and it would ask
+  # the reviewers for one more approval. A stacked PR (a base other than main)
+  # does not run ci.yaml, so it gets no plan: a person uses Run workflow. The
+  # first job runs no repository code.
+  merge-gate-terraform-changes:
+    timeout-minutes: 5
+    name: Merge gate looks for Terraform changes
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.action != 'ready_for_review' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      plan: ${{ steps.changes.outputs.plan }}
+    steps:
+      - name: Look for a change under infra/
+        id: changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.head_ref }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          echo "plan=false" >> "$GITHUB_OUTPUT"
+          # A renamed file counts at its old path too.
+          files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate \
+            --jq '.[] | .filename, (.previous_filename // empty)')
+          if ! grep -q '^infra/' <<<"$files"; then
+            echo "::notice::The PR changes no file under infra/; no Terraform plan"
+            exit 0
+          fi
+          # The PR can merge and lose its branch while the gate goes on.
+          # Skip only on a definite answer; any other failure fails the step.
+          state=$(gh pr view "$PR" --repo "$REPO" --json state --jq .state)
+          if [ "$state" != "OPEN" ]; then
+            echo "::notice::PR is closed or its branch is gone; no Terraform plan"
+            exit 0
+          fi
+          # A branch name can hold a slash: encode it for the path.
+          encoded=$(jq -rn --arg branch "$BRANCH" '$branch | @uri')
+          if ! out=$(gh api "repos/$REPO/branches/$encoded" --silent 2>&1); then
+            case "$out" in
+              *"HTTP 404"*)
+                echo "::notice::PR is closed or its branch is gone; no Terraform plan"
+                exit 0
+                ;;
+            esac
+            echo "$out" >&2
+            exit 1
+          fi
+          echo "plan=true" >> "$GITHUB_OUTPUT"
+
+  merge-gate-terraform-plan:
+    name: Terraform plan
+    needs: merge-gate-terraform-changes
+    if: needs.merge-gate-terraform-changes.outputs.plan == 'true'
+    uses: ./.github/workflows/terraform-plan-pr.yaml
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+    permissions:
+      contents: read
+      pull-requests: write
 
   # Publishes the decision of each PR run: the job summary, the artifact
   # merge-gate-decision, and one PR comment that it updates. In gate mode
@@ -1988,6 +2061,16 @@ jobs:
             ${{ runner.temp }}/decision/decision.json
             ${{ runner.temp }}/inputs/selection.json
           if-no-files-found: warn
+      # The evals call paid models: only the label starts them. The reminder
+      # reads the PR files and labels, so it shows in every mode.
+      - name: Remind the author of the MCP evals
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: bash scripts/ci/mcp-evals-reminder.sh "$RUNNER_TEMP/decision/comment.md"
       # A fork PR has a read-only token, so it gets only the summary.
       - name: Post or update the PR comment
         if: always() && github.event.pull_request.head.repo.full_name == github.repository

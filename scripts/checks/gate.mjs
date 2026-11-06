@@ -573,7 +573,7 @@ export function criticsText(checked, repoUrl) {
     if (checked?.required)
       lines.push(
         "",
-        "A same-repo PR needs the critics record, so the gate fails in gate mode. Fix: use **Re-run all jobs**, so that the job `Merge gate critics` runs again. When the cause stays, look at the log of that job.",
+        "A same-repo PR needs the critics record, so the gate fails in gate mode. Fix: use **Re-run all jobs**, so that the job `Merge gate critics` runs again. On a PR that changes `infra/`, the run waits for the Terraform plan approval and offers no re-run until then: push again, or approve or reject the plan. When the cause stays, look at the log of that job.",
       )
     return `${lines.join("\n")}\n`
   }
@@ -596,7 +596,7 @@ export function criticsText(checked, repoUrl) {
   if (checked.missing.length > 0)
     lines.push(
       "",
-      `Critics with no stored verdict for this diff: ${checked.missing.length}. Fix: run \`factory check\` on the PR head (it runs the critics and stores their verdicts), and fix what it reports. Then use **Re-run all jobs**, or push again: the job \`Merge gate critics\` must look up the verdicts again.`,
+      `Critics with no stored verdict for this diff: ${checked.missing.length}. Fix: run \`factory check\` on the PR head (it runs the critics and stores their verdicts), and fix what it reports. Then push again, or use **Re-run all jobs** (a PR that changes \`infra/\` offers it only after the Terraform plan is approved or rejected): the job \`Merge gate critics\` must look up the verdicts again.`,
     )
   lines.push("", attested)
   return `${lines.join("\n")}\n`

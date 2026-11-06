@@ -10,7 +10,11 @@
         "full": [
           {
             "model": "claude-opus",
-            "effort": "high"
+            "effort": "medium"
+          },
+          {
+            "model": "gpt-6.1-sol",
+            "effort": "medium"
           }
         ],
         "delta": [
@@ -61,6 +65,10 @@
           {
             "model": "gpt-6-sol",
             "effort": "high"
+          },
+          {
+            "model": "claude-sonnet",
+            "effort": "medium"
           }
         ],
         "delta": [
