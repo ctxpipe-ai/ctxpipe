@@ -1577,7 +1577,7 @@ jobs:
             # text of a dispute is redacted: the factory accepts a stored
             # dispute record only when each text value is redacted.
             echo "the critics record did not parse" > "$out/critics-cause.txt"
-            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}], disputes: [(.disputes // [])[] | {finding, critic, severity, file, line, summary, outcome, decidedBy, implementer, reason, linear}]}]}' \
+            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}], disputes: [(.disputes // [])[] | {finding, critic, severity, file, line, summary, outcome, decidedBy, implementer, reason, linear, escalation}]}]}' \
               "$RUNNER_TEMP/critics.json" > "$RUNNER_TEMP/critics.min.json"
             mv "$RUNNER_TEMP/critics.min.json" "$out/critics.json"
             rm "$out/critics-cause.txt"
@@ -1602,11 +1602,12 @@ jobs:
   # workbench environment. It does no checkout, runs no repository script and
   # holds no cloud role: it reads the critics record, by the artifact id of
   # the critics job, and the Linear API (curl and jq). An answer counts only
-  # on an issue whose description holds the escalation key of the finding
-  # and this PR branch, and only from a comment of a person (not an app, a
-  # bot, an integration or a guest, and not on behalf of another user) that
-  # was written after the issue and after the last change of its
-  # description. The record holds the answer and the link of the comment:
+  # on an issue that the factory app created and whose description holds
+  # the escalation key of the dispute record (the finding, this PR branch,
+  # the critic version and the disputed units). It counts only from a
+  # comment of a person (not an app, a bot, an integration, a guest or the
+  # creator of the issue, and not on behalf of another user) that was
+  # written after the issue and after the last change of its description. The record holds the answer and the link of the comment:
   # no reason (the artifact is public), no name and no user id. A new answer
   # needs **Re-run all jobs**. Without an escalated finding, the
   # job makes no Linear call.
@@ -1642,14 +1643,19 @@ jobs:
           out="$RUNNER_TEMP/out"
           cause="$out/answers-cause.txt"
           echo "the critics record did not parse" > "$cause"
-          jq -c '[.critics[]? | select(.status == "escalated") | .disputes[]?
+          hash="$(printf '%s' "$BRANCH" | sha256sum | cut -c1-16)"
+          # The escalation key of factory: the finding, the hash of this PR
+          # branch, and a hash of the critic version and the disputed units.
+          jq -c --arg hash "$hash" '[.critics[]? | select(.status == "escalated") | .disputes[]?
               | select(.outcome == "escalated" and (.finding | test("^f:[0-9a-f]{8}$"))
-                and ((.linear // "") | test("^CTX-[0-9]{1,7}$")))
-              | {finding, linear}] | unique_by(.finding)
+                and ((.linear // "") | test("^CTX-[0-9]{1,7}$"))
+                and ((.escalation // "") | test("^factory-escalation:f:[0-9a-f]{8}:[0-9a-f]{16}:[0-9a-f]{16}$"))
+                and (.finding as $finding | .escalation
+                  | startswith("factory-escalation:\($finding):\($hash):")))
+              | {finding, linear, escalation}] | unique_by(.finding)
               # An issue that two findings name answers neither.
               | group_by(.linear) | map(select(length == 1)) | .[][]' \
             "$RUNNER_TEMP/critics/critics.json" > "$RUNNER_TEMP/escalated.jsonl"
-          hash="$(printf '%s' "$BRANCH" | sha256sum | cut -c1-16)"
           # Each node of a list of the issue ($1, with the fields $2), page
           # by page, as JSON lines; issue.json keeps the last page, and
           # descriptions.jsonl the description of each page.
@@ -1657,7 +1663,7 @@ jobs:
             local after=null
             while :; do
               jq -n --arg id "$issue" --argjson after "$after" \
-                --arg query "query(\$id: String!, \$after: String) { issue(id: \$id) { createdAt description $1(first: 100, after: \$after) { pageInfo { hasNextPage endCursor } nodes { $2 } } } }" \
+                --arg query "query(\$id: String!, \$after: String) { issue(id: \$id) { createdAt description creator { id app } $1(first: 100, after: \$after) { pageInfo { hasNextPage endCursor } nodes { $2 } } } }" \
                 '{query: $query, variables: {id: $id, after: $after}}' \
                 | curl -sS --fail --max-time 30 -H "Authorization: $LINEAR_API_KEY" \
                   -H "Content-Type: application/json" --data @- "$LINEAR_URL" > "$RUNNER_TEMP/issue.json"
@@ -1675,12 +1681,13 @@ jobs:
           while read -r escalated; do
             finding="$(jq -r .finding <<< "$escalated")"
             issue="$(jq -r .linear <<< "$escalated")"
+            key="$(jq -r .escalation <<< "$escalated")"
             if [ -z "$LINEAR_API_KEY" ]; then
               echo "LINEAR_API_KEY is not set in the workbench environment" > "$cause"
               exit 1
             fi
             echo "the Linear issue $issue of $finding was not read" > "$cause"
-            nodes comments "body createdAt url user { app guest active } botActor { id } externalUser { id } onBehalfOf { id }" > "$RUNNER_TEMP/comments.jsonl"
+            nodes comments "body createdAt url user { id app guest active } botActor { id } externalUser { id } onBehalfOf { id }" > "$RUNNER_TEMP/comments.jsonl"
             # The history comes after the comments, and the description
             # stays the same on each history page: a description change
             # before the last page is in the history, so no comment that
@@ -1697,15 +1704,18 @@ jobs:
             # this PR branch, written after the issue and after the last
             # change of its description (an agent cannot move an old answer
             # to a new finding).
-            jq -c --arg finding "$finding" --arg key "factory-escalation:$finding:$hash" \
+            jq -c --arg finding "$finding" --arg key "$key" \
               --slurpfile history "$RUNNER_TEMP/history.jsonl" --slurpfile comments "$RUNNER_TEMP/comments.jsonl" '
               .data.issue as $issue
               | select(($issue.description // "") | contains($key)
                   and ([match("factory-escalation:"; "g")] | length) == 1)
+              # The factory app created the issue, and it never answers it.
+              | select($issue.creator.app == true)
               | ([$issue.createdAt] + [$history[] | select(.updatedDescription == true) | .createdAt, .updatedAt] | max) as $since
               | [$comments[]
                   | select(.user != null and .user.app == false and .user.guest == false
-                      and .user.active == true and .botActor == null
+                      and .user.active == true and .user.id != $issue.creator.id
+                      and .botActor == null
                       and .externalUser == null and .onBehalfOf == null
                       and .createdAt > $since)
                   | ((.body // "") | split("\n")[0]

@@ -291,7 +291,7 @@ A job without a planned check does not start. Each check job needs the plan job 
 Only a ctxpipe developer can decide an escalated finding. Its critic has the status `escalated`. The procedure is:
 
 1. `factory check` creates a Linear issue for the finding. The `factory` app user of the agent host creates it in the status "Waiting for human", related to the ticket of the branch.
-2. The issue description holds an escalation key. The key is the finding id and the first 16 hex characters of the SHA-256 of `<owner>/<repo>@<branch>`. The key connects the issue to one finding of one PR branch.
+2. The issue description holds an escalation key: `factory-escalation:<finding>:<branch>:<dispute>`. `<branch>` is the first 16 hex characters of the SHA-256 of `<owner>/<repo>@<branch>`. `<dispute>` is a hash of the critic version and the disputed units. Thus the key connects the issue to one dispute of one finding on one PR branch. New code with the same finding text gets a new issue. The dispute record and the critics record hold the key (`escalation`).
 3. A developer answers in the issue. The first line of the comment is `override: <reason>` (the finding is overruled) or `accept: <reason>` (the finding stays, and the PR must fix it).
 4. The developer uses **Re-run all jobs** on the PR.
 5. The job `Merge gate critic answers` reads each issue with the read-only `LINEAR_API_KEY` of the `workbench` environment. The job does no checkout. It runs no repository script and has no cloud role. It reads the critics record only through the artifact id of the critics job.
@@ -299,12 +299,19 @@ Only a ctxpipe developer can decide an escalated finding. Its critic has the sta
 
 An answer counts only when all of these conditions are true:
 
-- The issue description holds the escalation key of this finding and this PR branch. It holds no other escalation key.
+- The factory app created the issue (`creator.app`).
+- The issue description holds the escalation key of the dispute record. The key names this finding and the hash of this PR branch. The description holds no other escalation key.
 - No other escalated finding uses the same issue.
-- A person wrote the comment. An app, a bot, an integration, a guest or a disabled user does not count. A comment on behalf of another user does not count.
+- A person wrote the comment. An app, a bot, an integration, a guest, a disabled user or the creator of the issue does not count. A comment on behalf of another user does not count. An agent never writes an answer, also when it acts for a person.
 - The comment is newer than the issue and newer than the last change of the issue description. Thus an agent cannot move an old answer to a new finding.
 
-The job reads all pages of the comments and the history. The newest answer counts. The job writes `critic-answers.json` with the finding, the answer and the link of the comment. The file holds no reason, no name and no user id, because the artifact and the PR comment are public. `gate.mjs` accepts an answer only for an id that the critics record escalates. The PR comment links to the Linear decision. When the job cannot read Linear (for example, the key is not set or the issue is not found), the job fails. The critic then waits, and the PR comment shows the cause.
+The job reads all pages of the comments and the history. The newest answer counts. The job writes `critic-answers.json`. This file holds the finding, the answer and the link of the comment. It holds no reason, no name and no user id, because the artifact and the PR comment are public. `gate.mjs` accepts an answer only for an id that the critics record escalates. The PR comment links to the Linear decision.
+
+The job can fail. For example, the key is not set, or Linear does not find the issue. Then the critic waits, and the PR comment shows the cause.
+
+The gate reads Linear only when the workflow runs. If a developer edits or deletes an answer, the result of the last run stays until the next run. To change the result, use **Re-run all jobs**.
+
+Known limit: on `pull_request`, a same-repo PR runs its own `ci.yaml` and `gate.mjs`. Thus a PR can change the answers job. It can write its own `critic-answers.json`, or show the read-only `LINEAR_API_KEY` of `workbench`. This key can read the whole Linear workspace. A required workflow or a gate that runs from the base commit would close this gap. This is the same limit as for the other jobs of the merge gate.
 
 The critics job removes each URL and each credential-like string from the stderr of `factory review gate` (sed). `gate.mjs` does the same for the cause. This occurs before the text goes into the log and the PR comment.
 

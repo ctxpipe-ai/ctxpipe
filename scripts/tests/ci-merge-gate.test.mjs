@@ -1442,7 +1442,13 @@ test("the critics cause and the log of factory review gate hold no URL or creden
 test("an escalated finding passes only with an override of a person in its Linear issue", async () => {
   const branch = "o/r@dev/ctx-1127-x"
   const hash = createHash("sha256").update(branch).digest("hex").slice(0, 16)
-  const escalationKey = (finding) => `factory-escalation:${finding}:${hash}`
+  // The escalation key of factory: the finding, the hash of the branch, and
+  // a hash of the critic version and the disputed units.
+  const escalationKey = (
+    finding,
+    dispute = "d".repeat(16),
+    branchHash = hash,
+  ) => `factory-escalation:${finding}:${branchHash}:${dispute}`
   const decision = (finding, outcome, extra = {}) => ({
     finding,
     critic: "critic:spec",
@@ -1464,7 +1470,10 @@ test("an escalated finding passes only with an override of a person in its Linea
         reason: "1 disputed findings wait for a ctxpipe developer: f:0123abcd",
         verdicts: [],
         disputes: [
-          decision("f:0123abcd", "escalated", { linear: "CTX-2001" }),
+          decision("f:0123abcd", "escalated", {
+            linear: "CTX-2001",
+            escalation: escalationKey("f:0123abcd"),
+          }),
           decision("f:99999999", "overruled", {
             severity: "should-fix",
             decidedBy: "gpt-6.1-sol",
@@ -1481,7 +1490,7 @@ test("an escalated finding passes only with an override of a person in its Linea
       },
     ],
   }
-  const person = { app: false, guest: false, active: true }
+  const person = { id: "user-1", app: false, guest: false, active: true }
   const comment = (body, extra = {}) => ({
     body,
     createdAt: "2026-11-06T10:00:00.000Z",
@@ -1522,6 +1531,7 @@ test("an escalated finding passes only with an override of a person in its Linea
           data: {
             issue: {
               createdAt: issue.createdAt,
+              creator: issue.creator,
               // A description edit during the read of the history.
               description:
                 list === "history" && start > 0 && issue.edited
@@ -1558,6 +1568,7 @@ test("an escalated finding passes only with an override of a person in its Linea
       critics: record_ = record,
       missing = false,
       edited,
+      creator = { id: "app-factory", app: true },
     } = {},
   ) => {
     issue = missing
@@ -1569,6 +1580,7 @@ test("an escalated finding passes only with an override of a person in its Linea
           comments,
           history,
           edited,
+          creator,
         }
     const temp = mkdtempSync(join(tmpdir(), "ctxpipe-answers-"))
     mkdirSync(join(temp, "out"))
@@ -1649,9 +1661,47 @@ test("an escalated finding passes only with an override of a person in its Linea
       [
         [comment(override)],
         {
-          description: `Escalation key: \`factory-escalation:f:0123abcd:${"0".repeat(16)}\``,
+          description: `Escalation key: \`${escalationKey("f:0123abcd", "d".repeat(16), "0".repeat(16))}\``,
         },
       ],
+      // The issue of an earlier dispute of the same finding text (another
+      // critic version or other units): its old answer does not count.
+      [
+        [comment(override)],
+        {
+          description: `Escalation key: \`${escalationKey("f:0123abcd", "e".repeat(16))}\``,
+        },
+      ],
+      // A person, not the factory app, created the issue.
+      [[comment(override)], { creator: { id: "user-2", app: false } }],
+      // The creator of the issue answered it.
+      [
+        [comment(override, { user: { ...person, id: "app-factory" } })],
+        { creator: { id: "app-factory", app: true } },
+      ],
+      // The record names a key of another branch, or no key.
+      ...[
+        escalationKey("f:0123abcd", "d".repeat(16), "0".repeat(16)),
+        undefined,
+      ].map((escalation) => [
+        [comment(override)],
+        {
+          description: `Escalation key: \`${escalation}\``,
+          critics: {
+            critics: [
+              {
+                ...record.critics[0],
+                disputes: [
+                  decision("f:0123abcd", "escalated", {
+                    linear: "CTX-2001",
+                    escalation,
+                  }),
+                ],
+              },
+            ],
+          },
+        },
+      ]),
       [
         [comment(override)],
         { description: `Escalation key: \`${escalationKey("f:aaaaaaaa")}\`` },
@@ -1680,7 +1730,10 @@ test("an escalated finding passes only with an override of a person in its Linea
             ...record.critics[0],
             disputes: [
               ...record.critics[0].disputes,
-              decision("f:bbbbbbbb", "escalated", { linear: "CTX-2001" }),
+              decision("f:bbbbbbbb", "escalated", {
+                linear: "CTX-2001",
+                escalation: escalationKey("f:bbbbbbbb"),
+              }),
             ],
           },
         ],

@@ -44,6 +44,7 @@ You cannot close a finding alone. When you think that a blocker or should-fix fi
    - Another PR disputed the same finding with the same rule. A rule can be missing.
 5. For each of these cases, `factory check` creates a Linear issue in the status "Waiting for human". The `factory` app user of the host creates the issue. `factory check` prints `ESCALATED` and the issue id.
 6. The merge gate waits. A developer answers in the issue. The first line of the comment is `override: <reason>` (the finding is overruled) or `accept: <reason>` (the finding stays). After an `accept`, fix the finding.
+7. As an agent, never write an `override:` or `accept:` comment, also when you act for a person. Only a person answers.
 
 The merge gate comment lists each disputed finding with its outcome, who decided it and why.
 
