@@ -1575,9 +1575,11 @@ jobs:
           if [ "$code" -le 1 ] && jq -e '.critics | type == "array"' "$RUNNER_TEMP/critics.json" > /dev/null; then
             # The artifact keeps only the fields that gate.mjs reads. The
             # text of a dispute is redacted: the factory accepts a stored
-            # dispute record only when each text value is redacted.
+            # dispute record only when each text value is redacted. Only a
+            # withdrawn or overruled dispute keeps its text and place; any
+            # other outcome keeps its id and outcome (the artifact is public).
             echo "the critics record did not parse" > "$out/critics-cause.txt"
-            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}], disputes: [(.disputes // [])[] | {finding, critic, severity, file, line, summary, outcome, decidedBy, implementer, reason}]}]}' \
+            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}], disputes: [(.disputes // [])[] | if .outcome == "withdrawn" or .outcome == "overruled" then {finding, critic, severity, file, line, summary, outcome, decidedBy, implementer, reason} else {finding, critic, severity, outcome} end]}]}' \
               "$RUNNER_TEMP/critics.json" > "$RUNNER_TEMP/critics.min.json"
             mv "$RUNNER_TEMP/critics.min.json" "$out/critics.json"
             rm "$out/critics-cause.txt"

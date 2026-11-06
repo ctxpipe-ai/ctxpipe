@@ -561,7 +561,10 @@ export function critics(inputs, { needs, fork = false } = {}) {
     return {
       checked: true,
       required: !fork,
-      critics: record.critics,
+      critics: record.critics.map((critic) => ({
+        ...critic,
+        disputes: critic.disputes?.map(publicDispute),
+      })),
       missing: record.critics
         .filter(
           (critic) => !["carried", "not-applicable"].includes(critic.status),
@@ -650,6 +653,15 @@ export function criticsText(checked, repoUrl) {
     )
   lines.push("", attested)
   return `${lines.join("\n")}\n`
+}
+
+// A dispute as the public decision record and PR comment keep it: a
+// withdrawn or overruled dispute whole, any other outcome only its id and
+// outcome (the critics job keeps the same fields).
+function publicDispute(decision) {
+  if (["withdrawn", "overruled"].includes(decision?.outcome)) return decision
+  const { finding, critic, severity, outcome } = decision ?? {}
+  return { finding, critic, severity, outcome }
 }
 
 // The disputed findings of the critics, with their outcomes: each withdrawn

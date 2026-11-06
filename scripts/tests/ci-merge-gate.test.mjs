@@ -1514,11 +1514,30 @@ test("the comment lists each dispute outcome, and an escalated critic fails the 
     ),
     waiting,
   )
-  for (const text of [
-    "apps/private.ts",
-    "a private risk",
-    "a person decides it",
-  ])
+  const hidden = ["apps/private.ts", "a private risk", "a person decides it"]
+  for (const text of hidden) {
     assert.ok(!waiting.includes(text), text)
+    // The decision record (merge-gate-decision) does not keep it either.
+    assert.ok(!JSON.stringify(escalated).includes(text), text)
+  }
   assert.ok(!/linear/i.test(waiting), waiting)
+  // The critics job keeps the same fields in its public artifact.
+  const ci = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const filter = /jq -c '(\{critics: [^']*)'/.exec(ci)?.[1]
+  assert.ok(filter, "the jq filter of the critics job")
+  const run = spawnSync("jq", ["-c", filter], {
+    input: JSON.stringify(old),
+    encoding: "utf8",
+  })
+  assert.equal(run.status, 0, run.stderr)
+  for (const text of hidden)
+    assert.ok(!run.stdout.includes(text), `${text}: ${run.stdout}`)
+  const kept = JSON.parse(run.stdout).critics[0].disputes
+  assert.deepEqual(kept[2], {
+    finding: "f:77777777",
+    critic: "critic:spec",
+    severity: "should-fix",
+    outcome: "escalated",
+  })
+  assert.equal(kept[0].summary, "rename it")
 })
