@@ -60,7 +60,7 @@ Until the factory release that the merge gate pins makes keys portable (the fact
 
 ## When a pass is not stored
 
-- **No AWS credentials, or an expired SSO session.** The run still selects and runs the checks, but every check is a miss and no pass is stored. The output says `the shared store is off`. Do step 1, then run again: the earlier passes ran on your laptop only.
+- **No agent host certificate, an expired or revoked one, or an `AWS_PROFILE` that names other credentials.** The run still selects and runs the checks, but every check is a miss and no pass is stored. The output says `the shared store is off`. Do step 1, then run again: the earlier passes ran on your laptop only.
 - **A check without a cache key.** A stochastic check (an eval, a latency bound) or an uncacheable check (an image build, a preview deploy) always runs in CI.
 - **The inputs changed during the run.** Do not edit files while the checks run.
 - **A host-specific key.** The pass is stored, but CI cannot reuse it. See [Make your passes count in CI](#make-your-passes-count-in-ci).
