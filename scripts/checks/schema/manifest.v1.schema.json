@@ -134,6 +134,10 @@
             ]
           },
           "uniqueItems": true
+        },
+        "selectAll": {
+          "description": "true: a selector must not sample the lane. It selects every check of the lane that a change reaches, also where it selects only some checks of another lane (for example the k cheapest that executed a changed range). A model step does not remove such a check. Use it for a lane where each check compares the result with its own expected output (one screenshot of each story): an unselected check keeps an expected output that is not correct. Each check of the lane has the same value. Optional; without it, false.",
+          "type": "boolean"
         }
       }
     }
