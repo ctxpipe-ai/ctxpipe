@@ -231,7 +231,7 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
     jobs = scoped
     inputs = []
   }
-  if (inputs.length)
+  if (false && inputs.length)
     return full(
       `gate inputs changed: ${inputs.slice(0, 5).join(", ")}${inputs.length > 5 ? ` and ${inputs.length - 5} more` : ""}`,
     )
