@@ -1,0 +1,336 @@
+{
+  "apps/backend/ingest-skills/apis/scripts/apis-lib.mjs": [
+    "AST_GREP_TIMEOUT_MS",
+    "MAX_SPEC_LINES",
+    "MAX_YAML_LINE",
+    "UPPER_METHODS"
+  ],
+  "apps/backend/ingest-skills/apis/scripts/write-apis.mjs": [
+    "MAX_APIS",
+    "MAX_APIS_PER_PAGE",
+    "STEP_FILES"
+  ],
+  "apps/backend/ingest-skills/bin/knowledge-lib.mjs": ["MAX_STEP_OPS"],
+  "apps/backend/ingest-skills/datasources-infra/scripts/find-stores.mjs": [
+    "MAX_EVIDENCE",
+    "MAX_EXISTING",
+    "MAX_SKIPPED"
+  ],
+  "apps/backend/ingest-skills/decisions/scripts/decision-parse.mjs": [
+    "MAX_LINES",
+    "MAX_STATUS_TEXT"
+  ],
+  "apps/backend/ingest-skills/decisions/scripts/decisions.mjs": [
+    "MAX_CLAUSE_EDGES",
+    "MAX_RELATED",
+    "MAX_SKIPPED",
+    "MAX_STALE"
+  ],
+  "apps/backend/ingest-skills/dependencies/scripts/scan-lib.mjs": [
+    "MAX_CAPTURE",
+    "MAX_TARGET"
+  ],
+  "apps/backend/ingest-skills/discover-roots/scripts/roots-lib.mjs": [
+    "MAX_NAME_SEGMENT",
+    "NO_LIST"
+  ],
+  "apps/backend/ingest-skills/instruction-areas/scripts/instruction-areas.mjs": [
+    "MIN_QUOTE_LENGTH"
+  ],
+  "apps/backend/ingest-skills/instruction-areas/scripts/patterns.mjs": [
+    "MAX_FILES"
+  ],
+  "apps/backend/src/auth/atlassian-link-callback.ts": ["PENDING_TTL_MIN"],
+  "apps/backend/src/auth/withAuth.ts": ["JWT_CLOCK_TOLERANCE_SECONDS"],
+  "apps/backend/src/db/upgrade-from-release.upgrade.ts": ["PULLS"],
+  "apps/backend/src/domain/ingestion/context-index.ts": [
+    "MAX_LINKS",
+    "MAX_SOURCES",
+    "MAX_TITLE"
+  ],
+  "apps/backend/src/domain/ingestion/ingest-prepare.ts": ["UNPACK_BUNDLE"],
+  "apps/backend/src/domain/ingestion/ingest-refs.ts": ["PUSH_ATTEMPTS"],
+  "apps/backend/src/domain/ingestion/ingest-root.ts": ["NEWLINE"],
+  "apps/backend/src/domain/ingestion/ingest-shard-ops.ts": ["HISTORY_DAYS"],
+  "apps/backend/src/domain/ingestion/ingestion-plan.ts": [
+    "DISCOVER_ROOTS_SKILL"
+  ],
+  "apps/backend/src/domain/ingestion/patch-validator.ts": ["MAX_DELETE_SHARE"],
+  "apps/backend/src/domain/ingestion/secret-scan.ts": ["MAX_TOKEN"],
+  "apps/backend/src/domain/upgrades/reingest.ts": [
+    "REINGEST_WORKFLOW_NAME",
+    "RUN_KEY_PREFIX"
+  ],
+  "apps/backend/src/domain/workspace-sources/source-file-text.ts": [
+    "MAX_ALIAS_COUNT"
+  ],
+  "apps/backend/src/domain/workspace-sources/source-file.ts": ["SEGMENT_RULE"],
+  "apps/backend/src/domain/workspaces/agent-vault.ts": ["OWNER_EMAIL"],
+  "apps/backend/src/domain/workspaces/claim-confidence.ts": ["COMBINE_ALPHA"],
+  "apps/backend/src/domain/workspaces/commit-activity.ts": [
+    "ACTIVITY_CALENDAR_WEEKS",
+    "COMMIT_RETENTION_DAYS"
+  ],
+  "apps/backend/src/domain/workspaces/conversation-branch-push.ts": [
+    "STOP_UNFINISHED_GIT_WORK"
+  ],
+  "apps/backend/src/domain/workspaces/dest-workspace-first.ts": [
+    "UNKEYED_COLLISION_EXCERPT_CHARS",
+    "UNKEYED_COLLISION_TIMEOUT_MS"
+  ],
+  "apps/backend/src/domain/workspaces/fetch-github-commits.ts": ["MAX_PAGES"],
+  "apps/backend/src/domain/workspaces/graph-projection.ts": [
+    "workspaceGraphProjectionVersion"
+  ],
+  "apps/backend/src/domain/workspaces/graph-relevance.ts": [
+    "DAY_MS",
+    "DEFAULT_RECENCY_HALF_LIFE_DAYS",
+    "PPR_MAX_ITERATIONS",
+    "PPR_TOLERANCE",
+    "QUERY_MATCH_BASE",
+    "RECENCY_FLOOR",
+    "STRONG_QUERY_MATCH",
+    "UNDATED_RECENCY"
+  ],
+  "apps/backend/src/domain/workspaces/ingest-egress-proxy.ts": [
+    "OIDC_TOKEN_HEADER"
+  ],
+  "apps/backend/src/domain/workspaces/knowledge-search.ts": ["RRF_K"],
+  "apps/backend/src/domain/workspaces/mask-credentials.ts": [
+    "HOLD_MAX",
+    "TAIL"
+  ],
+  "apps/backend/src/domain/workspaces/opencode-chat-stream.ts": [
+    "OPENCODE_CHAT_STREAM_STEP"
+  ],
+  "apps/backend/src/domain/workspaces/rename-rewrite.ts": [
+    "RENAME_SIMILARITY_THRESHOLD"
+  ],
+  "apps/backend/src/domain/workspaces/sandbox-process-guards.ts": [
+    "OPENCODE_SERVE_ATTEMPTS",
+    "STOP_EARLIER_OPENCODE_SERVERS",
+    "STOP_EARLIER_TURN_PROCESSES"
+  ],
+  "apps/backend/src/domain/workspaces/semantic-merge.ts": ["MERGE_DEADLINE_MS"],
+  "apps/backend/src/domain/workspaces/tanstack-workspace-chat.ts": [
+    "KEPT_TURN_SNAPSHOTS"
+  ],
+  "apps/backend/src/domain/workspaces/vercel-sandbox-provider.ts": [
+    "GIT_TOKEN_REVOKE_GRACE_MS"
+  ],
+  "apps/backend/src/domain/workspaces/workspace-chat-agui.ts": [
+    "WORKSPACE_CHAT_RENAME_EVENT"
+  ],
+  "apps/backend/src/domain/workspaces/workspace-chat-opencode-contract.ts": [
+    "DEFAULT_OPENROUTER_BASE"
+  ],
+  "apps/backend/src/domain/workspaces/workspace-chat-run-capability.ts": [
+    "RUN_CAPABILITY_KEY_PREFIX"
+  ],
+  "apps/backend/src/domain/workspaces/write-jobs.ts": [
+    "BOOTSTRAP_AGENTS_MD",
+    "BOOTSTRAP_KNOWLEDGE_SKILL_PREFIX"
+  ],
+  "apps/backend/src/email/templates/account-exists.tsx": ["BRAND_TEAL"],
+  "apps/backend/src/email/templates/verify-email.tsx": ["BRAND_TEAL"],
+  "apps/backend/src/lib/atlassian-api-base-url.ts": [
+    "ATLASSIAN_PRODUCT_API_HOST"
+  ],
+  "apps/backend/src/lib/connection-secrets.ts": ["KEY_LENGTH"],
+  "apps/backend/src/mcp/framework/budget.ts": [
+    "RESERVED_CHARS",
+    "RESERVED_TOKENS"
+  ],
+  "apps/backend/src/mcp/framework/org-code.ts": ["CALL_DEADLINE_MS"],
+  "apps/backend/src/mcp/tools/get-related.latency.ts": ["CLAIMS_PER_NODE"],
+  "apps/backend/src/mcp/tools/list-files.ts": ["GLOB_LIMIT"],
+  "apps/backend/src/mcp/tools/list-workspaces.ts": [
+    "PAGE_SIZE",
+    "REPOSITORY_PAGE_SIZE"
+  ],
+  "apps/backend/src/mcp/tools/read-file.ts": [
+    "MAX_FRONT_MATTER_CLAIMS",
+    "MAX_FRONT_MATTER_TOKENS"
+  ],
+  "apps/backend/src/mcp/tools/search-code.ts": ["MATCHES_PER_FILE"],
+  "apps/backend/src/models/repositories.ts": ["MAX_INDEXING_ERROR_CHARS"],
+  "apps/backend/src/models/slack-connector.ts": [
+    "SLACK_TEAM_ALREADY_CONNECTED_MESSAGE"
+  ],
+  "apps/backend/src/observability/flushOnDemandMetricReader.ts": [
+    "EXPORT_SUCCESS"
+  ],
+  "apps/backend/src/observability/otel.ts": ["TRACE_SCOPE"],
+  "apps/backend/src/openworkflow/codesearchCapacity.ts": [
+    "DEFAULT_INDEX_PIPELINE_CONCURRENCY",
+    "MAX_WORKER_CONCURRENCY"
+  ],
+  "apps/backend/src/openworkflow/worker-heap.ts": [
+    "HEAP_SHARE",
+    "MAX_HEAP_MIB"
+  ],
+  "apps/backend/src/openworkflow/worker-supervisor.ts": ["DEFAULT_SCHEMA"],
+  "apps/backend/src/openworkflow/workflows/forge-provision.ts": [
+    "FORGE_ECOSYSTEM_GRAPHQL",
+    "MUTATION_CREATE_DEV_SPACE",
+    "QUERY_DEV_SPACE_DETAILS",
+    "QUERY_DEV_SPACE_IDS",
+    "STDERR_LOG_PREVIEW_CHARS"
+  ],
+  "apps/backend/src/openworkflow/workflows/workspace-upgrade-scan.ts": [
+    "SCAN_STAGGER_MS"
+  ],
+  "apps/backend/src/platform/graph/client.ts": ["DEFAULT_GRAPH_DB_URI"],
+  "apps/backend/src/retrieval/services/confidenceAggregation.ts": [
+    "RECENCY_HALF_LIFE_DAYS"
+  ],
+  "apps/backend/src/retrieval/services/modelProvider.ts": [
+    "DEFAULT_OPENROUTER_BASE",
+    "EMBEDDING_SINGLE_CONCURRENCY"
+  ],
+  "apps/backend/src/retrieval/services/providers/bedrockEmbeddings.ts": [
+    "COHERE_EMBED_V4_MAX_DIMENSIONS"
+  ],
+  "apps/backend/src/retrieval/services/providers/openAILikeModelProvider.ts": [
+    "DEFAULT_OPENROUTER_BASE"
+  ],
+  "apps/backend/src/retrieval/services/providers/openrouterModelProvider.ts": [
+    "DEFAULT_OPENROUTER_BASE"
+  ],
+  "apps/backend/src/routes/v1/atlassian-oauth-callback.ts": [
+    "ATLASSIAN_ME",
+    "ATLASSIAN_TOKEN"
+  ],
+  "apps/backend/src/routes/v1/connectors-notion.ts": [
+    "NOTION_SETUP_RESULT_KEY"
+  ],
+  "apps/backend/src/routes/v1/connectors-slack.ts": ["SLACK_SETUP_RESULT_KEY"],
+  "apps/backend/src/routes/v1/github-installation.ts": [
+    "GITHUB_INSTALLATION_UNAVAILABLE_MESSAGE"
+  ],
+  "apps/backend/src/routes/v1/org-atlassian-oauth.ts": ["ATLASSIAN_AUTH"],
+  "apps/backend/src/routes/webhooks/atlassian/atlassian.ts": [
+    "ATLASSIAN_FORGE_REMOTE_JWKS_URL",
+    "FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX"
+  ],
+  "apps/backend/src/routes/webhooks/github/github-confluence-push.ts": [
+    "CONFLUENCE_CONFIG_PATH"
+  ],
+  "apps/backend/src/scripts/forge-provision-cli.mjs": ["stdio"],
+  "apps/backend/src/services/buildkite/client.ts": [
+    "BUILDKITE_API",
+    "BUILDKITE_BUILDS_PER_PIPELINE",
+    "BUILDKITE_GRAPHQL",
+    "BUILDKITE_MAX_PIPELINE_PAGES"
+  ],
+  "apps/backend/src/services/buildkite/converter.ts": [
+    "BUILDKITE_MANAGED_ROOT"
+  ],
+  "apps/backend/src/services/confluence/config-from-repo.ts": [
+    "CONFLUENCE_CONFIG_PATH"
+  ],
+  "apps/backend/src/services/connectors/assets.ts": [
+    "CONNECTOR_SYNC_MAX_ASSETS"
+  ],
+  "apps/backend/src/services/git/process-slot.ts": ["GIT_PROCESS_LIMIT"],
+  "apps/backend/src/services/github/issue-mirror/sync.ts": [
+    "GITHUB_ISSUE_PAGE_SIZE"
+  ],
+  "apps/backend/src/services/github/pull-request-mirror/sync.ts": [
+    "GITHUB_PR_PAGE_SIZE"
+  ],
+  "apps/backend/src/services/notion/client.ts": [
+    "NOTION_API_BASE",
+    "NOTION_VERSION"
+  ],
+  "apps/backend/src/services/notion/incremental.ts": [
+    "NOTION_PARENT_WALK_MAX_DEPTH"
+  ],
+  "apps/backend/src/services/slack/client.ts": [
+    "SLACK_CHANNEL_LIST_MAX",
+    "SLACK_THREAD_MAX_MESSAGES"
+  ],
+  "apps/backend/src/services/slack/mention-agent.ts": [
+    "SLACK_MENTION_SYSTEM_PROMPT"
+  ],
+  "apps/backend/src/tools/codesearchZoekt.ts": ["ZOEKT_FETCH_TIMEOUT_MS"],
+  "apps/backend/src/tools/globFiles.ts": ["DEFAULT_GLOB_LIMIT"],
+  "apps/backend/src/tools/zoektCompact.ts": ["COMPACT_SNIPPET_CHARS"],
+  "apps/codesearch/src/domain/indexing/capacityEnv.ts": ["MAX", "MIN"],
+  "apps/codesearch/src/domain/indexing/typeScriptProjects.ts": [
+    "DERIVED_CONFIG",
+    "STANDALONE_CONFIG"
+  ],
+  "apps/codesearch/src/domain/repositories/checkoutGc.ts": ["SHA"],
+  "apps/codesearch/src/domain/repositories/globFiles.ts": [
+    "DEFAULT_LIMIT",
+    "HARD_MAX_LIMIT"
+  ],
+  "apps/codesearch/src/domain/zoekt/warmup.ts": ["ZOEKT_WARMUP_TIMEOUT_MS"],
+  "apps/docs/app/docs/components/docs-custom-nav.tsx": [
+    "GET_DEMO_URL",
+    "GITHUB_ORG_URL",
+    "X_URL"
+  ],
+  "apps/ui/public/mockServiceWorker.js": [
+    "INTEGRITY_CHECKSUM",
+    "PACKAGE_VERSION"
+  ],
+  "apps/ui/src/components/ui/Skeleton.tsx": ["HAND_OVER_MS"],
+  "apps/ui/src/components/ui/ToastStack.tsx": ["GAP"],
+  "apps/ui/src/features/chat/ConversationThread.tsx": [
+    "reasoningResponseClassName"
+  ],
+  "apps/ui/src/features/chat/chat-draft.ts": ["STORAGE_PREFIX"],
+  "apps/ui/src/features/connectors/components/confluence-setup/steps/InstallForgeStep.tsx": [
+    "PROVISION_POLL_MS",
+    "PROVISION_SUCCESS_MS"
+  ],
+  "apps/ui/src/features/knowledge-graph/ActivitySparkline.tsx": [
+    "BAR_FILL",
+    "BAR_FILL_HOVER",
+    "ZERO_BAR_FRACTION"
+  ],
+  "apps/ui/src/features/knowledge-graph/KnowledgeGraphCosmographCanvas.tsx": [
+    "GRAPH_SIMULATION_RESTART_ALPHA",
+    "INITIAL_EXTENTS_FIT_PADDING",
+    "INITIAL_SIMULATION_AUTO_SETTLE_MS",
+    "PHASE_ROTATION_MS"
+  ],
+  "apps/ui/src/features/knowledge-graph/KnowledgeGraphExplorer.tsx": [
+    "KG_FIT_STRATEGY"
+  ],
+  "apps/ui/src/features/knowledge-graph/NodeDetailDrawer.tsx": [
+    "OVERLAY_PANEL_CLASS"
+  ],
+  "apps/ui/src/features/repositories/githubRepoSelection.ts": [
+    "MAX_INSTALLATION_PAGES"
+  ],
+  "apps/ui/src/features/workspace-upgrades/checking-format-clock.ts": [
+    "CHECKING_FORMAT_MS"
+  ],
+  "apps/ui/src/features/workspaces/WorkspaceFileTree.tsx": ["TREE_UNSAFE_CSS"],
+  "apps/ui/src/features/workspaces/WorkspaceFilesPane.tsx": [
+    "TREE_WIDTH_DEFAULT"
+  ],
+  "apps/ui/src/features/workspaces/WorkspacePierreFile.tsx": [
+    "FILE_UNSAFE_CSS"
+  ],
+  "apps/ui/src/features/workspaces/queries.ts": ["ACTIVITY_COMMITS_PAGE_SIZE"],
+  "apps/ui/src/features/workspaces/workspace-fixtures.ts": ["progressThinking"],
+  "apps/ui/src/lib/api-result.ts": ["API_FETCH_TIMEOUT_BROWSER_MS"],
+  "apps/ui/src/lib/unicorn-studio.ts": [
+    "UNICORN_SCRIPT_SELECTOR",
+    "UNICORN_SDK_URL"
+  ],
+  "apps/ui/src/routes/[.]notion.setup.tsx": ["NOTION_SETUP_RESULT_KEY"],
+  "apps/ui/src/routes/onboarding.tsx": ["FINISH_ERROR"],
+  "packages/aws-cdk/src/ctxpipe.ts": ["DEFAULT_SIZE"],
+  "packages/aws-cdk/src/model-provider.ts": ["DEFAULT_BEDROCK_EMBEDDING_MODEL"],
+  "packages/cli/src/auth.ts": ["KEYRING_SERVICE"],
+  "packages/cli/src/memory/capture.ts": ["SUMMARY_BATCH"],
+  "packages/cli/src/memory/paths.ts": ["DEFAULT_MEMORY_ROOT"],
+  "packages/cli/src/memory/seed.ts": ["GITIGNORE_EVENTS_BLOCK"],
+  "packages/cli/src/ui.ts": ["PIXEL_MARK", "PIXEL_PIPE"],
+  "scripts/ci/check-test-policy.mjs": ["GATE0"]
+}

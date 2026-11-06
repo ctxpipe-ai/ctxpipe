@@ -50,6 +50,36 @@ function run(script, files, base = {}) {
   }
 }
 
+// The module-scope value check reads the files of the working tree, so each
+// case is a git repository with no commit. The baseline is empty unless the
+// case gives one.
+function scan(files) {
+  const root = mkdtempSync(join(tmpdir(), "ctxpipe-repeat-checks-"))
+  try {
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root })
+    const tree = {
+      "scripts/ci/module-scope-values-baseline.json": "{}",
+      ...files,
+    }
+    for (const [path, text] of Object.entries(tree)) {
+      mkdirSync(dirname(join(root, path)), { recursive: true })
+      writeFileSync(join(root, path), text)
+    }
+    return spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(
+          new URL("../ci/check-module-scope-values.mjs", import.meta.url),
+        ),
+        root,
+      ],
+      { encoding: "utf8" },
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
 test("a new ADR that the index omits fails", () => {
   const result = run("check-adr.mjs", {
     ".ai/memory/decisions/ADR-900-tool.md": "# ADR\n",
@@ -90,7 +120,7 @@ test("a new package needs no ADR for this check", () => {
 })
 
 test("a value that the file exports by name or by default is not single-use", () => {
-  const result = run("check-module-scope-values.mjs", {
+  const result = scan({
     "apps/backend/src/a.ts": [
       `const NAMED = 1`,
       `const RENAMED = 2`,
@@ -104,14 +134,14 @@ test("a value that the file exports by name or by default is not single-use", ()
 })
 
 test("an array or object at module scope is not flagged", () => {
-  const result = run("check-module-scope-values.mjs", {
+  const result = scan({
     "apps/backend/src/a.ts": `const TABLE = ["a"]\nconst MAP = { a: 1 }\nexport const f = () => [TABLE, MAP]\n`,
   })
   assert.equal(result.status, 0, result.stderr)
 })
 
 test("a new module-scope value that the file reads once fails", () => {
-  const result = run("check-module-scope-values.mjs", {
+  const result = scan({
     "apps/backend/src/a.ts": [
       `const RETRY_LIMIT = 3`,
       `const LABELS = "a,b"`,
@@ -133,7 +163,7 @@ test("a new module-scope value that the file reads once fails", () => {
 })
 
 test("an exported value, a value that is read twice, and an allowed value pass", () => {
-  const result = run("check-module-scope-values.mjs", {
+  const result = scan({
     "apps/backend/src/a.ts": [
       `export const PUBLIC = 1`,
       `const TWICE = "x"`,
@@ -147,42 +177,45 @@ test("an exported value, a value that is read twice, and an allowed value pass",
   assert.equal(result.status, 0, result.stderr)
 })
 
-test("a single-use value that the change did not add passes", () => {
-  const result = run(
-    "check-module-scope-values.mjs",
-    {
-      "apps/backend/src/a.ts":
-        "const OLD = 1\nexport const f = () => OLD\n// edit\n",
-    },
-    { "apps/backend/src/a.ts": "const OLD = 1\nexport const f = () => OLD\n" },
-  )
+test("a single-use value that the baseline lists passes", () => {
+  const result = scan({
+    "apps/backend/src/a.ts": "const OLD = 1\nexport const f = () => OLD\n",
+    "scripts/ci/module-scope-values-baseline.json": JSON.stringify({
+      "apps/backend/src/a.ts": ["OLD"],
+    }),
+  })
   assert.equal(result.status, 0, result.stderr)
 })
 
-test("a file that the diff lists but the working tree lacks is skipped", () => {
+test("a baseline entry that the files no longer have fails", () => {
+  const result = scan({
+    "apps/backend/src/a.ts": "export const f = () => 1\n",
+    "scripts/ci/module-scope-values-baseline.json": JSON.stringify({
+      "apps/backend/src/a.ts": ["OLD"],
+    }),
+  })
+  assert.equal(result.status, 1)
+  assert.match(
+    result.stderr,
+    /apps\/backend\/src\/a\.ts no longer has the single-use value `OLD`/,
+  )
+})
+
+test("a tracked file that the working tree lacks is skipped", () => {
   const root = mkdtempSync(join(tmpdir(), "ctxpipe-repeat-checks-"))
-  const git = (...args) =>
-    execFileSync(
-      "git",
-      ["-c", "user.name=t", "-c", "user.email=t@t", ...args],
-      {
-        cwd: root,
-        encoding: "utf8",
-      },
-    )
   try {
-    git("init", "-q", "-b", "main")
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root })
     mkdirSync(join(root, "apps/backend/src"), { recursive: true })
-    writeFileSync(join(root, "README.md"), "x\n")
-    git("add", "-A")
-    git("commit", "-q", "-m", "base")
-    git("tag", "base")
+    mkdirSync(join(root, "scripts/ci"), { recursive: true })
+    writeFileSync(
+      join(root, "scripts/ci/module-scope-values-baseline.json"),
+      "{}",
+    )
     writeFileSync(
       join(root, "apps/backend/src/a.ts"),
       "const ONE = 1\nexport const f = () => ONE\n",
     )
-    git("add", "-A")
-    git("commit", "-q", "-m", "change")
+    execFileSync("git", ["add", "-A"], { cwd: root })
     rmSync(join(root, "apps/backend/src/a.ts"))
     const result = spawnSync(
       process.execPath,
@@ -191,7 +224,6 @@ test("a file that the diff lists but the working tree lacks is skipped", () => {
           new URL("../ci/check-module-scope-values.mjs", import.meta.url),
         ),
         root,
-        "base",
       ],
       { encoding: "utf8" },
     )
