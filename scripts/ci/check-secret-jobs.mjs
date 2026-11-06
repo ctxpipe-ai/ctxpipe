@@ -60,6 +60,9 @@
 //   through a read-only OIDC role of the factory account. It needs no secret
 //   and spends no money, so the rule for paid or outside checks does not
 //   apply.
+// - The merge gate critic answers job (ci.yaml merge-gate-answers) holds the
+//   read-only Linear key of `workbench` and no cloud role. It does no
+//   checkout: it reads the critics record and the Linear API.
 // - The merge gate LLM job (ci.yaml merge-gate-llm) holds the model key of
 //   `workbench` and no cloud role. It runs only the selector release that
 //   the select job downloaded, after it checks the pinned SHA-256 again.
@@ -326,6 +329,10 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     "ci.yaml:merge-gate-select",
     "ci.yaml:merge-gate-llm",
     "ci.yaml:results-writer",
+    // The critic answers job reads the critics record (JSON, by the artifact
+    // id of the critics job) with jq and calls the Linear API with curl. It
+    // does no checkout and runs no script of the repository.
+    "ci.yaml:merge-gate-answers",
     // The Resolve job checks out the merge commit (it holds no secret) and
     // uploads infra/. The plan job may check out only the workflow commit, and
     // it already runs branch Terraform code: the reviewers of the

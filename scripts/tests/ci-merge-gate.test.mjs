@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import {
   existsSync,
   mkdirSync,
@@ -7,10 +8,13 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs"
+import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
+
+import { parse as parseYaml } from "yaml"
 
 import {
   code,
@@ -1433,20 +1437,22 @@ test("the critics cause and the log of factory review gate hold no URL or creden
   assert.ok(!cause.includes("https://") && !cause.includes("ghp_"), cause)
 })
 
-test("an escalated dispute passes only with an override of a ctxpipe developer for an id of this round", () => {
-  const repoUrl = "https://github.com/o/r"
+// The job `Merge gate critic answers` of ci.yaml: its script runs against a
+// fake Linear GraphQL API, and gate.mjs reads what it writes.
+test("an escalated finding passes only with an override of a person in its Linear issue", async () => {
+  const branch = "o/r@dev/ctx-1127-x"
+  const hash = createHash("sha256").update(branch).digest("hex").slice(0, 16)
+  const escalationKey = (finding) => `factory-escalation:${finding}:${hash}`
   const decision = (finding, outcome, extra = {}) => ({
     finding,
     critic: "critic:spec",
-    severity: "should-fix",
+    severity: "blocker",
     file: "a.ts",
     line: 2,
     summary: "rename it",
-    kind: "factual",
-    argument: "misread",
-    evidence: { kind: "code", path: "a.ts" },
     outcome,
     decidedBy: "rule",
+    implementer: ["gpt"],
     reason: "a disputed blocker needs a ctxpipe developer",
     ...extra,
   })
@@ -1458,8 +1464,9 @@ test("an escalated dispute passes only with an override of a ctxpipe developer f
         reason: "1 disputed findings wait for a ctxpipe developer: f:0123abcd",
         verdicts: [],
         disputes: [
-          decision("f:0123abcd", "escalated"),
+          decision("f:0123abcd", "escalated", { linear: "CTX-2001" }),
           decision("f:99999999", "overruled", {
+            severity: "should-fix",
             decidedBy: "gpt-6.1-sol",
             implementer: ["claude"],
             reason: "the rule allows it",
@@ -1474,96 +1481,253 @@ test("an escalated dispute passes only with an override of a ctxpipe developer f
       },
     ],
   }
+  const person = { app: false, guest: false, active: true }
   const comment = (body, extra = {}) => ({
-    url: `${repoUrl}/pull/7#issuecomment-1`,
     body,
-    user: { type: "User" },
-    permission: "write",
-    editedByAuthor: true,
-    prAuthor: false,
+    createdAt: "2026-11-06T10:00:00.000Z",
+    url: "https://linear.app/ctxpipe/issue/CTX-2001/x#comment-1",
+    user: person,
+    botActor: null,
+    externalUser: null,
+    onBehalfOf: null,
     ...extra,
   })
-  const check = (comments) =>
-    critics(
-      inputs({ "critics.json": record, "critic-commands.json": { comments } }),
+  // The fake Linear API: the issue CTX-2001 with the comments of a case.
+  let issue
+  const requests = []
+  const server = createServer((request, response) => {
+    let body = ""
+    request.on("data", (chunk) => {
+      body += chunk
+    })
+    request.on("end", () => {
+      requests.push({
+        auth: request.headers.authorization,
+        body: JSON.parse(body),
+      })
+      response.setHeader("Content-Type", "application/json")
+      response.end(JSON.stringify({ data: { issue } }))
+    })
+  })
+  await new Promise((done) => server.listen(0, "127.0.0.1", done))
+  const url = `http://127.0.0.1:${server.address().port}/graphql`
+  const ci = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  const job = ci.jobs["merge-gate-answers"]
+  const script = job.steps.find(
+    (step) => step.name === "Read the Linear answers",
+  ).run
+  // Runs the script on the critics record with the issue, then the gate.
+  const check = async (
+    comments,
+    { description, key = "lin_api_read", record: critics_ = record } = {},
+  ) => {
+    issue = {
+      createdAt: "2026-11-06T09:00:00.000Z",
+      description:
+        description ?? `Escalation key: \`${escalationKey("f:0123abcd")}\``,
+      comments: { nodes: comments },
+    }
+    const temp = mkdtempSync(join(tmpdir(), "ctxpipe-answers-"))
+    mkdirSync(join(temp, "out"))
+    mkdirSync(join(temp, "critics"))
+    writeFileSync(
+      join(temp, "critics", "critics.json"),
+      JSON.stringify(critics_),
+    )
+    const run = await new Promise((done) => {
+      const child = spawn("bash", ["-eo", "pipefail", "-c", script], {
+        env: {
+          PATH: process.env.PATH,
+          RUNNER_TEMP: temp,
+          LINEAR_API_KEY: key,
+          LINEAR_URL: url,
+          BRANCH: branch,
+        },
+      })
+      let stderr = ""
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk
+      })
+      child.on("close", (status) => done({ status, stderr }))
+    })
+    const directory = inputs({ "critics.json": critics_ })
+    for (const name of ["critic-answers.json", "answers-cause.txt"])
+      if (existsSync(join(temp, "out", name)))
+        writeFileSync(
+          join(directory, name),
+          readFileSync(join(temp, "out", name)),
+        )
+    return { run, temp, checked: critics(directory) }
+  }
+  try {
+    // No answer: the critic blocks, and the comment links the issue and says
+    // how to answer.
+    const waiting = (await check([])).checked
+    assert.deepEqual(waiting.missing, ["critic:spec"])
+    const text = criticsText(waiting, "https://github.com/o/r")
+    assert.ok(
+      text.includes(
+        "escalated: waits for a ctxpipe developer in [CTX-2001](https://linear.app/ctxpipe/issue/CTX-2001)",
+      ),
+      text,
+    )
+    assert.ok(text.includes("`override: <reason>`"), text)
+    assert.ok(!text.includes("/critic"), text)
+    // The overruled finding is named, so a person sees it.
+    assert.ok(
+      text.includes("`f:99999999`") && text.includes("| `overruled` |"),
+      text,
+    )
+    assert.ok(text.includes("`gpt-6.1-sol` (implementer: `claude`)"), text)
+    assert.ok(text.includes("it is attested, not verified"), text)
+    assert.ok(text.includes("`rename it`"), text)
+    // The job read the issue of the finding with the key, one request.
+    assert.equal(requests.at(-1).auth, "lin_api_read")
+    assert.deepEqual(requests.at(-1).body.variables, { id: "CTX-2001" })
+    // These do not count: an app, a bot, an integration, a guest, a disabled
+    // user, a comment on behalf of another user, a comment from before the
+    // escalation, a first line without the answer, an override without a
+    // reason, and an issue that does not hold the escalation key of this
+    // finding and this branch.
+    const override = "override: the ADR allows it"
+    for (const [comments, options] of [
+      [[comment(override, { user: { ...person, app: true } })]],
+      [[comment(override, { user: null, botActor: { id: "b" } })]],
+      [[comment(override, { botActor: { id: "b" } })]],
+      [[comment(override, { externalUser: { id: "e" } })]],
+      [[comment(override, { user: { ...person, guest: true } })]],
+      [[comment(override, { user: { ...person, active: false } })]],
+      [[comment(override, { onBehalfOf: { id: "u" } })]],
+      [[comment(override, { createdAt: "2026-11-06T08:00:00.000Z" })]],
+      [[comment(`Looks fine.\n${override}`)]],
+      [[comment("override:")]],
+      [
+        [comment(override)],
+        {
+          description: `Escalation key: \`factory-escalation:f:0123abcd:${"0".repeat(16)}\``,
+        },
+      ],
+      [
+        [comment(override)],
+        { description: `Escalation key: \`${escalationKey("f:aaaaaaaa")}\`` },
+      ],
+    ]) {
+      const { checked } = await check(comments, options)
+      assert.deepEqual(
+        checked.missing,
+        ["critic:spec"],
+        JSON.stringify(comments),
+      )
+    }
+    // An accept keeps the finding: the PR must fix it.
+    const accepted = (await check([comment("accept: it is a real bug")]))
+      .checked
+    assert.deepEqual(accepted.missing, ["critic:spec"])
+    assert.ok(
+      criticsText(accepted, "https://github.com/o/r").includes(
+        "accepted by a ctxpipe developer: fix it",
+      ),
+    )
+    // An override of a person passes; the newest answer wins, the reason is
+    // redacted before it reaches the public comment, and the comment links
+    // to the Linear decision with no name.
+    const { checked: overridden, temp } = await check([
+      comment("accept: wait", { createdAt: "2026-11-06T09:30:00.000Z" }),
+      comment(
+        "Override: the ADR allows it, see https://example.com/x\nmore text",
+      ),
+    ])
+    assert.deepEqual(overridden.missing, [])
+    assert.equal(criticsFail(overridden), false)
+    const done = criticsText(overridden, "https://github.com/o/r")
+    assert.ok(done.includes("overridden by a ctxpipe developer"), done)
+    assert.ok(
+      done.includes(
+        "[Linear decision](https://linear.app/ctxpipe/issue/CTX-2001/x#comment-1)",
+      ),
+      done,
+    )
+    assert.ok(done.includes("the ADR allows it, see [REDACTED-URL]"), done)
+    assert.deepEqual(
+      JSON.parse(
+        readFileSync(join(temp, "out", "critic-answers.json"), "utf8"),
+      ),
       {
-        repoUrl,
+        answers: [
+          {
+            finding: "f:0123abcd",
+            action: "override",
+            reason: "the ADR allows it, see https://example.com/x",
+            url: "https://linear.app/ctxpipe/issue/CTX-2001/x#comment-1",
+          },
+        ],
       },
     )
-  // No answer: the critic blocks, and the comment says how to answer.
-  const waiting = check([])
-  assert.deepEqual(waiting.missing, ["critic:spec"])
-  const text = criticsText(waiting, repoUrl)
-  assert.ok(text.includes("escalated: waits for a ctxpipe developer"), text)
-  assert.ok(text.includes("/critic override <id> <reason>"), text)
-  // The overruled finding is named, so a person sees it.
-  assert.ok(
-    text.includes("`f:99999999`") && text.includes("| `overruled` |"),
-    text,
-  )
-  assert.ok(text.includes("`the rule allows it`"), text)
-  // The arbiter shows beside the implementer's family, and the outcomes are
-  // marked as attested.
-  assert.ok(text.includes("`gpt-6.1-sol` (implementer: `claude`)"), text)
-  assert.ok(text.includes("it is attested, not verified"), text)
-  // Each row shows the text of the finding.
-  assert.ok(text.includes("`rename it`"), text)
-  // These do not count: a bot or an app, an author without write access, an
-  // id that this round does not escalate, an override without a reason, and
-  // a comment whose current text (after an edit) holds no command.
-  for (const comments of [
-    [comment("/critic override f:0123abcd fine", { user: { type: "Bot" } })],
-    [comment("/critic override f:0123abcd fine", { permission: "read" })],
-    [comment("/critic override f:0123abcd fine", { permission: "triage" })],
-    [comment("/critic override f:aaaaaaaa fine")],
-    [comment("/critic override f:0123abcd")],
-    [comment("edited: I take back /critic override f:0123abcd fine")],
-    // Another account (a bot or an app) edited a developer's comment.
-    [comment("/critic override f:0123abcd fine", { editedByAuthor: false })],
-    [
-      comment("/critic override f:0123abcd fine", {
-        editedByAuthor: undefined,
-      }),
+    // Without the key, the job fails with the cause, and the gate shows it.
+    const { run, checked: nokey } = await check([comment(override)], {
+      key: "",
+    })
+    assert.equal(run.status, 1)
+    assert.deepEqual(nokey.missing, ["critic:spec"])
+    assert.ok(
+      criticsText(nokey, "https://github.com/o/r").includes(
+        "The Linear answers were not read: `LINEAR_API_KEY is not set in the workbench environment`",
+      ),
+    )
+    // Without an escalated finding, the job makes no Linear call and needs no key.
+    const before = requests.length
+    const quiet = await check([], {
+      key: "",
+      record: { critics: [record.critics[1]] },
+    })
+    assert.equal(quiet.run.status, 0, quiet.run.stderr)
+    assert.equal(requests.length, before)
+  } finally {
+    server.close()
+  }
+})
+
+test("an answer counts only for an id that the record escalates, with a Linear link", () => {
+  const record = {
+    critics: [
+      {
+        critic: "critic:spec",
+        status: "escalated",
+        reason: "",
+        verdicts: [],
+        disputes: [
+          { finding: "f:0123abcd", outcome: "escalated", linear: "CTX-2001" },
+        ],
+      },
     ],
-    // The PR author is the login that the implementer agent uses.
-    [comment("/critic override f:0123abcd fine", { prAuthor: true })],
-    [comment("/critic override f:0123abcd fine", { prAuthor: undefined })],
+  }
+  const check = (answers) =>
+    critics(
+      inputs({ "critics.json": record, "critic-answers.json": { answers } }),
+    )
+  const answer = (extra = {}) => ({
+    finding: "f:0123abcd",
+    action: "override",
+    reason: "fine",
+    url: "https://linear.app/ctxpipe/issue/CTX-2001#comment-1",
+    ...extra,
+  })
+  assert.deepEqual(check([answer()]).missing, [])
+  for (const extra of [
+    { finding: "f:aaaaaaaa" },
+    { action: "approve" },
+    { reason: " " },
   ])
     assert.deepEqual(
-      check(comments).missing,
+      check([answer(extra)]).missing,
       ["critic:spec"],
-      JSON.stringify(comments),
+      JSON.stringify(extra),
     )
-  // An accept keeps the finding: the PR must fix it.
-  const accepted = check([comment("/critic accept f:0123abcd")])
-  assert.deepEqual(accepted.missing, ["critic:spec"])
+  // A link that is not of Linear is not shown.
+  const foreign = check([answer({ url: "https://evil.example/x" })])
   assert.ok(
-    criticsText(accepted, repoUrl).includes(
-      "accepted by a ctxpipe developer: fix it",
-    ),
+    criticsText(foreign, "https://github.com/o/r").includes("a Linear comment"),
   )
-  // An override from a developer passes; the newest command wins, and the
-  // reason is redacted before it reaches the public comment.
-  const overridden = check([
-    comment("/critic accept f:0123abcd"),
-    comment(
-      "Looked at it.\n/critic override f:0123abcd the ADR allows it, see https://example.com/x",
-      {
-        permission: "maintain",
-      },
-    ),
-  ])
-  assert.deepEqual(overridden.missing, [])
-  assert.equal(criticsFail(overridden), false)
-  const done = criticsText(overridden, repoUrl)
-  assert.ok(done.includes("overridden by a ctxpipe developer"), done)
-  assert.ok(done.includes(`[comment](${repoUrl}/pull/7#issuecomment-1)`), done)
-  assert.ok(done.includes("the ADR allows it, see [REDACTED-URL]"), done)
-  // A comment link that is not of this repo is not shown.
-  const foreign = check([
-    comment("/critic override f:0123abcd fine", {
-      url: "https://evil.example/pull/7#issuecomment-1",
-    }),
-  ])
-  assert.ok(criticsText(foreign, repoUrl).includes("a PR comment"))
 })
