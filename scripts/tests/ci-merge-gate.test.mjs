@@ -1656,26 +1656,12 @@ test("an escalated finding passes only with an override of a person in its Linea
         [comment(override)],
         { description: `Escalation key: \`${escalationKey("f:aaaaaaaa")}\`` },
       ],
+      // An agent added the key of a second finding to the issue: one answer
+      // would count for both.
       [
         [comment(override)],
         {
-          history: [
-            {
-              createdAt: "2026-11-06T09:05:00.000Z",
-              updatedAt: "2026-11-06T09:05:00.000Z",
-              updatedDescription: false,
-            },
-            {
-              createdAt: "2026-11-06T09:06:00.000Z",
-              updatedAt: "2026-11-06T09:06:00.000Z",
-              updatedDescription: null,
-            },
-            {
-              createdAt: "2026-11-06T10:30:00.000Z",
-              updatedAt: "2026-11-06T10:31:00.000Z",
-              updatedDescription: true,
-            },
-          ],
+          description: `Escalation key: \`${escalationKey("f:0123abcd")}\` \`${escalationKey("f:aaaaaaaa")}\``,
         },
       ],
     ]) {
@@ -1686,6 +1672,22 @@ test("an escalated finding passes only with an override of a person in its Linea
         JSON.stringify([comments, options]),
       )
     }
+    // Two escalated findings name the same issue: it answers neither.
+    const shared = await check([comment(override)], {
+      critics: {
+        critics: [
+          {
+            ...record.critics[0],
+            disputes: [
+              ...record.critics[0].disputes,
+              decision("f:bbbbbbbb", "escalated", { linear: "CTX-2001" }),
+            ],
+          },
+        ],
+      },
+    })
+    assert.equal(shared.run.status, 0, shared.run.stderr)
+    assert.deepEqual(shared.checked.answers, {})
     // An accept keeps the finding: the PR must fix it.
     const accepted = (await check([comment("accept: it is a real bug")]))
       .checked

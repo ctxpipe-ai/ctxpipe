@@ -1645,7 +1645,9 @@ jobs:
           jq -c '[.critics[]? | select(.status == "escalated") | .disputes[]?
               | select(.outcome == "escalated" and (.finding | test("^f:[0-9a-f]{8}$"))
                 and ((.linear // "") | test("^CTX-[0-9]{1,7}$")))
-              | {finding, linear}] | unique_by(.finding) | .[]' \
+              | {finding, linear}] | unique_by(.finding)
+              # An issue that two findings name answers neither.
+              | group_by(.linear) | map(select(length == 1)) | .[][]' \
             "$RUNNER_TEMP/critics/critics.json" > "$RUNNER_TEMP/escalated.jsonl"
           hash="$(printf '%s' "$BRANCH" | sha256sum | cut -c1-16)"
           # Each node of a list of the issue ($1, with the fields $2), page
@@ -1698,7 +1700,8 @@ jobs:
             jq -c --arg finding "$finding" --arg key "factory-escalation:$finding:$hash" \
               --slurpfile history "$RUNNER_TEMP/history.jsonl" --slurpfile comments "$RUNNER_TEMP/comments.jsonl" '
               .data.issue as $issue
-              | select(($issue.description // "") | contains($key))
+              | select(($issue.description // "") | contains($key)
+                  and ([match("factory-escalation:"; "g")] | length) == 1)
               | ([$issue.createdAt] + [$history[] | select(.updatedDescription == true) | .createdAt, .updatedAt] | max) as $since
               | [$comments[]
                   | select(.user != null and .user.app == false and .user.guest == false
