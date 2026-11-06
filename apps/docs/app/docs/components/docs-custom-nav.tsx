@@ -6,10 +6,6 @@ import { Sidebar as SidebarIcon } from "fumadocs-ui/internal/icons"
 import { SidebarTrigger } from "fumadocs-ui/layouts/docs"
 import { cn } from "fumadocs-ui/utils/cn"
 
-const GITHUB_ORG_URL = "https://github.com/ctxpipe-ai"
-const X_URL = "https://x.com/ctxpipe"
-const GET_DEMO_URL = "https://cal.com/ctxpipe/30min"
-
 function GitHubMark({ className }: { className?: string }) {
   return (
     <svg
@@ -110,7 +106,7 @@ export function DocsCustomNav() {
         </div>
 
         <a
-          href={GITHUB_ORG_URL}
+          href="https://github.com/ctxpipe-ai"
           target="_blank"
           rel="noreferrer noopener"
           className="inline-flex shrink-0 items-center justify-center no-underline text-zinc-400 hover:text-zinc-100"
@@ -127,7 +123,7 @@ export function DocsCustomNav() {
         </a>
 
         <a
-          href={X_URL}
+          href="https://x.com/ctxpipe"
           target="_blank"
           rel="noreferrer noopener"
           className="inline-flex shrink-0 items-center justify-center no-underline text-zinc-400 hover:text-zinc-100"
@@ -144,7 +140,7 @@ export function DocsCustomNav() {
         </a>
 
         <a
-          href={GET_DEMO_URL}
+          href="https://cal.com/ctxpipe/30min"
           target="_blank"
           rel="noreferrer noopener"
           className="docs-cta-demo inline-flex shrink-0 items-center justify-center whitespace-nowrap no-underline"
