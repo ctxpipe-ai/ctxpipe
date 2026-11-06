@@ -153,8 +153,7 @@ A lane is one Vitest run: one package directory, one config and one runtime. [`l
 `ownInputs` (optional) lists the files that change the result of one check, and of no check that does not list them. An example is the baseline image of a visual check: only the check of that story reads it. The schema gives the full rule.
 
 - Each entry is a repo-relative path, or a directory with `/**` at the end, as in `inputs`.
-- A change to an own input selects the checks that list it. It selects no other check through `inputs` or `root`, also when an `inputs` directory holds the file. A check that imports the file still selects by the import. When a second check reads the file, list the file in the `ownInputs` of that check too.
-- A result cache adds the own inputs to the key of the check. A file that does not exist yet is in the key as missing, so its first version changes the key.
+- When a second check reads the file, list the file in the `ownInputs` of that check too.
 - An `inputs` directory of the lane can also hold the file. Then a reader that does not know `ownInputs` selects the whole lane, and its key holds the file.
 - `checks:list` does not write `ownInputs` yet. The visual lane will write it ([CTX-1191](https://linear.app/ctxpipe/issue/CTX-1191)).
 
