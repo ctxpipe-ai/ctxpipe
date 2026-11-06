@@ -49,14 +49,14 @@ const stringsOf = (node) =>
       )
     : []
 
-/** The `parameters.route` of an annotations object: a string, or undefined. */
+/** The value node of `parameters.route` in an annotations object, or undefined. */
 function routeOf(annotations) {
   const route = annotations?.parameters?.properties?.find(
     (property) =>
       property.type === "ObjectProperty" &&
       (property.key.name ?? property.key.value) === "route",
   )
-  return route ? { value: route.value } : undefined
+  return route?.value
 }
 
 /** Each story of a story file: its export name, page tag and route. */
@@ -75,7 +75,7 @@ function storiesOf(file, loadCsf, code) {
       name,
       page: [...metaTags, ...stringsOf(annotations?.tags)].includes("page"),
       // The route, when it is a string literal.
-      route: route?.value.type === "StringLiteral" ? route.value.value : null,
+      route: route?.type === "StringLiteral" ? route.value : null,
       declaresRoute: Boolean(route),
     }
   })
