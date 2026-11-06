@@ -802,7 +802,7 @@ function disputesText(checked) {
 function issue(id) {
   return typeof id === "string" && /^CTX-\d{1,7}$/.test(id)
     ? `[${id}](https://linear.app/ctxpipe/issue/${id})`
-    : "Linear (no issue: run `factory check` with `LINEAR_API_KEY`)"
+    : "Linear (no issue: run `factory check` on an agent host with Linear access)"
 }
 
 // One line for a selection reason.
