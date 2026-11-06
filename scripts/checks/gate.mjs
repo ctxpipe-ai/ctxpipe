@@ -549,21 +549,20 @@ export function redact(text) {
 // by finding id: an override (the finding is overruled) or an accept (the
 // finding stands; the PR fixes it). The job `Merge gate critic answers`
 // writes critic-answers.json. It reads the Linear issue of each escalated
-// finding and keeps the newest comment that a person wrote after the issue,
-// with the first line `override: <reason>` or `accept: <reason>`, on an issue
-// that holds the escalation key of the finding and the PR branch. The record
-// holds no name and no user id. Here, an answer counts only for an id that
-// this record escalates, and only a Linear link is shown.
+// finding and keeps the newest comment that a person wrote after the issue
+// (and after the last change of its description), with the first line
+// `override: <reason>` or `accept: <reason>`, on an issue that holds the
+// escalation key of the finding and the PR branch. The record holds the
+// answer and the link of the comment: no reason, no name and no user id.
+// Here, an answer counts only for an id that this record escalates, and only
+// a Linear link is shown.
 export function criticAnswers(escalated, record) {
   const answers = new Map()
   for (const answer of record?.answers ?? []) {
     if (!escalated.has(answer?.finding)) continue
     if (!["accept", "override"].includes(answer.action)) continue
-    const reason = String(answer.reason ?? "").trim()
-    if (!reason) continue
     answers.set(answer.finding, {
       action: answer.action,
-      reason: redact(reason).slice(0, 300),
       url:
         typeof answer.url === "string" &&
         /^https:\/\/linear\.app\/[\w./#-]+$/.test(answer.url)
@@ -714,10 +713,26 @@ export function criticsText(checked, repoUrl) {
     (critic) =>
       critic.status === "escalated" && checked.missing.includes(critic.critic),
   )
-  if (waiting.length > 0)
+  const unanswered = waiting.some((critic) =>
+    (critic.disputes ?? []).some(
+      (decision) =>
+        decision.outcome === "escalated" &&
+        !checked.answers?.[decision.finding],
+    ),
+  )
+  if (unanswered)
     lines.push(
       "",
       'An escalated finding waits for a ctxpipe developer. Answer in its Linear issue (status "Waiting for human", linked in the table) with a comment whose first line is `override: <reason>` (the finding is overruled) or `accept: <reason>` (the finding stands: fix it). Then use **Re-run all jobs**.',
+    )
+  if (
+    Object.values(checked.answers ?? {}).some(
+      (answer) => answer.action === "accept",
+    )
+  )
+    lines.push(
+      "",
+      "A ctxpipe developer accepted a finding, so it stands. Fix it, run `factory check` on the PR head, and push again.",
     )
   if (waiting.length > 0 && checked.answersCause)
     lines.push(
@@ -773,7 +788,7 @@ function disputesText(checked) {
       ? `${decision.file}:${decision.line}`
       : decision.file
     lines.push(
-      `| ${code(decision.finding)} | ${code(decision.critic)} | ${code(decision.severity)} | ${code(place ?? "")} | ${code(redact(decision.summary ?? ""))} | ${outcome} | ${by} | ${code(redact(answer?.reason ?? decision.reason ?? ""))} |`,
+      `| ${code(decision.finding)} | ${code(decision.critic)} | ${code(decision.severity)} | ${code(place ?? "")} | ${code(redact(decision.summary ?? ""))} | ${outcome} | ${by} | ${answer ? "in the Linear decision" : code(redact(decision.reason ?? ""))} |`,
     )
   }
   lines.push(

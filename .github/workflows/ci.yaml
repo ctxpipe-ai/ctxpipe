@@ -1605,8 +1605,10 @@ jobs:
   # on an issue whose description holds the escalation key of the finding
   # and this PR branch, and only from a comment of a person (not an app, a
   # bot, an integration or a guest, and not on behalf of another user) that
-  # was written after the issue. The record holds no name and no user id.
-  # A new answer needs **Re-run all jobs**. Without an escalated finding, the
+  # was written after the issue and after the last change of its
+  # description. The record holds the answer and the link of the comment:
+  # no reason (the artifact is public), no name and no user id. A new answer
+  # needs **Re-run all jobs**. Without an escalated finding, the
   # job makes no Linear call.
   merge-gate-answers:
     timeout-minutes: 5
@@ -1646,6 +1648,25 @@ jobs:
               | {finding, linear}] | unique_by(.finding) | .[]' \
             "$RUNNER_TEMP/critics/critics.json" > "$RUNNER_TEMP/escalated.jsonl"
           hash="$(printf '%s' "$BRANCH" | sha256sum | cut -c1-16)"
+          # Each node of a list of the issue ($1, with the fields $2), page
+          # by page, as JSON lines; issue.json keeps the last page.
+          nodes() {
+            local after=null
+            while :; do
+              jq -n --arg id "$issue" --argjson after "$after" \
+                --arg query "query(\$id: String!, \$after: String) { issue(id: \$id) { createdAt description $1(first: 100, after: \$after) { pageInfo { hasNextPage endCursor } nodes { $2 } } } }" \
+                '{query: $query, variables: {id: $id, after: $after}}' \
+                | curl -sS --fail --max-time 30 -H "Authorization: $LINEAR_API_KEY" \
+                  -H "Content-Type: application/json" --data @- "$LINEAR_URL" > "$RUNNER_TEMP/issue.json"
+              if ! jq -e '.errors == null and .data.issue != null' "$RUNNER_TEMP/issue.json" > /dev/null; then
+                echo "Linear gave no issue $issue for $finding: $(jq -c '[.errors[]?.message]' "$RUNNER_TEMP/issue.json" | cut -c1-200)" > "$cause"
+                exit 1
+              fi
+              jq -c ".data.issue.$1.nodes[]" "$RUNNER_TEMP/issue.json"
+              jq -e ".data.issue.$1.pageInfo.hasNextPage" "$RUNNER_TEMP/issue.json" > /dev/null || break
+              after="$(jq -c ".data.issue.$1.pageInfo.endCursor" "$RUNNER_TEMP/issue.json")"
+            done
+          }
           : > "$RUNNER_TEMP/answers.jsonl"
           while read -r escalated; do
             finding="$(jq -r .finding <<< "$escalated")"
@@ -1655,24 +1676,27 @@ jobs:
               exit 1
             fi
             echo "the Linear issue $issue of $finding was not read" > "$cause"
-            jq -n --arg id "$issue" '{variables: {id: $id}, query: "query($id: String!) { issue(id: $id) { createdAt description comments(first: 250) { nodes { body createdAt url user { app guest active } botActor { id } externalUser { id } onBehalfOf { id } } } } }"}' \
-              | curl -sS --fail --max-time 30 -H "Authorization: $LINEAR_API_KEY" \
-                -H "Content-Type: application/json" --data @- "$LINEAR_URL" > "$RUNNER_TEMP/issue.json"
-            # The newest answer of a person, written after the issue, on the
-            # issue of this finding and this PR branch.
-            jq -c --arg finding "$finding" --arg key "factory-escalation:$finding:$hash" '
+            nodes history "createdAt updatedAt updatedDescription" > "$RUNNER_TEMP/history.jsonl"
+            nodes comments "body createdAt url user { app guest active } botActor { id } externalUser { id } onBehalfOf { id }" > "$RUNNER_TEMP/comments.jsonl"
+            # The newest answer of a person on the issue of this finding and
+            # this PR branch, written after the issue and after the last
+            # change of its description (an agent cannot move an old answer
+            # to a new finding).
+            jq -c --arg finding "$finding" --arg key "factory-escalation:$finding:$hash" \
+              --slurpfile history "$RUNNER_TEMP/history.jsonl" --slurpfile comments "$RUNNER_TEMP/comments.jsonl" '
               .data.issue as $issue
-              | select($issue != null and (($issue.description // "") | contains($key)))
-              | [$issue.comments.nodes[]?
+              | select(($issue.description // "") | contains($key))
+              | ([$issue.createdAt] + [$history[] | select(.updatedDescription == true) | .createdAt, .updatedAt] | max) as $since
+              | [$comments[]
                   | select(.user != null and .user.app == false and .user.guest == false
                       and .user.active == true and .botActor == null
                       and .externalUser == null and .onBehalfOf == null
-                      and .createdAt > $issue.createdAt)
+                      and .createdAt > $since)
                   | ((.body // "") | split("\n")[0]
-                      | capture("^\\s*(?<action>override|accept):\\s*(?<reason>\\S.*?)\\s*$"; "i")) as $answer
-                  | {createdAt, url, action: ($answer.action | ascii_downcase), reason: $answer.reason[0:300]}]
+                      | capture("^\\s*(?<action>override|accept):\\s*\\S"; "i")) as $answer
+                  | {createdAt, url, action: ($answer.action | ascii_downcase)}]
               | sort_by(.createdAt) | last // empty
-              | {finding: $finding, action, reason, url}' \
+              | {finding: $finding, action, url}' \
               "$RUNNER_TEMP/issue.json" >> "$RUNNER_TEMP/answers.jsonl"
           done < "$RUNNER_TEMP/escalated.jsonl"
           jq -s '{answers: .}' "$RUNNER_TEMP/answers.jsonl" > "$out/critic-answers.json"

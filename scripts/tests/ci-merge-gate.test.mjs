@@ -1492,7 +1492,8 @@ test("an escalated finding passes only with an override of a person in its Linea
     onBehalfOf: null,
     ...extra,
   })
-  // The fake Linear API: the issue CTX-2001 with the comments of a case.
+  // The fake Linear API: the issue CTX-2001 with the comments and the history
+  // of a case, two nodes on each page.
   let issue
   const requests = []
   const server = createServer((request, response) => {
@@ -1501,12 +1502,38 @@ test("an escalated finding passes only with an override of a person in its Linea
       body += chunk
     })
     request.on("end", () => {
-      requests.push({
-        auth: request.headers.authorization,
-        body: JSON.parse(body),
-      })
+      const { query, variables } = JSON.parse(body)
+      requests.push({ auth: request.headers.authorization, variables })
       response.setHeader("Content-Type", "application/json")
-      response.end(JSON.stringify({ data: { issue } }))
+      if (issue === null) {
+        response.end(
+          JSON.stringify({
+            data: null,
+            errors: [{ message: "Entity not found: Issue" }],
+          }),
+        )
+        return
+      }
+      const list = /\b(comments|history)\(/.exec(query)[1]
+      const start = Number(variables.after ?? 0)
+      const all = issue[list]
+      response.end(
+        JSON.stringify({
+          data: {
+            issue: {
+              createdAt: issue.createdAt,
+              description: issue.description,
+              [list]: {
+                pageInfo: {
+                  hasNextPage: start + 2 < all.length,
+                  endCursor: String(start + 2),
+                },
+                nodes: all.slice(start, start + 2),
+              },
+            },
+          },
+        }),
+      )
     })
   })
   await new Promise((done) => server.listen(0, "127.0.0.1", done))
@@ -1514,27 +1541,35 @@ test("an escalated finding passes only with an override of a person in its Linea
   const ci = parseYaml(
     readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
   )
-  const job = ci.jobs["merge-gate-answers"]
-  const script = job.steps.find(
+  const script = ci.jobs["merge-gate-answers"].steps.find(
     (step) => step.name === "Read the Linear answers",
   ).run
   // Runs the script on the critics record with the issue, then the gate.
   const check = async (
     comments,
-    { description, key = "lin_api_read", record: critics_ = record } = {},
+    {
+      description,
+      history = [],
+      key = "lin_api_read",
+      critics: record_ = record,
+      missing = false,
+    } = {},
   ) => {
-    issue = {
-      createdAt: "2026-11-06T09:00:00.000Z",
-      description:
-        description ?? `Escalation key: \`${escalationKey("f:0123abcd")}\``,
-      comments: { nodes: comments },
-    }
+    issue = missing
+      ? null
+      : {
+          createdAt: "2026-11-06T09:00:00.000Z",
+          description:
+            description ?? `Escalation key: \`${escalationKey("f:0123abcd")}\``,
+          comments,
+          history,
+        }
     const temp = mkdtempSync(join(tmpdir(), "ctxpipe-answers-"))
     mkdirSync(join(temp, "out"))
     mkdirSync(join(temp, "critics"))
     writeFileSync(
       join(temp, "critics", "critics.json"),
-      JSON.stringify(critics_),
+      JSON.stringify(record_),
     )
     const run = await new Promise((done) => {
       const child = spawn("bash", ["-eo", "pipefail", "-c", script], {
@@ -1552,7 +1587,7 @@ test("an escalated finding passes only with an override of a person in its Linea
       })
       child.on("close", (status) => done({ status, stderr }))
     })
-    const directory = inputs({ "critics.json": critics_ })
+    const directory = inputs({ "critics.json": record_ })
     for (const name of ["critic-answers.json", "answers-cause.txt"])
       if (existsSync(join(temp, "out", name)))
         writeFileSync(
@@ -1561,12 +1596,13 @@ test("an escalated finding passes only with an override of a person in its Linea
         )
     return { run, temp, checked: critics(directory) }
   }
+  const repoUrl = "https://github.com/o/r"
   try {
     // No answer: the critic blocks, and the comment links the issue and says
     // how to answer.
     const waiting = (await check([])).checked
     assert.deepEqual(waiting.missing, ["critic:spec"])
-    const text = criticsText(waiting, "https://github.com/o/r")
+    const text = criticsText(waiting, repoUrl)
     assert.ok(
       text.includes(
         "escalated: waits for a ctxpipe developer in [CTX-2001](https://linear.app/ctxpipe/issue/CTX-2001)",
@@ -1574,7 +1610,7 @@ test("an escalated finding passes only with an override of a person in its Linea
       text,
     )
     assert.ok(text.includes("`override: <reason>`"), text)
-    assert.ok(!text.includes("/critic"), text)
+    assert.ok(!text.includes("/critic "), text)
     // The overruled finding is named, so a person sees it.
     assert.ok(
       text.includes("`f:99999999`") && text.includes("| `overruled` |"),
@@ -1583,14 +1619,15 @@ test("an escalated finding passes only with an override of a person in its Linea
     assert.ok(text.includes("`gpt-6.1-sol` (implementer: `claude`)"), text)
     assert.ok(text.includes("it is attested, not verified"), text)
     assert.ok(text.includes("`rename it`"), text)
-    // The job read the issue of the finding with the key, one request.
+    // The job read the issue of the finding with the key.
     assert.equal(requests.at(-1).auth, "lin_api_read")
-    assert.deepEqual(requests.at(-1).body.variables, { id: "CTX-2001" })
+    assert.equal(requests.at(-1).variables.id, "CTX-2001")
     // These do not count: an app, a bot, an integration, a guest, a disabled
     // user, a comment on behalf of another user, a comment from before the
     // escalation, a first line without the answer, an override without a
-    // reason, and an issue that does not hold the escalation key of this
-    // finding and this branch.
+    // reason, an issue that does not hold the escalation key of this finding
+    // and this branch, and an answer from before the last change of the
+    // description (an agent moved an old issue to this finding).
     const override = "override: the ADR allows it"
     for (const [comments, options] of [
       [[comment(override, { user: { ...person, app: true } })]],
@@ -1613,35 +1650,60 @@ test("an escalated finding passes only with an override of a person in its Linea
         [comment(override)],
         { description: `Escalation key: \`${escalationKey("f:aaaaaaaa")}\`` },
       ],
+      [
+        [comment(override)],
+        {
+          history: [
+            {
+              createdAt: "2026-11-06T09:05:00.000Z",
+              updatedAt: "2026-11-06T09:05:00.000Z",
+              updatedDescription: false,
+            },
+            {
+              createdAt: "2026-11-06T09:06:00.000Z",
+              updatedAt: "2026-11-06T09:06:00.000Z",
+              updatedDescription: null,
+            },
+            {
+              createdAt: "2026-11-06T10:30:00.000Z",
+              updatedAt: "2026-11-06T10:31:00.000Z",
+              updatedDescription: true,
+            },
+          ],
+        },
+      ],
     ]) {
       const { checked } = await check(comments, options)
       assert.deepEqual(
         checked.missing,
         ["critic:spec"],
-        JSON.stringify(comments),
+        JSON.stringify([comments, options]),
       )
     }
     // An accept keeps the finding: the PR must fix it.
     const accepted = (await check([comment("accept: it is a real bug")]))
       .checked
     assert.deepEqual(accepted.missing, ["critic:spec"])
+    const acceptedText = criticsText(accepted, repoUrl)
+    assert.ok(acceptedText.includes("accepted by a ctxpipe developer: fix it"))
+    assert.ok(acceptedText.includes("so it stands. Fix it"), acceptedText)
     assert.ok(
-      criticsText(accepted, "https://github.com/o/r").includes(
-        "accepted by a ctxpipe developer: fix it",
-      ),
+      !acceptedText.includes("waits for a ctxpipe developer."),
+      acceptedText,
     )
-    // An override of a person passes; the newest answer wins, the reason is
-    // redacted before it reaches the public comment, and the comment links
-    // to the Linear decision with no name.
+    // An override of a person passes. The newest answer wins (on the second
+    // page of comments), and the comment links to the Linear decision with
+    // no name and no reason: the artifact and the comment are public.
     const { checked: overridden, temp } = await check([
       comment("accept: wait", { createdAt: "2026-11-06T09:30:00.000Z" }),
+      comment("a question", { createdAt: "2026-11-06T09:40:00.000Z" }),
       comment(
         "Override: the ADR allows it, see https://example.com/x\nmore text",
       ),
     ])
     assert.deepEqual(overridden.missing, [])
     assert.equal(criticsFail(overridden), false)
-    const done = criticsText(overridden, "https://github.com/o/r")
+    const done = criticsText(overridden, repoUrl)
     assert.ok(done.includes("overridden by a ctxpipe developer"), done)
     assert.ok(
       done.includes(
@@ -1649,7 +1711,7 @@ test("an escalated finding passes only with an override of a person in its Linea
       ),
       done,
     )
-    assert.ok(done.includes("the ADR allows it, see [REDACTED-URL]"), done)
+    assert.ok(!done.includes("the ADR allows it"), done)
     assert.deepEqual(
       JSON.parse(
         readFileSync(join(temp, "out", "critic-answers.json"), "utf8"),
@@ -1659,11 +1721,18 @@ test("an escalated finding passes only with an override of a person in its Linea
           {
             finding: "f:0123abcd",
             action: "override",
-            reason: "the ADR allows it, see https://example.com/x",
             url: "https://linear.app/ctxpipe/issue/CTX-2001/x#comment-1",
           },
         ],
       },
+    )
+    // An unknown issue fails the job with the cause.
+    const gone = await check([], { missing: true })
+    assert.equal(gone.run.status, 1)
+    assert.ok(
+      criticsText(gone.checked, repoUrl).includes(
+        "Linear gave no issue CTX-2001 for f:0123abcd",
+      ),
     )
     // Without the key, the job fails with the cause, and the gate shows it.
     const { run, checked: nokey } = await check([comment(override)], {
@@ -1672,15 +1741,16 @@ test("an escalated finding passes only with an override of a person in its Linea
     assert.equal(run.status, 1)
     assert.deepEqual(nokey.missing, ["critic:spec"])
     assert.ok(
-      criticsText(nokey, "https://github.com/o/r").includes(
+      criticsText(nokey, repoUrl).includes(
         "The Linear answers were not read: `LINEAR_API_KEY is not set in the workbench environment`",
       ),
     )
-    // Without an escalated finding, the job makes no Linear call and needs no key.
+    // Without an escalated finding, the job makes no Linear call and needs
+    // no key.
     const before = requests.length
     const quiet = await check([], {
       key: "",
-      record: { critics: [record.critics[1]] },
+      critics: { critics: [record.critics[1]] },
     })
     assert.equal(quiet.run.status, 0, quiet.run.stderr)
     assert.equal(requests.length, before)
@@ -1710,16 +1780,11 @@ test("an answer counts only for an id that the record escalates, with a Linear l
   const answer = (extra = {}) => ({
     finding: "f:0123abcd",
     action: "override",
-    reason: "fine",
     url: "https://linear.app/ctxpipe/issue/CTX-2001#comment-1",
     ...extra,
   })
   assert.deepEqual(check([answer()]).missing, [])
-  for (const extra of [
-    { finding: "f:aaaaaaaa" },
-    { action: "approve" },
-    { reason: " " },
-  ])
+  for (const extra of [{ finding: "f:aaaaaaaa" }, { action: "approve" }])
     assert.deepEqual(
       check([answer(extra)]).missing,
       ["critic:spec"],
