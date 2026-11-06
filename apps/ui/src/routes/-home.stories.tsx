@@ -21,9 +21,11 @@ import { OrgHomePageContent } from "./$orgSlug.index"
 
 const meta = {
   title: "Pages/Home",
+  tags: ["page"],
   decorators: orgPageDecorators,
   parameters: {
     layout: "fullscreen",
+    route: "/$orgSlug/",
   },
 } satisfies Meta
 

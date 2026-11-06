@@ -20,10 +20,12 @@ import {
 
 const meta = {
   title: "Pages/Organization settings",
+  tags: ["page"],
   component: OrganizationSettingsBody,
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",
+    route: "/$orgSlug/organization/$organizationView",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",

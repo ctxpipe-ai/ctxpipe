@@ -190,11 +190,13 @@ function clearPreferences() {
 
 const meta = {
   title: "Pages/Home/Setup guide",
+  tags: ["page"],
   decorators: orgPageDecorators,
   beforeEach: clearPreferences,
   render: () => <OrgHomePageContent orgSlug="acme" />,
   parameters: {
     layout: "fullscreen",
+    route: "/$orgSlug/",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",

@@ -34,6 +34,7 @@ const requests: string[] = []
 
 const meta = {
   title: "Pages/Home/Notices",
+  tags: ["page"],
   decorators: orgPageDecorators,
   render: () => <OrgHomePageContent orgSlug="acme" />,
   beforeEach: () => {
@@ -45,6 +46,7 @@ const meta = {
   },
   parameters: {
     layout: "fullscreen",
+    route: "/$orgSlug/",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",

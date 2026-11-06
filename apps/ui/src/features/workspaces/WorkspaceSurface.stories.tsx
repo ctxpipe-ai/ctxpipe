@@ -54,10 +54,12 @@ const workspaceSlug = "docs"
 
 const meta = {
   title: "Pages/Workspaces",
+  tags: ["page"],
   component: WorkspaceSurface,
   decorators: [...orgPageDecorators],
   parameters: {
     layout: "fullscreen",
+    route: "/$orgSlug/ws/$workspaceSlug",
   },
   args: {
     orgSlug,
@@ -304,6 +306,7 @@ export const PrepareFailed: Story = {
 
 export const Compose: Story = {
   parameters: {
+    route: "/$orgSlug/ws/$workspaceSlug/",
     storyRoute: workspaceRoute(),
     msw: {
       handlers: {
@@ -373,6 +376,7 @@ export const ConversationNeedsFormatUpgrade: Story = {
 export const Conversation: Story = {
   args: { conversationId: "conv_1" },
   parameters: {
+    route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {

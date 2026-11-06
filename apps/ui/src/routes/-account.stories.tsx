@@ -16,10 +16,12 @@ import { AccountSettingsBody } from "./[.]auth.account.$accountView"
 
 const meta = {
   title: "Pages/User account",
+  tags: ["page"],
   component: AccountSettingsBody,
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",
+    route: "/.auth/account/$accountView",
     storyRoute: {
       pattern: "flat",
       path: "/.auth/account/api-keys",
@@ -63,6 +65,26 @@ export const ApiKeysEmpty: Story = {
     await expect(
       createButton.closest('[data-slot="card-footer"]'),
     ).not.toBeNull()
+  },
+}
+
+/** The index route `/.auth/account/` opens the settings view. */
+export const Settings: Story = {
+  args: { accountView: "settings" },
+  parameters: {
+    route: "/.auth/account/",
+    storyRoute: {
+      pattern: "flat",
+      path: "/.auth/account",
+    } satisfies StoryRouteParams,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("heading", { name: "user account" }),
+      ).toBeVisible(),
+    )
   },
 }
 

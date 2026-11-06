@@ -14,9 +14,11 @@ import { ConnectGithubView } from "./[.]github.setup"
 
 const meta = {
   title: "Pages/GitHub setup",
+  tags: ["page"],
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",
+    route: "/.github/setup",
     storyRoute: {
       pattern: "flat",
       path: "/.github/setup",

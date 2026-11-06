@@ -41,9 +41,11 @@ const orgSlug = "acme"
 
 const meta = {
   title: "Pages/Workspaces/New",
+  tags: ["page"],
   decorators: orgPageDecorators,
   parameters: {
     layout: "fullscreen",
+    route: "/$orgSlug/workspaces/new",
     storyRoute: {
       pattern: "orgWorkspaceNew",
       orgSlug,
