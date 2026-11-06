@@ -527,7 +527,7 @@ export function redact(text) {
       "[REDACTED]",
     )
     .replace(
-      /("?[A-Za-z_]*(?:key|token|secret|password|credential|authorization)[A-Za-z_]*"?\s*[=:]\s*)"?[^\s",}]+"?/gi,
+      /("?[A-Za-z_]*(?:key|token|secret|password|credential|authorization)[A-Za-z_]*"?\s*[=:]\s*)("(?:[^"\\]|\\.)*"|[^\s",}]+)/gi,
       "$1[REDACTED]",
     )
     .replace(/[A-Za-z0-9/+_=-]{32,}/g, "[REDACTED]")
@@ -591,28 +591,33 @@ export function criticAnswers(escalated, commands, repoUrl) {
 export function critics(inputs, { needs, fork = false, repoUrl } = {}) {
   const record = readJson(join(inputs, "critics.json"))
   if (record?.critics?.length > 0) {
-    const open = (critic) =>
-      critic.status === "escalated"
-        ? (critic.disputes ?? []).filter(
-            (decision) => decision.outcome === "escalated",
-          )
-        : []
+    // The escalated findings of each critic.
+    const open = new Map(
+      record.critics.map((critic) => [
+        critic.critic,
+        critic.status === "escalated"
+          ? (critic.disputes ?? []).filter(
+              (decision) => decision.outcome === "escalated",
+            )
+          : [],
+      ]),
+    )
     const answers = criticAnswers(
-      new Set(
-        record.critics.flatMap((critic) =>
-          open(critic).map((decision) => decision.finding),
-        ),
-      ),
+      new Set([...open.values()].flat().map((decision) => decision.finding)),
       readJson(join(inputs, "critic-commands.json")),
       repoUrl,
     )
     // An escalated critic passes when each escalated finding has an override.
-    const passes = (critic) =>
-      ["carried", "not-applicable"].includes(critic.status) ||
-      (open(critic).length > 0 &&
-        open(critic).every(
-          (decision) => answers.get(decision.finding)?.action === "override",
-        ))
+    const passes = (critic) => {
+      const escalated = open.get(critic.critic) ?? []
+      return (
+        ["carried", "not-applicable"].includes(critic.status) ||
+        (escalated.length > 0 &&
+          escalated.every(
+            (decision) => answers.get(decision.finding)?.action === "override",
+          ))
+      )
+    }
     return {
       checked: true,
       required: !fork,

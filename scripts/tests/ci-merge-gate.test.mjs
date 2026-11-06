@@ -1387,9 +1387,9 @@ test("the critics cause and the log of factory review gate hold no URL or creden
     "the store failed: AccessDenied",
   )
   const json = redact(
-    '{"token":"abc123","password": "made-up!pass"} Authorization: Basic dXNlcjpwYXNz',
+    '{"token":"abc123","password": "made up, pass", "secret":"a\\"b c"} Authorization: Basic dXNlcjpwYXNz',
   )
-  for (const leak of ["abc123", "made-up!pass", "dXNlcjpwYXNz"])
+  for (const leak of ["abc123", "made", "up, pass", "b c", "dXNlcjpwYXNz"])
     assert.ok(!json.includes(leak), `${leak}: ${json}`)
   // The critics job redacts with sed before the line reaches the log or the
   // cause file: the same rules as redact.
@@ -1400,6 +1400,7 @@ test("the critics cause and the log of factory review gate hold no URL or creden
     line,
     "token xyz and password=hunter2 sk-abc123 eyJhbGciOi.x.y",
     '{"token":"abc123","password": "made-up!pass", "key":1} Authorization: Basic dXNlcjpwYXNz',
+    '{"password": "made up, pass", "secret":"a\\"b c"} done',
     "plain text, a path src/a.ts:12",
   ]) {
     const run = spawnSync("bash", ["-c", `${fn}\nredact`], {
