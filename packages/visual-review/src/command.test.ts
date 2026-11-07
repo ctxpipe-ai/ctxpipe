@@ -423,14 +423,14 @@ describe("the agent judge reads a verdict only from its own session", () => {
   })
 
   test.each([
-    ["a folder of the run", (dir: string) => join(dir, "session")],
+    ["a folder of the run", () => join(root, "session")],
     [
       "a folder of the temporary folder with another name",
-      (_: string) => join(work, "planted"),
+      () => join(work, "planted"),
     ],
   ])("--session refuses %s", async (_, folderOf) => {
     const manifest = await writeRun(["button--primary"])
-    const folder = folderOf(root)
+    const folder = folderOf()
     await mkdir(join(folder, "button--primary.desktop"), { recursive: true })
 
     const code = await run(
