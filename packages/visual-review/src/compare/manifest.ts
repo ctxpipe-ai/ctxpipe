@@ -1,5 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises"
-import { dirname, join, posix } from "node:path"
+import { mkdir, realpath, writeFile } from "node:fs/promises"
+import { dirname, isAbsolute, posix, relative, resolve, sep } from "node:path"
 
 import { z } from "zod"
 
@@ -76,7 +76,7 @@ const storySchema = z.object({
   images: z.partialRecord(z.enum(roles), z.string()),
 })
 
-const manifestSchema = z.object({
+export const manifestSchema = z.object({
   version: z.literal(1),
   run: z.object({
     /** The digest of the capture container image. */
@@ -139,6 +139,10 @@ export function baselinePath({
  * The critic input of one manifest story. The critic takes region boxes in
  * fractions (0..1) of the after image; this is where the pixel boxes of the
  * manifest change to fractions. `root` is the folder of the manifest.
+ *
+ * A manifest can come from a CI artifact that PR code wrote. Thus an image
+ * path that is absolute, or that resolves outside `root` (for example with
+ * `../`), throws: the judge must not read or send a file outside the run.
  */
 export function toStoryInput(
   manifest: Manifest,
@@ -153,7 +157,7 @@ export function toStoryInput(
   const images: StoryImage[] = []
   for (const role of roles) {
     const path = story.images[role]
-    if (path) images.push({ role, path: join(root, path) })
+    if (path) images.push({ role, path: insideRoot(root, path) })
   }
   return {
     storyId: story.id,
@@ -176,4 +180,25 @@ export function toStoryInput(
     ...(brief === undefined ? {} : { brief }),
     ...(sourceDiff === undefined ? {} : { sourceDiff }),
   }
+}
+
+/**
+ * The absolute path of `path` in the folder `root`. A path that is absolute,
+ * or that resolves outside `root`, throws.
+ */
+function insideRoot(root: string, path: string): string {
+  const full = resolve(root, path)
+  const fromRoot = relative(resolve(root), full)
+  if (isAbsolute(path) || !fromRoot || fromRoot.split(sep)[0] === "..")
+    throw new Error(`Path "${path}" is outside the manifest folder ${root}.`)
+  return full
+}
+
+/**
+ * Throw when the real path of `path`, with each symbolic link resolved, is
+ * not inside the real path of `root`. `path` must exist.
+ */
+export async function realInside(root: string, path: string): Promise<void> {
+  const realRoot = await realpath(root)
+  insideRoot(realRoot, relative(realRoot, await realpath(path)))
 }

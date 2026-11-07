@@ -98,6 +98,10 @@ For each finding, give the writer who can do it, the effect, and the fix. A guar
 
 **Simplicity critic.** Apply each rule of [`.agents/skills/simplicity-audit/REVIEW-BRIEF.md`](../simplicity-audit/REVIEW-BRIEF.md) to the diff, and report in the shape of that brief. Spec-match is not a defense.
 
+**Visual critic.** It judges each changed baseline screenshot (`**/screenshots/*.screenshot.png`) with `pnpm visual:review`. The rules, the rubric and the prompt are in `packages/visual-review`, not here, so that the command, the factory and a fork use the same rules. Do not judge a screenshot outside the command. With `--judge agent`, you judge the images of a request, and the command checks and reports your verdict. The command prints one verdict for each changed screenshot or group: `intended`, `regression`, `noise` or `unsure`, with a severity. A screenshot id is `<story id>[@<snapshot>].<viewport>`. Screenshots with the same diff form a group. A judge looks at one screenshot of the group and at two samples. The verdict line of the group names each screenshot of the group. With `--json`, each screenshot of the group has its verdict, with `groupedWith`. A `regression` with severity `major` or `blocker` blocks: the command exits with code 1. Exit code 2 means that the review is not complete. To accept a change, commit the new baseline. A verdict does not accept a change.
+
+`critics.json` does not have a `visual` entry yet. [CTX-1198](https://linear.app/ctxpipe/issue/CTX-1198) adds it.
+
 ## Without the factory
 
 Use this procedure only when `factory` is not installed (for example, for a contributor from a fork). You are the one agent. Do not start sub-agents.
@@ -106,7 +110,12 @@ Use this procedure only when `factory` is not installed (for example, for a cont
 2. Find the spec: an issue in the commit messages (use `.ai/agents/issue-tracker.md`), a path from the user, or a Linear issue or document for the branch. If you find none, ask the user. If there is none, skip Spec.
 3. Review the diff on one axis at a time, in this order: Standards, Spec, Simplicity. Use the rules of that critic above. Write the findings of an axis before you start the next axis.
 4. When the diff touches a trust surface (the `triggers` of `critics.json`), review Security with the rules of the Security critic above.
-5. Give the findings under `## Standards`, `## Spec`, `## Simplicity` and, when step 4 ran, `## Security`. Do not merge or rerank them. If you skipped Spec or Security, say so. End with one line: the count of findings and the worst finding of each axis.
+5. When the diff changes a baseline screenshot (`**/screenshots/*.screenshot.png`), review Visual with `pnpm visual:review`. It reads the manifest of the last visual run, `.ci-results/visual/manifest.json` (or the path of `--manifest`). The visual capture of Storybook will write it; no command in this repo writes it yet (the capture tickets of the visual review plan). If the manifest is not there, say that Visual was skipped, and why.
+   - When the PR is not your own work, skip Visual and say why. PR code can change `visual:review` and its manifest, and it can read your key. No trusted command makes the manifest of a PR yet.
+   - With a model key: run `pnpm visual:review --brief <ticket or brief file>`. It uses your `MODEL_PROVIDER_API_KEY` and `MODEL_PROVIDER_URL` (OpenRouter by default). `--filter jev` asks the cheap Jev filter first.
+   - Without a key: run `pnpm visual:review --judge agent --brief <ticket or brief file>`. For each screenshot that needs a judgment, it writes `<session>/<screenshot id>/request.md` and the images. The session is a new private folder in the temporary folder of the system, and the command prints it. It never keeps a verdict in the run folder or the checkout, because PR code can write those. Read each `request.md` and its images, and write `verdict.json` in the same folder, as the request tells you. Then run the command that the request gives: the same options with `--session <session>`. It reads each `verdict.json` of that session and checks it against the verdict schema.
+   - Exit code 2: the review is not complete (a verdict is missing or does not match the schema). Fix the cause and run again. Exit code 1: a verdict blocks.
+6. Give the findings under `## Standards`, `## Spec`, `## Simplicity` and, when they ran, `## Security` and `## Visual`. Do not merge or rerank them. If you skipped Spec, Security or Visual, say so. End with one line: the count of findings and the worst finding of each axis.
 
 ## Why separate axes
 
