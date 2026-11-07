@@ -424,6 +424,23 @@ describe("reviewStories", () => {
     expect(verdictSchema.safeParse(rest[0]).success).toBe(true)
   })
 
+  test("regions of one type and position pair up even when the first choice is wrong", async () => {
+    const { calls, judge: fake } = judge()
+    // 100 is near 101 and 99, 102 is near only 101 and 99... 100 must take 99.
+    const stories = Array.from({ length: 6 }, (_, i) =>
+      story(
+        `pair--story-${i}`,
+        i % 2
+          ? "color-change@left:101x20,color-change@left:99x20"
+          : "color-change@left:100x20,color-change@left:102x20",
+      ),
+    )
+
+    await reviewStories(stories, fake)
+
+    expect(calls).toHaveLength(3)
+  })
+
   test("the confidence of a grouped story is the lowest of the judged verdicts", async () => {
     const { judge: fake } = judge(({ storyId }) =>
       verdict(storyId, {

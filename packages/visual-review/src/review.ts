@@ -33,28 +33,31 @@ const near = (a: number, b: number) =>
   Math.abs(a - b) <= Math.max(2, Math.round(0.02 * Math.max(a, b)))
 
 /**
- * True when each region of `a` has its own region in `b` with the same change
- * type and position, and sizes that are near. A region is paired with the
- * first free region of `b` that matches, so the order of the signature does
- * not matter.
+ * True when the regions of `a` and `b` pair one to one, each pair with the
+ * same change type and position and sizes that are near. The order of the
+ * regions does not matter. A region that has two near candidates may take the
+ * place that another region needs, so the pairing is a bipartite match: a
+ * taken place moves to another candidate when it can.
  */
 function alike(a: Part[], b: Part[]): boolean {
-  const free = [...b]
-  return (
-    a.length === b.length &&
-    a.every((part) => {
-      const at = free.findIndex(
-        (other) =>
-          other.change === part.change &&
-          other.position === part.position &&
-          near(other.width, part.width) &&
-          near(other.height, part.height),
+  const takenBy: (Part | undefined)[] = []
+  const pair = (part: Part, tried: Set<number>): boolean =>
+    b.some((other, j) => {
+      if (
+        tried.has(j) ||
+        other.change !== part.change ||
+        other.position !== part.position ||
+        !near(other.width, part.width) ||
+        !near(other.height, part.height)
       )
-      if (at < 0) return false
-      free.splice(at, 1)
+        return false
+      tried.add(j)
+      const holder = takenBy[j]
+      if (holder && !pair(holder, tried)) return false
+      takenBy[j] = part
       return true
     })
-  )
+  return a.length === b.length && a.every((part) => pair(part, new Set()))
 }
 
 type Member = { story: StoryInput; index: number }
