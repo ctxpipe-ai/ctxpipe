@@ -92,15 +92,6 @@ const playContext = {
 // the page a secure context, which the MSW service worker needs.
 const playOrigin = "http://localhost:6006"
 
-// A story with a play function ends when its play ends. A story without one
-// ends when Storybook completes its render. Before a screenshot (`shot`), a
-// story with a play also waits for "completed": in that phase Storybook waits
-// for the running animations to finish (at most 5 seconds). A story with a
-// play must reach "played" first, because a play that did not run also
-// reaches "completed".
-export const storyEndPhase = (story, shot) =>
-  !shot && (story.tags ?? []).includes("play-fn") ? "played" : "completed"
-
 const playInitScript = ({ endPhase, needsPlay, time }) => {
   window.__CTXPIPE_PLAY__ = { result: null, waiters: [] }
   const NativeDate = Date
@@ -292,7 +283,13 @@ export async function playStories(
       const pageErrors = []
       page.on("pageerror", (error) => pageErrors.push(String(error)))
       await page.addInitScript(playInitScript, {
-        endPhase: storyEndPhase(story, Boolean(afterPlay)),
+        // A check ends a story when its play ends. Before a screenshot, a
+        // story ends when Storybook completes it: in that phase Storybook
+        // waits for the running animations to finish (at most 5 seconds),
+        // and a story without a play function also reaches it. A story with
+        // a play must reach "played" first, because a play that did not run
+        // also reaches "completed".
+        endPhase: afterPlay ? "completed" : "played",
         needsPlay: (story.tags ?? []).includes("play-fn"),
         // Each page starts its clock at this time, and the clock then runs
         // at the real speed. A date in the page is then the same on each run

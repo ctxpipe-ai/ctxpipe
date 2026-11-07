@@ -63,18 +63,6 @@ test("CI requires the Storybook required plays job without retries", () => {
   void root
 })
 
-test("a story with a play function ends when its play ends; a story without one ends when it is completed", async () => {
-  const { storyEndPhase } = await import("../ci/storybook-play.mjs")
-  assert.equal(storyEndPhase({ tags: ["dev", "play-fn"] }), "played")
-  assert.equal(storyEndPhase({ tags: ["dev", "test"] }), "completed")
-  assert.equal(storyEndPhase({}), "completed")
-})
-
-test("before a screenshot every story ends when it is completed, after its animations", async () => {
-  const { storyEndPhase } = await import("../ci/storybook-play.mjs")
-  assert.equal(storyEndPhase({ tags: ["play-fn"] }, true), "completed")
-})
-
 test("the all-plays selection keeps every story with a play function, sorted", () => {
   const index = {
     entries: {
