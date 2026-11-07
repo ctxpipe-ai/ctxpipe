@@ -705,6 +705,20 @@ const manyFileTabs = [
 /** Many file tabs: the selected tab at the end of the strip scrolls into view. */
 export const SelectedTabInView: Story = {
   tags: ["required"],
+  // Tab widths depend on the fonts. The strip scrolls to the selected tab on
+  // mount, to the end of the strip as it is then. Load the fonts before the
+  // first render. Otherwise a slow font load widens the tabs after the scroll,
+  // the selected tab is out of view, and the end state depends on the time of
+  // the load.
+  loaders: [
+    async () => {
+      await Promise.all([
+        document.fonts.load("14px Geist"),
+        document.fonts.load('14px "Geist Mono"'),
+      ])
+      return {}
+    },
+  ],
   args: {
     pane: { kind: "file", path: ledgerPath },
     fileTabs: manyFileTabs,

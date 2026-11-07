@@ -119,7 +119,8 @@ export const SignInUnverifiedEmail: Story = {
       "member@example.com",
     )
     await userEvent.type(canvas.getByLabelText("Password"), "password-1234")
-    await userEvent.click(canvas.getByRole("button", { name: "Login" }))
+    const login = canvas.getByRole("button", { name: "Login" })
+    await userEvent.click(login)
     await waitFor(() =>
       expect(
         within(document.body)
@@ -129,6 +130,10 @@ export const SignInUnverifiedEmail: Story = {
           .closest("[data-sonner-toast]"),
       ).toHaveAttribute("data-type", "info"),
     )
+    // End with the pointer and the focus off the button, so it has no focus
+    // ring and its color is the idle one.
+    await userEvent.unhover(login)
+    login.blur()
   },
 }
 

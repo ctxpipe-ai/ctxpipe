@@ -735,6 +735,8 @@ export const RootFolder: Story = {
     await waitFor(() =>
       expect(rootFolderPatches).toEqual([{ rootPath: "handbook/context" }]),
     )
+    // End with the pointer off the button, so its color is the idle one.
+    await userEvent.unhover(save)
   },
 }
 
@@ -775,8 +777,11 @@ export const RelinkError: Story = {
       scoped.getByLabelText(/git url/i),
       "https://github.com/acme/taken.git",
     )
-    await userEvent.click(scoped.getByRole("button", { name: /^save$/i }))
+    const save = scoped.getByRole("button", { name: /^save$/i })
+    await userEvent.click(save)
     await waitFor(() => scoped.getByText(/could not save/i))
+    // End with the pointer off the button, so its color is the idle one.
+    await userEvent.unhover(save)
   },
 }
 
@@ -822,12 +827,15 @@ export const RenameRefused: Story = {
     const name = canvas.getByRole("textbox", { name: /^name$/i })
     await userEvent.clear(name)
     await userEvent.type(name, "Renamed Workspace")
-    await userEvent.click(canvas.getByRole("button", { name: /^save$/i }))
+    const save = canvas.getByRole("button", { name: /^save$/i })
+    await userEvent.click(save)
     const body = within(canvasElement.ownerDocument.body)
     await body.findByText(/rename could not be scheduled/i)
     await expect(
       canvas.getByRole("textbox", { name: /^url name$/i }),
     ).toHaveValue(docsWorkspaceDetail.slug)
+    // End with the pointer off the button, so its color is the idle one.
+    await userEvent.unhover(save)
   },
 }
 
