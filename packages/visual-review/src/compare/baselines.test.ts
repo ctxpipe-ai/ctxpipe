@@ -192,7 +192,22 @@ describe("visual:check", () => {
     expect(await visual("update")).toBe(0)
     expect(await visual("check")).toBe(0)
     expect(captured.some((shot) => shot.startsWith(canvas.id))).toBe(false)
-    expect(lines).toContain(`skipped: ${canvas.id} (known unstable, CTX-1)`)
+    expect(lines).toContain(
+      `skipped: ${canvas.id} at desktop (known unstable, CTX-1)`,
+    )
+  })
+
+  test("a known unstable entry with a viewport skips only that screenshot", async () => {
+    const unstable = [
+      { id: home.id, viewport: "mobile" as const, ticket: "CTX-2" },
+    ]
+    expect(await visual("check", { unstable })).toBe(1)
+    expect(captured).not.toContain(`${home.id} mobile`)
+    expect(captured).toContain(`${home.id} desktop`)
+    expect(await statuses()).not.toHaveProperty(homeMobile)
+    expect(lines).toContain(
+      `skipped: ${home.id} at mobile (known unstable, CTX-2)`,
+    )
   })
 
   test("fails on a changed baseline and writes no baseline", async () => {

@@ -60,7 +60,8 @@ const maxDiffPixels = 10
  * `visual:check` and `visual:update` for the stories of one Storybook build.
  *
  * Every story has a desktop baseline; a story with the `page` tag also has a
- * mobile one. A story in `unstable` has no baseline yet: it is skipped. A
+ * mobile one. A screenshot in `unstable` (a story id, at each viewport or at
+ * one) has no baseline yet: it is skipped. A
  * baseline file is an orphan when no story has it, also when its
  * `screenshots/` folder has no story file beside it.
  *
@@ -95,8 +96,11 @@ export async function runVisual({
   /** The results folder, `.ci-results/visual`. */
   out: string
   stories: readonly IndexStory[]
-  /** The known unstable stories (`scripts/ci/visual-unstable-stories.json`). */
-  unstable: readonly { id: string; ticket: string }[]
+  /**
+   * The known unstable stories (`scripts/ci/visual-unstable-stories.json`).
+   * An entry with a viewport skips only the screenshot at that viewport.
+   */
+  unstable: readonly { id: string; ticket: string; viewport?: Viewport }[]
   capture: Capture
   /** The facts of the run, for the manifest. */
   run: Manifest["run"]
@@ -108,7 +112,6 @@ export async function runVisual({
   /** The largest total size and the largest size of one image, in bytes. */
   budget?: { total: number; image: number }
 }): Promise<number> {
-  const skipped = new Map(unstable.map((entry) => [entry.id, entry.ticket]))
   const shots = stories.flatMap((story): Shot[] => {
     const storyFile = posix.join("apps/ui", story.importPath)
     const page = (story.tags ?? []).includes("page")
@@ -126,9 +129,19 @@ export async function runVisual({
       }),
     }))
   })
-  for (const story of stories)
-    if (skipped.has(story.id))
-      print(`skipped: ${story.id} (known unstable, ${skipped.get(story.id)})`)
+  const ticketOf = (shot: Shot) =>
+    unstable.find(
+      (entry) =>
+        entry.id === shot.story.id &&
+        (entry.viewport ?? shot.viewport) === shot.viewport,
+    )?.ticket
+  for (const shot of shots) {
+    const ticket = ticketOf(shot)
+    if (ticket)
+      print(
+        `skipped: ${shot.story.id} at ${shot.viewport} (known unstable, ${ticket})`,
+      )
+  }
   // A `screenshots/` folder with no story file beside it holds only orphans:
   // no story gives a baseline in it.
   const expected = new Set(shots.map((shot) => shot.baseline))
@@ -136,7 +149,7 @@ export async function runVisual({
     .filter((path) => !expected.has(path))
     .sort()
 
-  let selected = shots.filter((shot) => !skipped.has(shot.story.id))
+  let selected = shots.filter((shot) => !ticketOf(shot))
   if (mode === "update" && only) {
     const unknown = only.filter(
       (id) => !stories.some((story) => story.id === id),

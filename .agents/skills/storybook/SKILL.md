@@ -134,7 +134,7 @@ Each story has a committed baseline PNG beside its story file: `<story file dir>
 - `pnpm visual:update` writes the baselines (recompressed without loss) and deletes the orphan baselines. `--only <id>,<id>` accepts only those stories. `--failed` accepts only the stories that the last `visual:check` failed. Look at each changed image before you accept it: the baseline is what a reviewer compares with.
 - An orphan baseline is a `*.screenshot.png` that no story has, or a `screenshots/` folder with no story file beside it. Thus when you rename or delete a story, run `pnpm visual:update` to delete its baseline.
 - The size budget: both commands fail above 60 MB for all baselines, or above 1 MB for one image.
-- A story in `visual-unstable-stories.json` gets no baseline. Both commands report it as skipped, with its ticket.
+- A story in `visual-unstable-stories.json` gets no baseline. Both commands report it as skipped, with its ticket. An entry with `"viewport": "mobile"` skips only the mobile screenshot (for example, a play that asserts the desktop layout).
 - The TanStack route generator reads only route files, so a `screenshots/` folder in `src/routes/` does not change the route tree.
 
 ## Quick reference (commands)
