@@ -62,8 +62,7 @@ import {
 //     run, <deploy> the jobs of the newest PR Deploy run of the PR head.
 //     The decision also holds the review critics (critics.json of the
 //     critics job). In gate mode, the exit code is 1 when a critic has no
-//     stored verdict (also a critic with an escalated dispute), or when a
-//     same-repo PR has no critics record.
+//     stored verdict, or when a same-repo PR has no critics record.
 
 // The steps of the job `Deploy PR environment (Railway + Neon)` of
 // pr-deploy.yaml that run one deploy check each. A test keeps these names
@@ -518,9 +517,6 @@ export function code(text) {
 // critics job gives, so a critics job without that id has no record. A
 // same-repo PR needs the record (`required`): without it the gate fails. A
 // fork PR gets no role for the result store.
-//
-// An escalated dispute is decided by a person in the conversation of the
-// agent, never here: an `escalated` critic counts as missing.
 export function critics(inputs, { needs, fork = false } = {}) {
   const record = readJson(join(inputs, "critics.json"))
   if (record?.critics?.length > 0)
@@ -601,21 +597,10 @@ export function criticsText(checked, repoUrl) {
     )
   }
   lines.push(...disputesText(checked))
-  const escalated = checked.critics.filter(
-    (critic) => critic.status === "escalated",
-  )
-  if (escalated.length > 0)
+  if (checked.missing.length > 0)
     lines.push(
       "",
-      "An escalated finding waits for a ctxpipe developer. The agent asks them in its conversation (`factory check` prints the next step), then fixes the finding or runs `factory check` again after their decision.",
-    )
-  const unverified = checked.missing.filter(
-    (id) => !escalated.some((critic) => critic.critic === id),
-  )
-  if (unverified.length > 0)
-    lines.push(
-      "",
-      `Critics with no stored verdict for this diff: ${unverified.length}. Fix: run \`factory check\` on the PR head (it runs the critics and stores their verdicts), and fix what it reports. Then push again, or use **Re-run all jobs** (a PR that changes \`infra/\` offers it only after the Terraform plan is approved or rejected): the job \`Merge gate critics\` must look up the verdicts again.`,
+      `Critics with no stored verdict for this diff: ${checked.missing.length}. Fix: run \`factory check\` on the PR head (it runs the critics and stores their verdicts), and fix what it reports. Then push again, or use **Re-run all jobs** (a PR that changes \`infra/\` offers it only after the Terraform plan is approved or rejected): the job \`Merge gate critics\` must look up the verdicts again.`,
     )
   lines.push("", attested)
   return `${lines.join("\n")}\n`

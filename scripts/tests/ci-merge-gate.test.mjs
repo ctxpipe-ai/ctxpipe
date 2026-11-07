@@ -1424,9 +1424,8 @@ test("the critics cause and the log of factory review gate hold no URL or creden
 
 // The gate lists each dispute outcome by its id, so a person sees it. No text
 // of the review or the dispute reaches the comment, the decision record or
-// the artifact: a reason can quote or paraphrase an accepted risk. An
-// escalated dispute is decided in the conversation of the agent, never in the
-// gate: its critic counts as missing.
+// the artifact: a reason can quote or paraphrase an accepted risk. A critic
+// with another status than carried or not-applicable counts as missing.
 test("the comment lists each dispute outcome by its id only, and an escalated critic fails the gate", () => {
   const decision = (finding, outcome, extra = {}) => ({
     finding,
@@ -1499,18 +1498,14 @@ test("the comment lists each dispute outcome by its id only, and an escalated cr
     // The decision record (merge-gate-decision) does not keep it either.
     assert.ok(!JSON.stringify(carried).includes(part), part)
   }
-  // An escalated critic (an older factory release) waits for a person.
+  // A critic with another status (an older factory release) is missing.
   const old = record("escalated")
   old.critics[0].disputes.push(decision("f:77777777", "escalated"))
   const escalated = critics(inputs({ "critics.json": old }))
   assert.deepEqual(escalated.missing, ["critic:spec"])
   assert.equal(criticsFail(escalated), true)
   const waiting = criticsText(escalated, repoUrl)
-  assert.ok(
-    waiting.includes("The agent asks them in its conversation"),
-    waiting,
-  )
-  assert.ok(!waiting.includes("Critics with no stored verdict"), waiting)
+  assert.ok(waiting.includes("Critics with no stored verdict"), waiting)
   assert.ok(
     waiting.includes(
       "| `f:77777777` | `critic:spec` | `should-fix` | `escalated` |",
