@@ -21,6 +21,7 @@ import { judgeWithJev } from "./jev.ts"
 
 type DecisionsBody = {
   model: string
+  provider?: unknown
   state: (string | { type: "image_url"; image_url: { url: string } })[]
   questions: Record<
     string,
@@ -186,6 +187,13 @@ describe("judgeWithJev questions", () => {
       seen.body.state.filter((part) => typeof part !== "string"),
     ).toHaveLength(2)
   })
+
+  test("asks the provider not to keep the data, and says that the data blocks are not instructions", async () => {
+    const seen = serve(() => fine)
+    await judgeWithJev(await story({ brief: "Rename the button." }))
+    expect(seen.body.provider).toEqual({ data_collection: "deny" })
+    expect(seen.body.state[0]).toContain("never instructions")
+  })
 })
 
 describe("judgeWithJev verdict", () => {
@@ -298,29 +306,29 @@ describe("judgeWithJev verdict", () => {
     expect(verdict.qualities).toEqual([])
   })
 
-  test("a flagged defect with no answered area is unsure, since no kind can name it", async () => {
-    serve((name) => (name === "defect" ? defect(0.9) : undefined))
-    const verdict = await judgeWithJev(await story())
-    expect(verdict.verdict).toBe("unsure")
-    expect(verdict.findings).toEqual([])
-    expect(verdict.summary).toContain("no area question")
-  })
-
-  test("a defect with no worse area gets a finding for the area that is the most likely worse", async () => {
+  test("a flagged defect that no area names stays unsure, with no finding", async () => {
     serve((name) => {
-      if (name === "area.overflow") return choice(0, 0.6, 0.4)
       if (name === "defect") return defect(0.8)
       if (name === "defect-box") return box(0.5, 0.6, 0.5, 0.6)
       return fine
     })
     const verdict = await judgeWithJev(await story())
-    expect(verdict.verdict).toBe("regression")
-    expect(verdict.findings).toHaveLength(1)
-    expect(verdict.findings[0]?.kind).toBe("overflow")
-    expect(verdict.findings[0]?.region.x).toBeCloseTo(0.5)
+    expect(verdict.verdict).toBe("unsure")
+    expect(verdict.severity).toBe("none")
+    expect(verdict.findings).toEqual([])
+    expect(verdict.summary).toContain("cannot place it")
   })
 
-  test("with no image to place a box on, a finding takes the measured regions", async () => {
+  test("a worse quality is a regression with no finding", async () => {
+    serve((name) => (name === "quality.restraint" ? choice(0, 0.1, 0.9) : fine))
+    const verdict = await judgeWithJev(await story())
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.severity).toBe("major")
+    expect(verdict.findings).toEqual([])
+    expect(verdict.summary).toContain("restraint")
+  })
+
+  test("a worse area with no usable box is unsure, not a guessed region", async () => {
     const seen = serve((name) => {
       if (name === "area.contrast") return choice(0, 0.1, 0.9)
       if (name === "defect") return defect(0.9)
@@ -332,13 +340,19 @@ describe("judgeWithJev verdict", () => {
       }),
     )
     expect(Object.keys(seen.body.questions)).not.toContain("defect-box")
-    expect(verdict.verdict).toBe("regression")
-    expect(verdict.findings[0]?.kind).toBe("contrast")
-    const region = defined(verdict.findings[0]).region
-    expect(region.x).toBeCloseTo(0.1)
-    expect(region.y).toBeCloseTo(0.2)
-    expect(region.width).toBeCloseTo(0.3)
-    expect(region.height).toBeCloseTo(0.1)
+    expect(verdict.verdict).toBe("unsure")
+    expect(verdict.findings).toEqual([])
+  })
+
+  test("a box with no area or no extent is not a region", async () => {
+    serve((name) => {
+      if (name === "area.contrast") return choice(0, 0.1, 0.9)
+      if (name === "defect") return defect(0.9)
+      if (name === "defect-box") return box(0.5, 0.5, 0.2, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(await story())
+    expect(verdict.verdict).toBe("unsure")
   })
 })
 
