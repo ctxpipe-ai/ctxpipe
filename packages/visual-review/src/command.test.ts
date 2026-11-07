@@ -318,7 +318,7 @@ describe("visual:review --judge agent", () => {
     expect(request).toContain("Story: button--primary")
     expect(request).toContain("Write your reply as `verdict.json`")
     expect(request).toContain(
-      `pnpm visual:review --judge agent --manifest ${manifest} --session ${session()}`,
+      `node ${join(import.meta.dirname, "command.ts")} --judge agent --manifest ${manifest} --session ${session()}`,
     )
     for (const name of [
       "1-regions.png",

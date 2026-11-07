@@ -155,8 +155,13 @@ export async function visualReview(
         options.session === undefined
           ? await mkdtemp(join(await realpath(tmpdir()), "visual-review-"))
           : await ownSession(options.session)
+      // The next call runs this file again by its absolute path, not the
+      // `visual:review` of the folder where the agent happens to be: that can
+      // be the checkout of a PR.
       const rerun = [
-        "pnpm visual:review --judge agent",
+        "node",
+        quote(import.meta.filename),
+        "--judge agent",
         ...["--manifest", path, "--session", session].map(quote),
         ...(brief === undefined ? [] : ["--brief", quote(brief)]),
       ].join(" ")
