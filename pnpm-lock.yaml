@@ -15269,14 +15269,6 @@ snapshots:
       '@ai-sdk/provider-utils': 5.0.54(zod@4.6.5)
       zod: 4.6.5
 
-  '@ai-sdk/gateway@4.0.104(zod@4.3.6)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.22
-      '@ai-sdk/provider-utils': 5.0.54(zod@4.3.6)
-      '@vercel/oidc': 3.2.0
-      zod: 4.3.6
-    optional: true
-
   '@ai-sdk/gateway@4.0.104(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.22
@@ -15310,16 +15302,6 @@ snapshots:
       eventsource-parser: 3.1.1
       undici: 7.29.0
       zod: 4.6.5
-
-  '@ai-sdk/provider-utils@5.0.54(zod@4.3.6)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.22
-      '@standard-schema/spec': 1.1.0
-      '@workflow/serde': 4.1.0
-      eventsource-parser: 3.1.1
-      undici: 7.29.0
-      zod: 4.3.6
-    optional: true
 
   '@ai-sdk/provider-utils@5.0.54(zod@4.6.5)':
     dependencies:
@@ -24864,9 +24846,9 @@ snapshots:
 
   ai@7.0.128(zod@4.3.6):
     dependencies:
-      '@ai-sdk/gateway': 4.0.104(zod@4.3.6)
+      '@ai-sdk/gateway': 4.0.104(zod@4.6.5)
       '@ai-sdk/provider': 4.0.22
-      '@ai-sdk/provider-utils': 5.0.54(zod@4.3.6)
+      '@ai-sdk/provider-utils': 5.0.54(zod@4.6.5)
       zod: 4.3.6
     optional: true
 
