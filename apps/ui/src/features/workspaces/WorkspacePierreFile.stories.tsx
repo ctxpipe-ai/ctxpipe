@@ -144,7 +144,7 @@ export const DraftSavedShowsFile: Story = {
     intent:
       "Catches a saved draft that stays in the diff view. After Save draft, the file view must show. Not for reverted drafts.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <DraftThenNoChange />,
   play: async ({ canvasElement }) => {
     await expectView(canvasElement, "diff")
@@ -160,7 +160,7 @@ export const DraftRevertedShowsFile: Story = {
     intent:
       "Catches a reverted draft that stays in the diff view. After Revert draft, the file view must show. Not for saved drafts.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <DraftThenNoChange />,
   play: async ({ canvasElement }) => {
     await expectView(canvasElement, "diff")

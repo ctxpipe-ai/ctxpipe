@@ -90,7 +90,7 @@ export const NodesWithoutRelationships: Story = {
     intent:
       "Catches a graph with nodes but no edges that shows a blank pane. It says how many nodes it has and that it has no edges yet. Not for graphs with edges.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     pending: false,
     graph: {

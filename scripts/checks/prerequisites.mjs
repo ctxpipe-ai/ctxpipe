@@ -281,7 +281,7 @@ export const prerequisites = {
       ),
   },
   // CI downloads the build of its Storybook job and sets
-  // SKIP_STORYBOOK_BUILD=1, as for scripts/ci/storybook-golden.mjs.
+  // SKIP_STORYBOOK_BUILD=1, as for scripts/ci/storybook-plays.mjs.
   "storybook-build": {
     prepare: () => {
       if (process.env.SKIP_STORYBOOK_BUILD !== "1")

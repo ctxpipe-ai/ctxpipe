@@ -80,15 +80,15 @@ portable/browser test facilities and `run-story-tests` when available.
 - A story that only paints a state is visual coverage, not an interaction test;
   critical behavior needs a `play` function with assertions.
 
-Required workspace recovery plays carry an inline `tags: ["workspace-golden"]`
-array. CI job **Storybook Playwright golden journey** runs
-`node scripts/ci/storybook-golden.mjs`, which builds Storybook and executes
+Required workspace recovery plays carry an inline `tags: ["required"]`
+array. CI job **Storybook required plays** runs
+`node scripts/ci/storybook-plays.mjs`, which builds Storybook and executes
 those plays in Chromium by opening each story iframe. Do not add a
 parallel jsdom component-test stack.
 
 CI job **Storybook Playwright all plays** runs every story that has a `play`
 function, in 4 shards, with the same runner: `STORYBOOK_PLAYS=all node
-scripts/ci/storybook-golden.mjs`. Narrow a local run with `STORYBOOK_ONLY=<id or
+scripts/ci/storybook-plays.mjs`. Narrow a local run with `STORYBOOK_ONLY=<id or
 file part>[,...]` and `STORYBOOK_SHARD=i/n`; set `STORYBOOK_URL` to reuse a
 running Storybook. A story tagged `reduced-motion` runs with reduced-motion
 emulation. A flaky play is a bug: wait for the real state, never add a retry or
@@ -119,8 +119,8 @@ Keep security and request-contract assertions in focused Vitest tests. Use
 |--------|--------|
 | Start Storybook | `pnpm --filter @ctxpipe/ui storybook` |
 | Build static | `pnpm --filter @ctxpipe/ui build-storybook` |
-| Golden plays (uses `STORYBOOK_URL` if set) | `pnpm test:storybook-golden` |
-| Every play, one shard | `STORYBOOK_PLAYS=all STORYBOOK_SHARD=1/4 node scripts/ci/storybook-golden.mjs` |
+| Required plays (uses `STORYBOOK_URL` if set) | `pnpm test:storybook-required` |
+| Every play, one shard | `STORYBOOK_PLAYS=all STORYBOOK_SHARD=1/4 node scripts/ci/storybook-plays.mjs` |
 
 ## Related docs in-repo
 

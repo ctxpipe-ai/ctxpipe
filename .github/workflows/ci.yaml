@@ -752,11 +752,11 @@ jobs:
           path: apps/ui/storybook-static
           if-no-files-found: error
 
-  storybook-golden:
+  storybook-required:
     timeout-minutes: 30
-    name: Storybook Playwright golden journey
+    name: Storybook required plays
     # In gate mode the Storybook plays shards run each selected story, the
-    # golden ones too.
+    # required ones too.
     needs: [merge-gate-plan, storybook-build]
     if: |
       !cancelled() && needs.storybook-build.result == 'success' &&
@@ -782,16 +782,16 @@ jobs:
         with:
           name: storybook-static
           path: apps/ui/storybook-static
-      - name: Required Storybook golden plays
+      - name: Required Storybook plays
         env:
           SKIP_STORYBOOK_BUILD: "1"
-        run: node scripts/ci/storybook-golden.mjs
-      - name: Preserve golden play results
+        run: node scripts/ci/storybook-plays.mjs
+      - name: Preserve required play results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: storybook-golden-results
-          path: .ci-results/storybook-golden/
+          name: storybook-required-results
+          path: .ci-results/storybook-required/
           include-hidden-files: true
           if-no-files-found: error
 
@@ -843,7 +843,7 @@ jobs:
           EVENT: ${{ github.event_name }}
         # The trace (scripts/checks/README.md) is data only; PR runs skip it.
         run: |
-          node scripts/ci/storybook-golden.mjs \
+          node scripts/ci/storybook-plays.mjs \
             $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       - name: Selected stories (merge gate)
         if: matrix.lane == 'selected'
@@ -1933,7 +1933,7 @@ jobs:
         production-builds,
         packages,
         storybook-build,
-        storybook-golden,
+        storybook-required,
         storybook-plays,
         codesearch,
         vercel-sandbox,

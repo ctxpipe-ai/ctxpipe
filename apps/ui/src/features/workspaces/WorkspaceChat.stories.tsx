@@ -375,7 +375,7 @@ function SocketCleanupHarness() {
 }
 
 export const SocketCleansUpOnLeave: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <SocketCleanupHarness />,
   parameters: {
     intent:
@@ -481,7 +481,7 @@ function ReloadReconnectHarness() {
 }
 
 export const ReloadReconnects: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <ReloadReconnectHarness />,
   parameters: {
     intent:
@@ -609,7 +609,7 @@ function RapidRouteHarness() {
 }
 
 export const RapidRouteChanges: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <RapidRouteHarness />,
   parameters: {
     intent:
@@ -729,7 +729,7 @@ function ComposeHarness() {
 }
 
 export const LateErrorDoesNotClobberSuccess: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <ComposeHarness />,
   parameters: {
     intent:
@@ -885,7 +885,7 @@ function firstTurnEvents(threadId: string, runId: string): object[] {
  * the live stream can show the answer.
  */
 export const FirstTurnStreamsLive: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   decorators: [
     (Story) => (
       <StrictMode>
@@ -1024,7 +1024,7 @@ function followUpEvents(threadId: string, runId: string): object[] {
  * after the sandbox is ready. No other label shows before the setup label.
  */
 export const FollowUpShowsSandboxSetupFirst: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <ComposeHarness />,
   parameters: {
     ...FirstTurnStreamsLive.parameters,
@@ -1130,7 +1130,7 @@ function interleavedTurnEvents(threadId: string, runId: string): object[] {
  * when a thought comes after a tool call. Each tool row shows its detail.
  */
 export const LogKeepsStreamOrder: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <ComposeHarness />,
   parameters: {
     ...FirstTurnStreamsLive.parameters,
@@ -1177,7 +1177,7 @@ const capacityError =
  * user can send it again without typing it.
  */
 export const FirstTurnFailureRestoresDraft: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <ComposeHarness />,
   parameters: {
     ...FirstTurnStreamsLive.parameters,

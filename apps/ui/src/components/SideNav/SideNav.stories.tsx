@@ -122,7 +122,7 @@ export const ExpandedAfterCollapsedStory: Story = {
 /** A plain link (not a nav item) opens Connectors. The shell stays mounted, and
  * the current nav item moves from the Workspace to Connectors. */
 export const PlainLinkMovesCurrentNav: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => (
     <AppShell>
       <Link href="/acme/connectors" className="p-6 text-sm text-teal-400">
@@ -194,7 +194,7 @@ export const DocsLinkOpensProductDocs: Story = {
 }
 
 export const UserMenuLinksConnectedApps: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     ...SingleWorkspace.parameters,
     intent:

@@ -155,7 +155,7 @@ try {
               /\.(test|stories)\.[cm]?[jt]sx?$/.test(file) ||
               [
                 "scripts/ci/test-suite.mjs",
-                "scripts/ci/storybook-golden.mjs",
+                "scripts/ci/storybook-plays.mjs",
                 "apps/codesearch/scripts/run-vitest-contracts.mjs",
               ].includes(file) ||
               /(?:^|\/)package\.json$|^\.github\/workflows\/.*\.ya?ml$|^scripts\/.*\.sh$/.test(

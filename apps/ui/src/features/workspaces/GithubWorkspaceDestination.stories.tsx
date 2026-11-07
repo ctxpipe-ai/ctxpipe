@@ -89,7 +89,7 @@ export const LoadingSkeletonMatches: Story = {
     intent:
       "Catches a workspace destination skeleton whose size differs from the loaded list. This causes layout shift. Not for workspace data or selection.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     status: "loading",
     workspaces: [],

@@ -19,8 +19,8 @@ type Story = StoryObj<typeof meta>
 
 export const PinnedHost: Story = {
   play: async () => {
-    const page = window as Window & { __CTXPIPE_GOLDEN__?: unknown }
-    if (!page.__CTXPIPE_GOLDEN__) return
+    const page = window as Window & { __CTXPIPE_PLAY__?: unknown }
+    if (!page.__CTXPIPE_PLAY__) return
     const device = navigator as Navigator & { deviceMemory?: number }
     await expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe("UTC")
     await expect(navigator.language).toBe("en-US")

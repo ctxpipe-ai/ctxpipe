@@ -264,12 +264,12 @@ test("a ci.yaml change only in the steps of check jobs runs the selector with th
     ),
   ])
     assert.deepEqual(mode(head), full)
-  const golden = workflowJob(base, "storybook-golden")
+  const requiredJob = workflowJob(base, "storybook-required")
   assert.deepEqual(
     mode(
       base.replace(
-        golden,
-        golden.replace(/\n {6}- /, "\n      - run: true\n      - "),
+        requiredJob,
+        requiredJob.replace(/\n {6}- /, "\n      - run: true\n      - "),
       ),
     ),
     full,
@@ -353,7 +353,7 @@ test("the checks of the jobs of a job-scoped ci.yaml change run, without their h
   assert.ok("vitest:backend:apps/backend/src/g.test.ts" in ran)
   assert.deepEqual(
     decision.hits.map((item) => item.id),
-    ["storybook:golden:apps/ui/src/c.stories.tsx#c--one"],
+    ["storybook:required:apps/ui/src/c.stories.tsx#c--one"],
   )
   assert.equal(decision.selection.counts.selected, 8)
 })
@@ -418,8 +418,8 @@ const selection = (overrides = {}) => ({
       reason: { kind: "imports", chain: ["x.ts", "apps/backend/src/b.ts"] },
     },
     {
-      id: "storybook:golden:apps/ui/src/c.stories.tsx#c--one",
-      lane: "golden",
+      id: "storybook:required:apps/ui/src/c.stories.tsx#c--one",
+      lane: "required",
       file: "apps/ui/src/c.stories.tsx",
       reason: { kind: "changed" },
     },
@@ -463,7 +463,7 @@ const selection = (overrides = {}) => ({
   cache: {
     shared: true,
     hits: [
-      hit("storybook:golden:apps/ui/src/c.stories.tsx#c--one", "ci", "ci"),
+      hit("storybook:required:apps/ui/src/c.stories.tsx#c--one", "ci", "ci"),
       hit("vitest:vercel:apps/backend/src/d.contract.test.ts", "agent"),
       hit("lint:oxlint:.oxlintrc.json", "agent"),
     ],
@@ -489,7 +489,7 @@ const needs = (overrides = {}) =>
       test: "failure",
       "production-builds": "success",
       packages: "success",
-      "storybook-golden": "success",
+      "storybook-required": "success",
       "storybook-plays": "success",
       codesearch: "success",
       "vercel-sandbox": "success",
@@ -570,7 +570,7 @@ test("the gated verdict needs one accepted result for each selected check", () =
   assert.deepEqual(
     decision.hits.map(({ id, class: kind }) => [id, kind]),
     [
-      ["storybook:golden:apps/ui/src/c.stories.tsx#c--one", "ci"],
+      ["storybook:required:apps/ui/src/c.stories.tsx#c--one", "ci"],
       ["lint:oxlint:.oxlintrc.json", "agent"],
     ],
   )
@@ -594,8 +594,8 @@ test("the gated verdict needs one accepted result for each selected check", () =
         result: "missing result (job lint: success)",
       },
       {
-        id: "storybook:golden:apps/ui/src/c.stories.tsx#c--one",
-        result: "missing result (job storybook-golden: success)",
+        id: "storybook:required:apps/ui/src/c.stories.tsx#c--one",
+        result: "missing result (job storybook-required: success)",
       },
       {
         id: "vitest:backend:apps/backend/src/g.test.ts",
@@ -619,14 +619,14 @@ test("the gated verdict needs one accepted result for each selected check", () =
 test("without acceptAgentResults an agent hit runs, and a failed hit is a contradiction", () => {
   const decision = decide({
     shadow: { config: { ...pinned, acceptAgentResults: false } },
-    needs: { "storybook-golden": "failure" },
+    needs: { "storybook-required": "failure" },
   })
   assert.deepEqual(
     decision.hits.map(({ id }) => id),
-    ["storybook:golden:apps/ui/src/c.stories.tsx#c--one"],
+    ["storybook:required:apps/ui/src/c.stories.tsx#c--one"],
   )
   assert.ok(decision.ran.some(({ id }) => id === "lint:oxlint:.oxlintrc.json"))
-  // The golden job failed, so the story has no known result: not a
+  // The required job failed, so the story has no known result: not a
   // contradiction. A record that says failed is one.
   assert.deepEqual(decision.metrics.contradictions, [])
   const contradicted = shadow({
@@ -637,7 +637,7 @@ test("without acceptAgentResults an agent hit runs, and a failed hit is a contra
     }),
     records: [
       {
-        id: "storybook:golden:apps/ui/src/c.stories.tsx#c--one",
+        id: "storybook:required:apps/ui/src/c.stories.tsx#c--one",
         status: "failed",
       },
     ],
@@ -646,7 +646,7 @@ test("without acceptAgentResults an agent hit runs, and a failed hit is a contra
     run: { id: "1", attempt: 1, pr: 7, sha: sha(9) },
   })
   assert.deepEqual(contradicted.metrics.contradictions, [
-    { id: "storybook:golden:apps/ui/src/c.stories.tsx#c--one", class: "ci" },
+    { id: "storybook:required:apps/ui/src/c.stories.tsx#c--one", class: "ci" },
   ])
 })
 
@@ -706,8 +706,8 @@ test("a selected check with an error or no record counts as a full-run failure i
       [
         ["lint:oxlint:.oxlintrc.json", "missing result (job lint: success)"],
         [
-          "storybook:golden:apps/ui/src/c.stories.tsx#c--one",
-          "missing result (job storybook-golden: success)",
+          "storybook:required:apps/ui/src/c.stories.tsx#c--one",
+          "missing result (job storybook-required: success)",
         ],
         ["vitest:backend:apps/backend/src/g.test.ts", "error"],
       ],
@@ -945,8 +945,8 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
     job: "lint",
     profile: "project",
   })
-  assert.deepEqual(runsInOf("storybook:golden:x"), {
-    job: "storybook-golden",
+  assert.deepEqual(runsInOf("storybook:required:x"), {
+    job: "storybook-required",
     profile: "storybook",
   })
   assert.deepEqual(runsInOf("storybook:plays:x"), {

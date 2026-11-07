@@ -41,7 +41,7 @@ export const PrepareReadingKnowledge: Story = {
     intent:
       "Catches a prepare panel that shows the wrong step. It lists fetch then read, marks Reading knowledge as current, and avoids the word hydrate. Not for errors.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { workspace: { ...hydratingWorkspace, desiredSha: "87797371c413" } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -62,7 +62,7 @@ export const PrepareWaitingForTip: Story = {
     intent:
       "Catches a prepare panel with no known commit that gives no next step. It explains the latest commit is unknown and offers Try again. Not for a known commit.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     expect((await canvas.findAllByRole("listitem"))[0]).toHaveAttribute(
@@ -86,7 +86,7 @@ export const PrepareFailed: Story = {
     intent:
       "Catches a failed prepare that shows no cause or retry. It shows the error, a settings hint, and Try again, with no step list. Not for a prepare in progress.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -113,7 +113,7 @@ export const PreparePendingWithError: Story = {
     intent:
       "Catches a pending workspace with a stored error that shows the step list. The failed panel must show the error and Try again. Not for a clean pending state.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     workspace: {
       ...hydratingWorkspace,

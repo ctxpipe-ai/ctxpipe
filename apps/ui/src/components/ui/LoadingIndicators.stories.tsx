@@ -23,7 +23,7 @@ function expectLooping(style: CSSStyleDeclaration) {
 }
 
 /**
- * The golden runner opens this story with `prefers-reduced-motion: reduce`.
+ * The play runner opens this story with `prefers-reduced-motion: reduce`.
  * Loading indicators must keep showing progress (DESIGN.md "Motion").
  */
 export const LoadingUnderReducedMotion: Story = {
@@ -31,7 +31,7 @@ export const LoadingUnderReducedMotion: Story = {
     intent:
       "Catches loading indicators that stop looping when the user prefers reduced motion. The spinner, progress bar, and skeleton must keep a visible loop. Not for color or size.",
   },
-  tags: ["workspace-golden", "reduced-motion"],
+  tags: ["required", "reduced-motion"],
   render: () => (
     <div className="flex w-64 flex-col gap-4">
       <Spinner />

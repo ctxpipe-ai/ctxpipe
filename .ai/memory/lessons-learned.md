@@ -500,8 +500,8 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Date:** 2026-09-11
 - **Source:** accepted Workspace recovery foundations (ADR-044, ADR-047, ADR-048); accepted workspace recovery Gate 3 (supersedes the 2026-08-20 generic-runner instruction from issue 10); user product choice (Pierre as Files chrome, 2026-08-19)
 
-### workspace-golden is not live GitHub or sandbox proof
-- **Rule:** Tagged Storybook `workspace-golden` plays are the required deterministic UI journey ([ADR-045](decisions/ADR-045-required-recovery-ci.md)). They are not live GitHub App publish proof and not sandbox provider proof ([ADR-048](decisions/ADR-048-native-postgres-sandbox-ownership.md)).
+### The required story tag is not live GitHub or sandbox proof
+- **Rule:** Tagged Storybook `required` plays are the required deterministic UI journey ([ADR-045](decisions/ADR-045-required-recovery-ci.md)). They are not live GitHub App publish proof and not sandbox provider proof ([ADR-048](decisions/ADR-048-native-postgres-sandbox-ownership.md)).
 - **Category:** convention
 - **Date:** 2026-09-11
 - **Source:** Gate 6 leftover after deleting docs/plans recovery ledgers
