@@ -21,7 +21,7 @@ const page = (...frames) => {
 
 test("a page that does not change gives its shot after two shots", async () => {
   const steady = page("a")
-  const result = await shootUntilSteady(steady.shoot, 4, steady.pause)
+  const result = await shootUntilSteady(steady.shoot, steady.pause)
   assert.deepEqual(result, { steady: true, png: Buffer.from("a") })
   assert.equal(steady.taken(), 2)
   assert.equal(steady.paused(), 0)
@@ -29,7 +29,7 @@ test("a page that does not change gives its shot after two shots", async () => {
 
 test("a late change is waited for until two shots in a row match", async () => {
   const late = page("a", "b", "b")
-  const result = await shootUntilSteady(late.shoot, 4, late.pause)
+  const result = await shootUntilSteady(late.shoot, late.pause)
   assert.deepEqual(result, { steady: true, png: Buffer.from("b") })
   assert.equal(late.taken(), 3)
   // A shot that differs gives a slow change time to end before the next.
@@ -37,9 +37,9 @@ test("a late change is waited for until two shots in a row match", async () => {
 })
 
 test("a page that keeps changing is unstable after the last shot", async () => {
-  const moving = page("a", "b", "c", "d", "e")
-  const result = await shootUntilSteady(moving.shoot, 4, moving.pause)
-  assert.deepEqual(result, { steady: false, png: Buffer.from("d") })
-  assert.equal(moving.taken(), 4)
-  assert.equal(moving.paused(), 2)
+  const moving = page("a", "b", "c", "d", "e", "f", "g")
+  const result = await shootUntilSteady(moving.shoot, moving.pause)
+  assert.deepEqual(result, { steady: false, png: Buffer.from("f") })
+  assert.equal(moving.taken(), 6)
+  assert.equal(moving.paused(), 4)
 })
