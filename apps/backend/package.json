@@ -99,6 +99,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@ctxpipe/visual-review": "workspace:*",
     "@forge/cli": "^13.4.0",
     "@graphql-codegen/cli": "^7.4.3",
     "@graphql-codegen/typed-document-node": "^7.1.0",
