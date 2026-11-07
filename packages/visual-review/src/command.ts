@@ -7,13 +7,14 @@ import { createHash } from "node:crypto"
 import {
   lstat,
   mkdir,
-  readdir,
+  mkdtemp,
   readFile,
   realpath,
   rm,
   writeFile,
 } from "node:fs/promises"
-import { dirname, join, relative, resolve, sep } from "node:path"
+import { tmpdir } from "node:os"
+import { basename, dirname, join, resolve } from "node:path"
 import { parseArgs } from "node:util"
 
 import { judgeWithJev } from "./adapters/jev.ts"
@@ -27,7 +28,7 @@ import { parseVerdict, type Verdict } from "./verdict.ts"
 
 const defaultModel = "anthropic/claude-sonnet-5.5"
 
-const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|agent] [--model <id>] [--filter jev|none] [--brief <file>] [--json]
+const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|agent] [--model <id>] [--filter jev|none] [--brief <file>] [--session <folder>] [--json]
 
   --manifest  The manifest of the visual run. Default: .ci-results/visual/manifest.json
   --judge     model: a vision model through OpenRouter, with MODEL_PROVIDER_API_KEY
@@ -39,24 +40,27 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|agen
               does not accept the change. Only with --judge model. Default: none.
   --brief     A file with the ticket or the brief of the change. Without it, no
               verdict can be intended.
+  --session   Only with --judge agent: the folder that the first call made and
+              printed. Without it, the call makes a new folder and reads no
+              verdict.
   --json      Print the verdicts as one JSON array.
 
 Exit code: 2 when the review is not complete (a usage or manifest error, a
 verdict with an error, or an agent judgment that is not written yet); else 1
 when a verdict is regression with severity major or blocker; else 0.
 
-The agent judge keeps its requests and verdicts in
-.ci-results/visual-review/<run>/ below the current folder, never in the run
-folder: a run folder can come from an artifact that PR code wrote.`
+The agent judge keeps its requests and verdicts in a new private folder in the
+temporary folder of the system, never in the run folder or the checkout: PR
+code can write those. It reads a verdict only from a folder that it made.`
 
 /**
  * Run `visual:review` with the command-line arguments `args`. `print` gets
- * the output. `cwd` holds the folder of the agent judge. The key and the
- * endpoint of the model come from `process.env`. Returns the exit code.
+ * the output. The key and the endpoint of the model come from `process.env`.
+ * Returns the exit code.
  */
 export async function visualReview(
   args: readonly string[],
-  { print, cwd }: { print: (text: string) => void; cwd: string },
+  print: (text: string) => void,
 ): Promise<number> {
   let options
   try {
@@ -72,6 +76,7 @@ export async function visualReview(
         model: { type: "string", default: defaultModel },
         filter: { type: "string", default: "none" },
         brief: { type: "string" },
+        session: { type: "string" },
         json: { type: "boolean", default: false },
       },
     }).values
@@ -83,19 +88,21 @@ export async function visualReview(
   if (
     (judge !== "model" && judge !== "agent") ||
     (filter !== "jev" && filter !== "none") ||
-    (judge === "agent" && filter === "jev")
+    (judge === "agent" && filter === "jev") ||
+    (judge === "model" && options.session !== undefined)
   ) {
     print(
-      `--judge must be model or agent, and --filter must be jev or none (jev only with --judge model).\n\n${usage}`,
+      `--judge must be model or agent, and --filter must be jev or none (jev only with --judge model, --session only with --judge agent).\n\n${usage}`,
     )
     return 2
   }
 
   let stories: StoryInput[]
   let root: string
-  let judgments: string
+  let path: string
+  let brief: string | undefined
   try {
-    const path = resolve(cwd, options.manifest)
+    path = resolve(options.manifest)
     root = dirname(path)
     // The manifest can come from an artifact that PR code wrote. A link
     // there could make this command read, and print, a file outside the run.
@@ -104,26 +111,15 @@ export async function visualReview(
     const manifest = manifestSchema.parse(
       JSON.parse(await readFile(path, "utf8")),
     )
-    const brief =
-      options.brief === undefined
-        ? undefined
-        : await readFile(resolve(cwd, options.brief), "utf8")
+    brief = options.brief === undefined ? undefined : resolve(options.brief)
+    const briefText =
+      brief === undefined ? undefined : await readFile(brief, "utf8")
     // The critic judges only a change beyond the tolerance. A new, removed,
     // unstable or failed story is the job of the visual check.
     const reviewed = manifest.stories.filter(
       ({ status }) => status === "changed" || status === "size-changed",
     )
     const realRoot = await realpath(root)
-    judgments = join(
-      await realpath(cwd),
-      ".ci-results",
-      "visual-review",
-      createHash("sha256").update(realRoot).digest("hex").slice(0, 12),
-    )
-    if (relative(realRoot, judgments).split(sep)[0] !== "..")
-      throw new Error(
-        `The judgment folder ${judgments} is inside the run folder. Run the command from a folder outside the run folder.`,
-      )
     stories = []
     for (const story of reviewed) {
       if (!story.images.before || !story.images.after)
@@ -132,7 +128,7 @@ export async function visualReview(
         )
       const input = toStoryInput(manifest, story, {
         root,
-        ...(brief === undefined ? {} : { brief }),
+        ...(briefText === undefined ? {} : { brief: briefText }),
       })
       // `toStoryInput` checks the paths as text. A symbolic link in the run
       // folder can still point outside it, so check the real paths too.
@@ -153,10 +149,23 @@ export async function visualReview(
 
   let verdicts: Verdict[]
   try {
+    let agent: Parameters<typeof judgeByAgent>[1] | undefined
+    if (judge === "agent") {
+      const session =
+        options.session === undefined
+          ? await mkdtemp(join(await realpath(tmpdir()), "visual-review-"))
+          : await ownSession(options.session)
+      const rerun = [
+        "pnpm visual:review --judge agent",
+        ...["--manifest", path, "--session", session].map(quote),
+        ...(brief === undefined ? [] : ["--brief", quote(brief)]),
+      ].join(" ")
+      agent = { session, rerun, read: options.session !== undefined }
+    }
     verdicts = await reviewStories(
       stories,
-      judge === "agent"
-        ? (story) => judgeByAgent(story, judgments)
+      agent
+        ? (story) => judgeByAgent(story, agent)
         : async (story) => {
             const filtered =
               filter === "jev" ? await judgeWithJev(story) : undefined
@@ -195,22 +204,51 @@ export async function visualReview(
 const blocks = ({ verdict, severity }: Verdict) =>
   verdict === "regression" && (severity === "major" || severity === "blocker")
 
+/** A word for the shell, in single quotes when it needs them. */
+const quote = (word: string) =>
+  /^[\w./@:=-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`
+
+/**
+ * The real path of `path` when it is a folder that `visual:review` made for
+ * an agent session: a direct child `visual-review-*` of the temporary folder,
+ * not a symbolic link, owned by this user, and closed to other users. Else it
+ * throws. Thus PR code cannot give the folder that holds the verdicts.
+ */
+async function ownSession(path: string): Promise<string> {
+  const info = await lstat(path)
+  const real = await realpath(path)
+  if (
+    info.isSymbolicLink() ||
+    !info.isDirectory() ||
+    dirname(real) !== (await realpath(tmpdir())) ||
+    !basename(real).startsWith("visual-review-") ||
+    info.uid !== process.getuid?.() ||
+    (info.mode & 0o077) !== 0
+  )
+    throw new Error(
+      `--session ${path} is not a folder that visual:review made. Run the command without --session to start a new session.`,
+    )
+  return real
+}
+
 /**
  * The agent judge. It writes a judgment request for `story` into
- * `<judgments>/<screenshot id>/`: `request.md` (the rules, the rubric, the
+ * `<session>/<screenshot id>/`: `request.md` (the rules, the rubric, the
  * measured regions and the JSON Schema of the reply) and the images, prepared
  * to the side limits of the vision models. The coding agent reads them and
  * writes `verdict.json` in the same folder. The next call reads that file as
  * a model reply. A request that changed (other regions, other images, another
  * brief) removes the old `verdict.json`.
  *
- * `judgments` is a folder of the reviewer, outside the run folder. The run
- * folder can come from an artifact that PR code wrote, so a verdict there
- * would be the verdict of the PR author.
+ * `session` is a private folder that this command made (see `ownSession`),
+ * outside the run folder and the checkout: PR code can write those, and a
+ * verdict there would be the verdict of the PR author. The first call of a
+ * session (`read` false) only writes the requests. `rerun` is the command for
+ * the next call.
  */
 async function judgeByAgent(
   story: StoryInput,
-  judgments: string,
+  { session, rerun, read }: { session: string; rerun: string; read: boolean },
 ): Promise<Verdict> {
   // The screenshot id is a folder name here, so it may not climb out of the
   // folder.
@@ -218,7 +256,7 @@ async function judgeByAgent(
     throw new Error(
       `Screenshot id "${story.storyId}" is not a valid folder name.`,
     )
-  const folder = join(judgments, story.storyId)
+  const folder = join(session, story.storyId)
   await mkdir(folder, { recursive: true })
   const prompt = buildPrompt(story)
   const images = await Promise.all(
@@ -231,7 +269,7 @@ async function judgeByAgent(
   for (const { png } of images) hash.update(png)
   const request = `# Visual judgment request: ${story.storyId}
 
-You are the judge. Read the rules and the story below. Then read each image file in this folder, in the order of the list. Write your reply as \`verdict.json\` in this folder: one JSON object that matches the JSON Schema at the end of the rules. Then run \`pnpm visual:review --judge agent\` again.
+You are the judge. Read the rules and the story below. Then read each image file in this folder, in the order of the list. Write your reply as \`verdict.json\` in this folder: one JSON object that matches the JSON Schema at the end of the rules. Then run this command again: \`${rerun}\`
 
 Image files:
 ${images.map(({ name }) => `- ${name}`).join("\n")}
@@ -260,17 +298,20 @@ Input: sha256 ${hash.digest("hex")}
   const requestPath = join(folder, "request.md")
   const verdictPath = join(folder, "verdict.json")
   const written = await readFile(requestPath, "utf8").catch(() => undefined)
-  if (written !== request) {
-    for (const name of await readdir(folder))
-      await rm(join(folder, name), { recursive: true, force: true })
+  if (!read || written !== request) {
+    await rm(verdictPath, { force: true })
     for (const { name, png } of images) await writeFile(join(folder, name), png)
     await writeFile(requestPath, request)
-    return pending(`Judge ${requestPath}, then write ${verdictPath}.`)
+    return pending(
+      `Judge ${requestPath}, then write ${verdictPath}. Then run: ${rerun}`,
+    )
   }
   const reply = await readFile(verdictPath, "utf8").catch(() => undefined)
   if (reply === undefined)
-    return pending(`Judge ${requestPath}, then write ${verdictPath}.`)
-  // `parseVerdict` checks the reply against the judgement part of
+    return pending(
+      `Judge ${requestPath}, then write ${verdictPath}. Then run: ${rerun}`,
+    )
+  // `parseVerdict` checks the reply against the judgment part of
   // `verdictSchema`, as for a model reply. A reply that does not match gives
   // `unsure` with the cause in `error`.
   return parseVerdict(reply, story, {
@@ -311,7 +352,6 @@ function report(verdicts: readonly Verdict[]): string {
 }
 
 if (import.meta.main)
-  process.exitCode = await visualReview(process.argv.slice(2), {
-    print: (text) => process.stdout.write(`${text}\n`),
-    cwd: process.cwd(),
-  })
+  process.exitCode = await visualReview(process.argv.slice(2), (text) =>
+    process.stdout.write(`${text}\n`),
+  )

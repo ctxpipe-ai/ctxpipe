@@ -1,7 +1,6 @@
 // `visual:review` on a real visual run: real screenshots, the real compare
 // engine, real image files and a real manifest. Only the provider HTTP is
 // faked.
-import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import {
   mkdir,
@@ -91,8 +90,8 @@ const server = setupServer(
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }))
 afterAll(() => server.close())
 
-// `root` is the run folder. `work` is the folder of the reviewer, where the
-// command runs.
+// `root` is the run folder. `work` is the temporary folder of the system,
+// where the agent judge makes its sessions.
 let root: string
 let work: string
 let output: string[]
@@ -100,6 +99,7 @@ beforeEach(async () => {
   // The real paths: on macOS the temporary folder is behind a symbolic link.
   root = await realpath(await mkdtemp(join(tmpdir(), "visual-review-command-")))
   work = await realpath(await mkdtemp(join(tmpdir(), "visual-review-work-")))
+  vi.stubEnv("TMPDIR", work)
   output = []
   chats.length = 0
   content = JSON.stringify(regression)
@@ -113,15 +113,12 @@ afterEach(async () => {
   await rm(work, { recursive: true, force: true })
 })
 
-/** The folder of the agent judge for the run in `root`. */
-const judgments = (...parts: string[]) =>
-  join(
-    work,
-    ".ci-results",
-    "visual-review",
-    createHash("sha256").update(root).digest("hex").slice(0, 12),
-    ...parts,
-  )
+/** The session folder that the last call printed. */
+const session = () => {
+  const match = /--session (\S+)/.exec(output.join("\n"))
+  if (!match?.[1]) throw new Error("No session in the output.")
+  return match[1]
+}
 
 const before = screenshot(400, 300, [
   { box: { x: 240, y: 180, width: 120, height: 60 }, color: [37, 99, 235] },
@@ -191,7 +188,7 @@ async function writeRun(
 }
 
 const run = (...args: string[]) =>
-  visualReview(args, { print: (text) => output.push(text), cwd: work })
+  visualReview(args, (text) => output.push(text))
 
 describe("visual:review --judge model", () => {
   test("a major regression blocks: exit code 1, with the verdict and its finding", async () => {
@@ -308,17 +305,21 @@ describe("visual:review --judge model", () => {
 })
 
 describe("visual:review --judge agent", () => {
-  test("writes a judgment request, then reads the verdict.json of the agent", async () => {
+  test("writes a judgment request in a new session, then reads the verdict.json of the agent", async () => {
     const manifest = await writeRun(["button--primary"])
-    const folder = judgments("button--primary.desktop")
 
     const first = await run("--manifest", manifest, "--judge", "agent")
 
     expect(first).toBe(2)
     expect(chats).toHaveLength(0)
+    const folder = join(session(), "button--primary.desktop")
+    expect(folder.startsWith(join(work, "visual-review-"))).toBe(true)
     const request = await readFile(join(folder, "request.md"), "utf8")
     expect(request).toContain("Story: button--primary")
     expect(request).toContain("Write your reply as `verdict.json`")
+    expect(request).toContain(
+      `pnpm visual:review --judge agent --manifest ${manifest} --session ${session()}`,
+    )
     for (const name of [
       "1-regions.png",
       "2-locator.png",
@@ -332,12 +333,15 @@ describe("visual:review --judge agent", () => {
     expect(output.join("\n")).toContain(join(folder, "verdict.json"))
 
     await writeFile(join(folder, "verdict.json"), JSON.stringify(regression))
+    const sessionFolder = session()
     output = []
     const second = await run(
       "--manifest",
       manifest,
       "--judge",
       "agent",
+      "--session",
+      sessionFolder,
       "--json",
     )
 
@@ -356,12 +360,20 @@ describe("visual:review --judge agent", () => {
   test("a verdict.json that does not match the schema leaves the review incomplete", async () => {
     const manifest = await writeRun(["button--primary"])
     await run("--manifest", manifest, "--judge", "agent")
+    const folder = session()
     await writeFile(
-      judgments("button--primary.desktop", "verdict.json"),
+      join(folder, "button--primary.desktop", "verdict.json"),
       JSON.stringify({ verdict: "fine" }),
     )
 
-    const code = await run("--manifest", manifest, "--judge", "agent")
+    const code = await run(
+      "--manifest",
+      manifest,
+      "--judge",
+      "agent",
+      "--session",
+      folder,
+    )
 
     expect(code).toBe(2)
     expect(output.join("\n")).toContain("does not match the schema")
@@ -370,7 +382,8 @@ describe("visual:review --judge agent", () => {
   test("a changed request removes the old verdict.json", async () => {
     const manifest = await writeRun(["button--primary"])
     await run("--manifest", manifest, "--judge", "agent")
-    const verdict = judgments("button--primary.desktop", "verdict.json")
+    const folder = session()
+    const verdict = join(folder, "button--primary.desktop", "verdict.json")
     await writeFile(verdict, JSON.stringify(regression))
     const brief = join(root, "brief.md")
     await writeFile(brief, "Make the primary button red.")
@@ -380,6 +393,8 @@ describe("visual:review --judge agent", () => {
       manifest,
       "--judge",
       "agent",
+      "--session",
+      folder,
       "--brief",
       brief,
     )
@@ -389,41 +404,72 @@ describe("visual:review --judge agent", () => {
   })
 })
 
-describe("visual:review reads and writes only in the run folder", () => {
-  test("a verdict in the run folder, from the writer of the run, is not read", async () => {
+describe("the agent judge reads a verdict only from its own session", () => {
+  test("a call without --session starts a new session and reads no verdict", async () => {
     const manifest = await writeRun(["button--primary"])
     await run("--manifest", manifest, "--judge", "agent")
-    const request = await readFile(
-      judgments("button--primary.desktop", "request.md"),
-      "utf8",
+    const first = session()
+    await writeFile(
+      join(first, "button--primary.desktop", "verdict.json"),
+      JSON.stringify(intended),
     )
-    for (const folder of [
-      join(root, "judgments", "button--primary.desktop"),
-      join(root, ".ci-results", "visual-review", "button--primary.desktop"),
-    ]) {
-      await mkdir(folder, { recursive: true })
-      await writeFile(join(folder, "request.md"), request)
-      await writeFile(join(folder, "verdict.json"), JSON.stringify(intended))
-    }
+    output = []
 
     const code = await run("--manifest", manifest, "--judge", "agent")
 
     expect(code).toBe(2)
+    expect(session()).not.toBe(first)
     expect(output.join("\n")).toContain("No agent verdict yet.")
   })
 
-  test("the agent judge refuses to keep its verdicts inside the run folder", async () => {
+  test.each([
+    ["a folder of the run", (dir: string) => join(dir, "session")],
+    [
+      "a folder of the temporary folder with another name",
+      (_: string) => join(work, "planted"),
+    ],
+  ])("--session refuses %s", async (_, folderOf) => {
     const manifest = await writeRun(["button--primary"])
+    const folder = folderOf(root)
+    await mkdir(join(folder, "button--primary.desktop"), { recursive: true })
 
-    const code = await visualReview(
-      ["--manifest", manifest, "--judge", "agent"],
-      { print: (text) => output.push(text), cwd: root },
+    const code = await run(
+      "--manifest",
+      manifest,
+      "--judge",
+      "agent",
+      "--session",
+      folder,
     )
 
     expect(code).toBe(2)
-    expect(output.join("\n")).toContain("is inside the run folder")
+    expect(output.join("\n")).toContain(
+      "is not a folder that visual:review made",
+    )
   })
 
+  test("--session refuses a session folder that other users can open", async () => {
+    const manifest = await writeRun(["button--primary"])
+    const folder = join(work, "visual-review-open")
+    await mkdir(folder, { mode: 0o755 })
+
+    const code = await run(
+      "--manifest",
+      manifest,
+      "--judge",
+      "agent",
+      "--session",
+      folder,
+    )
+
+    expect(code).toBe(2)
+    expect(output.join("\n")).toContain(
+      "is not a folder that visual:review made",
+    )
+  })
+})
+
+describe("visual:review reads only in the run folder", () => {
   test.each([
     ["a ../ path", "../outside.png"],
     ["an absolute path", "/etc/hosts"],
@@ -484,7 +530,7 @@ describe("visual:review checks each screenshot", () => {
 
     expect(await run("--manifest", manifest, "--judge", "agent")).toBe(2)
 
-    expect((await readdir(judgments())).sort()).toEqual([
+    expect((await readdir(session())).sort()).toEqual([
       "button--primary.desktop",
       "button--primary.mobile",
       "button--primary@menu-open.desktop",
