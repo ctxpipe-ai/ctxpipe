@@ -6,7 +6,6 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 
 import {
-  requiredStories,
   selectRequiredStories,
   selectPlayStories,
   shardStories,
@@ -14,300 +13,29 @@ import {
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 
-const required = [
-  [
-    "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
-    "LateErrorDoesNotClobberSuccess",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
-    "FirstTurnStreamsLive",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
-    "FirstTurnFailureRestoresDraft",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
-    "FollowUpShowsSandboxSetupFirst",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
-    "LogKeepsStreamOrder",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
-    "SocketCleansUpOnLeave",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
-    "ReloadReconnects",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceChat.stories.tsx",
-    "RapidRouteChanges",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspacePane.stories.tsx",
-    "EditThenNavigate",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspacePane.stories.tsx",
-    "OutOfOrderSaves",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspacePane.stories.tsx",
-    "StableFilesRequestBudget",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceFileTree.stories.tsx",
-    "PierreKeyboardFocus",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceFileTree.stories.tsx",
-    "DeletedFileStaysUntilMerged",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceFileTree.stories.tsx",
-    "ChangeMarkers",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
-    "CtaButtonStyle",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
-    "BranchLabel",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
-    "SyncCtaWithSubtleShowPr",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceChatChrome.stories.tsx",
-    "DirtyShowsOnlySync",
-  ],
-  [
-    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
-    "PushEntryUnderCard",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
-    "PublishPrErrorToast",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
-    "DiffTriggerNoChanges",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
-    "PaneTabsStayInPlace",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspacePane.stories.tsx",
-    "TextTabsKeepPadding",
-  ],
-  [
-    "apps/ui/src/features/workspaces/ConversationTitleButton.stories.tsx",
-    "UneditedSaveKeepsAutomaticTitle",
-  ],
-  [
-    "apps/ui/src/features/workspaces/ConversationTitleButton.stories.tsx",
-    "EscapeReturnsFocus",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
-    "SharedPublishPending",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
-    "StableRequestBudget",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
-    "SyncAddsThreadEntry",
-  ],
-  [
-    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
-    "SyncEntry",
-  ],
-  [
-    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
-    "CreatePrEntry",
-  ],
-  [
-    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
-    "ExistingPrEntry",
-  ],
-  [
-    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
-    "CreatePrWithoutPrEntry",
-  ],
-  [
-    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
-    "AgentPushEntry",
-  ],
-  [
-    "apps/ui/src/features/workspaces/ConversationSyncEntry.stories.tsx",
-    "SweepPushEntry",
-  ],
-  [
-    "apps/ui/src/components/ui/LoadingIndicators.stories.tsx",
-    "LoadingUnderReducedMotion",
-  ],
-  ["apps/ui/src/routes/-onboarding.stories.tsx", "DoubleClickMovesOneSlide"],
-  [
-    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
-    "ChatProgressDone",
-  ],
-  [
-    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
-    "ChatProgressLogExpanded",
-  ],
-  [
-    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
-    "ChatProgressSpacing",
-  ],
-  [
-    "apps/ui/src/features/chat/ConversationThread.stories.tsx",
-    "OpeningLogKeepsScroll",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
-    "PaletteShortcutTogglesAndRestoresFocus",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
-    "PaletteFiltersAtOnce",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
-    "PaletteArrowKeysAndEnterKeepPane",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
-    "PaletteEscapeClearsThenCloses",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
-    "PaletteNoResults",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
-    "PaletteLoadingKeepsPages",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
-    "PaletteSkeletonHandsOverOnce",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
-    "PaletteArrowKeysWalkEveryItem",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
-    "PaletteHoverAndKeysShareOneHighlight",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
-    "PaletteEnterAfterDeleteRunsFirstMatch",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceCommandPalette.stories.tsx",
-    "PaletteShortcutClosesAfterSyncRender",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
-    "DeleteWorkspaceShowsNoError",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
-    "DeleteLastWorkspaceShowsNoError",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceSurface.stories.tsx",
-    "DeleteFromConversationShowsNoError",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspaceFileTree.stories.tsx",
-    "NewPathsKeepExpandedFolders",
-  ],
-  [
-    "apps/ui/src/features/workspaces/WorkspacePane.stories.tsx",
-    "DefaultBranchUntilSandboxReady",
-  ],
-  ["apps/ui/src/routes/-home.stories.tsx", "Loading"],
-  ["apps/ui/src/routes/-home.stories.tsx", "WorkspacesLoading"],
-  ["apps/ui/src/routes/-home.stories.tsx", "Empty"],
-  ["apps/ui/src/routes/-home.stories.tsx", "Populated"],
-  ["apps/ui/src/routes/-home.stories.tsx", "ActivityLoading"],
-  ["apps/ui/src/routes/-home.stories.tsx", "FirstMessageOpensConversation"],
-  ["apps/ui/src/routes/-home.stories.tsx", "NoHistory"],
-]
-
-test("required stories carry the required tag and a play", () => {
-  for (const [file, name] of required) {
-    const source = readFileSync(
-      new URL(`../../${file}`, import.meta.url),
-      "utf8",
-    )
-    const tagged = new RegExp(
-      `export const ${name}: Story = \\{[\\s\\S]*?tags: \\["required"[\\],]`,
-    )
-    const play = new RegExp(
-      `export const ${name}: Story = \\{[\\s\\S]*?\\bplay:`,
-    )
-    assert.match(source, tagged, `${file} ${name} must tag required`)
-    assert.match(source, play, `${file} ${name} must declare a play function`)
-  }
-})
-
 test("inventory rejects a tagged required story without play-fn", () => {
   assert.throws(
     () =>
       selectRequiredStories({
         entries: {
-          remap: {
-            exportName: "LateErrorDoesNotClobberSuccess",
-            tags: ["required"],
-          },
+          remap: { id: "a--b", exportName: "B", tags: ["required"] },
         },
       }),
     /no play function/,
   )
 })
 
-test("inventory rejects two tagged stories with one name", () => {
-  assert.throws(
-    () =>
-      selectRequiredStories({
-        entries: {
-          home: {
-            exportName: "Loading",
-            tags: ["required", "play-fn"],
-          },
-          other: {
-            exportName: "Loading",
-            tags: ["required", "play-fn"],
-          },
-        },
-      }),
-    /More than one required story is named Loading/,
-  )
-})
-
-test("inventory accepts only tagged required stories that list play-fn", () => {
+test("the required tag is the whole required set, sorted by id", () => {
   const index = {
-    entries: Object.fromEntries(
-      requiredStories.map((name) => [
-        name,
-        { exportName: name, tags: ["required", "play-fn"] },
-      ]),
-    ),
+    entries: {
+      c: { id: "c--one", exportName: "One", tags: ["required", "play-fn"] },
+      a: { id: "a--one", exportName: "One", tags: ["required", "play-fn"] },
+      b: { id: "b--one", exportName: "One", tags: ["play-fn"] },
+    },
   }
   assert.deepEqual(
-    selectRequiredStories(index).map((story) => story.exportName),
-    requiredStories,
+    selectRequiredStories(index).map((story) => story.id),
+    ["a--one", "c--one"],
   )
 })
 
@@ -392,28 +120,6 @@ test("CI runs every story with a play function in shards", () => {
     shards.map(({ shard, count }) => `${shard}/${count}`),
     ["1/4", "2/4", "3/4", "4/4"],
   )
-})
-
-test("every required story is exported with the required tag", () => {
-  const sources = execFileSync(
-    "git",
-    ["ls-files", "apps/ui/src/**/*.stories.tsx"],
-    { cwd: root, encoding: "utf8" },
-  )
-    .split("\n")
-    .filter(Boolean)
-    .map((file) =>
-      readFileSync(new URL(`../../${file}`, import.meta.url), "utf8"),
-    )
-  for (const name of requiredStories) {
-    const tagged = new RegExp(
-      `export const ${name}: Story = \\{[\\s\\S]*?tags: \\["required"[\\],]`,
-    )
-    assert.ok(
-      sources.some((source) => tagged.test(source)),
-      `${name} is required but no story file exports it with required`,
-    )
-  }
 })
 
 test("a failed run exits at once instead of waiting on the open server", () => {
