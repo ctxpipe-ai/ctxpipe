@@ -126,9 +126,10 @@ export async function judgeWithJev(
   )
   // The box is asked on the full after image, else on the locator. A
   // [before | after] strip does not map to the after image.
-  const boxImage = (["after", "locator"] as const)
+  const boxIndex = (["after", "locator"] as const)
     .map((role) => prepared.findIndex((image) => image.role === role))
     .find((index) => index >= 0)
+  const boxImage = boxIndex === undefined ? undefined : prepared[boxIndex]
 
   const askedQualities = qualities.filter(
     ({ pageOnly }) => story.scope === "page" || !pageOnly,
@@ -148,10 +149,10 @@ export async function judgeWithJev(
     questions[`quality.${id}`] = choiceQuestion(
       `Quality: ${name}. ${definition} Does the change make this quality better, the same or worse? Judge only the measured regions.`,
     )
-  if (boxImage !== undefined)
+  if (boxImage && boxIndex !== undefined)
     questions["defect-box"] = {
       type: "box",
-      instructions: `the visible defect in Image ${boxImage + 1} (${prepared[boxImage]!.role})`,
+      instructions: `the visible defect in Image ${boxIndex + 1} (${boxImage.role})`,
     }
 
   const state = [
@@ -266,8 +267,7 @@ export async function judgeWithJev(
       }),
     })
     .safeParse(answers["defect-box"])
-  const content =
-    boxImage === undefined ? undefined : prepared[boxImage]!.content
+  const content = boxImage?.content
   let region = unionOf(story.regions)
   if (drawn.success && content) {
     const { top, bottom, left, right } = drawn.data.box

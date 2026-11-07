@@ -27,6 +27,11 @@ type DecisionsBody = {
   >
 }
 
+const defined = <T>(value: T | undefined): T => {
+  if (value === undefined) throw new Error("Expected a value.")
+  return value
+}
+
 const baseUrl = "https://openrouter.test/api/v1"
 const endpoint = "https://openrouter.test/api/alpha/decisions"
 
@@ -74,9 +79,8 @@ const story = async (overrides: Partial<StoryInput> = {}) =>
 
 const choice = (better: number, same: number, worse: number) => {
   const probabilities = { better, same, worse }
-  const picked = Object.entries(probabilities).sort(
-    (a, b) => b[1] - a[1],
-  )[0]![0]
+  const picked =
+    Object.entries(probabilities).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "same"
   return {
     type: "choice",
     choice: picked,
@@ -100,12 +104,20 @@ const serve = (
   answer: (name: string) => unknown,
   usage: unknown = { input_tokens: 900, output_tokens: 30, cost: 0.0000378 },
 ) => {
-  const seen: { body?: DecisionsBody; headers?: Headers } = {}
+  const last: { body?: DecisionsBody; headers?: Headers } = {}
+  const seen = {
+    get body() {
+      return defined(last.body)
+    },
+    get headers() {
+      return defined(last.headers)
+    },
+  }
   server.use(
     http.post(endpoint, async ({ request }) => {
       const body = (await request.json()) as DecisionsBody
-      seen.body = body
-      seen.headers = request.headers
+      last.body = body
+      last.headers = request.headers
       return HttpResponse.json({
         id: "gen-1",
         model: "typesafe/jev-1.14-20261001",
@@ -124,7 +136,7 @@ const options = { apiKey: "test-key", baseUrl }
 
 const sentImage = async (body: DecisionsBody, index: number) => {
   const parts = body.state.filter((part) => typeof part !== "string")
-  const url = parts[index]!.image_url.url
+  const url = defined(parts[index]).image_url.url
   expect(url).toMatch(/^data:image\/(png|jpeg);base64,/)
   const meta = await sharp(
     Buffer.from(url.slice(url.indexOf(",") + 1), "base64"),
@@ -136,32 +148,34 @@ describe("judgeWithJev questions", () => {
   test("asks one question for each area and quality, and skips page-only qualities for a component", async () => {
     const seen = serve(() => fine)
     await judgeWithJev(await story(), options)
-    const names = Object.keys(seen.body!.questions)
+    const names = Object.keys(seen.body.questions)
     for (const { id } of areas) expect(names).toContain(`area.${id}`)
     for (const { id, pageOnly } of qualities)
       expect(names.includes(`quality.${id}`)).toBe(!pageOnly)
-    expect(seen.body!.model).toBe("typesafe/jev-1.14")
-    expect(seen.body!.questions["defect"]?.type).toBe("noul")
-    expect(seen.body!.questions["defect-box"]?.type).toBe("box")
-    expect(seen.body!.questions["area.spacing"]?.type).toBe("choice")
+    expect(seen.body.model).toBe("typesafe/jev-1.14")
+    expect(seen.body.questions["defect"]?.type).toBe("noul")
+    expect(seen.body.questions["defect-box"]?.type).toBe("box")
+    expect(seen.body.questions["area.spacing"]?.type).toBe("choice")
     expect(
-      Object.keys(seen.body!.questions["area.spacing"]!.criteria as object),
+      Object.keys(
+        defined(seen.body.questions["area.spacing"]).criteria as object,
+      ),
     ).toEqual(["better", "same", "worse"])
   })
 
   test("asks the page-only qualities for a page", async () => {
     const seen = serve(() => fine)
     await judgeWithJev(await story({ scope: "page" }), options)
-    expect(Object.keys(seen.body!.questions)).toContain("quality.focus")
+    expect(Object.keys(seen.body.questions)).toContain("quality.focus")
   })
 
   test("sends the images as data URLs, with the key and the images header", async () => {
     const seen = serve(() => fine)
     await judgeWithJev(await story(), options)
-    expect(seen.headers!.get("authorization")).toBe("Bearer test-key")
-    expect(seen.headers!.get("typesafe-danger-zone-images")).toBe("true")
+    expect(seen.headers.get("authorization")).toBe("Bearer test-key")
+    expect(seen.headers.get("typesafe-danger-zone-images")).toBe("true")
     expect(
-      seen.body!.state.filter((part) => typeof part !== "string"),
+      seen.body.state.filter((part) => typeof part !== "string"),
     ).toHaveLength(2)
   })
 })
@@ -215,8 +229,8 @@ describe("judgeWithJev verdict", () => {
       await story({ images: [{ role: "after", path: wide }] }),
       options,
     )
-    expect(await sentImage(seen.body!, 0)).toEqual({ width: 400, height: 280 })
-    const region = verdict.findings[0]!.region
+    expect(await sentImage(seen.body, 0)).toEqual({ width: 400, height: 280 })
+    const region = defined(verdict.findings[0]).region
     expect(region.y).toBeCloseTo(0.28) // 0.1 * 280 / 100
     expect(region.height).toBeCloseTo(0.28) // 0.1 * 280 / 100
     expect(region.x).toBeCloseTo(0.5)
@@ -235,7 +249,7 @@ describe("judgeWithJev verdict", () => {
       await story({ images: [{ role: "after", path: wide }] }),
       options,
     )
-    const { y, height } = verdict.findings[0]!.region
+    const { y, height } = defined(verdict.findings[0]).region
     expect(y + height).toBeCloseTo(1)
   })
 
@@ -324,10 +338,10 @@ describe("judgeWithJev verdict", () => {
       }),
       options,
     )
-    expect(Object.keys(seen.body!.questions)).not.toContain("defect-box")
+    expect(Object.keys(seen.body.questions)).not.toContain("defect-box")
     expect(verdict.verdict).toBe("regression")
     expect(verdict.findings[0]?.kind).toBe("contrast")
-    const region = verdict.findings[0]!.region
+    const region = defined(verdict.findings[0]).region
     expect(region.x).toBeCloseTo(0.1)
     expect(region.y).toBeCloseTo(0.2)
     expect(region.width).toBeCloseTo(0.3)
@@ -343,7 +357,7 @@ describe("judgeWithJev images", () => {
       await story({ images: [{ role: "after", path: small }] }),
       options,
     )
-    expect(await sentImage(seen.body!, 0)).toEqual({ width: 280, height: 280 })
+    expect(await sentImage(seen.body, 0)).toEqual({ width: 280, height: 280 })
   })
 
   test("scales an image down to at most 1568 px a side, and pads the short side", async () => {
@@ -353,13 +367,13 @@ describe("judgeWithJev images", () => {
       await story({ images: [{ role: "after", path: tall }] }),
       options,
     )
-    expect(await sentImage(seen.body!, 0)).toEqual({ width: 1568, height: 280 })
+    expect(await sentImage(seen.body, 0)).toEqual({ width: 1568, height: 280 })
   })
 
   test("keeps an image that is within the limits as it is", async () => {
     const seen = serve(() => fine)
     await judgeWithJev(await story(), options)
-    expect(await sentImage(seen.body!, 1)).toEqual({ width: 800, height: 500 })
+    expect(await sentImage(seen.body, 1)).toEqual({ width: 800, height: 500 })
   })
 })
 
@@ -404,7 +418,7 @@ describe("judgeWithJev errors", () => {
     vi.stubEnv("MODEL_PROVIDER_URL", baseUrl)
     const seen = serve(() => fine)
     await judgeWithJev(await story())
-    expect(seen.headers!.get("authorization")).toBe("Bearer env-key")
+    expect(seen.headers.get("authorization")).toBe("Bearer env-key")
   })
 
   test("an unknown cost is null", async () => {
