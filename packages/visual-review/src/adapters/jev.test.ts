@@ -9,6 +9,7 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   test,
@@ -132,7 +133,10 @@ const serve = (
   return seen
 }
 
-const options = { apiKey: "test-key", baseUrl }
+beforeEach(() => {
+  vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+  vi.stubEnv("MODEL_PROVIDER_URL", baseUrl)
+})
 
 const sentImage = async (body: DecisionsBody, index: number) => {
   const parts = body.state.filter((part) => typeof part !== "string")
@@ -147,7 +151,7 @@ const sentImage = async (body: DecisionsBody, index: number) => {
 describe("judgeWithJev questions", () => {
   test("asks one question for each area and quality, and skips page-only qualities for a component", async () => {
     const seen = serve(() => fine)
-    await judgeWithJev(await story(), options)
+    await judgeWithJev(await story())
     const names = Object.keys(seen.body.questions)
     for (const { id } of areas) expect(names).toContain(`area.${id}`)
     for (const { id, pageOnly } of qualities)
@@ -165,13 +169,13 @@ describe("judgeWithJev questions", () => {
 
   test("asks the page-only qualities for a page", async () => {
     const seen = serve(() => fine)
-    await judgeWithJev(await story({ scope: "page" }), options)
+    await judgeWithJev(await story({ scope: "page" }))
     expect(Object.keys(seen.body.questions)).toContain("quality.focus")
   })
 
   test("sends the images as data URLs, with the key and the images header", async () => {
     const seen = serve(() => fine)
-    await judgeWithJev(await story(), options)
+    await judgeWithJev(await story())
     expect(seen.headers.get("authorization")).toBe("Bearer test-key")
     expect(seen.headers.get("typesafe-danger-zone-images")).toBe("true")
     expect(
@@ -189,7 +193,7 @@ describe("judgeWithJev verdict", () => {
       if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
       return fine
     })
-    const verdict = await judgeWithJev(await story(), options)
+    const verdict = await judgeWithJev(await story())
     expect(verdictSchema.parse(verdict)).toEqual(verdict)
     expect(verdict.verdict).toBe("regression")
     expect(verdict.severity).toBe("major")
@@ -227,7 +231,6 @@ describe("judgeWithJev verdict", () => {
     const wide = await png("wide.png", 400, 100)
     const verdict = await judgeWithJev(
       await story({ images: [{ role: "after", path: wide }] }),
-      options,
     )
     expect(await sentImage(seen.body, 0)).toEqual({ width: 400, height: 280 })
     const region = defined(verdict.findings[0]).region
@@ -247,7 +250,6 @@ describe("judgeWithJev verdict", () => {
     const wide = await png("wide2.png", 400, 100)
     const verdict = await judgeWithJev(
       await story({ images: [{ role: "after", path: wide }] }),
-      options,
     )
     const { y, height } = defined(verdict.findings[0]).region
     expect(y + height).toBeCloseTo(1)
@@ -257,7 +259,6 @@ describe("judgeWithJev verdict", () => {
     serve((name) => (name === "defect" ? defect(0.03) : fine))
     const verdict = await judgeWithJev(
       await story({ brief: "Rename the button." }),
-      options,
     )
     expect(verdict.verdict).toBe("intended")
     expect(verdict.severity).toBe("none")
@@ -267,7 +268,7 @@ describe("judgeWithJev verdict", () => {
 
   test("nothing worse without a brief or diff is unsure, as the schema rule says", async () => {
     serve((name) => (name === "defect" ? defect(0.03) : fine))
-    const verdict = await judgeWithJev(await story(), options)
+    const verdict = await judgeWithJev(await story())
     expect(verdict.verdict).toBe("unsure")
     expect(verdict.severity).toBe("none")
     expect(verdict.error).toBeUndefined()
@@ -281,7 +282,6 @@ describe("judgeWithJev verdict", () => {
     })
     const verdict = await judgeWithJev(
       await story({ brief: "Rename the button." }),
-      options,
     )
     expect(verdict.verdict).toBe("unsure")
   })
@@ -294,7 +294,6 @@ describe("judgeWithJev verdict", () => {
     })
     const verdict = await judgeWithJev(
       await story({ brief: "Rename the button." }),
-      options,
     )
     expect(verdict.verdict).toBe("unsure")
     expect(verdict.summary).toContain("1 questions")
@@ -305,11 +304,18 @@ describe("judgeWithJev verdict", () => {
     serve(() => undefined)
     const verdict = await judgeWithJev(
       await story({ brief: "Rename the button." }),
-      options,
     )
     expect(verdict.verdict).toBe("unsure")
     expect(verdict.confidence).toBe(0)
     expect(verdict.qualities).toEqual([])
+  })
+
+  test("a flagged defect with no answered area is unsure, since no kind can name it", async () => {
+    serve((name) => (name === "defect" ? defect(0.9) : undefined))
+    const verdict = await judgeWithJev(await story())
+    expect(verdict.verdict).toBe("unsure")
+    expect(verdict.findings).toEqual([])
+    expect(verdict.summary).toContain("no area question")
   })
 
   test("a defect with no worse area gets a finding for the area that is the most likely worse", async () => {
@@ -319,7 +325,7 @@ describe("judgeWithJev verdict", () => {
       if (name === "defect-box") return box(0.5, 0.6, 0.5, 0.6)
       return fine
     })
-    const verdict = await judgeWithJev(await story(), options)
+    const verdict = await judgeWithJev(await story())
     expect(verdict.verdict).toBe("regression")
     expect(verdict.findings).toHaveLength(1)
     expect(verdict.findings[0]?.kind).toBe("overflow")
@@ -336,7 +342,6 @@ describe("judgeWithJev verdict", () => {
       await story({
         images: [{ role: "regions", path: await png("r.png", 600, 300) }],
       }),
-      options,
     )
     expect(Object.keys(seen.body.questions)).not.toContain("defect-box")
     expect(verdict.verdict).toBe("regression")
@@ -355,7 +360,6 @@ describe("judgeWithJev images", () => {
     const small = await png("small.png", 200, 150)
     await judgeWithJev(
       await story({ images: [{ role: "after", path: small }] }),
-      options,
     )
     expect(await sentImage(seen.body, 0)).toEqual({ width: 280, height: 280 })
   })
@@ -363,16 +367,13 @@ describe("judgeWithJev images", () => {
   test("scales an image down to at most 1568 px a side, and pads the short side", async () => {
     const seen = serve(() => fine)
     const tall = await png("tall.png", 3136, 100)
-    await judgeWithJev(
-      await story({ images: [{ role: "after", path: tall }] }),
-      options,
-    )
+    await judgeWithJev(await story({ images: [{ role: "after", path: tall }] }))
     expect(await sentImage(seen.body, 0)).toEqual({ width: 1568, height: 280 })
   })
 
   test("keeps an image that is within the limits as it is", async () => {
     const seen = serve(() => fine)
-    await judgeWithJev(await story(), options)
+    await judgeWithJev(await story())
     expect(await sentImage(seen.body, 1)).toEqual({ width: 800, height: 500 })
   })
 })
@@ -390,7 +391,7 @@ describe("judgeWithJev errors", () => {
         ),
       ),
     )
-    const verdict = await judgeWithJev(await story(), options)
+    const verdict = await judgeWithJev(await story())
     expect(verdictSchema.parse(verdict)).toEqual(verdict)
     expect(verdict.verdict).toBe("unsure")
     expect(verdict.severity).toBe("none")
@@ -408,28 +409,18 @@ describe("judgeWithJev errors", () => {
         ),
       ),
     )
-    await expect(judgeWithJev(await story(), options)).rejects.toThrow(
-      /429.*Slow down/,
-    )
-  })
-
-  test("the key and URL come from the model provider variables", async () => {
-    vi.stubEnv("MODEL_PROVIDER_API_KEY", "env-key")
-    vi.stubEnv("MODEL_PROVIDER_URL", baseUrl)
-    const seen = serve(() => fine)
-    await judgeWithJev(await story())
-    expect(seen.headers.get("authorization")).toBe("Bearer env-key")
+    await expect(judgeWithJev(await story())).rejects.toThrow(/429.*Slow down/)
   })
 
   test("an unknown cost is null", async () => {
     serve(() => fine, { input_tokens: 10, output_tokens: 1 })
-    const verdict = await judgeWithJev(await story(), options)
+    const verdict = await judgeWithJev(await story())
     expect(verdict.costUsd).toBeNull()
   })
 
   test("without a key it throws before any request", async () => {
     vi.stubEnv("MODEL_PROVIDER_API_KEY", "")
-    await expect(judgeWithJev(await story(), { baseUrl })).rejects.toThrow(
+    await expect(judgeWithJev(await story())).rejects.toThrow(
       /MODEL_PROVIDER_API_KEY/,
     )
   })

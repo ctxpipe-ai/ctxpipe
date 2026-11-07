@@ -13,13 +13,6 @@ import { areas, qualities } from "../rubric.ts"
 import type { Box, StoryInput } from "../story.ts"
 import { parseVerdict, type Verdict } from "../verdict.ts"
 
-export type JevOptions = {
-  /** Default: `MODEL_PROVIDER_API_KEY`. */
-  apiKey?: string
-  /** The OpenRouter API base. Default: `MODEL_PROVIDER_URL`, else OpenRouter. */
-  baseUrl?: string
-}
-
 type Question =
   | {
       type: "choice"
@@ -93,7 +86,8 @@ function unionOf(regions: StoryInput["regions"]): Box {
 }
 
 /**
- * Judge one story with Jev. The verdict says `regression` when Jev finds a
+ * Judge one story with Jev. The key comes from `MODEL_PROVIDER_API_KEY` and
+ * the OpenRouter API base from `MODEL_PROVIDER_URL`. The verdict says `regression` when Jev finds a
  * defect or a worse area or quality with a probability of 0.5 or more, and
  * `unsure` when a probability is from 0.2 up to 0.5 or when a question has no
  * answer. Else nothing got worse: the verdict is `intended` when a brief or a
@@ -106,16 +100,11 @@ function unionOf(regions: StoryInput["regions"]): Box {
  * requires it for an image or a Box question. The OpenRouter docs do not
  * mention it, and no real call has confirmed that OpenRouter needs it.
  */
-export async function judgeWithJev(
-  story: StoryInput,
-  options: JevOptions = {},
-): Promise<Verdict> {
-  const apiKey = options.apiKey ?? process.env.MODEL_PROVIDER_API_KEY
+export async function judgeWithJev(story: StoryInput): Promise<Verdict> {
+  const apiKey = process.env.MODEL_PROVIDER_API_KEY
   if (!apiKey)
     throw new Error("Set MODEL_PROVIDER_API_KEY (the OpenRouter key).")
-  const base =
-    options.baseUrl ??
-    (process.env.MODEL_PROVIDER_URL || "https://openrouter.ai/api/v1")
+  const base = process.env.MODEL_PROVIDER_URL || "https://openrouter.ai/api/v1"
   const requestedModel = "typesafe/jev-1.14"
 
   const prepared = await Promise.all(
@@ -292,27 +281,39 @@ export async function judgeWithJev(
           ),
         ]
       : worseAreas
+  // Without an answered area, a flagged defect has no kind to name: unsure.
+  const regression = flagged && findingAreas.length > 0
   const worseLabels = [
     ...worseAreas.map(({ area, worse }) => `${area.id} ${worse.toFixed(2)}`),
     ...qualityResults
       .filter(({ delta, worse }) => delta === "worse" && worse >= 0.5)
       .map(({ id, worse }) => `${id} ${worse.toFixed(2)}`),
   ]
-  const summary = flagged
+  const summary = regression
     ? `Jev filter: defect ${defectProbability.toFixed(2)}; worse: ${worseLabels.join(", ") || "none"}.`
-    : unanswered
-      ? `Jev filter left ${unanswered} questions without an answer.`
-      : doubtful
-        ? `Jev filter is not sure: the strongest worse probability is ${strongest.toFixed(2)}.`
-        : `Jev filter found nothing worse: defect ${defectProbability.toFixed(2)}.`
+    : flagged
+      ? "Jev filter flagged a problem, but no area question has an answer to place it."
+      : unanswered
+        ? `Jev filter left ${unanswered} questions without an answer.`
+        : doubtful
+          ? `Jev filter is not sure: the strongest worse probability is ${strongest.toFixed(2)}.`
+          : `Jev filter found nothing worse: defect ${defectProbability.toFixed(2)}.`
 
   // `parseVerdict` checks the judgement and applies the rules of the prompt.
   return parseVerdict(
     JSON.stringify({
       observations: [],
-      verdict: flagged ? "regression" : doubtful ? "unsure" : "intended",
-      severity: flagged ? (strongest >= 0.8 ? "major" : "minor") : "none",
-      confidence: flagged ? strongest : unanswered ? 0 : 1 - strongest,
+      verdict: regression
+        ? "regression"
+        : doubtful || flagged
+          ? "unsure"
+          : "intended",
+      severity: regression ? (strongest >= 0.8 ? "major" : "minor") : "none",
+      confidence: regression
+        ? strongest
+        : unanswered || flagged
+          ? 0
+          : 1 - strongest,
       summary,
       qualities: qualityResults.map(({ id, delta, probability }) => ({
         name: id,
