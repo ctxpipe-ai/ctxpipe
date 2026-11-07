@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "sharp": "^0.34.5",
     "zod": "^4.3.6"
   },
   "devDependencies": {
