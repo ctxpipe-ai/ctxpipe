@@ -266,7 +266,10 @@ async function judgeByAgent(
     })),
   )
   const hash = createHash("sha256")
-  for (const { png } of images) hash.update(png)
+  // The name and the length of each image go in first, so that bytes cannot
+  // move from one image to the next with the same hash.
+  for (const { name, png } of images)
+    hash.update(`${name} ${png.length}\n`).update(png)
   const request = `# Visual judgment request: ${story.storyId}
 
 You are the judge. Read the rules and the story below. Then read each image file in this folder, in the order of the list. Write your reply as \`verdict.json\` in this folder: one JSON object that matches the JSON Schema at the end of the rules. Then run this command again: \`${rerun}\`
