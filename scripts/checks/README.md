@@ -309,7 +309,7 @@ Only a ctxpipe developer can decide an escalated finding. The gate never decides
 4. After that PR merges, the agent runs `factory check` again. The entry names the finding id, so it ends the hold of that finding.
 5. When the human says that the finding stands, the agent fixes it.
 
-An escalated finding holds its hunk. Each held finding has its own hold. Its critic counts as `missing` until the hunk changes, or until a merged entry names the finding id. That entry must also be of the critic, and its paths must match the hunk. An entry that only matches the critic and the paths does not end a hold. It covers only new findings in new code, as before. The gate counts only the last review of a hunk at the head commit. A critic with the status `escalated` (from an older factory release) also fails the gate.
+An escalated finding holds its hunk. Each held finding has its own hold. Its critic counts as `missing` until the hunk changes, or until a merged entry names the finding id. That entry must also be of the critic. Its paths do not matter for the hold. An entry without a finding id does not end a hold. It covers only new findings in new code when its critic and paths match, as before. The gate counts only the last review of a hunk at the head commit. A critic with the status `escalated` (from an older factory release) also fails the gate.
 
 No text of an accepted risk goes into this repo, its PR comments or its artifacts. The PR comment and the artifact show each disputed finding only by its id, critic, severity and outcome. They show no finding text, path, argument or reason.
 
