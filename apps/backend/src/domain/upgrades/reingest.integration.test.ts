@@ -89,7 +89,11 @@ afterAll(async () => {
   await closeDb()
 })
 
-/** Queue an upgrade run that no worker claims: it stays active. */
+/**
+ * Queue an upgrade run. It stays active when no worker of the test claims it.
+ * The worker of `orphanedRepositoryRun` claims it and starts its repository
+ * run.
+ */
 async function upgradeRun(orgId: string): Promise<string> {
   const handle = await runner.runWorkflow(upgradeSpec, { orgId })
   queued.push(handle.workflowRun.id)
@@ -457,23 +461,14 @@ async function orphanedRepositoryRun(orgId: string) {
    * names the parent run, not only the org.
    */
   const statusOf = async (workflowName: string) => {
-    const children = await getSystemDb().execute<{
-      id: string
-      input: { orgId: string; workspaceId: string; upgradeRunId: string }
-    }>(sql`
-      select child.id, child.input
-      from openworkflow.workflow_runs child
-      join openworkflow.step_attempts parent_step
-        on parent_step.namespace_id = child.parent_step_attempt_namespace_id
-        and parent_step.id = child.parent_step_attempt_id
-      where child.namespace_id = ${openWorkflowNamespaceId()}
-        and parent_step.workflow_run_id = ${handle.workflowRun.id}
-    `)
-    const child = children.rows[0]
+    const child = await repositoryRunOf(handle.workflowRun.id)
+    if (workflowName === "workspace-upgrade-reingest-repository") return child
     const run =
-      workflowName === INGESTION_V2_WORKFLOW_NAME
-        ? sql`starts_with(idempotency_key, ${child ? reingestRunKeyPrefix(child.input) : "-"})`
-        : sql`id in (${handle.workflowRun.id}, ${child?.id ?? "-"})`
+      workflowName !== INGESTION_V2_WORKFLOW_NAME
+        ? sql`id = ${handle.workflowRun.id}`
+        : child &&
+          sql`starts_with(idempotency_key, ${reingestRunKeyPrefix(child.input)})`
+    if (!run) return undefined
     const result = await getSystemDb().execute<{
       id: string
       status: string
@@ -486,13 +481,15 @@ async function orphanedRepositoryRun(orgId: string) {
     return result.rows[0]
   }
   // The repository run has started its ingestion run.
-  let child: { id: string; status: string } | undefined
-  for (let i = 0; i < 60; i++) {
-    child = await statusOf("workspace-upgrade-reingest-repository")
-    if (child && (await statusOf(INGESTION_V2_WORKFLOW_NAME))) break
-    await new Promise((resolve) => setTimeout(resolve, 500))
-  }
-  expect(child?.status).toMatch(/running|sleeping|pending/)
+  const child = await until(async () => {
+    const repositoryRun = await statusOf(
+      "workspace-upgrade-reingest-repository",
+    )
+    return repositoryRun && (await statusOf(INGESTION_V2_WORKFLOW_NAME))
+      ? repositoryRun
+      : undefined
+  })
+  expect(child.status).toMatch(/running|sleeping|pending/)
 
   // The parent is canceled. Its child keeps running.
   await fleet.cancelWorkflowRun(handle.workflowRun.id)
@@ -505,21 +502,29 @@ async function orphanedRepositoryRun(orgId: string) {
   return { fleet, worker, statusOf, scan }
 }
 
-/** Wait until the repository run of an upgrade run exists, and return it. */
+/** The repository run that an upgrade run started, if it exists. */
 async function repositoryRunOf(upgradeRunId: string) {
+  const result = await getSystemDb().execute<{
+    id: string
+    status: string
+    input: { orgId: string; workspaceId: string; upgradeRunId: string }
+  }>(sql`
+    select id, status, input from openworkflow.workflow_runs
+    where namespace_id = ${openWorkflowNamespaceId()}
+      and workflow_name = 'workspace-upgrade-reingest-repository'
+      and input->>'upgradeRunId' = ${upgradeRunId}
+  `)
+  return result.rows[0]
+}
+
+/** Read every 500 ms until `read` gives a value, for at most 30 s. */
+async function until<T>(read: () => Promise<T | undefined>): Promise<T> {
   for (let i = 0; i < 60; i++) {
-    const result = await getSystemDb().execute<{ id: string; status: string }>(
-      sql`
-        select id, status from openworkflow.workflow_runs
-        where namespace_id = ${openWorkflowNamespaceId()}
-          and workflow_name = 'workspace-upgrade-reingest-repository'
-          and input->>'upgradeRunId' = ${upgradeRunId}
-      `,
-    )
-    if (result.rows[0]) return result.rows[0]
+    const value = await read()
+    if (value) return value
     await new Promise((resolve) => setTimeout(resolve, 500))
   }
-  throw new Error(`The repository run of ${upgradeRunId} did not start.`)
+  throw new Error("The state did not come in 30 s.")
 }
 
 describe("a parent run that ends before its repository runs", () => {
@@ -545,7 +550,7 @@ describe("a parent run that ends before its repository runs", () => {
         })
         // The worker of this test also runs the next run, and that run starts
         // its own repository run. Its parent is live, so it is not an orphan.
-        await repositoryRunOf(next)
+        await until(() => repositoryRunOf(next))
 
         await stopOrphanedReingestRuns()
         expect(
@@ -553,7 +558,7 @@ describe("a parent run that ends before its repository runs", () => {
         ).toBe("canceled")
         const ingestion = await statusOf(INGESTION_V2_WORKFLOW_NAME)
         expect(ingestion?.status).toBe("canceled")
-        expect((await repositoryRunOf(next)).status).not.toBe("canceled")
+        expect((await repositoryRunOf(next))?.status).not.toBe("canceled")
         expect(
           await reingestSlotTurn({
             orgId,
