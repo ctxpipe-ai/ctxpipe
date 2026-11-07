@@ -195,6 +195,19 @@ describe("toStoryInput", () => {
     })
   })
 
+  test.each([
+    ["a ../ path", "../../secrets/key.png"],
+    ["an absolute path", "/etc/hosts"],
+  ])("rejects %s, which is outside the manifest folder", (_, path) => {
+    expect(() =>
+      toStoryInput(
+        manifest,
+        { ...story, images: { ...story.images, after: path } },
+        { root: "/repo/.ci-results/visual" },
+      ),
+    ).toThrow(`Image path "${path}" is outside the manifest folder`)
+  })
+
   test("the images that writeStoryImages wrote are the images of the critic", async () => {
     const before = screenshot(200, 120, [
       { box: { x: 120, y: 80, width: 60, height: 24 }, color: [37, 99, 235] },

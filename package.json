@@ -22,6 +22,7 @@
     "checks:prepare": "node scripts/checks/prerequisites.mjs",
     "test:contracts": "node scripts/ci/test-suite.mjs contracts",
     "test:policy": "node scripts/ci/check-test-policy.mjs",
+    "visual:review": "node packages/visual-review/src/command.ts",
     "test:storybook-golden": "node scripts/ci/storybook-golden.mjs",
     "lint": "oxlint -c .oxlintrc.json apps packages",
     "knip": "knip",
