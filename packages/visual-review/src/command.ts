@@ -13,7 +13,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import { parseArgs } from "node:util"
 
 import { judgeWithJev } from "./adapters/jev.ts"
@@ -41,18 +41,22 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|agen
               verdict can be intended.
   --json      Print the verdicts as one JSON array.
 
-Exit code: 0 when no verdict blocks; 1 when a verdict is regression with severity
-major or blocker; 2 when the review is not complete (a usage or manifest error,
-a verdict with an error, or an agent judgment that is not written yet).`
+Exit code: 2 when the review is not complete (a usage or manifest error, a
+verdict with an error, or an agent judgment that is not written yet); else 1
+when a verdict is regression with severity major or blocker; else 0.
+
+The agent judge keeps its requests and verdicts in
+.ci-results/visual-review/<run>/ below the current folder, never in the run
+folder: a run folder can come from an artifact that PR code wrote.`
 
 /**
  * Run `visual:review` with the command-line arguments `args`. `print` gets
- * the output. The key and the endpoint of the model come from `process.env`.
- * Returns the exit code.
+ * the output. `cwd` holds the folder of the agent judge. The key and the
+ * endpoint of the model come from `process.env`. Returns the exit code.
  */
 export async function visualReview(
   args: readonly string[],
-  print: (text: string) => void,
+  { print, cwd }: { print: (text: string) => void; cwd: string },
 ): Promise<number> {
   let options
   try {
@@ -89,9 +93,9 @@ export async function visualReview(
 
   let stories: StoryInput[]
   let root: string
-  let realRoot: string
+  let judgments: string
   try {
-    const path = resolve(options.manifest)
+    const path = resolve(cwd, options.manifest)
     root = dirname(path)
     // The manifest can come from an artifact that PR code wrote. A link
     // there could make this command read, and print, a file outside the run.
@@ -103,13 +107,23 @@ export async function visualReview(
     const brief =
       options.brief === undefined
         ? undefined
-        : await readFile(options.brief, "utf8")
+        : await readFile(resolve(cwd, options.brief), "utf8")
     // The critic judges only a change beyond the tolerance. A new, removed,
     // unstable or failed story is the job of the visual check.
     const reviewed = manifest.stories.filter(
       ({ status }) => status === "changed" || status === "size-changed",
     )
-    realRoot = await realpath(root)
+    const realRoot = await realpath(root)
+    judgments = join(
+      await realpath(cwd),
+      ".ci-results",
+      "visual-review",
+      createHash("sha256").update(realRoot).digest("hex").slice(0, 12),
+    )
+    if (relative(realRoot, judgments).split(sep)[0] !== "..")
+      throw new Error(
+        `The judgment folder ${judgments} is inside the run folder. Run the command from a folder outside the run folder.`,
+      )
     stories = []
     for (const story of reviewed) {
       if (!story.images.before || !story.images.after)
@@ -142,7 +156,7 @@ export async function visualReview(
     verdicts = await reviewStories(
       stories,
       judge === "agent"
-        ? (story) => judgeByAgent(story, realRoot)
+        ? (story) => judgeByAgent(story, judgments)
         : async (story) => {
             const filtered =
               filter === "jev" ? await judgeWithJev(story) : undefined
@@ -172,8 +186,8 @@ export async function visualReview(
   }
 
   print(options.json ? JSON.stringify(verdicts, null, 2) : report(verdicts))
-  if (verdicts.some(blocks)) return 1
   if (verdicts.some(({ error }) => error !== undefined)) return 2
+  if (verdicts.some(blocks)) return 1
   return 0
 }
 
@@ -183,28 +197,29 @@ const blocks = ({ verdict, severity }: Verdict) =>
 
 /**
  * The agent judge. It writes a judgment request for `story` into
- * `<root>/judgments/<screenshot id>/`: `request.md` (the rules, the rubric, the
+ * `<judgments>/<screenshot id>/`: `request.md` (the rules, the rubric, the
  * measured regions and the JSON Schema of the reply) and the images, prepared
  * to the side limits of the vision models. The coding agent reads them and
  * writes `verdict.json` in the same folder. The next call reads that file as
  * a model reply. A request that changed (other regions, other images, another
  * brief) removes the old `verdict.json`.
+ *
+ * `judgments` is a folder of the reviewer, outside the run folder. The run
+ * folder can come from an artifact that PR code wrote, so a verdict there
+ * would be the verdict of the PR author.
  */
-async function judgeByAgent(story: StoryInput, root: string): Promise<Verdict> {
+async function judgeByAgent(
+  story: StoryInput,
+  judgments: string,
+): Promise<Verdict> {
   // The screenshot id is a folder name here, so it may not climb out of the
-  // folder. A symbolic link in the run folder may not lead out of it either.
+  // folder.
   if (!/^[\w-]+(@[\w-]+)?\.(desktop|mobile)$/.test(story.storyId))
     throw new Error(
       `Screenshot id "${story.storyId}" is not a valid folder name.`,
     )
-  const judgments = join(root, "judgments")
   const folder = join(judgments, story.storyId)
-  // Check each level before a write below it: `judgments` first, then the
-  // folder of this screenshot.
-  for (const level of [judgments, folder]) {
-    await mkdir(level, { recursive: true })
-    await realInside(root, level)
-  }
+  await mkdir(folder, { recursive: true })
   const prompt = buildPrompt(story)
   const images = await Promise.all(
     prompt.images.map(async ({ role, path }, index) => ({
@@ -244,15 +259,7 @@ Input: sha256 ${hash.digest("hex")}
 
   const requestPath = join(folder, "request.md")
   const verdictPath = join(folder, "verdict.json")
-  // A file of the folder can be a symbolic link. Read it only when its real
-  // path is in the run folder.
-  const readInRun = async (path: string) => {
-    const real = await realpath(path).catch(() => undefined)
-    if (real === undefined) return undefined
-    await realInside(root, real)
-    return readFile(real, "utf8")
-  }
-  const written = await readInRun(requestPath)
+  const written = await readFile(requestPath, "utf8").catch(() => undefined)
   if (written !== request) {
     for (const name of await readdir(folder))
       await rm(join(folder, name), { recursive: true, force: true })
@@ -260,7 +267,7 @@ Input: sha256 ${hash.digest("hex")}
     await writeFile(requestPath, request)
     return pending(`Judge ${requestPath}, then write ${verdictPath}.`)
   }
-  const reply = await readInRun(verdictPath)
+  const reply = await readFile(verdictPath, "utf8").catch(() => undefined)
   if (reply === undefined)
     return pending(`Judge ${requestPath}, then write ${verdictPath}.`)
   // `parseVerdict` checks the reply against the judgement part of
@@ -304,6 +311,7 @@ function report(verdicts: readonly Verdict[]): string {
 }
 
 if (import.meta.main)
-  process.exitCode = await visualReview(process.argv.slice(2), (text) =>
-    process.stdout.write(`${text}\n`),
-  )
+  process.exitCode = await visualReview(process.argv.slice(2), {
+    print: (text) => process.stdout.write(`${text}\n`),
+    cwd: process.cwd(),
+  })

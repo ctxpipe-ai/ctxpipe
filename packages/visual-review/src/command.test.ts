@@ -1,6 +1,7 @@
 // `visual:review` on a real visual run: real screenshots, the real compare
 // engine, real image files and a real manifest. Only the provider HTTP is
 // faked.
+import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import {
   mkdir,
@@ -90,11 +91,15 @@ const server = setupServer(
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }))
 afterAll(() => server.close())
 
+// `root` is the run folder. `work` is the folder of the reviewer, where the
+// command runs.
 let root: string
+let work: string
 let output: string[]
 beforeEach(async () => {
-  // The real path: on macOS the temporary folder is behind a symbolic link.
+  // The real paths: on macOS the temporary folder is behind a symbolic link.
   root = await realpath(await mkdtemp(join(tmpdir(), "visual-review-command-")))
+  work = await realpath(await mkdtemp(join(tmpdir(), "visual-review-work-")))
   output = []
   chats.length = 0
   content = JSON.stringify(regression)
@@ -105,7 +110,18 @@ afterEach(async () => {
   vi.unstubAllEnvs()
   server.resetHandlers()
   await rm(root, { recursive: true, force: true })
+  await rm(work, { recursive: true, force: true })
 })
+
+/** The folder of the agent judge for the run in `root`. */
+const judgments = (...parts: string[]) =>
+  join(
+    work,
+    ".ci-results",
+    "visual-review",
+    createHash("sha256").update(root).digest("hex").slice(0, 12),
+    ...parts,
+  )
 
 const before = screenshot(400, 300, [
   { box: { x: 240, y: 180, width: 120, height: 60 }, color: [37, 99, 235] },
@@ -175,7 +191,7 @@ async function writeRun(
 }
 
 const run = (...args: string[]) =>
-  visualReview(args, (text) => output.push(text))
+  visualReview(args, { print: (text) => output.push(text), cwd: work })
 
 describe("visual:review --judge model", () => {
   test("a major regression blocks: exit code 1, with the verdict and its finding", async () => {
@@ -294,7 +310,7 @@ describe("visual:review --judge model", () => {
 describe("visual:review --judge agent", () => {
   test("writes a judgment request, then reads the verdict.json of the agent", async () => {
     const manifest = await writeRun(["button--primary"])
-    const folder = join(root, "judgments", "button--primary.desktop")
+    const folder = judgments("button--primary.desktop")
 
     const first = await run("--manifest", manifest, "--judge", "agent")
 
@@ -341,7 +357,7 @@ describe("visual:review --judge agent", () => {
     const manifest = await writeRun(["button--primary"])
     await run("--manifest", manifest, "--judge", "agent")
     await writeFile(
-      join(root, "judgments", "button--primary.desktop", "verdict.json"),
+      judgments("button--primary.desktop", "verdict.json"),
       JSON.stringify({ verdict: "fine" }),
     )
 
@@ -354,12 +370,7 @@ describe("visual:review --judge agent", () => {
   test("a changed request removes the old verdict.json", async () => {
     const manifest = await writeRun(["button--primary"])
     await run("--manifest", manifest, "--judge", "agent")
-    const verdict = join(
-      root,
-      "judgments",
-      "button--primary.desktop",
-      "verdict.json",
-    )
+    const verdict = judgments("button--primary.desktop", "verdict.json")
     await writeFile(verdict, JSON.stringify(regression))
     const brief = join(root, "brief.md")
     await writeFile(brief, "Make the primary button red.")
@@ -379,20 +390,38 @@ describe("visual:review --judge agent", () => {
 })
 
 describe("visual:review reads and writes only in the run folder", () => {
-  test("a judgments folder that links outside the run folder gets no write", async () => {
-    const outside = await mkdtemp(join(tmpdir(), "visual-review-outside-"))
-    await mkdir(join(outside, "button--primary.desktop"))
-    await writeFile(join(outside, "button--primary.desktop", "keep.txt"), "x")
+  test("a verdict in the run folder, from the writer of the run, is not read", async () => {
     const manifest = await writeRun(["button--primary"])
-    await symlink(outside, join(root, "judgments"))
+    await run("--manifest", manifest, "--judge", "agent")
+    const request = await readFile(
+      judgments("button--primary.desktop", "request.md"),
+      "utf8",
+    )
+    for (const folder of [
+      join(root, "judgments", "button--primary.desktop"),
+      join(root, ".ci-results", "visual-review", "button--primary.desktop"),
+    ]) {
+      await mkdir(folder, { recursive: true })
+      await writeFile(join(folder, "request.md"), request)
+      await writeFile(join(folder, "verdict.json"), JSON.stringify(intended))
+    }
 
     const code = await run("--manifest", manifest, "--judge", "agent")
 
-    const kept = await readdir(join(outside, "button--primary.desktop"))
-    await rm(outside, { recursive: true, force: true })
     expect(code).toBe(2)
-    expect(kept).toEqual(["keep.txt"])
-    expect(output.join("\n")).toContain("is outside the manifest folder")
+    expect(output.join("\n")).toContain("No agent verdict yet.")
+  })
+
+  test("the agent judge refuses to keep its verdicts inside the run folder", async () => {
+    const manifest = await writeRun(["button--primary"])
+
+    const code = await visualReview(
+      ["--manifest", manifest, "--judge", "agent"],
+      { print: (text) => output.push(text), cwd: root },
+    )
+
+    expect(code).toBe(2)
+    expect(output.join("\n")).toContain("is inside the run folder")
   })
 
   test.each([
@@ -409,25 +438,6 @@ describe("visual:review reads and writes only in the run folder", () => {
     expect(code).toBe(2)
     expect(chats).toHaveLength(0)
     expect(output.join("\n")).toContain("is outside the manifest folder")
-  })
-
-  test("a verdict.json that links outside the run folder is not read", async () => {
-    const outside = await mkdtemp(join(tmpdir(), "visual-review-outside-"))
-    await writeFile(join(outside, "secret.txt"), "secret text")
-    const manifest = await writeRun(["button--primary"])
-    await run("--manifest", manifest, "--judge", "agent")
-    await symlink(
-      join(outside, "secret.txt"),
-      join(root, "judgments", "button--primary.desktop", "verdict.json"),
-    )
-    output = []
-
-    const code = await run("--manifest", manifest, "--judge", "agent")
-
-    await rm(outside, { recursive: true, force: true })
-    expect(code).toBe(2)
-    expect(output.join("\n")).toContain("is outside the manifest folder")
-    expect(output.join("\n")).not.toContain("secret text")
   })
 
   test("a manifest that is a symbolic link is not read", async () => {
@@ -474,7 +484,7 @@ describe("visual:review checks each screenshot", () => {
 
     expect(await run("--manifest", manifest, "--judge", "agent")).toBe(2)
 
-    expect((await readdir(join(root, "judgments"))).sort()).toEqual([
+    expect((await readdir(judgments())).sort()).toEqual([
       "button--primary.desktop",
       "button--primary.mobile",
       "button--primary@menu-open.desktop",
