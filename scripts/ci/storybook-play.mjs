@@ -102,12 +102,15 @@ const playOrigin = "http://localhost:6006"
 const playTime = Date.parse("2026-11-02T12:00:00Z")
 
 // A story with a play function ends when its play ends. A story without one
-// ends when Storybook completes its render. A story with a play that did not
-// run also reaches "completed", so it must not end there.
-export const storyEndPhase = (story) =>
-  (story.tags ?? []).includes("play-fn") ? "played" : "completed"
+// ends when Storybook completes its render. Before a screenshot (`shot`), a
+// story with a play also waits for "completed": in that phase Storybook waits
+// for the running animations to finish (at most 5 seconds). A story with a
+// play must reach "played" first, because a play that did not run also
+// reaches "completed".
+export const storyEndPhase = (story, shot) =>
+  !shot && (story.tags ?? []).includes("play-fn") ? "played" : "completed"
 
-const playInitScript = ({ endPhase, time }) => {
+const playInitScript = ({ endPhase, needsPlay, time }) => {
   window.__CTXPIPE_PLAY__ = { result: null, waiters: [] }
   const NativeDate = Date
   const offset = time - NativeDate.now()
@@ -182,6 +185,7 @@ const playInitScript = ({ endPhase, time }) => {
     window.__CTXPIPE_PLAY__.result = result
     for (const wait of window.__CTXPIPE_PLAY__.waiters) wait(result)
   }
+  let played = false
   const hook = () => {
     const channel = globalThis.__STORYBOOK_ADDONS_CHANNEL__
     if (!channel || channel.__ctxpipePlay) return
@@ -202,7 +206,9 @@ const playInitScript = ({ endPhase, time }) => {
       })
     channel.on("storyRenderPhaseChanged", (info) => {
       const phase = info?.newPhase ?? info?.phase
-      if (phase === endPhase) record({ ok: true, phase })
+      if (phase === "played") played = true
+      if (phase === endPhase && (played || !needsPlay))
+        record({ ok: true, phase })
       // Storybook names the phase before it emits the error of a play that
       // threw. Wait a moment, so that error comes first.
       if (phase === "errored")
@@ -221,8 +227,8 @@ const playInitScript = ({ endPhase, time }) => {
 }
 
 // Runs in the page when the story has ended. It stops each CSS animation and
-// transition, hides the text caret and waits for the web fonts, so that a
-// screenshot does not depend on its time. A play cannot use this step: some
+// transition, hides the text caret, waits for the web fonts and places the
+// popovers again, so that a screenshot does not depend on its time. A play cannot use this step: some
 // plays test an animation. A story can check the settled page with
 // `window.__CTXPIPE_PLAY__.afterSettle` (the story Testing/Play host does).
 // Returns the error of that check.
@@ -233,6 +239,13 @@ const settle = async () => {
   )
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, steady]
   await document.fonts.ready
+  // A popover that measured its trigger while the trigger still moved (an
+  // animation of its menu) is out of place. A resize event makes each
+  // popover measure again.
+  window.dispatchEvent(new Event("resize"))
+  await new Promise((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve)),
+  )
   try {
     await window.__CTXPIPE_PLAY__.afterSettle?.()
   } catch (error) {
@@ -288,7 +301,8 @@ export async function playStories(
       const pageErrors = []
       page.on("pageerror", (error) => pageErrors.push(String(error)))
       await page.addInitScript(playInitScript, {
-        endPhase: storyEndPhase(story),
+        endPhase: storyEndPhase(story, Boolean(afterPlay)),
+        needsPlay: (story.tags ?? []).includes("play-fn"),
         time: playTime,
       })
       if ((story.tags ?? []).includes("reduced-motion"))

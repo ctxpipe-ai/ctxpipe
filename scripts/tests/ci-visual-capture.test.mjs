@@ -4,34 +4,44 @@ import { test } from "node:test"
 
 import { shootUntilSteady } from "../ci/visual-capture.mjs"
 
-// Gives the shots of a page whose pixels change in the given order.
+// Gives the shots of a page whose pixels change in the given order, and
+// counts the pauses between shots.
 const page = (...frames) => {
   let taken = 0
+  let paused = 0
   return {
     shoot: async () => Buffer.from(frames[Math.min(taken++, frames.length - 1)]),
+    pause: async () => {
+      paused++
+    },
     taken: () => taken,
+    paused: () => paused,
   }
 }
 
 test("a page that does not change gives its shot after two shots", async () => {
   const steady = page("a")
-  const result = await shootUntilSteady(steady.shoot, 4)
+  const result = await shootUntilSteady(steady.shoot, 4, steady.pause)
   assert.deepEqual(result, { steady: true, png: Buffer.from("a") })
   assert.equal(steady.taken(), 2)
+  assert.equal(steady.paused(), 0)
 })
 
 test("a late change is waited for until two shots in a row match", async () => {
   const late = page("a", "b", "b")
-  const result = await shootUntilSteady(late.shoot, 4)
+  const result = await shootUntilSteady(late.shoot, 4, late.pause)
   assert.deepEqual(result, { steady: true, png: Buffer.from("b") })
   assert.equal(late.taken(), 3)
+  // A shot that differs gives a slow change time to end before the next.
+  assert.equal(late.paused(), 1)
 })
 
 test("a page that keeps changing is unstable after the last shot", async () => {
   const moving = page("a", "b", "c", "d", "e")
-  const result = await shootUntilSteady(moving.shoot, 4)
+  const result = await shootUntilSteady(moving.shoot, 4, moving.pause)
   assert.deepEqual(result, { steady: false, png: Buffer.from("d") })
   assert.equal(moving.taken(), 4)
+  assert.equal(moving.paused(), 2)
 })
 
 test("the nightly run captures a sample two times and fails on a difference", () => {
