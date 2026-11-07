@@ -54,14 +54,13 @@ After you complete the requested code changes, commit them. Then run `factory ch
 
 ### Sub-agent models
 
-The orchestrator app (Paseo) or the harness's own sub-agent tool starts each agent. Always set the model and the effort explicitly. Use the harness's own name for each model and its effort setting. The token total is the limit. The number of agents in parallel is not the limit. Use Opus 5.5 for all builds, fixes and diagnoses. Use a second model family (Codex GPT) only for reviews. Then the review findings come from different blind spots. When the Codex plan has no tokens left, use the Claude fallback in the same row.
+The orchestrator app (Paseo) or the harness's own sub-agent tool starts each agent. Always set the model and the effort explicitly. Use the harness's own name for each model and its effort setting. The token total is the limit. The number of agents in parallel is not the limit. Use Opus 5.5 for all builds, fixes and diagnoses. The only exception is the row for the `local` profile. Use a second model family (Codex GPT) only for reviews. Then the review findings come from different blind spots. When the Codex plan has no tokens left, use the Claude fallback in the same row.
 
 The review rows are what `critics.json` runs. `factory check` starts the reviewers and unites the findings of the reviewers of a critic. Do not start them by hand as sub-agents.
 
 | Work | Model and effort | Fallback |
 | --- | --- | --- |
-| First build of a ticket that is design-heavy or security-sensitive | Opus 5.5; effort from the estimated complexity (low, medium, high) | — |
-| Plumbing build or mechanical review fix | Opus 5.5; effort from the estimated complexity (low, medium, high) | — |
+| Build of a ticket, or mechanical review fix | Opus 5.5; effort from the estimated complexity (low, medium, high) | — |
 | Small fix that has acceptance tests in the brief, on a host where `list_profiles` shows `local` | The local model through the `local` profile; read its notes. Review its diff before you accept it | Opus 5.5, low |
 | Review fix that needs a security design | Opus 5.5, medium | — |
 | First review round, Standards axis | Codex GPT-6.1-Sol, high | Opus, high |
