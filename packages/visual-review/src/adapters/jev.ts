@@ -201,9 +201,9 @@ export async function judgeWithJev(story: StoryInput): Promise<Verdict> {
 
   const choiceAnswer = z.object({
     probabilities: z.object({
-      better: z.number().default(0),
-      same: z.number().default(0),
-      worse: z.number().default(0),
+      better: z.number().min(0).max(1),
+      same: z.number().min(0).max(1),
+      worse: z.number().min(0).max(1),
     }),
   })
   const deltaOf = (name: string) => {
@@ -228,7 +228,7 @@ export async function judgeWithJev(story: StoryInput): Promise<Verdict> {
     return result ? [{ id, ...result }] : []
   })
   const defect = z
-    .object({ type: z.literal("noul"), noul: z.number() })
+    .object({ type: z.literal("noul"), noul: z.number().min(0).max(1) })
     .safeParse(answers["defect"])
   const defectProbability = defect.success ? defect.data.noul : 0
   const unanswered =

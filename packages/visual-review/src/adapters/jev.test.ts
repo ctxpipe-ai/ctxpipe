@@ -300,6 +300,25 @@ describe("judgeWithJev verdict", () => {
     expect(verdict.qualities.map(({ name }) => name)).not.toContain("clarity")
   })
 
+  test("a choice answer with a missing or out-of-range probability counts as no answer", async () => {
+    serve((name) => {
+      if (name === "area.spacing")
+        return { type: "choice", probabilities: { worse: 0 } }
+      if (name === "area.contrast")
+        return {
+          type: "choice",
+          probabilities: { better: 0, same: 1.5, worse: 0 },
+        }
+      if (name === "defect") return defect(0.03)
+      return fine
+    })
+    const verdict = await judgeWithJev(
+      await story({ brief: "Rename the button." }),
+    )
+    expect(verdict.verdict).toBe("unsure")
+    expect(verdict.summary).toContain("2 questions")
+  })
+
   test("a response with no answers is unsure, not intended", async () => {
     serve(() => undefined)
     const verdict = await judgeWithJev(
