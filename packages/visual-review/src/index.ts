@@ -26,8 +26,6 @@ export {
   writeManifest,
 } from "./compare/manifest.ts"
 export type { Manifest, ManifestStory } from "./compare/manifest.ts"
-export { prepareImage } from "./prepare.ts"
-export type { Prepared } from "./prepare.ts"
 export { buildPrompt } from "./prompt.ts"
 export type { Prompt } from "./prompt.ts"
 export { reviewStories } from "./review.ts"

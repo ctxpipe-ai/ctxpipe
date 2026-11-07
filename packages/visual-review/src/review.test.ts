@@ -419,9 +419,41 @@ describe("reviewStories", () => {
       findings: [],
     })
     expect(rest[0]?.summary).toBe(
-      "Same diff as ripple--story-0: The badge text is cut.",
+      "Same diff as ripple--story-0. 3 judged stories of the group gave the verdict regression with severity major.",
     )
     expect(verdictSchema.safeParse(rest[0]).success).toBe(true)
+  })
+
+  test("the confidence of a grouped story is the lowest of the judged verdicts", async () => {
+    const { judge: fake } = judge(({ storyId }) =>
+      verdict(storyId, {
+        confidence: storyId === "ripple--story-0" ? 0.9 : 0.6,
+      }),
+    )
+    const ripple = Array.from({ length: 8 }, (_, i) =>
+      story(`ripple--story-${i}`, "color-change@left:288x90"),
+    )
+
+    const results = await reviewStories(ripple, fake)
+
+    const rest = results.filter(({ groupedWith }) => groupedWith)
+    expect(rest.every(({ confidence }) => confidence === 0.6)).toBe(true)
+  })
+
+  test("a stray rendering-noise region does not split a group", async () => {
+    const { calls, judge: fake } = judge()
+    const stories = Array.from({ length: 6 }, (_, i) =>
+      story(
+        `noise--story-${i}`,
+        i % 2
+          ? "color-change@left:288x90,rendering-noise@bottom:4x4"
+          : "color-change@left:288x90",
+      ),
+    )
+
+    await reviewStories(stories, fake)
+
+    expect(calls).toHaveLength(3)
   })
 
   test("regions pair up whatever the order of the sizes", async () => {

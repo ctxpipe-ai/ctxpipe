@@ -4,8 +4,10 @@ import type { Verdict } from "./verdict.ts"
 type Part = { change: string; position: string; width: number; height: number }
 
 /**
- * The regions of a signature (`type@position:WxH`, joined by commas), or null
- * when the signature is empty or has another format.
+ * The regions of a signature (`type@position:WxH`, joined by commas) without
+ * the rendering-noise regions, or null when the signature is empty, has
+ * another format, or has only noise. A stray noise region does not make one
+ * story differ from another that shows the same real change.
  */
 function parseSignature(signature: string | undefined): Part[] | null {
   if (!signature) return null
@@ -20,7 +22,8 @@ function parseSignature(signature: string | undefined): Part[] | null {
       height: Number(match[4]),
     })
   }
-  return parts
+  const real = parts.filter(({ change }) => change !== "rendering-noise")
+  return real.length ? real : null
 }
 
 // A side of a region may differ by 2 px, or by 2 % of the side when that is
@@ -127,16 +130,14 @@ export async function reviewStories(
     )
     const representative = await judge(first.story)
     verdicts[first.index] = representative
-    let uniform = true
+    const judged: [Verdict, ...Verdict[]] = [representative]
     for (const member of rest.filter((_, i) => picked.has(i))) {
       const verdict = await judge(member.story)
       verdicts[member.index] = verdict
-      uniform &&=
-        verdict.verdict === representative.verdict &&
-        verdict.severity === representative.severity
+      judged.push(verdict)
     }
     for (const { story, index } of rest.filter((_, i) => !picked.has(i)))
-      verdicts[index] = grouped(story.storyId, representative, uniform)
+      verdicts[index] = grouped(story.storyId, judged)
   }
   return verdicts
 }
@@ -157,14 +158,11 @@ function noiseVerdict({ storyId, regions }: StoryInput): Verdict {
   }
 }
 
-// The classification of the group, with no evidence of its own: the
-// observations, qualities and findings of the representative are about the
-// pictures of that story, which the model did not see for this story.
-function grouped(
-  storyId: string,
-  representative: Verdict,
-  uniform: boolean,
-): Verdict {
+// The classification of the group, with nothing of the representative that is
+// about its own pictures: the model did not see the pictures of this story.
+// The confidence is the lowest of the judged verdicts.
+function grouped(storyId: string, judged: [Verdict, ...Verdict[]]): Verdict {
+  const [representative] = judged
   const run = {
     storyId,
     observations: [],
@@ -175,6 +173,11 @@ function grouped(
     latencyMs: 0,
     groupedWith: representative.storyId,
   }
+  const uniform = judged.every(
+    ({ verdict, severity }) =>
+      verdict === representative.verdict &&
+      severity === representative.severity,
+  )
   if (!uniform)
     return {
       ...run,
@@ -187,7 +190,7 @@ function grouped(
     ...run,
     verdict: representative.verdict,
     severity: representative.severity,
-    confidence: representative.confidence,
-    summary: `Same diff as ${representative.storyId}: ${representative.summary}`,
+    confidence: Math.min(...judged.map(({ confidence }) => confidence)),
+    summary: `Same diff as ${representative.storyId}. ${judged.length} judged stories of the group gave the verdict ${representative.verdict} with severity ${representative.severity}.`,
   }
 }

@@ -2,7 +2,7 @@ import { decode } from "@blazediff/codec-png-native"
 import { describe, expect, test } from "vitest"
 
 import { screenshot } from "./compare/fixtures.ts"
-import { prepareImage } from "./index.ts"
+import { prepareImage } from "./prepare.ts"
 
 const side = (bytes: Uint8Array) => {
   const { width, height } = decode(bytes)
