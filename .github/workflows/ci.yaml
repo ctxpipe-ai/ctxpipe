@@ -71,6 +71,8 @@ jobs:
         run: node scripts/ci/check-story-play-timing.mjs
       - name: Reject a route with no page story
         run: node scripts/ci/check-page-stories.mjs
+      - name: Reject a Playwright image pin that differs from the lockfile
+        run: node scripts/ci/check-visual-container.mjs
       - name: Reject non-Blacksmith runners
         run: node scripts/ci/check-runners.mjs
       - name: Reject outside values in run scripts and workflows without permissions

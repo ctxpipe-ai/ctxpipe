@@ -113,6 +113,17 @@ Keep security and request-contract assertions in focused Vitest tests. Use
 - **Guard:** `node scripts/ci/check-story-play-timing.mjs` runs in CI (the lint job, next to the motion check). It fails on `expect(await ...findBy...)` with a state matcher (`toBeVisible`, `toBeChecked`, `toBeEnabled`, `toBeDisabled`, `toHaveStyle`, `toHaveValue`, and similar) outside `waitFor`. It also fails on a stored element that gets such a check after an `await userEvent...`. It also fails on an absence check (`queryBy...` or `querySelector...` with `.not.toBeInTheDocument()`, `.toBeNull()`, or `queryAllBy...` with `.toHaveLength(0)`) that has no earlier settled wait in the same play. A settled wait is `findBy...`, `getBy...`, an awaited helper named `expect...`, `wait...` or `find...`, or a `waitFor` that holds no absence check. Add `// play-timing: ok <reason>` to a line to exempt it, for example when a manual clock drives every timer.
 - With React Aria components, use the Tailwind `hover:` variant. The plugin maps it to `data-hovered`. There is no `hovered:` variant.
 
+## Screenshot capture (pinned container)
+
+Mac and Linux render text differently (81 of 86 sample stories differed). So each screenshot of a story is taken in one pinned Playwright Docker image, on a laptop and in CI.
+
+- The pin is [`scripts/ci/visual-container.json`](../../../scripts/ci/visual-container.json): `mcr.microsoft.com/playwright:v<playwright version>-noble`, by digest, for linux/arm64. `node scripts/ci/check-visual-container.mjs` (the lint job) fails when the tag differs from the `playwright` version of the lockfile. To upgrade Playwright, change the lockfile and the pin in the same commit (`docker buildx imagetools inspect <image>:<tag>` shows the linux/arm64 digest).
+- `node scripts/ci/visual-capture.mjs --out <dir> <story id>...` plays each story from `apps/ui/storybook-static` in the container, then writes `<dir>/<story id>.png` (1440x900, pixel ratio 1) and `capture.json`. A story needs a play function, because the play runner ends a story at the play.
+- `node scripts/ci/visual-capture-proof.mjs` captures a sample of 20 stories two times and compares the PNGs byte by byte (`.ci-results/visual-capture-proof/proof.json`).
+- The `visual-container` prerequisite (`scripts/checks/prerequisites.mjs`) needs Docker, a linux/arm64 server, and the pinned image (it pulls the image). A laptop without Docker gets `LEFT TO CI` for a check that lists it.
+- **Colima needs at least 4 GiB of memory.** A 2 GiB VM crashed on a WebGL story. Check the VM with `colima list`. To resize it, run `colima stop && colima start --cpu 4 --memory 4`. A larger VM is better: this agent host runs 16 CPUs and 64 GiB. Docker Desktop on Apple silicon needs the same memory setting (Settings, Resources).
+- Use `docker cp` (the capture script does), not a bind mount, to read the PNGs: Colima mounts the home directory read-only by default.
+
 ## Quick reference (commands)
 
 | Action | Command |
