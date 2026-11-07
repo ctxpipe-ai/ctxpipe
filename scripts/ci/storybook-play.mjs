@@ -243,12 +243,15 @@ const settle = async () => {
 // that fails leaves its value undefined and never changes the outcome.
 // `afterPlay(page, story, error)` runs once the story has ended and the page
 // is settled, before the page closes (a screenshot of the end state, scripts/ci/visual-capture.mjs).
+// `viewport` replaces the 1440x900 viewport of playContext (the mobile
+// screenshot of a page story).
 export async function playStories(
   storybookUrl,
   stories,
   onStory,
   trace,
   afterPlay,
+  viewport,
 ) {
   const { chromium } = createRequire(join(ui, "package.json"))("playwright")
   // The browser starts with a time zone and a language that no pin uses, so
@@ -267,7 +270,10 @@ export async function playStories(
       // earlier one, and each page installs the MSW service worker again: a
       // second page in one context makes Chromium update the worker with a
       // request that the route does not see.
-      const context = await browser.newContext(playContext)
+      const context = await browser.newContext({
+        ...playContext,
+        ...(viewport && { viewport }),
+      })
       // The context, not the page, routes the origin: in Chromium only the
       // context sees the requests of the MSW service worker.
       await context.route(`${playOrigin}/**`, async (route) => {
