@@ -8,12 +8,12 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest"
 import { diff, writeStoryImages } from "../index.ts"
 import { screenshot } from "./fixtures.ts"
 
-let dir: string
+let root: string
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), "visual-images-"))
+  root = await mkdtemp(join(tmpdir(), "visual-images-"))
 })
 afterEach(async () => {
-  await rm(dir, { recursive: true, force: true })
+  await rm(root, { recursive: true, force: true })
 })
 
 async function png(path: string) {
@@ -41,25 +41,34 @@ describe("writeStoryImages", () => {
     const comparison = await diff(before, after)
     if (comparison.status !== "changed") throw new Error(comparison.status)
 
-    const written = await writeStoryImages(dir, before, after, comparison)
+    const written = await writeStoryImages(
+      { root, dir: "story" },
+      before,
+      after,
+      comparison,
+    )
 
     expect(written.omittedRegions).toBe(0)
     expect(written.images).toEqual({
-      regions: join(dir, "regions.png"),
-      locator: join(dir, "locator.png"),
-      before: join(dir, "before.png"),
-      after: join(dir, "after.png"),
-      diff: join(dir, "diff.png"),
+      regions: "story/regions.png",
+      locator: "story/locator.png",
+      before: "story/before.png",
+      after: "story/after.png",
+      diff: "story/diff.png",
     })
-    expect(await readFile(join(dir, "before.png"))).toEqual(Buffer.from(before))
-    expect(await readFile(join(dir, "after.png"))).toEqual(Buffer.from(after))
-    expect((await png(join(dir, "diff.png"))).width).toBe(800)
+    expect(await readFile(join(root, "story", "before.png"))).toEqual(
+      Buffer.from(before),
+    )
+    expect(await readFile(join(root, "story", "after.png"))).toEqual(
+      Buffer.from(after),
+    )
+    expect((await png(join(root, "story", "diff.png"))).width).toBe(800)
 
     // One [before | after] row for each region, largest region first, at
     // native resolution.
     const [large, small] = comparison.regions
     if (!large || !small) throw new Error("expected two regions")
-    const tiles = await png(join(dir, "regions.png"))
+    const tiles = await png(join(root, "story", "regions.png"))
     expect(tiles.width).toBeGreaterThanOrEqual(2 * large.box.width)
     expect(tiles.height).toBeGreaterThanOrEqual(
       large.box.height + small.box.height,
@@ -75,7 +84,7 @@ describe("writeStoryImages", () => {
     ])
 
     // An overview of about 400 px with each region outlined in red.
-    const locator = await png(join(dir, "locator.png"))
+    const locator = await png(join(root, "story", "locator.png"))
     expect(locator.width).toBe(400)
     expect(locator.height).toBe(300)
     const box = small.box
@@ -93,27 +102,37 @@ describe("writeStoryImages", () => {
     const after = screenshot(100, 120, [])
     const comparison = await diff(before, after)
 
-    const written = await writeStoryImages(dir, before, after, comparison)
+    const written = await writeStoryImages(
+      { root, dir: "story" },
+      before,
+      after,
+      comparison,
+    )
 
     expect(written).toEqual({
       images: {
-        before: join(dir, "before.png"),
-        after: join(dir, "after.png"),
+        before: "story/before.png",
+        after: "story/after.png",
       },
       omittedRegions: 0,
     })
-    expect((await readdir(dir)).sort()).toEqual(["after.png", "before.png"])
+    expect((await readdir(join(root, "story"))).sort()).toEqual([
+      "after.png",
+      "before.png",
+    ])
   })
 
   test("an unchanged story gets no images", async () => {
     const image = screenshot(100, 100, [])
     const comparison = await diff(image, image)
 
-    expect(await writeStoryImages(dir, image, image, comparison)).toEqual({
+    expect(
+      await writeStoryImages({ root, dir: "story" }, image, image, comparison),
+    ).toEqual({
       images: {},
       omittedRegions: 0,
     })
-    expect(await readdir(dir)).toEqual([])
+    expect(await readdir(root)).toEqual([])
   })
 
   test("regions.png has at most 8 rows; the other regions are counted as omitted", async () => {
@@ -132,12 +151,17 @@ describe("writeStoryImages", () => {
     if (comparison.status !== "changed") throw new Error(comparison.status)
     expect(comparison.regions).toHaveLength(30)
 
-    const written = await writeStoryImages(dir, before, after, comparison)
+    const written = await writeStoryImages(
+      { root, dir: "story" },
+      before,
+      after,
+      comparison,
+    )
 
     expect(written.omittedRegions).toBe(22)
     const [first] = comparison.regions
     if (!first) throw new Error("no region")
-    const tiles = await png(join(dir, "regions.png"))
+    const tiles = await png(join(root, "story", "regions.png"))
     expect(tiles.height).toBeLessThan(9 * (first.box.height + 2 * 8 + 4))
   })
 
@@ -152,10 +176,36 @@ describe("writeStoryImages", () => {
     if (comparison.status !== "changed") throw new Error(comparison.status)
     expect(comparison.regions).toHaveLength(3)
 
-    const written = await writeStoryImages(dir, before, after, comparison)
+    const written = await writeStoryImages(
+      { root, dir: "story" },
+      before,
+      after,
+      comparison,
+    )
 
     expect(written.omittedRegions).toBe(1)
-    const tiles = await png(join(dir, "regions.png"))
+    const tiles = await png(join(root, "story", "regions.png"))
     expect(tiles.height).toBeLessThanOrEqual(1568)
+  })
+
+  test("a region taller than 1568 px gets no row; it is counted as omitted", async () => {
+    const before = screenshot(200, 1700, [])
+    const after = screenshot(200, 1700, [
+      { box: { x: 40, y: 20, width: 40, height: 1660 }, color: [17, 17, 17] },
+    ])
+    const comparison = await diff(before, after)
+    if (comparison.status !== "changed") throw new Error(comparison.status)
+    expect(comparison.regions).toHaveLength(1)
+
+    const written = await writeStoryImages(
+      { root, dir: "story" },
+      before,
+      after,
+      comparison,
+    )
+
+    expect(written.omittedRegions).toBe(1)
+    expect(written.images.regions).toBeUndefined()
+    expect(written.images.locator).toBe("story/locator.png")
   })
 })

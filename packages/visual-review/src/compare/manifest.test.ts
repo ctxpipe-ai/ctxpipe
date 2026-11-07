@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -6,14 +6,15 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest"
 
 import {
   baselinePath,
+  diff,
   manifestJsonSchema,
-  readManifest,
-  storyDir,
   toStoryInput,
   writeManifest,
+  writeStoryImages,
   type Manifest,
   type ManifestStory,
 } from "../index.ts"
+import { screenshot } from "./fixtures.ts"
 
 const story: ManifestStory = {
   id: "connectors-connectorcard--connected",
@@ -36,19 +37,26 @@ const story: ManifestStory = {
       position: "left",
       confidence: 0.9,
       pixels: 1440,
+      stats: {
+        shape: "solid-region",
+        shapeStats: { fillRatio: 1 },
+        colorDelta: { meanDelta: 0.3 },
+        gradient: { edgeCorrelation: 1 },
+        chroma: { chromaCos: -0.77 },
+        signals: { denseFill: true, confidence: 1 },
+      },
     },
   ],
   severity: "low",
   summary: "Colors changed: 1 region (left).",
   signature: "color-change@left:288x90",
   omittedRegions: 2,
-  labeler: "interpreter",
   images: {
-    regions: "connectors-connectorcard--connected/desktop/regions.png",
-    locator: "connectors-connectorcard--connected/desktop/locator.png",
-    before: "connectors-connectorcard--connected/desktop/before.png",
-    after: "connectors-connectorcard--connected/desktop/after.png",
-    diff: "connectors-connectorcard--connected/desktop/diff.png",
+    regions: "connectors-connectorcard--connected/regions.png",
+    locator: "connectors-connectorcard--connected/locator.png",
+    before: "connectors-connectorcard--connected/before.png",
+    after: "connectors-connectorcard--connected/after.png",
+    diff: "connectors-connectorcard--connected/diff.png",
   },
 }
 
@@ -82,8 +90,7 @@ describe("manifest v1", () => {
 
     await writeManifest(path, manifest)
 
-    expect(await readManifest(path)).toEqual(manifest)
-    expect(JSON.parse(await readFile(path, "utf8")).version).toBe(1)
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual(manifest)
   })
 
   test("a story with an unknown status is rejected", async () => {
@@ -141,17 +148,6 @@ describe("baselinePath", () => {
   })
 })
 
-describe("storyDir", () => {
-  test("is the story id, then the viewport and the snapshot", () => {
-    expect(storyDir({ storyId: "a--b", viewport: "desktop" })).toBe(
-      "a--b/desktop",
-    )
-    expect(
-      storyDir({ storyId: "a--b", viewport: "mobile", snapshot: "menu-open" }),
-    ).toBe("a--b/mobile@menu-open")
-  })
-})
-
 describe("toStoryInput", () => {
   test("gives the critic region boxes in fractions of the after image", () => {
     const input = toStoryInput(manifest, story, {
@@ -174,26 +170,57 @@ describe("toStoryInput", () => {
       images: [
         {
           role: "regions",
-          path: "/repo/.ci-results/visual/connectors-connectorcard--connected/desktop/regions.png",
+          path: "/repo/.ci-results/visual/connectors-connectorcard--connected/regions.png",
         },
         {
           role: "locator",
-          path: "/repo/.ci-results/visual/connectors-connectorcard--connected/desktop/locator.png",
+          path: "/repo/.ci-results/visual/connectors-connectorcard--connected/locator.png",
         },
         {
           role: "before",
-          path: "/repo/.ci-results/visual/connectors-connectorcard--connected/desktop/before.png",
+          path: "/repo/.ci-results/visual/connectors-connectorcard--connected/before.png",
         },
         {
           role: "after",
-          path: "/repo/.ci-results/visual/connectors-connectorcard--connected/desktop/after.png",
+          path: "/repo/.ci-results/visual/connectors-connectorcard--connected/after.png",
         },
         {
           role: "diff",
-          path: "/repo/.ci-results/visual/connectors-connectorcard--connected/desktop/diff.png",
+          path: "/repo/.ci-results/visual/connectors-connectorcard--connected/diff.png",
         },
       ],
       brief: "Make the connected badge red.",
     })
+  })
+
+  test("the images that writeStoryImages wrote are the images of the critic", async () => {
+    const before = screenshot(200, 120, [
+      { box: { x: 120, y: 80, width: 60, height: 24 }, color: [37, 99, 235] },
+    ])
+    const after = screenshot(200, 120, [
+      { box: { x: 120, y: 80, width: 60, height: 24 }, color: [220, 38, 38] },
+    ])
+    const comparison = await diff(before, after)
+    if (comparison.status !== "changed") throw new Error(comparison.status)
+    const { images } = await writeStoryImages(
+      { root: dir, dir: story.id },
+      before,
+      after,
+      comparison,
+    )
+
+    const input = toStoryInput(manifest, { ...story, images }, { root: dir })
+
+    expect(input.images.map(({ role }) => role)).toEqual([
+      "regions",
+      "locator",
+      "before",
+      "after",
+      "diff",
+    ])
+    for (const { path } of input.images) {
+      expect(path.startsWith(join(dir, story.id))).toBe(true)
+      expect((await stat(path)).isFile()).toBe(true)
+    }
   })
 })

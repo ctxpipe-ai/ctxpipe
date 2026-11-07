@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, join, posix } from "node:path"
 
 import { z } from "zod"
@@ -50,6 +50,17 @@ const storySchema = z.object({
       position: z.enum(positions),
       confidence: z.number().min(0).max(1),
       pixels: count,
+      /** The interpreter statistics. Null for a fallback region. */
+      stats: z
+        .object({
+          shape: z.string(),
+          shapeStats: z.record(z.string(), z.number()),
+          colorDelta: z.record(z.string(), z.number()),
+          gradient: z.record(z.string(), z.number()),
+          chroma: z.record(z.string(), z.number()),
+          signals: z.record(z.string(), z.union([z.number(), z.boolean()])),
+        })
+        .nullable(),
     }),
   ),
   severity: z.enum(["none", "low", "medium", "high"]).nullable(),
@@ -61,8 +72,6 @@ const storySchema = z.object({
    * regions of `regions`. They are in `diff.png` and `locator.png`.
    */
   omittedRegions: count,
-  /** What labeled the regions. */
-  labeler: z.enum(["interpreter", "fallback"]).nullable(),
   /** Image files, from the folder of the manifest. */
   images: z.partialRecord(z.enum(roles), z.string()),
 })
@@ -100,11 +109,6 @@ export async function writeManifest(
   await writeFile(path, `${JSON.stringify(valid, null, 2)}\n`)
 }
 
-/** Read a manifest. It throws when the file does not match the schema. */
-export async function readManifest(path: string): Promise<Manifest> {
-  return manifestSchema.parse(JSON.parse(await readFile(path, "utf8")))
-}
-
 /**
  * The committed baseline of a story screenshot:
  * `<story file dir>/screenshots/<storyfile>.<storyname>[@<snapshot>].<viewport>.screenshot.png`.
@@ -129,23 +133,6 @@ export function baselinePath({
     "screenshots",
     `${stem}.${name}.${viewport}.screenshot.png`,
   )
-}
-
-/**
- * The image folder of one story screenshot, from the folder of the manifest:
- * `<story-id>/<viewport>[@<snapshot>]`. A story can have more than one
- * viewport and snapshot, so each gets its own folder under the story id.
- */
-export function storyDir({
-  storyId,
-  viewport,
-  snapshot,
-}: {
-  storyId: string
-  viewport: "desktop" | "mobile"
-  snapshot?: string
-}): string {
-  return posix.join(storyId, snapshot ? `${viewport}@${snapshot}` : viewport)
 }
 
 /**

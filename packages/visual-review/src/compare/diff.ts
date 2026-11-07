@@ -1,5 +1,6 @@
 import { decode, type Image } from "@blazediff/codec-png-native"
 import { diff as pixelDiff } from "@blazediff/core-native"
+import type { interpret as blazeInterpret } from "@blazediff/interpret-native"
 
 import {
   changeTypes,
@@ -11,13 +12,30 @@ import {
 /** A box in pixels of the after image. */
 export type PixelBox = { x: number; y: number; width: number; height: number }
 
-/** One changed region in pixels. `pixels` counts the changed pixels in it. */
+/**
+ * The statistics of the interpreter for one region: its shape, and the color,
+ * edge and chroma measures behind its change type.
+ */
+export type RegionStats = {
+  shape: string
+  shapeStats: Record<string, number>
+  colorDelta: Record<string, number>
+  gradient: Record<string, number>
+  chroma: Record<string, number>
+  signals: Record<string, number | boolean>
+}
+
+/**
+ * One changed region in pixels. `pixels` counts the changed pixels in it.
+ * `changeType` and `stats` are null when the interpreter was not available.
+ */
 export type MeasuredRegion = {
   box: PixelBox
   changeType: ChangeType | null
   position: Position
   confidence: number
   pixels: number
+  stats: RegionStats | null
 }
 
 export type Severity = "none" | "low" | "medium" | "high"
@@ -40,8 +58,6 @@ export type Comparison =
       summary: string
       /** Change types, positions and sizes of the regions, to group stories. */
       signature: string
-      /** What labeled the regions. Null when the story is unchanged. */
-      labeler: "interpreter" | "fallback" | null
       /** The changed pixels in red on a faded copy of the before image. */
       diffImage: Image
     }
@@ -57,12 +73,16 @@ const red = [255, 0, 0] as const
  * Compare two PNG screenshots of a story. The pixel diff is
  * `@blazediff/core-native`. For a changed story, `@blazediff/interpret-native`
  * labels the regions. If the interpreter fails, plain connected components
- * of the diff pixels are the regions, with no label.
+ * of the diff pixels are the regions, with no label. `interpret` replaces the
+ * interpreter, for example with one that fails.
  */
 export async function diff(
   before: Uint8Array,
   after: Uint8Array,
-  { maxDiffPixels = 10 }: { maxDiffPixels?: number } = {},
+  {
+    maxDiffPixels = 10,
+    interpret,
+  }: { maxDiffPixels?: number; interpret?: typeof blazeInterpret } = {},
 ): Promise<Comparison> {
   const a = decode(before)
   const b = decode(after)
@@ -103,13 +123,13 @@ export async function diff(
           ? "No change."
           : `${diffPixels} pixels changed, not more than the tolerance of ${maxDiffPixels}.`,
       signature: "",
-      labeler: null,
       diffImage,
     }
   }
 
   const labeled =
-    (await interpreted(before, after)) ?? fallback(diffImage, diffPixels)
+    (await interpreted(before, after, interpret)) ??
+    fallback(diffImage, diffPixels)
   const regions = labeled.regions.sort(
     (x, y) => y.box.width * y.box.height - x.box.width * x.box.height,
   )
@@ -134,17 +154,18 @@ type Labeled = {
   regions: MeasuredRegion[]
   severity: Severity
   summary: string
-  labeler: "interpreter" | "fallback"
 }
 
 async function interpreted(
   before: Uint8Array,
   after: Uint8Array,
+  interpret?: typeof blazeInterpret,
 ): Promise<Labeled | null> {
   try {
     // A dynamic import, so that a missing binding also goes to the fallback.
-    const { interpret } = await import("@blazediff/interpret-native")
-    const result = await interpret(before, after, undefined, {
+    const run =
+      interpret ?? (await import("@blazediff/interpret-native")).interpret
+    const result = await run(before, after, undefined, {
       threshold,
       antialiasing: true,
     })
@@ -155,10 +176,17 @@ async function interpreted(
         position: oneOf(positions, region.position) ?? "center",
         confidence: region.confidence,
         pixels: region.pixelCount,
+        stats: {
+          shape: region.shape,
+          shapeStats: { ...region.shapeStats },
+          colorDelta: { ...region.colorDelta },
+          gradient: { ...region.gradient },
+          chroma: { ...region.chroma },
+          signals: { ...region.signals },
+        },
       })),
       severity: oneOf(["low", "medium", "high"], result.severity) ?? "low",
       summary: result.summary,
-      labeler: "interpreter",
     }
   } catch {
     return null
@@ -173,13 +201,13 @@ function fallback(diffImage: Image, diffPixels: number): Labeled {
     position: gridCell(box, width, height),
     confidence: 0,
     pixels,
+    stats: null,
   }))
   const percent = (100 * diffPixels) / (width * height)
   return {
     regions,
     severity: percent < 1 ? "low" : percent <= 10 ? "medium" : "high",
     summary: `${regions.length} changed regions, ${percent.toFixed(2)}% of the image. The interpreter was not available, so the regions have no labels.`,
-    labeler: "fallback",
   }
 }
 

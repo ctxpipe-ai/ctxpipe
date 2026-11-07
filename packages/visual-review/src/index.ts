@@ -14,6 +14,7 @@ export type {
   Comparison,
   MeasuredRegion,
   PixelBox,
+  RegionStats,
   Severity,
 } from "./compare/diff.ts"
 export { writeStoryImages } from "./compare/images.ts"
@@ -21,8 +22,6 @@ export type { StoryImages, WrittenImages } from "./compare/images.ts"
 export {
   baselinePath,
   manifestJsonSchema,
-  readManifest,
-  storyDir,
   toStoryInput,
   writeManifest,
 } from "./compare/manifest.ts"

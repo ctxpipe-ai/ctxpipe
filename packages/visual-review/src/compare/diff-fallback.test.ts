@@ -1,13 +1,11 @@
-import { describe, expect, test, vi } from "vitest"
+import { describe, expect, test } from "vitest"
 
 import { diff } from "../index.ts"
 import { screenshot } from "./fixtures.ts"
 
-// The interpreter is an outside native binding. Make it fail, as it does
-// when its binary is missing for the platform.
-vi.mock("@blazediff/interpret-native", () => ({
-  interpret: () => Promise.reject(new Error("native binding not found")),
-}))
+// An interpreter that fails, as the native binding does when its binary is
+// missing for the platform.
+const interpret = () => Promise.reject(new Error("native binding not found"))
 
 describe("diff when the interpreter fails", () => {
   test("it finds plain connected-component regions with no label", async () => {
@@ -19,10 +17,9 @@ describe("diff when the interpreter fails", () => {
       { box: card, color: [17, 17, 17] },
     ])
 
-    const result = await diff(before, after)
+    const result = await diff(before, after, { interpret })
 
     if (result.status !== "changed") throw new Error(result.status)
-    expect(result.labeler).toBe("fallback")
     expect(result.diffPixels).toBe(60 * 24 + 40 * 30)
     expect(result.regions).toEqual([
       {
@@ -31,6 +28,7 @@ describe("diff when the interpreter fails", () => {
         position: "bottom-right",
         confidence: 0,
         pixels: 60 * 24,
+        stats: null,
       },
       {
         box: card,
@@ -38,6 +36,7 @@ describe("diff when the interpreter fails", () => {
         position: "top-left",
         confidence: 0,
         pixels: 40 * 30,
+        stats: null,
       },
     ])
     expect(result.severity).toBe("high")
@@ -56,7 +55,7 @@ describe("diff when the interpreter fails", () => {
     const before = screenshot(120, 80, [])
     const after = screenshot(120, 80, dots)
 
-    const result = await diff(before, after)
+    const result = await diff(before, after, { interpret })
 
     if (result.status !== "changed") throw new Error(result.status)
     expect(result.regions).toHaveLength(500)

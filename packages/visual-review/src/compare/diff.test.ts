@@ -26,11 +26,12 @@ describe("diff", () => {
     expect(result.status).toBe("changed")
     if (result.status !== "changed") return
     expect(result.diffPixels).toBe(button.width * button.height)
-    expect(result.labeler).toBe("interpreter")
     expect(result.regions).toHaveLength(1)
     const [region] = result.regions
     expect(region?.changeType).toBe("color-change")
     expect(region?.position).toBe("bottom-right")
+    expect(region?.stats?.shape).toBe("solid-region")
+    expect(region?.stats?.colorDelta.meanDelta).toBeGreaterThan(0)
     expect(region && contains(region.box, button)).toBe(true)
     expect(region && contains(region.box, heading)).toBe(false)
     expect(result.severity).not.toBe("none")
@@ -46,7 +47,6 @@ describe("diff", () => {
       diffPixels: 0,
       regions: [],
       severity: "none",
-      labeler: null,
     })
   })
 
