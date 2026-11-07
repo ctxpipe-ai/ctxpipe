@@ -799,6 +799,15 @@ importers:
 
   packages/visual-review:
     dependencies:
+      '@blazediff/codec-png-native':
+        specifier: 6.1.0
+        version: 6.1.0
+      '@blazediff/core-native':
+        specifier: 7.0.0
+        version: 7.0.0
+      '@blazediff/interpret-native':
+        specifier: 7.0.0
+        version: 7.0.0
       zod:
         specifier: ^4.3.6
         version: 4.6.5
@@ -1736,6 +1745,114 @@ packages:
 
   '@better-fetch/fetch@1.3.1':
     resolution: {integrity: sha512-ABkD1WhyfPZprKRQI3bhATjeiFuNWC9PXhfGWqL+sg/gKrM977oFrYkdb4msM3hgUGonr7KlOsOFT5TU2rht9g==}
+
+  '@blazediff/codec-png-native-darwin-arm64@6.1.0':
+    resolution: {integrity: sha512-ir7Dh4xivk3YacJPkXap1xSNBoIFpYLASEViMrwNGgNNj5ZuQyCxgSMuArEsdesEaWOeR9eJ1zRGMdNCkBUVaA==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@blazediff/codec-png-native-darwin-x64@6.1.0':
+    resolution: {integrity: sha512-OdndQS4Wq2bLQec05gni8t+8X4pdA5bKFC8rQGLoGPgeJOWRlWWnhk67vzr0phdiXZVjDBYzKb1G53xeXSAsYQ==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@blazediff/codec-png-native-linux-arm64@6.1.0':
+    resolution: {integrity: sha512-+6MPV6Fah0qAsBd9kZVnCwt2lRERgRBc7dLqdpSm38T4JONcPPINQo74YdMV587i1CBJze9kOgHL/A/cer26Kw==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@blazediff/codec-png-native-linux-x64@6.1.0':
+    resolution: {integrity: sha512-3q3RgLVovcEE6nEdHaMV4Sn6V1E56emzP4YkHuYPiUzukL2NrAlFfdBXluh8SnzOscjacosexavddOjWzvfRyA==}
+    cpu: [x64]
+    os: [linux]
+
+  '@blazediff/codec-png-native-win32-arm64@6.1.0':
+    resolution: {integrity: sha512-gDwdjuOPF7hiGtSIbRNScMFgPZA6pPiG9rzWGiLOXWizc0Bm72jEUl0MCjixeACTHLo7E9kr9PnzB9/wBG07JQ==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@blazediff/codec-png-native-win32-x64@6.1.0':
+    resolution: {integrity: sha512-GVVckH44qlBkvo9ks56r+ABYcyLdLyp3sjqqRb1A2Qxej8Rt3Ug6KQDeArYwMwH3qS7AlU9L95jxtjH9gte0Mw==}
+    cpu: [x64]
+    os: [win32]
+
+  '@blazediff/codec-png-native@6.1.0':
+    resolution: {integrity: sha512-/XKAdmXnvhdYzTWxXQnBPxiwbpeoGF4Z3xqufwLrOs3B7TTda09juJeZAeb1l8LC4xGX0/lt5sP1/d51WVVW6Q==}
+
+  '@blazediff/core-native-darwin-arm64@7.0.0':
+    resolution: {integrity: sha512-SdTD9Gn4lS/XZpqHetCgKrPQEWsEZbEkRsz0Bk9ZEExU7DG8jAOlg6C/qmZOGu0Jb9j9udBri+yGm2PSUUknkA==}
+    cpu: [arm64]
+    os: [darwin]
+    hasBin: true
+
+  '@blazediff/core-native-darwin-x64@7.0.0':
+    resolution: {integrity: sha512-lNATQL+lSYv4lBrvbKkQn/GWGoNqn9mHwFXlmSNCWgbDiomLW9aQbHtcpxDL4kZqkoxXspbLvNUGuseT+dXxkQ==}
+    cpu: [x64]
+    os: [darwin]
+    hasBin: true
+
+  '@blazediff/core-native-linux-arm64@7.0.0':
+    resolution: {integrity: sha512-8LbwahjfDhY2ZTXNbGKPS4CjwAKHq0oVzaFtPtoYgQQX4sdgrvyYY4pz+u1wlWCu+w/sPhjUv1N3j1Gvl4dqZw==}
+    cpu: [arm64]
+    os: [linux]
+    hasBin: true
+
+  '@blazediff/core-native-linux-x64@7.0.0':
+    resolution: {integrity: sha512-+8RbCLofq3dC2vt/TjSxZgQcT1ItQmjGoE7pbm022dyCWk09MRmpVPDK5cy8MTxr8vMDp2xsNSuO00kM5ggieA==}
+    cpu: [x64]
+    os: [linux]
+    hasBin: true
+
+  '@blazediff/core-native-win32-arm64@7.0.0':
+    resolution: {integrity: sha512-uWAIBeqgZL0RmLvDU00GPI6Mx27SSbEsrNmc2FBfFOb/e2kdmMmnLsFK9H5dsS39ogtGq8axMUZpdIneprhqow==}
+    cpu: [arm64]
+    os: [win32]
+    hasBin: true
+
+  '@blazediff/core-native-win32-x64@7.0.0':
+    resolution: {integrity: sha512-pWaBgGZidMdoLaIrUNEj+0ZO9xqkV/kobuM7bV9yK4f2qTg0UKEnfuuVd+3B4JvmgqCtR8UD9pgBCMvD6Ztjig==}
+    cpu: [x64]
+    os: [win32]
+    hasBin: true
+
+  '@blazediff/core-native@7.0.0':
+    resolution: {integrity: sha512-1XV90XHakVw73zcNh1npVxZ0jjy6e/QMW5MQteUE7THw8FzyjwfHmekGqIcSWIgm7o08q0n61JLOsX7v3KX/Gg==}
+
+  '@blazediff/core@2.0.0':
+    resolution: {integrity: sha512-mEe8hV48KV09NjN5YNcgAteZWFURGYsiJDNRisOHb94/NXPOxtKIruLQ5VRvFljAZH+sofHAlu84b956sd5BOw==}
+
+  '@blazediff/interpret-native-darwin-arm64@7.0.0':
+    resolution: {integrity: sha512-3RuYT8EjSYpYIEqFuV3gA6Lxc9BXHd6/PePfREPRXnbKNO2KH5WVjmrzhVfW5f19QiMKdGPfsWhdmCRN4R6uew==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@blazediff/interpret-native-darwin-x64@7.0.0':
+    resolution: {integrity: sha512-zJm58UqHqIibakh04mu10qx8QHadJjwEuK4bm/4pAul7s62Z38RB4Cjo8oSta3/ROKoDNMU5CkdPRnvs1AbEBg==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@blazediff/interpret-native-linux-arm64@7.0.0':
+    resolution: {integrity: sha512-/jjnE/KYK6Yd9ZqHwO9gJ7vGjyI1Vq9opnib5dKir3A8lEKXIX99XHzVmYbD5d5/B/aDw0oD10NdIa6RdmYJww==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@blazediff/interpret-native-linux-x64@7.0.0':
+    resolution: {integrity: sha512-6Pq4v3cTf9A2nbCzlmgr036Q3xepW0VfbqAplm/EidcB1EfrhylLaLEeqOwhGdLP6y2P1srFFChKvMxnuy1R7g==}
+    cpu: [x64]
+    os: [linux]
+
+  '@blazediff/interpret-native-win32-arm64@7.0.0':
+    resolution: {integrity: sha512-mmnNfTJUeafpjPXnTddeHClEJvAhA695oLLBazov7ntrP4JBCXH/2CrvU63al9x5YO1QZ7fOweT2alXwlqi2fw==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@blazediff/interpret-native-win32-x64@7.0.0':
+    resolution: {integrity: sha512-2OZadavrZUD8nDQCs+OZ6TBEJ9W4wlgRFKfYquz/KSgzr0UCjY6XMPbZNoT/1ZFgDVcmCwrV9Jo4AKUxcCxguA==}
+    cpu: [x64]
+    os: [win32]
+
+  '@blazediff/interpret-native@7.0.0':
+    resolution: {integrity: sha512-3NR0LDrA7ON9SdqaCcrovnjgQP8juSdFpn73+MVyPWdRuGa6KFi9yfk1BpyKHQJ80OroeB0D8DTmaKQtTNcrCQ==}
 
   '@braintree/sanitize-url@7.1.2':
     resolution: {integrity: sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==}
@@ -16642,6 +16759,91 @@ snapshots:
       '@noble/hashes': 2.0.1
 
   '@better-fetch/fetch@1.3.1': {}
+
+  '@blazediff/codec-png-native-darwin-arm64@6.1.0':
+    optional: true
+
+  '@blazediff/codec-png-native-darwin-x64@6.1.0':
+    optional: true
+
+  '@blazediff/codec-png-native-linux-arm64@6.1.0':
+    optional: true
+
+  '@blazediff/codec-png-native-linux-x64@6.1.0':
+    optional: true
+
+  '@blazediff/codec-png-native-win32-arm64@6.1.0':
+    optional: true
+
+  '@blazediff/codec-png-native-win32-x64@6.1.0':
+    optional: true
+
+  '@blazediff/codec-png-native@6.1.0':
+    optionalDependencies:
+      '@blazediff/codec-png-native-darwin-arm64': 6.1.0
+      '@blazediff/codec-png-native-darwin-x64': 6.1.0
+      '@blazediff/codec-png-native-linux-arm64': 6.1.0
+      '@blazediff/codec-png-native-linux-x64': 6.1.0
+      '@blazediff/codec-png-native-win32-arm64': 6.1.0
+      '@blazediff/codec-png-native-win32-x64': 6.1.0
+
+  '@blazediff/core-native-darwin-arm64@7.0.0':
+    optional: true
+
+  '@blazediff/core-native-darwin-x64@7.0.0':
+    optional: true
+
+  '@blazediff/core-native-linux-arm64@7.0.0':
+    optional: true
+
+  '@blazediff/core-native-linux-x64@7.0.0':
+    optional: true
+
+  '@blazediff/core-native-win32-arm64@7.0.0':
+    optional: true
+
+  '@blazediff/core-native-win32-x64@7.0.0':
+    optional: true
+
+  '@blazediff/core-native@7.0.0':
+    dependencies:
+      '@blazediff/core': 2.0.0
+    optionalDependencies:
+      '@blazediff/core-native-darwin-arm64': 7.0.0
+      '@blazediff/core-native-darwin-x64': 7.0.0
+      '@blazediff/core-native-linux-arm64': 7.0.0
+      '@blazediff/core-native-linux-x64': 7.0.0
+      '@blazediff/core-native-win32-arm64': 7.0.0
+      '@blazediff/core-native-win32-x64': 7.0.0
+
+  '@blazediff/core@2.0.0': {}
+
+  '@blazediff/interpret-native-darwin-arm64@7.0.0':
+    optional: true
+
+  '@blazediff/interpret-native-darwin-x64@7.0.0':
+    optional: true
+
+  '@blazediff/interpret-native-linux-arm64@7.0.0':
+    optional: true
+
+  '@blazediff/interpret-native-linux-x64@7.0.0':
+    optional: true
+
+  '@blazediff/interpret-native-win32-arm64@7.0.0':
+    optional: true
+
+  '@blazediff/interpret-native-win32-x64@7.0.0':
+    optional: true
+
+  '@blazediff/interpret-native@7.0.0':
+    optionalDependencies:
+      '@blazediff/interpret-native-darwin-arm64': 7.0.0
+      '@blazediff/interpret-native-darwin-x64': 7.0.0
+      '@blazediff/interpret-native-linux-arm64': 7.0.0
+      '@blazediff/interpret-native-linux-x64': 7.0.0
+      '@blazediff/interpret-native-win32-arm64': 7.0.0
+      '@blazediff/interpret-native-win32-x64': 7.0.0
 
   '@braintree/sanitize-url@7.1.2': {}
 
