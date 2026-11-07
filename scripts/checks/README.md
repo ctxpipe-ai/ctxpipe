@@ -313,7 +313,7 @@ An escalated finding holds its hunk. Each held finding has its own hold. Its cri
 
 No text of an accepted risk goes into this repo, its PR comments or its artifacts. The PR comment and the artifact show each disputed finding only by its id, critic, severity and outcome. They show no finding text, path, argument or reason.
 
-The critics job removes each URL and each credential-like string from the stderr of `factory review gate` (sed). `gate.mjs` does the same for the cause. This occurs before the text goes into the log and the PR comment.
+The critics job removes each URL and each credential-like string from the stderr of `factory review gate` (sed). This occurs before the text goes into the log and the cause file. Only the critics job redacts: `gate.mjs` shows the cause as it is.
 
 **The gated verdict** (`gatedVerdict` in `gate.mjs`). Each selected check needs one accepted result:
 
