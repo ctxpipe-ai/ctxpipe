@@ -50,8 +50,6 @@ You cannot close a finding alone. When you think that a blocker or should-fix fi
 9. When the human decides that the finding stands, fix it.
 10. Never write, approve or merge a register entry yourself, also when you act for a person. Do not quote the reasons of an entry in a dispute.
 
-The merge gate comment lists each disputed finding by its id, with its critic, severity and outcome.
-
 ## The rules of each critic
 
 The reviewers of `factory check` read this section through the `inputs` of `critics.json`. The fallback below uses it too.

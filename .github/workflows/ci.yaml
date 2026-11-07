@@ -1573,12 +1573,9 @@ jobs:
             --base "$BASE_SHA" --head "$HEAD_SHA" --json \
             > "$RUNNER_TEMP/critics.json" 2> "$RUNNER_TEMP/critics.err" || code=$?
           if [ "$code" -le 1 ] && jq -e '.critics | type == "array"' "$RUNNER_TEMP/critics.json" > /dev/null; then
-            # The artifact keeps only the fields that gate.mjs reads. A
-            # dispute keeps only its id, critic, severity and outcome, for
-            # each outcome: the artifact is public, and no finding text,
-            # path, argument or reason may reach it.
+            # The artifact keeps only the fields that gate.mjs reads.
             echo "the critics record did not parse" > "$out/critics-cause.txt"
-            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}], disputes: [(.disputes // [])[] | {finding, critic, severity, outcome}]}]}' \
+            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}]}]}' \
               "$RUNNER_TEMP/critics.json" > "$RUNNER_TEMP/critics.min.json"
             mv "$RUNNER_TEMP/critics.min.json" "$out/critics.json"
             rm "$out/critics-cause.txt"

@@ -523,10 +523,7 @@ export function critics(inputs, { needs, fork = false } = {}) {
     return {
       checked: true,
       required: !fork,
-      critics: record.critics.map((critic) => ({
-        ...critic,
-        disputes: critic.disputes?.map(publicDispute),
-      })),
+      critics: record.critics,
       missing: record.critics
         .filter(
           (critic) => !["carried", "not-applicable"].includes(critic.status),
@@ -596,7 +593,6 @@ export function criticsText(checked, repoUrl) {
       `| ${code(critic.critic)} | ${code(critic.status)} | ${code(critic.reason)} | ${links.join(" ") || "none"} |`,
     )
   }
-  lines.push(...disputesText(checked))
   if (checked.missing.length > 0)
     lines.push(
       "",
@@ -604,40 +600,6 @@ export function criticsText(checked, repoUrl) {
     )
   lines.push("", attested)
   return `${lines.join("\n")}\n`
-}
-
-// A dispute as the public decision record and PR comment keep it: only the
-// finding id, the critic, the severity and the outcome, for each outcome
-// (the critics job keeps the same fields). No finding text, path, argument
-// or reason reaches a public place.
-function publicDispute(decision) {
-  const { finding, critic, severity, outcome } = decision ?? {}
-  return { finding, critic, severity, outcome }
-}
-
-// The disputed findings of the critics, with their outcomes: each withdrawn
-// and overruled finding is named by its id, so a person sees it (the dispute
-// records are attested, not verified). The text stays with the agent.
-function disputesText(checked) {
-  const decisions = checked.critics.flatMap((critic) => critic.disputes ?? [])
-  if (decisions.length === 0) return []
-  const lines = [
-    "",
-    "Disputed findings:",
-    "",
-    "| Finding | Critic | Severity | Outcome |",
-    "| --- | --- | --- | --- |",
-  ]
-  for (const decision of decisions) {
-    lines.push(
-      `| ${code(decision.finding ?? "")} | ${code(decision.critic ?? "")} | ${code(decision.severity ?? "")} | ${code(decision.outcome ?? "")} |`,
-    )
-  }
-  lines.push(
-    "",
-    "The agent host stores each dispute outcome and who decided it: like a verdict, it is attested, not verified.",
-  )
-  return lines
 }
 
 // One line for a selection reason.
