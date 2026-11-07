@@ -197,6 +197,17 @@ describe("visual:check", () => {
     )
   })
 
+  test("a baseline of a known unstable story is an orphan", async () => {
+    await visual("update")
+    const stale =
+      "apps/ui/src/features/card/screenshots/Card.Canvas.desktop.screenshot.png"
+    await put(stale, blue)
+    expect(await visual("check")).toBe(1)
+    expect(await statuses()).toMatchObject({ [stale]: "removed" })
+    expect(await visual("update")).toBe(0)
+    expect(Object.keys(await tree())).not.toContain(stale)
+  })
+
   test("a known unstable entry with a viewport skips only that screenshot", async () => {
     const unstable = [
       { id: home.id, viewport: "mobile" as const, ticket: "CTX-2" },

@@ -61,7 +61,8 @@ const maxDiffPixels = 10
  *
  * Every story has a desktop baseline; a story with the `page` tag also has a
  * mobile one. A screenshot in `unstable` (a story id, at each viewport or at
- * one) has no baseline yet: it is skipped. A
+ * one) has no baseline yet: it is skipped, and its old baseline is an
+ * orphan. A
  * baseline file is an orphan when no story has it, also when its
  * `screenshots/` folder has no story file beside it.
  *
@@ -143,8 +144,11 @@ export async function runVisual({
       )
   }
   // A `screenshots/` folder with no story file beside it holds only orphans:
-  // no story gives a baseline in it.
-  const expected = new Set(shots.map((shot) => shot.baseline))
+  // no story gives a baseline in it. A known unstable screenshot has no
+  // baseline yet, so its old baseline is an orphan too.
+  const expected = new Set(
+    shots.filter((shot) => !ticketOf(shot)).map((shot) => shot.baseline),
+  )
   const orphans = (await baselineFiles(root))
     .filter((path) => !expected.has(path))
     .sort()

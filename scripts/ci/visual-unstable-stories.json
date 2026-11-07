@@ -51,6 +51,21 @@
       "viewport": "mobile",
       "reason": "The play asserts the desktop layout, so it fails at 390x844. The story needs an option to have only a desktop screenshot.",
       "ticket": "CTX-1186"
+    },
+    {
+      "id": "components-workspaces-pane--graph",
+      "reason": "The graph pane shows \"Loading graph\" in one run and \"Preparing graph\" in another: its progress depends on the time that the WebGL canvas takes. It needs a mask.",
+      "ticket": "CTX-1186"
+    },
+    {
+      "id": "pages-onboarding--admin-finish-failure-continues",
+      "reason": "The count of stacked error toasts at the bottom differs between runs: a toast closes on a real timer. It needs a mask.",
+      "ticket": "CTX-1186"
+    },
+    {
+      "id": "components-workspacesources-pagerdutyscopeeditor--search-keeps-the-selection",
+      "reason": "A search result arrives after the play ends in some runs. When the play waits for it, the Selected chip shows the service id, not its name, and the play fails.",
+      "ticket": "CTX-1222"
     }
   ]
 }
