@@ -72,6 +72,10 @@
       "entry": ["src/cli.ts", "test/**/*.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts"]
     },
+    "packages/visual-review": {
+      "entry": ["src/**/*.test.ts"],
+      "project": ["src/**/*.ts"]
+    },
     "packages/aws-cdk": {
       "entry": ["scripts/*.mjs", "src/**/*.test.ts"],
       "project": ["src/**/*.ts", "scripts/*.mjs"]

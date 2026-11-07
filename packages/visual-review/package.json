@@ -1,0 +1,21 @@
+{
+  "name": "@ctxpipe/visual-review",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The visual critic of ctxpipe: verdict schema, rubric, prompt and parser.",
+  "license": "MIT",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "25.3.0",
+    "typescript": "6.0.3",
+    "vitest": "4.0.18"
+  }
+}

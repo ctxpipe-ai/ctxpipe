@@ -20,6 +20,10 @@
     "project": "packages/cli/tsconfig.json"
   },
   {
+    "name": "visual-review",
+    "project": "packages/visual-review/tsconfig.json"
+  },
+  {
     "name": "self-host",
     "project": "examples/aws-cdk-self-host/tsconfig.json"
   },

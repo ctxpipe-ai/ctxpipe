@@ -372,6 +372,9 @@ jobs:
       - name: CDK tests
         if: needs.merge-gate-plan.outputs.mode != 'gate'
         run: node scripts/ci/test-suite.mjs aws-cdk $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
+      - name: Visual review tests
+        if: needs.merge-gate-plan.outputs.mode != 'gate'
+        run: node scripts/ci/test-suite.mjs visual-review $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
       - name: Selected UI, CLI and CDK tests (merge gate)
         if: needs.merge-gate-plan.outputs.mode == 'gate'
         env:

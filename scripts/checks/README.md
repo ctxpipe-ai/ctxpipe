@@ -16,7 +16,7 @@ A check id is `<family>:<lane>:<file>`, for example `vitest:ui:apps/ui/src/compo
 
 | Family | Lanes | One check for each | Id example | Runs |
 | --- | --- | --- | --- | --- |
-| `vitest` | `backend`, `contracts`, `vercel`, `ui`, `cli`, `aws-cdk`, `codesearch`, `codesearch-bun`, `latency`, `upgrade` | test file | `vitest:ui:apps/ui/src/components/ui/Button.test.tsx` | Vitest, see Lanes |
+| `vitest` | `backend`, `contracts`, `vercel`, `ui`, `cli`, `aws-cdk`, `visual-review`, `codesearch`, `codesearch-bun`, `latency`, `upgrade` | test file | `vitest:ui:apps/ui/src/components/ui/Button.test.tsx` | Vitest, see Lanes |
 | `storybook` | `golden` (tag `workspace-golden`), `plays` (the other stories) | story with a play function | `storybook:golden:apps/ui/src/…/X.stories.tsx#<story id>` | the static Storybook build in Chromium, with [`../ci/storybook-play.mjs`](../ci/storybook-play.mjs) |
 | `eval` | `mcp` (MCPJam, `apps/backend/evals/mcp/cases.ts`), eval case | `eval:mcp:apps/backend/evals/mcp/cases.ts#stale-cursor` | one seed and one `evals/mcp/run.ts` run for the selected cases |
 | `typecheck` | the `name` of each project in `scripts/ci/projects.json` | project | `typecheck:ui:apps/ui/tsconfig.json` | `scripts/ci/typecheck.mjs` (runs `bun check`) with the project's diagnostic allowances |
