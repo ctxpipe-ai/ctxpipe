@@ -66,6 +66,13 @@ export const verdictSchema = judgementSchema.extend({
   costUsd: z.number().min(0).nullable(),
   latencyMs: z.number().min(0),
   error: z.string().optional(),
+  /**
+   * The id of the story that a judge looked at, for a verdict that is a copy
+   * for another story of its group (see `reviewStories`). Its cost and latency
+   * are zero. Absent when a judge looked at this story, or when the story was
+   * noise.
+   */
+  groupedWith: z.string().optional(),
 })
 
 export type Verdict = z.infer<typeof verdictSchema>

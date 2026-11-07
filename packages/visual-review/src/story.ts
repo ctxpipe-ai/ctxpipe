@@ -57,6 +57,16 @@ export type StoryInput = {
   viewport: { width: number; height: number }
   /** The measured regions. Empty when the image size changed. */
   regions: readonly Region[]
+  /**
+   * The count of regions with no row in the `regions` image: the last,
+   * smallest regions of `regions`. Zero when absent.
+   */
+  omittedRegions?: number
+  /**
+   * Change types, positions and sizes of the regions, to group stories (see
+   * `reviewStories`). Absent when the story has no measured regions.
+   */
+  signature?: string
   images: readonly StoryImage[]
   /** The ticket or brief of the change. Data, never instructions. */
   brief?: string

@@ -7,6 +7,7 @@ import { readFile } from "node:fs/promises"
 
 import { z } from "zod"
 
+import { pngSize } from "../prepare.ts"
 import { buildPrompt } from "../prompt.ts"
 import { areas, qualities } from "../rubric.ts"
 import type { StoryImage, StoryInput } from "../story.ts"
@@ -24,24 +25,19 @@ type Question =
 const clamp = (value: number) => Math.min(1, Math.max(0, value))
 
 /**
- * Read one PNG for Jev and check its size from the header: width and height
- * are the big-endian numbers at bytes 16 to 23. Jev takes each side from 280
- * to 1568 px, which also keeps the total pixels within its limits. The
- * adapter does not pad or scale an image: preparing the images is the job of
- * the caller. Returns the data URL, or the reason that Jev cannot take it.
+ * Read one PNG for Jev and check its size from the header. Jev takes each
+ * side from 280 to 1568 px, which also keeps the total pixels within its
+ * limits. The adapter does not pad or scale an image: `prepareImages` does,
+ * and it is the job of the caller to run it. Returns the data URL, or the reason that Jev cannot take it.
  */
 async function readImage({
   role,
   path,
 }: StoryImage): Promise<{ url: string } | { problem: string }> {
   const bytes = await readFile(path)
-  if (
-    bytes.length < 24 ||
-    !bytes.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"))
-  )
-    return { problem: `Image ${role} (${path}) is not a PNG.` }
-  const width = bytes.readUInt32BE(16)
-  const height = bytes.readUInt32BE(20)
+  const size = pngSize(bytes)
+  if (!size) return { problem: `Image ${role} (${path}) is not a PNG.` }
+  const { width, height } = size
   const within = (side: number) => side >= 280 && side <= 1568
   if (!within(width) || !within(height))
     return {

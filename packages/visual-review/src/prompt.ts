@@ -70,6 +70,14 @@ export function buildPrompt(input: StoryInput): Prompt {
         )
         .join("\n")
     : "No measured regions: the image size changed. Compare the full before and after images."
+  const regionsImage = input.images.findIndex(({ role }) => role === "regions")
+  const omitted = input.omittedRegions ?? 0
+  const shown = input.regions.length - omitted
+  // The rows of the regions image are the first, largest regions.
+  const omittedNote =
+    omitted > 0 && regionsImage >= 0
+      ? `\nImage ${regionsImage + 1} (regions) has a row only for the largest regions: regions 1 to ${shown} of ${input.regions.length}. The ${omitted} smaller ${omitted === 1 ? "region has" : "regions have"} no row. The locator image outlines ${omitted === 1 ? "it" : "them"}. Judge ${omitted === 1 ? "it" : "them"} from the locator image and the full images, when they are attached.\n`
+      : ""
   const story = `Story: ${input.storyId}
 Scope: ${
     input.scope === "page"
@@ -80,7 +88,7 @@ Viewport: ${input.viewport.width} × ${input.viewport.height}
 
 Measured regions:
 ${regions}
-
+${omittedNote}
 Images, in the order attached:
 ${input.images
   .map(({ role }, index) => `Image ${index + 1}: ${role}, ${roles[role]}`)
