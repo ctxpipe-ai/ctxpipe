@@ -5,6 +5,10 @@
 // one image (scripts/ci/visual-capture.mjs). The browser inside the image must
 // be the browser that the repo tests with, so the tag follows the lockfile.
 //
+// This check reads files only. The `visual-container` prerequisite
+// (scripts/checks/prerequisites.mjs) checks that the digest has the browsers of
+// that version.
+//
 // The check fails when:
 //   - the tag is not `v<lockfile version>-noble`;
 //   - the digest is not a sha256 digest, or the platform is not linux/arm64.

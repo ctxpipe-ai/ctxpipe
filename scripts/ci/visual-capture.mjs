@@ -40,6 +40,7 @@ async function captureHere(ids, out) {
   mkdirSync(out, { recursive: true })
   const server = await serveStatic(staticDir, 0)
   const stories = []
+  const shotErrors = new Map()
   try {
     const url = `http://127.0.0.1:${server.address().port}`
     await waitFor(`${url}/index.json`)
@@ -64,36 +65,50 @@ async function captureHere(ids, out) {
     await playStories(
       url,
       ids.map((id) => byId.get(id)),
-      (story, { error }) =>
+      (story, { error }) => {
+        const failure = error ?? shotErrors.get(story.id)
         stories.push({
           id: story.id,
-          status: error ? "play-failed" : "captured",
-          ...(error ? { error } : {}),
-        }),
+          status: error
+            ? "play-failed"
+            : failure
+              ? "capture-failed"
+              : "captured",
+          ...(failure ? { error: failure } : {}),
+        })
+      },
       false,
       async (page, story, error) => {
         if (!error)
-          await page.screenshot({
-            path: join(out, `${story.id}.png`),
-            type: "png",
-            // Ends a finite animation and resets an infinite one (a spinner),
-            // so that two runs do not catch different frames.
-            animations: "disabled",
-          })
+          await page
+            .screenshot({
+              path: join(out, `${story.id}.png`),
+              type: "png",
+              // Ends a finite animation and resets an infinite one (a
+              // spinner), so that two runs do not catch different frames.
+              animations: "disabled",
+            })
+            .catch((shotError) =>
+              shotErrors.set(story.id, String(shotError.message)),
+            )
       },
     )
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose))
+    // Also after a thrown error, so that the PNGs of the finished stories
+    // reach the host.
+    writeFileSync(
+      join(out, "capture.json"),
+      `${JSON.stringify({ stories }, null, 2)}\n`,
+    )
   }
-  writeFileSync(
-    join(out, "capture.json"),
-    `${JSON.stringify({ stories }, null, 2)}\n`,
-  )
-  return stories
 }
 
-const docker = (args, stdio = "inherit") => {
-  const result = spawnSync("docker", args, { stdio, timeout: 1_800_000 })
+const docker = (args) => {
+  const result = spawnSync("docker", args, {
+    stdio: "inherit",
+    timeout: 1_800_000,
+  })
   if (result.error || result.status !== 0)
     throw new Error(
       `docker ${args[0]} failed (${result.error?.message ?? `exit ${result.status}`}).`,
@@ -102,7 +117,8 @@ const docker = (args, stdio = "inherit") => {
 
 // Captures the stories in the pinned container and copies the PNGs and
 // capture.json into `out` (the old PNGs and capture.json of it are removed
-// first). Returns the capture.json stories, which hold a play failure too.
+// first). Returns one status for each id: captured, play-failed, capture-failed
+// or not-run.
 export async function captureInContainer(ids, out) {
   if (!existsSync(join(staticDir, "index.json")))
     throw new Error(
@@ -136,12 +152,26 @@ export async function captureInContainer(ids, out) {
       "--inside",
       ...ids,
     ])
-    docker(["start", "--attach", name])
+    // A run that throws exits non-zero. Copy its partial results anyway.
+    const started = spawnSync("docker", ["start", "--attach", name], {
+      stdio: "inherit",
+      timeout: 1_800_000,
+    })
     docker(["cp", `${name}:/out/.`, out])
+    if (started.status !== 0)
+      process.stderr.write(
+        `The capture container exited with ${started.status}; some stories did not run.\n`,
+      )
   } finally {
     spawnSync("docker", ["rm", "--force", name], { stdio: "ignore" })
   }
-  return JSON.parse(readFileSync(join(out, "capture.json"), "utf8")).stories
+  const { stories } = JSON.parse(
+    readFileSync(join(out, "capture.json"), "utf8"),
+  )
+  return ids.map(
+    (id) =>
+      stories.find((story) => story.id === id) ?? { id, status: "not-run" },
+  )
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

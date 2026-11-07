@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { connect } from "node:net"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { graphReady } from "../ci/graph-ready.mjs"
@@ -285,6 +285,39 @@ export const prerequisites = {
           `Run: docker pull ${image}`,
         )
       }
+      // The tag of the pin follows the lockfile (check-visual-container.mjs),
+      // but the digest can stay behind. The image must hold the browsers
+      // that the installed Playwright launches.
+      const playwright = createRequire(
+        createRequire(join(root, "apps/ui/package.json")).resolve(
+          "playwright/package.json",
+        ),
+      ).resolve("playwright-core/package.json")
+      const { browsers } = JSON.parse(
+        readFileSync(join(dirname(playwright), "browsers.json"), "utf8"),
+      )
+      const present = quiet(
+        "docker",
+        [
+          "run",
+          "--rm",
+          "--platform",
+          visualPin.platform,
+          "--entrypoint",
+          "ls",
+          image,
+          "/ms-playwright",
+        ],
+        `Run: docker pull ${image}`,
+      ).split("\n")
+      const missing = browsers
+        .filter(({ name }) => name.startsWith("chromium"))
+        .map(({ name, revision }) => `${name.replaceAll("-", "_")}-${revision}`)
+        .filter((directory) => !present.includes(directory))
+      if (missing.length)
+        throw new Error(
+          `${image} has no ${missing.join(", ")} (its browsers: ${present.join(", ")}). The digest does not match the playwright version of the lockfile. Pin the linux/arm64 digest of ${visualPin.image}:${visualPin.tag} in scripts/ci/visual-container.json.`,
+        )
     },
   },
   "chat-sandbox-image": {

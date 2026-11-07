@@ -8,8 +8,9 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 
@@ -55,7 +56,18 @@ test("a digest that is not a sha256 digest fails the pin check", () => {
 })
 
 // A fake `docker` that logs each call. FAKE_PLATFORM is the server platform,
-// FAKE_PRESENT=1 means that the image is already local.
+// FAKE_PRESENT=1 means that the image is already local, FAKE_BROWSERS is the
+// listing of /ms-playwright in it.
+const playwrightCore = createRequire(
+  createRequire(join(root, "apps/ui/package.json")).resolve(
+    "playwright/package.json",
+  ),
+).resolve("playwright-core/package.json")
+const revision = JSON.parse(
+  readFileSync(join(dirname(playwrightCore), "browsers.json"), "utf8"),
+).browsers.find(({ name }) => name === "chromium-headless-shell").revision
+const browsers = `chromium-${revision}\nchromium_headless_shell-${revision}\n`
+
 const withDocker = (env, run) => {
   const dir = mkdtempSync(join(tmpdir(), "visual-docker-"))
   try {
@@ -67,6 +79,7 @@ const [command] = process.argv.slice(2)
 require("node:fs").appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(" ") + "\\n")
 if (command === "version") process.stdout.write(process.env.FAKE_PLATFORM)
 if (command === "image" && process.env.FAKE_PRESENT !== "1") process.exit(1)
+if (command === "run") process.stdout.write(process.env.FAKE_BROWSERS)
 `,
       { mode: 0o755 },
     )
@@ -76,7 +89,12 @@ if (command === "image" && process.env.FAKE_PRESENT !== "1") process.exit(1)
       {
         cwd: root,
         encoding: "utf8",
-        env: { ...process.env, PATH: dir, ...env },
+        env: {
+          ...process.env,
+          PATH: dir,
+          FAKE_BROWSERS: browsers,
+          ...env,
+        },
       },
     )
     run(result, () => readFileSync(log, "utf8"))
@@ -118,4 +136,20 @@ test("visual-container needs Docker to answer", () => {
     assert.equal(result.status, 0, result.stderr)
     assert.match(calls(), /^info/m)
   })
+})
+
+test("visual-container refuses an image without the browsers of the lockfile", () => {
+  withDocker(
+    {
+      FAKE_PLATFORM: "linux/arm64",
+      FAKE_BROWSERS: "chromium_headless_shell-1\n",
+    },
+    (result) => {
+      assert.equal(result.status, 1)
+      assert.match(
+        result.stdout,
+        /digest does not match the playwright version/,
+      )
+    },
+  )
 })
