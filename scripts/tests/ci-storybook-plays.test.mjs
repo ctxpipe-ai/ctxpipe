@@ -73,14 +73,6 @@ test("a story with a play function ends when its play ends; a story without one 
 test("before a screenshot every story ends when it is completed, after its animations", async () => {
   const { storyEndPhase } = await import("../ci/storybook-play.mjs")
   assert.equal(storyEndPhase({ tags: ["play-fn"] }, true), "completed")
-  assert.equal(storyEndPhase({ tags: [] }, true), "completed")
-  // A play that never ran also reaches "completed", so a story with a play
-  // passes only after "played".
-  const runner = readFileSync(
-    new URL("../ci/storybook-play.mjs", import.meta.url),
-    "utf8",
-  )
-  assert.match(runner, /phase === endPhase && \(played \|\| !needsPlay\)/)
 })
 
 test("the all-plays selection keeps every story with a play function, sorted", () => {

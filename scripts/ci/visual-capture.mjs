@@ -101,7 +101,6 @@ async function captureHere(ids, out) {
                 // Ends a finite Web Animation and resets an infinite one,
                 // which the style sheet of the runner does not stop.
                 animations: "disabled",
-                caret: "hide",
               }),
             6,
             () => page.waitForTimeout(250),

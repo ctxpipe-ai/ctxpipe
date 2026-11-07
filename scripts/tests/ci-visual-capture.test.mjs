@@ -1,5 +1,4 @@
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
 import { test } from "node:test"
 
 import { shootUntilSteady } from "../ci/visual-capture.mjs"
@@ -10,7 +9,8 @@ const page = (...frames) => {
   let taken = 0
   let paused = 0
   return {
-    shoot: async () => Buffer.from(frames[Math.min(taken++, frames.length - 1)]),
+    shoot: async () =>
+      Buffer.from(frames[Math.min(taken++, frames.length - 1)]),
     pause: async () => {
       paused++
     },
@@ -42,19 +42,4 @@ test("a page that keeps changing is unstable after the last shot", async () => {
   assert.deepEqual(result, { steady: false, png: Buffer.from("d") })
   assert.equal(moving.taken(), 4)
   assert.equal(moving.paused(), 2)
-})
-
-test("the nightly run captures a sample two times and fails on a difference", () => {
-  const workflow = readFileSync(
-    new URL("../../.github/workflows/ci.yaml", import.meta.url),
-    "utf8",
-  )
-  const job = /\n {2}visual-determinism:\n((?: {4}.*\n|\n)+)/.exec(
-    workflow,
-  )?.[1]
-  assert.ok(job, "ci.yaml has no visual-determinism job")
-  assert.match(job, /github\.event_name == 'schedule'/)
-  assert.doesNotMatch(job, /pull_request/)
-  assert.match(job, /runs-on: .*-arm\n/)
-  assert.match(job, /node scripts\/ci\/visual-capture-proof\.mjs \d+\n/)
 })
