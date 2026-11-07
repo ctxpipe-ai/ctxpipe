@@ -4,8 +4,8 @@ import type { Verdict } from "./verdict.ts"
 type Part = { change: string; position: string; width: number; height: number }
 
 /**
- * The regions of a signature (`type@position:WxH`, joined by commas), in a
- * fixed order, or null when the signature is empty or has another format.
+ * The regions of a signature (`type@position:WxH`, joined by commas), or null
+ * when the signature is empty or has another format.
  */
 function parseSignature(signature: string | undefined): Part[] | null {
   if (!signature) return null
@@ -20,13 +20,7 @@ function parseSignature(signature: string | undefined): Part[] | null {
       height: Number(match[4]),
     })
   }
-  return parts.sort(
-    (a, b) =>
-      a.change.localeCompare(b.change) ||
-      a.position.localeCompare(b.position) ||
-      a.width - b.width ||
-      a.height - b.height,
-  )
+  return parts
 }
 
 // A side of a region may differ by 2 px, or by 2 % of the side when that is
@@ -35,20 +29,38 @@ function parseSignature(signature: string | undefined): Part[] | null {
 const near = (a: number, b: number) =>
   Math.abs(a - b) <= Math.max(2, Math.round(0.02 * Math.max(a, b)))
 
+/**
+ * True when each region of `a` has its own region in `b` with the same change
+ * type and position, and sizes that are near. A region is paired with the
+ * first free region of `b` that matches, so the order of the signature does
+ * not matter.
+ */
 function alike(a: Part[], b: Part[]): boolean {
+  const free = [...b]
   return (
     a.length === b.length &&
-    a.every(
-      (part, i) =>
-        part.change === b[i]?.change &&
-        part.position === b[i]?.position &&
-        near(part.width, b[i]?.width ?? 0) &&
-        near(part.height, b[i]?.height ?? 0),
-    )
+    a.every((part) => {
+      const at = free.findIndex(
+        (other) =>
+          other.change === part.change &&
+          other.position === part.position &&
+          near(other.width, part.width) &&
+          near(other.height, part.height),
+      )
+      if (at < 0) return false
+      free.splice(at, 1)
+      return true
+    })
   )
 }
 
-type Group = { story: StoryInput; parts: Part[]; members: number[] }
+type Member = { story: StoryInput; index: number }
+// The first member is the representative.
+type Group = {
+  /** Null for a story with no usable signature: a group of its own. */
+  parts: Part[] | null
+  members: [Member, ...Member[]]
+}
 
 /**
  * Review many stories of one run. Judging is the expensive step, so this
@@ -60,22 +72,21 @@ type Group = { story: StoryInput; parts: Part[]; members: number[] }
  *    first story of the group, never with the story before it, so a group
  *    cannot drift. A story with no signature is a group of its own.
  * 3. `judge` runs for the first story of a group, the representative, and for
- *    `sample` more stories, spread evenly over the group. Their verdicts are
- *    their own. When all judged verdicts have one verdict and one severity,
- *    each other story gets a copy of the verdict of the representative, with
- *    `groupedWith` set. When they differ, the group is not uniform, and each
- *    other story gets `unsure`. A group that is not larger than the
- *    representative and the sample is judged story by story.
+ *    2 more stories, spread evenly over the group. Their verdicts are their
+ *    own. When all judged verdicts have one verdict and one severity, each
+ *    other story gets that verdict, with `groupedWith` set and no evidence of
+ *    its own (see `Verdict`). When they differ, the group is not uniform, and
+ *    each other story gets `unsure`. A group of three or fewer is judged story
+ *    by story.
  *
  * The verdicts come in the order of `stories`. A failed `judge` call fails
- * the review: the caller can retry it. The caller prepares the images of a
- * story in `judge` (see `prepareImages`).
+ * the review: the caller can retry it.
  */
 export async function reviewStories(
   stories: readonly StoryInput[],
   judge: (story: StoryInput) => Promise<Verdict>,
-  { sample = 2 }: { sample?: number } = {},
 ): Promise<Verdict[]> {
+  const sample = 2
   const verdicts: Verdict[] = []
   const groups: Group[] = []
   stories.forEach((story, index) => {
@@ -86,51 +97,46 @@ export async function reviewStories(
       verdicts[index] = noiseVerdict(story)
       return
     }
+    const member = { story, index }
     const parts = parseSignature(story.signature)
     const group = parts
       ? groups.find(
           (candidate) =>
+            candidate.parts &&
             alike(candidate.parts, parts) &&
-            candidate.story.scope === story.scope &&
-            candidate.story.viewport.width === story.viewport.width &&
-            candidate.story.viewport.height === story.viewport.height,
+            candidate.members[0].story.scope === story.scope &&
+            candidate.members[0].story.viewport.width ===
+              story.viewport.width &&
+            candidate.members[0].story.viewport.height ===
+              story.viewport.height,
         )
       : undefined
-    if (group) group.members.push(index)
-    else groups.push({ story, parts: parts ?? [], members: [index] })
+    if (group) group.members.push(member)
+    else groups.push({ parts, members: [member] })
   })
 
-  for (const { members } of groups) {
-    const [first = 0, ...rest] = members
-    const judged =
-      members.length <= 1 + sample
-        ? members
-        : [
-            first,
-            ...Array.from(
-              { length: sample },
-              (_, k) =>
-                rest[Math.floor(((k + 0.5) * rest.length) / sample)] ?? first,
-            ),
-          ]
-    const results = await Promise.all(
-      judged.map((index) => judge(stories[index] as StoryInput)),
+  for (const {
+    members: [first, ...rest],
+  } of groups) {
+    // The picks are evenly spaced. A small group has no pick left over.
+    const count = Math.min(sample, rest.length)
+    const picked = new Set(
+      Array.from({ length: count }, (_, k) =>
+        Math.floor(((k + 0.5) * rest.length) / count),
+      ),
     )
-    judged.forEach((index, k) => {
-      verdicts[index] = results[k] as Verdict
-    })
-    const representative = results[0] as Verdict
-    const uniform = results.every(
-      ({ verdict, severity }) =>
-        verdict === representative.verdict &&
-        severity === representative.severity,
-    )
-    for (const index of members.filter((i) => !judged.includes(i)))
-      verdicts[index] = grouped(
-        (stories[index] as StoryInput).storyId,
-        representative,
-        uniform,
-      )
+    const representative = await judge(first.story)
+    verdicts[first.index] = representative
+    let uniform = true
+    for (const member of rest.filter((_, i) => picked.has(i))) {
+      const verdict = await judge(member.story)
+      verdicts[member.index] = verdict
+      uniform &&=
+        verdict.verdict === representative.verdict &&
+        verdict.severity === representative.severity
+    }
+    for (const { story, index } of rest.filter((_, i) => !picked.has(i)))
+      verdicts[index] = grouped(story.storyId, representative, uniform)
   }
   return verdicts
 }
@@ -151,6 +157,9 @@ function noiseVerdict({ storyId, regions }: StoryInput): Verdict {
   }
 }
 
+// The classification of the group, with no evidence of its own: the
+// observations, qualities and findings of the representative are about the
+// pictures of that story, which the model did not see for this story.
 function grouped(
   storyId: string,
   representative: Verdict,
@@ -158,6 +167,9 @@ function grouped(
 ): Verdict {
   const run = {
     storyId,
+    observations: [],
+    qualities: [],
+    findings: [],
     model: representative.model,
     costUsd: 0,
     latencyMs: 0,
@@ -166,17 +178,16 @@ function grouped(
   if (!uniform)
     return {
       ...run,
-      observations: [],
       verdict: "unsure",
       severity: "none",
       confidence: 0,
       summary: `The judged stories of the group disagree, so ${representative.storyId} cannot stand for this story. Judge it on its own.`,
-      qualities: [],
-      findings: [],
     }
   return {
-    ...representative,
     ...run,
+    verdict: representative.verdict,
+    severity: representative.severity,
+    confidence: representative.confidence,
     summary: `Same diff as ${representative.storyId}: ${representative.summary}`,
   }
 }

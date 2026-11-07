@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { deflateSync, crc32 } from "node:zlib"
 
+import { decode } from "@blazediff/codec-png-native"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import {
@@ -368,13 +369,20 @@ describe("judgeWithJev images", () => {
     return calls
   }
 
+  const sentImages = (body: DecisionsBody) =>
+    body.state.flatMap((part) =>
+      typeof part === "string"
+        ? []
+        : [Buffer.from(part.image_url.url.split(",")[1] ?? "", "base64")],
+    )
+
   test.each([
-    ["a side under 280 px", 279, 400],
-    ["a side over 1568 px", 400, 1569],
+    ["a side under 280 px", 279, 400, 280, 400],
+    ["a side over 1568 px", 400, 1569, 400, 1568],
   ])(
-    "%s gives unsure with the size, and makes no call",
-    async (_, width, height) => {
-      const calls = countCalls()
+    "%s is padded or scaled to fit, and the call is made",
+    async (_, width, height, sentWidth, sentHeight) => {
+      const seen = serve(() => fine)
       const path = await png(`bad-${width}x${height}.png`, width, height)
       const verdict = await judgeWithJev(
         await story({
@@ -384,17 +392,38 @@ describe("judgeWithJev images", () => {
           ],
         }),
       )
-      expect(calls.count).toBe(0)
-      expect(verdictSchema.parse(verdict)).toEqual(verdict)
-      expect(verdict.verdict).toBe("unsure")
-      expect(verdict.confidence).toBe(0)
-      expect(verdict.error).toContain("locator")
-      expect(verdict.error).toContain(path)
-      expect(verdict.error).toContain(`${width} x ${height}`)
-      expect(verdict.error).toContain("280")
-      expect(verdict.error).toContain("1568")
+      expect(verdict.error).toBeUndefined()
+      const [, locator] = sentImages(seen.body)
+      const size = decode(defined(locator))
+      expect({ width: size.width, height: size.height }).toEqual({
+        width: sentWidth,
+        height: sentHeight,
+      })
     },
   )
+
+  test("a box on a padded locator is mapped back to fractions of the picture", async () => {
+    // The locator is 400 x 200 px, padded to 400 x 280 px: the picture holds
+    // 5/7 of the height.
+    const seen = serve((name) => {
+      if (name === "area.spacing") return choice(0, 0.05, 0.95)
+      if (name === "defect") return defect(0.92)
+      if (name === "defect-box") return box(0.1, 5 / 7 / 2, 0.2, 0.6)
+      return fine
+    })
+    const verdict = await judgeWithJev(
+      await story({
+        images: [{ role: "locator", path: await png("short.png", 400, 200) }],
+      }),
+    )
+    expect(verdictSchema.parse(verdict)).toEqual(verdict)
+    expect(seen.body.questions["defect-box"]?.type).toBe("box")
+    const region = defined(verdict.findings[0]).region
+    expect(region.x).toBeCloseTo(0.2)
+    expect(region.width).toBeCloseTo(0.4)
+    expect(region.y).toBeCloseTo(0.14)
+    expect(region.height).toBeCloseTo(0.36)
+  })
 
   test("a file that is not a PNG gives unsure and makes no call", async () => {
     const calls = countCalls()

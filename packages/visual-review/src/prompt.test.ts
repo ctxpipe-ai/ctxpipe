@@ -116,7 +116,7 @@ describe("buildPrompt", () => {
     })
 
     expect(text).toMatch(
-      /Image 1 \(regions\) has a row only for the largest regions: regions 1 to 1 of 2\. The 1 smaller region has no row\. The locator image outlines it/,
+      /Image 1 \(regions\) has a row only for the largest regions: regions 1 to 1 of 2\. The 1 smaller region\(s\) have no row\. The locator image outlines them/,
     )
     // The prefix does not change, so a provider can still cache it.
     expect(prefix).toBe(buildPrompt(story).prefix)

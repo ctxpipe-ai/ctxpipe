@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { extname } from "node:path"
 
+import { prepareImage } from "../prepare.ts"
 import { buildPrompt } from "../prompt.ts"
 import type { StoryInput } from "../story.ts"
 import { judgementJsonSchema, parseVerdict, type Verdict } from "../verdict.ts"
@@ -83,10 +84,13 @@ const imagePart = async (path: string) => {
     throw new Error(
       `Image "${path}" has type "${extension.slice(1)}". Use png, jpg or webp.`,
     )
-  const bytes = await readFile(path)
+  // A PNG is brought within the side limits of the vision models.
+  const { png } = prepareImage(await readFile(path))
   return {
     type: "image_url",
-    image_url: { url: `data:${mimeType};base64,${bytes.toString("base64")}` },
+    image_url: {
+      url: `data:${mimeType};base64,${Buffer.from(png).toString("base64")}`,
+    },
   }
 }
 
@@ -95,7 +99,9 @@ const imagePart = async (path: string) => {
  * `provider/model` id. The key comes from `MODEL_PROVIDER_API_KEY` and the
  * base URL from `MODEL_PROVIDER_URL` (default: OpenRouter). The request sends
  * the cached prefix, the story text, then the images as data URLs, asks for the
- * critic JSON Schema, and denies data collection by the provider.
+ * critic JSON Schema, and denies data collection by the provider. A PNG with
+ * a side under 280 or over 1568 px is padded or scaled first (see
+ * `prepareImage`).
  *
  * The verdict carries the measured latency and the cost from `usage.cost`
  * (`null` when the response has none). A reply that is not usable gives the

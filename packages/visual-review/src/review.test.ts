@@ -136,17 +136,6 @@ describe("reviewStories", () => {
     ).toEqual([...calls].sort())
   })
 
-  test("the size of the sample is an option", async () => {
-    const { calls, judge: fake } = judge()
-    const ripple = Array.from({ length: 30 }, (_, i) =>
-      story(`ripple--story-${i}`, "color-change@left:288x90"),
-    )
-
-    await reviewStories(ripple, fake, { sample: 0 })
-
-    expect(calls).toEqual(["ripple--story-0"])
-  })
-
   test("a group no larger than the representative plus the sample is judged story by story", async () => {
     const { calls, judge: fake } = judge()
     const small = [0, 1, 2].map((i) =>
@@ -391,12 +380,16 @@ describe("reviewStories", () => {
     )
   })
 
-  test("when the judge agrees, a grouped regression is a regression for the rest", async () => {
+  test("when the judge agrees, a grouped regression is a regression for the rest, with no findings of its own", async () => {
     const { judge: fake } = judge(({ storyId }) =>
       verdict(storyId, {
         verdict: "regression",
         severity: "major",
         summary: "The badge text is cut.",
+        observations: [
+          { region: 1, before: "A badge.", after: "A cut badge." },
+        ],
+        qualities: [{ name: "clarity", delta: "worse", confidence: 0.8 }],
         findings: [
           {
             kind: "overflow",
@@ -420,9 +413,33 @@ describe("reviewStories", () => {
     expect(rest[0]).toMatchObject({
       verdict: "regression",
       severity: "major",
-      findings: [{ evidence: "The text ends at the box edge." }],
+      confidence: 0.9,
+      observations: [],
+      qualities: [],
+      findings: [],
     })
+    expect(rest[0]?.summary).toBe(
+      "Same diff as ripple--story-0: The badge text is cut.",
+    )
     expect(verdictSchema.safeParse(rest[0]).success).toBe(true)
+  })
+
+  test("regions pair up whatever the order of the sizes", async () => {
+    const { calls, judge: fake } = judge()
+    // Two regions of one type and position. Sorted by width, the pairs would
+    // cross: 100x20 with 102x20 is near, but 101x100 with 100x100 is too.
+    const stories = Array.from({ length: 30 }, (_, i) =>
+      story(
+        `cross--story-${i}`,
+        i % 2
+          ? "color-change@left:102x20,color-change@left:100x100"
+          : "color-change@left:100x20,color-change@left:101x100",
+      ),
+    )
+
+    await reviewStories(stories, fake)
+
+    expect(calls).toHaveLength(3)
   })
 
   test("a failed call to the judge fails the review, so the caller can retry", async () => {

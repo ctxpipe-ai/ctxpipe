@@ -1,9 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { basename, dirname, join } from "node:path"
-
 import { decode, encode, type Image } from "@blazediff/codec-png-native"
-
-import type { StoryInput } from "./story.ts"
 
 // Each side of an image that goes to a vision model, in pixels. Jev takes the
 // same range, and it keeps the total pixels within the limits of the models.
@@ -65,15 +60,28 @@ export function shrink(image: Image, width: number, height: number): Image {
   return out
 }
 
+/** The result of `prepareImage`. */
+export type Prepared = {
+  png: Uint8Array
+  /**
+   * The part of `png` that holds the picture, in fractions (0..1) of each
+   * side. The picture is at the top left. Padding fills the rest. A box that
+   * a judge draws on `png` maps to the original picture when it is divided
+   * by these fractions.
+   */
+  content: { width: number; height: number }
+}
+
 /**
  * Bring PNG bytes within the side limits of the vision models: each side from
  * 280 to 1568 px. An image with a side over 1568 px is scaled down, with its
- * aspect ratio. Then a side under 280 px is padded with gray, and the image
+ * aspect ratio. Then a side under 280 px is padded with gray, and the picture
  * stays at the top left. An image that is within the limits comes back as it
  * is, and so do bytes that are not a PNG.
  */
-export function prepareImage(bytes: Uint8Array): Uint8Array {
+export function prepareImage(bytes: Uint8Array): Prepared {
   const size = pngSize(bytes)
+  const whole = { png: bytes, content: { width: 1, height: 1 } }
   if (
     !size ||
     (size.width >= minSide &&
@@ -81,18 +89,17 @@ export function prepareImage(bytes: Uint8Array): Uint8Array {
       size.width <= maxSide &&
       size.height <= maxSide)
   )
-    return bytes
+    return whole
   let image = decode(bytes)
   const scale = Math.min(1, maxSide / Math.max(image.width, image.height))
   if (scale < 1)
     image = shrink(
       image,
-      Math.max(1, Math.min(maxSide, Math.round(image.width * scale))),
-      Math.max(1, Math.min(maxSide, Math.round(image.height * scale))),
+      Math.max(1, Math.round(image.width * scale)),
+      Math.max(1, Math.round(image.height * scale)),
     )
   const width = Math.max(minSide, image.width)
   const height = Math.max(minSide, image.height)
-  if (width === image.width && height === image.height) return encode(image)
   const padded = { data: new Uint8Array(width * height * 4), width, height }
   for (let i = 0; i < padded.data.length; i += 4) padded.data.set(gray, i)
   for (let y = 0; y < image.height; y++)
@@ -100,31 +107,8 @@ export function prepareImage(bytes: Uint8Array): Uint8Array {
       image.data.subarray(y * image.width * 4, (y + 1) * image.width * 4),
       y * width * 4,
     )
-  return encode(padded)
-}
-
-/**
- * The story with each image within the side limits (see `prepareImage`). An
- * image that needs a change is written to a `prepared` folder beside it, and
- * the story points to the new file. The original file stays as it is. An
- * image that needs no change keeps its path.
- *
- * Padding changes the fractions of an image. A box that a judge draws on a
- * prepared image (for example on the locator) is in fractions of the prepared
- * image, not of the original.
- */
-export async function prepareImages(story: StoryInput): Promise<StoryInput> {
-  const images = await Promise.all(
-    story.images.map(async (image) => {
-      const bytes = await readFile(image.path)
-      const prepared = prepareImage(bytes)
-      if (prepared === bytes) return image
-      const dir = join(dirname(image.path), "prepared")
-      await mkdir(dir, { recursive: true })
-      const path = join(dir, basename(image.path))
-      await writeFile(path, prepared)
-      return { ...image, path }
-    }),
-  )
-  return { ...story, images }
+  return {
+    png: encode(padded),
+    content: { width: image.width / width, height: image.height / height },
+  }
 }
