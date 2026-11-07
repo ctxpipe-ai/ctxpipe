@@ -239,7 +239,15 @@ Input: sha256 ${hash.digest("hex")}
 
   const requestPath = join(folder, "request.md")
   const verdictPath = join(folder, "verdict.json")
-  const written = await readFile(requestPath, "utf8").catch(() => undefined)
+  // A file of the folder can be a symbolic link. Read it only when its real
+  // path is in the run folder.
+  const readInRun = async (path: string) => {
+    const real = await realpath(path).catch(() => undefined)
+    if (real === undefined) return undefined
+    await realInside(root, real)
+    return readFile(real, "utf8")
+  }
+  const written = await readInRun(requestPath)
   if (written !== request) {
     for (const name of await readdir(folder))
       await rm(join(folder, name), { recursive: true, force: true })
@@ -247,7 +255,7 @@ Input: sha256 ${hash.digest("hex")}
     await writeFile(requestPath, request)
     return pending(`Judge ${requestPath}, then write ${verdictPath}.`)
   }
-  const reply = await readFile(verdictPath, "utf8").catch(() => undefined)
+  const reply = await readInRun(verdictPath)
   if (reply === undefined)
     return pending(`Judge ${requestPath}, then write ${verdictPath}.`)
   // `parseVerdict` checks the reply against the judgement part of

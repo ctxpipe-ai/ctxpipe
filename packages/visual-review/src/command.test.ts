@@ -411,6 +411,25 @@ describe("visual:review reads and writes only in the run folder", () => {
     expect(output.join("\n")).toContain("is outside the manifest folder")
   })
 
+  test("a verdict.json that links outside the run folder is not read", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "visual-review-outside-"))
+    await writeFile(join(outside, "secret.txt"), "secret text")
+    const manifest = await writeRun(["button--primary"])
+    await run("--manifest", manifest, "--judge", "agent")
+    await symlink(
+      join(outside, "secret.txt"),
+      join(root, "judgments", "button--primary.desktop", "verdict.json"),
+    )
+    output = []
+
+    const code = await run("--manifest", manifest, "--judge", "agent")
+
+    await rm(outside, { recursive: true, force: true })
+    expect(code).toBe(2)
+    expect(output.join("\n")).toContain("is outside the manifest folder")
+    expect(output.join("\n")).not.toContain("secret text")
+  })
+
   test("a symbolic link that points outside the run folder fails", async () => {
     const outside = await mkdtemp(join(tmpdir(), "visual-review-outside-"))
     await writeFile(join(outside, "secret.png"), after)
