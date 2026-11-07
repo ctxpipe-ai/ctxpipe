@@ -5,7 +5,7 @@ import { extname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 // Plays Storybook stories in a headless Chromium, one page for each story.
-// scripts/ci/storybook-golden.mjs (CI) and the check runner
+// scripts/ci/storybook-plays.mjs (CI) and the check runner
 // (scripts/checks/storybook.mjs) both use it, so a subset run plays a story
 // as CI does.
 
@@ -85,7 +85,7 @@ const playContext = {
 }
 
 const playInitScript = () => {
-  window.__CTXPIPE_GOLDEN__ = { result: null, waiters: [] }
+  window.__CTXPIPE_PLAY__ = { result: null, waiters: [] }
   // A component can read the CPU count and the memory of the host (for
   // example AnimatedBackground skips its animation on a small device), so
   // every play sees the same small device. No real host reports 3 CPUs and
@@ -130,14 +130,14 @@ const playInitScript = () => {
       true,
     )
   const record = (result) => {
-    if (window.__CTXPIPE_GOLDEN__.result) return
-    window.__CTXPIPE_GOLDEN__.result = result
-    for (const wait of window.__CTXPIPE_GOLDEN__.waiters) wait(result)
+    if (window.__CTXPIPE_PLAY__.result) return
+    window.__CTXPIPE_PLAY__.result = result
+    for (const wait of window.__CTXPIPE_PLAY__.waiters) wait(result)
   }
   const hook = () => {
     const channel = globalThis.__STORYBOOK_ADDONS_CHANNEL__
-    if (!channel || channel.__ctxpipeGolden) return
-    channel.__ctxpipeGolden = true
+    if (!channel || channel.__ctxpipePlay) return
+    channel.__ctxpipePlay = true
     const serialize = (error) => {
       if (error && typeof error === "object") {
         return String(error.stack ?? error.message ?? JSON.stringify(error))
@@ -178,7 +178,15 @@ const playInitScript = () => {
 // `page.coverage`), and `outcome.mocks` the headers of the MSW handlers that
 // answered a request (null when the page does not expose them). A trace step
 // that fails leaves its value undefined and never changes the outcome.
-export async function playStories(storybookUrl, stories, onStory, trace) {
+// `afterPlay(page, story, error)` runs once the play has ended, before the
+// page closes (a screenshot of the end state, scripts/ci/visual-capture.mjs).
+export async function playStories(
+  storybookUrl,
+  stories,
+  onStory,
+  trace,
+  afterPlay,
+) {
   const { chromium } = createRequire(join(ui, "package.json"))("playwright")
   // The browser starts with a time zone and a language that no pin uses, so
   // the Testing/Play host story fails when a pin of playContext is missing.
@@ -208,7 +216,7 @@ export async function playStories(storybookUrl, stories, onStory, trace) {
         { waitUntil: "domcontentloaded", timeout: 120_000 },
       )
       const result = await page
-        .waitForFunction(() => window.__CTXPIPE_GOLDEN__?.result, null, {
+        .waitForFunction(() => window.__CTXPIPE_PLAY__?.result, null, {
           timeout: 120_000,
         })
         .then((handle) => handle.jsonValue())
@@ -220,6 +228,7 @@ export async function playStories(storybookUrl, stories, onStory, trace) {
           : pageErrors[0]
             ? pageErrors[0]
             : undefined
+      await afterPlay?.(page, story, error)
       let mocks
       let coverage
       if (trace) {

@@ -51,7 +51,7 @@ export function withJobChecks(selection, jobs) {
   const reached = new Set(
     jobs.flatMap((job) =>
       job === "storybook-build"
-        ? ["storybook-golden", "storybook-plays"]
+        ? ["storybook-required", "storybook-plays"]
         : [job],
     ),
   )

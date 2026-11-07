@@ -40,7 +40,7 @@ export const ConsentOrgPicker: Story = {
     intent:
       "Catches an OAuth consent screen that does not tick the current organization, or does not send the chosen organizations on Allow. Not for scope text or sign-in.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
     const north = await canvas.findByRole("checkbox", { name: /North Labs/ })
@@ -62,7 +62,7 @@ export const ConsentNeedsOneOrg: Story = {
     intent:
       "Catches consent that allows access with no organization selected. Allow stays disabled and shows a message. Not for scope choice or the organization list.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -83,7 +83,7 @@ export const ConsentWriteOffByDefault: Story = {
     intent:
       "Catches consent that grants write access by default. Write stays off until the user ticks it, then it joins the scopes. Not for organization choice.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
     const write = await canvas.findByRole("checkbox", {

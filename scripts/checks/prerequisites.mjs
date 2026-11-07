@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { connect } from "node:net"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { graphReady } from "../ci/graph-ready.mjs"
@@ -257,6 +257,69 @@ export const prerequisites = {
       }
     },
   },
+  // Screenshots are taken in one pinned image (scripts/ci/visual-capture.mjs).
+  // The Docker server must run linux/arm64 itself: an emulated browser gives
+  // other pixels, and a slow, flaky run.
+  "visual-container": {
+    needs: ["docker"],
+    prepare: () => {
+      const visualPin = JSON.parse(
+        readFileSync(join(root, "scripts/ci/visual-container.json"), "utf8"),
+      )
+      const platform = quiet(
+        "docker",
+        ["version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"],
+        "Start Docker.",
+      )
+      if (platform !== visualPin.platform)
+        throw new Error(
+          `The Docker server is ${platform}; screenshots need ${visualPin.platform}. Use an arm64 host or an arm64 VM (colima start --arch aarch64 --memory 4).`,
+        )
+      const image = `${visualPin.image}:${visualPin.tag}@${visualPin.digest}`
+      try {
+        quiet("docker", ["image", "inspect", image], "")
+      } catch {
+        step(
+          "docker",
+          ["pull", "--platform", visualPin.platform, image],
+          `Run: docker pull ${image}`,
+        )
+      }
+      // The tag of the pin follows the lockfile (check-visual-container.mjs),
+      // but the digest can stay behind. The image must hold the browsers
+      // that the installed Playwright launches.
+      const playwright = createRequire(
+        createRequire(join(root, "apps/ui/package.json")).resolve(
+          "playwright/package.json",
+        ),
+      ).resolve("playwright-core/package.json")
+      const { browsers } = JSON.parse(
+        readFileSync(join(dirname(playwright), "browsers.json"), "utf8"),
+      )
+      const present = quiet(
+        "docker",
+        [
+          "run",
+          "--rm",
+          "--platform",
+          visualPin.platform,
+          "--entrypoint",
+          "ls",
+          image,
+          "/ms-playwright",
+        ],
+        `Run: docker pull ${image}`,
+      ).split("\n")
+      const missing = browsers
+        .filter(({ name }) => name.startsWith("chromium"))
+        .map(({ name, revision }) => `${name.replaceAll("-", "_")}-${revision}`)
+        .filter((directory) => !present.includes(directory))
+      if (missing.length)
+        throw new Error(
+          `${image} has no ${missing.join(", ")} (its browsers: ${present.join(", ")}). The digest does not match the playwright version of the lockfile. Pin the linux/arm64 digest of ${visualPin.image}:${visualPin.tag} in scripts/ci/visual-container.json.`,
+        )
+    },
+  },
   "chat-sandbox-image": {
     needs: ["docker"],
     prepare: () => {
@@ -281,7 +344,7 @@ export const prerequisites = {
       ),
   },
   // CI downloads the build of its Storybook job and sets
-  // SKIP_STORYBOOK_BUILD=1, as for scripts/ci/storybook-golden.mjs.
+  // SKIP_STORYBOOK_BUILD=1, as for scripts/ci/storybook-plays.mjs.
   "storybook-build": {
     prepare: () => {
       if (process.env.SKIP_STORYBOOK_BUILD !== "1")

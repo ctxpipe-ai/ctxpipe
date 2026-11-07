@@ -39,7 +39,7 @@ const homeRoute = {
 } satisfies StoryRouteParams
 
 export const Loading: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -80,7 +80,7 @@ export const Loading: Story = {
 
 /** The workspace list is still loading: the composer and activity skeleton hold their place. */
 export const WorkspacesLoading: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -126,7 +126,7 @@ export const WorkspacesLoading: Story = {
  * button, then the empty activity.
  */
 export const Empty: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   beforeEach: () => {
     window.localStorage.setItem(
@@ -182,7 +182,7 @@ let listReadFails = true
  * the organization has no Workspace.
  */
 export const WorkspacesLoadFails: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   beforeEach: () => {
     listReadFails = true
@@ -235,7 +235,7 @@ export const WorkspacesLoadFails: Story = {
  * the heatmap still loads. It shows no commit rows that then go away.
  */
 export const EmptyRecentWhileActivityLoads: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   beforeEach: Empty.beforeEach,
   play: async ({ canvasElement }) => {
@@ -281,7 +281,7 @@ export const EmptyRecentWhileActivityLoads: Story = {
 }
 
 export const Populated: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -345,7 +345,7 @@ export const ActivityAndRecentKeepTheirGap: Story = {
 }
 
 export const ActivityLoading: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -375,7 +375,7 @@ export const ActivityLoading: Story = {
 
 /** The composer opens the new conversation, which sends the message. */
 export const FirstMessageOpensConversation: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   parameters: {
     intent:
@@ -425,7 +425,7 @@ export const FirstMessageOpensConversation: Story = {
 }
 
 export const NoHistory: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

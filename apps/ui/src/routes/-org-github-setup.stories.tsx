@@ -100,8 +100,15 @@ export const CheckFails: Story = {
     await waitFor(() =>
       expect(canvas.getByText("Could not check GitHub")).toBeVisible(),
     )
+    // Scope to this alert: the page can hold a second Retry button (seen in CI).
+    const alert = canvas
+      .getByText("Could not check GitHub")
+      .closest("[role=alert]")
+    expect(alert).not.toBeNull()
     await waitFor(() =>
-      expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible(),
+      expect(
+        within(alert as HTMLElement).getByRole("button", { name: "Retry" }),
+      ).toBeVisible(),
     )
   },
 }

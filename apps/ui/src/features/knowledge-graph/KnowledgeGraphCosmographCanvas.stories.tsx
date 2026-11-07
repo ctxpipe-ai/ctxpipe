@@ -214,7 +214,7 @@ export const NoWebGL: Story = {
     intent:
       "Catches a graph canvas that fails with no message when the browser has no WebGL 2. It must show that the browser cannot show the graph. Not for graph data or layout.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   beforeEach: () => {
     const getContext = HTMLCanvasElement.prototype.getContext
     HTMLCanvasElement.prototype.getContext = function (

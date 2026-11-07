@@ -198,7 +198,7 @@ function connectedAppsHandlers(options: { failRevoke?: boolean } = {}) {
 const editBackend = connectedAppsHandlers()
 
 export const ConnectedAppsEditOrgs: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { accountView: "connected-apps" },
   beforeEach: editBackend.reset,
   parameters: {
@@ -250,7 +250,7 @@ export const ConnectedAppsEditOrgs: Story = {
 const revokeBackend = connectedAppsHandlers()
 
 export const ConnectedAppsRevoke: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { accountView: "connected-apps" },
   beforeEach: revokeBackend.reset,
   parameters: {
@@ -280,7 +280,7 @@ export const ConnectedAppsRevoke: Story = {
 const failingRevokeBackend = connectedAppsHandlers({ failRevoke: true })
 
 export const ConnectedAppsRevokeError: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { accountView: "connected-apps" },
   beforeEach: failingRevokeBackend.reset,
   parameters: {
@@ -577,7 +577,7 @@ const staleSelectionBackend = deletedOrganizationBackend([
  * first organization, and the page does not show the error screen.
  */
 export const OrganizationDeletedStaleSelection: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { accountView: "organizations" },
   decorators: orgPageDecorators,
   beforeEach: staleSelectionBackend.reset,
@@ -618,7 +618,7 @@ const lastOrganizationBackend = deletedOrganizationBackend([])
 
 /** The last organization is deleted: the user lands on onboarding. */
 export const LastOrganizationDeleted: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { accountView: "organizations" },
   decorators: orgPageDecorators,
   beforeEach: lastOrganizationBackend.reset,

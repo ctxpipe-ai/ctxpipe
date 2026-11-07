@@ -145,7 +145,7 @@ export const ChooseWorkspacesMulti: Story = {
     intent:
       "Catches a multi-workspace connector step that mixes the shared and per-workspace scope. Same scope shows one picker, different scope shows one for each workspace. Not for connector sign-in.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(

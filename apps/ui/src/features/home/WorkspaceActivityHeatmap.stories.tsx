@@ -66,7 +66,7 @@ export const HeatmapSkeletonMatches: Story = {
     intent:
       "Catches an activity heatmap skeleton whose size differs from the loaded heatmap. This causes layout shift. Not for activity counts or colors.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     days: docsWorkspaceActivity.days,
   },
