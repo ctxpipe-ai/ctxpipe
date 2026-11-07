@@ -18,7 +18,6 @@ import { captureInContainer } from "./visual-capture.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const out = join(root, ".ci-results/visual-capture-proof")
-const size = Number(process.argv[2] ?? 20)
 
 const index = JSON.parse(
   readFileSync(join(root, "apps/ui/storybook-static/index.json"), "utf8"),
@@ -27,6 +26,8 @@ const all = Object.values(index.entries)
   .filter((entry) => entry.type === "story" && entry.tags?.includes("play-fn"))
   .map((entry) => entry.id)
   .sort()
+if (!all.length) throw new Error("The Storybook build has no play story.")
+const size = Math.min(Number(process.argv[2] ?? 20), all.length)
 const ids = Array.from(
   { length: size },
   (_, k) => all[Math.floor((k * all.length) / size)],

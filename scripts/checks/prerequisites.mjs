@@ -113,11 +113,6 @@ export const falkordbModuleVersion = (uri) =>
     socket.on("error", reject)
     socket.on("close", () => clearTimeout(timer))
   })
-// The Playwright image of the screenshot capture, by digest
-// (scripts/ci/visual-container.json). A lane lists the file as an input.
-const visualPin = JSON.parse(
-  readFileSync(join(root, "scripts/ci/visual-container.json"), "utf8"),
-)
 const workbenchFix =
   "Evals call paid models, so they run only with the workbench environment: set MODEL_PROVIDER, MODEL_PROVIDER_API_KEY (the spend-capped workbench key) and MCP_EVAL_MODELS (two or more provider/model ids, comma-separated)."
 
@@ -268,6 +263,9 @@ export const prerequisites = {
   "visual-container": {
     needs: ["docker"],
     prepare: () => {
+      const visualPin = JSON.parse(
+        readFileSync(join(root, "scripts/ci/visual-container.json"), "utf8"),
+      )
       const platform = quiet(
         "docker",
         ["version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"],

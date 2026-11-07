@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process"
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -75,6 +76,9 @@ async function captureHere(ids, out) {
           await page.screenshot({
             path: join(out, `${story.id}.png`),
             type: "png",
+            // Ends a finite animation and resets an infinite one (a spinner),
+            // so that two runs do not catch different frames.
+            animations: "disabled",
           })
       },
     )
@@ -83,7 +87,7 @@ async function captureHere(ids, out) {
   }
   writeFileSync(
     join(out, "capture.json"),
-    `${JSON.stringify({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, stories }, null, 2)}\n`,
+    `${JSON.stringify({ stories }, null, 2)}\n`,
   )
   return stories
 }
@@ -97,7 +101,8 @@ const docker = (args, stdio = "inherit") => {
 }
 
 // Captures the stories in the pinned container and copies the PNGs and
-// capture.json into `out` (made empty first). Returns the capture.json stories.
+// capture.json into `out` (the old PNGs and capture.json of it are removed
+// first). Returns the capture.json stories, which hold a play failure too.
 export async function captureInContainer(ids, out) {
   if (!existsSync(join(staticDir, "index.json")))
     throw new Error(
@@ -106,8 +111,10 @@ export async function captureInContainer(ids, out) {
   const failed = (await prepare(["visual-container"])).get("visual-container")
   if (failed) throw new Error(failed)
   const name = `ctxpipe-visual-capture-${process.pid}-${Date.now()}`
-  rmSync(out, { recursive: true, force: true })
   mkdirSync(out, { recursive: true })
+  for (const file of readdirSync(out))
+    if (file.endsWith(".png") || file === "capture.json")
+      rmSync(join(out, file))
   try {
     // --init reaps the browser processes and --ipc=host gives Chromium shared
     // memory, as the Playwright documentation advises for the image.
@@ -139,12 +146,10 @@ export async function captureInContainer(ids, out) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2)
-  if (args[0] === "--inside") {
-    const stories = await captureHere(args.slice(1), "/out")
-    process.exitCode = stories.some((story) => story.status !== "captured")
-      ? 1
-      : 0
-  } else {
+  // Inside, a play failure is a status in capture.json, not an exit code, so
+  // that `docker cp` still gets the PNGs of the other stories.
+  if (args[0] === "--inside") await captureHere(args.slice(1), "/out")
+  else {
     const flag = args.indexOf("--out")
     const out = flag === -1 ? undefined : args[flag + 1]
     const ids = args.filter((_, i) => i !== flag && i !== flag + 1)
