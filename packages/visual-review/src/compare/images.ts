@@ -3,6 +3,7 @@ import { join, posix } from "node:path"
 
 import { decode, encode, type Image } from "@blazediff/codec-png-native"
 
+import { shrink } from "../prepare.ts"
 import type { StoryImage } from "../story.ts"
 import type { Comparison, PixelBox } from "./diff.ts"
 
@@ -119,37 +120,7 @@ function locator(image: Image, boxes: readonly PixelBox[]): Image {
   const scale = Math.min(1, 400 / Math.max(image.width, image.height))
   const width = Math.max(1, Math.round(image.width * scale))
   const height = Math.max(1, Math.round(image.height * scale))
-  const out = filled(width, height, gray)
-  // Each output pixel is the mean of the source pixels that it covers.
-  for (let y = 0; y < height; y++) {
-    const y0 = Math.floor(y / scale)
-    const y1 = Math.max(
-      y0 + 1,
-      Math.min(image.height, Math.floor((y + 1) / scale)),
-    )
-    for (let x = 0; x < width; x++) {
-      const x0 = Math.floor(x / scale)
-      const x1 = Math.max(
-        x0 + 1,
-        Math.min(image.width, Math.floor((x + 1) / scale)),
-      )
-      let [r, g, b, a] = [0, 0, 0, 0]
-      for (let sy = y0; sy < y1; sy++) {
-        for (let sx = x0; sx < x1; sx++) {
-          const i = (sy * image.width + sx) * 4
-          r += image.data[i] ?? 0
-          g += image.data[i + 1] ?? 0
-          b += image.data[i + 2] ?? 0
-          a += image.data[i + 3] ?? 0
-        }
-      }
-      const count = (y1 - y0) * (x1 - x0)
-      out.data.set(
-        [r, g, b, a].map((value) => Math.round(value / count)),
-        (y * width + x) * 4,
-      )
-    }
-  }
+  const out = shrink(image, width, height)
   for (const box of boxes) {
     const x0 = Math.floor(box.x * scale)
     const y0 = Math.floor(box.y * scale)

@@ -170,6 +170,8 @@ export function toStoryInput(
       position,
       confidence,
     })),
+    omittedRegions: story.omittedRegions,
+    ...(story.signature ? { signature: story.signature } : {}),
     images,
     ...(brief === undefined ? {} : { brief }),
     ...(sourceDiff === undefined ? {} : { sourceDiff }),

@@ -7,6 +7,7 @@ import { readFile } from "node:fs/promises"
 
 import { z } from "zod"
 
+import { pngSize, prepareImage, type Prepared } from "../prepare.ts"
 import { buildPrompt } from "../prompt.ts"
 import { areas, qualities } from "../rubric.ts"
 import type { StoryImage, StoryInput } from "../story.ts"
@@ -24,30 +25,25 @@ type Question =
 const clamp = (value: number) => Math.min(1, Math.max(0, value))
 
 /**
- * Read one PNG for Jev and check its size from the header: width and height
- * are the big-endian numbers at bytes 16 to 23. Jev takes each side from 280
- * to 1568 px, which also keeps the total pixels within its limits. The
- * adapter does not pad or scale an image: preparing the images is the job of
- * the caller. Returns the data URL, or the reason that Jev cannot take it.
+ * Read one PNG for Jev. Jev takes each side from 280 to 1568 px, which also
+ * keeps the total pixels within its limits, so `prepareImage` scales or pads
+ * the image to fit. Returns the data URL and the part of the sent image that
+ * holds the picture, or the reason that Jev cannot take the file.
  */
 async function readImage({
   role,
   path,
-}: StoryImage): Promise<{ url: string } | { problem: string }> {
+}: StoryImage): Promise<
+  { url: string; content: Prepared["content"] } | { problem: string }
+> {
   const bytes = await readFile(path)
-  if (
-    bytes.length < 24 ||
-    !bytes.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"))
-  )
+  if (!pngSize(bytes))
     return { problem: `Image ${role} (${path}) is not a PNG.` }
-  const width = bytes.readUInt32BE(16)
-  const height = bytes.readUInt32BE(20)
-  const within = (side: number) => side >= 280 && side <= 1568
-  if (!within(width) || !within(height))
-    return {
-      problem: `Image ${role} (${path}) is ${width} x ${height} px. Jev takes each side from 280 to 1568 px.`,
-    }
-  return { url: `data:image/png;base64,${bytes.toString("base64")}` }
+  const { png, content } = prepareImage(bytes)
+  return {
+    url: `data:image/png;base64,${Buffer.from(png).toString("base64")}`,
+    content,
+  }
 }
 
 const choiceQuestion = (instructions: string): Question => ({
@@ -70,9 +66,9 @@ const choiceQuestion = (instructions: string): Question => ({
  * source diff explains the change, and `unsure` when none does (the rule of
  * `parseVerdict`). Jev gives no text, so `observations` is empty and each
  * finding has an empty `evidence`. A 400 or 413 answer gives `unsure` with
- * the error. An image that is not a PNG, or that has a side under 280 or over
- * 1568 px, gives `unsure` with the error and no call. Another failure
- * throws. The request asks the provider not to keep the data
+ * the error. An image that is not a PNG gives `unsure` with the error and no
+ * call. An image with a side under 280 or over 1568 px is padded or scaled
+ * before it is sent (see `prepareImage`). Another failure throws. The request asks the provider not to keep the data
  * (`data_collection: "deny"`), as the OpenRouter adapter does.
  *
  * The request sends the header `TypeSafe-Danger-Zone-Images: true`. TypeSafe
@@ -100,11 +96,14 @@ export async function judgeWithJev(story: StoryInput): Promise<Verdict> {
     latencyMs,
     error,
   })
-  const prepared: (StoryImage & { url: string })[] = []
+  const prepared: (StoryImage & {
+    url: string
+    content: Prepared["content"]
+  })[] = []
   for (const image of story.images) {
     const read = await readImage(image)
     if ("problem" in read) return unsure(read.problem)
-    prepared.push({ ...image, url: read.url })
+    prepared.push({ ...image, ...read })
   }
   // The box is asked on the full after image, else on the locator. A
   // [before | after] strip does not map to the after image.
@@ -230,8 +229,12 @@ export async function judgeWithJev(story: StoryInput): Promise<Verdict> {
   const flagged = strongest >= 0.5
 
   // A box is in fractions of the sent image, which is the after image or the
-  // locator (an overview of it). A finding needs it, since Jev gives the
-  // region only through the box.
+  // locator (an overview of it). Padding sits at the bottom and right of the
+  // sent image, so dividing by the content fractions gives fractions of the
+  // picture. A finding needs the box, since Jev gives the region only through
+  // it.
+  const content =
+    boxIndex === undefined ? undefined : prepared[boxIndex]?.content
   const drawn = z
     .object({
       type: z.literal("box"),
@@ -245,10 +248,10 @@ export async function judgeWithJev(story: StoryInput): Promise<Verdict> {
     .safeParse(answers["defect-box"])
   const [x, y, x2, y2] = drawn.success
     ? [
-        clamp(drawn.data.box.left),
-        clamp(drawn.data.box.top),
-        clamp(drawn.data.box.right),
-        clamp(drawn.data.box.bottom),
+        clamp(drawn.data.box.left / (content?.width ?? 1)),
+        clamp(drawn.data.box.top / (content?.height ?? 1)),
+        clamp(drawn.data.box.right / (content?.width ?? 1)),
+        clamp(drawn.data.box.bottom / (content?.height ?? 1)),
       ]
     : [0, 0, 0, 0]
   const region =

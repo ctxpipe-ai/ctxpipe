@@ -28,6 +28,7 @@ export {
 export type { Manifest, ManifestStory } from "./compare/manifest.ts"
 export { buildPrompt } from "./prompt.ts"
 export type { Prompt } from "./prompt.ts"
+export { reviewStories } from "./review.ts"
 export { areas, qualities } from "./rubric.ts"
 export type {
   Box,

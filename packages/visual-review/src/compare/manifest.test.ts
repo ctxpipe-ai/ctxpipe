@@ -167,6 +167,8 @@ describe("toStoryInput", () => {
           confidence: 0.9,
         },
       ],
+      omittedRegions: 2,
+      signature: "color-change@left:288x90",
       images: [
         {
           role: "regions",
