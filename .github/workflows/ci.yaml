@@ -1554,9 +1554,9 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           out="$RUNNER_TEMP/out"
-          # The rules of gate.mjs redact (a test keeps them the same): no URL
-          # or credential-like text of the stderr reaches the log or the PR
-          # comment. The job runs no repository script, so it uses sed.
+          # No URL or credential-like text of the stderr reaches the log or
+          # the PR comment (a test checks the rules). gate.mjs shows the cause
+          # as it is. The job runs no repository script, so it uses sed.
           redact() {
             local name='["'\'']?[A-Za-z_]*([Kk][Ee][Yy]|[Tt][Oo][Kk][Ee][Nn]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn])[A-Za-z_]*["'\'']?[[:space:]]*[=:][[:space:]]*'
             sed -E \

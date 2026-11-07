@@ -509,40 +509,6 @@ export function code(text) {
   return `\`${clean.length > 200 ? `${clean.slice(0, 200)}…` : clean}\``
 }
 
-// `text` with each URL and each credential-like string replaced. The cause of
-// the critics job (the last stderr line of `factory review gate`) and the
-// text of a dispute reach the public PR comment through it. The
-// critics job applies the same rules with sed before the line reaches the
-// log; a test keeps both the same.
-export function redact(text) {
-  const name =
-    "[\"']?[A-Za-z_]*(?:key|token|secret|password|credential|authorization)[A-Za-z_]*[\"']?\\s*[=:]\\s*"
-  return (
-    String(text)
-      // A whole quoted credential value first, before a URL or a bearer
-      // rule can take its closing quote. A value without a closing quote
-      // (a cut line) is redacted to the end of the line.
-      .replace(
-        new RegExp(
-          `(${name})("(?:[^"\\\\\\n]|\\\\.)*\\\\?(?:"|$)|'(?:[^'\\\\\\n]|\\\\.)*\\\\?(?:'|$))`,
-          "gim",
-        ),
-        "$1[REDACTED]",
-      )
-      .replace(/[A-Za-z][A-Za-z0-9+.-]*:\/\/\S+/g, "[REDACTED-URL]")
-      .replace(
-        /(^|[^A-Za-z0-9_])(Basic|basic|Bearer|bearer|token|Token)\s+\S+/g,
-        "$1$2 [REDACTED]",
-      )
-      .replace(
-        /(AKIA|ASIA|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|sk-|xox[abpr]-|AIza|eyJ)[A-Za-z0-9._/+=-]*/g,
-        "[REDACTED]",
-      )
-      .replace(new RegExp(`(${name})[^\\s"',}]+`, "gi"), "$1[REDACTED]")
-      .replace(/[A-Za-z0-9/+_=-]{32,}/g, "[REDACTED]")
-  )
-}
-
 // The review critics of the PR, from `factory review gate` in the critics
 // job (critics.json): each critic of the merge base is carried (a stored
 // verdict covers the PR diff), not-applicable, or missing. Each other status
@@ -576,7 +542,7 @@ export function critics(inputs, { needs, fork = false } = {}) {
     checked: false,
     required: !fork,
     cause: existsSync(cause)
-      ? redact(readFileSync(cause, "utf8").trim())
+      ? readFileSync(cause, "utf8").trim()
       : record
         ? "the critics record lists no critics"
         : fork
@@ -677,7 +643,7 @@ function disputesText(checked) {
     "| Finding | Critic | Severity | Outcome |",
     "| --- | --- | --- | --- |",
   ]
-  for (const decision of decisions.map(publicDispute)) {
+  for (const decision of decisions) {
     lines.push(
       `| ${code(decision.finding ?? "")} | ${code(decision.critic ?? "")} | ${code(decision.severity ?? "")} | ${code(decision.outcome ?? "")} |`,
     )

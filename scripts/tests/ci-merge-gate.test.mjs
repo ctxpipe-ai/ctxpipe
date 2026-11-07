@@ -21,7 +21,6 @@ import {
   decideMode,
   describe,
   marker,
-  redact,
   shadow,
   summary,
 } from "../checks/gate.mjs"
@@ -1367,7 +1366,20 @@ test("the step names of the Lint and format job are the steps in ci.yaml", async
   }
 })
 
+// The critics job redacts the stderr of factory review gate with sed before
+// it reaches the log or the cause file. gate.mjs shows the cause as it is.
 test("the critics cause and the log of factory review gate hold no URL or credential", () => {
+  const ci = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const fn = /^ {10}redact\(\) \{\n[\s\S]*?^ {10}\}$/m.exec(ci)?.[0]
+  assert.ok(fn, "the redact function of the critics job")
+  const redact = (text) => {
+    const run = spawnSync("bash", ["-c", `${fn}\nredact`], {
+      input: `${text}\n`,
+      encoding: "utf8",
+    })
+    assert.equal(run.status, 0, run.stderr)
+    return run.stdout.replace(/\n$/, "")
+  }
   const line =
     "error: GET https://bucket.s3.amazonaws.com/x?X-Amz-Signature=abc failed; Bearer abc.def AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG ghp_0123456789abcdefghijklmnopqrstuvwxyzAB AKIAIOSFODNN7EXAMPLE id 0123456789abcdef0123456789abcdef01"
   const clean = redact(line)
@@ -1382,55 +1394,32 @@ test("the critics cause and the log of factory review gate hold no URL or creden
   ])
     assert.ok(!clean.includes(leak), `${leak}: ${clean}`)
   assert.ok(clean.startsWith("error: GET [REDACTED-URL] failed;"), clean)
-  assert.equal(
-    redact("the store failed: AccessDenied"),
+  for (const plain of [
     "the store failed: AccessDenied",
-  )
+    "plain text, a path src/a.ts:12",
+  ])
+    assert.equal(redact(plain), plain)
   const json = redact(
     '{"token":"abc123","password": "made up, pass", "secret":"a\\"b c"} Authorization: Basic dXNlcjpwYXNz',
   )
+  for (const leak of ["abc123", "made", "up, pass", "b c", "dXNlcjpwYXNz"])
+    assert.ok(!json.includes(leak), `${leak}: ${json}`)
   for (const sample of [
-    "{'password': 'made up pass'}",
+    "{'password': 'made up pass'} x",
     '{"password":"made up https://example.com/x"}',
     '{"password":"made up pass',
     "a\npassword: 'made up https://x\nnext line",
     '{"password":"made up \\"pass',
     '{"password":"made up\\',
+    '{"token":"abc123","password": "made-up!pass", "key":1}',
+    '{"password":"made up https://example.com/x","token": "Bearer a b"} y',
   ])
     assert.ok(!redact(sample).includes("made"), redact(sample))
-  for (const leak of ["abc123", "made", "up, pass", "b c", "dXNlcjpwYXNz"])
-    assert.ok(!json.includes(leak), `${leak}: ${json}`)
-  // The critics job redacts with sed before the line reaches the log or the
-  // cause file: the same rules as redact.
-  const ci = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
-  const fn = /^ {10}redact\(\) \{\n[\s\S]*?^ {10}\}$/m.exec(ci)?.[0]
-  assert.ok(fn, "the redact function of the critics job")
-  for (const sample of [
-    line,
+  const tokens = redact(
     "token xyz and password=hunter2 sk-abc123 eyJhbGciOi.x.y",
-    '{"token":"abc123","password": "made-up!pass", "key":1} Authorization: Basic dXNlcjpwYXNz',
-    '{"password": "made up, pass", "secret":"a\\"b c"} done',
-    "{'password': 'made up pass'} x",
-    '{"password":"made up pass',
-    "password: 'made up https://x",
-    '{"password":"made up \\"pass',
-    '{"password":"made up\\',
-    '{"password":"made up https://example.com/x","token": "Bearer a b"} y',
-    "plain text, a path src/a.ts:12",
-  ]) {
-    const run = spawnSync("bash", ["-c", `${fn}\nredact`], {
-      input: `${sample}\n`,
-      encoding: "utf8",
-    })
-    assert.equal(run.stdout, `${redact(sample)}\n`, sample)
-  }
-  const directory = inputs({})
-  writeFileSync(
-    join(directory, "critics-cause.txt"),
-    `factory review gate failed with exit code 2: ${line}\n`,
   )
-  const cause = critics(directory).cause
-  assert.ok(!cause.includes("https://") && !cause.includes("ghp_"), cause)
+  for (const leak of ["xyz", "hunter2", "sk-abc123", "eyJhbGciOi"])
+    assert.ok(!tokens.includes(leak), `${leak}: ${tokens}`)
 })
 
 // The gate lists each dispute outcome by its id, so a person sees it. No text
