@@ -98,18 +98,12 @@ For each finding, give the writer who can do it, the effect, and the fix. A guar
 
 **Simplicity critic.** Apply each rule of [`.agents/skills/simplicity-audit/REVIEW-BRIEF.md`](../simplicity-audit/REVIEW-BRIEF.md) to the diff, and report in the shape of that brief. Spec-match is not a defense.
 
-**Visual critic.** It judges each changed baseline screenshot (`**/screenshots/*.screenshot.png`) with `pnpm visual:review`. The rules, the rubric and the prompt are in `packages/visual-review`, not here, so that the command, the factory and a fork use the same rules. Do not judge a screenshot by eye in place of the command. The command gives one verdict for each changed screenshot (`<story id>[@<snapshot>].<viewport>`): `intended`, `regression`, `noise` or `unsure`, with a severity. A `regression` with severity `major` or `blocker` blocks: the command exits with code 1. Exit code 2 means that the review is not complete. To accept a change, commit the new baseline. A verdict does not accept a change.
+**Visual critic.** It judges each changed baseline screenshot (`**/screenshots/*.screenshot.png`) with `pnpm visual:review`. The rules, the rubric and the prompt are in `packages/visual-review`, not here, so that the command, the factory and a fork use the same rules. Do not judge a screenshot by eye in place of the command. The command gives one verdict for each changed screenshot (`<story id>[@<snapshot>].<viewport>`): `intended`, `regression`, `noise` or `unsure`, with a severity. Screenshots with the same diff form a group. A judge looks at one screenshot of the group and at two samples. The other screenshots of the group get the verdict of the group, with `groupedWith`. The text output gives one line for each judged screenshot and its group. A `regression` with severity `major` or `blocker` blocks: the command exits with code 1. Exit code 2 means that the review is not complete. To accept a change, commit the new baseline. A verdict does not accept a change.
 
-`critics.json` does not have a `visual` entry yet. Today a reviewer of `factory check` can only read files. It cannot run `visual:review`. It cannot see the base image of a binary file. Also, a `visual` entry would run on each PR when the model step cannot skip it.
+`critics.json` does not have a `visual` entry yet. A reviewer of `factory check` can only read files, so it cannot run `visual:review`. The factory change CTX-1198 adds a "command" reviewer kind and this entry: `"name": "visual"`, `"triggers": ["**/screenshots/*.screenshot.png"]`, and a reviewer that runs `pnpm -s visual:review --json`. The reviewer must not trust PR code:
 
-The factory change "command" reviewer kind (CTX-1198) adds the entry. The planned shape:
-
-- `"name": "visual"`, `"triggers": ["**/screenshots/*.screenshot.png"]`, `"notApplicable": []`, `"inputs": [".agents/skills/code-review/SKILL.md"]`.
-- The reviewer runs `pnpm -s visual:review --json` and reads the verdicts.
-- The factory runs `packages/visual-review` from the merge base. Thus a PR cannot change the code that judges its own screenshots.
-- Only that merge-base code gets `MODEL_PROVIDER_API_KEY`. PR code never gets it.
-- The factory does not use a manifest that PR code wrote. For each changed baseline PNG of the diff, it takes the merge-base blob as the before image and the PR blob as the after image. Then it runs the compare step of the merge base on them, and it writes the manifest itself. Thus the regions, the change types, the signature and the images come from merge-base code.
-- When the factory cannot make a story for a changed baseline PNG, the review is not complete, as with exit code 2.
+- It runs `packages/visual-review` from the merge base. Only that code gets `MODEL_PROVIDER_API_KEY`.
+- It makes the manifest itself. It compares the merge-base blob and the PR blob of each changed baseline PNG with the merge-base code. It does not read a manifest that PR code wrote.
 
 ## Without the factory
 
