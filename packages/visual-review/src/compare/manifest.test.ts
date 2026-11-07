@@ -205,7 +205,7 @@ describe("toStoryInput", () => {
         { ...story, images: { ...story.images, after: path } },
         { root: "/repo/.ci-results/visual" },
       ),
-    ).toThrow(`Image path "${path}" is outside the manifest folder`)
+    ).toThrow(`Path "${path}" is outside the manifest folder`)
   })
 
   test("the images that writeStoryImages wrote are the images of the critic", async () => {

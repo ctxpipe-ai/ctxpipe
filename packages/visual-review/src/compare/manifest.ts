@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, realpath, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, posix, relative, resolve, sep } from "node:path"
 
 import { z } from "zod"
@@ -186,17 +186,19 @@ export function toStoryInput(
  * The absolute path of `path` in the folder `root`. A path that is absolute,
  * or that resolves outside `root`, throws.
  */
-export function insideRoot(root: string, path: string): string {
+function insideRoot(root: string, path: string): string {
   const full = resolve(root, path)
   const fromRoot = relative(resolve(root), full)
-  if (
-    isAbsolute(path) ||
-    !fromRoot ||
-    fromRoot.split(sep)[0] === ".." ||
-    isAbsolute(fromRoot)
-  )
-    throw new Error(
-      `Image path "${path}" is outside the manifest folder ${root}.`,
-    )
+  if (isAbsolute(path) || !fromRoot || fromRoot.split(sep)[0] === "..")
+    throw new Error(`Path "${path}" is outside the manifest folder ${root}.`)
   return full
+}
+
+/**
+ * Throw when the real path of `path`, with each symbolic link resolved, is
+ * not inside the real path of `root`. `path` must exist.
+ */
+export async function realInside(root: string, path: string): Promise<void> {
+  const realRoot = await realpath(root)
+  insideRoot(realRoot, relative(realRoot, await realpath(path)))
 }

@@ -4,13 +4,20 @@
 // factory: `--judge model` uses the key of the contributor, and `--judge
 // agent` lets the coding agent of the contributor judge, at no cost.
 import { createHash } from "node:crypto"
-import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
-import { dirname, join, relative, resolve } from "node:path"
+import {
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises"
+import { dirname, join, resolve } from "node:path"
 import { parseArgs } from "node:util"
 
 import { judgeWithJev } from "./adapters/jev.ts"
 import { judgeWithOpenRouter } from "./adapters/openrouter.ts"
-import { insideRoot, manifestSchema, toStoryInput } from "./compare/manifest.ts"
+import { manifestSchema, realInside, toStoryInput } from "./compare/manifest.ts"
 import { prepareImage } from "./prepare.ts"
 import { buildPrompt } from "./prompt.ts"
 import { reviewStories } from "./review.ts"
@@ -81,6 +88,7 @@ export async function visualReview(
 
   let stories: StoryInput[]
   let root: string
+  let realRoot: string
   try {
     const path = resolve(options.manifest)
     root = dirname(path)
@@ -93,20 +101,30 @@ export async function visualReview(
         : await readFile(options.brief, "utf8")
     // The critic judges only a change beyond the tolerance. A new, removed,
     // unstable or failed story is the job of the visual check.
-    stories = manifest.stories
-      .filter(({ status }) => status === "changed" || status === "size-changed")
-      .map((story) =>
-        toStoryInput(manifest, story, {
-          root,
-          ...(brief === undefined ? {} : { brief }),
-        }),
-      )
-    // `toStoryInput` checks the paths as text. A symbolic link in the run
-    // folder can still point outside it, so check the real paths too.
-    const realRoot = await realpath(root)
-    for (const { images } of stories)
-      for (const image of images)
-        insideRoot(realRoot, relative(realRoot, await realpath(image.path)))
+    const reviewed = manifest.stories.filter(
+      ({ status }) => status === "changed" || status === "size-changed",
+    )
+    realRoot = await realpath(root)
+    stories = []
+    for (const story of reviewed) {
+      if (!story.images.before || !story.images.after)
+        throw new Error(
+          `Story ${story.id} is ${story.status}, but it has no before and after image.`,
+        )
+      const input = toStoryInput(manifest, story, {
+        root,
+        ...(brief === undefined ? {} : { brief }),
+      })
+      // `toStoryInput` checks the paths as text. A symbolic link in the run
+      // folder can still point outside it, so check the real paths too.
+      for (const { path } of input.images) await realInside(realRoot, path)
+      // One story can have more than one screenshot: a viewport each, and
+      // named snapshots. The verdict is for one screenshot.
+      stories.push({
+        ...input,
+        storyId: `${story.id}${story.snapshot ? `@${story.snapshot}` : ""}.${story.viewport}`,
+      })
+    }
   } catch (error) {
     print(
       `Cannot read the manifest ${options.manifest}: ${(error as Error).message}`,
@@ -119,7 +137,7 @@ export async function visualReview(
     verdicts = await reviewStories(
       stories,
       judge === "agent"
-        ? (story) => judgeByAgent(story, root)
+        ? (story) => judgeByAgent(story, realRoot)
         : async (story) => {
             const filtered =
               filter === "jev" ? await judgeWithJev(story) : undefined
@@ -160,7 +178,7 @@ const blocks = ({ verdict, severity }: Verdict) =>
 
 /**
  * The agent judge. It writes a judgment request for `story` into
- * `<root>/judgments/<story id>/`: `request.md` (the rules, the rubric, the
+ * `<root>/judgments/<screenshot id>/`: `request.md` (the rules, the rubric, the
  * measured regions and the JSON Schema of the reply) and the images, prepared
  * to the side limits of the vision models. The coding agent reads them and
  * writes `verdict.json` in the same folder. The next call reads that file as
@@ -168,10 +186,20 @@ const blocks = ({ verdict, severity }: Verdict) =>
  * brief) removes the old `verdict.json`.
  */
 async function judgeByAgent(story: StoryInput, root: string): Promise<Verdict> {
-  // A story id is a folder name here, so it may not climb out of the folder.
-  if (!/^[\w-]+$/.test(story.storyId))
-    throw new Error(`Story id "${story.storyId}" is not a valid folder name.`)
-  const folder = join(root, "judgments", story.storyId)
+  // The screenshot id is a folder name here, so it may not climb out of the
+  // folder. A symbolic link in the run folder may not lead out of it either.
+  if (!/^[\w-]+(@[\w-]+)?\.(desktop|mobile)$/.test(story.storyId))
+    throw new Error(
+      `Screenshot id "${story.storyId}" is not a valid folder name.`,
+    )
+  const judgments = join(root, "judgments")
+  const folder = join(judgments, story.storyId)
+  // Check each level before a write below it: `judgments` first, then the
+  // folder of this screenshot.
+  for (const level of [judgments, folder]) {
+    await mkdir(level, { recursive: true })
+    await realInside(root, level)
+  }
   const prompt = buildPrompt(story)
   const images = await Promise.all(
     prompt.images.map(async ({ role, path }, index) => ({
@@ -213,8 +241,8 @@ Input: sha256 ${hash.digest("hex")}
   const verdictPath = join(folder, "verdict.json")
   const written = await readFile(requestPath, "utf8").catch(() => undefined)
   if (written !== request) {
-    await rm(folder, { recursive: true, force: true })
-    await mkdir(folder, { recursive: true })
+    for (const name of await readdir(folder))
+      await rm(join(folder, name), { recursive: true, force: true })
     for (const { name, png } of images) await writeFile(join(folder, name), png)
     await writeFile(requestPath, request)
     return pending(`Judge ${requestPath}, then write ${verdictPath}.`)

@@ -73,7 +73,7 @@
       "project": ["src/**/*.ts", "test/**/*.ts"]
     },
     "packages/visual-review": {
-      "entry": ["src/**/*.test.ts", "src/command.ts"],
+      "entry": ["src/**/*.test.ts"],
       "project": ["src/**/*.ts"]
     },
     "packages/aws-cdk": {

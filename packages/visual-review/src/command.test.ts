@@ -2,7 +2,16 @@
 // engine, real image files and a real manifest. Only the provider HTTP is
 // faked.
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -84,7 +93,8 @@ afterAll(() => server.close())
 let root: string
 let output: string[]
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "visual-review-command-"))
+  // The real path: on macOS the temporary folder is behind a symbolic link.
+  root = await realpath(await mkdtemp(join(tmpdir(), "visual-review-command-")))
   output = []
   chats.length = 0
   content = JSON.stringify(regression)
@@ -179,7 +189,7 @@ describe("visual:review --judge model", () => {
     ])
     const text = output.join("\n")
     expect(text).toContain(
-      "BLOCKS regression major button--primary: The button text is clipped.",
+      "BLOCKS regression major button--primary.desktop: The button text is clipped.",
     )
     expect(text).toContain("overflow at x 0.60, y 0.60")
     expect(text).toContain("1 stories reviewed; 1 verdict blocks.")
@@ -206,7 +216,9 @@ describe("visual:review --judge model", () => {
     expect(chats).toHaveLength(3)
     expect(chats[0]?.model).toBe("openai/gpt-6.1-sol")
     const verdicts = verdictSchema.array().parse(JSON.parse(output.join("\n")))
-    expect(verdicts.map(({ storyId }) => storyId)).toEqual(ids)
+    expect(verdicts.map(({ storyId }) => storyId)).toEqual(
+      ids.map((id) => `${id}.desktop`),
+    )
     expect(verdicts.every(({ verdict }) => verdict === "intended")).toBe(true)
     expect(verdicts.filter(({ groupedWith }) => groupedWith)).toHaveLength(2)
   })
@@ -282,7 +294,7 @@ describe("visual:review --judge model", () => {
 describe("visual:review --judge agent", () => {
   test("writes a judgment request, then reads the verdict.json of the agent", async () => {
     const manifest = await writeRun(["button--primary"])
-    const folder = join(root, "judgments", "button--primary")
+    const folder = join(root, "judgments", "button--primary.desktop")
 
     const first = await run("--manifest", manifest, "--judge", "agent")
 
@@ -316,7 +328,7 @@ describe("visual:review --judge agent", () => {
     expect(second).toBe(1)
     const [verdict] = verdictSchema.array().parse(JSON.parse(output.join("\n")))
     expect(verdict).toMatchObject({
-      storyId: "button--primary",
+      storyId: "button--primary.desktop",
       verdict: "regression",
       severity: "major",
       model: "agent",
@@ -329,7 +341,7 @@ describe("visual:review --judge agent", () => {
     const manifest = await writeRun(["button--primary"])
     await run("--manifest", manifest, "--judge", "agent")
     await writeFile(
-      join(root, "judgments", "button--primary", "verdict.json"),
+      join(root, "judgments", "button--primary.desktop", "verdict.json"),
       JSON.stringify({ verdict: "fine" }),
     )
 
@@ -342,7 +354,12 @@ describe("visual:review --judge agent", () => {
   test("a changed request removes the old verdict.json", async () => {
     const manifest = await writeRun(["button--primary"])
     await run("--manifest", manifest, "--judge", "agent")
-    const verdict = join(root, "judgments", "button--primary", "verdict.json")
+    const verdict = join(
+      root,
+      "judgments",
+      "button--primary.desktop",
+      "verdict.json",
+    )
     await writeFile(verdict, JSON.stringify(regression))
     const brief = join(root, "brief.md")
     await writeFile(brief, "Make the primary button red.")
@@ -361,7 +378,23 @@ describe("visual:review --judge agent", () => {
   })
 })
 
-describe("visual:review reads only the run folder", () => {
+describe("visual:review reads and writes only in the run folder", () => {
+  test("a judgments folder that links outside the run folder gets no write", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "visual-review-outside-"))
+    await mkdir(join(outside, "button--primary.desktop"))
+    await writeFile(join(outside, "button--primary.desktop", "keep.txt"), "x")
+    const manifest = await writeRun(["button--primary"])
+    await symlink(outside, join(root, "judgments"))
+
+    const code = await run("--manifest", manifest, "--judge", "agent")
+
+    const kept = await readdir(join(outside, "button--primary.desktop"))
+    await rm(outside, { recursive: true, force: true })
+    expect(code).toBe(2)
+    expect(kept).toEqual(["keep.txt"])
+    expect(output.join("\n")).toContain("is outside the manifest folder")
+  })
+
   test.each([
     ["a ../ path", "../outside.png"],
     ["an absolute path", "/etc/hosts"],
@@ -393,6 +426,38 @@ describe("visual:review reads only the run folder", () => {
     expect(code).toBe(2)
     expect(chats).toHaveLength(0)
     expect(output.join("\n")).toContain("is outside the manifest folder")
+  })
+})
+
+describe("visual:review checks each screenshot", () => {
+  test("two viewports and a named snapshot of one story get a judgment request each", async () => {
+    const manifest = await writeRun(["button--primary"])
+    const edited = JSON.parse(await readFile(manifest, "utf8"))
+    const [, desktop] = edited.stories
+    edited.stories.push(
+      { ...desktop, viewport: "mobile" },
+      { ...desktop, snapshot: "menu-open" },
+    )
+    await writeFile(manifest, JSON.stringify(edited))
+
+    expect(await run("--manifest", manifest, "--judge", "agent")).toBe(2)
+
+    expect((await readdir(join(root, "judgments"))).sort()).toEqual([
+      "button--primary.desktop",
+      "button--primary.mobile",
+      "button--primary@menu-open.desktop",
+    ])
+  })
+
+  test("a changed story without its before and after images is a manifest error", async () => {
+    const manifest = await writeRun(["button--primary"], (story) => ({
+      ...story,
+      images: {},
+    }))
+
+    expect(await run("--manifest", manifest)).toBe(2)
+    expect(chats).toHaveLength(0)
+    expect(output.join("\n")).toContain("has no before and after image")
   })
 })
 
