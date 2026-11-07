@@ -20,7 +20,7 @@ const critic = (name) => critics.find((critic) => critic.name === name)
 test("each critic names its inputs, and only Security may be not applicable", () => {
   assert.deepEqual(
     critics.map(({ name }) => name),
-    ["spec", "standards", "simplicity", "security"],
+    ["spec", "standards", "simplicity", "security", "visual"],
   )
   for (const { name, inputs, notApplicable } of critics) {
     for (const input of inputs)
@@ -58,4 +58,27 @@ test("Security runs on CI, install and check discovery paths, whatever the model
       triggers.some((trigger) => matchesGlob(path, trigger)),
       path,
     )
+})
+
+test("Visual is a command critic that runs visual:review only on changed screenshots", () => {
+  const { triggers, command, models } = critic("visual")
+  assert.equal(models, undefined)
+  assert.deepEqual(triggers, ["**/screenshots/*.screenshot.png"])
+  assert.ok(
+    matchesGlob(
+      "apps/ui/src/components/screenshots/Button.Primary.desktop.screenshot.png",
+      triggers[0],
+    ),
+  )
+  assert.ok(!matchesGlob("apps/ui/src/components/Button.tsx", triggers[0]))
+  // The paths come after `--`, so that a path cannot act as an option.
+  const { run } = command
+  assert.deepEqual(run.slice(0, 3), ["pnpm", "-s", "visual:review"])
+  assert.deepEqual(run.slice(-2), ["--", "{paths}"])
+  assert.equal(run[run.indexOf("--images") + 1], "{folder}/binary")
+  const scripts = JSON.parse(readFileSync(`${root}package.json`, "utf8")).scripts
+  assert.equal(
+    scripts["visual:review"],
+    "node packages/visual-review/src/command.ts",
+  )
 })

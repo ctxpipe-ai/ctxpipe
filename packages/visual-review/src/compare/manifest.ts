@@ -153,17 +153,62 @@ export function toStoryInput(
     sourceDiff,
   }: { root: string; brief?: string; sourceDiff?: string },
 ): StoryInput {
-  const { width, height } = story.size ?? manifest.run.viewports[story.viewport]
-  const images: StoryImage[] = []
-  for (const role of roles) {
-    const path = story.images[role]
-    if (path) images.push({ role, path: insideRoot(root, path) })
-  }
-  return {
+  return storyInput({
     storyId: story.id,
     scope: story.scope,
     viewport: manifest.run.viewports[story.viewport],
-    regions: story.regions.map(({ box, changeType, position, confidence }) => ({
+    size: story.size ?? manifest.run.viewports[story.viewport],
+    regions: story.regions,
+    omittedRegions: story.omittedRegions,
+    signature: story.signature,
+    images: story.images,
+    root,
+    brief,
+    sourceDiff,
+  })
+}
+
+/**
+ * The critic input of one compared screenshot. `size` is the size of the
+ * after image, in which the pixel boxes of `regions` are; the critic gets the
+ * boxes in fractions (0..1) of it. `images` are paths from the folder `root`.
+ * A path that is absolute, or that resolves outside `root`, throws.
+ */
+export function storyInput({
+  storyId,
+  scope,
+  viewport,
+  size: { width, height },
+  regions,
+  omittedRegions,
+  signature,
+  images: paths,
+  root,
+  brief,
+  sourceDiff,
+}: Pick<StoryInput, "storyId" | "scope" | "viewport"> & {
+  size: { width: number; height: number }
+  regions: readonly Pick<
+    ManifestStory["regions"][number],
+    "box" | "changeType" | "position" | "confidence"
+  >[]
+  omittedRegions: number
+  signature: string | null
+  images: ManifestStory["images"]
+  root: string
+  brief?: string | undefined
+  sourceDiff?: string | undefined
+}): StoryInput {
+  const images: StoryImage[] = []
+  for (const role of roles) {
+    const path = paths[role]
+    if (path) images.push({ role, path: insideRoot(root, path) })
+  }
+  return {
+    storyId,
+    scope,
+    viewport,
+    regions: regions.map(({ box, changeType, position, confidence }) => ({
       box: {
         x: box.x / width,
         y: box.y / height,
@@ -174,8 +219,8 @@ export function toStoryInput(
       position,
       confidence,
     })),
-    omittedRegions: story.omittedRegions,
-    ...(story.signature ? { signature: story.signature } : {}),
+    omittedRegions,
+    ...(signature ? { signature } : {}),
     images,
     ...(brief === undefined ? {} : { brief }),
     ...(sourceDiff === undefined ? {} : { sourceDiff }),
@@ -186,7 +231,7 @@ export function toStoryInput(
  * The absolute path of `path` in the folder `root`. A path that is absolute,
  * or that resolves outside `root`, throws.
  */
-function insideRoot(root: string, path: string): string {
+export function insideRoot(root: string, path: string): string {
   const full = resolve(root, path)
   const fromRoot = relative(resolve(root), full)
   if (isAbsolute(path) || !fromRoot || fromRoot.split(sep)[0] === "..")
