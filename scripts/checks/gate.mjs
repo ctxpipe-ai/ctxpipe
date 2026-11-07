@@ -43,8 +43,9 @@ import {
 //                 --store <file> --fork <true|false> --out <dir>
 //                 [--github-output <file>]
 //     The plan of a PR run (plan.mjs): writes plan.json to <dir>, and the
-//     outputs of the plan job (`mode`, `config`, `deploy`, and the checks of
-//     each job that runs them) to <file>. <inputs> holds the artifacts of the
+//     outputs of the plan job (`mode`, `config`, `deploy`, and for each job
+//     that runs checks, its check count or its matrix entries) to <file>. The
+//     check ids are only in plan.json (`jobs`). <inputs> holds the artifacts of the
 //     manifest, select and LLM jobs, <store> the PR store.
 //
 //   gate.mjs decide --config <merge-gate.json> --inputs <dir> --results <dir>
