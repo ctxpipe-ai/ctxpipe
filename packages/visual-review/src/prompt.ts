@@ -66,7 +66,7 @@ export function buildPrompt(input: StoryInput): Prompt {
     ? input.regions
         .map(
           ({ box, changeType, position, confidence }, index) =>
-            `${index + 1}. ${changeType} at ${position}; box x ${box.x}, y ${box.y}, width ${box.width}, height ${box.height}; confidence ${confidence}`,
+            `${index + 1}. ${changeType ?? "unlabeled change"} at ${position}; box x ${box.x}, y ${box.y}, width ${box.width}, height ${box.height}; confidence ${confidence}`,
         )
         .join("\n")
     : "No measured regions: the image size changed. Compare the full before and after images."

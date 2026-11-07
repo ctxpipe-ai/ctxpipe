@@ -122,6 +122,22 @@ describe("buildPrompt", () => {
     expect(text).toMatch(/no measured regions: the image size changed/i)
   })
 
+  test("a region with no label from the interpreter is an unlabeled change", () => {
+    const { story: text } = buildPrompt({
+      ...story,
+      regions: [
+        {
+          box: { x: 0.1, y: 0.2, width: 0.3, height: 0.05 },
+          changeType: null,
+          position: "top-left",
+          confidence: 0,
+        },
+      ],
+    })
+
+    expect(text).toContain("1. unlabeled change at top-left;")
+  })
+
   test("the brief and the diff are fenced as data, and a closing tag inside them cannot end the fence", () => {
     const { story: text } = buildPrompt({
       ...story,

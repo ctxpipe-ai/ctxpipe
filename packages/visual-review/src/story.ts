@@ -1,26 +1,39 @@
 /** A box in fractions (0..1) of the after image. */
 export type Box = { x: number; y: number; width: number; height: number }
 
-/** One changed region, as the BlazeDiff interpreter labels it. */
+/** The change types of the BlazeDiff interpreter. */
+export const changeTypes = [
+  "addition",
+  "deletion",
+  "content-change",
+  "color-change",
+  "shift",
+  "rendering-noise",
+] as const
+export type ChangeType = (typeof changeTypes)[number]
+
+/** The cell of a 3 × 3 grid that holds the center of a region. */
+export const positions = [
+  "top-left",
+  "top",
+  "top-right",
+  "left",
+  "center",
+  "right",
+  "bottom-left",
+  "bottom",
+  "bottom-right",
+] as const
+export type Position = (typeof positions)[number]
+
+/**
+ * One changed region, as the BlazeDiff interpreter labels it. `changeType` is
+ * null when the interpreter was not available and the region has no label.
+ */
 export type Region = {
   box: Box
-  changeType:
-    | "addition"
-    | "deletion"
-    | "content-change"
-    | "color-change"
-    | "shift"
-    | "rendering-noise"
-  position:
-    | "top-left"
-    | "top"
-    | "top-right"
-    | "left"
-    | "center"
-    | "right"
-    | "bottom-left"
-    | "bottom"
-    | "bottom-right"
+  changeType: ChangeType | null
+  position: Position
   confidence: number
 }
 
