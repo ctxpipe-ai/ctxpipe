@@ -92,15 +92,6 @@ const playContext = {
 // the page a secure context, which the MSW service worker needs.
 const playOrigin = "http://localhost:6006"
 
-// Each page starts its clock at this time, and the clock then runs at the real
-// speed. A date in the page is then the same on each run to the minute. The
-// init script shifts `Date` only. Playwright's clock (page.clock, also
-// setFixedTime) is not used: it runs the timers itself, which changes their
-// order against promises and broke a chat story. A clock that stops is not
-// used either: code that measures time with Date.now() then never ends (the
-// spring scroll of use-stick-to-bottom).
-const playTime = Date.parse("2026-11-02T12:00:00Z")
-
 // A story with a play function ends when its play ends. A story without one
 // ends when Storybook completes its render. Before a screenshot (`shot`), a
 // story with a play also waits for "completed": in that phase Storybook waits
@@ -303,7 +294,15 @@ export async function playStories(
       await page.addInitScript(playInitScript, {
         endPhase: storyEndPhase(story, Boolean(afterPlay)),
         needsPlay: (story.tags ?? []).includes("play-fn"),
-        time: playTime,
+        // Each page starts its clock at this time, and the clock then runs
+        // at the real speed. A date in the page is then the same on each run
+        // to the minute. The init script shifts `Date` only. Playwright's
+        // clock (page.clock, also setFixedTime) is not used: it runs the
+        // timers itself, which changes their order against promises and
+        // broke a chat story. A clock that stops is not used either: code
+        // that measures time with Date.now() then never ends (the spring
+        // scroll of use-stick-to-bottom).
+        time: Date.parse("2026-11-02T12:00:00Z"),
       })
       if ((story.tags ?? []).includes("reduced-motion"))
         await page.emulateMedia({ reducedMotion: "reduce" })
