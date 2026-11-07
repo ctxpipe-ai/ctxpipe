@@ -75,8 +75,10 @@ export const waitFor = async (url) => {
 
 // The browser context of every play. The time zone, the locale and the pixel
 // ratio are fixed, so that a play gives the same result on each host: a
-// Storybook check is portable (scripts/checks/storybook.mjs). The story
-// Testing/Play host (apps/ui/src/lib/play-host.stories.tsx) proves the pins.
+// Storybook check is portable (scripts/checks/storybook.mjs). The pins also
+// make a screenshot of the end state the same on each run
+// (scripts/ci/visual-capture.mjs). The story Testing/Play host
+// (apps/ui/src/lib/play-host.stories.tsx) proves the pins.
 const playContext = {
   viewport: { width: 1440, height: 900 },
   timezoneId: "UTC",
@@ -84,8 +86,39 @@ const playContext = {
   deviceScaleFactor: 1,
 }
 
-const playInitScript = () => {
+// The origin of every page. The real server has a free port, and a story that
+// shows `location.origin` (for example a webhook URL) would show that port.
+// The context routes this origin to the real server. A localhost origin keeps
+// the page a secure context, which the MSW service worker needs.
+const playOrigin = "http://localhost:6006"
+
+const playInitScript = ({ endPhase, needsPlay, time }) => {
   window.__CTXPIPE_PLAY__ = { result: null, waiters: [] }
+  const NativeDate = Date
+  const offset = time - NativeDate.now()
+  const now = () => NativeDate.now() + offset
+  function PinnedDate(...args) {
+    if (!new.target) return new NativeDate(now()).toString()
+    return Reflect.construct(
+      NativeDate,
+      args.length ? args : [now()],
+      new.target,
+    )
+  }
+  PinnedDate.prototype = NativeDate.prototype
+  PinnedDate.now = now
+  PinnedDate.parse = NativeDate.parse
+  PinnedDate.UTC = NativeDate.UTC
+  window.Date = PinnedDate
+  // A seeded Math.random (mulberry32), so that a random value is the same on
+  // each run.
+  let seed = 0x2f6b4a1d
+  Math.random = () => {
+    seed = (seed + 0x6d2b79f5) | 0
+    let value = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296
+  }
   // A component can read the CPU count and the memory of the host (for
   // example AnimatedBackground skips its animation on a small device), so
   // every play sees the same small device. No real host reports 3 CPUs and
@@ -134,6 +167,7 @@ const playInitScript = () => {
     window.__CTXPIPE_PLAY__.result = result
     for (const wait of window.__CTXPIPE_PLAY__.waiters) wait(result)
   }
+  let played = false
   const hook = () => {
     const channel = globalThis.__STORYBOOK_ADDONS_CHANNEL__
     if (!channel || channel.__ctxpipePlay) return
@@ -154,7 +188,9 @@ const playInitScript = () => {
       })
     channel.on("storyRenderPhaseChanged", (info) => {
       const phase = info?.newPhase ?? info?.phase
-      if (phase === "played") record({ ok: true, phase })
+      if (phase === "played") played = true
+      if (phase === endPhase && (played || !needsPlay))
+        record({ ok: true, phase })
       // Storybook names the phase before it emits the error of a play that
       // threw. Wait a moment, so that error comes first.
       if (phase === "errored")
@@ -172,14 +208,41 @@ const playInitScript = () => {
   setInterval(hook, 20)
 }
 
+// Runs in the page when the story has ended. It stops each CSS animation and
+// transition, hides the text caret, waits for the web fonts and places the
+// popovers again, so that a screenshot does not depend on its time. A play cannot use this step: some
+// plays test an animation. A story can check the settled page with
+// `window.__CTXPIPE_PLAY__.afterSettle` (the story Testing/Play host does).
+// Returns the error of that check.
+const settle = async () => {
+  const steady = new CSSStyleSheet()
+  steady.replaceSync(
+    "*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }",
+  )
+  document.adoptedStyleSheets = [...document.adoptedStyleSheets, steady]
+  await document.fonts.ready
+  // A popover that measured its trigger while the trigger still moved (an
+  // animation of its menu) is out of place. A resize event makes each
+  // popover measure again.
+  window.dispatchEvent(new Event("resize"))
+  await new Promise((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve)),
+  )
+  try {
+    await window.__CTXPIPE_PLAY__.afterSettle?.()
+  } catch (error) {
+    return String(error?.stack ?? error)
+  }
+}
+
 // Plays each story (an index.json entry) and calls `onStory(story, outcome)`
 // after it. `outcome.error` is set when the story failed. With `trace`,
 // `outcome.coverage` holds the V8 JS coverage of the page (Playwright
 // `page.coverage`), and `outcome.mocks` the headers of the MSW handlers that
 // answered a request (null when the page does not expose them). A trace step
 // that fails leaves its value undefined and never changes the outcome.
-// `afterPlay(page, story, error)` runs once the play has ended, before the
-// page closes (a screenshot of the end state, scripts/ci/visual-capture.mjs).
+// `afterPlay(page, story, error)` runs once the story has ended and the page
+// is settled, before the page closes (a screenshot of the end state, scripts/ci/visual-capture.mjs).
 export async function playStories(
   storybookUrl,
   stories,
@@ -193,15 +256,51 @@ export async function playStories(
   const browser = await chromium.launch({
     headless: true,
     env: { ...process.env, TZ: "Pacific/Chatham" },
-    args: ["--lang=de-DE"],
+    // Partial raster draws again only the changed part of a tile. The edge of
+    // that part can anti-alias a rounded corner one step lighter or darker
+    // than a full draw, so the pixels depend on what changed before the shot.
+    args: ["--lang=de-DE", "--disable-partial-raster"],
   })
   try {
-    const context = await browser.newContext(playContext)
     for (const story of stories) {
+      // A new context for each story. Thus no story sees the storage of an
+      // earlier one, and each page installs the MSW service worker again: a
+      // second page in one context makes Chromium update the worker with a
+      // request that the route does not see.
+      const context = await browser.newContext(playContext)
+      // The context, not the page, routes the origin: in Chromium only the
+      // context sees the requests of the MSW service worker.
+      await context.route(`${playOrigin}/**`, async (route) => {
+        const { pathname, search } = new URL(route.request().url())
+        // A request can still run when the story ends and its context
+        // closes. Then the route fails, and the error must not stop the run.
+        await route
+          .fetch({ url: `${storybookUrl}${pathname}${search}` })
+          .then((response) => route.fulfill({ response }))
+          .catch(() => route.abort().catch(() => undefined))
+      })
       const page = await context.newPage()
       const pageErrors = []
       page.on("pageerror", (error) => pageErrors.push(String(error)))
-      await page.addInitScript(playInitScript)
+      await page.addInitScript(playInitScript, {
+        // A check ends a story when its play ends. Before a screenshot, a
+        // story ends when Storybook completes it: in that phase Storybook
+        // waits for the running animations to finish (at most 5 seconds),
+        // and a story without a play function also reaches it. A story with
+        // a play must reach "played" first, because a play that did not run
+        // also reaches "completed".
+        endPhase: afterPlay ? "completed" : "played",
+        needsPlay: (story.tags ?? []).includes("play-fn"),
+        // Each page starts its clock at this time, and the clock then runs
+        // at the real speed. A date in the page is then the same on each run
+        // to the minute. The init script shifts `Date` only. Playwright's
+        // clock (page.clock, also setFixedTime) is not used: it runs the
+        // timers itself, which changes their order against promises and
+        // broke a chat story. A clock that stops is not used either: code
+        // that measures time with Date.now() then never ends (the spring
+        // scroll of use-stick-to-bottom).
+        time: Date.parse("2026-11-02T12:00:00Z"),
+      })
       if ((story.tags ?? []).includes("reduced-motion"))
         await page.emulateMedia({ reducedMotion: "reduce" })
       let covering = false
@@ -212,7 +311,7 @@ export async function playStories(
           .catch(() => false)
       const started = performance.now()
       await page.goto(
-        `${storybookUrl}/iframe.html?id=${encodeURIComponent(story.id)}&viewMode=story`,
+        `${playOrigin}/iframe.html?id=${encodeURIComponent(story.id)}&viewMode=story`,
         { waitUntil: "domcontentloaded", timeout: 120_000 },
       )
       const result = await page
@@ -227,7 +326,9 @@ export async function playStories(
           ? result.error
           : pageErrors[0]
             ? pageErrors[0]
-            : undefined
+            : await page
+                .evaluate(settle)
+                .catch((settleError) => String(settleError.message))
       await afterPlay?.(page, story, error)
       let mocks
       let coverage
@@ -238,7 +339,7 @@ export async function playStories(
         if (covering)
           coverage = await page.coverage.stopJSCoverage().catch(() => undefined)
       }
-      await page.close()
+      await context.close()
       await onStory(story, { error, durationMs, coverage, mocks })
     }
   } finally {

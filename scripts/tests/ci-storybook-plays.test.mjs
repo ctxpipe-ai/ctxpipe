@@ -59,8 +59,6 @@ test("CI requires the Storybook required plays job without retries", () => {
   assert.match(select, /required/)
   assert.match(select, /play-fn/)
   assert.match(runner, /playwright/)
-  assert.match(runner, /phase === "played"/)
-  assert.doesNotMatch(runner, /phase === "completed"/)
   assert.doesNotMatch(runner, /--retry(?:ies)?(?:=|\s+)/)
   void root
 })

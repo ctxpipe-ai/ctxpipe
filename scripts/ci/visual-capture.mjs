@@ -24,9 +24,13 @@ import pin from "./visual-container.json" with { type: "json" }
 // so a laptop and CI both capture in the same image.
 //
 // It runs the play runner (storybook-play.mjs) against the static Storybook
-// build (apps/ui/storybook-static). The screenshot is the 1440x900 viewport at
-// a pixel ratio of 1, taken after the play ends. Each one is written as
-// <out>/<story id>.png, with <out>/capture.json (the status of each story).
+// build (apps/ui/storybook-static). The runner pins the page (origin, clock,
+// Math.random) and settles it after the play (no animation or caret, the web
+// fonts loaded). The screenshot is the 1440x900 viewport
+// at a pixel ratio of 1, taken after the play ends (or, for a story without a
+// play function, after Storybook completes the render). Each one is written as
+// <out>/<story id>.png, with <out>/capture.json (the status of each story:
+// captured, unstable, play-failed or capture-failed).
 //
 // Usage: node scripts/ci/visual-capture.mjs --out <dir> <story id>...
 // The command needs Docker. It reads the repo read-only, and copies the
@@ -35,12 +39,28 @@ import pin from "./visual-container.json" with { type: "json" }
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 
+// Takes shots until two shots in a row are the same, and at most 6 shots.
+// After a shot that differs, it waits for `pause()`, so that a slow change (a
+// scroll that eases to its end) can end. A page that still changes after the
+// last shot is not steady; its last shot is returned.
+export async function shootUntilSteady(shoot, pause) {
+  let previous = await shoot()
+  for (let shot = 2; shot <= 6; shot++) {
+    if (shot > 2) await pause()
+    const png = await shoot()
+    if (png.equals(previous)) return { steady: true, png }
+    previous = png
+  }
+  return { steady: false, png: previous }
+}
+
 // Runs inside the container: /work is the repo, /out the folder of the PNGs.
 async function captureHere(ids, out) {
   mkdirSync(out, { recursive: true })
   const server = await serveStatic(staticDir, 0)
   const stories = []
   const shotErrors = new Map()
+  const unsteady = new Set()
   try {
     const url = `http://127.0.0.1:${server.address().port}`
     await waitFor(`${url}/index.json`)
@@ -53,15 +73,6 @@ async function captureHere(ids, out) {
     const unknown = ids.filter((id) => !byId.has(id))
     if (unknown.length)
       throw new Error(`Not in the Storybook build: ${unknown.join(", ")}`)
-    // The play runner ends a story at the "played" phase, which a story with
-    // no play function never reaches (it would wait for 120 seconds).
-    const unplayable = ids.filter(
-      (id) => !byId.get(id).tags?.includes("play-fn"),
-    )
-    if (unplayable.length)
-      throw new Error(
-        `No play function, so the runner cannot tell when the story ends: ${unplayable.join(", ")}`,
-      )
     await playStories(
       url,
       ids.map((id) => byId.get(id)),
@@ -73,24 +84,31 @@ async function captureHere(ids, out) {
             ? "play-failed"
             : failure
               ? "capture-failed"
-              : "captured",
+              : unsteady.has(story.id)
+                ? "unstable"
+                : "captured",
           ...(failure ? { error: failure } : {}),
         })
       },
       false,
       async (page, story, error) => {
-        if (!error)
-          await page
-            .screenshot({
-              path: join(out, `${story.id}.png`),
-              type: "png",
-              // Ends a finite animation and resets an infinite one (a
-              // spinner), so that two runs do not catch different frames.
-              animations: "disabled",
-            })
-            .catch((shotError) =>
-              shotErrors.set(story.id, String(shotError.message)),
-            )
+        if (error) return
+        try {
+          const { steady, png } = await shootUntilSteady(
+            () =>
+              page.screenshot({
+                type: "png",
+                // Ends a finite Web Animation and resets an infinite one,
+                // which the style sheet of the runner does not stop.
+                animations: "disabled",
+              }),
+            () => page.waitForTimeout(250),
+          )
+          writeFileSync(join(out, `${story.id}.png`), png)
+          if (!steady) unsteady.add(story.id)
+        } catch (shotError) {
+          shotErrors.set(story.id, String(shotError.message))
+        }
       },
     )
   } finally {
@@ -117,8 +135,8 @@ const docker = (args) => {
 
 // Captures the stories in the pinned container and copies the PNGs and
 // capture.json into `out` (the old PNGs and capture.json of it are removed
-// first). Returns one status for each id: captured, play-failed, capture-failed
-// or not-run.
+// first). Returns one status for each id: captured, unstable, play-failed,
+// capture-failed or not-run.
 export async function captureInContainer(ids, out) {
   if (!existsSync(join(staticDir, "index.json")))
     throw new Error(
