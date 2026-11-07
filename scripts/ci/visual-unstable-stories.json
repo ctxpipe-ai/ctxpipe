@@ -20,37 +20,37 @@
       "id": "pages-workspaces--shared-publish-pending",
       "viewport": "mobile",
       "reason": "The play asserts the desktop layout, so it fails at 390x844. The story needs an option to have only a desktop screenshot.",
-      "ticket": "CTX-1186"
+      "ticket": "CTX-1226"
     },
     {
       "id": "pages-workspaces--single-create-pr",
       "viewport": "mobile",
       "reason": "The play asserts the desktop layout, so it fails at 390x844. The story needs an option to have only a desktop screenshot.",
-      "ticket": "CTX-1186"
+      "ticket": "CTX-1226"
     },
     {
       "id": "pages-workspaces--pane-tabs-stay-in-place",
       "viewport": "mobile",
       "reason": "The play asserts the desktop layout, so it fails at 390x844. The story needs an option to have only a desktop screenshot.",
-      "ticket": "CTX-1186"
+      "ticket": "CTX-1226"
     },
     {
       "id": "pages-workspaces--diff-tab-rounded-corner",
       "viewport": "mobile",
       "reason": "The play asserts the desktop layout, so it fails at 390x844. The story needs an option to have only a desktop screenshot.",
-      "ticket": "CTX-1186"
+      "ticket": "CTX-1226"
     },
     {
       "id": "pages-workspaces--maximized-pane-matches-header",
       "viewport": "mobile",
       "reason": "The play asserts the desktop layout, so it fails at 390x844. The story needs an option to have only a desktop screenshot.",
-      "ticket": "CTX-1186"
+      "ticket": "CTX-1226"
     },
     {
       "id": "pages-workspaces--stable-request-budget",
       "viewport": "mobile",
       "reason": "The play asserts the desktop layout, so it fails at 390x844. The story needs an option to have only a desktop screenshot.",
-      "ticket": "CTX-1186"
+      "ticket": "CTX-1226"
     },
     {
       "id": "components-workspaces-pane--graph",
@@ -64,8 +64,8 @@
     },
     {
       "id": "components-workspacesources-pagerdutyscopeeditor--search-keeps-the-selection",
-      "reason": "A search result arrives after the play ends in some runs. When the play waits for it, the Selected chip shows the service id, not its name, and the play fails.",
-      "ticket": "CTX-1222"
+      "reason": "When the play waits for the search result, the Selected item shows the service id, not its name, and the play fails. Without the wait, the result arrives after the play ends in some runs.",
+      "ticket": "CTX-1225"
     }
   ]
 }
