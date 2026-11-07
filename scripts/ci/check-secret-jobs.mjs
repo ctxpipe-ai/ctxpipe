@@ -326,6 +326,12 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     "ci.yaml:merge-gate-select",
     "ci.yaml:merge-gate-llm",
     "ci.yaml:results-writer",
+    // The job reads plan.json of the merge gate plan job only as data: the
+    // check ids that selected.mjs runs. It downloads the artifact by the id
+    // that the plan job gives, so another job of the run cannot replace it.
+    // Before, the plan job gave the same ids in its outputs. The job already
+    // runs PR code with the token (pnpm install and the selected tests).
+    "ci.yaml:vercel-sandbox",
     // The Resolve job checks out the merge commit (it holds no secret) and
     // uploads infra/. The plan job may check out only the workflow commit, and
     // it already runs branch Terraform code: the reviewers of the
