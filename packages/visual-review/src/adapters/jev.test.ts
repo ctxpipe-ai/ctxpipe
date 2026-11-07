@@ -1,10 +1,10 @@
-import { mkdtemp, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { deflateSync, crc32 } from "node:zlib"
 
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
-import sharp from "sharp"
 import {
   afterAll,
   afterEach,
@@ -45,15 +45,29 @@ afterEach(() => {
 afterAll(() => server.close())
 
 const dir = await mkdtemp(join(tmpdir(), "jev-"))
+// A grayscale PNG of one color, built by hand: a signature, then the chunks.
 const png = async (name: string, width: number, height: number) => {
+  const chunk = (type: string, data: Buffer) => {
+    const body = Buffer.concat([Buffer.from(type), data])
+    const length = Buffer.alloc(4)
+    length.writeUInt32BE(data.length)
+    const crc = Buffer.alloc(4)
+    crc.writeUInt32BE(crc32(body))
+    return Buffer.concat([length, body, crc])
+  }
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(width, 0)
+  header.writeUInt32BE(height, 4)
+  header.set([8, 0, 0, 0, 0], 8)
   const path = join(dir, name)
   await writeFile(
     path,
-    await sharp({
-      create: { width, height, channels: 3, background: "#18181b" },
-    })
-      .png()
-      .toBuffer(),
+    Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk("IHDR", header),
+      chunk("IDAT", deflateSync(Buffer.alloc(height * (width + 1), 0))),
+      chunk("IEND", Buffer.alloc(0)),
+    ]),
   )
   return path
 }
@@ -138,16 +152,6 @@ beforeEach(() => {
   vi.stubEnv("MODEL_PROVIDER_URL", baseUrl)
 })
 
-const sentImage = async (body: DecisionsBody, index: number) => {
-  const parts = body.state.filter((part) => typeof part !== "string")
-  const url = defined(parts[index]).image_url.url
-  expect(url).toMatch(/^data:image\/(png|jpeg);base64,/)
-  const meta = await sharp(
-    Buffer.from(url.slice(url.indexOf(",") + 1), "base64"),
-  ).metadata()
-  return { width: meta.width, height: meta.height }
-}
-
 describe("judgeWithJev questions", () => {
   test("asks one question for each area and quality, and skips page-only qualities for a component", async () => {
     const seen = serve(() => fine)
@@ -218,41 +222,6 @@ describe("judgeWithJev verdict", () => {
       confidence: 0.8,
     })
     expect(verdict.qualities.map(({ name }) => name)).not.toContain("focus")
-  })
-
-  test("a box on a padded image maps back to the fractions of the real image", async () => {
-    // 400 x 100 is padded to 400 x 280 at the bottom; the box is on the padded image.
-    const seen = serve((name) => {
-      if (name === "area.alignment") return choice(0, 0.1, 0.9)
-      if (name === "defect") return defect(0.9)
-      if (name === "defect-box") return box(0.1, 0.2, 0.5, 1)
-      return fine
-    })
-    const wide = await png("wide.png", 400, 100)
-    const verdict = await judgeWithJev(
-      await story({ images: [{ role: "after", path: wide }] }),
-    )
-    expect(await sentImage(seen.body, 0)).toEqual({ width: 400, height: 280 })
-    const region = defined(verdict.findings[0]).region
-    expect(region.y).toBeCloseTo(0.28) // 0.1 * 280 / 100
-    expect(region.height).toBeCloseTo(0.28) // 0.1 * 280 / 100
-    expect(region.x).toBeCloseTo(0.5)
-    expect(region.width).toBeCloseTo(0.5)
-  })
-
-  test("a box that runs into the padding stops at the edge of the real image", async () => {
-    serve((name) => {
-      if (name === "area.alignment") return choice(0, 0.1, 0.9)
-      if (name === "defect") return defect(0.9)
-      if (name === "defect-box") return box(0.2, 0.9, 0, 1)
-      return fine
-    })
-    const wide = await png("wide2.png", 400, 100)
-    const verdict = await judgeWithJev(
-      await story({ images: [{ role: "after", path: wide }] }),
-    )
-    const { y, height } = defined(verdict.findings[0]).region
-    expect(y + height).toBeCloseTo(1)
   })
 
   test("nothing worse is intended when a brief explains the change", async () => {
@@ -374,26 +343,82 @@ describe("judgeWithJev verdict", () => {
 })
 
 describe("judgeWithJev images", () => {
-  test("pads a side under 280 px", async () => {
-    const seen = serve(() => fine)
-    const small = await png("small.png", 200, 150)
-    await judgeWithJev(
-      await story({ images: [{ role: "after", path: small }] }),
+  const countCalls = () => {
+    const calls = { count: 0 }
+    server.use(
+      http.post(endpoint, () => {
+        calls.count += 1
+        return HttpResponse.json({ model: "typesafe/jev-1.14", answers: {} })
+      }),
     )
-    expect(await sentImage(seen.body, 0)).toEqual({ width: 280, height: 280 })
+    return calls
+  }
+
+  test.each([
+    ["a side under 280 px", 279, 400],
+    ["a side over 1568 px", 400, 1569],
+  ])(
+    "%s gives unsure with the size, and makes no call",
+    async (_, width, height) => {
+      const calls = countCalls()
+      const path = await png(`bad-${width}x${height}.png`, width, height)
+      const verdict = await judgeWithJev(
+        await story({
+          images: [
+            { role: "regions", path: await png("ok.png", 400, 400) },
+            { role: "locator", path },
+          ],
+        }),
+      )
+      expect(calls.count).toBe(0)
+      expect(verdictSchema.parse(verdict)).toEqual(verdict)
+      expect(verdict.verdict).toBe("unsure")
+      expect(verdict.confidence).toBe(0)
+      expect(verdict.error).toContain("locator")
+      expect(verdict.error).toContain(path)
+      expect(verdict.error).toContain(`${width} x ${height}`)
+      expect(verdict.error).toContain("280")
+      expect(verdict.error).toContain("1568")
+    },
+  )
+
+  test("a file that is not a PNG gives unsure and makes no call", async () => {
+    const calls = countCalls()
+    const path = join(dir, "not-a-png.png")
+    await writeFile(path, "plain text, not an image at all")
+    const verdict = await judgeWithJev(
+      await story({ images: [{ role: "after", path }] }),
+    )
+    expect(calls.count).toBe(0)
+    expect(verdict.verdict).toBe("unsure")
+    expect(verdict.error).toContain("not a PNG")
+    expect(verdict.error).toContain(path)
   })
 
-  test("scales an image down to at most 1568 px a side, and pads the short side", async () => {
+  test("sides of exactly 280 and 1568 px go through, with the bytes as they are", async () => {
     const seen = serve(() => fine)
-    const tall = await png("tall.png", 3136, 100)
-    await judgeWithJev(await story({ images: [{ role: "after", path: tall }] }))
-    expect(await sentImage(seen.body, 0)).toEqual({ width: 1568, height: 280 })
-  })
-
-  test("keeps an image that is within the limits as it is", async () => {
-    const seen = serve(() => fine)
-    await judgeWithJev(await story())
-    expect(await sentImage(seen.body, 1)).toEqual({ width: 800, height: 500 })
+    const small = await png("edge-small.png", 280, 280)
+    const large = await png("edge-large.png", 1568, 1568)
+    const verdict = await judgeWithJev(
+      await story({
+        images: [
+          { role: "regions", path: small },
+          { role: "after", path: large },
+        ],
+      }),
+    )
+    expect(verdict.error).toBeUndefined()
+    const urls = seen.body.state.flatMap((part) =>
+      typeof part === "string" ? [] : [part.image_url.url],
+    )
+    expect(urls).toEqual(
+      await Promise.all(
+        [small, large].map(
+          async (path) =>
+            `data:image/png;base64,${(await readFile(path)).toString("base64")}`,
+        ),
+      ),
+    )
   })
 })
 

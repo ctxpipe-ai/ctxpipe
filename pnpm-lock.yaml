@@ -799,9 +799,6 @@ importers:
 
   packages/visual-review:
     dependencies:
-      sharp:
-        specifier: ^0.34.5
-        version: 0.34.5
       zod:
         specifier: ^4.3.6
         version: 4.6.5
@@ -1975,6 +1972,9 @@ packages:
 
   '@emnapi/runtime@1.11.2':
     resolution: {integrity: sha512-kyOl3X0DuTiT1h2ft8r2fYO8JYtU9a9Xis/zBSiGArNaagCOWx90N1k2wxp18czFDH+OgcWGb5ZP/XMt3dcyPA==}
+
+  '@emnapi/runtime@1.8.1':
+    resolution: {integrity: sha512-mehfKSMWjjNol8659Z8KxEMrdSJDDot5SXMq00dM8BN4o+CLNXQ0xH2V7EchNHV4RmbZLmmPdEaXZc5H2FXmDg==}
 
   '@emnapi/wasi-threads@1.2.2':
     resolution: {integrity: sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA==}
@@ -17040,6 +17040,11 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
+  '@emnapi/runtime@1.8.1':
+    dependencies:
+      tslib: 2.8.1
+    optional: true
+
   '@emnapi/wasi-threads@1.2.2':
     dependencies:
       tslib: 2.8.1
@@ -18350,7 +18355,8 @@ snapshots:
       '@iconify/types': 2.0.0
       mlly: 1.8.0
 
-  '@img/colour@1.0.0': {}
+  '@img/colour@1.0.0':
+    optional: true
 
   '@img/sharp-darwin-arm64@0.34.5':
     optionalDependencies:
@@ -18434,7 +18440,7 @@ snapshots:
 
   '@img/sharp-wasm32@0.34.5':
     dependencies:
-      '@emnapi/runtime': 1.11.2
+      '@emnapi/runtime': 1.8.1
     optional: true
 
   '@img/sharp-win32-arm64@0.34.5':
@@ -18908,7 +18914,7 @@ snapshots:
       https-proxy-agent: 7.0.6
       node-fetch: 2.7.0
       nopt: 8.1.0
-      semver: 7.8.5
+      semver: 7.7.4
       tar: 7.5.10
     transitivePeerDependencies:
       - encoding
@@ -24263,7 +24269,7 @@ snapshots:
       debug: 4.4.3
       globby: 11.1.0
       is-glob: 4.0.3
-      semver: 7.8.5
+      semver: 7.7.4
       tsutils: 3.21.0(typescript@6.0.3)
     optionalDependencies:
       typescript: 6.0.3
@@ -25520,7 +25526,7 @@ snapshots:
       json-schema-typed: 7.0.3
       onetime: 5.1.2
       pkg-up: 3.1.0
-      semver: 7.8.5
+      semver: 7.7.4
 
   confbox@0.1.8: {}
 
@@ -29356,7 +29362,7 @@ snapshots:
 
   node-abi@3.89.0:
     dependencies:
-      semver: 7.8.5
+      semver: 7.7.4
 
   node-addon-api@4.3.0: {}
 
@@ -29702,7 +29708,7 @@ snapshots:
       got: 12.6.1
       registry-auth-token: 5.1.1
       registry-url: 6.0.1
-      semver: 7.8.5
+      semver: 7.7.4
 
   package-manager-detector@0.2.11:
     dependencies:
@@ -30846,7 +30852,8 @@ snapshots:
 
   semver@7.7.4: {}
 
-  semver@7.8.5: {}
+  semver@7.8.5:
+    optional: true
 
   send@0.19.2:
     dependencies:
@@ -31008,7 +31015,7 @@ snapshots:
     dependencies:
       '@img/colour': 1.0.0
       detect-libc: 2.1.2
-      semver: 7.8.5
+      semver: 7.7.4
     optionalDependencies:
       '@img/sharp-darwin-arm64': 0.34.5
       '@img/sharp-darwin-x64': 0.34.5
@@ -31034,6 +31041,7 @@ snapshots:
       '@img/sharp-win32-arm64': 0.34.5
       '@img/sharp-win32-ia32': 0.34.5
       '@img/sharp-win32-x64': 0.34.5
+    optional: true
 
   shebang-command@2.0.0:
     dependencies:
@@ -31701,7 +31709,7 @@ snapshots:
       chalk: 4.1.2
       enhanced-resolve: 5.20.1
       micromatch: 4.0.8
-      semver: 7.8.5
+      semver: 7.7.4
       source-map: 0.7.6
       typescript: 6.0.3
       webpack: 5.105.4(esbuild@0.28.1)
@@ -31711,7 +31719,7 @@ snapshots:
       chalk: 4.1.2
       enhanced-resolve: 5.20.1
       micromatch: 4.0.8
-      semver: 7.8.5
+      semver: 7.7.4
       source-map: 0.7.6
       typescript: 6.0.3
       webpack: 5.105.4

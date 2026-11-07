@@ -5,12 +5,11 @@
 // It maps the answers onto the same verdict as the other judges.
 import { readFile } from "node:fs/promises"
 
-import sharp from "sharp"
 import { z } from "zod"
 
 import { buildPrompt } from "../prompt.ts"
 import { areas, qualities } from "../rubric.ts"
-import type { Box, StoryInput } from "../story.ts"
+import type { Box, StoryImage, StoryInput } from "../story.ts"
 import { parseVerdict, type Verdict } from "../verdict.ts"
 
 type Question =
@@ -25,44 +24,30 @@ type Question =
 const clamp = (value: number) => Math.min(1, Math.max(0, value))
 
 /**
- * Prepare one image for Jev: a PNG or JPEG, each side 280 to 1568 px. A long
- * side is scaled down. A short side is padded at the right and at the bottom.
- * `content` is the part of the sent image (0..1) that holds the real image,
- * so that a box on the sent image can be mapped back.
+ * Read one PNG for Jev and check its size from the header: width and height
+ * are the big-endian numbers at bytes 16 to 23. Jev takes each side from 280
+ * to 1568 px, which also keeps the total pixels within its limits. The
+ * adapter does not pad or scale an image: preparing the images is the job of
+ * the caller. Returns the data URL, or the reason that Jev cannot take it.
  */
-async function prepareImage(path: string) {
+async function readImage({
+  role,
+  path,
+}: StoryImage): Promise<{ url: string } | { problem: string }> {
   const bytes = await readFile(path)
-  const { width = 0, height = 0, format } = await sharp(bytes).metadata()
-  const within = (side: number) => side >= 280 && side <= 1568
   if (
-    (format === "png" || format === "jpeg") &&
-    within(width) &&
-    within(height)
+    bytes.length < 24 ||
+    !bytes.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"))
   )
+    return { problem: `Image ${role} (${path}) is not a PNG.` }
+  const width = bytes.readUInt32BE(16)
+  const height = bytes.readUInt32BE(20)
+  const within = (side: number) => side >= 280 && side <= 1568
+  if (!within(width) || !within(height))
     return {
-      url: `data:image/${format};base64,${bytes.toString("base64")}`,
-      content: { x: 1, y: 1 },
+      problem: `Image ${role} (${path}) is ${width} x ${height} px. Jev takes each side from 280 to 1568 px.`,
     }
-  const scale = Math.min(1, 1568 / Math.max(width, height))
-  const newWidth = Math.max(1, Math.round(width * scale))
-  const newHeight = Math.max(1, Math.round(height * scale))
-  const padded = await sharp(
-    await sharp(bytes).resize(newWidth, newHeight).png().toBuffer(),
-  )
-    .extend({
-      right: Math.max(0, 280 - newWidth),
-      bottom: Math.max(0, 280 - newHeight),
-      extendWith: "copy",
-    })
-    .png()
-    .toBuffer()
-  return {
-    url: `data:image/png;base64,${padded.toString("base64")}`,
-    content: {
-      x: newWidth / Math.max(280, newWidth),
-      y: newHeight / Math.max(280, newHeight),
-    },
-  }
+  return { url: `data:image/png;base64,${bytes.toString("base64")}` }
 }
 
 const choiceQuestion = (instructions: string): Question => ({
@@ -87,14 +72,17 @@ function unionOf(regions: StoryInput["regions"]): Box {
 
 /**
  * Judge one story with Jev. The key comes from `MODEL_PROVIDER_API_KEY` and
- * the OpenRouter API base from `MODEL_PROVIDER_URL`. The verdict says `regression` when Jev finds a
+ * the OpenRouter API base from `MODEL_PROVIDER_URL`. The verdict says
+ * `regression` when Jev finds a
  * defect or a worse area or quality with a probability of 0.5 or more, and
  * `unsure` when a probability is from 0.2 up to 0.5 or when a question has no
  * answer. Else nothing got worse: the verdict is `intended` when a brief or a
  * source diff explains the change, and `unsure` when none does (the rule of
  * `parseVerdict`). Jev gives no text, so `observations` is empty and each
  * finding has an empty `evidence`. A 400 or 413 answer gives `unsure` with
- * the error. Another failure throws.
+ * the error. An image that is not a PNG, or that has a side under 280 or over
+ * 1568 px, gives `unsure` with the error and no call: the adapter does not
+ * pad or scale images. Another failure throws.
  *
  * The request sends the header `TypeSafe-Danger-Zone-Images: true`. TypeSafe
  * requires it for an image or a Box question. The OpenRouter docs do not
@@ -107,18 +95,35 @@ export async function judgeWithJev(story: StoryInput): Promise<Verdict> {
   const base = process.env.MODEL_PROVIDER_URL || "https://openrouter.ai/api/v1"
   const requestedModel = "typesafe/jev-1.14"
 
-  const prepared = await Promise.all(
-    story.images.map(async (image) => ({
-      ...image,
-      ...(await prepareImage(image.path)),
-    })),
-  )
+  const unsure = (
+    error: string,
+    latencyMs = 0,
+    model = requestedModel,
+  ): Verdict => ({
+    storyId: story.storyId,
+    observations: [],
+    verdict: "unsure",
+    severity: "none",
+    confidence: 0,
+    summary: "The Jev filter gave no usable answer.",
+    qualities: [],
+    findings: [],
+    model,
+    costUsd: null,
+    latencyMs,
+    error,
+  })
+  const prepared: (StoryImage & { url: string })[] = []
+  for (const image of story.images) {
+    const read = await readImage(image)
+    if ("problem" in read) return unsure(read.problem)
+    prepared.push({ ...image, url: read.url })
+  }
   // The box is asked on the full after image, else on the locator. A
   // [before | after] strip does not map to the after image.
   const boxIndex = (["after", "locator"] as const)
     .map((role) => prepared.findIndex((image) => image.role === role))
     .find((index) => index >= 0)
-  const boxImage = boxIndex === undefined ? undefined : prepared[boxIndex]
 
   const askedQualities = qualities.filter(
     ({ pageOnly }) => story.scope === "page" || !pageOnly,
@@ -138,10 +143,10 @@ export async function judgeWithJev(story: StoryInput): Promise<Verdict> {
     questions[`quality.${id}`] = choiceQuestion(
       `Quality: ${name}. ${definition} Does the change make this quality better, the same or worse? Judge only the measured regions.`,
     )
-  if (boxImage && boxIndex !== undefined)
+  if (boxIndex !== undefined)
     questions["defect-box"] = {
       type: "box",
-      instructions: `the visible defect in Image ${boxIndex + 1} (${boxImage.role})`,
+      instructions: `the visible defect in Image ${boxIndex + 1} (${prepared[boxIndex]?.role})`,
     }
 
   const state = [
@@ -167,23 +172,10 @@ export async function judgeWithJev(story: StoryInput): Promise<Verdict> {
     },
   )
   const latencyMs = Math.round(performance.now() - started)
-  const unsure = (error: string, model = requestedModel): Verdict => ({
-    storyId: story.storyId,
-    observations: [],
-    verdict: "unsure",
-    severity: "none",
-    confidence: 0,
-    summary: "The Jev filter gave no usable answer.",
-    qualities: [],
-    findings: [],
-    model,
-    costUsd: null,
-    latencyMs,
-    error,
-  })
   if (!response.ok) {
     const error = `Jev answered ${response.status}: ${await response.text()}`
-    if (response.status === 400 || response.status === 413) return unsure(error)
+    if (response.status === 400 || response.status === 413)
+      return unsure(error, latencyMs)
     throw new Error(error)
   }
   const parsed = z
@@ -196,6 +188,7 @@ export async function judgeWithJev(story: StoryInput): Promise<Verdict> {
   if (!parsed.success)
     return unsure(
       `The Jev response does not match the schema:\n${z.prettifyError(parsed.error)}`,
+      latencyMs,
     )
   const { answers, model, usage } = parsed.data
 
@@ -244,7 +237,8 @@ export async function judgeWithJev(story: StoryInput): Promise<Verdict> {
   const flagged = strongest >= 0.5
   const doubtful = unanswered > 0 || strongest >= 0.2
 
-  // A box is on the sent image; map it back to the fractions of the real image.
+  // A box is in fractions of the sent image, which is the after image or the
+  // locator (an overview of it).
   const drawn = z
     .object({
       type: z.literal("box"),
@@ -256,14 +250,15 @@ export async function judgeWithJev(story: StoryInput): Promise<Verdict> {
       }),
     })
     .safeParse(answers["defect-box"])
-  const content = boxImage?.content
   let region = unionOf(story.regions)
-  if (drawn.success && content) {
+  if (drawn.success) {
     const { top, bottom, left, right } = drawn.data.box
-    const x = clamp(left / content.x)
-    const y = clamp(top / content.y)
-    const x2 = clamp(right / content.x)
-    const y2 = clamp(bottom / content.y)
+    const [x, y, x2, y2] = [
+      clamp(left),
+      clamp(top),
+      clamp(right),
+      clamp(bottom),
+    ]
     if (x2 > x && y2 > y) region = { x, y, width: x2 - x, height: y2 - y }
   }
 
