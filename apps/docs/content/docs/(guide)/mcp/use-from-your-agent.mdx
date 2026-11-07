@@ -87,9 +87,8 @@ the session handling code. Exclude the repository that we work in.
   working when the Workspace changes, and the tool returns `stale_cursor`. Then
   search again.
 - An error has `isError: true` and `{ code, message, retryable }`.
-- Each tool needs the `ctxpipe:read` scope. API keys and the normal OAuth grant
-  have it. A call without it gets `403 insufficient_scope`. The MCP tools never
-  need `ctxpipe:write`.
+- Each tool needs the `ctxpipe:read` scope. API keys and each OAuth grant have
+  it. A call without it gets `403 insufficient_scope`. The MCP tools only read.
 
 ## Related
 

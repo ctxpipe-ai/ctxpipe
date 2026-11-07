@@ -2,11 +2,12 @@ import { type RouteConfig, z } from "@hono/zod-openapi"
 import type { MiddlewareHandler } from "hono"
 
 import type { AppEnv } from "../app/env.js"
-import { MCP_SCOPES, MCP_WRITE_SCOPE, quoteHeaderValue } from "./mcp-scopes.js"
 
-const WRITE_GRANT_NOTE = `Needs a signed-in session, or an OAuth access token with the \`${MCP_WRITE_SCOPE}\` scope. An OAuth token without that scope and an API key get 403 with the code \`write_grant_required\`.`
+const WRITE_GRANT_NOTE =
+  "Needs a signed-in session. An OAuth access token and an API key get 403 with the code `write_grant_required`."
 
-const ORG_ADMIN_NOTE = `Also needs an org admin or owner session. An OAuth access token gets 403 from the org admin check, also with the \`${MCP_WRITE_SCOPE}\` scope.`
+const ORG_ADMIN_NOTE =
+  "Also needs an org admin or owner session. An OAuth access token gets 403 from the org admin check."
 
 /**
  * The 403 of a direct-write route. `code` is optional because a check in
@@ -29,8 +30,9 @@ function forbiddenResponse(description: string) {
 /**
  * Let a request through only when its principal can write to the default
  * branch of a Workspace repository without a pull request: a signed-in
- * session, or an OAuth token with `ctxpipe:write`. An OAuth token without
- * that scope and an API key get 403. API keys have no permissions, so they
+ * session. An OAuth token and an API key get 403. An OAuth token gets 403
+ * also when its stored grant lists `ctxpipe:write`, because ctxpipe offers no
+ * write scope now. API keys have no permissions, so they
  * cannot hold a write grant. On REST, `requireAuth` refuses an org API key with
  * 401, and a personal API key on any method but GET, HEAD and OPTIONS with
  * this 403, so neither reaches this check. The check stays as defense in
@@ -41,24 +43,20 @@ const requireWriteGrant: MiddlewareHandler<AppEnv> = async (c, next) => {
     return c.json(
       {
         error:
-          "API keys are read-only. Sign in, or use an OAuth token with the ctxpipe:write scope.",
+          "API keys are read-only. Sign in to ctxpipe to make this change.",
         code: "write_grant_required",
       },
       403,
     )
   }
-  const scopes = c.get("oauthScopes")
-  if (scopes && !scopes.includes(MCP_WRITE_SCOPE)) {
-    const description = `This change needs the ${MCP_WRITE_SCOPE} scope`
+  if (c.get("oauthScopes")) {
     return c.json(
       {
-        error: `${description}. Reconnect and allow it.`,
+        error:
+          "Connected apps have read-only access. Sign in to ctxpipe to make this change.",
         code: "write_grant_required",
       },
       403,
-      {
-        "WWW-Authenticate": `Bearer error="insufficient_scope", scope="${MCP_SCOPES.join(" ")}", error_description="${quoteHeaderValue(description)}"`,
-      },
     )
   }
   return next()

@@ -51,8 +51,7 @@ export function ConsentPage() {
 
     const { data, error: requestError } = await authClient.oauth2.consent({
       accept,
-      // Send exactly what the user allowed. Never fall back to the request:
-      // it can hold ctxpipe:write that the user did not tick.
+      // Send exactly the scopes that the page showed.
       scope: accept ? allowedScopes.join(" ") : undefined,
       fetchOptions: {
         throw: false,

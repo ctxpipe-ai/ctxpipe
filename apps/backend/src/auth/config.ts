@@ -438,10 +438,20 @@ export function createBetterAuth() {
           "email",
           "offline_access",
           MCP_READ_SCOPE,
+          // Still accepted, so that a client that registered with it can
+          // register, refresh and authorize. No request gets it: see
+          // applyMcpScopeRules and requireWriteGrant.
           MCP_WRITE_SCOPE,
         ],
-        /** A write grant gets a shorter access token than the 4h default. */
-        scopeExpirations: { [MCP_WRITE_SCOPE]: "1h" },
+        advertisedMetadata: {
+          scopes_supported: [
+            "openid",
+            "profile",
+            "email",
+            "offline_access",
+            MCP_READ_SCOPE,
+          ],
+        },
         /** 4h — MCP hosts should still refresh via refresh_token before expiry. */
         accessTokenExpiresIn: 14_400,
         silenceWarnings: { oauthAuthServerConfig: true },

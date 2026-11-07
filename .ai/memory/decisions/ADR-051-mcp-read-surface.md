@@ -48,7 +48,7 @@ The client agent is the reasoner. ctxpipe returns facts with stable refs. It run
 - One `/mcp` endpoint. The OAuth scopes are `ctxpipe:read` and `ctxpipe:write`. `tools/list` shows only the tools that the token's scopes allow. Each call checks the scope again.
 - A request with no credential gets 401 with `scope="ctxpipe:read"`. A call without the necessary scope gets 403 `insufficient_scope`, which names the full scope set.
 - Legacy grants and API keys count as read. API keys get `permissions`.
-- On consent, write is an unticked box. A write token has a shorter lifetime.
+- Until the write tools ship, ctxpipe offers only `ctxpipe:read`. An authorization that asks for `ctxpipe:write` gets `ctxpipe:read`, and no OAuth token passes the REST write gate. Stored grants from before can still list `ctxpipe:write`. Thus the write slice must not trust a stored grant, and must ask for new consent.
 - Each tool has a `title` and the annotations `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`.
 - Rejected: a second endpoint for write. It needs two connections and duplicate tools.
 

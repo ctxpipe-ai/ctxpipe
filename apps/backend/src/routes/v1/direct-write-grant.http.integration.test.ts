@@ -179,7 +179,7 @@ const READ_ROUTES = [
   { path: "/workspaces/missing-ws/upgrades", expectedStatus: 404 },
 ]
 
-describe("Direct-write REST routes need a session or the ctxpipe:write scope (Postgres)", () => {
+describe("Direct-write REST routes need a signed-in session (Postgres)", () => {
   let seed: SeededOrg | undefined
   const clientIds: string[] = []
   let readToken = ""
@@ -361,7 +361,7 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
     if (route.orgAdmin) {
       for (const [label, token] of [
         ["a ctxpipe:read OAuth token", () => readToken],
-        ["a ctxpipe:write OAuth token", () => writeToken],
+        ["a stored OAuth token that lists ctxpipe:write", () => writeToken],
         ["an OAuth token from before the ctxpipe scopes", () => legacyToken],
         ["a ctxpipe:read JWT access token", () => readJwt],
       ] as const) {
@@ -379,9 +379,7 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
         authorization: `Bearer ${readToken}`,
       })
       await expectWriteGrantRefusal(response)
-      const challenge = response.headers.get("www-authenticate") ?? ""
-      expect(challenge).toContain('error="insufficient_scope"')
-      expect(challenge).toContain('scope="ctxpipe:read ctxpipe:write"')
+      expect(response.headers.get("www-authenticate")).toBeNull()
     })
 
     it(`refuses a ctxpipe:read JWT access token on ${name}`, async () => {
@@ -396,11 +394,10 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
       )
     })
 
-    it(`lets a ctxpipe:write OAuth token through the gate on ${name}`, async () => {
-      const response = await send(route, {
-        authorization: `Bearer ${writeToken}`,
-      })
-      expect(response.status).toBe(route.expectedStatus)
+    it(`refuses a stored OAuth token that lists ctxpipe:write on ${name}`, async () => {
+      await expectWriteGrantRefusal(
+        await send(route, { authorization: `Bearer ${writeToken}` }),
+      )
     })
   }
 
@@ -683,7 +680,7 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
     const stated = Object.entries(spec.paths).flatMap(([path, operations]) =>
       Object.entries(operations)
         .filter(([, operation]) =>
-          operation.description?.includes("`ctxpipe:write` scope"),
+          operation.description?.includes("`write_grant_required`"),
         )
         .map(([method]) => `${method.toUpperCase()} ${path}`),
     )

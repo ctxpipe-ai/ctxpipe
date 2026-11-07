@@ -1,11 +1,8 @@
 import { useState } from "react"
 
 import { Button } from "@/components/ui/Button"
-import { Checkbox } from "@/components/ui/Checkbox"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { OrganizationPicker } from "@/features/auth/OrganizationPicker"
-
-const WRITE_SCOPE = "ctxpipe:write"
 
 const SCOPE_TEXT: Record<string, string> = {
   "ctxpipe:read":
@@ -40,18 +37,11 @@ export function OAuthConsent({
   defaultOrganizationIds: string[]
   error?: string | null
   isSubmitting?: "allow" | "deny" | null
-  /**
-   * Receives the scopes the user allows (write only when ticked) and the
-   * ticked orgs (at least one).
-   */
+  /** Receives the requested scopes and the ticked orgs (at least one). */
   onAllow: (allowedScopes: string[], organizationIds: string[]) => void
   onDeny: () => void
 }) {
-  const [allowWrite, setAllowWrite] = useState(false)
   const [organizationIds, setOrganizationIds] = useState(defaultOrganizationIds)
-  const fixedScopes = scopes.filter((scope) => scope !== WRITE_SCOPE)
-  const requestsWrite = scopes.includes(WRITE_SCOPE)
-  const allowedScopes = allowWrite ? scopes : fixedScopes
   return (
     <main className="mx-auto max-w-xl px-6 py-16 text-foreground">
       <section className="space-y-6 rounded-md border border-border bg-card/80 p-6">
@@ -85,9 +75,9 @@ export function OAuthConsent({
           </p>
           <div className="space-y-1">
             <p className="text-muted-foreground">Requested access:</p>
-            {fixedScopes.length > 0 ? (
+            {scopes.length > 0 ? (
               <ul className="list-disc pl-5 text-foreground">
-                {fixedScopes.map((scope) => (
+                {scopes.map((scope) => (
                   <li key={scope}>
                     {SCOPE_TEXT[scope] ?? (
                       <span className="font-mono text-xs">{scope}</span>
@@ -95,15 +85,9 @@ export function OAuthConsent({
                   </li>
                 ))}
               </ul>
-            ) : requestsWrite ? null : (
+            ) : (
               <p>No access requested.</p>
             )}
-            {requestsWrite ? (
-              <Checkbox isSelected={allowWrite} onChange={setAllowWrite}>
-                Also allow changes: propose and record knowledge in the selected
-                organizations. Leave this off for read-only access.
-              </Checkbox>
-            ) : null}
           </div>
         </div>
 
@@ -128,10 +112,10 @@ export function OAuthConsent({
             isDisabled={
               isSubmitting !== null ||
               organizationIds.length === 0 ||
-              allowedScopes.length === 0
+              scopes.length === 0
             }
             isPending={isSubmitting === "allow"}
-            onPress={() => onAllow(allowedScopes, organizationIds)}
+            onPress={() => onAllow(scopes, organizationIds)}
           >
             Allow
           </Button>

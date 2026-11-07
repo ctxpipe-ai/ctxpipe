@@ -10,7 +10,7 @@ import type { Context } from "hono"
 import type { AppEnv } from "../app/env.js"
 import {
   disableToolsOutsideScopes,
-  grantedMcpScopes,
+  GRANTED_MCP_SCOPES,
   insufficientMcpScopeResponse,
 } from "../auth/mcp-scopes.js"
 import {
@@ -145,8 +145,7 @@ export async function handleMcpTransportRequest(
     instructions ? { instructions } : undefined,
   )
   registerTools(server)
-  const grantedScopes = grantedMcpScopes(c.get("oauthScopes"))
-  const hiddenTools = disableToolsOutsideScopes(server, grantedScopes)
+  const hiddenTools = disableToolsOutsideScopes(server, GRANTED_MCP_SCOPES)
   for (const message of messages) {
     const call = CallToolRequestSchema.safeParse(message)
     if (!call.success) continue
@@ -155,7 +154,7 @@ export async function handleMcpTransportRequest(
     if (!required) continue
     return logResponse(
       insufficientMcpScopeResponse(c, {
-        granted: grantedScopes,
+        granted: GRANTED_MCP_SCOPES,
         required,
         tool,
         resourceMetadataUrl: mcpOAuthProtectedResourceMetadataUrl(

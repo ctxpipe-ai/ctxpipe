@@ -897,7 +897,7 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     return c.json(
       {
         error:
-          "API keys are read-only. Sign in, or use an OAuth token with the ctxpipe:write scope.",
+          "API keys are read-only. Sign in to ctxpipe to make this change.",
         code: "write_grant_required",
       },
       403,
