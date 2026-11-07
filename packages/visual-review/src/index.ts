@@ -7,7 +7,6 @@ export {
   openRouterPrices,
   usageCost,
 } from "./adapters/openrouter.ts"
-export type { Price } from "./adapters/openrouter.ts"
 export { buildPrompt } from "./prompt.ts"
 export type { Prompt } from "./prompt.ts"
 export { areas, qualities } from "./rubric.ts"

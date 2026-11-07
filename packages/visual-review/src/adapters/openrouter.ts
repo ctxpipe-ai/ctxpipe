@@ -23,7 +23,7 @@ export function openRouterModelId(model: string): string {
 }
 
 /** USD for one token of input and of output. */
-export type Price = { input: number; output: number }
+type Price = { input: number; output: number }
 
 /**
  * The prices of the given OpenRouter model ids, from `GET {baseUrl}/models`
@@ -71,16 +71,14 @@ export function usageCost(
   return tokens.inputTokens * price.input + tokens.outputTokens * price.output
 }
 
-const mimeTypes: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".webp": "image/webp",
-}
-
 const imagePart = async (path: string) => {
   const extension = extname(path).toLowerCase()
-  const mimeType = mimeTypes[extension]
+  const mimeType = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+  }[extension]
   if (!mimeType)
     throw new Error(
       `Image "${path}" has type "${extension.slice(1)}". Use png, jpg or webp.`,
@@ -125,6 +123,7 @@ export async function judgeWithOpenRouter(
   const started = performance.now()
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
+    signal: AbortSignal.timeout(120_000),
     headers: {
       authorization: `Bearer ${apiKey}`,
       "content-type": "application/json",
@@ -177,7 +176,11 @@ export async function judgeWithOpenRouter(
     )
   const content = body.choices?.[0]?.message?.content
   if (typeof content !== "string")
-    throw new Error(`OpenRouter returned no message for ${model}.`)
+    throw new Error(
+      `OpenRouter returned no message for ${model}${
+        body.error?.message ? `: ${body.error.message}` : "."
+      }`,
+    )
 
   return parseVerdict(content, story, {
     model,

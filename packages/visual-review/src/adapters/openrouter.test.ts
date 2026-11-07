@@ -2,9 +2,17 @@ import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { delay, http, HttpResponse } from "msw"
+import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+  vi,
+} from "vitest"
 
 import {
   buildPrompt,
@@ -181,20 +189,29 @@ describe("judgeWithOpenRouter", () => {
   })
 
   test("measures the latency of the call", async () => {
-    server.use(
-      http.post("https://gateway.test/api/v1/chat/completions", async () => {
-        await delay(60)
-        return HttpResponse.json({
-          choices: [{ message: { content: JSON.stringify(judgement) } }],
-          usage: { cost: 0.001 },
-        })
-      }),
-    )
+    vi.useFakeTimers({ toFake: ["performance"] })
+    try {
+      server.use(
+        http.post("https://gateway.test/api/v1/chat/completions", () => {
+          // The provider takes 60 ms to answer.
+          vi.advanceTimersByTime(60)
+          return HttpResponse.json({
+            choices: [{ message: { content: JSON.stringify(judgement) } }],
+            usage: { cost: 0.001 },
+          })
+        }),
+      )
 
-    const verdict = await judgeWithOpenRouter(story, "openai/gpt-6.1-sol", env)
+      const verdict = await judgeWithOpenRouter(
+        story,
+        "openai/gpt-6.1-sol",
+        env,
+      )
 
-    expect(verdict.latencyMs).toBeGreaterThanOrEqual(50)
-    expect(verdict.latencyMs).toBeLessThan(5_000)
+      expect(verdict.latencyMs).toBe(60)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test("a reply that is not usable gives unsure with the cause", async () => {
@@ -232,6 +249,18 @@ describe("judgeWithOpenRouter", () => {
     await expect(
       judgeWithOpenRouter(story, "openai/gpt-6.1-sol", env),
     ).rejects.toThrow(/no message/i)
+  })
+
+  test("a 200 response with an error and no message fails with the provider message", async () => {
+    server.use(
+      http.post("https://gateway.test/api/v1/chat/completions", () =>
+        HttpResponse.json({ error: { message: "Upstream provider failed" } }),
+      ),
+    )
+
+    await expect(
+      judgeWithOpenRouter(story, "openai/gpt-6.1-sol", env),
+    ).rejects.toThrow(/no message.*Upstream provider failed/)
   })
 
   test("uses the OpenRouter URL when MODEL_PROVIDER_URL is not set", async () => {
