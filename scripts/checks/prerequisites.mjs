@@ -113,6 +113,11 @@ export const falkordbModuleVersion = (uri) =>
     socket.on("error", reject)
     socket.on("close", () => clearTimeout(timer))
   })
+// The Playwright image of the screenshot capture, by digest
+// (scripts/ci/visual-container.json). A lane lists the file as an input.
+const visualPin = JSON.parse(
+  readFileSync(join(root, "scripts/ci/visual-container.json"), "utf8"),
+)
 const workbenchFix =
   "Evals call paid models, so they run only with the workbench environment: set MODEL_PROVIDER, MODEL_PROVIDER_API_KEY (the spend-capped workbench key) and MCP_EVAL_MODELS (two or more provider/model ids, comma-separated)."
 
@@ -254,6 +259,33 @@ export const prerequisites = {
           !digests.includes(`${pin.image}@${pin.digest}`)
         )
           throw new Error(`${image} does not have the pinned digest. ${fix}`)
+      }
+    },
+  },
+  // Screenshots are taken in one pinned image (scripts/ci/visual-capture.mjs).
+  // The Docker server must run linux/arm64 itself: an emulated browser gives
+  // other pixels, and a slow, flaky run.
+  "visual-container": {
+    needs: ["docker"],
+    prepare: () => {
+      const platform = quiet(
+        "docker",
+        ["version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"],
+        "Start Docker.",
+      )
+      if (platform !== visualPin.platform)
+        throw new Error(
+          `The Docker server is ${platform}; screenshots need ${visualPin.platform}. Use an arm64 host or an arm64 VM (colima start --arch aarch64 --memory 4).`,
+        )
+      const image = `${visualPin.image}:${visualPin.tag}@${visualPin.digest}`
+      try {
+        quiet("docker", ["image", "inspect", image], "")
+      } catch {
+        step(
+          "docker",
+          ["pull", "--platform", visualPin.platform, image],
+          `Run: docker pull ${image}`,
+        )
       }
     },
   },

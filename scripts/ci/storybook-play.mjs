@@ -178,7 +178,15 @@ const playInitScript = () => {
 // `page.coverage`), and `outcome.mocks` the headers of the MSW handlers that
 // answered a request (null when the page does not expose them). A trace step
 // that fails leaves its value undefined and never changes the outcome.
-export async function playStories(storybookUrl, stories, onStory, trace) {
+// `afterPlay(page, story, error)` runs once the play has ended, before the
+// page closes (a screenshot of the end state, scripts/ci/visual-capture.mjs).
+export async function playStories(
+  storybookUrl,
+  stories,
+  onStory,
+  trace,
+  afterPlay,
+) {
   const { chromium } = createRequire(join(ui, "package.json"))("playwright")
   // The browser starts with a time zone and a language that no pin uses, so
   // the Testing/Play host story fails when a pin of playContext is missing.
@@ -220,6 +228,7 @@ export async function playStories(storybookUrl, stories, onStory, trace) {
           : pageErrors[0]
             ? pageErrors[0]
             : undefined
+      await afterPlay?.(page, story, error)
       let mocks
       let coverage
       if (trace) {
