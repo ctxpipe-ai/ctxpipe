@@ -5,6 +5,7 @@
 // agent` lets the coding agent of the contributor judge, at no cost.
 import { createHash } from "node:crypto"
 import {
+  lstat,
   mkdir,
   readdir,
   readFile,
@@ -92,6 +93,10 @@ export async function visualReview(
   try {
     const path = resolve(options.manifest)
     root = dirname(path)
+    // The manifest can come from an artifact that PR code wrote. A link
+    // there could make this command read, and print, a file outside the run.
+    if ((await lstat(path)).isSymbolicLink())
+      throw new Error("The manifest is a symbolic link. Give the real file.")
     const manifest = manifestSchema.parse(
       JSON.parse(await readFile(path, "utf8")),
     )

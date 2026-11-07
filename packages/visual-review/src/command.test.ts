@@ -430,6 +430,19 @@ describe("visual:review reads and writes only in the run folder", () => {
     expect(output.join("\n")).not.toContain("secret text")
   })
 
+  test("a manifest that is a symbolic link is not read", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "visual-review-outside-"))
+    await writeFile(join(outside, "secret.txt"), "secret text")
+    await symlink(join(outside, "secret.txt"), join(root, "manifest.json"))
+
+    const code = await run("--manifest", join(root, "manifest.json"))
+
+    await rm(outside, { recursive: true, force: true })
+    expect(code).toBe(2)
+    expect(output.join("\n")).toContain("The manifest is a symbolic link")
+    expect(output.join("\n")).not.toContain("secret text")
+  })
+
   test("a symbolic link that points outside the run folder fails", async () => {
     const outside = await mkdtemp(join(tmpdir(), "visual-review-outside-"))
     await writeFile(join(outside, "secret.png"), after)
