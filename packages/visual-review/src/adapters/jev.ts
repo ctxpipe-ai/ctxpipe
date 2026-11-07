@@ -18,40 +18,16 @@ export type JevOptions = {
   apiKey?: string
   /** The OpenRouter API base. Default: `MODEL_PROVIDER_URL`, else OpenRouter. */
   baseUrl?: string
-  /** Default: `typesafe/jev-1.14`. */
-  model?: string
-  /**
-   * Send the header `TypeSafe-Danger-Zone-Images: true`. TypeSafe requires it
-   * for images and Box questions. OpenRouter documents no such header, so
-   * this is on by default and can be turned off. Default: true.
-   */
-  imagesHeader?: boolean
 }
 
-const deltas = ["better", "same", "worse"] as const
-
-const choiceAnswer = z.object({
-  probabilities: z.object({
-    better: z.number().default(0),
-    same: z.number().default(0),
-    worse: z.number().default(0),
-  }),
-})
-const noulAnswer = z.object({ type: z.literal("noul"), noul: z.number() })
-const boxAnswer = z.object({
-  type: z.literal("box"),
-  box: z.object({
-    top: z.number(),
-    bottom: z.number(),
-    left: z.number(),
-    right: z.number(),
-  }),
-})
-const responseSchema = z.object({
-  model: z.string(),
-  answers: z.record(z.string(), z.unknown()),
-  usage: z.object({ cost: z.number().min(0).optional() }).optional(),
-})
+type Question =
+  | {
+      type: "choice"
+      instructions: string
+      criteria: Record<"better" | "same" | "worse", string>
+    }
+  | { type: "noul"; instructions: string }
+  | { type: "box"; instructions: string }
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value))
 
@@ -96,7 +72,7 @@ async function prepareImage(path: string) {
   }
 }
 
-const choiceQuestion = (instructions: string) => ({
+const choiceQuestion = (instructions: string): Question => ({
   type: "choice",
   instructions,
   criteria: {
@@ -104,26 +80,6 @@ const choiceQuestion = (instructions: string) => ({
     same: "The change does not alter this.",
     worse: "The change makes this worse.",
   },
-})
-
-const unsure = (
-  story: StoryInput,
-  error: string,
-  latencyMs: number,
-  model: string,
-): Verdict => ({
-  storyId: story.storyId,
-  observations: [],
-  verdict: "unsure",
-  severity: "none",
-  confidence: 0,
-  summary: "The Jev filter gave no answer.",
-  qualities: [],
-  findings: [],
-  model,
-  costUsd: null,
-  latencyMs,
-  error,
 })
 
 /** The union of the measured regions, or the whole image when there is none. */
@@ -139,11 +95,16 @@ function unionOf(regions: StoryInput["regions"]): Box {
 /**
  * Judge one story with Jev. The verdict says `regression` when Jev finds a
  * defect or a worse area or quality with a probability of 0.5 or more, and
- * `unsure` when a probability is from 0.2 up to 0.5. Else nothing got worse:
- * the verdict is `intended` when a brief or a source diff explains the change,
- * and `unsure` when none does (the rule of `parseVerdict`). Jev gives no text,
- * so `observations` is empty and each finding has an empty `evidence`. A 400
- * or 413 answer gives `unsure` with the error. Another failure throws.
+ * `unsure` when a probability is from 0.2 up to 0.5 or when a question has no
+ * answer. Else nothing got worse: the verdict is `intended` when a brief or a
+ * source diff explains the change, and `unsure` when none does (the rule of
+ * `parseVerdict`). Jev gives no text, so `observations` is empty and each
+ * finding has an empty `evidence`. A 400 or 413 answer gives `unsure` with
+ * the error. Another failure throws.
+ *
+ * The request sends the header `TypeSafe-Danger-Zone-Images: true`. TypeSafe
+ * requires it for an image or a Box question. The OpenRouter docs do not
+ * mention it, and no real call has confirmed that OpenRouter needs it.
  */
 export async function judgeWithJev(
   story: StoryInput,
@@ -155,7 +116,7 @@ export async function judgeWithJev(
   const base =
     options.baseUrl ??
     (process.env.MODEL_PROVIDER_URL || "https://openrouter.ai/api/v1")
-  const requestedModel = options.model ?? "typesafe/jev-1.14"
+  const requestedModel = "typesafe/jev-1.14"
 
   const prepared = await Promise.all(
     story.images.map(async (image) => ({
@@ -172,7 +133,7 @@ export async function judgeWithJev(
   const askedQualities = qualities.filter(
     ({ pageOnly }) => story.scope === "page" || !pageOnly,
   )
-  const questions: Record<string, unknown> = {
+  const questions: Record<string, Question> = {
     defect: {
       type: "noul",
       instructions:
@@ -209,41 +170,57 @@ export async function judgeWithJev(
       headers: {
         authorization: `Bearer ${apiKey}`,
         "content-type": "application/json",
-        ...(options.imagesHeader === false
-          ? {}
-          : { "typesafe-danger-zone-images": "true" }),
+        "typesafe-danger-zone-images": "true",
       },
       body: JSON.stringify({ model: requestedModel, state, questions }),
       signal: AbortSignal.timeout(120_000),
     },
   )
   const latencyMs = Math.round(performance.now() - started)
+  const unsure = (error: string, model = requestedModel): Verdict => ({
+    storyId: story.storyId,
+    observations: [],
+    verdict: "unsure",
+    severity: "none",
+    confidence: 0,
+    summary: "The Jev filter gave no usable answer.",
+    qualities: [],
+    findings: [],
+    model,
+    costUsd: null,
+    latencyMs,
+    error,
+  })
   if (!response.ok) {
-    const text = await response.text()
-    const message =
-      z
-        .object({ error: z.object({ message: z.string() }) })
-        .safeParse(safeJson(text)).data?.error.message ?? text
-    const error = `Jev answered ${response.status}: ${message}`
-    if (response.status === 400 || response.status === 413)
-      return unsure(story, error, latencyMs, requestedModel)
+    const error = `Jev answered ${response.status}: ${await response.text()}`
+    if (response.status === 400 || response.status === 413) return unsure(error)
     throw new Error(error)
   }
-  const parsed = responseSchema.safeParse(await response.json())
+  const parsed = z
+    .object({
+      model: z.string(),
+      answers: z.record(z.string(), z.unknown()),
+      usage: z.object({ cost: z.number().min(0).optional() }).optional(),
+    })
+    .safeParse(await response.json())
   if (!parsed.success)
     return unsure(
-      story,
       `The Jev response does not match the schema:\n${z.prettifyError(parsed.error)}`,
-      latencyMs,
-      requestedModel,
     )
   const { answers, model, usage } = parsed.data
 
+  const choiceAnswer = z.object({
+    probabilities: z.object({
+      better: z.number().default(0),
+      same: z.number().default(0),
+      worse: z.number().default(0),
+    }),
+  })
   const deltaOf = (name: string) => {
     const answer = choiceAnswer.safeParse(answers[name])
     if (!answer.success) return undefined
     const { probabilities } = answer.data
-    const delta = deltas.reduce((best, next) =>
+    const delta = (["better", "same", "worse"] as const).reduce((best, next) =>
       probabilities[next] > probabilities[best] ? next : best,
     )
     return {
@@ -260,8 +237,14 @@ export async function judgeWithJev(
     const result = deltaOf(`quality.${id}`)
     return result ? [{ id, ...result }] : []
   })
-  const defect = noulAnswer.safeParse(answers["defect"])
+  const defect = z
+    .object({ type: z.literal("noul"), noul: z.number() })
+    .safeParse(answers["defect"])
   const defectProbability = defect.success ? defect.data.noul : 0
+  const unanswered =
+    (defect.success ? 0 : 1) +
+    (areas.length - areaResults.length) +
+    (askedQualities.length - qualityResults.length)
 
   const strongest = Math.max(
     defectProbability,
@@ -269,10 +252,20 @@ export async function judgeWithJev(
     ...qualityResults.map(({ worse }) => worse),
   )
   const flagged = strongest >= 0.5
-  const doubtful = strongest >= 0.2
+  const doubtful = unanswered > 0 || strongest >= 0.2
 
   // A box is on the sent image; map it back to the fractions of the real image.
-  const drawn = boxAnswer.safeParse(answers["defect-box"])
+  const drawn = z
+    .object({
+      type: z.literal("box"),
+      box: z.object({
+        top: z.number(),
+        bottom: z.number(),
+        left: z.number(),
+        right: z.number(),
+      }),
+    })
+    .safeParse(answers["defect-box"])
   const content =
     boxImage === undefined ? undefined : prepared[boxImage]!.content
   let region = unionOf(story.regions)
@@ -285,11 +278,20 @@ export async function judgeWithJev(
     if (x2 > x && y2 > y) region = { x, y, width: x2 - x, height: y2 - y }
   }
 
-  const worseAreas = flagged
-    ? areaResults.filter(
-        ({ delta, worse }) => delta === "worse" && worse >= 0.5,
-      )
-    : []
+  // Each worse area is a finding. A flagged defect with no worse area gets a
+  // finding for the area that is the most likely to be worse, so that the
+  // region is not lost.
+  const worseAreas = areaResults.filter(
+    ({ delta, worse }) => delta === "worse" && worse >= 0.5,
+  )
+  const findingAreas =
+    flagged && !worseAreas.length && areaResults.length
+      ? [
+          areaResults.reduce((best, next) =>
+            next.worse > best.worse ? next : best,
+          ),
+        ]
+      : worseAreas
   const worseLabels = [
     ...worseAreas.map(({ area, worse }) => `${area.id} ${worse.toFixed(2)}`),
     ...qualityResults
@@ -298,9 +300,11 @@ export async function judgeWithJev(
   ]
   const summary = flagged
     ? `Jev filter: defect ${defectProbability.toFixed(2)}; worse: ${worseLabels.join(", ") || "none"}.`
-    : doubtful
-      ? `Jev filter is not sure: the strongest worse probability is ${strongest.toFixed(2)}.`
-      : `Jev filter found nothing worse: defect ${defectProbability.toFixed(2)}.`
+    : unanswered
+      ? `Jev filter left ${unanswered} questions without an answer.`
+      : doubtful
+        ? `Jev filter is not sure: the strongest worse probability is ${strongest.toFixed(2)}.`
+        : `Jev filter found nothing worse: defect ${defectProbability.toFixed(2)}.`
 
   // `parseVerdict` checks the judgement and applies the rules of the prompt.
   return parseVerdict(
@@ -308,14 +312,14 @@ export async function judgeWithJev(
       observations: [],
       verdict: flagged ? "regression" : doubtful ? "unsure" : "intended",
       severity: flagged ? (strongest >= 0.8 ? "major" : "minor") : "none",
-      confidence: flagged ? strongest : 1 - strongest,
+      confidence: flagged ? strongest : unanswered ? 0 : 1 - strongest,
       summary,
       qualities: qualityResults.map(({ id, delta, probability }) => ({
         name: id,
         delta,
         confidence: probability,
       })),
-      findings: worseAreas.map(({ area }) => ({
+      findings: findingAreas.map(({ area }) => ({
         kind: area.id,
         region,
         evidence: "",
@@ -327,12 +331,4 @@ export async function judgeWithJev(
     story,
     { model, costUsd: usage?.cost ?? null, latencyMs },
   )
-}
-
-function safeJson(text: string): unknown {
-  try {
-    return JSON.parse(text)
-  } catch {
-    return undefined
-  }
 }

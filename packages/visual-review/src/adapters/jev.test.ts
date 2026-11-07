@@ -164,12 +164,6 @@ describe("judgeWithJev questions", () => {
       seen.body!.state.filter((part) => typeof part !== "string"),
     ).toHaveLength(2)
   })
-
-  test("leaves the images header out when asked", async () => {
-    const seen = serve(() => fine)
-    await judgeWithJev(await story(), { ...options, imagesHeader: false })
-    expect(seen.headers!.has("typesafe-danger-zone-images")).toBe(false)
-  })
 })
 
 describe("judgeWithJev verdict", () => {
@@ -278,7 +272,7 @@ describe("judgeWithJev verdict", () => {
     expect(verdict.verdict).toBe("unsure")
   })
 
-  test("a refused question is left out", async () => {
+  test("a refused question makes the verdict unsure, not intended", async () => {
     serve((name) => {
       if (name === "quality.clarity") return { type: "refusal" }
       if (name === "defect") return defect(0.03)
@@ -288,8 +282,34 @@ describe("judgeWithJev verdict", () => {
       await story({ brief: "Rename the button." }),
       options,
     )
-    expect(verdict.verdict).toBe("intended")
+    expect(verdict.verdict).toBe("unsure")
+    expect(verdict.summary).toContain("1 questions")
     expect(verdict.qualities.map(({ name }) => name)).not.toContain("clarity")
+  })
+
+  test("a response with no answers is unsure, not intended", async () => {
+    serve(() => undefined)
+    const verdict = await judgeWithJev(
+      await story({ brief: "Rename the button." }),
+      options,
+    )
+    expect(verdict.verdict).toBe("unsure")
+    expect(verdict.confidence).toBe(0)
+    expect(verdict.qualities).toEqual([])
+  })
+
+  test("a defect with no worse area gets a finding for the area that is the most likely worse", async () => {
+    serve((name) => {
+      if (name === "area.overflow") return choice(0, 0.6, 0.4)
+      if (name === "defect") return defect(0.8)
+      if (name === "defect-box") return box(0.5, 0.6, 0.5, 0.6)
+      return fine
+    })
+    const verdict = await judgeWithJev(await story(), options)
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.findings).toHaveLength(1)
+    expect(verdict.findings[0]?.kind).toBe("overflow")
+    expect(verdict.findings[0]?.region.x).toBeCloseTo(0.5)
   })
 
   test("with no image to place a box on, a finding takes the measured regions", async () => {
