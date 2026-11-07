@@ -143,8 +143,7 @@ jobs:
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: needs.merge-gate-plan.outputs.artifact-id != ''
-        continue-on-error: true
+        if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
           merge-multiple: true
@@ -309,8 +308,7 @@ jobs:
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: needs.merge-gate-plan.outputs.artifact-id != ''
-        continue-on-error: true
+        if: matrix.lane == 'selected' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
           merge-multiple: true
@@ -396,8 +394,7 @@ jobs:
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: needs.merge-gate-plan.outputs.artifact-id != ''
-        continue-on-error: true
+        if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
           merge-multiple: true
@@ -736,8 +733,7 @@ jobs:
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: needs.merge-gate-plan.outputs.artifact-id != ''
-        continue-on-error: true
+        if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
           merge-multiple: true
@@ -880,8 +876,7 @@ jobs:
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: needs.merge-gate-plan.outputs.artifact-id != ''
-        continue-on-error: true
+        if: matrix.lane == 'selected' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
           merge-multiple: true
@@ -1049,8 +1044,7 @@ jobs:
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: needs.merge-gate-plan.outputs.artifact-id != ''
-        continue-on-error: true
+        if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
           merge-multiple: true

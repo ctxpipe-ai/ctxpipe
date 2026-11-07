@@ -1148,10 +1148,13 @@ test("the gate reads each record of a trusted job only by the artifact id that t
       assert.ok(id[1] in writers, `${reader}: ${id[1]}`)
       assert.ok([job.needs].flat().includes(id[1]), `${reader} needs ${id[1]}`)
       assert.equal(step.with["merge-multiple"], true, reader)
-      // An empty id downloads every artifact of the run, so each reader needs the guard.
-      assert.equal(
-        step.if,
-        `needs.${id[1]}.outputs.artifact-id != ''`,
+      // An empty id downloads every artifact of the run, so each reader needs
+      // the guard. A check job also downloads the plan only in gate mode.
+      assert.ok(
+        String(step.if)
+          .split(" && ")
+          .includes(`needs.${id[1]}.outputs.artifact-id != ''`) &&
+          !String(step.if).includes("||"),
         `${reader} downloads ${id[1]} without the empty-id guard`,
       )
     }
