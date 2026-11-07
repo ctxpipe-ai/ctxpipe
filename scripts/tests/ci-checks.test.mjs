@@ -17,7 +17,7 @@ import { gunzipSync } from "node:zlib"
 
 import { markPortable } from "../checks/families.mjs"
 import { deploySteps, fullRunResults, stepResults } from "../checks/gate.mjs"
-import { jobOutputs } from "../checks/plan.mjs"
+import { jobPlans } from "../checks/plan.mjs"
 import { prerequisites, withNeeds } from "../checks/prerequisites.mjs"
 import { uiBundledImports } from "../checks/projects.mjs"
 import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
@@ -1258,7 +1258,7 @@ test("the manifest lists a build check for each production image and package of 
     [...builds.keys()].filter((id) => id.startsWith("build:image-")),
   )
   assert.deepEqual(
-    JSON.parse(jobOutputs(images, new Map())["production-builds"]).sort(
+    jobPlans(images, new Map())["production-builds"].sort(
       (a, b) => a.name.localeCompare(b.name),
     ),
     entries.sort((a, b) => a.name.localeCompare(b.name)),

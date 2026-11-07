@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url"
 import { parse as parseYaml } from "yaml"
 
 import { fullVerdict, gateDecision, gateText, marker } from "../checks/gate.mjs"
-import { jobOutputs, plan, placeOf, readStore } from "../checks/plan.mjs"
+import { jobPlans, plan, placeOf, readStore } from "../checks/plan.mjs"
 import { runsInOf } from "../checks/shard.mjs"
 
 // The gate mode of the merge gate (scripts/checks/README.md, Merge gate):
@@ -207,11 +207,14 @@ test("each planned check goes to the job that runs it, and a job without one doe
     "production-builds",
     "test-shards",
   ])
-  assert.deepEqual(JSON.parse(planned.outputs["package-tests"]), {
-    ids: [ui],
-    rerun: [],
-  })
+  // The outputs only start the jobs: a count of checks, or the matrix
+  // entries. Each job reads its check ids from plan.json.
+  assert.equal(planned.outputs["package-tests"], "1")
   assert.deepEqual(JSON.parse(planned.outputs["test-shards"]), [
+    { lane: "selected", shard: 1, count: 1 },
+  ])
+  assert.deepEqual(planned.jobs["package-tests"], { ids: [ui], rerun: [] })
+  assert.deepEqual(planned.jobs["test-shards"], [
     {
       lane: "selected",
       shard: 1,
@@ -240,18 +243,26 @@ test("each planned check goes to the job that runs it, and a job without one doe
   )
   assert.match(placeOf(deploy).workflow, /pr-deploy\.yaml/)
   // Every Storybook check runs in the plays shards, after the build.
-  const stories = jobOutputs(
-    [story, "storybook:plays:apps/ui/src/e.stories.tsx#e--two"],
-    new Map(),
-  )
-  assert.equal(stories["storybook-build"], "true")
-  assert.equal(JSON.parse(stories["storybook-plays"])[0].plan.ids.length, 2)
+  const stories = planOf({
+    files: {
+      "llm-selection.json": {
+        ...llmRecord(),
+        selected: [
+          check("storybook:required:apps/ui/src/e.stories.tsx#e--one"),
+          check("storybook:plays:apps/ui/src/e.stories.tsx#e--two"),
+        ],
+      },
+    },
+  })
+  assert.equal(stories.outputs["storybook-build"], "true")
+  assert.equal(stories.jobs["storybook-plays"][0].plan.ids.length, 2)
 })
 
 test("shadow mode, a fork and a failed selector give a full run", () => {
   const shadow = planOf({ mode: "shadow" })
   assert.equal(shadow.mode, "full")
   assert.deepEqual(shadow.outputs, {})
+  assert.deepEqual(shadow.jobs, {})
   assert.deepEqual(shadow.shards, {})
   assert.equal(shadow.deploy, false)
   // The shadow job still reads the combined selection.
@@ -535,7 +546,7 @@ test("the CLI plans a gated run and fails the merge gate on a failed verdict", (
   const lines = readFileSync(output, "utf8").split("\n").filter(Boolean)
   assert.ok(lines.includes("mode=gate"))
   assert.ok(lines.includes("deploy=true"))
-  assert.ok(lines.some((line) => line.startsWith('package-tests={"ids":')))
+  assert.ok(lines.includes("package-tests=1"))
   const results = join(directory, "results", "test-results-selected-1")
   mkdirSync(results, { recursive: true })
   writeFileSync(
@@ -701,7 +712,9 @@ test("each job of the plan needs the plan job, starts only with its output, and 
       `${name} starts in gate mode only with its output`,
     )
   }
-  // The jobs that run a subset run it through selected.mjs with their plan.
+  // The jobs that run a subset run it through selected.mjs with their plan,
+  // from plan.json of the plan job (the gate test checks the download by
+  // artifact id). A matrix job gives its shard.
   for (const name of [
     "typecheck",
     "test-shards",
@@ -709,12 +722,24 @@ test("each job of the plan needs the plan job, starts only with its output, and 
     "packages",
     "storybook-plays",
     "vercel-sandbox",
-  ])
+  ]) {
+    const text = job(name)
+    assert.ok(
+      text.includes(
+        "artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}",
+      ),
+      `${name} downloads the plan`,
+    )
     assert.match(
-      job(name),
-      /PLAN: \$\{\{ (?:needs\.merge-gate-plan\.outputs\.[\w-]+|toJSON\(matrix\.plan\)) \}\}\n\s+run: node scripts\/checks\/selected\.mjs/,
+      text,
+      new RegExp(
+        `\n\\s+run: node scripts/checks/selected\\.mjs \\S+ "\\$RUNNER_TEMP/plan/plan\\.json" ${name}${text.includes("matrix:") ? ' "\\$SHARD"' : ""}\n`,
+      ),
       name,
     )
+    // No check id goes into the environment of a step.
+    assert.doesNotMatch(text, /\bPLAN:|matrix\.plan/, name)
+  }
   // A gated run has no full inventory and no required job.
   for (const name of ["test", "storybook-required"])
     assert.ok(
@@ -918,24 +943,46 @@ test("a failed plan job gives a full run, and the merge gate reports its verdict
 })
 
 test("the selected checks of a job run through the public runner, with records", () => {
-  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-selected-"))
-  const run = spawnSync(
-    process.execPath,
-    [join(root, "scripts/checks/selected.mjs"), directory],
-    {
-      cwd: root,
-      encoding: "utf8",
-      env: {
-        PATH: process.env.PATH,
-        PLAN: JSON.stringify({ ids: ["vitest:ui:no/such.test.ts"], rerun: [] }),
+  const directory = inputs({
+    "plan.json": {
+      jobs: {
+        "package-tests": { ids: ["vitest:ui:no/such.test.ts"], rerun: [] },
+        "test-shards": [
+          {
+            lane: "selected",
+            shard: 1,
+            count: 2,
+            plan: { ids: ["vitest:backend:no/one.test.ts"], rerun: [] },
+          },
+          {
+            lane: "selected",
+            shard: 2,
+            count: 2,
+            plan: { ids: ["vitest:backend:no/two.test.ts"], rerun: [] },
+          },
+        ],
       },
     },
-  )
+  })
+  const selected = (results, ...args) =>
+    spawnSync(
+      process.execPath,
+      [
+        join(root, "scripts/checks/selected.mjs"),
+        results,
+        join(directory, "plan.json"),
+        ...args,
+      ],
+      { cwd: root, encoding: "utf8", env: { PATH: process.env.PATH } },
+    )
+  const records = (results) =>
+    readFileSync(join(results, "records.ndjson"), "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+  const run = selected(join(directory, "packages"), "package-tests")
   assert.equal(run.status, 1)
-  const [record] = readFileSync(join(directory, "records.ndjson"), "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line))
+  const [record] = records(join(directory, "packages"))
   assert.deepEqual(
     [record.id, record.status, record.origin],
     ["vitest:ui:no/such.test.ts", "error", "runner"],
@@ -944,16 +991,124 @@ test("the selected checks of a job run through the public runner, with records",
     run.stdout,
     /::group::error: vitest:ui:no\/such\.test\.ts \(Unknown check id\)/,
   )
-  const empty = spawnSync(
-    process.execPath,
-    [join(root, "scripts/checks/selected.mjs"), directory],
-    {
-      encoding: "utf8",
-      env: { PATH: process.env.PATH, PLAN: "{}" },
-    },
+  // A matrix entry runs only the checks of its shard.
+  selected(join(directory, "shard"), "test-shards", "2")
+  assert.deepEqual(
+    records(join(directory, "shard")).map(({ id }) => id),
+    ["vitest:backend:no/two.test.ts"],
   )
-  assert.equal(empty.status, 1)
-  assert.match(empty.stderr, /PLAN has no check ids/)
+  for (const args of [["typecheck"], ["test-shards", "3"], ["test-shards"]]) {
+    const empty = selected(join(directory, "empty"), ...args)
+    assert.equal(empty.status, 1, args.join(" "))
+    assert.match(empty.stderr, /the plan has no check ids for/, args.join(" "))
+  }
+})
+
+test("a PR that selects every check gives the Merge gate job a needs value under the Linux limit", () => {
+  // The Decision step of the Merge gate job gets `toJSON(needs)` in one
+  // environment value. Linux limits one such value to 128 KiB
+  // (MAX_ARG_STRLEN), so a larger value stops the step before gate.mjs
+  // starts ("Argument list too long"). The outputs of the plan job are part
+  // of that value, so they must not grow with the count of selected checks.
+  const many = (count, make) => Array.from({ length: count }, (_, n) => make(n))
+  const ids = [
+    ...many(
+      2500,
+      (n) =>
+        `vitest:backend:apps/backend/src/domain/area-${n % 40}/module-${n}.integration.test.ts`,
+    ),
+    ...many(
+      800,
+      (n) =>
+        `storybook:plays:apps/ui/src/components/area-${n % 30}/component-${n}.stories.tsx#component-${n}--default`,
+    ),
+    ...many(
+      300,
+      (n) =>
+        `vitest:ui:apps/ui/src/components/area-${n % 30}/component-${n}.test.tsx`,
+    ),
+  ]
+  const directory = inputs({
+    "mode.json": { mode: "select", reason: "gate" },
+    "selection.json": {
+      ...selectRecord(),
+      counts: { selected: ids.length, total: ids.length, stochasticOmitted: 0 },
+      selected: ids.map((id) => check(id)),
+      omitted: [],
+      cache: { ...selectRecord().cache, hits: [], misses: [] },
+    },
+    "llm-cause.txt": "the selector did not finish in 105 seconds",
+    "config.json": config(),
+    "needs.json": needs,
+  })
+  const output = join(directory, "github-output.txt")
+  const run = spawnSync(
+    process.execPath,
+    [
+      join(root, "scripts/checks/gate.mjs"),
+      "plan",
+      "--config",
+      join(directory, "config.json"),
+      "--inputs",
+      directory,
+      "--needs",
+      join(directory, "needs.json"),
+      "--store",
+      join(directory, "store.json"),
+      "--fork",
+      "false",
+      "--out",
+      join(directory, "plan"),
+      "--github-output",
+      output,
+    ],
+    { encoding: "utf8", env: { PATH: process.env.PATH } },
+  )
+  assert.equal(run.status, 0, run.stderr)
+  const planned = JSON.parse(
+    readFileSync(join(directory, "plan", "plan.json"), "utf8"),
+  )
+  assert.equal(planned.mode, "gate")
+  assert.equal(planned.ran.length, ids.length)
+  // The `needs` context of the Merge gate job as GitHub gives it: each job
+  // that it needs, with each output that the job declares ("" when unset).
+  const { jobs } = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  const planOutputs = Object.fromEntries(
+    readFileSync(output, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => [
+        line.slice(0, line.indexOf("=")),
+        line.slice(line.indexOf("=") + 1),
+      ]),
+  )
+  const gateNeeds = Object.fromEntries(
+    jobs["merge-gate"].needs.map((name) => [
+      name,
+      {
+        result: "success",
+        outputs: Object.fromEntries(
+          Object.keys(jobs[name].outputs ?? {}).map((key) => [
+            key,
+            key === "artifact-id"
+              ? "13562464110"
+              : name === "merge-gate-plan"
+                ? (planOutputs[key] ?? "")
+                : "",
+          ]),
+        ),
+      },
+    ]),
+  )
+  const bytes = Buffer.byteLength(
+    `NEEDS=${JSON.stringify(gateNeeds, null, 2)}`,
+  )
+  assert.ok(
+    bytes < 128 * 1024,
+    `toJSON(needs) of the Merge gate job is ${bytes} bytes`,
+  )
 })
 
 test("the gate reads each record of a trusted job only by the artifact id that the job gives", () => {
