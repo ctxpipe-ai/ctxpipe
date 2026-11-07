@@ -250,13 +250,16 @@ async function judgeByAgent(
   story: StoryInput,
   { session, rerun, read }: { session: string; rerun: string; read: boolean },
 ): Promise<Verdict> {
-  // The screenshot id is a folder name here, so it may not climb out of the
-  // folder.
-  if (!/^[\w-]+(@[\w-]+)?\.(desktop|mobile)$/.test(story.storyId))
-    throw new Error(
-      `Screenshot id "${story.storyId}" is not a valid folder name.`,
-    )
-  const folder = join(session, story.storyId)
+  // The screenshot id names the folder. Another character than a letter, a
+  // digit, `_`, `-`, `.` or `@` becomes `_`, so the name stays one folder in
+  // the session. A short hash of the id then keeps two ids apart.
+  const safe = story.storyId.replace(/[^\w@.-]/g, "_")
+  const folder = join(
+    session,
+    safe === story.storyId
+      ? safe
+      : `${safe}-${createHash("sha256").update(story.storyId).digest("hex").slice(0, 8)}`,
+  )
   await mkdir(folder, { recursive: true })
   const prompt = buildPrompt(story)
   const images = await Promise.all(

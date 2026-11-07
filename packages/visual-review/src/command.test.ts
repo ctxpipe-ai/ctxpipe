@@ -537,6 +537,26 @@ describe("visual:review checks each screenshot", () => {
     ])
   })
 
+  test("a snapshot name with a slash or a space gets a folder of its own in the session", async () => {
+    const manifest = await writeRun(["button--primary"], (story) => ({
+      ...story,
+      snapshot: "../menu open",
+    }))
+
+    expect(await run("--manifest", manifest, "--judge", "agent")).toBe(2)
+
+    const [folder, ...others] = await readdir(session())
+    expect(others).toEqual([])
+    expect(folder).toMatch(
+      /^button--primary@\.\._menu_open\.desktop-[0-9a-f]{8}$/,
+    )
+    const request = await readFile(
+      join(session(), folder ?? "", "request.md"),
+      "utf8",
+    )
+    expect(request).toContain("Story: button--primary@../menu open.desktop")
+  })
+
   test("a changed story without its before and after images is a manifest error", async () => {
     const manifest = await writeRun(["button--primary"], (story) => ({
       ...story,
