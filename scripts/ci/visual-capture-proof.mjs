@@ -9,12 +9,14 @@ import { captureInContainer } from "./visual-capture.mjs"
 // stories two times in a row and compares the PNGs byte by byte.
 //
 // The sample is every n-th story of the static build, sorted by id, so it
-// holds the same stories on each host. Only stories with a play function can
-// be captured (the play runner ends a story at the play). The result is in .ci-results/visual-capture-proof/
+// holds the same stories on each host. A story with or without a play function
+// can be in the sample. The result is in .ci-results/visual-capture-proof/
 // (proof.json, and the PNGs of both runs). The exit code is 1 when a story
-// differs between the runs or does not capture.
+// differs between the runs, is unstable in a run, or does not capture. The
+// nightly CI run (the job "Screenshot determinism" in .github/workflows/ci.yaml)
+// runs it.
 //
-// Usage: node scripts/ci/visual-capture-proof.mjs [sample size, default 20]
+// Usage: node scripts/ci/visual-capture-proof.mjs [sample size, default 20, or "all"]
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const out = join(root, ".ci-results/visual-capture-proof")
@@ -23,11 +25,14 @@ const index = JSON.parse(
   readFileSync(join(root, "apps/ui/storybook-static/index.json"), "utf8"),
 )
 const all = Object.values(index.entries)
-  .filter((entry) => entry.type === "story" && entry.tags?.includes("play-fn"))
+  .filter((entry) => entry.type === "story")
   .map((entry) => entry.id)
   .sort()
-if (!all.length) throw new Error("The Storybook build has no play story.")
-const size = Math.min(Number(process.argv[2] ?? 20), all.length)
+if (!all.length) throw new Error("The Storybook build has no story.")
+const size =
+  process.argv[2] === "all"
+    ? all.length
+    : Math.min(Number(process.argv[2] ?? 20), all.length)
 const ids = Array.from(
   { length: size },
   (_, k) => all[Math.floor((k * all.length) / size)],
@@ -66,5 +71,8 @@ const differing = results.filter((result) => !result.identical)
 process.stdout.write(
   `${results.length - differing.length} of ${results.length} stories gave identical PNGs in two runs.\n`,
 )
-for (const result of differing) process.stdout.write(`differs: ${result.id}\n`)
+for (const result of differing)
+  process.stdout.write(
+    `differs: ${result.id} (${result.runs.map((run) => run.status).join(", ")})\n`,
+  )
 process.exitCode = differing.length ? 1 : 0

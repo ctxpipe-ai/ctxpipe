@@ -912,6 +912,41 @@ jobs:
           path: .ci-results/storybook-plays/trace.json.gz
           if-no-files-found: ignore
 
+  visual-determinism:
+    timeout-minutes: 45
+    name: Screenshot determinism
+    # Only the nightly run: it captures a sample of stories two times in the
+    # pinned Playwright image and fails when a PNG differs or is unstable
+    # (scripts/ci/visual-capture-proof.mjs). It is data for the screenshot
+    # baselines, not a PR check.
+    needs: storybook-build
+    if: |
+      !cancelled() && needs.storybook-build.result == 'success' &&
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - run: corepack enable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Download the Storybook build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: storybook-static
+          path: apps/ui/storybook-static
+      - name: Capture a sample of stories two times and compare the PNGs
+        run: node scripts/ci/visual-capture-proof.mjs 100
+      - name: Preserve the determinism result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: visual-determinism
+          path: .ci-results/visual-capture-proof/
+          if-no-files-found: ignore
+
   codesearch:
     timeout-minutes: 30
     name: Codesearch real toolchain contracts
