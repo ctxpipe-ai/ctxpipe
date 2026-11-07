@@ -16,7 +16,7 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { basename, dirname, join, resolve } from "node:path"
+import { basename, dirname, join, posix, resolve } from "node:path"
 import { parseArgs } from "node:util"
 
 import { judgeWithJev } from "./adapters/jev.ts"
@@ -33,6 +33,7 @@ import {
 import { prepareImage } from "./prepare.ts"
 import { buildPrompt } from "./prompt.ts"
 import { reviewStories } from "./review.ts"
+import { storiesOf } from "./story-tags.ts"
 import type { StoryInput } from "./story.ts"
 import { parseVerdict, type Verdict } from "./verdict.ts"
 
@@ -152,10 +153,14 @@ export async function visualReview(
       const byPath = new Map(
         judged.map((verdict) => [verdict.storyId, verdict]),
       )
-      const verdicts = screenshots.map(({ path, verdict }) => {
+      const verdicts = screenshots.map(({ path, verdict, note }) => {
         const found = verdict ?? byPath.get(path)
         if (!found) throw new Error(`No verdict for ${path}.`)
-        return { ...found, path }
+        return {
+          ...found,
+          ...(note ? { summary: `${found.summary} ${note}` } : {}),
+          path,
+        }
       })
       return finish(verdicts, options.json, print)
     } finally {
@@ -280,7 +285,53 @@ async function judgeByModel(
  * One screenshot of `--images`: the story for the judge, or a verdict that
  * needs no judge.
  */
-type Screenshot = { path: string; story?: StoryInput; verdict?: Verdict }
+type Screenshot = {
+  path: string
+  story?: StoryInput
+  verdict?: Verdict
+  /** Added to the summary of the verdict. */
+  note?: string
+}
+
+/**
+ * The scope of the screenshot `path`
+ * (`<dir>/screenshots/<story file>.<story>[@<snapshot>].<viewport>.screenshot.png`):
+ * `page` when its story in `<dir>/<story file>.stories.tsx` of the current
+ * folder (the merge-base tree) has the page tag. When that story is not
+ * there, the scope is `component`, with a note that says so.
+ */
+async function scopeOf(
+  path: string,
+): Promise<{ scope: StoryInput["scope"]; note?: string }> {
+  const name = /^(.+)\.(?:desktop|mobile)\.screenshot\.png$/.exec(
+    posix.basename(path),
+  )?.[1]
+  const dir = posix.dirname(posix.dirname(path))
+  const candidates: { file: string; story: string }[] = []
+  for (let dot = name?.indexOf(".") ?? -1; name && dot > 0;) {
+    candidates.push({
+      file: posix.join(dir, `${name.slice(0, dot)}.stories.tsx`),
+      story: name.slice(dot + 1).split("@")[0] ?? "",
+    })
+    dot = name.indexOf(".", dot + 1)
+  }
+  const { loadCsf } = await import("storybook/internal/csf-tools")
+  for (const { file, story } of candidates) {
+    // A story file that is not there, or that does not parse, is not the
+    // story file of this screenshot.
+    const found = await readFile(insideRoot(process.cwd(), file), "utf8")
+      .then((code) =>
+        storiesOf(loadCsf, file, code).find(({ name }) => name === story),
+      )
+      .catch(() => undefined)
+    if (found) return { scope: found.page ? "page" : "component" }
+  }
+  const files = candidates.map(({ file }) => file).join(" or ")
+  return {
+    scope: "component",
+    note: `The scope is component: the story of this screenshot is not in ${files || "a story file"} at the merge base, so the page-only qualities were not judged.`,
+  }
+}
 
 /**
  * Compare the base and the head image of each path in `folder`
@@ -370,13 +421,13 @@ async function compareImages(
         comparison.status === "size-changed"
           ? { size: comparison.after, regions: [], signature: null }
           : comparison
+      const { scope, note } = await scopeOf(path)
       screenshots.push({
         path,
+        ...(note ? { note } : {}),
         story: storyInput({
           storyId: path,
-          // The path does not tell if the story is a page. A component
-          // review leaves out only the page-only qualities.
-          scope: "component",
+          scope,
           viewport: measured.size,
           size: measured.size,
           regions: measured.regions,

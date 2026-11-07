@@ -216,6 +216,7 @@ const definitions = () => [
       [
         "apps/ui/src/**",
         "apps/ui/.storybook/check-modules.mjs",
+        "packages/visual-review/src/story-tags.ts",
         "scripts/ci/page-story-exemptions.json",
       ],
       "Catches a route with no page story and no exemption, or a page story that names a route that does not exist. Run it when a route or a story under apps/ui/src changes; never for a change outside it.",

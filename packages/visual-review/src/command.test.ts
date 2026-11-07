@@ -598,6 +598,77 @@ describe("visual:review --images, for the factory", () => {
       .array()
       .parse(JSON.parse(output.join("\n")))
 
+  describe("the scope comes from the story file in the checkout", () => {
+    // The command runs in the merge-base tree. Here, a small checkout with
+    // a page story and a component story.
+    const home = process.cwd()
+    beforeEach(async () => {
+      const checkout = join(root, "checkout")
+      const stories = join(checkout, "apps/ui/src/components")
+      await mkdir(stories, { recursive: true })
+      await writeFile(
+        join(stories, "Button.stories.tsx"),
+        `const meta = { title: "Pages/Button", tags: ["page"], parameters: { route: "/" } }
+export default meta
+export const Primary = { render: () => null }
+export const Bare = { tags: ["!page"], render: () => null }
+`,
+      )
+      await writeFile(
+        join(stories, "Link.stories.tsx"),
+        `const meta = { title: "Link" }
+export default meta
+export const Primary = { render: () => null }
+`,
+      )
+      process.chdir(checkout)
+    })
+    afterEach(() => process.chdir(home))
+    const scope = (index: number) =>
+      /Scope: (\w+)/.exec(JSON.stringify(chats[index]))?.[1]
+
+    test("a story with the page tag in its meta has the scope page", async () => {
+      await put("base", button, before)
+      await put("head", button, after)
+
+      await run("--json", "--images", images, "--", button)
+
+      expect(scope(0)).toBe("page")
+      expect(verdicts()[0]?.summary).toBe(regression.summary)
+    })
+
+    test("a story that removes the page tag, and a story with no tag, have the scope component", async () => {
+      const bare =
+        "apps/ui/src/components/screenshots/Button.Bare@open.mobile.screenshot.png"
+      for (const path of [bare, link]) {
+        await put("base", path, before)
+        await put("head", path, after)
+      }
+
+      await run("--json", "--images", images, "--", bare, link)
+
+      expect([scope(0), scope(1)]).toEqual(["component", "component"])
+      expect(verdicts().map(({ summary }) => summary)).toEqual([
+        regression.summary,
+        regression.summary,
+      ])
+    })
+
+    test("a screenshot with no story file has the scope component, and its summary says so", async () => {
+      const lost =
+        "apps/ui/src/components/screenshots/Card.Primary.desktop.screenshot.png"
+      await put("base", lost, before)
+      await put("head", lost, after)
+
+      await run("--json", "--images", images, "--", lost)
+
+      expect(scope(0)).toBe("component")
+      expect(verdicts()[0]?.summary).toBe(
+        `${regression.summary} The scope is component: the story of this screenshot is not in apps/ui/src/components/Card.stories.tsx at the merge base, so the page-only qualities were not judged.`,
+      )
+    })
+  })
+
   test("a changed screenshot gets a verdict with its path; a major regression gives exit code 1", async () => {
     await put("base", button, before)
     await put("head", button, after)
