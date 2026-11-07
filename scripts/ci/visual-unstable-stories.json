@@ -10,6 +10,11 @@
       "id": "components-knowledge-graph-cosmograph-canvas--timeline-plays-without-range",
       "reason": "A WebGL canvas draws a new frame at each shot. It needs a mask.",
       "ticket": "CTX-1186"
+    },
+    {
+      "id": "components-workspaces-pane--graph",
+      "reason": "WebGL graph stays in a loading stage; differed in 2 of 3 multi-run proofs",
+      "ticket": "CTX-1186"
     }
   ]
 }
