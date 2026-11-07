@@ -74,10 +74,16 @@ export const PinnedHost: Story = {
     const elapsed = Date.now() - Date.parse("2026-11-02T12:00:00Z")
     await expect(elapsed).toBeGreaterThanOrEqual(0)
     await expect(elapsed).toBeLessThan(60_000)
-    // The seeded generator replaces the native one.
-    await expect(Function.prototype.toString.call(Math.random)).not.toContain(
-      "[native code]",
-    )
+    // Each new frame starts the seeded generator, so the first values of a
+    // new frame are the same on each run.
+    const frame = document.createElement("iframe")
+    document.body.append(frame)
+    const random = (frame.contentWindow as Window & typeof globalThis).Math
+      .random
+    await expect([random(), random()]).toEqual([
+      0.0036568837240338326, 0.732001209165901,
+    ])
+    frame.remove()
     // Before the page settles, the animation runs.
     const spinner = canvas.getByTestId("spinner")
     await expect(getComputedStyle(spinner).animationName).toBe("spin")
