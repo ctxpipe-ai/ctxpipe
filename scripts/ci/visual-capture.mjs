@@ -40,11 +40,13 @@ import pin from "./visual-container.json" with { type: "json" }
 const root = fileURLToPath(new URL("../../", import.meta.url))
 
 // Takes shots until two shots in a row are the same, and at most `tries`
-// shots. A page that still changes after the last shot is not steady; its
-// last shot is returned.
-export async function shootUntilSteady(shoot, tries) {
+// shots. After a shot that differs, it waits for `pause()`, so that a slow
+// change (a scroll that eases to its end) can end. A page that still changes
+// after the last shot is not steady; its last shot is returned.
+export async function shootUntilSteady(shoot, tries, pause) {
   let previous = await shoot()
   for (let shot = 2; shot <= tries; shot++) {
+    if (shot > 2) await pause()
     const png = await shoot()
     if (png.equals(previous)) return { steady: true, png }
     previous = png
@@ -101,7 +103,8 @@ async function captureHere(ids, out) {
                 animations: "disabled",
                 caret: "hide",
               }),
-            4,
+            6,
+            () => page.waitForTimeout(250),
           )
           writeFileSync(join(out, `${story.id}.png`), png)
           if (!steady) unsteady.add(story.id)
