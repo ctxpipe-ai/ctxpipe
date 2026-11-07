@@ -230,12 +230,11 @@ const imageOptions = {
   "chat-sandbox": { context: "scripts/chat-sandbox", platforms: "linux/arm64" },
 }
 
-// The jobs that a gated run starts, as the outputs of the plan job. Each
-// job has the ids that it runs and the ids that it runs once more when they
-// fail (`rerun`: a stored pass has the key of the check, so a failure is a
-// contradiction). A matrix job has a list of entries. A job without an output
-// does not start.
-export function jobOutputs(ran, seconds, rerun = new Set()) {
+// The jobs that a gated run starts, with the checks of each (`jobs` in
+// plan.json). Each job has the ids that it runs and the ids that it runs once
+// more when they fail (`rerun`: a stored pass has the key of the check, so a
+// failure is a contradiction). A matrix job has a list of entries.
+export function jobPlans(ran, seconds, rerun = new Set()) {
   const part = (ids) => ({
     ids,
     rerun: ids.filter((id) => rerun.has(id)),
@@ -246,30 +245,42 @@ export function jobOutputs(ran, seconds, rerun = new Set()) {
     if (!job || job === "lint") continue
     byJob.set(job, [...(byJob.get(job) ?? []), id])
   }
-  const outputs = {}
+  const jobs = {}
   for (const [job, ids] of byJob) {
     ids.sort()
     if (job === "test-shards" || job === "storybook-plays") {
       const shards = Object.values(shard(ids, seconds)).flat()
-      outputs[job] = JSON.stringify(
-        shards.map((item, index) => ({
-          lane: "selected",
-          shard: index + 1,
-          count: shards.length,
-          plan: part(item.ids),
-        })),
-      )
-      if (job === "storybook-plays") outputs["storybook-build"] = "true"
+      jobs[job] = shards.map((item, index) => ({
+        lane: "selected",
+        shard: index + 1,
+        count: shards.length,
+        plan: part(item.ids),
+      }))
     } else if (job === "production-builds")
-      outputs[job] = JSON.stringify(
-        ids.map((id) => {
-          const [, lane, ...file] = id.split(":")
-          const name = lane.replace(/^image-/, "")
-          return { name, dockerfile: file.join(":"), ...imageOptions[name] }
-        }),
-      )
-    else outputs[job] = JSON.stringify(part(ids))
+      jobs[job] = ids.map((id) => {
+        const [, lane, ...file] = id.split(":")
+        const name = lane.replace(/^image-/, "")
+        return { name, dockerfile: file.join(":"), ...imageOptions[name] }
+      })
+    else jobs[job] = part(ids)
   }
+  return jobs
+}
+
+// The outputs of the plan job: only what GitHub needs to start each job. A
+// job without an output does not start. A matrix job gets its entries
+// without their check ids; another job gets the count of its checks. Each
+// job reads its check ids from plan.json (selected.mjs). The `needs` context
+// of the Merge gate job holds these outputs in one environment value, and
+// Linux limits that value to 128 KiB, so they must not grow with the count
+// of checks.
+function jobOutputs(jobs) {
+  const outputs = {}
+  for (const [job, value] of Object.entries(jobs))
+    outputs[job] = Array.isArray(value)
+      ? JSON.stringify(value.map(({ plan: _plan, ...entry }) => entry))
+      : String(value.ids.length)
+  if (jobs["storybook-plays"]) outputs["storybook-build"] = "true"
   return outputs
 }
 
@@ -327,6 +338,7 @@ export function plan({ config, inputs, needs, store, fork }) {
       config: config.mode,
       mode: "full",
       reason: fallback,
+      jobs: {},
       outputs: {},
       deploy: gate && !fork,
     }
@@ -362,7 +374,7 @@ export function plan({ config, inputs, needs, store, fork }) {
     ? readTrace(join(inputs, "trace.json.gz"))
     : undefined
   const seconds = traceSeconds(trace)
-  const outputs = gate ? jobOutputs(ran, seconds, rerun) : {}
+  const jobs = gate ? jobPlans(ran, seconds, rerun) : {}
   return {
     schemaVersion: 1,
     config: config.mode,
@@ -372,7 +384,8 @@ export function plan({ config, inputs, needs, store, fork }) {
     hits: [...hits.values()],
     ran,
     rerun: [...rerun].sort(),
-    outputs,
+    jobs,
+    outputs: jobOutputs(jobs),
     shards: gate ? packing(ran, seconds) : {},
     deploy: gate && !fork && ran.some((id) => id.startsWith("deploy:")),
   }

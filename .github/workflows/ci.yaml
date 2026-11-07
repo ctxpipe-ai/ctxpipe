@@ -140,11 +140,17 @@ jobs:
             jq -r '.checks[] | select(.family == "typecheck") | .id' > "$RUNNER_TEMP/typecheck.txt"
           node scripts/checks/run.mjs "$RUNNER_TEMP/typecheck.txt" |
             tee .ci-results/typecheck/records.ndjson
+      # The plan job gives the check ids of this job in plan.json, by the
+      # artifact id of its upload (scripts/checks/README.md, Merge gate).
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
+        with:
+          artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/plan
       - name: Selected projects (merge gate)
         if: needs.merge-gate-plan.outputs.mode == 'gate'
-        env:
-          PLAN: ${{ needs.merge-gate-plan.outputs.typecheck }}
-        run: node scripts/checks/selected.mjs .ci-results/typecheck
+        run: node scripts/checks/selected.mjs .ci-results/typecheck "$RUNNER_TEMP/plan/plan.json" typecheck
       - name: Typecheck output
         if: always()
         run: cat .ci-results/checks/*.log || true
@@ -299,14 +305,22 @@ jobs:
         run: |
           node scripts/ci/test-suite.mjs ${{ matrix.lane }} --shard=${{ matrix.shard }}/${{ matrix.count }} \
             $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
+      # The plan job gives the check ids of this job in plan.json, by the
+      # artifact id of its upload (scripts/checks/README.md, Merge gate).
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: matrix.lane == 'selected' && needs.merge-gate-plan.outputs.artifact-id != ''
+        with:
+          artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/plan
       - name: Selected tests (merge gate)
         if: matrix.lane == 'selected'
         env:
           GRAPH_DB_URI: redis://127.0.0.1:6379
           AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
           DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
-          PLAN: ${{ toJSON(matrix.plan) }}
-        run: node scripts/checks/selected.mjs .ci-results/selected
+          SHARD: ${{ matrix.shard }}
+        run: node scripts/checks/selected.mjs .ci-results/selected "$RUNNER_TEMP/plan/plan.json" test-shards "$SHARD"
       - name: FalkorDB diagnostics
         if: failure()
         continue-on-error: true
@@ -377,11 +391,17 @@ jobs:
       - name: Visual review tests
         if: needs.merge-gate-plan.outputs.mode != 'gate'
         run: node scripts/ci/test-suite.mjs visual-review $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
+      # The plan job gives the check ids of this job in plan.json, by the
+      # artifact id of its upload (scripts/checks/README.md, Merge gate).
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
+        with:
+          artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/plan
       - name: Selected UI, CLI and CDK tests (merge gate)
         if: needs.merge-gate-plan.outputs.mode == 'gate'
-        env:
-          PLAN: ${{ needs.merge-gate-plan.outputs.package-tests }}
-        run: node scripts/checks/selected.mjs .ci-results/selected
+        run: node scripts/checks/selected.mjs .ci-results/selected "$RUNNER_TEMP/plan/plan.json" package-tests
       # The Results writer quarantines a key only when its check fails again
       # in this one rerun through the public runner (scripts/checks/README.md).
       - name: Run the failed checks again
@@ -710,11 +730,17 @@ jobs:
         run: cat .ci-results/checks/*.log
       - run: pnpm --filter @ctxpipe/aws-cdk-self-host typecheck
         if: needs.merge-gate-plan.outputs.mode != 'gate'
+      # The plan job gives the check ids of this job in plan.json, by the
+      # artifact id of its upload (scripts/checks/README.md, Merge gate).
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
+        with:
+          artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/plan
       - name: Selected builds (merge gate)
         if: needs.merge-gate-plan.outputs.mode == 'gate'
-        env:
-          PLAN: ${{ needs.merge-gate-plan.outputs.packages }}
-        run: node scripts/checks/selected.mjs .ci-results/build-packages
+        run: node scripts/checks/selected.mjs .ci-results/build-packages "$RUNNER_TEMP/plan/plan.json" packages
       - name: Preserve the build results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -847,12 +873,20 @@ jobs:
         run: |
           node scripts/ci/storybook-plays.mjs \
             $([ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ] && echo --trace)
+      # The plan job gives the check ids of this job in plan.json, by the
+      # artifact id of its upload (scripts/checks/README.md, Merge gate).
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: matrix.lane == 'selected' && needs.merge-gate-plan.outputs.artifact-id != ''
+        with:
+          artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/plan
       - name: Selected stories (merge gate)
         if: matrix.lane == 'selected'
         env:
           SKIP_STORYBOOK_BUILD: "1"
-          PLAN: ${{ toJSON(matrix.plan) }}
-        run: node scripts/checks/selected.mjs .ci-results/storybook-plays
+          SHARD: ${{ matrix.shard }}
+        run: node scripts/checks/selected.mjs .ci-results/storybook-plays "$RUNNER_TEMP/plan/plan.json" storybook-plays "$SHARD"
       # The Results writer quarantines a key only when its check fails again
       # in this one rerun through the public runner (scripts/checks/README.md).
       - name: Run the failed checks again
@@ -1007,14 +1041,21 @@ jobs:
       - name: List the checks (merge gate)
         if: needs.merge-gate-plan.outputs.mode == 'gate'
         run: pnpm -s checks:list > "$RUNNER_TEMP/manifest.json"
+      # The plan job gives the check ids of this job in plan.json, by the
+      # artifact id of its upload (scripts/checks/README.md, Merge gate).
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
+        with:
+          artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/plan
       - name: Selected Vercel sandbox contracts (merge gate)
         if: needs.merge-gate-plan.outputs.mode == 'gate'
         env:
           DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
           VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
           MANIFEST: ${{ runner.temp }}/manifest.json
-          PLAN: ${{ needs.merge-gate-plan.outputs.vercel-sandbox }}
-        run: node scripts/checks/selected.mjs .ci-results/vercel
+        run: node scripts/checks/selected.mjs .ci-results/vercel "$RUNNER_TEMP/plan/plan.json" vercel-sandbox
       - name: Preserve the Vercel results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
