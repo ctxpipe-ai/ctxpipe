@@ -1,6 +1,8 @@
 import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
 import { test } from "node:test"
 
+import { judgeProof, readUnstableList } from "../ci/visual-capture-proof.mjs"
 import { shootUntilSteady } from "../ci/visual-capture.mjs"
 
 // Gives the shots of a page whose pixels change in the given order, and
@@ -42,4 +44,52 @@ test("a page that keeps changing is unstable after the last shot", async () => {
   assert.deepEqual(result, { steady: false, png: Buffer.from("f") })
   assert.equal(moving.taken(), 6)
   assert.equal(moving.paused(), 4)
+})
+
+const canvas = {
+  id: "a--canvas",
+  reason: "A WebGL canvas draws each frame.",
+  ticket: "CTX-1",
+}
+
+test("a listed unstable story that differs is skipped, and any other story that differs fails", () => {
+  const verdict = judgeProof(
+    [
+      { id: "a--canvas", identical: false },
+      { id: "b--button", identical: false },
+      { id: "c--card", identical: true },
+    ],
+    [canvas],
+  )
+  assert.deepEqual(
+    verdict.skipped.map((result) => result.id),
+    ["a--canvas"],
+  )
+  assert.deepEqual(
+    verdict.failing.map((result) => result.id),
+    ["b--button"],
+  )
+})
+
+test("each entry of the unstable list needs a story id, a reason and a ticket", () => {
+  assert.deepEqual(readUnstableList({ stories: [canvas] }), [canvas])
+  for (const missing of ["id", "reason", "ticket"]) {
+    const entry = { ...canvas }
+    delete entry[missing]
+    assert.throws(() => readUnstableList({ stories: [entry] }), /needs/)
+  }
+  assert.throws(
+    () => readUnstableList({ stories: [{ ...canvas, ticket: "soon" }] }),
+    /needs/,
+  )
+})
+
+test("the committed unstable list is valid", () => {
+  const list = JSON.parse(
+    readFileSync(
+      new URL("../ci/visual-unstable-stories.json", import.meta.url),
+      "utf8",
+    ),
+  )
+  assert.ok(readUnstableList(list).length > 0)
 })
