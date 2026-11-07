@@ -211,23 +211,14 @@ export const UserMenuLinksConnectedApps: Story = {
       "href",
       "/.auth/account/connected-apps",
     )
-    // The menu moves the focus a few times after it opens, and where it ends
-    // differs from run to run. Wait until the focus has not moved for a moment,
-    // then put it on the first item, so the focus ring does not depend on the
-    // time of the click.
-    const doc = canvasElement.ownerDocument
-    await new Promise<void>((resolve) => {
-      let timer: ReturnType<typeof setTimeout>
-      const wait = () => {
-        clearTimeout(timer)
-        timer = setTimeout(() => {
-          doc.removeEventListener("focusin", wait)
-          resolve()
-        }, 200)
-      }
-      doc.addEventListener("focusin", wait)
-      wait()
-    })
+    // The menu moves the focus a few times while it opens, and where it ends
+    // differs from run to run. Wait for the open animation, then put the focus
+    // on the first item, so the focus ring does not depend on the time of the
+    // click.
+    const menu = body.getByRole("menu")
+    await waitFor(() =>
+      expect(menu.getAnimations({ subtree: true })).toHaveLength(0),
+    )
     const first = body.getByRole("menuitem", { name: /Settings/ })
     first.focus()
     await waitFor(() => expect(first).toHaveFocus())
