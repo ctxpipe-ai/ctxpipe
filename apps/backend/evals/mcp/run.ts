@@ -22,6 +22,11 @@ import { spawnSync } from "node:child_process"
 import { readFile, writeFile } from "node:fs/promises"
 import { parseArgs } from "node:util"
 
+import {
+  openRouterModelId,
+  openRouterPrices,
+  usageCost,
+} from "@ctxpipe/visual-review"
 import { EvalTest, HostRunner, MCPClientManager } from "@mcpjam/sdk"
 import { z } from "zod"
 
@@ -40,12 +45,7 @@ import {
   gateThresholds,
   type RunResult,
 } from "./gate.js"
-import {
-  openRouterClient,
-  openRouterModelId,
-  openRouterPrices,
-  usageCost,
-} from "./models.js"
+import { openRouterClient } from "./models.js"
 
 const baselinePath = new URL("./baseline.json", import.meta.url)
 
