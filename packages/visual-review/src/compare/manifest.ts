@@ -56,6 +56,11 @@ const storySchema = z.object({
   summary: z.string().nullable(),
   /** Change types, positions and sizes of the regions, to group stories. */
   signature: z.string().nullable(),
+  /**
+   * The count of regions with no row in `regions.png`: the last, smallest
+   * regions of `regions`. They are in `diff.png` and `locator.png`.
+   */
+  omittedRegions: count,
   /** What labeled the regions. */
   labeler: z.enum(["interpreter", "fallback"]).nullable(),
   /** Image files, from the folder of the manifest. */

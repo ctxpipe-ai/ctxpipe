@@ -17,7 +17,7 @@ export type {
   Severity,
 } from "./compare/diff.ts"
 export { writeStoryImages } from "./compare/images.ts"
-export type { StoryImages } from "./compare/images.ts"
+export type { StoryImages, WrittenImages } from "./compare/images.ts"
 export {
   baselinePath,
   manifestJsonSchema,

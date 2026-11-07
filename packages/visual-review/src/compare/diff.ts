@@ -49,6 +49,8 @@ export type Comparison =
 
 // The pixelmatch color threshold. Lower is stricter.
 const threshold = 0.1
+// The most fallback components that the merge step accepts.
+const maxComponents = 500
 const red = [255, 0, 0] as const
 
 /**
@@ -184,6 +186,8 @@ function fallback(diffImage: Image, diffPixels: number): Labeled {
 /**
  * The 8-connected components of the red diff pixels. Boxes that overlap or
  * are within 12 px across or 8 px down are merged, as the interpreter does.
+ * When there are more than 500 components, it keeps the 500 largest and
+ * merges none.
  */
 function components(image: Image): { box: PixelBox; pixels: number }[] {
   const { data, width, height } = image
@@ -228,6 +232,11 @@ function components(image: Image): { box: PixelBox; pixels: number }[] {
     })
   }
 
+  // Too many components is noise. Merging them all is slow, so keep the
+  // largest ones as they are.
+  if (found.length > maxComponents) {
+    return found.sort((p, q) => q.pixels - p.pixels).slice(0, maxComponents)
+  }
   for (let merged = true; merged;) {
     merged = false
     for (let i = 0; i < found.length && !merged; i++) {

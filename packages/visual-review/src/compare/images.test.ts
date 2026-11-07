@@ -41,9 +41,10 @@ describe("writeStoryImages", () => {
     const comparison = await diff(before, after)
     if (comparison.status !== "changed") throw new Error(comparison.status)
 
-    const images = await writeStoryImages(dir, before, after, comparison)
+    const written = await writeStoryImages(dir, before, after, comparison)
 
-    expect(images).toEqual({
+    expect(written.omittedRegions).toBe(0)
+    expect(written.images).toEqual({
       regions: join(dir, "regions.png"),
       locator: join(dir, "locator.png"),
       before: join(dir, "before.png"),
@@ -92,11 +93,14 @@ describe("writeStoryImages", () => {
     const after = screenshot(100, 120, [])
     const comparison = await diff(before, after)
 
-    const images = await writeStoryImages(dir, before, after, comparison)
+    const written = await writeStoryImages(dir, before, after, comparison)
 
-    expect(images).toEqual({
-      before: join(dir, "before.png"),
-      after: join(dir, "after.png"),
+    expect(written).toEqual({
+      images: {
+        before: join(dir, "before.png"),
+        after: join(dir, "after.png"),
+      },
+      omittedRegions: 0,
     })
     expect((await readdir(dir)).sort()).toEqual(["after.png", "before.png"])
   })
@@ -105,7 +109,53 @@ describe("writeStoryImages", () => {
     const image = screenshot(100, 100, [])
     const comparison = await diff(image, image)
 
-    expect(await writeStoryImages(dir, image, image, comparison)).toEqual({})
+    expect(await writeStoryImages(dir, image, image, comparison)).toEqual({
+      images: {},
+      omittedRegions: 0,
+    })
     expect(await readdir(dir)).toEqual([])
+  })
+
+  test("regions.png has at most 8 rows; the other regions are counted as omitted", async () => {
+    const blocks = Array.from({ length: 30 }, (_, i) => ({
+      box: {
+        x: 20 + (i % 6) * 60,
+        y: 20 + Math.floor(i / 6) * 60,
+        width: 20,
+        height: 20,
+      },
+      color: [17, 17, 17] as const,
+    }))
+    const before = screenshot(400, 340, [])
+    const after = screenshot(400, 340, blocks)
+    const comparison = await diff(before, after)
+    if (comparison.status !== "changed") throw new Error(comparison.status)
+    expect(comparison.regions).toHaveLength(30)
+
+    const written = await writeStoryImages(dir, before, after, comparison)
+
+    expect(written.omittedRegions).toBe(22)
+    const [first] = comparison.regions
+    if (!first) throw new Error("no region")
+    const tiles = await png(join(dir, "regions.png"))
+    expect(tiles.height).toBeLessThan(9 * (first.box.height + 2 * 8 + 4))
+  })
+
+  test("regions.png stops before it is more than 1568 px high", async () => {
+    const columns = [0, 1, 2].map((i) => ({
+      box: { x: 40 + i * 120, y: 20, width: 40, height: 600 },
+      color: [17, 17, 17] as const,
+    }))
+    const before = screenshot(400, 700, [])
+    const after = screenshot(400, 700, columns)
+    const comparison = await diff(before, after)
+    if (comparison.status !== "changed") throw new Error(comparison.status)
+    expect(comparison.regions).toHaveLength(3)
+
+    const written = await writeStoryImages(dir, before, after, comparison)
+
+    expect(written.omittedRegions).toBe(1)
+    const tiles = await png(join(dir, "regions.png"))
+    expect(tiles.height).toBeLessThanOrEqual(1568)
   })
 })

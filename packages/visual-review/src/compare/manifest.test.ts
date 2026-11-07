@@ -41,6 +41,7 @@ const story: ManifestStory = {
   severity: "low",
   summary: "Colors changed: 1 region (left).",
   signature: "color-change@left:288x90",
+  omittedRegions: 2,
   labeler: "interpreter",
   images: {
     regions: "connectors-connectorcard--connected/desktop/regions.png",

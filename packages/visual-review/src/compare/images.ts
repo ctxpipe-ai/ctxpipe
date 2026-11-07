@@ -9,11 +9,20 @@ import type { Comparison, PixelBox } from "./diff.ts"
 /** The image files of one story, by role. A role is absent when not written. */
 export type StoryImages = Partial<Record<StoryImage["role"], string>>
 
+/**
+ * The written images, and the count of regions that have no row in
+ * `regions.png`. Those are the smallest regions, at the end of the list.
+ */
+export type WrittenImages = { images: StoryImages; omittedRegions: number }
+
 // Pixels of context around each region crop, and of gray between the tiles.
 const margin = 8
 const gap = 4
 const gray = [128, 128, 128, 255] as const
 const red = [255, 0, 0, 255] as const
+// The image side limit of the vision models, and the most rows for a judge.
+const maxHeight = 1568
+const maxRows = 8
 
 /**
  * Write the images of one compared story into `dir`:
@@ -21,15 +30,18 @@ const red = [255, 0, 0, 255] as const
  *   `after.png` and `diff.png`;
  * - a size-changed story gets only `before.png` and `after.png`;
  * - an unchanged story gets no images.
- * `before` and `after` are the PNG bytes that went to `diff`.
+ * `before` and `after` are the PNG bytes that went to `diff`. `regions.png`
+ * has rows only for the largest regions: at most 8 rows, and at most
+ * 1568 px high.
  */
 export async function writeStoryImages(
   dir: string,
   before: Uint8Array,
   after: Uint8Array,
   comparison: Comparison,
-): Promise<StoryImages> {
-  if (comparison.status === "unchanged") return {}
+): Promise<WrittenImages> {
+  if (comparison.status === "unchanged")
+    return { images: {}, omittedRegions: 0 }
   await mkdir(dir, { recursive: true })
   const write = async (name: string, png: Uint8Array) => {
     const path = join(dir, name)
@@ -39,45 +51,52 @@ export async function writeStoryImages(
 
   if (comparison.status === "size-changed") {
     return {
-      before: await write("before.png", before),
-      after: await write("after.png", after),
+      images: {
+        before: await write("before.png", before),
+        after: await write("after.png", after),
+      },
+      omittedRegions: 0,
     }
   }
 
   const a = decode(before)
   const b = decode(after)
+  const boxes = comparison.regions.map(({ box }) => box)
+  const crops = tileCrops(a, boxes)
   return {
-    regions: await write(
-      "regions.png",
-      encode(
-        regionTiles(
-          a,
-          b,
-          comparison.regions.map(({ box }) => box),
-        ),
-      ),
-    ),
-    locator: await write(
-      "locator.png",
-      encode(
-        locator(
-          b,
-          comparison.regions.map(({ box }) => box),
-        ),
-      ),
-    ),
-    before: await write("before.png", before),
-    after: await write("after.png", after),
-    diff: await write("diff.png", encode(comparison.diffImage)),
+    images: {
+      regions: await write("regions.png", encode(regionTiles(a, b, crops))),
+      locator: await write("locator.png", encode(locator(b, boxes))),
+      before: await write("before.png", before),
+      after: await write("after.png", after),
+      diff: await write("diff.png", encode(comparison.diffImage)),
+    },
+    omittedRegions: boxes.length - crops.length,
   }
 }
 
 /**
- * One [before | after] row for each box, in the order of the boxes, at native
- * resolution. Gray fills the space between and beside the tiles.
+ * The crops of the first boxes that fit in `regions.png`. The first crop is
+ * always there, cut to the height limit when it is taller.
  */
-function regionTiles(a: Image, b: Image, boxes: readonly PixelBox[]): Image {
-  const crops = boxes.map((box) => grow(box, margin, a))
+function tileCrops(image: Image, boxes: readonly PixelBox[]): PixelBox[] {
+  const crops: PixelBox[] = []
+  let height = -gap
+  for (const box of boxes.slice(0, maxRows)) {
+    const crop = grow(box, margin, image)
+    if (crops.length && height + gap + crop.height > maxHeight) break
+    crop.height = Math.min(crop.height, maxHeight)
+    crops.push(crop)
+    height += gap + crop.height
+  }
+  return crops
+}
+
+/**
+ * One [before | after] row for each crop, in the order of the crops, at
+ * native resolution. Gray fills the space between and beside the tiles.
+ */
+function regionTiles(a: Image, b: Image, crops: readonly PixelBox[]): Image {
   const width = Math.max(1, ...crops.map((crop) => 2 * crop.width + gap))
   const height = Math.max(
     1,
