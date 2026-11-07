@@ -29,6 +29,27 @@ The reviewers read the rules of each critic below through the `inputs` of `criti
 
 The merge gate checks that each critic has a stored verdict for the PR diff (job `Merge gate critics`). When it says that a critic is missing, run `factory check` on the PR head, then use **Re-run all jobs**. The gate proves that an agent recorded a review of the hunks. It does not prove that the review was sound.
 
+## Dispute a finding
+
+You cannot close a finding alone. When you think that a blocker or should-fix finding is wrong, dispute it with evidence:
+
+1. Write a file outside the checkout, for example `$TMPDIR/disputes.json`, such as `{"disputes": [{"finding": "f:0123abcd", "kind": "factual", "reason": "...", "evidence": {"kind": "code", "path": "src/a.ts", "line": 12}}]}`. `finding` is the id that `factory check` prints before the finding. `kind` is `factual`, `rule-unseen`, `stale`, `duplicate`, `out-of-scope` (add `"followUp": "CTX-123"`, the follow-up ticket), or `rule-or-scope`. Never commit the file: it holds your reasons, and the repo is public.
+2. Give evidence: a `rule` (`AGENTS.md`, an ADR, a skill or `lessons-learned.md` as it is on `main` before the PR), a `test` that disproves the finding, or `code` that the critic missed. A rule that the PR adds or changes is not evidence. A dispute without valid evidence counts as no answer.
+3. Run `factory check --repo . --input <ticket> --disputes <file> --implementer <your model>`. The same critic withdraws or upholds the finding. It withdraws only for new information that it names. A model of another family arbitrates an upheld should-fix, but never a Security finding.
+4. In some cases, only a ctxpipe developer can decide. The cases are:
+   - You dispute a blocker.
+   - The Security critic upholds its finding. A Security finding closes without a person only when its critic withdraws it for new information.
+   - You defer a Security finding as `out-of-scope`. For a Security finding, scope is never a reason for the critic to withdraw.
+   - Your dispute is about a rule or about the ticket scope.
+   - The arbiter upholds the finding.
+   - Another PR disputed the same finding with the same rule. A rule can be missing.
+5. For each of these cases, `factory check` fails and prints `ESCALATED` with the finding, your dispute and its evidence, and the answers of the critic and the arbiter. The finding then holds its hunk: each later `factory check` fails and prints `HELD <id>`, also when the critic does not raise the finding again.
+6. Ask the human in your conversation. Show them that text. Do not ask in a ticket or a PR comment.
+7. When the human accepts the risk, run `factory risk propose --finding <id> --reasons "<their words>" --decider <their role>`. Give the id of the `ESCALATED` line. It opens a PR in the private factory repo and prints the PR link as its last line. Show the human that link, so that they can open it. A ctxpipe developer approves and merges it.
+8. After that PR merges, run `factory check` again. The entry names the finding id, so it ends the hold.
+9. When the human decides that the finding stands, fix it.
+10. Never write, approve or merge a register entry yourself, also when you act for a person. Do not quote the reasons of an entry in a dispute.
+
 ## The rules of each critic
 
 The reviewers of `factory check` read this section through the `inputs` of `critics.json`. The fallback below uses it too.
