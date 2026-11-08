@@ -125,6 +125,36 @@
           }
         ]
       }
+    },
+    {
+      "name": "visual",
+      "intent": "Is each changed baseline screenshot an intended change, rendering noise, or a regression. The command `visual:review` of the merge base compares the base and the head image with its own compare engine and judges the change with the rules of packages/visual-review. It runs only when a screenshot changes.",
+      "inputs": [".agents/skills/code-review/SKILL.md"],
+      "notApplicable": [],
+      "triggers": ["**/screenshots/*.screenshot.png"],
+      "command": {
+        "setup": [
+          "pnpm",
+          "install",
+          "--frozen-lockfile",
+          "--prefer-offline",
+          "--ignore-scripts",
+          "--filter",
+          "@ctxpipe/visual-review"
+        ],
+        "run": [
+          "pnpm",
+          "-s",
+          "visual:review",
+          "--json",
+          "--brief",
+          "{folder}/brief.md",
+          "--images",
+          "{folder}/binary",
+          "--",
+          "{paths}"
+        ]
+      }
     }
   ]
 }

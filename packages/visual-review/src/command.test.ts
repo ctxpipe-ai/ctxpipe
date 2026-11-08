@@ -13,7 +13,7 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
@@ -27,6 +27,7 @@ import {
   test,
   vi,
 } from "vitest"
+import { z } from "zod"
 
 import { visualReview } from "./command.ts"
 import { screenshot } from "./compare/fixtures.ts"
@@ -572,4 +573,248 @@ describe("visual:review checks each screenshot", () => {
 test("an unknown judge is a usage error", async () => {
   expect(await run("--judge", "human")).toBe(2)
   expect(output.join("\n")).toContain("Usage: pnpm visual:review")
+})
+
+// The review folder of the factory: `binary/base/<path>` and
+// `binary/head/<path>`, with the paths after `--`. The command builds its
+// own manifest from the two images; the factory gives it none.
+describe("visual:review --images, for the factory", () => {
+  const button =
+    "apps/ui/src/components/screenshots/Button.Primary.desktop.screenshot.png"
+  const link =
+    "apps/ui/src/components/screenshots/Link.Primary.desktop.screenshot.png"
+  let images: string
+  beforeEach(() => {
+    images = join(root, "binary")
+  })
+  async function put(side: "base" | "head", path: string, png: Uint8Array) {
+    const file = join(images, side, path)
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, png)
+  }
+  const verdicts = () =>
+    verdictSchema
+      .extend({ path: z.string() })
+      .array()
+      .parse(JSON.parse(output.join("\n")))
+
+  describe("the scope comes from the story file in the checkout", () => {
+    // The command runs in the merge-base tree. Here, a small checkout with
+    // a page story and a component story.
+    const home = process.cwd()
+    beforeEach(async () => {
+      const checkout = join(root, "checkout")
+      const stories = join(checkout, "apps/ui/src/components")
+      await mkdir(stories, { recursive: true })
+      await writeFile(
+        join(stories, "Button.stories.tsx"),
+        `const meta = { title: "Pages/Button", tags: ["page"], parameters: { route: "/" } }
+export default meta
+export const Primary = { render: () => null }
+export const Bare = { tags: ["!page"], render: () => null }
+`,
+      )
+      await writeFile(
+        join(stories, "Link.stories.tsx"),
+        `const meta = { title: "Link" }
+export default meta
+export const Primary = { render: () => null }
+`,
+      )
+      process.chdir(checkout)
+    })
+    afterEach(() => process.chdir(home))
+    const scope = (index: number) =>
+      /Scope: (\w+)/.exec(JSON.stringify(chats[index]))?.[1]
+
+    test("a story with the page tag in its meta has the scope page", async () => {
+      await put("base", button, before)
+      await put("head", button, after)
+
+      await run("--json", "--images", images, "--", button)
+
+      expect(scope(0)).toBe("page")
+      expect(verdicts()[0]?.summary).toBe(regression.summary)
+    })
+
+    test("a story that removes the page tag, and a story with no tag, have the scope component", async () => {
+      const bare =
+        "apps/ui/src/components/screenshots/Button.Bare@open.mobile.screenshot.png"
+      for (const path of [bare, link]) {
+        await put("base", path, before)
+        await put("head", path, after)
+      }
+
+      await run("--json", "--images", images, "--", bare, link)
+
+      expect([scope(0), scope(1)]).toEqual(["component", "component"])
+      expect(verdicts().map(({ summary }) => summary)).toEqual([
+        regression.summary,
+        regression.summary,
+      ])
+    })
+
+    test("a screenshot with no story file has the scope component, and its summary says so", async () => {
+      const lost =
+        "apps/ui/src/components/screenshots/Card.Primary.desktop.screenshot.png"
+      await put("base", lost, before)
+      await put("head", lost, after)
+
+      await run("--json", "--images", images, "--", lost)
+
+      expect(scope(0)).toBe("component")
+      expect(verdicts()[0]?.summary).toBe(
+        `${regression.summary} The scope is component: the story of this screenshot is not in apps/ui/src/components/Card.stories.tsx at the merge base, so the page-only qualities were not judged.`,
+      )
+    })
+  })
+
+  test("a changed screenshot gets a verdict with its path; a major regression gives exit code 1", async () => {
+    await put("base", button, before)
+    await put("head", button, after)
+
+    const code = await run("--json", "--images", images, "--", button)
+
+    expect(code).toBe(1)
+    expect(chats).toHaveLength(1)
+    expect(verdicts()).toMatchObject([
+      { path: button, verdict: "regression", severity: "major" },
+    ])
+  })
+
+  test("each path gets one verdict, in the order of the paths, and the brief can make a change intended", async () => {
+    content = JSON.stringify(intended)
+    for (const path of [button, link]) {
+      await put("base", path, before)
+      await put("head", path, after)
+    }
+    const brief = join(root, "brief.md")
+    await writeFile(brief, "Make the primary button red.")
+
+    const code = await run(
+      "--json",
+      "--brief",
+      brief,
+      "--images",
+      images,
+      "--",
+      link,
+      button,
+    )
+
+    expect(code).toBe(0)
+    expect(verdicts()).toMatchObject([
+      { path: link, verdict: "intended" },
+      { path: button, verdict: "intended" },
+    ])
+  })
+
+  test("a screenshot with a new size is judged, and the private image folder is gone after the run", async () => {
+    await put("base", button, before)
+    await put(
+      "head",
+      button,
+      screenshot(400, 320, [
+        {
+          box: { x: 240, y: 180, width: 120, height: 60 },
+          color: [37, 99, 235],
+        },
+      ]),
+    )
+
+    const code = await run("--json", "--images", images, "--", button)
+
+    expect(code).toBe(1)
+    expect(chats).toHaveLength(1)
+    expect(verdicts()).toMatchObject([{ path: button, verdict: "regression" }])
+    expect(await readdir(work)).toEqual([])
+  })
+
+  test("a new and a removed screenshot are unsure, with no model call", async () => {
+    await put("head", button, after)
+    await put("base", link, before)
+
+    const code = await run("--json", "--images", images, "--", button, link)
+
+    expect(code).toBe(0)
+    expect(chats).toHaveLength(0)
+    expect(verdicts()).toMatchObject([
+      { path: button, verdict: "unsure", severity: "none" },
+      { path: link, verdict: "unsure", severity: "none" },
+    ])
+    expect(verdicts().every(({ error }) => error === undefined)).toBe(true)
+  })
+
+  test("a screenshot within the pixel tolerance is noise, with no model call", async () => {
+    await put("base", button, before)
+    await put("head", button, before)
+
+    const code = await run("--json", "--images", images, "--", button)
+
+    expect(code).toBe(0)
+    expect(chats).toHaveLength(0)
+    expect(verdicts()).toMatchObject([
+      { path: button, verdict: "noise", severity: "none" },
+    ])
+  })
+
+  // The factory reads exit code 2 as an ERROR. A missing key must never
+  // pass, also when no screenshot needs a model.
+  test.each([
+    ["a changed screenshot", before, after],
+    ["a new screenshot", undefined, after],
+    ["a removed screenshot", before, undefined],
+    ["a screenshot in the tolerance", before, before],
+  ])(
+    "without MODEL_PROVIDER_API_KEY, %s stops the review with exit code 2",
+    async (_, base, head) => {
+      vi.stubEnv("MODEL_PROVIDER_API_KEY", "")
+      if (base) await put("base", button, base)
+      if (head) await put("head", button, head)
+
+      expect(await run("--json", "--images", images, "--", button)).toBe(2)
+      expect(output.join("\n")).toContain("Set MODEL_PROVIDER_API_KEY")
+    },
+  )
+
+  test.each([
+    ["a path with no image on either side", [button]],
+    ["a path that leaves the folder", ["../outside.screenshot.png"]],
+    ["an absolute path", ["/etc/hosts"]],
+  ])("%s is an error: exit code 2", async (_, paths) => {
+    await writeFile(join(root, "outside.screenshot.png"), before)
+    await mkdir(join(images, "base"), { recursive: true })
+
+    expect(await run("--json", "--images", images, "--", ...paths)).toBe(2)
+    expect(chats).toHaveLength(0)
+    expect(output.join("\n")).toContain(`Cannot read the image of ${paths[0]}`)
+  })
+
+  test("an image that is a symbolic link is an error: exit code 2", async () => {
+    const outside = join(root, "outside.png")
+    await writeFile(outside, before)
+    await put("head", button, after)
+    await mkdir(dirname(join(images, "base", button)), { recursive: true })
+    await symlink(outside, join(images, "base", button))
+
+    expect(await run("--json", "--images", images, "--", button)).toBe(2)
+    expect(chats).toHaveLength(0)
+    expect(output.join("\n")).toContain(`Cannot read the image of ${button}`)
+  })
+
+  test.each([
+    ["--images with no path", ["--images", "binary"]],
+    ["a path with no --images", ["--", "a.screenshot.png"]],
+    [
+      "--images with --manifest",
+      ["--manifest", "m.json", "--images", "binary", "--", "a.png"],
+    ],
+    [
+      "--images with --judge agent",
+      ["--judge", "agent", "--images", "binary", "--", "a.png"],
+    ],
+  ])("%s is a usage error", async (_, args) => {
+    expect(await run(...args)).toBe(2)
+    expect(output.join("\n")).toContain("Usage: pnpm visual:review")
+  })
 })

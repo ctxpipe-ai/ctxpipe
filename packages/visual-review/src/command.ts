@@ -1,6 +1,8 @@
 // `pnpm visual:review`: the visual critic for one visual run. It reads the
 // manifest of the run, reviews each changed story (see `reviewStories`), and
-// prints one verdict for each story or group. A fork can run it with no
+// prints one verdict for each story or group. With `--images`, it reads the
+// base and head images of the factory review folder instead, and prints one
+// verdict for each path (the visual critic of `critics.json`). A fork can run it with no
 // factory: `--judge model` uses the key of the contributor, and `--judge
 // agent` lets the coding agent of the contributor judge, at no cost.
 import { createHash } from "node:crypto"
@@ -14,23 +16,39 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { basename, dirname, join, resolve } from "node:path"
+import { basename, dirname, join, posix, resolve } from "node:path"
 import { parseArgs } from "node:util"
 
 import { judgeWithJev } from "./adapters/jev.ts"
 import { judgeWithOpenRouter } from "./adapters/openrouter.ts"
-import { manifestSchema, realInside, toStoryInput } from "./compare/manifest.ts"
+import { diff } from "./compare/diff.ts"
+import { writeStoryImages } from "./compare/images.ts"
+import {
+  insideRoot,
+  manifestSchema,
+  realInside,
+  storyInput,
+  toStoryInput,
+} from "./compare/manifest.ts"
 import { prepareImage } from "./prepare.ts"
 import { buildPrompt } from "./prompt.ts"
 import { reviewStories } from "./review.ts"
+import { storiesOf } from "./story-tags.ts"
 import type { StoryInput } from "./story.ts"
 import { parseVerdict, type Verdict } from "./verdict.ts"
 
 const defaultModel = "anthropic/claude-sonnet-5.5"
 
 const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|agent] [--model <id>] [--filter jev|none] [--brief <file>] [--session <folder>] [--json]
+       pnpm visual:review --images <folder> [--model <id>] [--filter jev|none] [--brief <file>] [--json] -- <path>...
 
   --manifest  The manifest of the visual run. Default: .ci-results/visual/manifest.json
+  --images    A folder with base/<path> and head/<path> for each screenshot
+              path after --, as the factory writes it. The command compares
+              each pair with its own compare engine and gives one verdict for
+              each path, with "path". A new or a removed screenshot is unsure.
+              Only with --judge model. Without MODEL_PROVIDER_API_KEY, the
+              exit code is 2, also when no screenshot needs a model.
   --judge     model: a vision model through OpenRouter, with MODEL_PROVIDER_API_KEY
               (and MODEL_PROVIDER_URL). agent: write a judgment request for each
               story; your coding agent writes its verdict.json; run again to read it.
@@ -45,8 +63,8 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|agen
               verdict.
   --json      Print the verdicts as one JSON array.
 
-Exit code: 2 when the review is not complete (a usage or manifest error, a
-verdict with an error, or an agent judgment that is not written yet); else 1
+Exit code: 2 when the review is not complete (a usage, manifest or image
+error, a verdict with an error, or an agent judgment that is not written yet); else 1
 when a verdict is regression with severity major or blocker; else 0.
 
 The agent judge keeps its requests and verdicts in a new private folder in the
@@ -63,15 +81,15 @@ export async function visualReview(
   print: (text: string) => void,
 ): Promise<number> {
   let options
+  let paths: string[]
   try {
-    options = parseArgs({
+    ;({ values: options, positionals: paths } = parseArgs({
       args: [...args],
       strict: true,
+      allowPositionals: true,
       options: {
-        manifest: {
-          type: "string",
-          default: ".ci-results/visual/manifest.json",
-        },
+        manifest: { type: "string" },
+        images: { type: "string" },
         judge: { type: "string", default: "model" },
         model: { type: "string", default: defaultModel },
         filter: { type: "string", default: "none" },
@@ -79,7 +97,7 @@ export async function visualReview(
         session: { type: "string" },
         json: { type: "boolean", default: false },
       },
-    }).values
+    }))
   } catch (error) {
     print(`${(error as Error).message}\n\n${usage}`)
     return 2
@@ -89,21 +107,81 @@ export async function visualReview(
     (judge !== "model" && judge !== "agent") ||
     (filter !== "jev" && filter !== "none") ||
     (judge === "agent" && filter === "jev") ||
-    (judge === "model" && options.session !== undefined)
+    (judge === "model" && options.session !== undefined) ||
+    (options.images !== undefined) !== paths.length > 0 ||
+    (options.images !== undefined &&
+      (options.manifest !== undefined || judge !== "model"))
   ) {
     print(
-      `--judge must be model or agent, and --filter must be jev or none (jev only with --judge model, --session only with --judge agent).\n\n${usage}`,
+      `--judge must be model or agent, and --filter must be jev or none (jev only with --judge model, --session only with --judge agent). --images needs the paths after --, and only goes with --judge model and no --manifest.\n\n${usage}`,
     )
     return 2
   }
 
+  if (options.images !== undefined) {
+    // The factory runs this mode as the visual critic. A missing key is an
+    // ERROR there, never a pass, also when no screenshot needs a model.
+    if (!process.env.MODEL_PROVIDER_API_KEY) {
+      print(
+        "Set MODEL_PROVIDER_API_KEY (the OpenRouter key). The visual critic needs it for each review.",
+      )
+      return 2
+    }
+    // A private folder for the images of the compare engine. PR code
+    // cannot write it.
+    const work = await mkdtemp(
+      join(await realpath(tmpdir()), "visual-review-images-"),
+    )
+    try {
+      let screenshots: Screenshot[]
+      try {
+        const brief =
+          options.brief === undefined
+            ? undefined
+            : await readFile(resolve(options.brief), "utf8")
+        screenshots = await compareImages(
+          resolve(options.images),
+          paths,
+          work,
+          brief,
+        )
+      } catch (error) {
+        print((error as Error).message)
+        return 2
+      }
+      let judged: Verdict[]
+      try {
+        judged = await reviewStories(
+          screenshots.flatMap(({ story }) => (story ? [story] : [])),
+          (story) => judgeByModel(story, model, filter),
+        )
+      } catch (error) {
+        print(`The review stopped: ${(error as Error).message}`)
+        return 2
+      }
+      const byPath = new Map(
+        judged.map((verdict) => [verdict.storyId, verdict]),
+      )
+      const verdicts = screenshots.map(({ path, verdict, note }) => {
+        const found = verdict ?? byPath.get(path)
+        if (!found) throw new Error(`No verdict for ${path}.`)
+        return {
+          ...found,
+          ...(note ? { summary: `${found.summary} ${note}` } : {}),
+          path,
+        }
+      })
+      return finish(verdicts, options.json, print)
+    } finally {
+      await rm(work, { recursive: true, force: true })
+    }
+  }
+
   let stories: StoryInput[]
-  let root: string
-  let path: string
+  const path = resolve(options.manifest ?? ".ci-results/visual/manifest.json")
+  const root = dirname(path)
   let brief: string | undefined
   try {
-    path = resolve(options.manifest)
-    root = dirname(path)
     // The manifest can come from an artifact that PR code wrote. A link
     // there could make this command read, and print, a file outside the run.
     if ((await lstat(path)).isSymbolicLink())
@@ -141,9 +219,7 @@ export async function visualReview(
       })
     }
   } catch (error) {
-    print(
-      `Cannot read the manifest ${options.manifest}: ${(error as Error).message}`,
-    )
+    print(`Cannot read the manifest ${path}: ${(error as Error).message}`)
     return 2
   }
 
@@ -171,38 +247,215 @@ export async function visualReview(
       stories,
       agent
         ? (story) => judgeByAgent(story, agent)
-        : async (story) => {
-            const filtered =
-              filter === "jev" ? await judgeWithJev(story) : undefined
-            // Jev says intended only when nothing got worse and a brief or a
-            // source diff explains the change: then no explainer is needed.
-            if (filtered?.verdict === "intended" && !filtered.error)
-              return filtered
-            const explained = await judgeWithOpenRouter(
-              story,
-              model,
-              process.env,
-            )
-            if (!filtered) return explained
-            return {
-              ...explained,
-              costUsd:
-                explained.costUsd === null || filtered.costUsd === null
-                  ? null
-                  : explained.costUsd + filtered.costUsd,
-              latencyMs: explained.latencyMs + filtered.latencyMs,
-            }
-          },
+        : (story) => judgeByModel(story, model, filter),
     )
   } catch (error) {
     print(`The review stopped: ${(error as Error).message}`)
     return 2
   }
+  return finish(verdicts, options.json, print)
+}
 
-  print(options.json ? JSON.stringify(verdicts, null, 2) : report(verdicts))
+/** Print the verdicts, and return the exit code. */
+function finish(
+  verdicts: readonly Verdict[],
+  json: boolean,
+  print: (text: string) => void,
+): number {
+  print(json ? JSON.stringify(verdicts, null, 2) : report(verdicts))
   if (verdicts.some(({ error }) => error !== undefined)) return 2
   if (verdicts.some(blocks)) return 1
   return 0
+}
+
+/** The model judge: the explainer `model`, after the Jev filter if asked. */
+async function judgeByModel(
+  story: StoryInput,
+  model: string,
+  filter: "jev" | "none",
+): Promise<Verdict> {
+  const filtered = filter === "jev" ? await judgeWithJev(story) : undefined
+  // Jev says intended only when nothing got worse and a brief or a source
+  // diff explains the change: then no explainer is needed.
+  if (filtered?.verdict === "intended" && !filtered.error) return filtered
+  const explained = await judgeWithOpenRouter(story, model, process.env)
+  if (!filtered) return explained
+  return {
+    ...explained,
+    costUsd:
+      explained.costUsd === null || filtered.costUsd === null
+        ? null
+        : explained.costUsd + filtered.costUsd,
+    latencyMs: explained.latencyMs + filtered.latencyMs,
+  }
+}
+
+/**
+ * One screenshot of `--images`: the story for the judge, or a verdict that
+ * needs no judge.
+ */
+type Screenshot = {
+  path: string
+  story?: StoryInput
+  verdict?: Verdict
+  /** Added to the summary of the verdict. */
+  note?: string
+}
+
+/**
+ * The scope of the screenshot `path`
+ * (`<dir>/screenshots/<story file>.<story>[@<snapshot>].<viewport>.screenshot.png`):
+ * `page` when its story in `<dir>/<story file>.stories.tsx` of the current
+ * folder (the merge-base tree) has the page tag. When that story is not
+ * there, the scope is `component`, with a note that says so.
+ */
+async function scopeOf(
+  path: string,
+): Promise<{ scope: StoryInput["scope"]; note?: string }> {
+  const name = /^(.+)\.(?:desktop|mobile)\.screenshot\.png$/.exec(
+    posix.basename(path),
+  )?.[1]
+  const dir = posix.dirname(posix.dirname(path))
+  // A story file name can have dots (`-github.link.stories.tsx`), so each
+  // dot can end the story file part of the name.
+  const candidates: { file: string; story: string }[] = []
+  for (let dot = name?.indexOf(".") ?? -1; name && dot > 0;) {
+    candidates.push({
+      file: posix.join(dir, `${name.slice(0, dot)}.stories.tsx`),
+      story: name.slice(dot + 1).split("@")[0] ?? "",
+    })
+    dot = name.indexOf(".", dot + 1)
+  }
+  const { loadCsf } = await import("storybook/internal/csf-tools")
+  for (const { file, story } of candidates) {
+    // A story file that is not there, or that does not parse, is not the
+    // story file of this screenshot.
+    const found = await readFile(insideRoot(process.cwd(), file), "utf8")
+      .then((code) =>
+        storiesOf(loadCsf, file, code).find(({ name }) => name === story),
+      )
+      .catch(() => undefined)
+    if (found) return { scope: found.page ? "page" : "component" }
+  }
+  const files = candidates.map(({ file }) => file).join(" or ")
+  return {
+    scope: "component",
+    note: `The scope is component: the story of this screenshot is not in ${files || "a story file"} at the merge base, so the page-only qualities were not judged.`,
+  }
+}
+
+/**
+ * Compare the base and the head image of each path in `folder`
+ * (`base/<path>` and `head/<path>`, the review folder of the factory) with
+ * the compare engine. The images for the judge go into `work`. Thus the
+ * command builds its own manifest: the branch cannot label a region as
+ * rendering noise.
+ * - A path with no base image is a new screenshot, and a path with no head
+ *   image a removed one. Each is `unsure`: a person looks at it.
+ * - A path whose images differ by at most the tolerance of the visual check
+ *   is `noise`.
+ * - Another path gets a story for the judge. Its story id is the path.
+ * A path with no image, a path outside `folder`, and an image that is a
+ * symbolic link throw.
+ */
+async function compareImages(
+  folder: string,
+  paths: readonly string[],
+  work: string,
+  brief: string | undefined,
+): Promise<Screenshot[]> {
+  const screenshots: Screenshot[] = []
+  for (const [index, path] of paths.entries()) {
+    try {
+      const read = async (side: "base" | "head") => {
+        const file = insideRoot(join(folder, side), path)
+        const info = await lstat(file).catch(() => undefined)
+        if (!info) return undefined
+        if (!info.isFile()) throw new Error(`${file} is not a regular file.`)
+        await realInside(folder, file)
+        return readFile(file)
+      }
+      const [before, after] = [await read("base"), await read("head")]
+      const plain = (verdict: Verdict["verdict"], summary: string) => ({
+        path,
+        verdict: {
+          storyId: path,
+          observations: [],
+          verdict,
+          severity: "none" as const,
+          confidence: 1,
+          summary,
+          qualities: [],
+          findings: [],
+          model: "none",
+          costUsd: 0,
+          latencyMs: 0,
+        },
+      })
+      if (!before && !after)
+        throw new Error(`${folder} has no base and no head image of it.`)
+      if (!before) {
+        screenshots.push(
+          plain(
+            "unsure",
+            "A new screenshot: there is no base image to compare. A person looks at it.",
+          ),
+        )
+        continue
+      }
+      if (!after) {
+        screenshots.push(
+          plain(
+            "unsure",
+            "The screenshot was removed: there is no head image to compare. A person looks at it.",
+          ),
+        )
+        continue
+      }
+      const comparison = await diff(before, after)
+      if (comparison.status === "unchanged") {
+        screenshots.push(
+          plain(
+            "noise",
+            `${comparison.diffPixels} pixels differ, which is in the tolerance of the visual check. No model judged it.`,
+          ),
+        )
+        continue
+      }
+      const { images, omittedRegions } = await writeStoryImages(
+        { root: work, dir: String(index) },
+        before,
+        after,
+        comparison,
+      )
+      const measured =
+        comparison.status === "size-changed"
+          ? { size: comparison.after, regions: [], signature: null }
+          : comparison
+      const { scope, note } = await scopeOf(path)
+      screenshots.push({
+        path,
+        ...(note ? { note } : {}),
+        story: storyInput({
+          storyId: path,
+          scope,
+          viewport: measured.size,
+          size: measured.size,
+          regions: measured.regions,
+          omittedRegions,
+          signature: measured.signature,
+          images,
+          root: work,
+          brief,
+        }),
+      })
+    } catch (error) {
+      throw new Error(
+        `Cannot read the image of ${path}: ${(error as Error).message}`,
+      )
+    }
+  }
+  return screenshots
 }
 
 /** The blocking rule of the product owner. */
