@@ -917,9 +917,10 @@ jobs:
   # screenshots, captured in the pinned Playwright image and compared with
   # the committed baselines. A full run checks every story, the orphan
   # baselines and the size budget (pnpm visual:check); a gated run checks
-  # the selected stories. One job: its shards are CTX-1192.
+  # the selected stories. One job: its shards are CTX-1192. A full run took
+  # 30 minutes for about 900 stories.
   storybook-visual:
-    timeout-minutes: 45
+    timeout-minutes: 75
     name: Storybook screenshots
     needs: [merge-gate-plan, storybook-build]
     if: |

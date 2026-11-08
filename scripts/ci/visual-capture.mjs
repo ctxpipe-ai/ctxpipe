@@ -183,9 +183,11 @@ export async function captureInContainer(ids, out, viewport = "desktop") {
       ...ids,
     ])
     // A run that throws exits non-zero. Copy its partial results anyway.
+    // The desktop capture of about 900 stories took 25 minutes on a CI
+    // runner, so the run may take one hour.
     const started = spawnSync("docker", ["start", "--attach", name], {
       stdio: "inherit",
-      timeout: 1_800_000,
+      timeout: 3_600_000,
     })
     docker(["cp", `${name}:/out/.`, out])
     if (started.status !== 0)

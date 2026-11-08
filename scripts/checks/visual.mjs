@@ -106,8 +106,6 @@ export const readUnstable = () =>
     ),
   ).stories ?? []
 
-const manifestLog = ".ci-results/visual/manifest.json"
-
 // One result record for each story of a `visual:check` result (runVisual):
 // passed when each screenshot of the story is unchanged and no baseline of
 // it is above the image budget. The message of a failed record gives the
@@ -147,7 +145,7 @@ export function visualRecords({ stories, budget }, durationMs) {
       status: failed.length ? "failed" : "passed",
       durationMs: each,
       cases,
-      log: manifestLog,
+      log: ".ci-results/visual/manifest.json",
       ...(failed.length && {
         message: `${failed.map((item) => item.message).join("; ")}. Images: .ci-results/visual/${storyId}/. If the change is intended, run: pnpm visual:update --only ${storyId}`,
       }),
