@@ -102,6 +102,7 @@ test("the Visual version holds the code of the command and the lockfile, not its
   for (const file of [
     ...code,
     "packages/visual-review/package.json",
+    "package.json",
     "pnpm-lock.yaml",
   ])
     assert.ok(counted(file), `${file} is not an input of the visual critic`)
