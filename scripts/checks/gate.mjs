@@ -618,6 +618,8 @@ export function criticsText(checked, repoUrl) {
       `| ${code(critic.critic)} | ${code(critic.status)} | ${code(critic.reason)} | ${links.join(" ") || "none"} |`,
     )
   }
+  // A list item is not a table cell, so it keeps its pipes.
+  const item = (text, max = 200) => code(text, { max, cell: false })
   // An override of a command critic's verdict (the visual critic) is never
   // silent: each one shows its full reason, its writer and its commit.
   const overrides = checked.critics.flatMap((critic) =>
@@ -636,7 +638,6 @@ export function criticsText(checked, repoUrl) {
       const { writer, commit } = provenance(override, repoUrl)
       // The factory bounds the reason (300 characters), so the comment shows
       // all of it.
-      const item = (text, max = 200) => code(text, { max, cell: false })
       lines.push(
         `- ${item(override.critic)} ${item(override.finding)} on ${item(override.path)}, by writer ${writer} at ${commit}: ${item(override.reason, Infinity)}`,
       )
@@ -664,7 +665,7 @@ export function criticsText(checked, repoUrl) {
           : code("unknown")
       const { writer, commit } = provenance(raise, repoUrl)
       lines.push(
-        `- ${code(raise.critic, { cell: false })} limit ${limit}, set by writer ${writer} at ${commit}`,
+        `- ${item(raise.critic)} limit ${limit}, set by writer ${writer} at ${commit}`,
       )
     }
   }
