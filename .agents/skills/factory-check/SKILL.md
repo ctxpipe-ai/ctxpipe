@@ -57,10 +57,10 @@ Until the factory release that the merge gate pins makes keys portable (the fact
 - `Waiting for a check slot`: other agents on this host run checks. The run waits for a free slot (one for each 4 CPUs), so that parallel agents do not overload the host.
 - `ERROR critic:<name>` with a cause and a fix: a reviewer did not finish (the CLI is missing, a login or a quota, a timeout). The critic stores nothing, so the merge gate finds it missing. Do the fix and run again. Do not change the model.
 - `ERROR critic:<name>` with "You've hit your usage limit ... try again at <time>": the Codex login is at its limit. The Codex reviewers use the login in `CODEX_HOME` (default `~/.codex`). When the host has a second Codex login in another folder (the host notes say where), use it for one run:
-  1. Probe the other login: `echo 'Reply OK' | CODEX_HOME=<folder> codex exec --ephemeral --skip-git-repo-check -m gpt-6-luna -`.
+  1. Probe the other login with the model that stopped (the error names the critic; its models are in `critics.json`): `echo 'Reply OK' | CODEX_HOME=<folder> codex exec --ephemeral --skip-git-repo-check -m <model> -`.
   2. If it answers, run `factory check` again with `CODEX_HOME=<folder>` on the same command line. Do not export it, and do not change a file.
   3. When that login reaches its limit too, go back to the first login after the reset time of its error. Probe it first.
-  4. When every login is at its limit, push, report the reset times, and stop. Do not loop.
+  4. When every login is at its limit, report the reset times and stop. Do not push before the critics pass, and do not loop.
 
   Never copy, print or move an `auth.json`, and never sign a login out.
 - `CRITICS NOT RUN` with a fix: the tree is not committed, HEAD is not on a branch, or the shared store did not answer. Do the fix and run again.
