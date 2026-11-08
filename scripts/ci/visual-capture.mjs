@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import {
   existsSync,
   mkdirSync,
@@ -133,22 +133,17 @@ const docker = (args) => {
     )
 }
 
-// Captures the stories in the pinned container and copies the PNGs and
-// capture.json into `out` (the old PNGs and capture.json of it are removed
-// first). Returns one status for each id: captured, unstable, play-failed,
-// capture-failed or not-run.
-export async function captureInContainer(ids, out) {
-  if (!existsSync(join(staticDir, "index.json")))
-    throw new Error(
-      `${staticDir}/index.json is missing. Run: pnpm --filter @ctxpipe/ui build-storybook`,
-    )
+let containers = 0
+
+// Runs a Node script of this repo in the pinned container, and copies the
+// /out folder of the container into `out`. The repo is /work, read-only. A
+// script that exits non-zero keeps its partial results in `out`. The
+// bake-off builder (packages/visual-review/evals/critic/build.ts) uses it too.
+export async function runInContainer(script, args, out) {
   const failed = (await prepare(["visual-container"])).get("visual-container")
   if (failed) throw new Error(failed)
-  const name = `ctxpipe-visual-capture-${process.pid}-${Date.now()}`
+  const name = `ctxpipe-visual-capture-${process.pid}-${Date.now()}-${(containers += 1)}`
   mkdirSync(out, { recursive: true })
-  for (const file of readdirSync(out))
-    if (file.endsWith(".png") || file === "capture.json")
-      rmSync(join(out, file))
   try {
     // --init reaps the browser processes and --ipc=host gives Chromium shared
     // memory, as the Playwright documentation advises for the image.
@@ -166,23 +161,47 @@ export async function captureInContainer(ids, out) {
       "/work",
       `${pin.image}:${pin.tag}@${pin.digest}`,
       "node",
-      "scripts/ci/visual-capture.mjs",
-      "--inside",
-      ...ids,
+      script,
+      ...args,
     ])
-    // A run that throws exits non-zero. Copy its partial results anyway.
-    const started = spawnSync("docker", ["start", "--attach", name], {
-      stdio: "inherit",
-      timeout: 1_800_000,
+    // A run that throws exits non-zero. Copy its partial results anyway. The
+    // start does not block, so that a caller can run more containers at once.
+    const status = await new Promise((resolveStart) => {
+      const started = spawn("docker", ["start", "--attach", name], {
+        stdio: "inherit",
+        timeout: 1_800_000,
+      })
+      started.on("error", () => resolveStart(null))
+      started.on("close", resolveStart)
     })
     docker(["cp", `${name}:/out/.`, out])
-    if (started.status !== 0)
+    if (status !== 0)
       process.stderr.write(
-        `The capture container exited with ${started.status}; some stories did not run.\n`,
+        `The capture container exited with ${status}; some stories did not run.\n`,
       )
   } finally {
     spawnSync("docker", ["rm", "--force", name], { stdio: "ignore" })
   }
+}
+
+// Captures the stories in the pinned container and copies the PNGs and
+// capture.json into `out` (the old PNGs and capture.json of it are removed
+// first). Returns one status for each id: captured, unstable, play-failed,
+// capture-failed or not-run.
+export async function captureInContainer(ids, out) {
+  if (!existsSync(join(staticDir, "index.json")))
+    throw new Error(
+      `${staticDir}/index.json is missing. Run: pnpm --filter @ctxpipe/ui build-storybook`,
+    )
+  mkdirSync(out, { recursive: true })
+  for (const file of readdirSync(out))
+    if (file.endsWith(".png") || file === "capture.json")
+      rmSync(join(out, file))
+  await runInContainer(
+    "scripts/ci/visual-capture.mjs",
+    ["--inside", ...ids],
+    out,
+  )
   const { stories } = JSON.parse(
     readFileSync(join(out, "capture.json"), "utf8"),
   )

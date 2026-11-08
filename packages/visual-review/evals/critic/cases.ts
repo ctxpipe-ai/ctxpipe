@@ -1,0 +1,101 @@
+// The case manifest of the bake-off: cases.json, beside this file. The
+// images are not in git: each image path is relative to the output folder of
+// `pnpm visual:bakeoff:build`.
+
+import { z } from "zod"
+
+import { noiseClasses, regressionClasses } from "./mutations.ts"
+
+const count = z.number().int().nonnegative()
+const sha = z.string().regex(/^[0-9a-f]{40}$/)
+const imagePath = z.string().regex(/^cases\/[a-z0-9-]+\/(before|after)\.png$/)
+
+const common = {
+  /** A stable id: the kind, the class and a number. */
+  id: z.string().regex(/^[a-z0-9-]+$/),
+  /** The Storybook story id. */
+  storyId: z.string().min(1),
+  viewport: z.object({
+    name: z.literal("desktop"),
+    width: z.literal(1440),
+    height: z.literal(900),
+  }),
+  /** The pixels that differ (BlazeDiff, threshold 0.1). */
+  diffPixels: count,
+  images: z.object({ before: imagePath, after: imagePath }),
+}
+/** The commit of a real change and its first parent. */
+const commit = z.object({ sha, parent: sha })
+/** The box of the synthetic change, in pixels of the after image. */
+const region = z.object({ x: count, y: count, width: count, height: count })
+
+/**
+ * One case. `kind` says how the builder made it; `label` is the answer that
+ * the critic must give, and the owner can change it.
+ * - `intended`: a real commit, before and after. The brief is its message.
+ * - `regression`: one synthetic change of `class` on a clean render.
+ * - `noise`: a change that a person does not see.
+ * - `mixed`: a real commit, with a synthetic regression of `class` hidden in
+ *   the after image.
+ */
+export const caseSchema = z.discriminatedUnion("kind", [
+  z.object({
+    ...common,
+    kind: z.literal("intended"),
+    label: z.enum(["intended", "regression", "noise"]),
+    class: z.null(),
+    brief: z.string().min(1),
+    commit,
+    region: z.null(),
+  }),
+  z.object({
+    ...common,
+    kind: z.literal("regression"),
+    label: z.literal("regression"),
+    class: z.enum(regressionClasses),
+    brief: z.null(),
+    commit: z.null(),
+    region,
+  }),
+  z.object({
+    ...common,
+    kind: z.literal("noise"),
+    label: z.literal("noise"),
+    class: z.enum(noiseClasses),
+    brief: z.null(),
+    commit: z.null(),
+    region: z.null(),
+  }),
+  z.object({
+    ...common,
+    kind: z.literal("mixed"),
+    label: z.literal("regression"),
+    class: z.enum(regressionClasses),
+    brief: z.string().min(1),
+    commit,
+    region,
+  }),
+])
+export type Case = z.infer<typeof caseSchema>
+
+export const caseManifestSchema = z
+  .object({
+    $schema: z.literal("./cases.schema.json"),
+    version: z.literal(1),
+    /** The seed of the build. The same seed gives the same cases. */
+    seed: z.number().int(),
+    /** The newest commit of the history that the builder reads. */
+    until: sha,
+    /** The capture image, with its digest. */
+    container: z.string(),
+    cases: z.array(caseSchema),
+  })
+  .refine(
+    (manifest) =>
+      new Set(manifest.cases.map((entry) => entry.id)).size ===
+      manifest.cases.length,
+    { message: "Each case id must be unique." },
+  )
+export type CaseManifest = z.infer<typeof caseManifestSchema>
+
+export const caseManifestJsonSchema = z.toJSONSchema(caseManifestSchema)
