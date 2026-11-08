@@ -130,7 +130,8 @@ export const readUnstable = () =>
   )
 
 // The stories that opt out of screenshots, with their reasons: a story with
-// `parameters: { visual: { skip: "<reason>" } }` in its own annotations. The
+// `parameters: { visual: { skip: "<reason>" } }` in its own annotations, or
+// in the meta (the default export) of its file. The
 // reason must be one string literal; the Storybook CSF parser reads it, so
 // the build does not run. An opt-out without a reason is an error. `read`
 // gives the text of a story file (from the repository root).
@@ -150,16 +151,18 @@ export function visualSkips(
         property.type === "ObjectProperty" &&
         (property.key.name ?? property.key.value) === key,
     )
+  const skipOf = (annotations) =>
+    named(named(annotations?.parameters, "visual")?.value, "skip")?.value
   for (const [file, inFile] of byFile) {
-    const { _storyAnnotations: annotations } = loadCsf(read(file), {
+    const csf = loadCsf(read(file), {
       fileName: file,
       makeTitle: (title) => title ?? file,
     }).parse()
     for (const story of inFile) {
-      const skip = named(
-        named(annotations[story.exportName]?.parameters, "visual")?.value,
-        "skip",
-      )?.value
+      // The story's own value wins over the value of its meta.
+      const skip =
+        skipOf(csf._storyAnnotations[story.exportName]) ??
+        skipOf(csf._metaAnnotations)
       if (!skip) continue
       if (skip.type !== "StringLiteral" || !skip.value.trim())
         throw new Error(

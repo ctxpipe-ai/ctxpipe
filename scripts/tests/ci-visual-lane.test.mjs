@@ -193,6 +193,21 @@ export const Canvas = {
       ["features-x--canvas", "A WebGL canvas draws a new frame at each shot."],
     ]),
   )
+  // A story inherits an opt-out of its meta (the default export).
+  const meta = `export default {
+  title: "Features/X",
+  parameters: { visual: { skip: "The whole file draws a canvas." } },
+}
+export const Plain = {}
+export const Canvas = { parameters: { visual: { skip: "Its own reason." } } }
+`
+  assert.deepEqual(
+    visualSkips([story("Plain"), story("Canvas")], loadCsf, () => meta),
+    new Map([
+      ["features-x--plain", "The whole file draws a canvas."],
+      ["features-x--canvas", "Its own reason."],
+    ]),
+  )
   // An opt-out needs its reason.
   for (const skip of ['""', "true"])
     assert.throws(
