@@ -6,19 +6,19 @@
 
 Hosted ctxpipe runs on Railway (compute), Neon (Postgres) and Vercel Sandbox (chat and ingestion sandboxes). A POC partner asked for a stated region, fewer sub-processors and a self-host story ([CTX-1117](https://linear.app/ctxpipe/issue/CTX-1117)). Railway had a security incident that exposed environment variables ([CTX-982](https://linear.app/ctxpipe/issue/CTX-982)). Railway and Neon cost about $570 a month (cost telemetry, 7 days to 2026-11-07).
 
-The AWS organization already exists (factory repo, `machines/aws-core`): management, production (empty), factory, selfhost-sandbox and archive accounts, with Identity Center, SCPs, an org CloudTrail and CDK bootstrap restrictions. The SCP allows us-west-2 and us-east-1 only.
+The AWS organization already exists (factory repo, `machines/aws-core`). It has management, production (empty), factory, selfhost-sandbox and archive accounts. It has Identity Center, SCPs, an org CloudTrail and CDK bootstrap restrictions. The SCP allows us-west-2 and us-east-1 only.
 
-The AgentCore and Aurora facts below come from the AWS documentation (read 2026-11-07). A local test cloned large public repositories with our ingest clone flags in 2 vCPU / 8 GB: Linux needed 2.2 GB of disk and less than 2.8 GB of memory; other large monorepos needed about 0.5 GB.
+The AgentCore and Aurora facts below come from the AWS documentation (read 2026-11-07). A local test cloned large public repositories with our ingest clone flags. The test container had 2 vCPU and 8 GB. Linux needed 2.2 GB of disk and less than 2.8 GB of memory. Other large monorepos needed about 0.5 GB of disk each.
 
 ## Decision
 
 **Edge and accounts**
 
-1. Cloudflare is the only public entry point. Traffic goes through a Cloudflare Tunnel to AWS. No AWS resource has a public endpoint. The factory moves behind the tunnel too: the hub's public ALB goes away, people use WARP and Zero Trust, and Cloudflare owns all of `ctxpipe.dev`.
+1. Cloudflare is the only public entry point. Traffic goes through a Cloudflare Tunnel to AWS. No AWS resource accepts public inbound traffic. The factory moves behind the tunnel too: the hub's public ALB goes away, people use WARP and Zero Trust, and Cloudflare owns all of `ctxpipe.dev`.
 2. The domain follows the audience and the account follows the data. `ctxpipe.ai` is public. `ctxpipe.dev` is internal behind Access, with public webhook paths only.
 3. The first region is us-west-2. The stack takes a region parameter for a later second stamp.
 4. Production and observability run in the production account. Previews run in a separate preview account in its own OU. The factory account holds no customer data.
-5. CDK manages AWS. Terraform manages Cloudflare. Both live in the factory repo. The hosted app is a private CDK app that composes the public `@ctxpipe/aws-cdk` construct, built from the ctxpipe commit of the images. The ctxpipe repo only pushes images to ECR. All deploys run from the factory repo.
+5. CDK manages AWS. Terraform manages Cloudflare. Both live in the factory repo. The hosted app is a private CDK app that composes the public `@ctxpipe/aws-cdk` construct, built from the ctxpipe commit of the images. The ctxpipe repo only pushes images to ECR. ECR tags are immutable, and each deploy pins its images by digest. Only builds of `main` push to the production account. PR builds push to the preview account with a different role. All deploys run from the factory repo.
 
 **Production**
 
@@ -35,27 +35,37 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 
 14. AgentCore Runtime V2 microVMs replace Vercel Sandbox, one session for each conversation or ingest shard. A repository-size cap replaces a second compute type.
 15. The backend reaches a session only through `InvokeAgentRuntime` and `InvokeAgentRuntimeCommand` over PrivateLink. No session endpoints. A resource policy, an SCP and the VPC endpoint condition let only backend roles invoke.
-16. The sandbox reaches the backend's tool bridge and model proxy over the private network, through Agent Vault, as in self-host ([ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md)). Sandbox subnets have no internet route. They reach Agent Vault and the VPC endpoints for ECR, logs and AgentCore.
+16. The sandbox reaches the backend's tool bridge and model proxy over the private network, through Agent Vault, as in self-host ([ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md)). Agent Vault is the only egress proxy of the sandbox. Sandbox subnets have no internet route. They reach Agent Vault and the VPC endpoints for ECR, logs and AgentCore.
 17. The V2 memory snapshot holds only our shim. OpenCode starts after the restore. Secrets in the sandbox come from `/dev/urandom` per request.
-18. A conversation resumes from git: a fresh clone of the Workspace repository and a private conversation ref. An S3 base bundle is added only if the clone is slower than about 3 s.
+18. A conversation resumes from git: a fresh clone of the Workspace repository and a private conversation ref. An S3 base bundle is added only if the clone is slower than about 3 s. Hosted ctxpipe stops the creation, selection and cleanup of Workspace bases (Vercel snapshots). The Docker Workspace base stays for self-host.
 
 **Previews**
 
-19. `factory preview up <PR>` starts a factory workflow with a `preview-deploy` role in the preview account. Production shares its cluster with the preview account through AWS RAM. AWS allows one cross-account clone for each account, so the preview account keeps one preview source clone, and each preview is a same-account copy-on-write clone of that source. Shared parts (network, tunnel, one preview AgentCore runtime) deploy once; a preview is ECS services created with direct API calls, one tunnel route and one clone. Cloudflare Access protects `pr-N.ctxpipe.dev`, with a bypass for `/mcp`, the OAuth paths and the webhook path. At most 15 previews exist at a time. A preview is deleted on PR close, or 3 days after the last `preview up`. A warm pool of paused clones is added only if the spike shows that a clone and its instance take more than about 3 minutes.
+19. `factory preview up <PR>` starts a factory workflow with a `preview-deploy` role in the preview account.
+20. Production shares its cluster with the preview account through AWS RAM. AWS allows one cross-account clone for each account. Thus the preview account keeps one preview source clone. Each preview is a same-account copy-on-write clone of that source.
+21. Shared parts deploy once: the network, the tunnel and one preview AgentCore runtime. A preview is ECS services that direct API calls create, one tunnel route and one clone.
+22. A preview keeps the isolation that `.github/workflows/pr-deploy.yaml` enforces today:
+    - It does not build a PR from a fork.
+    - Each preview gets its own `AUTH_SECRET` and its own connection-secret encryption key. Connection secrets that the clone copies from production do not decrypt on a preview.
+    - Previews use the preview GitHub App, not the production app.
+    - Each clone gets new passwords for its database roles. The clone copies the production passwords, and a preview does not use them.
+    - The `Production` and `Preview` environments never share a token, key or secret.
+23. Cloudflare Access protects `pr-N.ctxpipe.dev`. Access lets `/mcp`, the OAuth paths and the webhook path through, because those clients cannot do an Access login. The app's own auth protects these paths.
+24. At most 15 previews exist at a time. A preview is deleted on PR close, or 3 days after the last `preview up`. A warm pool of paused clones is added only if the spike shows that a clone and its instance take more than about 3 minutes.
 
 **Observability**
 
-20. HyperDX (ClickStack) is the only observability tool. Langfuse goes away. Spans keep the prompt text. Traces stay 30 days.
+25. HyperDX (ClickStack) is the only observability tool. Langfuse goes away. Spans keep the prompt text. Traces stay 30 days.
 
 ## Alternatives not taken
 
-- **Previews in the production account.** Rejected: the cost difference to a separate account is about $10 a month, because the preview network needs its own NAT and endpoints in both designs. An account boundary keeps unreviewed code out of the production account.
+- **Previews in the production account.** Rejected: a separate account costs only about $10 a month more. The preview network needs its own NAT and endpoints in both designs. An account boundary keeps unreviewed code out of the production account.
 - **Previews in the factory account.** Rejected: previews hold customer data, and the factory account holds none.
 - **Filtered preview data.** Rejected: copy-on-write clones cannot filter, and previews must hold real data for debugging.
 - **Neptune for the graph.** Rejected for now: FalkorDB isolates each organization in its own graph, and [CTX-996](https://linear.app/ctxpipe/issue/CTX-996) replaces FalkorDB later.
 - **EFS for stateful services.** Rejected: EBS is about four times cheaper per GB, and git and Zoekt work better on a local disk.
 - **AgentCore session endpoints.** Rejected: they are public only, and a resource policy cannot name their action.
-- **AgentCore Instances compute type, ASG self-healing, worker scale-to-zero, a separate indexer.** Rejected in the simplicity audit: each adds machinery for a need that we did not measure.
+- **AgentCore Instances compute type, ASG self-healing, worker scale-to-zero, a separate indexer.** Rejected in the simplicity audit. Each adds machinery for a need that we did not measure.
 - **RDS Proxy, an ALB, a NAT gateway, an Aurora reader.** Rejected for cost at our load. Each one is a CDK change if the load grows.
 
 ## Consequences
