@@ -53,11 +53,6 @@
       "ticket": "CTX-1226"
     },
     {
-      "id": "components-workspaces-pane--graph",
-      "reason": "The graph pane shows \"Loading graph\" in one run and \"Preparing graph\" in another: its progress depends on the time that the WebGL canvas takes. It needs a mask.",
-      "ticket": "CTX-1186"
-    },
-    {
       "id": "pages-onboarding--admin-finish-failure-continues",
       "reason": "The count of stacked error toasts at the bottom differs between runs: a toast closes on a real timer. It needs a mask.",
       "ticket": "CTX-1186"
