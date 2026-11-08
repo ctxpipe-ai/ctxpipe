@@ -43,7 +43,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 
 19. `factory preview up <PR>` starts a factory workflow with a `preview-deploy` role in the preview account.
 20. Production shares its cluster with the preview account through AWS RAM. AWS allows one cross-account clone for each account. Thus the preview account keeps one preview source clone. Each preview is a same-account copy-on-write clone of that source.
-21. Shared parts deploy once: the network, the tunnel and one preview AgentCore runtime. A preview is ECS services that direct API calls create, one tunnel route and one clone.
+21. Shared parts deploy once: the network, the tunnel and one preview AgentCore runtime. A preview has three parts: its ECS services, one tunnel route and one clone. Direct ECS API calls create the services, without a CloudFormation stack.
 22. A preview keeps the isolation that `.github/workflows/pr-deploy.yaml` enforces today:
     - It does not build a PR from a fork.
     - Each preview gets its own `AUTH_SECRET` and its own connection-secret encryption key. Connection secrets that the clone copies from production do not decrypt on a preview.
