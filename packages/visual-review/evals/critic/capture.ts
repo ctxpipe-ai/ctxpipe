@@ -22,6 +22,7 @@ import {
   applyMutation,
   collectFacts,
   focusTarget,
+  isNoise,
   knownRegion,
   planMutation,
   seeded,
@@ -75,10 +76,10 @@ async function captureStory(
   if (plan?.focus) await page.evaluate(focusTarget, plan.target)
   const clean = await shoot(page, job.clean)
   if (!plan) return [clean, { file, status: "no-target" }]
-  const before = facts.elements[plan.target]!.box
+  const before = facts.elements[plan.target]?.box
   const after = await page.evaluate(applyMutation, plan)
   const region =
-    kind === "subpixel-shift" || kind === "antialiasing"
+    isNoise(kind) || !before
       ? null
       : knownRegion([before, ...after], facts.viewport)
   return [clean, { ...(await shoot(page, file)), region }]
@@ -122,7 +123,8 @@ async function run(jobs: Job[]) {
           () => undefined,
           false,
           async (page, entry, error) => {
-            const story = jobOf.get(entry)!
+            const story = jobOf.get(entry)
+            if (!story) return
             if (error) {
               results.push(...failed(story, "play-failed", error))
               return
@@ -149,4 +151,4 @@ async function run(jobs: Job[]) {
 }
 
 if (import.meta.main)
-  await run(JSON.parse(readFileSync(process.argv[2]!, "utf8")) as Job[])
+  await run(JSON.parse(readFileSync(process.argv[2] ?? "", "utf8")) as Job[])

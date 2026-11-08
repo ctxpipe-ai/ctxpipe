@@ -1,6 +1,6 @@
 # Bake-off dataset of the visual critic
 
-The bake-off compares critic models on a fixed set of labeled screenshot pairs (CTX-1178, Phase 4). This folder holds the builder of that set. The runner and the report are a different ticket.
+The bake-off compares critic models on a fixed set of labeled screenshot pairs ([CTX-1178](https://linear.app/ctxpipe/issue/CTX-1178), Phase 4). This folder holds the builder of that set. The runner and the report are a different ticket.
 
 ## Cases
 
@@ -9,9 +9,9 @@ The bake-off compares critic models on a fixed set of labeled screenshot pairs (
 | `intended` | 60 | A real commit that changed a story file or a component beside a story file. The builder renders the story at the first parent and at the commit. The brief is the commit message, with the pull request title when the GitHub CLI finds it. | `intended` (the owner can change it) |
 | `regression` | 8 × 10 | One CSS or DOM change on one element of a clean render, before the screenshot. The source does not change. The classes are in `mutations.ts`. | `regression`, with the class and the known region |
 | `noise` | 2 × 10 | A transform below one pixel, or a thin text stroke, on the whole story. | `noise` |
-| `mixed` | 20 | A real commit, with a synthetic regression in the after image. | `regression`, with the class and the known region |
+| `mixed` | 20 | A real commit, with a synthetic regression in the after image. A mixed case can use the pair of an intended case; then the two cases differ only by the regression. | `regression`, with the class and the known region |
 
-The builder keeps only the pairs that differ by more than the tolerance of the visual check (10 pixels). The known region is the box of the changed element before and after the change, 2 pixels wider on each side.
+The builder keeps only the pairs that differ by more than the tolerance of the visual check (10 pixels). A mixed case must also show both parts: the real change and the regression. The stories in `scripts/ci/visual-unstable-stories.json` (desktop) give no case. A run that gives fewer than 150 cases stops and does not change the manifest. The known region is the box of the changed element before and after the change, 2 pixels wider on each side.
 
 ## Files
 

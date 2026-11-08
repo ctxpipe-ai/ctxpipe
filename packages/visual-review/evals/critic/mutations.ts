@@ -24,6 +24,9 @@ export type RegressionClass = (typeof regressionClasses)[number]
 export type NoiseClass = (typeof noiseClasses)[number]
 export type MutationClass = RegressionClass | NoiseClass
 
+export const isNoise = (kind: MutationClass): kind is NoiseClass =>
+  (noiseClasses as readonly MutationClass[]).includes(kind)
+
 export type Rgb = [number, number, number]
 
 /** What `planMutation` must know about one element of the page. */
@@ -45,10 +48,9 @@ export type ElementFacts = {
   surface: Rgb
   /** Its text color. */
   color: Rgb
-  /** A button, a link, a form control or an element with a tab index. */
-  focusable: boolean
   /**
-   * A keyboard focus gives it an outline or a shadow. `collectFacts` probes
+   * A keyboard focus gives it an outline or a shadow (a button, a link, a
+   * form control or an element with a tab index). `collectFacts` probes
    * this only when it is asked to, because a focus can change the page.
    */
   focusRing: boolean
@@ -67,7 +69,6 @@ export type PageFacts = {
 }
 
 type MutationPlan = {
-  kind: MutationClass
   /** The index of the element in `PageFacts.elements`. */
   target: number
   /** Focus the target before the clean screenshot. */
@@ -121,11 +122,10 @@ const classes: Record<
   },
   "color-token": {
     fits: (element, page) => farTokens(element, page).length > 0,
-    style: (element, page, random) => {
+    style: (element, page, random): Record<string, string> => {
       const far = farTokens(element, page)
-      return {
-        "background-color": `var(${far[Math.floor(random() * far.length)]!.name})`,
-      }
+      const token = far[Math.floor(random() * far.length)]
+      return token ? { "background-color": `var(${token.name})` } : {}
     },
   },
   // Longer text that does not wrap, in a box as wide as the old text: the
@@ -153,11 +153,10 @@ const classes: Record<
   "contrast-loss": {
     fits: (element) =>
       element.text && distance(element.color, element.surface) > 100,
-    style: (element) => {
-      const mix = element.surface.map((channel, i) =>
-        Math.round(channel * 0.8 + element.color[i]! * 0.2),
-      )
-      return { color: `rgb(${mix.join(", ")})` }
+    style: ({ surface, color }) => {
+      const mix = (i: 0 | 1 | 2) =>
+        Math.round(surface[i] * 0.8 + color[i] * 0.2)
+      return { color: `rgb(${mix(0)}, ${mix(1)}, ${mix(2)})` }
     },
   },
   "missing-element": {
@@ -217,8 +216,8 @@ export function planMutation(
   page: PageFacts,
   random: () => number,
 ): MutationPlan | null {
-  if (kind === "subpixel-shift" || kind === "antialiasing")
-    return { kind, target: 0, focus: false, repeatText: 0, style: noise[kind] }
+  if (isNoise(kind))
+    return { target: 0, focus: false, repeatText: 0, style: noise[kind] }
   const rule = classes[kind]
   const fitting = page.elements.flatMap((element, index) =>
     index > 0 &&
@@ -227,14 +226,14 @@ export function planMutation(
       ? [index]
       : [],
   )
-  if (!fitting.length) return null
-  const target = fitting[Math.floor(random() * fitting.length)]!
+  const target = fitting[Math.floor(random() * fitting.length)]
+  const element = target === undefined ? undefined : page.elements[target]
+  if (target === undefined || !element) return null
   return {
-    kind,
     target,
     focus: rule.focus ?? false,
     repeatText: rule.repeatText ?? 0,
-    style: rule.style(page.elements[target]!, page, random),
+    style: rule.style(element, page, random),
   }
 }
 
@@ -277,7 +276,8 @@ export function collectFacts(probeFocus: boolean): PageFacts {
   const canvas = document.createElement("canvas")
   canvas.width = 1
   canvas.height = 1
-  const context = canvas.getContext("2d", { willReadFrequently: true })!
+  const context = canvas.getContext("2d", { willReadFrequently: true })
+  if (!context) throw new Error("The page has no 2D canvas.")
   // The canvas reads any CSS color (oklch, color-mix) as sRGB. The result
   // for a transparent color is null.
   const rgb = (css: string): [number, number, number] | null => {
@@ -285,8 +285,8 @@ export function collectFacts(probeFocus: boolean): PageFacts {
     context.fillStyle = "#000"
     context.fillStyle = css
     context.fillRect(0, 0, 1, 1)
-    const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data
-    return a! < 128 ? null : [r!, g!, b!]
+    const [r = 0, g = 0, b = 0, a = 0] = context.getImageData(0, 0, 1, 1).data
+    return a < 128 ? null : [r, g, b]
   }
   const root =
     document.querySelector<HTMLElement>("#storybook-root > *") ?? document.body
@@ -355,19 +355,18 @@ export function collectFacts(probeFocus: boolean): PageFacts {
       },
       tag,
       text: Array.from(element.childNodes).some(
-        (node) => node.nodeType === Node.TEXT_NODE && node.textContent!.trim(),
+        (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
       ),
       textWidth: textWidth(element),
       inline: style.display === "inline",
       padding:
-        parseFloat(style.paddingTop) +
-        parseFloat(style.paddingRight) +
-        parseFloat(style.paddingBottom) +
-        parseFloat(style.paddingLeft),
+        Number.parseFloat(style.paddingTop) +
+        Number.parseFloat(style.paddingRight) +
+        Number.parseFloat(style.paddingBottom) +
+        Number.parseFloat(style.paddingLeft),
       background: rgb(style.backgroundColor),
       surface: surfaceOf(element),
       color: rgb(style.color) ?? [0, 0, 0],
-      focusable,
       focusRing: probeFocus && focusable && ringed(element as HTMLElement),
       graphic: tag === "svg" || tag === "img",
     }
@@ -444,11 +443,10 @@ export function applyMutation({
   )
   if (!element) return []
   if (repeatText > 0)
-    for (const node of Array.from(element.childNodes))
-      if (node.nodeType === Node.TEXT_NODE && node.textContent!.trim())
-        node.textContent = Array(repeatText)
-          .fill(node.textContent!.trim())
-          .join(" ")
+    for (const node of Array.from(element.childNodes)) {
+      const text = node.nodeType === Node.TEXT_NODE && node.textContent?.trim()
+      if (text) node.textContent = Array(repeatText).fill(text).join(" ")
+    }
   for (const [name, value] of Object.entries(style))
     element.style.setProperty(name, value, "important")
   const range = document.createRange()

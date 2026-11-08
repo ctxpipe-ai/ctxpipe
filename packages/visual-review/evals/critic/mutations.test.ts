@@ -19,17 +19,18 @@ const element = (facts: Partial<ElementFacts>): ElementFacts => ({
   background: null,
   surface: [10, 10, 10],
   color: [250, 250, 250],
-  focusable: false,
   focusRing: false,
   graphic: false,
   ...facts,
 })
 
+const storyRoot = element({ box: { x: 0, y: 0, width: 1440, height: 900 } })
+
 // A small dark page: the story root, a card, a label, an icon and a button.
 const page: PageFacts = {
   viewport: { width: 1440, height: 900 },
   elements: [
-    element({ box: { x: 0, y: 0, width: 1440, height: 900 } }),
+    storyRoot,
     element({
       box: { x: 40, y: 40, width: 400, height: 240 },
       padding: 48,
@@ -50,7 +51,6 @@ const page: PageFacts = {
       tag: "button",
       text: true,
       textWidth: 90,
-      focusable: true,
       focusRing: true,
       padding: 24,
       background: [250, 250, 250],
@@ -169,7 +169,6 @@ describe("planMutation", () => {
 
   test("focuses the target before it removes its focus ring", () => {
     expect(planMutation("focus-ring", page, seeded(1))).toEqual({
-      kind: "focus-ring",
       target: 4,
       focus: true,
       repeatText: 0,
@@ -187,11 +186,10 @@ describe("planMutation", () => {
     const off = {
       ...page,
       elements: [
-        page.elements[0]!,
+        storyRoot,
         element({
           box: { x: 1400, y: 10, width: 120, height: 30 },
           tag: "button",
-          focusable: true,
           focusRing: true,
         }),
       ],
@@ -201,7 +199,6 @@ describe("planMutation", () => {
 
   test("changes the whole story by less than a pixel for a noise case", () => {
     expect(planMutation("subpixel-shift", page, seeded(1))).toEqual({
-      kind: "subpixel-shift",
       target: 0,
       focus: false,
       repeatText: 0,
@@ -216,7 +213,7 @@ describe("planMutation", () => {
     const many = {
       ...page,
       elements: [
-        page.elements[0]!,
+        storyRoot,
         ...Array.from({ length: 30 }, (_, i) =>
           element({
             box: { x: 10, y: 10 + i * 25, width: 300, height: 20 },

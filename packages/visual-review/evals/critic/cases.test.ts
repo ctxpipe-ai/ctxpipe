@@ -73,38 +73,57 @@ const manifest = {
   ],
 }
 
+// A copy of the manifest with one case changed.
+const change = (
+  index: number,
+  edit: (
+    entry: Record<string, unknown> & { images: { after: string } },
+  ) => void,
+) => {
+  const copy = structuredClone(manifest)
+  copy.cases.forEach((entry, i) => {
+    if (i === index) edit(entry)
+  })
+  return copy
+}
+
 describe("caseManifestSchema", () => {
   test("accepts a case of each kind", () => {
     expect(caseManifestSchema.parse(manifest).cases).toHaveLength(4)
   })
 
   test("a synthetic regression must have a known region", () => {
-    const broken = structuredClone(manifest)
-    broken.cases[1]!.region = null
+    const broken = change(1, (entry) => {
+      entry.region = null
+    })
     expect(caseManifestSchema.safeParse(broken).success).toBe(false)
   })
 
   test("a mixed case must name its hidden regression class", () => {
-    const broken = structuredClone(manifest)
-    broken.cases[3]!.class = "rendering"
+    const broken = change(3, (entry) => {
+      entry.class = "rendering"
+    })
     expect(caseManifestSchema.safeParse(broken).success).toBe(false)
   })
 
   test("an intended case must have a brief and a commit", () => {
-    const broken = structuredClone(manifest)
-    broken.cases[0]!.brief = null
+    const broken = change(0, (entry) => {
+      entry.brief = null
+    })
     expect(caseManifestSchema.safeParse(broken).success).toBe(false)
   })
 
   test("refuses two cases with one id", () => {
-    const broken = structuredClone(manifest)
-    broken.cases[2]!.id = "intended-001"
+    const broken = change(2, (entry) => {
+      entry.id = "intended-001"
+    })
     expect(caseManifestSchema.safeParse(broken).success).toBe(false)
   })
 
   test("refuses an image path outside the output folder", () => {
-    const broken = structuredClone(manifest)
-    broken.cases[0]!.images.after = "../secret.png"
+    const broken = change(0, (entry) => {
+      entry.images.after = "../secret.png"
+    })
     expect(caseManifestSchema.safeParse(broken).success).toBe(false)
   })
 })

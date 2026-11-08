@@ -39,6 +39,7 @@ import {
   type CaseManifest,
 } from "./cases.ts"
 import {
+  isNoise,
   noiseClasses,
   regressionClasses,
   seeded,
@@ -47,15 +48,6 @@ import {
 
 const root = resolve(import.meta.dirname, "../../../..")
 const here = import.meta.dirname
-
-// The size of each part of the case set (the plan of CTX-1178, Phase 4).
-const target = { intended: 60, regression: 10, noise: 10, mixed: 20 }
-// Commits of the history to read, newest first, and stories of each commit.
-const commitCount = 60
-const storiesPerCommit = 10
-// Stories to try for each synthetic class: a class cannot apply to each story.
-const triesPerClass = 40
-const viewport = { name: "desktop", width: 1440, height: 900 } as const
 
 const git = (...args: string[]) =>
   execFileSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 })
@@ -71,12 +63,10 @@ function derive(seed: number, ...names: string[]): number {
 /** A copy of `items` in a seeded order. */
 function shuffle<T>(items: readonly T[], seed: number): T[] {
   const random = seeded(seed)
-  const copy = [...items]
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1))
-    ;[copy[i], copy[j]] = [copy[j]!, copy[i]!]
-  }
-  return copy
+  return items
+    .map((item) => ({ item, key: random() }))
+    .sort((a, b) => a.key - b.key)
+    .map(({ item }) => item)
 }
 
 type Commit = {
@@ -143,8 +133,9 @@ function history(until: string): Commit[] {
     .split("\n")
     .filter(Boolean)
   for (const line of shas) {
-    if (commits.length === commitCount) break
-    const [sha, parent] = line.split(" ") as [string, string]
+    // The newest 60 commits that change a story.
+    if (commits.length === 60) break
+    const [sha = "", parent = ""] = line.split(" ")
     const storyFiles = storyFilesOf(sha, parent)
     if (storyFiles.length)
       commits.push({ sha, parent, brief: briefOf(sha), storyFiles })
@@ -238,15 +229,25 @@ const storyEntries = (out: string, key: string): IndexStory[] =>
 /** A pair of screenshots that can become a case. */
 type Candidate = {
   kind: Case["kind"]
-  class: MutationClass | null
+  mutation: MutationClass | null
   storyId: string
   commit: Commit | null
   before: string
   after: string
   /** For a mixed case: the clean after image, without the regression. */
   clean?: string
-  regionOf?: string
 }
+
+/** The file name of one screenshot. */
+const shot = (key: string, storyId: string, role: string) =>
+  `${key}--${storyId}--${role}.png`
+
+/** Case ids: the prefix and a number with `width` digits. */
+const numbered = <T>(prefix: string, entries: readonly T[], width: number) =>
+  entries.map((entry, i): [string, T] => [
+    `${prefix}-${String(i + 1).padStart(width, "0")}`,
+    entry,
+  ])
 
 async function main() {
   const { values } = parseArgs({
@@ -260,7 +261,6 @@ async function main() {
         type: "string",
         default: join(root, ".ci-results/visual-bakeoff"),
       },
-      shards: { type: "string", default: "4" },
     },
   })
   const seed = Number(values.seed)
@@ -279,12 +279,13 @@ async function main() {
   const keys = new Map<string, string>([[until, untilKey]])
   for (const commit of commits)
     for (const sha of [commit.sha, commit.parent]) keys.set(sha, buildKey(sha))
+  const shaOf = new Map<string, string>()
+  for (const [sha, key] of keys) if (!shaOf.has(key)) shaOf.set(key, sha)
   process.stdout.write(
-    `${commits.length} commits, ${new Set(keys.values()).size} Storybook builds.\n`,
+    `${commits.length} commits, ${shaOf.size} Storybook builds.\n`,
   )
   const built = new Set<string>()
-  await inParallel([...new Set(keys.values())], 3, async (key) => {
-    const sha = [...keys].find(([, value]) => value === key)![0]
+  await inParallel([...shaOf], 3, async ([key, sha]) => {
     if (await buildStorybook(sha, key, out)) built.add(key)
     process.stdout.write(
       `build ${key} (${sha.slice(0, 9)}): ${built.has(key) ? "ok" : "failed"}\n`,
@@ -292,6 +293,17 @@ async function main() {
   })
   if (!built.has(untilKey))
     throw new Error(`The Storybook of ${until} did not build.`)
+
+  // A story that is known to differ between two runs at the desktop
+  // viewport gives no case: its pair can differ only because of the flake.
+  const unstable = new Set(
+    unstableList.stories
+      .filter(
+        (entry) =>
+          ("viewport" in entry ? entry.viewport : "desktop") === "desktop",
+      )
+      .map((entry) => entry.id),
+  )
 
   // The jobs of each build, and the candidate pairs of screenshots.
   // Two commits can share a build, so a job can come two times.
@@ -304,62 +316,58 @@ async function main() {
     jobs.set(key, [...(jobs.get(key) ?? []), job])
   }
   const candidates: Candidate[] = []
-  const shot = (key: string, storyId: string, role: string) =>
-    `${key}--${storyId}--${role}.png`
-  const mixedClasses = regressionClasses.filter((kind) => kind !== "focus-ring")
+  // A focus ring needs a focus before the clean shot, so it cannot hide in
+  // the clean after image of a real change.
+  const mixedClasses = regressionClasses.filter(
+    (mutation) => mutation !== "focus-ring",
+  )
 
   for (const commit of commits) {
-    const after = keys.get(commit.sha)!
-    const before = keys.get(commit.parent)!
-    if (!built.has(after) || !built.has(before) || after === before) continue
+    const after = keys.get(commit.sha)
+    const before = keys.get(commit.parent)
+    if (!after || !before || !built.has(after) || !built.has(before)) continue
     const files = new Set(
       commit.storyFiles.map((file) => `./${file.replace(/^apps\/ui\//, "")}`),
     )
     const stories = storyEntries(out, after)
-      .filter((entry) => files.has(entry.importPath))
+      .filter((entry) => files.has(entry.importPath) && !unstable.has(entry.id))
       .map((entry) => entry.id)
       .sort()
+    // Up to 10 stories of each commit.
     for (const storyId of shuffle(stories, derive(seed, commit.sha)).slice(
       0,
-      storiesPerCommit,
+      10,
     )) {
-      const kind =
+      const mutation =
         mixedClasses[
           Math.abs(derive(seed, commit.sha, storyId)) % mixedClasses.length
-        ]!
+        ] ?? "padding"
+      const clean = shot(after, storyId, "clean")
+      const mixed = shot(after, storyId, `mixed-${mutation}`)
       add(before, { id: storyId, clean: shot(before, storyId, "clean") })
       add(after, {
         id: storyId,
-        clean: shot(after, storyId, "clean"),
+        clean,
         mutated: {
-          file: shot(after, storyId, `mixed-${kind}`),
-          kind,
-          seed: derive(seed, commit.sha, storyId, kind),
+          file: mixed,
+          kind: mutation,
+          seed: derive(seed, commit.sha, storyId, mutation),
         },
       })
-      candidates.push({
-        kind: "intended",
-        class: null,
+      const common = {
         storyId,
         commit,
         before: shot(before, storyId, "clean"),
-        after: shot(after, storyId, "clean"),
-      })
-      candidates.push({
-        kind: "mixed",
-        class: kind,
-        storyId,
-        commit,
-        before: shot(before, storyId, "clean"),
-        after: shot(after, storyId, `mixed-${kind}`),
-        clean: shot(after, storyId, "clean"),
-        regionOf: shot(after, storyId, `mixed-${kind}`),
-      })
+      }
+      candidates.push(
+        { ...common, kind: "intended", mutation: null, after: clean },
+        { ...common, kind: "mixed", mutation, after: mixed, clean },
+      )
     }
   }
 
-  // Synthetic cases on the newest build. Each class tries other stories.
-  const unstable = new Set(unstableList.stories.map((entry) => entry.id))
+  // Synthetic cases on the newest build. Each class tries 40 other
+  // stories, because a class cannot apply to each story.
   const pool = shuffle(
     storyEntries(out, untilKey)
       .map((entry) => entry.id)
@@ -367,48 +375,46 @@ async function main() {
       .sort(),
     derive(seed, "synthetic"),
   )
-  const classes: MutationClass[] = [...regressionClasses, ...noiseClasses]
-  classes.forEach((kind, offset) => {
-    for (let i = 0; i < triesPerClass; i++) {
-      const storyId = pool[(offset * triesPerClass + i) % pool.length]!
-      const before = `${untilKey}--${storyId}--clean-for-${kind}.png`
-      const after = `${untilKey}--${storyId}--${kind}.png`
+  const tries = 40
+  ;[...regressionClasses, ...noiseClasses].forEach((mutation, offset) => {
+    for (let i = 0; i < tries; i++) {
+      const storyId = pool[(offset * tries + i) % pool.length]
+      if (!storyId) continue
+      const before = shot(untilKey, storyId, `clean-for-${mutation}`)
+      const after = shot(untilKey, storyId, mutation)
       add(untilKey, {
         id: storyId,
         clean: before,
-        mutated: { file: after, kind, seed: derive(seed, storyId, kind) },
+        mutated: {
+          file: after,
+          kind: mutation,
+          seed: derive(seed, storyId, mutation),
+        },
       })
       candidates.push({
-        kind: (noiseClasses as readonly string[]).includes(kind)
-          ? "noise"
-          : "regression",
-        class: kind,
+        kind: isNoise(mutation) ? "noise" : "regression",
+        mutation,
         storyId,
         commit: null,
         before,
         after,
-        regionOf: after,
       })
     }
   })
 
-  // Capture in containers that run at the same time, each with whole builds.
-  const shards = Number(values.shards)
-  const parts: Job[][] = Array.from({ length: shards }, () => [])
-  ;[...jobs]
-    .sort((a, b) => b[1].length - a[1].length)
-    .forEach(([key, stories]) => {
-      const smallest = parts.reduce((min, part) =>
-        part.reduce((n, job) => n + job.stories.length, 0) <
-        min.reduce((n, job) => n + job.stories.length, 0)
-          ? part
-          : min,
-      )
-      smallest.push({
-        build: relative(root, join(out, "builds", key)),
-        stories,
-      })
-    })
+  // Capture in 4 containers that run at the same time, each with whole
+  // builds.
+  const parts: Job[][] = [[], [], [], []]
+  const size = (part: Job[]) =>
+    part.reduce((sum, job) => sum + job.stories.length, 0)
+  for (const [key, stories] of [...jobs].sort(
+    (a, b) => b[1].length - a[1].length,
+  )) {
+    const smallest = parts.reduce((min, part) =>
+      size(part) < size(min) ? part : min,
+    )
+    smallest.push({ build: relative(root, join(out, "builds", key)), stories })
+  }
   rmSync(join(out, "shots"), { recursive: true, force: true })
   mkdirSync(join(out, "jobs"), { recursive: true })
   await Promise.all(
@@ -447,109 +453,97 @@ async function main() {
     const comparison = await diff(readFileSync(a), readFileSync(b))
     return comparison.status === "changed" ? comparison.diffPixels : null
   }
-  type Kept = Candidate & { diffPixels: number; region: ShotResult["region"] }
+  type Kept = Candidate & {
+    diffPixels: number
+    region: ShotResult["region"]
+    beforePath: string
+    afterPath: string
+  }
   const kept: Kept[] = []
   for (const candidate of candidates) {
     const before = captured(candidate.before)
     const after = captured(candidate.after)
     if (!before || !after) continue
+    // A mixed case needs both parts: the real change (the before and the
+    // clean after image differ) and the regression (the clean after and the
+    // after image differ).
     if (candidate.clean) {
       const clean = captured(candidate.clean)
-      if (!clean || (await differs(clean.path, after.path)) === null) continue
+      if (
+        !clean ||
+        (await differs(before.path, clean.path)) === null ||
+        (await differs(clean.path, after.path)) === null
+      )
+        continue
     }
-    const region = candidate.regionOf
-      ? (results.get(candidate.regionOf)?.region ?? null)
-      : null
+    const region = after.region ?? null
     if (
       (candidate.kind === "regression" || candidate.kind === "mixed") &&
       !region
     )
       continue
     const diffPixels = await differs(before.path, after.path)
-    if (diffPixels !== null) kept.push({ ...candidate, diffPixels, region })
+    if (diffPixels !== null)
+      kept.push({
+        ...candidate,
+        diffPixels,
+        region,
+        beforePath: before.path,
+        afterPath: after.path,
+      })
   }
 
-  // Select the cases: mixed cases first, then intended cases of other pairs.
-  const pick = (kind: Case["kind"], kindClass: MutationClass | null) =>
-    kept.filter((entry) => entry.kind === kind && entry.class === kindClass)
+  // Select the cases: 60 intended cases, 10 of each synthetic class, and 20
+  // mixed cases. A mixed case can use the pair of an intended case: then the
+  // two cases differ only by the hidden regression.
+  const pick = (kind: Case["kind"], mutation: MutationClass | null) =>
+    kept.filter((entry) => entry.kind === kind && entry.mutation === mutation)
   const mixed = shuffle(
     kept.filter((entry) => entry.kind === "mixed"),
     derive(seed, "mixed"),
-  ).slice(0, target.mixed)
-  const mixedPairs = new Set(
-    mixed.map((entry) => `${entry.commit!.sha} ${entry.storyId}`),
-  )
-  const intended = kept
-    .filter(
-      (entry) =>
-        entry.kind === "intended" &&
-        !mixedPairs.has(`${entry.commit!.sha} ${entry.storyId}`),
-    )
-    .slice(0, target.intended)
-  const selected: [string, Kept][] = [
-    ...intended.map(
-      (entry, i) =>
-        [`intended-${String(i + 1).padStart(3, "0")}`, entry] as [string, Kept],
+  ).slice(0, 20)
+  const selected = [
+    ...numbered("intended", pick("intended", null).slice(0, 60), 3),
+    ...regressionClasses.flatMap((mutation) =>
+      numbered(
+        `regression-${mutation}`,
+        pick("regression", mutation).slice(0, 10),
+        2,
+      ),
     ),
-    ...regressionClasses.flatMap((kind) =>
-      pick("regression", kind)
-        .slice(0, target.regression)
-        .map(
-          (entry, i) =>
-            [`regression-${kind}-${String(i + 1).padStart(2, "0")}`, entry] as [
-              string,
-              Kept,
-            ],
-        ),
+    ...noiseClasses.flatMap((mutation) =>
+      numbered(`noise-${mutation}`, pick("noise", mutation).slice(0, 10), 2),
     ),
-    ...noiseClasses.flatMap((kind) =>
-      pick("noise", kind)
-        .slice(0, target.noise)
-        .map(
-          (entry, i) =>
-            [`noise-${kind}-${String(i + 1).padStart(2, "0")}`, entry] as [
-              string,
-              Kept,
-            ],
-        ),
-    ),
-    ...mixed.map(
-      (entry, i) =>
-        [`mixed-${String(i + 1).padStart(2, "0")}`, entry] as [string, Kept],
-    ),
+    ...numbered("mixed", mixed, 2),
   ]
+  // A run with too few cases (for example, after failed builds) must not
+  // replace the committed manifest.
+  if (selected.length < 150)
+    throw new Error(
+      `Only ${selected.length} cases, fewer than 150. The manifest did not change.`,
+    )
 
   rmSync(join(out, "cases"), { recursive: true, force: true })
   const cases = selected.map(([id, entry]) => {
     mkdirSync(join(out, "cases", id), { recursive: true })
-    copyFileSync(
-      results.get(entry.before)!.path,
-      join(out, "cases", id, "before.png"),
-    )
-    copyFileSync(
-      results.get(entry.after)!.path,
-      join(out, "cases", id, "after.png"),
-    )
-    const common = {
+    copyFileSync(entry.beforePath, join(out, "cases", id, "before.png"))
+    copyFileSync(entry.afterPath, join(out, "cases", id, "after.png"))
+    return {
       id,
       storyId: entry.storyId,
-      viewport,
+      viewport: { name: "desktop", width: 1440, height: 900 },
       diffPixels: entry.diffPixels,
       images: {
         before: `cases/${id}/before.png`,
         after: `cases/${id}/after.png`,
       },
-    }
-    const commit = entry.commit
-      ? { sha: entry.commit.sha, parent: entry.commit.parent }
-      : null
-    return {
-      ...common,
       kind: entry.kind,
       label: entry.kind === "mixed" ? "regression" : entry.kind,
-      class: entry.class,
+      class: entry.mutation,
       brief: entry.commit?.brief ?? null,
-      commit,
+      commit: entry.commit
+        ? { sha: entry.commit.sha, parent: entry.commit.parent }
+        : null,
       region: entry.region ?? null,
     }
   })

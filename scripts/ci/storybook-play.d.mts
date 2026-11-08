@@ -17,8 +17,6 @@ export type PlayPage = {
   waitForTimeout(ms: number): Promise<void>
 }
 
-export const staticDir: string
-
 export function serveStatic(directory: string, port: number): Promise<Server>
 
 export function waitFor(url: string): Promise<void>
