@@ -51,10 +51,10 @@ const here = import.meta.dirname
 // The size of each part of the case set (the plan of CTX-1178, Phase 4).
 const target = { intended: 60, regression: 10, noise: 10, mixed: 20 }
 // Commits of the history to read, newest first, and stories of each commit.
-const commitCount = 45
-const storiesPerCommit = 3
+const commitCount = 60
+const storiesPerCommit = 10
 // Stories to try for each synthetic class: a class cannot apply to each story.
-const triesPerClass = 18
+const triesPerClass = 40
 const viewport = { name: "desktop", width: 1440, height: 900 } as const
 
 const git = (...args: string[]) =>

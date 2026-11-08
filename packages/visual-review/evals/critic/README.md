@@ -32,7 +32,7 @@ pnpm visual:bakeoff:build [--seed 1] [--until <commit>] [--out .ci-results/visua
 
 The command does these steps:
 
-1. It reads the first-parent history of `apps/ui/src` up to `--until`, and selects the newest 45 commits that change a story.
+1. It reads the first-parent history of `apps/ui/src` up to `--until`, and selects the newest 60 commits that change a story.
 2. It builds Storybook for each commit and each first parent, from a `git archive` export in a temporary folder. Commits with the same `apps/ui`, `packages` and lockfile trees share one build. Each build stays in `<out>/builds/`, so a second run builds only the missing ones.
 3. It captures all screenshots in 4 capture containers at the same time.
 4. It compares each pair with the compare engine of the package, selects the cases with the seed, writes the images to `<out>/cases/<id>/`, and writes `cases.json`.
