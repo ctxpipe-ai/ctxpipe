@@ -50,7 +50,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - Previews use the preview GitHub App, not the production app.
     - Each clone gets new passwords for its database roles. The clone copies the production passwords, and a preview does not use them.
     - The `Production` and `Preview` environments never share a token, key or secret.
-    - The preview source is not scrubbed. Like the Neon preview branches of today, it keeps the session tokens and the OAuth tokens (`sessions`, `accounts`) that it copies from production. The design owner accepts this residual risk: unreviewed PR code can read these tokens. The account boundary keeps the risk out of the production account.
+    - The preview source is not scrubbed. Like the Neon preview branches of today, it keeps the session tokens and the OAuth tokens (`sessions`, `accounts`) that it copies from production. The design owner accepts this residual risk. Unreviewed PR code can read these tokens. It can replay a copied session token against the production app, and it can use a copied OAuth token against a customer's provider. The account boundary does not stop these two effects; it only keeps PR code away from AWS resources of the production account.
 23. Cloudflare Access protects `pr-N.ctxpipe.dev`. Access lets `/mcp`, the OAuth paths and the webhook path through, because those clients cannot do an Access login. The app's own auth protects these paths.
 24. At most 15 previews exist at a time. A preview is deleted on PR close, or 3 days after the last `preview up`. A warm pool of paused clones is added only if the spike shows that a clone and its instance take more than about 3 minutes.
 
