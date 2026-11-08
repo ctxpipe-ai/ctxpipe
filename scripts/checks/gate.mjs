@@ -501,14 +501,19 @@ const hidden = (character) => {
 }
 
 // Text from a PR (file names, reasons) as a Markdown code span that cannot
-// break a table, start a mention or hide characters.
-export function code(text) {
-  const clean = [...String(text)]
-    .map((character) => (hidden(character) ? " " : character))
-    .join("")
-    .replace(/`/g, "'")
-    .replace(/\|/g, "\\|")
-  return `\`${clean.length > 200 ? `${clean.slice(0, 200)}…` : clean}\``
+// break a table, start a mention or hide characters. Only a table cell
+// (`cell`) escapes a pipe: in another place, the escape would show. `max`
+// counts characters, so a cut never splits an emoji. The options are an
+// object, so that `.map(code)` does not give the array index as an option.
+export function code(text, { max = 200, cell = true } = {}) {
+  const characters = [...String(text)].map((character) =>
+    hidden(character) ? " " : character.replace("`", "'"),
+  )
+  const clean =
+    characters.length > max
+      ? `${characters.slice(0, max).join("")}…`
+      : characters.join("")
+  return `\`${cell ? clean.replace(/\|/g, "\\|") : clean}\``
 }
 
 // The review critics of the PR, from `factory review gate` in the critics
@@ -563,6 +568,29 @@ export function criticsFail(checked) {
   return checked.missing.length > 0 || (checked.required && !checked.checked)
 }
 
+// The writer and the commit of an override or a raised limit, for a public
+// comment. The writer is the SHA-256 of the store identity in the S3 path of
+// the record (or `ci`), and the commit is a full commit id. Any other value
+// never reaches the comment.
+function provenance(record, repoUrl) {
+  return {
+    writer: code(
+      /^([0-9a-f]{64}|ci)$/.test(record.writer) ? record.writer : "unknown",
+      { cell: false },
+    ),
+    commit: /^[0-9a-f]{40}$/.test(record.commit)
+      ? commitLink(record.commit, repoUrl)
+      : code("unknown"),
+  }
+}
+
+// A short commit id, linked to the commit when the repo URL is known.
+function commitLink(commit, repoUrl) {
+  return repoUrl
+    ? `[${commit.slice(0, 7)}](${repoUrl}/commit/${commit})`
+    : commit.slice(0, 7)
+}
+
 // The critics section of the summary and the PR comment. Each stored verdict
 // links to the commit that the agent reviewed.
 export function criticsText(checked, repoUrl) {
@@ -587,14 +615,61 @@ export function criticsText(checked, repoUrl) {
   for (const critic of checked.critics) {
     const links = (critic.verdicts ?? [])
       .filter((verdict) => /^[0-9a-f]{40}$/.test(verdict.commit))
-      .map((verdict) =>
-        repoUrl
-          ? `[${verdict.commit.slice(0, 7)}](${repoUrl}/commit/${verdict.commit})`
-          : verdict.commit.slice(0, 7),
-      )
+      .map((verdict) => commitLink(verdict.commit, repoUrl))
     lines.push(
       `| ${code(critic.critic)} | ${code(critic.status)} | ${code(critic.reason)} | ${links.join(" ") || "none"} |`,
     )
+  }
+  // A list item is not a table cell, so it keeps its pipes.
+  const item = (text, max = 200) => code(text, { max, cell: false })
+  // An override of a command critic's verdict (the visual critic) is never
+  // silent: each one shows its full reason, its writer and its commit.
+  const overrides = checked.critics.flatMap((critic) =>
+    (critic.overrides ?? []).map((override) => ({
+      critic: critic.critic,
+      ...override,
+    })),
+  )
+  if (overrides.length > 0) {
+    lines.push(
+      "",
+      `Overridden verdicts: ${overrides.length}. The implementer overrode each one with this reason. Read it, and look at the screenshot.`,
+      "",
+    )
+    for (const override of overrides) {
+      const { writer, commit } = provenance(override, repoUrl)
+      // The factory bounds the reason (300 characters), so the comment shows
+      // all of it.
+      lines.push(
+        `- ${item(override.critic)} ${item(override.finding)} on ${item(override.path)}, by writer ${writer} at ${commit}: ${item(override.reason, Infinity)}`,
+      )
+    }
+  }
+  // The spend limit of a command critic guards against an accidental spend,
+  // not against a hostile writer: any writer can raise it. Thus each raised
+  // limit shows, with its writer and its commit.
+  const raises = checked.critics.flatMap((critic) =>
+    (critic.limitRaises ?? []).map((raise) => ({
+      critic: critic.critic,
+      ...raise,
+    })),
+  )
+  if (raises.length > 0) {
+    lines.push(
+      "",
+      `Raised spend limits: ${raises.length}. A writer gave \`factory check --critic-limit-usd\` for each one. Make sure that a person agreed to the spend.`,
+      "",
+    )
+    for (const raise of raises) {
+      const limit =
+        Number.isFinite(raise.limitUsd) && raise.limitUsd >= 0
+          ? `$${raise.limitUsd.toFixed(2)}`
+          : code("unknown")
+      const { writer, commit } = provenance(raise, repoUrl)
+      lines.push(
+        `- ${item(raise.critic)} limit ${limit}, set by writer ${writer} at ${commit}`,
+      )
+    }
   }
   if (checked.missing.length > 0)
     lines.push(

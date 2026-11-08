@@ -1315,6 +1315,197 @@ test("the critics section says that the gate proves an attested review, not a so
   assert.ok(text.includes("open CTO decision"))
 })
 
+test("each override of a visual verdict shows its reason, writer and commit; none is silent", () => {
+  const reason =
+    "The ticket asks for the shorter label | the model reads the new label as `cut` text, and this reason is longer than two hundred characters so that the table cut would hide its end if the comment used it."
+  const directory = inputs({
+    "critics.json": {
+      head: sha(8),
+      critics: [
+        {
+          critic: "critic:visual",
+          status: "carried",
+          reason:
+            "0 passes and 1 units decided by a dispute (1 overridden by the implementer with a reason)",
+          overrides: [
+            {
+              finding: "f:0123abcd",
+              path: "ui/screenshots/Card.Main.desktop.screenshot.png",
+              reason,
+              commit: sha(9),
+              writer: "a".repeat(64),
+            },
+            {
+              finding: "f:4567cdef",
+              path: "ui/screenshots/Card.Other.desktop.screenshot.png",
+              reason: `${"x".repeat(280)} | a | b`,
+              commit: "not a commit",
+              writer: "someone@example.com",
+            },
+          ],
+        },
+      ],
+    },
+  })
+  const text = criticsText(critics(directory), "https://github.com/o/r")
+  assert.ok(text.includes("Overridden verdicts: 2"), text)
+  assert.ok(text.includes("`f:0123abcd`"), text)
+  assert.ok(
+    text.includes("`ui/screenshots/Card.Main.desktop.screenshot.png`"),
+    text,
+  )
+  assert.ok(text.includes(`by writer \`${"a".repeat(64)}\``), text)
+  // A writer or a commit of another shape never reaches the comment.
+  assert.ok(!text.includes("someone@example.com"), text)
+  assert.ok(text.includes("by writer `unknown` at `unknown`"), text)
+  // A reason at the limit, with pipes, shows in full. A list item is not a
+  // table cell, so its pipes stay as they are.
+  assert.ok(text.includes(`${"x".repeat(280)} | a | b\``), text)
+  assert.ok(text.includes(`(https://github.com/o/r/commit/${sha(9)})`), text)
+  // The full reason, with no backtick that ends the span.
+  assert.ok(text.includes(reason.replace(/`/g, "'")), text)
+  const plain = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          head: sha(8),
+          critics: [
+            { critic: "critic:spec", status: "carried", reason: "1 passes" },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(!plain.includes("Overridden verdicts"), plain)
+})
+
+test("the comment reads the JSON of `factory review gate --json`: each override and each raised limit", () => {
+  // The output of the factory binary, from the factory CLI test
+  // `the_gate_json_of_the_binary_names_each_override_and_raised_limit`
+  // (run it with `--nocapture`). A change of the factory shape fails here.
+  const gate = JSON.parse(
+    readFileSync(
+      join(root, "scripts/tests/fixtures/factory/review-gate-overrides.json"),
+      "utf8",
+    ),
+  )
+  const visual = gate.critics.find(
+    (critic) => critic.critic === "critic:visual",
+  )
+  const [override] = visual.overrides
+  const [raise] = visual.limitRaises
+  // The fixture has a long reason with a pipe and an emoji.
+  assert.ok(override.reason.includes("|") && override.reason.includes("🙂"))
+  const text = criticsText(
+    critics(inputs({ "critics.json": gate })),
+    "https://github.com/o/r",
+  )
+  assert.ok(text.includes("Overridden verdicts: 1"), text)
+  assert.ok(text.includes(`by writer \`${override.writer}\``), text)
+  assert.ok(
+    text.includes(`(https://github.com/o/r/commit/${override.commit})`),
+    text,
+  )
+  // The full reason: not cut, its pipe as it is, its emoji kept.
+  assert.ok(text.includes(`: \`${override.reason}\``), text)
+  // Each raised spend limit shows, with its writer and its commit.
+  assert.ok(text.includes("Raised spend limits: 1"), text)
+  assert.ok(
+    text.includes(
+      `- \`critic:visual\` limit $7.50, set by writer \`${raise.writer}\` at [${raise.commit.slice(0, 7)}](https://github.com/o/r/commit/${raise.commit})`,
+    ),
+    text,
+  )
+  // A table cell still escapes a pipe.
+  const piped = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          critics: [
+            { critic: "critic:spec", status: "carried", reason: "a | b" },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(piped.includes("`a \\| b`"), piped)
+})
+
+test("the critics job projection keeps each override and raised limit for the comment", () => {
+  // The same jq filter as the critics job in ci.yaml, on the output of the
+  // factory binary.
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const [, filter] = workflow.match(/jq -c '(\{critics: [^']+)'/) ?? []
+  assert.ok(filter, "the critics job has no jq projection")
+  const fixture = join(
+    root,
+    "scripts/tests/fixtures/factory/review-gate-overrides.json",
+  )
+  const projected = spawnSync("jq", ["-c", filter, fixture], {
+    encoding: "utf8",
+  })
+  assert.equal(projected.status, 0, projected.stderr)
+  const record = JSON.parse(projected.stdout)
+  // The projection drops what gate.mjs does not read.
+  assert.ok(!projected.stdout.includes("disputes"), projected.stdout)
+  const gate = JSON.parse(readFileSync(fixture, "utf8"))
+  const visual = gate.critics.find(
+    (critic) => critic.critic === "critic:visual",
+  )
+  const text = criticsText(
+    critics(inputs({ "critics.json": record })),
+    "https://github.com/o/r",
+  )
+  assert.ok(text.includes("Overridden verdicts: 1"), text)
+  for (const override of visual.overrides)
+    assert.ok(
+      text.includes(
+        `- \`critic:visual\` \`${override.finding}\` on \`${override.path}\`, by writer \`${override.writer}\` at [${override.commit.slice(0, 7)}](https://github.com/o/r/commit/${override.commit}): \`${override.reason}\``,
+      ),
+      text,
+    )
+  assert.ok(text.includes("Raised spend limits: 1"), text)
+  for (const raise of visual.limitRaises)
+    assert.ok(
+      text.includes(
+        `- \`critic:visual\` limit $${raise.limitUsd.toFixed(2)}, set by writer \`${raise.writer}\` at [${raise.commit.slice(0, 7)}](https://github.com/o/r/commit/${raise.commit})`,
+      ),
+      text,
+    )
+})
+
+test("a raised limit of another shape never reaches the comment", () => {
+  const text = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          critics: [
+            {
+              critic: "critic:visual",
+              status: "carried",
+              reason: "1 passes",
+              limitRaises: [
+                {
+                  limitUsd: "lots",
+                  writer: "someone@example.com",
+                  commit: "not a commit",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(text.includes("Raised spend limits: 1"), text)
+  assert.ok(!text.includes("someone@example.com"), text)
+  assert.ok(!text.includes("lots"), text)
+  assert.ok(
+    text.includes("limit `unknown`, set by writer `unknown` at `unknown`"),
+    text,
+  )
+})
+
 test("a lint or policy check takes the result of its step in the Lint and format job", () => {
   const steps = (failed) => ({
     jobs: [

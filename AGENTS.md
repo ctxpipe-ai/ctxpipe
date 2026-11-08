@@ -63,11 +63,11 @@ The review rows are what `critics.json` runs. `factory check` starts the reviewe
 | Build of a ticket, or mechanical review fix | Opus 5.5; effort from the estimated complexity (low, medium, high) | — |
 | Small fix that has acceptance tests in the brief, on a host where `list_profiles` shows `local` | The local model through the `local` profile; read its notes. Review its diff before you accept it | Opus 5.5, low |
 | Review fix that needs a security design | Opus 5.5, medium | — |
-| First review round, Standards axis | Codex GPT-6.1-Sol, high | Opus, high |
+| First review round, Standards axis | Opus 5.5, high | — |
 | First review round, Spec axis | Opus, medium, **and** Codex GPT-6.1-Sol, medium | Opus, high |
-| First review round, Simplicity axis | Codex GPT-6-Sol, high, **and** Sonnet, medium | Opus, high |
+| First review round, Simplicity axis | Codex GPT-6.1-Sol, high, **and** Opus 5.5, medium | Opus, high |
 | Security-sensitive diff (auth, sandboxes, egress, tokens, org isolation) | Opus, high, **and** Codex GPT-6.1-Sol, high | Opus, high only |
-| Follow-up review round (check that the listed findings are fixed and the fix adds no new problem) | Codex GPT-6-Luna, medium | Sonnet, medium |
+| Follow-up review round (check that the listed findings are fixed and the fix adds no new problem) | Standards: Sonnet, medium. Spec and Simplicity: Codex GPT-6-Luna, medium | Sonnet, medium |
 | Re-review of a security fix | Opus, high | — |
 | Status checks, file search, log triage | Haiku, low | — |
 

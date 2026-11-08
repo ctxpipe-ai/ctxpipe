@@ -519,6 +519,26 @@ test("the PR comment shows the selection, the hits, the LLM decisions and the mi
     assert.ok(text.includes(part), part)
 })
 
+test("the verdict line names each failed check and always-run job in full", () => {
+  const { decision } = decide()
+  const failed = {
+    ...decision,
+    gatedRun: {
+      ...decision.gatedRun,
+      verdict: "fail",
+      failedChecks: ["lint:oxlint:.oxlintrc.json", "test:vitest:apps/ui"],
+      failedAlwaysRun: ["migrate", "lint"],
+    },
+  }
+  const text = gateText(failed, "https://example.test/run")
+  assert.ok(
+    text.includes(
+      "**Verdict:** fail (failed checks: `lint:oxlint:.oxlintrc.json`, `test:vitest:apps/ui`) (failed always-run jobs: `migrate`, `lint`).",
+    ),
+    text,
+  )
+})
+
 test("the CLI plans a gated run and fails the merge gate on a failed verdict", () => {
   const directory = inputs({
     "mode.json": { mode: "select", reason: "gate" },
