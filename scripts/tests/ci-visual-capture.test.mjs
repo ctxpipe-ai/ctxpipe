@@ -71,6 +71,28 @@ test("a listed unstable story that differs is skipped, and any other story that 
   )
 })
 
+test("a listed story that is unstable only at mobile is not skipped in the desktop proof", () => {
+  const verdict = judgeProof(
+    [{ id: "a--canvas", identical: false }],
+    [{ ...canvas, viewport: "mobile" }],
+  )
+  assert.deepEqual(
+    verdict.failing.map((result) => result.id),
+    ["a--canvas"],
+  )
+})
+
+test("the viewport of an unstable entry is desktop or mobile", () => {
+  for (const viewport of ["desktop", "mobile"])
+    assert.doesNotThrow(() =>
+      readUnstableList({ stories: [{ ...canvas, viewport }] }),
+    )
+  assert.throws(
+    () => readUnstableList({ stories: [{ ...canvas, viewport: "tablet" }] }),
+    /viewport/,
+  )
+})
+
 test("each entry of the unstable list needs a story id, a reason and a ticket", () => {
   assert.deepEqual(readUnstableList({ stories: [canvas] }), [canvas])
   for (const missing of ["id", "reason", "ticket"]) {
