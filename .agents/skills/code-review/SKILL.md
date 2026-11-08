@@ -104,6 +104,11 @@ The `visual` entry of `critics.json` is a command critic ([CTX-1198](https://lin
 
 A PR that changes a screenshot needs `MODEL_PROVIDER_API_KEY` on the host that runs `factory check`. On a Mac, store the key once in the login keychain item `factory-model-provider`: `security add-generic-password -s factory-model-provider -a "$USER" -w`. Without a key, the visual critic is an `ERROR` and records nothing. A missing key never gives a pass.
 
+The factory stores each visual verdict by the critic version, the path and the hashes of the two images ([CTX-1199](https://linear.app/ctxpipe/issue/CTX-1199)). A second run on the same images reuses the verdict and calls no model, also when the verdict is a `regression`. A new run does not give a new judgment. To change the verdict, change the image or override the verdict.
+
+- **Spend limit.** The visual critic may spend $5 for each PR, across all runs. When the next run would pass the limit, `factory check` gives an `ERROR` and does not run the command. Ask the human. Only on the human's word, run `factory check --critic-limit-usd <dollars>`. Else make fewer screenshots change: fix a shared cause one time.
+- **Override.** When you are sure that a visual blocker is wrong, override it in the disputes file: `{"finding": "f:0123abcd", "kind": "override", "reason": "...", "evidence": {"kind": "code", "path": "<the screenshot path>"}}`. The reason says why the verdict is wrong, in 40 to 300 characters of plain words, with no id, hash or key. The merge gate and the PR comment show the reason, the writer and the commit, so write no customer name in it. Only a visual finding takes an override.
+
 ## Without the factory
 
 Use this procedure only when `factory` is not installed (for example, for a contributor from a fork). You are the one agent. Do not start sub-agents.

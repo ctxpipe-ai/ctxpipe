@@ -500,13 +500,13 @@ const hidden = (character) => {
 
 // Text from a PR (file names, reasons) as a Markdown code span that cannot
 // break a table, start a mention or hide characters.
-export function code(text) {
+export function code(text, max = 200) {
   const clean = [...String(text)]
     .map((character) => (hidden(character) ? " " : character))
     .join("")
     .replace(/`/g, "'")
     .replace(/\|/g, "\\|")
-  return `\`${clean.length > 200 ? `${clean.slice(0, 200)}…` : clean}\``
+  return `\`${clean.length > max ? `${clean.slice(0, max)}…` : clean}\``
 }
 
 // The review critics of the PR, from `factory review gate` in the critics
@@ -593,6 +593,31 @@ export function criticsText(checked, repoUrl) {
     lines.push(
       `| ${code(critic.critic)} | ${code(critic.status)} | ${code(critic.reason)} | ${links.join(" ") || "none"} |`,
     )
+  }
+  // An override of a command critic's verdict (the visual critic) is never
+  // silent: each one shows its full reason, its writer and its commit.
+  const overrides = checked.critics.flatMap((critic) =>
+    (critic.overrides ?? []).map((override) => ({
+      critic: critic.critic,
+      ...override,
+    })),
+  )
+  if (overrides.length > 0) {
+    lines.push(
+      "",
+      `Overridden verdicts: ${overrides.length}. The implementer overrode each one with this reason. Read it, and look at the screenshot.`,
+      "",
+    )
+    for (const override of overrides) {
+      const commit = /^[0-9a-f]{40}$/.test(override.commit)
+        ? repoUrl
+          ? `[${override.commit.slice(0, 7)}](${repoUrl}/commit/${override.commit})`
+          : override.commit.slice(0, 7)
+        : code(override.commit)
+      lines.push(
+        `- ${code(override.critic)} ${code(override.finding)} on ${code(override.path)}, by ${code(override.who)} at ${commit}: ${code(override.reason, 300)}`,
+      )
+    }
   }
   if (checked.missing.length > 0)
     lines.push(

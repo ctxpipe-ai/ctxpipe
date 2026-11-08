@@ -1299,6 +1299,60 @@ test("the critics section says that the gate proves an attested review, not a so
   assert.ok(text.includes("open CTO decision"))
 })
 
+test("each override of a visual verdict shows its reason, writer and commit; none is silent", () => {
+  const reason =
+    "The ticket asks for the shorter label | the model reads the new label as `cut` text, and this reason is longer than two hundred characters so that the table cut would hide its end if the comment used it."
+  const directory = inputs({
+    "critics.json": {
+      head: sha(8),
+      critics: [
+        {
+          critic: "critic:visual",
+          status: "carried",
+          reason:
+            "0 passes and 1 units decided by a dispute (1 overridden by the implementer with a reason)",
+          overrides: [
+            {
+              finding: "f:0123abcd",
+              path: "ui/screenshots/Card.Main.desktop.screenshot.png",
+              reason,
+              commit: sha(9),
+              who: "email-sha256:0123456789abcdef",
+            },
+          ],
+        },
+      ],
+    },
+  })
+  const text = criticsText(critics(directory), "https://github.com/o/r")
+  assert.ok(text.includes("Overridden verdicts: 1"), text)
+  assert.ok(text.includes("`f:0123abcd`"), text)
+  assert.ok(
+    text.includes("`ui/screenshots/Card.Main.desktop.screenshot.png`"),
+    text,
+  )
+  assert.ok(text.includes("`email-sha256:0123456789abcdef`"), text)
+  assert.ok(text.includes(`(https://github.com/o/r/commit/${sha(9)})`), text)
+  // The full reason, with its pipe escaped and no backtick that ends the span.
+  assert.ok(
+    text.includes(reason.replace(/`/g, "'").replace(/\|/g, "\\|")),
+    text,
+  )
+  const plain = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          head: sha(8),
+          critics: [
+            { critic: "critic:spec", status: "carried", reason: "1 passes" },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(!plain.includes("Overridden verdicts"), plain)
+})
+
 test("a lint or policy check takes the result of its step in the Lint and format job", () => {
   const steps = (failed) => ({
     jobs: [
