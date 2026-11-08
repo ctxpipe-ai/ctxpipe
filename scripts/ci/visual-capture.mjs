@@ -26,18 +26,26 @@ import pin from "./visual-container.json" with { type: "json" }
 // It runs the play runner (storybook-play.mjs) against the static Storybook
 // build (apps/ui/storybook-static). The runner pins the page (origin, clock,
 // Math.random) and settles it after the play (no animation or caret, the web
-// fonts loaded). The screenshot is the 1440x900 viewport
-// at a pixel ratio of 1, taken after the play ends (or, for a story without a
-// play function, after Storybook completes the render). Each one is written as
+// fonts loaded). The screenshot is the viewport (`desktop` 1440x900 or
+// `mobile` 390x844) at a pixel ratio of 1, taken after the play ends (or, for
+// a story without a play function, after Storybook completes the render).
+// Each one is written as
 // <out>/<story id>.png, with <out>/capture.json (the status of each story:
 // captured, unstable, play-failed or capture-failed).
 //
-// Usage: node scripts/ci/visual-capture.mjs --out <dir> <story id>...
+// Usage: node scripts/ci/visual-capture.mjs --out <dir> [--viewport mobile] <story id>...
 // The command needs Docker. It reads the repo read-only, and copies the
 // screenshots out of the container, so it works on a laptop VM that mounts
 // the home directory read-only.
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
+
+// The screenshot sizes. Every story has a desktop screenshot; a page story
+// also has a mobile one.
+export const viewports = {
+  desktop: { width: 1440, height: 900 },
+  mobile: { width: 390, height: 844 },
+}
 
 // Takes shots until two shots in a row are the same, and at most 6 shots.
 // After a shot that differs, it waits for `pause()`, so that a slow change (a
@@ -55,7 +63,7 @@ export async function shootUntilSteady(shoot, pause) {
 }
 
 // Runs inside the container: /work is the repo, /out the folder of the PNGs.
-async function captureHere(ids, out) {
+async function captureHere(ids, out, viewport) {
   mkdirSync(out, { recursive: true })
   const server = await serveStatic(staticDir, 0)
   const stories = []
@@ -110,6 +118,7 @@ async function captureHere(ids, out) {
           shotErrors.set(story.id, String(shotError.message))
         }
       },
+      viewports[viewport],
     )
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose))
@@ -187,8 +196,9 @@ export async function runInContainer(script, args, out) {
 // Captures the stories in the pinned container and copies the PNGs and
 // capture.json into `out` (the old PNGs and capture.json of it are removed
 // first). Returns one status for each id: captured, unstable, play-failed,
-// capture-failed or not-run.
-export async function captureInContainer(ids, out) {
+// capture-failed or not-run. `viewport` is desktop or mobile.
+export async function captureInContainer(ids, out, viewport = "desktop") {
+  if (!viewports[viewport]) throw new Error(`Unknown viewport: ${viewport}`)
   if (!existsSync(join(staticDir, "index.json")))
     throw new Error(
       `${staticDir}/index.json is missing. Run: pnpm --filter @ctxpipe/ui build-storybook`,
@@ -199,7 +209,7 @@ export async function captureInContainer(ids, out) {
       rmSync(join(out, file))
   await runInContainer(
     "scripts/ci/visual-capture.mjs",
-    ["--inside", ...ids],
+    ["--inside", viewport, ...ids],
     out,
   )
   const { stories } = JSON.parse(
@@ -215,18 +225,26 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2)
   // Inside, a play failure is a status in capture.json, not an exit code, so
   // that `docker cp` still gets the PNGs of the other stories.
-  if (args[0] === "--inside") await captureHere(args.slice(1), "/out")
+  if (args[0] === "--inside") await captureHere(args.slice(2), "/out", args[1])
   else {
-    const flag = args.indexOf("--out")
-    const out = flag === -1 ? undefined : args[flag + 1]
-    const ids = args.filter((_, i) => i !== flag && i !== flag + 1)
-    if (!out || !ids.length) {
+    const value = (name) => {
+      const flag = args.indexOf(name)
+      return flag === -1 ? undefined : args[flag + 1]
+    }
+    const out = value("--out")
+    const viewport = value("--viewport") ?? "desktop"
+    const ids = args.filter(
+      (arg, i) =>
+        !["--out", "--viewport"].includes(arg) &&
+        !["--out", "--viewport"].includes(args[i - 1]),
+    )
+    if (!out || !ids.length || !viewports[viewport]) {
       process.stderr.write(
-        "Usage: node scripts/ci/visual-capture.mjs --out <dir> <story id>...\n",
+        "Usage: node scripts/ci/visual-capture.mjs --out <dir> [--viewport mobile] <story id>...\n",
       )
       process.exitCode = 1
     } else {
-      const stories = await captureInContainer(ids, resolve(out))
+      const stories = await captureInContainer(ids, resolve(out), viewport)
       for (const story of stories)
         process.stdout.write(`${story.status} ${story.id}\n`)
       process.exitCode = stories.some((story) => story.status !== "captured")

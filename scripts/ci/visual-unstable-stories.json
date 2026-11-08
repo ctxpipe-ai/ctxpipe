@@ -1,5 +1,5 @@
 {
-  "$comment": "Stories whose screenshot is known to differ between two runs. scripts/ci/visual-capture-proof.mjs reports each one as skipped and does not fail on it. Each entry needs a reason and the ticket that fixes it. Remove the entry when the ticket is done.",
+  "$comment": "Stories whose screenshot is known to differ between two runs. scripts/ci/visual-capture-proof.mjs reports each one as skipped and does not fail on it. Each entry needs a reason and the ticket that fixes it. Remove the entry when the ticket is done. An entry with a viewport (desktop or mobile) is unstable only at that viewport; pnpm visual:check and pnpm visual:update skip only that screenshot.",
   "stories": [
     {
       "id": "components-knowledge-graph-cosmograph-canvas--drawer-open-dims-overlays",
@@ -15,6 +15,52 @@
       "id": "components-workspaces-pane--graph",
       "reason": "WebGL graph stays in a loading stage; differed in 2 of 3 multi-run proofs",
       "ticket": "CTX-1186"
+    },
+    {
+      "id": "pages-workspaces--shared-publish-pending",
+      "viewport": "mobile",
+      "reason": "The play asserts the desktop layout, so it fails at 390x844. The story needs an option to have only a desktop screenshot.",
+      "ticket": "CTX-1226"
+    },
+    {
+      "id": "pages-workspaces--single-create-pr",
+      "viewport": "mobile",
+      "reason": "The play asserts the desktop layout, so it fails at 390x844. The story needs an option to have only a desktop screenshot.",
+      "ticket": "CTX-1226"
+    },
+    {
+      "id": "pages-workspaces--pane-tabs-stay-in-place",
+      "viewport": "mobile",
+      "reason": "The play asserts the desktop layout, so it fails at 390x844. The story needs an option to have only a desktop screenshot.",
+      "ticket": "CTX-1226"
+    },
+    {
+      "id": "pages-workspaces--diff-tab-rounded-corner",
+      "viewport": "mobile",
+      "reason": "The play asserts the desktop layout, so it fails at 390x844. The story needs an option to have only a desktop screenshot.",
+      "ticket": "CTX-1226"
+    },
+    {
+      "id": "pages-workspaces--maximized-pane-matches-header",
+      "viewport": "mobile",
+      "reason": "The play asserts the desktop layout, so it fails at 390x844. The story needs an option to have only a desktop screenshot.",
+      "ticket": "CTX-1226"
+    },
+    {
+      "id": "pages-workspaces--stable-request-budget",
+      "viewport": "mobile",
+      "reason": "The play asserts the desktop layout, so it fails at 390x844. The story needs an option to have only a desktop screenshot.",
+      "ticket": "CTX-1226"
+    },
+    {
+      "id": "pages-onboarding--admin-finish-failure-continues",
+      "reason": "The count of stacked error toasts at the bottom differs between runs: a toast closes on a real timer. It needs a mask.",
+      "ticket": "CTX-1186"
+    },
+    {
+      "id": "components-workspacesources-pagerdutyscopeeditor--search-keeps-the-selection",
+      "reason": "When the play waits for the search result, the Selected item shows the service id, not its name, and the play fails. Without the wait, the result arrives after the play ends in some runs.",
+      "ticket": "CTX-1225"
     }
   ]
 }

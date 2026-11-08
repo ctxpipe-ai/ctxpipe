@@ -20,7 +20,9 @@ import { captureInContainer } from "./visual-capture.mjs"
 // Usage: node scripts/ci/visual-capture-proof.mjs [sample size, default 20, or "all"]
 
 // The entries of the unstable list. Each one needs a story id, a reason and
-// the ticket that fixes it.
+// the ticket that fixes it. An entry with a viewport (desktop or mobile) is
+// unstable only at that viewport (pnpm visual:check skips only that
+// screenshot).
 export function readUnstableList(list) {
   for (const entry of list.stories ?? []) {
     if (
@@ -28,19 +30,25 @@ export function readUnstableList(list) {
       !entry.id ||
       typeof entry.reason !== "string" ||
       !entry.reason.trim() ||
-      !/^CTX-\d+$/.test(entry.ticket ?? "")
+      !/^CTX-\d+$/.test(entry.ticket ?? "") ||
+      ![undefined, "desktop", "mobile"].includes(entry.viewport)
     )
       throw new Error(
-        `Each entry of visual-unstable-stories.json needs an id, a reason and a ticket (CTX-<n>): ${JSON.stringify(entry)}`,
+        `Each entry of visual-unstable-stories.json needs an id, a reason and a ticket (CTX-<n>), and an optional viewport (desktop or mobile): ${JSON.stringify(entry)}`,
       )
   }
   return list.stories ?? []
 }
 
-// Splits the stories that are not identical in the two runs: a listed story is
-// skipped, and any other story fails the proof.
+// Splits the stories that are not identical in the two runs: a story that is
+// listed for the desktop viewport (the viewport of the proof) is skipped, and
+// any other story fails the proof.
 export function judgeProof(results, unstable) {
-  const known = new Set(unstable.map((entry) => entry.id))
+  const known = new Set(
+    unstable
+      .filter((entry) => (entry.viewport ?? "desktop") === "desktop")
+      .map((entry) => entry.id),
+  )
   const differing = results.filter((result) => !result.identical)
   return {
     skipped: differing.filter((result) => known.has(result.id)),

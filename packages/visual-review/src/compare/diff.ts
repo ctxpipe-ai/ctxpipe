@@ -64,7 +64,7 @@ export type Comparison =
   | { status: "size-changed"; before: Size; after: Size; summary: string }
 
 // The pixelmatch color threshold. Lower is stricter.
-const threshold = 0.1
+export const threshold = 0.1
 // The most fallback components that the merge step accepts.
 const maxComponents = 500
 const red = [255, 0, 0] as const
