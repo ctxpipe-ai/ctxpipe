@@ -28,7 +28,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 9. FalkorDB and the codesearch query server run on one plain EC2 instance (ECS, EC2 launch type) with gp3 EBS volumes. Recovery is a runbook: restore the snapshot, then redeploy.
 10. S3 is the codesearch cold tier: durable Zoekt shards in S3, the EBS volume is an LRU cache. Indexing stays on the host.
 11. Outbound traffic goes through a NAT instance with a fixed Elastic IP.
-12. Email goes through SES. Secrets are in Secrets Manager. All secrets get new values at cutover, except the connection-secret encryption key.
+12. Email goes through SES. Secrets are in Secrets Manager. All secrets get new values at cutover, except the connection-secret encryption key. That key stays because it got a new value after the Railway incident ([CTX-983](https://linear.app/ctxpipe/issue/CTX-983)), and the incident did not expose it. The design owner accepts the residual risk: a person who gets this key can decrypt the stored connector tokens from any database copy.
 13. GuardDuty runs in every account. AWS Backup copies Aurora and the EBS volumes to the archive account each day (35 days).
 
 **Sandboxes**
@@ -50,6 +50,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - Previews use the preview GitHub App, not the production app.
     - Each clone gets new passwords for its database roles. The clone copies the production passwords, and a preview does not use them.
     - The `Production` and `Preview` environments never share a token, key or secret.
+    - The preview source is not scrubbed. Like the Neon preview branches of today, it keeps the session tokens and the OAuth tokens (`sessions`, `accounts`) that it copies from production. The design owner accepts this residual risk: unreviewed PR code can read these tokens. The account boundary keeps the risk out of the production account.
 23. Cloudflare Access protects `pr-N.ctxpipe.dev`. Access lets `/mcp`, the OAuth paths and the webhook path through, because those clients cannot do an Access login. The app's own auth protects these paths.
 24. At most 15 previews exist at a time. A preview is deleted on PR close, or 3 days after the last `preview up`. A warm pool of paused clones is added only if the spike shows that a clone and its instance take more than about 3 minutes.
 
