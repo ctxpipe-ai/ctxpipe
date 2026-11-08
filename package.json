@@ -23,6 +23,8 @@
     "test:contracts": "node scripts/ci/test-suite.mjs contracts",
     "test:policy": "node scripts/ci/check-test-policy.mjs",
     "test:storybook-required": "node scripts/ci/storybook-plays.mjs",
+    "visual:check": "pnpm --filter @ctxpipe/ui build-storybook && node scripts/ci/visual.mjs check",
+    "visual:update": "pnpm --filter @ctxpipe/ui build-storybook && node scripts/ci/visual.mjs update",
     "visual:review": "node packages/visual-review/src/command.ts",
     "lint": "oxlint -c .oxlintrc.json apps packages",
     "knip": "knip",

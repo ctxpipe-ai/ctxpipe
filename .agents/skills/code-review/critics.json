@@ -3,9 +3,13 @@
     {
       "name": "spec",
       "intent": "Does the diff do what the ticket and the brief ask, and does it do it correctly: missing or partial requirements, scope creep, and wrong behavior (false cache hits, exit codes, missed inputs, edge cases). It runs on every change.",
-      "inputs": [".agents/skills/code-review/SKILL.md"],
+      "inputs": [
+        ".agents/skills/code-review/SKILL.md"
+      ],
       "notApplicable": [],
-      "triggers": ["**"],
+      "triggers": [
+        "**"
+      ],
       "models": {
         "full": [
           {
@@ -34,17 +38,19 @@
         ".ai/memory/lessons-learned.md"
       ],
       "notApplicable": [],
-      "triggers": ["**"],
+      "triggers": [
+        "**"
+      ],
       "models": {
         "full": [
           {
-            "model": "gpt-6.1-sol",
+            "model": "claude-opus",
             "effort": "high"
           }
         ],
         "delta": [
           {
-            "model": "gpt-6-luna",
+            "model": "claude-sonnet",
             "effort": "medium"
           }
         ]
@@ -59,15 +65,17 @@
         ".agents/skills/simplicity-audit/SKILL.md"
       ],
       "notApplicable": [],
-      "triggers": ["**"],
+      "triggers": [
+        "**"
+      ],
       "models": {
         "full": [
           {
-            "model": "gpt-6-sol",
+            "model": "gpt-6.1-sol",
             "effort": "high"
           },
           {
-            "model": "claude-sonnet",
+            "model": "claude-opus",
             "effort": "medium"
           }
         ],
@@ -82,7 +90,10 @@
     {
       "name": "security",
       "intent": "Trust surfaces. They are credentials and tokens, auth and organization isolation, and OIDC and IAM trust. They are CI workflow trust: permissions, secrets, environments, triggers and third-party actions. They are sandboxes and egress, and model routing to an outside provider. They are code that runs at install, at check listing or at check discovery: dependency scripts, bin entries and git dependencies. They are data that leaves to a public artifact or an outside provider. A change that touches none of these is not a reason to run it. A workflow or package edit that does not change its trust is not a reason either.",
-      "inputs": [".agents/skills/code-review/SKILL.md", "AGENTS.md"],
+      "inputs": [
+        ".agents/skills/code-review/SKILL.md",
+        "AGENTS.md"
+      ],
       "notApplicable": [
         "no trust surface: the diff touches no credential, auth, CI workflow, IAM or infrastructure, install or discovery path, sandbox or egress, model routing, and no data that leaves to a public artifact or an outside provider"
       ],
@@ -130,27 +141,12 @@
       "name": "visual",
       "intent": "Is each changed baseline screenshot an intended change, rendering noise, or a regression. The command `visual:review` of the merge base compares the base and the head image with its own compare engine and judges the change with the rules of packages/visual-review. It runs only when a screenshot changes.",
       "inputs": [
-        ".agents/skills/code-review/SKILL.md",
-        "package.json",
-        "pnpm-lock.yaml",
-        "packages/visual-review/package.json",
-        "packages/visual-review/src/command.ts",
-        "packages/visual-review/src/index.ts",
-        "packages/visual-review/src/prepare.ts",
-        "packages/visual-review/src/prompt.ts",
-        "packages/visual-review/src/review.ts",
-        "packages/visual-review/src/rubric.ts",
-        "packages/visual-review/src/story-tags.ts",
-        "packages/visual-review/src/story.ts",
-        "packages/visual-review/src/verdict.ts",
-        "packages/visual-review/src/adapters/jev.ts",
-        "packages/visual-review/src/adapters/openrouter.ts",
-        "packages/visual-review/src/compare/diff.ts",
-        "packages/visual-review/src/compare/images.ts",
-        "packages/visual-review/src/compare/manifest.ts"
+        ".agents/skills/code-review/SKILL.md"
       ],
       "notApplicable": [],
-      "triggers": ["**/screenshots/*.screenshot.png"],
+      "triggers": [
+        "**/screenshots/*.screenshot.png"
+      ],
       "command": {
         "setup": [
           "pnpm",
