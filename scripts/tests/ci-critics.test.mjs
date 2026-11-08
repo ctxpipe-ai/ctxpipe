@@ -82,3 +82,29 @@ test("Visual is a command critic that runs visual:review only on changed screens
     "node packages/visual-review/src/command.ts",
   )
 })
+
+test("the Visual version holds the code of the command and the lockfile, not its tests", () => {
+  // The factory reuses a stored visual verdict while the critic version
+  // stays the same, so each file that can change a judgment is an input: the
+  // rubric, the prompt, the model choice, the compare engine and the
+  // dependencies. A test file is not, so a new test does not void the
+  // stored verdicts.
+  const { inputs } = critic("visual")
+  const counted = (file) => inputs.some((input) => matchesGlob(file, input))
+  const code = files.filter(
+    (file) =>
+      file.startsWith("packages/visual-review/src/") &&
+      file.endsWith(".ts") &&
+      !file.endsWith(".test.ts") &&
+      file !== "packages/visual-review/src/compare/fixtures.ts",
+  )
+  assert.ok(code.length > 0)
+  for (const file of [
+    ...code,
+    "packages/visual-review/package.json",
+    "pnpm-lock.yaml",
+  ])
+    assert.ok(counted(file), `${file} is not an input of the visual critic`)
+  for (const file of files.filter((file) => file.endsWith(".test.ts")))
+    assert.ok(!counted(file), file)
+})

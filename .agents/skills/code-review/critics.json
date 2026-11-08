@@ -129,7 +129,25 @@
     {
       "name": "visual",
       "intent": "Is each changed baseline screenshot an intended change, rendering noise, or a regression. The command `visual:review` of the merge base compares the base and the head image with its own compare engine and judges the change with the rules of packages/visual-review. It runs only when a screenshot changes.",
-      "inputs": [".agents/skills/code-review/SKILL.md"],
+      "inputs": [
+        ".agents/skills/code-review/SKILL.md",
+        "pnpm-lock.yaml",
+        "packages/visual-review/package.json",
+        "packages/visual-review/src/command.ts",
+        "packages/visual-review/src/index.ts",
+        "packages/visual-review/src/prepare.ts",
+        "packages/visual-review/src/prompt.ts",
+        "packages/visual-review/src/review.ts",
+        "packages/visual-review/src/rubric.ts",
+        "packages/visual-review/src/story-tags.ts",
+        "packages/visual-review/src/story.ts",
+        "packages/visual-review/src/verdict.ts",
+        "packages/visual-review/src/adapters/jev.ts",
+        "packages/visual-review/src/adapters/openrouter.ts",
+        "packages/visual-review/src/compare/diff.ts",
+        "packages/visual-review/src/compare/images.ts",
+        "packages/visual-review/src/compare/manifest.ts"
+      ],
       "notApplicable": [],
       "triggers": ["**/screenshots/*.screenshot.png"],
       "command": {

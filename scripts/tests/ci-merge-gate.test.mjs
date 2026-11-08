@@ -1342,14 +1342,12 @@ test("each override of a visual verdict shows its reason, writer and commit; non
   // A writer or a commit of another shape never reaches the comment.
   assert.ok(!text.includes("someone@example.com"), text)
   assert.ok(text.includes("by writer `unknown` at `unknown`"), text)
-  // A reason at the limit, with pipes, shows in full.
-  assert.ok(text.includes(`${"x".repeat(280)} \\| a \\| b\``), text)
+  // A reason at the limit, with pipes, shows in full. A list item is not a
+  // table cell, so its pipes stay as they are.
+  assert.ok(text.includes(`${"x".repeat(280)} | a | b\``), text)
   assert.ok(text.includes(`(https://github.com/o/r/commit/${sha(9)})`), text)
-  // The full reason, with its pipe escaped and no backtick that ends the span.
-  assert.ok(
-    text.includes(reason.replace(/`/g, "'").replace(/\|/g, "\\|")),
-    text,
-  )
+  // The full reason, with no backtick that ends the span.
+  assert.ok(text.includes(reason.replace(/`/g, "'")), text)
   const plain = criticsText(
     critics(
       inputs({
@@ -1363,6 +1361,90 @@ test("each override of a visual verdict shows its reason, writer and commit; non
     ),
   )
   assert.ok(!plain.includes("Overridden verdicts"), plain)
+})
+
+test("the comment reads the JSON of `factory review gate --json`: each override and each raised limit", () => {
+  // The output of the factory binary, from the factory CLI test
+  // `the_gate_json_of_the_binary_names_each_override_and_raised_limit`
+  // (run it with `--nocapture`). A change of the factory shape fails here.
+  const gate = JSON.parse(
+    readFileSync(
+      join(root, "scripts/tests/fixtures/factory/review-gate-overrides.json"),
+      "utf8",
+    ),
+  )
+  const visual = gate.critics.find(
+    (critic) => critic.critic === "critic:visual",
+  )
+  const [override] = visual.overrides
+  const [raise] = visual.limitRaises
+  // The fixture has a long reason with a pipe and an emoji.
+  assert.ok(override.reason.includes("|") && override.reason.includes("🙂"))
+  const text = criticsText(
+    critics(inputs({ "critics.json": gate })),
+    "https://github.com/o/r",
+  )
+  assert.ok(text.includes("Overridden verdicts: 1"), text)
+  assert.ok(text.includes(`by writer \`${override.writer}\``), text)
+  assert.ok(
+    text.includes(`(https://github.com/o/r/commit/${override.commit})`),
+    text,
+  )
+  // The full reason: not cut, its pipe as it is, its emoji kept.
+  assert.ok(text.includes(`: \`${override.reason}\``), text)
+  // Each raised spend limit shows, with its writer and its commit.
+  assert.ok(text.includes("Raised spend limits: 1"), text)
+  assert.ok(
+    text.includes(
+      `- \`critic:visual\` limit $7.50, set by writer \`${raise.writer}\` at [${raise.commit.slice(0, 7)}](https://github.com/o/r/commit/${raise.commit})`,
+    ),
+    text,
+  )
+  // A table cell still escapes a pipe.
+  const piped = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          critics: [
+            { critic: "critic:spec", status: "carried", reason: "a | b" },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(piped.includes("`a \\| b`"), piped)
+})
+
+test("a raised limit of another shape never reaches the comment", () => {
+  const text = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          critics: [
+            {
+              critic: "critic:visual",
+              status: "carried",
+              reason: "1 passes",
+              limitRaises: [
+                {
+                  limitUsd: "lots",
+                  writer: "someone@example.com",
+                  commit: "not a commit",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(text.includes("Raised spend limits: 1"), text)
+  assert.ok(!text.includes("someone@example.com"), text)
+  assert.ok(!text.includes("lots"), text)
+  assert.ok(
+    text.includes("limit `unknown`, set by writer `unknown` at `unknown`"),
+    text,
+  )
 })
 
 test("a lint or policy check takes the result of its step in the Lint and format job", () => {

@@ -499,14 +499,18 @@ const hidden = (character) => {
 }
 
 // Text from a PR (file names, reasons) as a Markdown code span that cannot
-// break a table, start a mention or hide characters.
-export function code(text, max = 200) {
-  const clean = [...String(text)]
-    .map((character) => (hidden(character) ? " " : character))
-    .join("")
-    .replace(/`/g, "'")
-    .replace(/\|/g, "\\|")
-  return `\`${clean.length > max ? `${clean.slice(0, max)}…` : clean}\``
+// break a table, start a mention or hide characters. Only a table cell
+// (`cell`) escapes a pipe: in another place, the escape would show. `max`
+// counts characters, so a cut never splits an emoji.
+export function code(text, max = 200, { cell = true } = {}) {
+  const characters = [...String(text)].map((character) =>
+    hidden(character) ? " " : character.replace("`", "'"),
+  )
+  const clean =
+    characters.length > max
+      ? `${characters.slice(0, max).join("")}…`
+      : characters.join("")
+  return `\`${cell ? clean.replace(/\|/g, "\\|") : clean}\``
 }
 
 // The review critics of the PR, from `factory review gate` in the critics
@@ -620,9 +624,42 @@ export function criticsText(checked, repoUrl) {
       const writer = /^([0-9a-f]{64}|ci)$/.test(override.writer)
         ? override.writer
         : "unknown"
-      // The factory bounds the reason, so the comment shows all of it.
+      // The factory bounds the reason (300 characters), so the comment shows
+      // all of it.
+      const item = (text, max) => code(text, max, { cell: false })
       lines.push(
-        `- ${code(override.critic)} ${code(override.finding)} on ${code(override.path)}, by writer ${code(writer)} at ${commit}: ${code(override.reason, Infinity)}`,
+        `- ${item(override.critic)} ${item(override.finding)} on ${item(override.path)}, by writer ${item(writer)} at ${commit}: ${item(override.reason, Infinity)}`,
+      )
+    }
+  }
+  // The spend limit of a command critic guards against an accidental spend,
+  // not against a hostile writer: any writer can raise it. Thus each raised
+  // limit shows, with its writer and its commit.
+  const raises = checked.critics.flatMap((critic) =>
+    (critic.limitRaises ?? []).map((raise) => ({
+      critic: critic.critic,
+      ...raise,
+    })),
+  )
+  if (raises.length > 0) {
+    lines.push(
+      "",
+      `Raised spend limits: ${raises.length}. A writer gave \`factory check --critic-limit-usd\` for each one. Make sure that a person agreed to the spend.`,
+      "",
+    )
+    for (const raise of raises) {
+      const limit =
+        Number.isFinite(raise.limitUsd) && raise.limitUsd >= 0
+          ? `$${raise.limitUsd.toFixed(2)}`
+          : code("unknown")
+      const writer = /^([0-9a-f]{64}|ci)$/.test(raise.writer)
+        ? raise.writer
+        : "unknown"
+      const commit = /^[0-9a-f]{40}$/.test(raise.commit)
+        ? commitLink(raise.commit, repoUrl)
+        : code("unknown")
+      lines.push(
+        `- ${code(raise.critic, 200, { cell: false })} limit ${limit}, set by writer ${code(writer)} at ${commit}`,
       )
     }
   }
