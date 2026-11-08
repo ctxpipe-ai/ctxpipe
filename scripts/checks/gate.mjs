@@ -445,7 +445,9 @@ export function cost({ ranIds, seconds, jobs }) {
         (item) =>
           profiles[profile].setupMinutes +
           item.seconds / 60 +
-          (profile === "storybook" ? storybookBuildMinutes : 0),
+          (["storybook", "visual"].includes(profile)
+            ? storybookBuildMinutes
+            : 0),
       ),
     ),
   )

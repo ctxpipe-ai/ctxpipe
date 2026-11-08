@@ -51,7 +51,7 @@ export function withJobChecks(selection, jobs) {
   const reached = new Set(
     jobs.flatMap((job) =>
       job === "storybook-build"
-        ? ["storybook-required", "storybook-plays"]
+        ? ["storybook-required", "storybook-plays", "storybook-visual"]
         : [job],
     ),
   )
@@ -202,8 +202,9 @@ export function withStoreHits(selection, store) {
 }
 
 // Where a check runs in a gated run. The Lint and format job runs each lint
-// and policy check as a step, on each run. Every Storybook check runs in the
-// Storybook plays shards. A check that ci.yaml does not run is `external`:
+// and policy check as a step, on each run. Every Storybook play runs in the
+// Storybook plays shards, and each screenshot in the one screenshots job
+// (runsIn). A check that ci.yaml does not run is `external`:
 // another workflow runs it, and its own status reports the result.
 const external = {
   deploy: "PR Deploy (pr-deploy.yaml, started by the merge gate)",
@@ -219,7 +220,8 @@ export function placeOf(id) {
     return { job: "lint" }
   const workflow = external[`${family}:${lane}`] ?? external[family]
   if (workflow) return { workflow }
-  if (family === "storybook") return { job: "storybook-plays" }
+  if (family === "storybook" && lane !== "visual")
+    return { job: "storybook-plays" }
   const job = runsInOf(id)?.job
   return job ? { job } : { workflow: "no job of PR CI runs it" }
 }
@@ -280,7 +282,8 @@ function jobOutputs(jobs) {
     outputs[job] = Array.isArray(value)
       ? JSON.stringify(value.map(({ plan: _plan, ...entry }) => entry))
       : String(value.ids.length)
-  if (jobs["storybook-plays"]) outputs["storybook-build"] = "true"
+  if (jobs["storybook-plays"] || jobs["storybook-visual"])
+    outputs["storybook-build"] = "true"
   return outputs
 }
 

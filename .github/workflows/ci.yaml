@@ -476,6 +476,7 @@ jobs:
         codesearch,
         vercel-sandbox,
         storybook-plays,
+        storybook-visual,
         upgrade-from-previous-release,
         project-checks,
       ]
@@ -911,6 +912,74 @@ jobs:
           name: lane-trace-storybook-${{ matrix.shard }}
           path: .ci-results/storybook-plays/trace.json.gz
           if-no-files-found: ignore
+
+  # The visual checks (scripts/checks/README.md, Families): each story's
+  # screenshots, captured in the pinned Playwright image and compared with
+  # the committed baselines. A full run checks every story, the orphan
+  # baselines and the size budget (pnpm visual:check); a gated run checks
+  # the selected stories. One job: its shards are CTX-1192.
+  storybook-visual:
+    timeout-minutes: 45
+    name: Storybook screenshots
+    needs: [merge-gate-plan, storybook-build]
+    if: |
+      !cancelled() && needs.storybook-build.result == 'success' &&
+      (github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'pull_request') &&
+      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-visual != '')
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - run: corepack enable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Download the Storybook build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: storybook-static
+          path: apps/ui/storybook-static
+      - name: Every story screenshot
+        if: needs.merge-gate-plan.outputs.mode != 'gate'
+        run: node scripts/ci/visual.mjs check --records .ci-results/storybook-visual
+      # The plan job gives the check ids of this job in plan.json, by the
+      # artifact id of its upload (scripts/checks/README.md, Merge gate).
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
+        with:
+          artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/plan
+      - name: Selected story screenshots (merge gate)
+        if: needs.merge-gate-plan.outputs.mode == 'gate'
+        env:
+          SKIP_STORYBOOK_BUILD: "1"
+        run: node scripts/checks/selected.mjs .ci-results/storybook-visual "$RUNNER_TEMP/plan/plan.json" storybook-visual
+      # The Results writer quarantines a key only when its check fails again
+      # in this one rerun through the public runner (scripts/checks/README.md).
+      - name: Run the failed checks again
+        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          SKIP_STORYBOOK_BUILD: "1"
+        run: node scripts/checks/rerun-failed.mjs .ci-results/storybook-visual
+      # The records, the manifest and the images of each story that is not
+      # unchanged (.ci-results/visual/<story id>/).
+      - name: Preserve screenshot results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-results-storybook-visual
+          path: |
+            .ci-results/storybook-visual/
+            .ci-results/visual/
+            .ci-results/checks/
+          include-hidden-files: true
+          if-no-files-found: error
 
   visual-determinism:
     timeout-minutes: 45
@@ -1797,6 +1866,7 @@ jobs:
       packages: ${{ steps.plan.outputs.packages }}
       storybook-build: ${{ steps.plan.outputs.storybook-build }}
       storybook-plays: ${{ steps.plan.outputs.storybook-plays }}
+      storybook-visual: ${{ steps.plan.outputs.storybook-visual }}
       codesearch: ${{ steps.plan.outputs.codesearch }}
       vercel-sandbox: ${{ steps.plan.outputs.vercel-sandbox }}
       upgrade-from-previous-release: ${{ steps.plan.outputs.upgrade-from-previous-release }}
@@ -2013,6 +2083,7 @@ jobs:
         storybook-build,
         storybook-required,
         storybook-plays,
+        storybook-visual,
         codesearch,
         vercel-sandbox,
         terraform-validate,

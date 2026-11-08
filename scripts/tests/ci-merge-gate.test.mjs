@@ -34,6 +34,7 @@ import {
   shard,
   shardMinutes,
   shardTargetSeconds,
+  storybookBuildMinutes,
 } from "../checks/shard.mjs"
 import { hashed, programVersion, toolchain } from "../checks/toolchain.mjs"
 
@@ -953,6 +954,21 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
     job: "storybook-plays",
     profile: "storybook",
   })
+  assert.deepEqual(runsInOf("storybook:visual:x"), {
+    job: "storybook-visual",
+    profile: "visual",
+  })
+  // The screenshots job has one shard and needs the Storybook build too.
+  assert.equal(
+    shard(["storybook:visual:a#x", "storybook:visual:b#y"], new Map(), {})
+      .visual.length,
+    1,
+  )
+  assert.equal(
+    shardMinutes({ visual: [{ ids: [], seconds: 60 }] }),
+    Math.round((profiles.visual.setupMinutes + 1 + storybookBuildMinutes) * 10) /
+      10,
+  )
   assert.equal(
     estimate("vitest:backend:apps/backend/src/x.test.ts", new Map(), {
       backend: { "src/x.test.ts": 42 },

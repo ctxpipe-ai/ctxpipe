@@ -5,7 +5,7 @@ These commands are the public check contract. A tool that selects checks (for ex
 ## Commands
 
 - `pnpm -s checks:list` prints the manifest as one JSON object: `{ schemaVersion, checks }`. The schema is [`schema/manifest.v1.schema.json`](schema/manifest.v1.schema.json).
-- `pnpm -s checks:run [--trace <dir>] [ids-file]` runs the given check ids. Without `ids-file`, it reads the ids from stdin, one id on each line. It first makes or verifies the prerequisites of the checks (see Prerequisites). It writes one JSON line for each id to stdout. Each line has `schemaVersion`. The schema is [`schema/result.v1.schema.json`](schema/result.v1.schema.json). The output of the checks goes to a log in `.ci-results/checks/` (the `log` of each record): `<lane>.log` for a Vitest lane, `<family>-<lane>.log` for a project check, `storybook.log` and `eval-mcp.log`. The exit code is 1 when a check fails or does not run.
+- `pnpm -s checks:run [--trace <dir>] [ids-file]` runs the given check ids. Without `ids-file`, it reads the ids from stdin, one id on each line. It first makes or verifies the prerequisites of the checks (see Prerequisites). It writes one JSON line for each id to stdout. Each line has `schemaVersion`. The schema is [`schema/result.v1.schema.json`](schema/result.v1.schema.json). The output of the checks goes to a log in `.ci-results/checks/` (the `log` of each record): `<lane>.log` for a Vitest lane, `<family>-<lane>.log` for a project check, `storybook.log`, `storybook-visual.log` and `eval-mcp.log`. The `log` of a failed `visual` record is the screenshot manifest (see Screenshots). The exit code is 1 when a check fails or does not run.
 - `pnpm -s checks:prepare <name>...` makes or verifies the named prerequisites. It writes `ready <name>` or `failed <name>: <cause and fix>` for each name. The exit code is 1 when one fails.
 
 ## Check ids
@@ -18,6 +18,7 @@ A check id is `<family>:<lane>:<file>`, for example `vitest:ui:apps/ui/src/compo
 | --- | --- | --- | --- | --- |
 | `vitest` | `backend`, `contracts`, `vercel`, `ui`, `cli`, `aws-cdk`, `visual-review`, `codesearch`, `codesearch-bun`, `latency`, `upgrade` | test file | `vitest:ui:apps/ui/src/components/ui/Button.test.tsx` | Vitest, see Lanes |
 | `storybook` | `required` (tag `required`), `plays` (the other stories) | story with a play function | `storybook:required:apps/ui/src/…/X.stories.tsx#<story id>` | the static Storybook build in Chromium, with [`../ci/storybook-play.mjs`](../ci/storybook-play.mjs) |
+| `storybook` | `visual` | story with a screenshot | `storybook:visual:apps/ui/src/…/X.stories.tsx#<story id>` | the screenshots of the story in the pinned Playwright image, compared with its baselines (see Screenshots) |
 | `eval` | `mcp` (MCPJam, `apps/backend/evals/mcp/cases.ts`), eval case | `eval:mcp:apps/backend/evals/mcp/cases.ts#stale-cursor` | one seed and one `evals/mcp/run.ts` run for the selected cases |
 | `typecheck` | the `name` of each project in `scripts/ci/projects.json` | project | `typecheck:ui:apps/ui/tsconfig.json` | `scripts/ci/typecheck.mjs` (runs `bun check`) with the project's diagnostic allowances |
 | `lint` | `oxlint`, `format`, `knip` | tool | `lint:knip:knip.json` | `pnpm lint`, `pnpm format:check`, `pnpm knip` |
@@ -156,7 +157,20 @@ A lane is one Vitest run: one package directory, one config and one runtime. [`l
 - Each entry is a repo-relative path, or a directory with `/**` at the end, as in `inputs`.
 - When a second check reads the file, list the file in the `ownInputs` of that check too.
 - An `inputs` directory of the lane can also hold the file. Then a reader that does not know `ownInputs` selects the whole lane, and its key holds the file.
-- `checks:list` does not write `ownInputs` yet. The visual lane will write it ([CTX-1191](https://linear.app/ctxpipe/issue/CTX-1191)).
+- The `visual` lane writes `ownInputs`: the baselines of each story (see Screenshots).
+
+## Screenshots
+
+The `visual` lane ([`visual.mjs`](visual.mjs)) has one check for each story that has a screenshot.
+
+- A story has a desktop screenshot. A story with the `page` tag also has a mobile screenshot. A screenshot in [`../ci/visual-unstable-stories.json`](../ci/visual-unstable-stories.json) has no baseline. A story with no other screenshot has no check.
+- `ownInputs` are the baselines of the story: `<story file dir>/screenshots/<storyfile>.<storyname>.<viewport>.screenshot.png`. A changed baseline selects only its own check. A test keeps the own inputs of all checks equal to the committed baselines.
+- `inputs` are the Storybook build inputs, the image pin `scripts/ci/visual-container.json`, the unstable list, the capture script, the commands, and the compare engine with its tolerance (`packages/visual-review/src/compare/**`). A change to one of them selects the whole lane.
+- The checks have `portable: true` and `programs: ["container-platform"]`: the pinned image gives the same pixels on each host with the same Docker platform. They need the `storybook-build` and `visual-container` prerequisites. A laptop without Docker leaves them to CI.
+- The lane has `selectAll: true` (see Unsampled lanes).
+- `checks:run` runs the selected checks with one `node scripts/ci/visual.mjs check --only <ids> --records <dir>`: one capture in the container and one compare. A check of some stories looks for no orphan baseline, and only the image budget of its own baselines applies. The output goes to `.ci-results/checks/storybook-visual.log`.
+- A check passes when each screenshot of its story is unchanged. The message of a failed record gives the change of each screenshot, the image folder of the story (`.ci-results/visual/<story id>/`) and the command that accepts the change. Its `log` is the manifest, `.ci-results/visual/manifest.json`.
+- In CI, the job Storybook screenshots runs the checks. A full run checks every story, the orphan baselines and the total size budget (`visual.mjs check --records`). A gated run runs the planned checks with `selected.mjs`, in one job.
 
 ## Portable checks
 
@@ -164,7 +178,7 @@ A result cache adds the OS and the CPU architecture to the key of a check, unles
 
 - `run.mjs` and `scripts/ci/vitest-launch.mjs` set `TZ=UTC`, `LANG=C.UTF-8` and `LC_ALL=C.UTF-8` for each check (`hostPins`). The time zone and the locale of the host cannot change a result, so the key of a portable check does not hold `TZ`.
 - The Storybook plays run in a browser context with a fixed time zone, locale and pixel ratio, and every page sees 3 CPUs and 2 GB of memory. Every page also has a fixed origin, a `Date` that starts at a fixed time, and a seeded `Math.random`. When the story has ended, the runner stops the CSS animations and transitions, hides the text caret and waits for the web fonts. Thus a screenshot is the same on each run. The play runner starts Chromium in another time zone and language, so the story Testing/Play host fails when a pin is missing (`playContext` and the init script in `scripts/ci/storybook-play.mjs`).
-- Portable: the `backend`, `vercel`, `upgrade`, `ui`, `cli` and `aws-cdk` lanes, the Storybook checks, the evals, and the typecheck, lint, policy and package build checks. Portable with the container platform in the key: `contracts`. Portable with the container platform in the key: also `codesearch` and `codesearch-bun` (they run in the test image). Not portable: the `latency` lane, the image builds and the deploy checks.
+- Portable: the `backend`, `vercel`, `upgrade`, `ui`, `cli` and `aws-cdk` lanes, the Storybook checks, the evals, and the typecheck, lint, policy and package build checks. Portable with the container platform in the key: `contracts`. Portable with the container platform in the key: also `codesearch` and `codesearch-bun` (they run in the test image), and the Storybook `visual` lane (it runs in the pinned Playwright image). Not portable: the `latency` lane, the image builds and the deploy checks.
 - A backend test file that starts Docker, zoekt or OpenCode, or reads the process environment of the host, goes in the "host Docker, zoekt and process environment" group of `scripts/ci/contracts.json`, so that it runs in the `contracts` lane. That lane is portable because its key holds `container-platform`: the platform of the Docker server (`linux-arm64` on Docker Desktop for Apple silicon and on an arm64 CI runner). A file that depends on the host itself goes in `non-portable.json`.
 - `programs` (optional) lists the host programs that a check runs and whose version changes a result: `git` for the backend, `cli` and `upgrade` lanes, `zoekt` and `ast-grep` for `upgrade`, and per test file (`filePrograms` in `lanes.mjs`) `ast-grep`, `bun` or `bash`. The merge gate manifest job installs the pinned zoekt and ast-grep, so the CI record holds their versions. `toolchain.mjs` records the version of each (git: only the major and minor version) (`programs` in the toolchain record), and a result cache adds it to the key. A check whose program is not installed has no key.
 - A laptop pass counts in CI only when the laptop has the CI versions: the Node of `.node-version`, the pnpm of `packageManager`, the Bun of CI, and a git with the major and minor version of CI (`brew install git` on macOS; Apple git is older). `factory check` prints a warning with the fix for each version that differs from the latest nightly run.
@@ -174,7 +188,7 @@ To add a lane, add it to `lanes` in `lanes.mjs` and add its inventory to `listVi
 
 ## Unsampled lanes
 
-A selector can sample a lane: for each changed range, it selects only some of the checks that executed the range (for example the `k` cheapest). `selectAll: true` (optional; without it, false) tells a selector that it must not sample the lane. The selector then selects every check of the lane that a change reaches, and a model step does not remove one. The flag is a fact of the lane, so each check of the lane has the same value. Use it for a lane where each check compares the result with its own expected output, for example one screenshot of each story. If a change reaches such a check and the selector does not select it, the expected output on `main` stays incorrect. No lane has the flag at this time.
+A selector can sample a lane: for each changed range, it selects only some of the checks that executed the range (for example the `k` cheapest). `selectAll: true` (optional; without it, false) tells a selector that it must not sample the lane. The selector then selects every check of the lane that a change reaches, and a model step does not remove one. The flag is a fact of the lane, so each check of the lane has the same value. Use it for a lane where each check compares the result with its own expected output, for example one screenshot of each story. If a change reaches such a check and the selector does not select it, the expected output on `main` stays incorrect. The `visual` lane has the flag.
 
 ## Traces
 
@@ -280,7 +294,8 @@ The jobs in `.github/workflows/ci.yaml`:
 | Lint and format, Terraform configuration, Migrations | always run; each lint and policy check is a step of Lint and format |
 | Typecheck, UI, CLI and CDK tests, Runnable packages, Hosted sandbox (Vercel) | run only the planned checks, with [`selected.mjs`](selected.mjs) |
 | Test shards | the shards of the planned backend and contract checks (lane `selected`, from `shard.mjs`) |
-| Storybook build and plays | the build, then the shards of every planned story (required stories too); the required job does not run |
+| Storybook build and plays | the build, then the shards of every planned play (required stories too); the required job does not run |
+| Storybook screenshots | the build, then one job for every planned `visual` check |
 | Production build | one matrix entry for each planned image |
 | Codesearch, Upgrade from the previous release | the whole job, when the plan selects one of its checks |
 | Tests (the union of the shards) | does not run: a gated run has no full inventory |

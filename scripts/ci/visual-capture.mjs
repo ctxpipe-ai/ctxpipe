@@ -33,7 +33,8 @@ import pin from "./visual-container.json" with { type: "json" }
 // <out>/<story id>.png, with <out>/capture.json (the status of each story:
 // captured, unstable, play-failed or capture-failed).
 //
-// Usage: node scripts/ci/visual-capture.mjs --out <dir> [--viewport mobile] <story id>...
+// Usage: node scripts/ci/visual-capture.mjs --out <dir> <story id>...
+// (desktop; pnpm visual:check also captures the mobile screenshots)
 // The command needs Docker. It reads the repo read-only, and copies the
 // screenshots out of the container, so it works on a laptop VM that mounts
 // the home directory read-only.
@@ -214,19 +215,16 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       return flag === -1 ? undefined : args[flag + 1]
     }
     const out = value("--out")
-    const viewport = value("--viewport") ?? "desktop"
     const ids = args.filter(
-      (arg, i) =>
-        !["--out", "--viewport"].includes(arg) &&
-        !["--out", "--viewport"].includes(args[i - 1]),
+      (arg, i) => arg !== "--out" && args[i - 1] !== "--out",
     )
-    if (!out || !ids.length || !viewports[viewport]) {
+    if (!out || !ids.length) {
       process.stderr.write(
-        "Usage: node scripts/ci/visual-capture.mjs --out <dir> [--viewport mobile] <story id>...\n",
+        "Usage: node scripts/ci/visual-capture.mjs --out <dir> <story id>...\n",
       )
       process.exitCode = 1
     } else {
-      const stories = await captureInContainer(ids, resolve(out), viewport)
+      const stories = await captureInContainer(ids, resolve(out))
       for (const story of stories)
         process.stdout.write(`${story.status} ${story.id}\n`)
       process.exitCode = stories.some((story) => story.status !== "captured")

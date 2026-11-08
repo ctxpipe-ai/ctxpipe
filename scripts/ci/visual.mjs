@@ -1,16 +1,17 @@
 import { execFileSync } from "node:child_process"
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseArgs } from "node:util"
 
 import { runVisual } from "../../packages/visual-review/src/compare/baselines.ts"
 import { threshold } from "../../packages/visual-review/src/compare/diff.ts"
+import { visualRecords } from "../checks/visual.mjs"
 import { readUnstableList } from "./visual-capture-proof.mjs"
 import { captureInContainer, viewports } from "./visual-capture.mjs"
 import pin from "./visual-container.json" with { type: "json" }
 
-// `pnpm visual:check` and `pnpm visual:update [--only <ids>|--failed]`.
+// `pnpm visual:check` and `pnpm visual:update [--only <id>,<id>... | --failed]`.
 //
 // Both commands capture the stories of the static Storybook build
 // (apps/ui/storybook-static) in the pinned container
@@ -21,7 +22,11 @@ import pin from "./visual-container.json" with { type: "json" }
 // - check: writes the run into .ci-results/visual/ (manifest.json, and the
 //   images of each story that is not unchanged). It never writes a baseline.
 //   It fails on a story that is new, changed, removed (an orphan baseline),
-//   unstable, play-failed or size-changed, and above the size budget.
+//   unstable, play-failed or size-changed, and above the size budget. With
+//   --only, it checks only those stories: it does not look for orphans, and
+//   only the image budget of their baselines applies. With --records <dir>,
+//   it also writes one result record for each story to <dir>/records.ndjson
+//   (the visual checks, scripts/checks/visual.mjs).
 // - update: writes the baselines of the selected stories (all, the story ids
 //   of --only, or with --failed the stories that the last check failed), and
 //   deletes the orphan baselines.
@@ -29,27 +34,29 @@ import pin from "./visual-container.json" with { type: "json" }
 // The stories in scripts/ci/visual-unstable-stories.json have no baseline
 // yet. Both commands skip them and name their ticket.
 //
-// Usage: node scripts/ci/visual.mjs check
-//        node scripts/ci/visual.mjs update [--only <id>[,<id>...]] [--failed]
+// Usage: node scripts/ci/visual.mjs check [--only <id>,<id>...] [--records <dir>]
+//        node scripts/ci/visual.mjs update [--only <id>,<id>... | --failed]
 // The pnpm scripts build Storybook first.
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
-    only: { type: "string", multiple: true },
+    only: { type: "string" },
     failed: { type: "boolean", default: false },
+    records: { type: "string" },
   },
 })
 const mode = positionals[0]
-const only = values.only?.flatMap((ids) => ids.split(",")).filter(Boolean)
+const only = values.only?.split(",").filter(Boolean)
 if (
   !["check", "update"].includes(mode) ||
-  (mode === "check" && (only || values.failed)) ||
+  (mode === "check" && values.failed) ||
+  (mode === "update" && values.records) ||
   (only && values.failed)
 ) {
   process.stderr.write(
-    "Usage: node scripts/ci/visual.mjs check\n       node scripts/ci/visual.mjs update [--only <id>[,<id>...] | --failed]\n",
+    "Usage: node scripts/ci/visual.mjs check [--only <id>,<id>...] [--records <dir>]\n       node scripts/ci/visual.mjs update [--only <id>,<id>... | --failed]\n",
   )
   process.exit(2)
 }
@@ -61,7 +68,8 @@ const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
   .toString()
   .trim()
 
-process.exitCode = await runVisual({
+const started = Date.now()
+const result = await runVisual({
   mode,
   root,
   out: join(root, ".ci-results/visual"),
@@ -104,3 +112,14 @@ process.exitCode = await runVisual({
   only,
   failed: values.failed,
 })
+if (values.records) {
+  const directory = resolve(values.records)
+  mkdirSync(directory, { recursive: true })
+  writeFileSync(
+    join(directory, "records.ndjson"),
+    visualRecords(result, Date.now() - started)
+      .map((record) => `${JSON.stringify({ schemaVersion: 1, ...record })}\n`)
+      .join(""),
+  )
+}
+process.exitCode = result.code
