@@ -158,7 +158,8 @@
         "packages/visual-review/src/adapters/openrouter.ts",
         "packages/visual-review/src/compare/diff.ts",
         "packages/visual-review/src/compare/images.ts",
-        "packages/visual-review/src/compare/manifest.ts"
+        "packages/visual-review/src/compare/manifest.ts",
+        "packages/visual-review/src/compare/baselines.ts"
       ],
       "notApplicable": [],
       "triggers": [
