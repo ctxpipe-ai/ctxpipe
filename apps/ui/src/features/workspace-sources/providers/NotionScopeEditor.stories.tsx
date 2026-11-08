@@ -101,6 +101,14 @@ export const SearchKeepsTheSelection: Story = {
       canvas.getByRole("searchbox", { name: "Search Notion for Docs" }),
       "onboard",
     )
+    // The list shows every page until the debounced search answers. Wait for
+    // the answer (it drops the incident log), so the click and the end state
+    // do not depend on when it arrives.
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("checkbox", { name: /Incident log/ }),
+      ).not.toBeInTheDocument(),
+    )
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: /Onboarding/ }),
     )

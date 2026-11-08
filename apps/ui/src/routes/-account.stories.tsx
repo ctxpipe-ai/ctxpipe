@@ -299,7 +299,8 @@ export const ConnectedAppsRevokeError: Story = {
       await canvas.findByRole("button", { name: "Revoke Example Agent" }),
     )
     const dialog = within(await body.findByRole("alertdialog"))
-    await userEvent.click(dialog.getByRole("button", { name: "Revoke app" }))
+    const revoke = dialog.getByRole("button", { name: "Revoke app" })
+    await userEvent.click(revoke)
     // The dialog stays open and shows the error.
     await waitFor(() =>
       expect(
@@ -308,6 +309,8 @@ export const ConnectedAppsRevokeError: Story = {
     )
     await expect(body.getByRole("alertdialog")).toBeVisible()
     await expect(canvas.getByText("Example Agent")).toBeVisible()
+    // End with the pointer off the button, so its color is the idle one.
+    await userEvent.unhover(revoke)
   },
 }
 

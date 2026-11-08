@@ -12,39 +12,9 @@
       "ticket": "CTX-1186"
     },
     {
-      "id": "components-auth-oauth-organization-selector--multiple-organizations",
-      "reason": "The story has no play function and throws at render (reading 'stores'), so no shot is taken.",
-      "ticket": "CTX-1222"
-    },
-    {
-      "id": "components-workspaces-pane--selected-tab-in-view",
-      "reason": "The play asserts a width that the Linux fonts of the container exceed, so no shot is taken.",
-      "ticket": "CTX-1222"
-    },
-    {
-      "id": "app-sidenav--user-menu-links-connected-apps",
-      "reason": "The focus ring of the menu depends on the time of the last click of the play.",
-      "ticket": "CTX-1222"
-    },
-    {
-      "id": "components-workspaces-settingspane--rename-refused",
-      "reason": "The hover or pressed color of the Save button depends on the time of the last click of the play.",
-      "ticket": "CTX-1222"
-    },
-    {
-      "id": "components-workspacesources-notionscopeeditor--search-keeps-the-selection",
-      "reason": "A search result arrives after the play ends in some runs.",
-      "ticket": "CTX-1222"
-    },
-    {
-      "id": "pages-auth--sign-in-unverified-email",
-      "reason": "The focus ring of the Login button depends on the time of the last click of the play.",
-      "ticket": "CTX-1222"
-    },
-    {
-      "id": "pages-user-account--connected-apps-revoke-error",
-      "reason": "The hover or pressed color of the Revoke app button depends on the time of the last click of the play.",
-      "ticket": "CTX-1222"
+      "id": "components-workspaces-pane--graph",
+      "reason": "WebGL graph stays in a loading stage; differed in 2 of 3 multi-run proofs",
+      "ticket": "CTX-1186"
     }
   ]
 }

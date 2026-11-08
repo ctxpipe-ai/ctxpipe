@@ -211,5 +211,16 @@ export const UserMenuLinksConnectedApps: Story = {
       "href",
       "/.auth/account/connected-apps",
     )
+    // The menu moves the focus a few times while it opens, and where it ends
+    // differs from run to run. Wait for the open animation, then put the focus
+    // on the first item, so the focus ring does not depend on the time of the
+    // click.
+    const menu = body.getByRole("menu")
+    await waitFor(() =>
+      expect(menu.getAnimations({ subtree: true })).toHaveLength(0),
+    )
+    const first = body.getByRole("menuitem", { name: /Settings/ })
+    first.focus()
+    await waitFor(() => expect(first).toHaveFocus())
   },
 }
