@@ -561,6 +561,13 @@ export function criticsFail(checked) {
   return checked.missing.length > 0 || (checked.required && !checked.checked)
 }
 
+// A short commit id, linked to the commit when the repo URL is known.
+function commitLink(commit, repoUrl) {
+  return repoUrl
+    ? `[${commit.slice(0, 7)}](${repoUrl}/commit/${commit})`
+    : commit.slice(0, 7)
+}
+
 // The critics section of the summary and the PR comment. Each stored verdict
 // links to the commit that the agent reviewed.
 export function criticsText(checked, repoUrl) {
@@ -585,11 +592,7 @@ export function criticsText(checked, repoUrl) {
   for (const critic of checked.critics) {
     const links = (critic.verdicts ?? [])
       .filter((verdict) => /^[0-9a-f]{40}$/.test(verdict.commit))
-      .map((verdict) =>
-        repoUrl
-          ? `[${verdict.commit.slice(0, 7)}](${repoUrl}/commit/${verdict.commit})`
-          : verdict.commit.slice(0, 7),
-      )
+      .map((verdict) => commitLink(verdict.commit, repoUrl))
     lines.push(
       `| ${code(critic.critic)} | ${code(critic.status)} | ${code(critic.reason)} | ${links.join(" ") || "none"} |`,
     )
@@ -610,12 +613,16 @@ export function criticsText(checked, repoUrl) {
     )
     for (const override of overrides) {
       const commit = /^[0-9a-f]{40}$/.test(override.commit)
-        ? repoUrl
-          ? `[${override.commit.slice(0, 7)}](${repoUrl}/commit/${override.commit})`
-          : override.commit.slice(0, 7)
-        : code(override.commit)
+        ? commitLink(override.commit, repoUrl)
+        : code("unknown")
+      // The writer is the SHA-256 of the store identity in the S3 path of the
+      // record (or `ci`). Any other value never reaches a public comment.
+      const writer = /^([0-9a-f]{64}|ci)$/.test(override.writer)
+        ? override.writer
+        : "unknown"
+      // The factory bounds the reason, so the comment shows all of it.
       lines.push(
-        `- ${code(override.critic)} ${code(override.finding)} on ${code(override.path)}, by ${code(override.who)} at ${commit}: ${code(override.reason, 300)}`,
+        `- ${code(override.critic)} ${code(override.finding)} on ${code(override.path)}, by writer ${code(writer)} at ${commit}: ${code(override.reason, Infinity)}`,
       )
     }
   }

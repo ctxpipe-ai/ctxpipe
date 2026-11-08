@@ -1317,7 +1317,14 @@ test("each override of a visual verdict shows its reason, writer and commit; non
               path: "ui/screenshots/Card.Main.desktop.screenshot.png",
               reason,
               commit: sha(9),
-              who: "email-sha256:0123456789abcdef",
+              writer: "a".repeat(64),
+            },
+            {
+              finding: "f:4567cdef",
+              path: "ui/screenshots/Card.Other.desktop.screenshot.png",
+              reason: `${"x".repeat(280)} | a | b`,
+              commit: "not a commit",
+              writer: "someone@example.com",
             },
           ],
         },
@@ -1325,13 +1332,18 @@ test("each override of a visual verdict shows its reason, writer and commit; non
     },
   })
   const text = criticsText(critics(directory), "https://github.com/o/r")
-  assert.ok(text.includes("Overridden verdicts: 1"), text)
+  assert.ok(text.includes("Overridden verdicts: 2"), text)
   assert.ok(text.includes("`f:0123abcd`"), text)
   assert.ok(
     text.includes("`ui/screenshots/Card.Main.desktop.screenshot.png`"),
     text,
   )
-  assert.ok(text.includes("`email-sha256:0123456789abcdef`"), text)
+  assert.ok(text.includes(`by writer \`${"a".repeat(64)}\``), text)
+  // A writer or a commit of another shape never reaches the comment.
+  assert.ok(!text.includes("someone@example.com"), text)
+  assert.ok(text.includes("by writer `unknown` at `unknown`"), text)
+  // A reason at the limit, with pipes, shows in full.
+  assert.ok(text.includes(`${"x".repeat(280)} \\| a \\| b\``), text)
   assert.ok(text.includes(`(https://github.com/o/r/commit/${sha(9)})`), text)
   // The full reason, with its pipe escaped and no backtick that ends the span.
   assert.ok(
