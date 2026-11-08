@@ -1415,6 +1415,49 @@ test("the comment reads the JSON of `factory review gate --json`: each override 
   assert.ok(piped.includes("`a \\| b`"), piped)
 })
 
+test("the critics job projection keeps each override and raised limit for the comment", () => {
+  // The same jq filter as the critics job in ci.yaml, on the output of the
+  // factory binary.
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const [, filter] = workflow.match(/jq -c '(\{critics: [^']+)'/) ?? []
+  assert.ok(filter, "the critics job has no jq projection")
+  const fixture = join(
+    root,
+    "scripts/tests/fixtures/factory/review-gate-overrides.json",
+  )
+  const projected = spawnSync("jq", ["-c", filter, fixture], {
+    encoding: "utf8",
+  })
+  assert.equal(projected.status, 0, projected.stderr)
+  const record = JSON.parse(projected.stdout)
+  // The projection drops what gate.mjs does not read.
+  assert.ok(!projected.stdout.includes("disputes"), projected.stdout)
+  const gate = JSON.parse(readFileSync(fixture, "utf8"))
+  const visual = gate.critics.find(
+    (critic) => critic.critic === "critic:visual",
+  )
+  const text = criticsText(
+    critics(inputs({ "critics.json": record })),
+    "https://github.com/o/r",
+  )
+  assert.ok(text.includes("Overridden verdicts: 1"), text)
+  for (const override of visual.overrides)
+    assert.ok(
+      text.includes(
+        `- \`critic:visual\` \`${override.finding}\` on \`${override.path}\`, by writer \`${override.writer}\` at [${override.commit.slice(0, 7)}](https://github.com/o/r/commit/${override.commit}): \`${override.reason}\``,
+      ),
+      text,
+    )
+  assert.ok(text.includes("Raised spend limits: 1"), text)
+  for (const raise of visual.limitRaises)
+    assert.ok(
+      text.includes(
+        `- \`critic:visual\` limit $${raise.limitUsd.toFixed(2)}, set by writer \`${raise.writer}\` at [${raise.commit.slice(0, 7)}](https://github.com/o/r/commit/${raise.commit})`,
+      ),
+      text,
+    )
+})
+
 test("a raised limit of another shape never reaches the comment", () => {
   const text = criticsText(
     critics(

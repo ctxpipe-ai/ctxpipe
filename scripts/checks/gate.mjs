@@ -501,8 +501,9 @@ const hidden = (character) => {
 // Text from a PR (file names, reasons) as a Markdown code span that cannot
 // break a table, start a mention or hide characters. Only a table cell
 // (`cell`) escapes a pipe: in another place, the escape would show. `max`
-// counts characters, so a cut never splits an emoji.
-export function code(text, max = 200, { cell = true } = {}) {
+// counts characters, so a cut never splits an emoji. The options are an
+// object, so that `.map(code)` does not give the array index as an option.
+export function code(text, { max = 200, cell = true } = {}) {
   const characters = [...String(text)].map((character) =>
     hidden(character) ? " " : character.replace("`", "'"),
   )
@@ -565,6 +566,22 @@ export function criticsFail(checked) {
   return checked.missing.length > 0 || (checked.required && !checked.checked)
 }
 
+// The writer and the commit of an override or a raised limit, for a public
+// comment. The writer is the SHA-256 of the store identity in the S3 path of
+// the record (or `ci`), and the commit is a full commit id. Any other value
+// never reaches the comment.
+function provenance(record, repoUrl) {
+  return {
+    writer: code(
+      /^([0-9a-f]{64}|ci)$/.test(record.writer) ? record.writer : "unknown",
+      { cell: false },
+    ),
+    commit: /^[0-9a-f]{40}$/.test(record.commit)
+      ? commitLink(record.commit, repoUrl)
+      : code("unknown"),
+  }
+}
+
 // A short commit id, linked to the commit when the repo URL is known.
 function commitLink(commit, repoUrl) {
   return repoUrl
@@ -616,19 +633,12 @@ export function criticsText(checked, repoUrl) {
       "",
     )
     for (const override of overrides) {
-      const commit = /^[0-9a-f]{40}$/.test(override.commit)
-        ? commitLink(override.commit, repoUrl)
-        : code("unknown")
-      // The writer is the SHA-256 of the store identity in the S3 path of the
-      // record (or `ci`). Any other value never reaches a public comment.
-      const writer = /^([0-9a-f]{64}|ci)$/.test(override.writer)
-        ? override.writer
-        : "unknown"
+      const { writer, commit } = provenance(override, repoUrl)
       // The factory bounds the reason (300 characters), so the comment shows
       // all of it.
-      const item = (text, max) => code(text, max, { cell: false })
+      const item = (text, max = 200) => code(text, { max, cell: false })
       lines.push(
-        `- ${item(override.critic)} ${item(override.finding)} on ${item(override.path)}, by writer ${item(writer)} at ${commit}: ${item(override.reason, Infinity)}`,
+        `- ${item(override.critic)} ${item(override.finding)} on ${item(override.path)}, by writer ${writer} at ${commit}: ${item(override.reason, Infinity)}`,
       )
     }
   }
@@ -652,14 +662,9 @@ export function criticsText(checked, repoUrl) {
         Number.isFinite(raise.limitUsd) && raise.limitUsd >= 0
           ? `$${raise.limitUsd.toFixed(2)}`
           : code("unknown")
-      const writer = /^([0-9a-f]{64}|ci)$/.test(raise.writer)
-        ? raise.writer
-        : "unknown"
-      const commit = /^[0-9a-f]{40}$/.test(raise.commit)
-        ? commitLink(raise.commit, repoUrl)
-        : code("unknown")
+      const { writer, commit } = provenance(raise, repoUrl)
       lines.push(
-        `- ${code(raise.critic, 200, { cell: false })} limit ${limit}, set by writer ${code(writer)} at ${commit}`,
+        `- ${code(raise.critic, { cell: false })} limit ${limit}, set by writer ${writer} at ${commit}`,
       )
     }
   }

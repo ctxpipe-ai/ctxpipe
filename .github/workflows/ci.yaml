@@ -1656,9 +1656,14 @@ jobs:
             --base "$BASE_SHA" --head "$HEAD_SHA" --json \
             > "$RUNNER_TEMP/critics.json" 2> "$RUNNER_TEMP/critics.err" || code=$?
           if [ "$code" -le 1 ] && jq -e '.critics | type == "array"' "$RUNNER_TEMP/critics.json" > /dev/null; then
-            # The artifact keeps only the fields that gate.mjs reads.
+            # The artifact keeps only the fields that gate.mjs reads: the
+            # status of each critic, the commits of its verdicts, and each
+            # override and raised spend limit with its writer and commit, so
+            # that none is silent in the PR comment. It drops the rest (for
+            # example the disputes and the store details). A test runs this
+            # filter on the factory output.
             echo "the critics record did not parse" > "$out/critics-cause.txt"
-            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}]}]}' \
+            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}], overrides: [(.overrides // [])[] | {finding, path, reason, commit, writer}], limitRaises: [(.limitRaises // [])[] | {limitUsd, writer, commit}]}]}' \
               "$RUNNER_TEMP/critics.json" > "$RUNNER_TEMP/critics.min.json"
             mv "$RUNNER_TEMP/critics.min.json" "$out/critics.json"
             rm "$out/critics-cause.txt"
