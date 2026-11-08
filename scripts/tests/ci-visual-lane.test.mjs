@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 
-import { listVisual, visualRecords } from "../checks/visual.mjs"
+import { listVisual, visualRecords, visualSkips } from "../checks/visual.mjs"
 
 // Index entries of the Storybook build (buildIndex), with import paths
 // relative to apps/ui.
@@ -167,4 +167,36 @@ test("a story whose baseline is above the image budget fails", () => {
   )
   assert.equal(record.status, "failed")
   assert.match(record.message, /one image may be 1 MB/)
+})
+
+test("a story with parameters.visual.skip and a reason has no screenshot", async () => {
+  const { csfTools } =
+    await import("../../apps/ui/.storybook/check-modules.mjs")
+  const { loadCsf } = await csfTools()
+  const story = (exportName) => ({
+    type: "story",
+    id: `features-x--${exportName.toLowerCase()}`,
+    importPath: "./src/features/x/X.stories.tsx",
+    exportName,
+  })
+  const text = (skip) => `export default { title: "Features/X" }
+export const Plain = {}
+export const Canvas = {
+  parameters: { intent: "draws", visual: { skip: ${skip} } },
+}
+`
+  assert.deepEqual(
+    visualSkips([story("Plain"), story("Canvas")], loadCsf, () =>
+      text('"A WebGL canvas draws a new frame at each shot."'),
+    ),
+    new Map([
+      ["features-x--canvas", "A WebGL canvas draws a new frame at each shot."],
+    ]),
+  )
+  // An opt-out needs its reason.
+  for (const skip of ['""', "true"])
+    assert.throws(
+      () => visualSkips([story("Canvas")], loadCsf, () => text(skip)),
+      /apps\/ui\/src\/features\/x\/X\.stories\.tsx Canvas: parameters\.visual\.skip needs a reason/,
+    )
 })

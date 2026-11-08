@@ -6,8 +6,12 @@ import { parseArgs } from "node:util"
 
 import { runVisual } from "../../packages/visual-review/src/compare/baselines.ts"
 import { threshold } from "../../packages/visual-review/src/compare/diff.ts"
-import { visualRecords } from "../checks/visual.mjs"
-import { readUnstableList } from "./visual-capture-proof.mjs"
+import { csfTools } from "../../apps/ui/.storybook/check-modules.mjs"
+import {
+  readUnstable,
+  visualRecords,
+  visualSkips,
+} from "../checks/visual.mjs"
 import { captureInContainer, viewports } from "./visual-capture.mjs"
 import pin from "./visual-container.json" with { type: "json" }
 
@@ -32,7 +36,9 @@ import pin from "./visual-container.json" with { type: "json" }
 //   deletes the orphan baselines.
 //
 // The stories in scripts/ci/visual-unstable-stories.json have no baseline
-// yet. Both commands skip them and name their ticket.
+// yet. Both commands skip them and name their ticket. A story with
+// `parameters.visual.skip` (a reason) has no screenshot; both commands skip
+// it and print the reason. The baseline of a skipped story is an orphan.
 //
 // Usage: node scripts/ci/visual.mjs check [--only <id>,<id>...] [--records <dir>]
 //        node scripts/ci/visual.mjs update [--only <id>,<id>... | --failed]
@@ -67,23 +73,20 @@ const index = JSON.parse(
 const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
   .toString()
   .trim()
+const stories = Object.values(index.entries).filter(
+  (entry) => entry.type === "story",
+)
+const skipped = visualSkips(stories, (await csfTools()).loadCsf)
+for (const [id, reason] of skipped)
+  process.stdout.write(`skipped: ${id} (parameters.visual.skip: ${reason})\n`)
 
 const started = Date.now()
 const result = await runVisual({
   mode,
   root,
   out: join(root, ".ci-results/visual"),
-  stories: Object.values(index.entries).filter(
-    (entry) => entry.type === "story",
-  ),
-  unstable: readUnstableList(
-    JSON.parse(
-      readFileSync(
-        join(root, "scripts/ci/visual-unstable-stories.json"),
-        "utf8",
-      ),
-    ),
-  ),
+  stories: stories.filter((story) => !skipped.has(story.id)),
+  unstable: readUnstable(),
   capture: async (viewport, ids) => {
     const dir = join(root, ".ci-results/visual-capture", viewport)
     const stories = await captureInContainer(ids, dir, viewport)

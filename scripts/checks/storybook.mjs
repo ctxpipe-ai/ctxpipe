@@ -15,7 +15,12 @@ import {
   lineStarts,
   positionsOf,
 } from "./trace-lines.mjs"
-import { listVisual, readUnstable, runVisualChecks } from "./visual.mjs"
+import {
+  listVisual,
+  readUnstable,
+  runVisualChecks,
+  visualSkips,
+} from "./visual.mjs"
 
 // The Storybook checks: one for each story with a play function. A story
 // with the `required` tag is in the lane `required` (the required CI
@@ -114,7 +119,14 @@ export async function listStorybook() {
         ...(intent && { intent }),
       }
     })
-  return [...plays, ...listVisual(entries, readUnstable())]
+  const skipped = visualSkips(entries, loadCsf)
+  return [
+    ...plays,
+    ...listVisual(
+      entries.filter((entry) => !skipped.has(entry.id)),
+      readUnstable(),
+    ),
+  ]
 }
 
 // Maps the browser coverage of each story to repo source lines with the

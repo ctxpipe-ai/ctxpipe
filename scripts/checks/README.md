@@ -164,13 +164,14 @@ A lane is one Vitest run: one package directory, one config and one runtime. [`l
 The `visual` lane ([`visual.mjs`](visual.mjs)) has one check for each story that has a screenshot.
 
 - A story has a desktop screenshot. A story with the `page` tag also has a mobile screenshot. A screenshot in [`../ci/visual-unstable-stories.json`](../ci/visual-unstable-stories.json) has no baseline. A story with no other screenshot has no check.
+- A story opts out with `parameters: { visual: { skip: "<reason>" } }`. The reason must be one string literal: the Storybook CSF parser reads it. The story has no check and no baseline, and `pnpm visual:check` skips it. An opt-out without a reason stops `checks:list` and `visual:check`.
 - `ownInputs` are the baselines of the story: `<story file dir>/screenshots/<storyfile>.<storyname>.<viewport>.screenshot.png`. A changed baseline selects only its own check. A test keeps the own inputs of all checks equal to the committed baselines.
 - `inputs` are the Storybook build inputs, the image pin `scripts/ci/visual-container.json`, the unstable list, the capture script, the commands, and the compare engine with its tolerance (`packages/visual-review/src/compare/**`). A change to one of them selects the whole lane.
 - The checks have `portable: true` and `programs: ["container-platform"]`: the pinned image gives the same pixels on each host with the same Docker platform. They need the `storybook-build` and `visual-container` prerequisites. A laptop without Docker leaves them to CI.
 - The lane has `selectAll: true` (see Unsampled lanes).
 - `checks:run` runs the selected checks with one `node scripts/ci/visual.mjs check --only <ids> --records <dir>`: one capture in the container and one compare. A check of some stories looks for no orphan baseline, and only the image budget of its own baselines applies. The output goes to `.ci-results/checks/storybook-visual.log`.
 - A check passes when each screenshot of its story is unchanged. The message of a failed record gives the change of each screenshot, the image folder of the story (`.ci-results/visual/<story id>/`) and the command that accepts the change. Its `log` is the manifest, `.ci-results/visual/manifest.json`.
-- In CI, the job Storybook screenshots runs the checks. A full run checks every story, the orphan baselines and the total size budget (`visual.mjs check --records`). A gated run runs the planned checks with `selected.mjs`, in one job.
+- In CI, the job Storybook screenshots runs the checks. A full run checks every story, the orphan baselines and the total size budget (`visual.mjs check --records`). The nightly run is the full run of `main`: a push to `main` runs no test job. A gated run runs the planned checks with `selected.mjs`, in one job.
 
 ## Portable checks
 

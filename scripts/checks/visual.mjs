@@ -32,7 +32,6 @@ const inputs = [
   "scripts/ci/storybook-play.mjs",
   "scripts/ci/visual.mjs",
   "scripts/ci/visual-capture.mjs",
-  "scripts/ci/visual-capture-proof.mjs",
   "scripts/ci/visual-container.json",
   "scripts/ci/visual-unstable-stories.json",
   "packages/visual-review/package.json",
@@ -40,7 +39,8 @@ const inputs = [
   "packages/visual-review/src/compare/**",
 ]
 
-// The checks of the stories of the Storybook index. A story has a desktop
+// The checks of the stories of the Storybook index (without the stories of
+// visualSkips). A story has a desktop
 // screenshot, and a story with the `page` tag also has a mobile one. A
 // screenshot in the unstable list (scripts/ci/visual-unstable-stories.json)
 // has no baseline. A story with no other screenshot has no check.
@@ -97,14 +97,79 @@ export function listVisual(entries, unstable) {
     })
 }
 
-// The unstable list, as listVisual reads it.
+// The entries of the unstable list. Each one needs a story id, a reason and
+// the ticket that fixes it. An entry with a viewport (desktop or mobile) is
+// unstable only at that viewport (pnpm visual:check skips only that
+// screenshot).
+export function readUnstableList(list) {
+  for (const entry of list.stories ?? []) {
+    if (
+      typeof entry.id !== "string" ||
+      !entry.id ||
+      typeof entry.reason !== "string" ||
+      !entry.reason.trim() ||
+      !/^CTX-\d+$/.test(entry.ticket ?? "") ||
+      ![undefined, "desktop", "mobile"].includes(entry.viewport)
+    )
+      throw new Error(
+        `Each entry of visual-unstable-stories.json needs an id, a reason and a ticket (CTX-<n>), and an optional viewport (desktop or mobile): ${JSON.stringify(entry)}`,
+      )
+  }
+  return list.stories ?? []
+}
+
+// The unstable list of the checkout.
 export const readUnstable = () =>
-  JSON.parse(
-    readFileSync(
-      join(root, "scripts/ci/visual-unstable-stories.json"),
-      "utf8",
+  readUnstableList(
+    JSON.parse(
+      readFileSync(
+        join(root, "scripts/ci/visual-unstable-stories.json"),
+        "utf8",
+      ),
     ),
-  ).stories ?? []
+  )
+
+// The stories that opt out of screenshots, with their reasons: a story with
+// `parameters: { visual: { skip: "<reason>" } }` in its own annotations. The
+// reason must be one string literal; the Storybook CSF parser reads it, so
+// the build does not run. An opt-out without a reason is an error. `read`
+// gives the text of a story file (from the repository root).
+export function visualSkips(
+  stories,
+  loadCsf,
+  read = (file) => readFileSync(join(root, file), "utf8"),
+) {
+  const skips = new Map()
+  const byFile = Map.groupBy(
+    stories.filter((story) => story.type === "story"),
+    (story) => `apps/ui/${story.importPath.replace(/^\.\//, "")}`,
+  )
+  const named = (node, key) =>
+    node?.properties?.find(
+      (property) =>
+        property.type === "ObjectProperty" &&
+        (property.key.name ?? property.key.value) === key,
+    )
+  for (const [file, inFile] of byFile) {
+    const { _storyAnnotations: annotations } = loadCsf(read(file), {
+      fileName: file,
+      makeTitle: (title) => title ?? file,
+    }).parse()
+    for (const story of inFile) {
+      const skip = named(
+        named(annotations[story.exportName]?.parameters, "visual")?.value,
+        "skip",
+      )?.value
+      if (!skip) continue
+      if (skip.type !== "StringLiteral" || !skip.value.trim())
+        throw new Error(
+          `${file} ${story.exportName}: parameters.visual.skip needs a reason (a string literal).`,
+        )
+      skips.set(story.id, skip.value)
+    }
+  }
+  return skips
+}
 
 // One result record for each story of a `visual:check` result (runVisual):
 // passed when each screenshot of the story is unchanged and no baseline of
