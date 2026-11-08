@@ -758,14 +758,24 @@ export const Primary = { render: () => null }
     ])
   })
 
-  test("without MODEL_PROVIDER_API_KEY a changed screenshot stops the review with exit code 2", async () => {
-    vi.stubEnv("MODEL_PROVIDER_API_KEY", "")
-    await put("base", button, before)
-    await put("head", button, after)
+  // The factory reads exit code 2 as an ERROR. A missing key must never
+  // pass, also when no screenshot needs a model.
+  test.each([
+    ["a changed screenshot", before, after],
+    ["a new screenshot", undefined, after],
+    ["a removed screenshot", before, undefined],
+    ["a screenshot in the tolerance", before, before],
+  ])(
+    "without MODEL_PROVIDER_API_KEY, %s stops the review with exit code 2",
+    async (_, base, head) => {
+      vi.stubEnv("MODEL_PROVIDER_API_KEY", "")
+      if (base) await put("base", button, base)
+      if (head) await put("head", button, head)
 
-    expect(await run("--json", "--images", images, "--", button)).toBe(2)
-    expect(output.join("\n")).toContain("Set MODEL_PROVIDER_API_KEY")
-  })
+      expect(await run("--json", "--images", images, "--", button)).toBe(2)
+      expect(output.join("\n")).toContain("Set MODEL_PROVIDER_API_KEY")
+    },
+  )
 
   test.each([
     ["a path with no image on either side", [button]],

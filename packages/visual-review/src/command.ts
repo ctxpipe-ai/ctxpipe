@@ -47,7 +47,8 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|agen
               path after --, as the factory writes it. The command compares
               each pair with its own compare engine and gives one verdict for
               each path, with "path". A new or a removed screenshot is unsure.
-              Only with --judge model.
+              Only with --judge model. Without MODEL_PROVIDER_API_KEY, the
+              exit code is 2, also when no screenshot needs a model.
   --judge     model: a vision model through OpenRouter, with MODEL_PROVIDER_API_KEY
               (and MODEL_PROVIDER_URL). agent: write a judgment request for each
               story; your coding agent writes its verdict.json; run again to read it.
@@ -118,6 +119,14 @@ export async function visualReview(
   }
 
   if (options.images !== undefined) {
+    // The factory runs this mode as the visual critic. A missing key is an
+    // ERROR there, never a pass, also when no screenshot needs a model.
+    if (!process.env.MODEL_PROVIDER_API_KEY) {
+      print(
+        "Set MODEL_PROVIDER_API_KEY (the OpenRouter key). The visual critic needs it for each review.",
+      )
+      return 2
+    }
     // A private folder for the images of the compare engine. PR code
     // cannot write it.
     const work = await mkdtemp(
@@ -307,6 +316,8 @@ async function scopeOf(
     posix.basename(path),
   )?.[1]
   const dir = posix.dirname(posix.dirname(path))
+  // A story file name can have dots (`-github.link.stories.tsx`), so each
+  // dot can end the story file part of the name.
   const candidates: { file: string; story: string }[] = []
   for (let dot = name?.indexOf(".") ?? -1; name && dot > 0;) {
     candidates.push({
