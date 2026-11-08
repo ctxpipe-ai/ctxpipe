@@ -57,12 +57,12 @@ Until the factory release that the merge gate pins makes keys portable (the fact
 - `Waiting for a check slot`: other agents on this host run checks. The run waits for a free slot (one for each 4 CPUs), so that parallel agents do not overload the host.
 - `ERROR critic:<name>` with a cause and a fix: a reviewer did not finish (the CLI is missing, a login or a quota, a timeout). The critic stores nothing, so the merge gate finds it missing. Do the fix and run again. Do not change the model.
 - `ERROR critic:<name>` with "You've hit your usage limit ... try again at <time>": the Codex login is at its limit. The Codex reviewers use the login in `CODEX_HOME` (default `~/.codex`). The factory copies only `auth.json` from that folder into a temporary home and ignores its `config.toml`, so the folder changes only the login. Use a second login only when the product owner approved it for this repository's code: it receives the same diff and brief, which can hold private ticket text. The host notes list each approved login and its folder. Then, for one run:
-  1. Probe the other login with a Codex model of `critics.json` (`gpt-6.1-sol` covers the full reviews): `echo 'Reply OK' | CODEX_HOME=<folder> codex exec --ephemeral --skip-git-repo-check -m gpt-6.1-sol -`.
-  2. If it answers, run `factory check` again with `CODEX_HOME=<folder>` on the same command line. Do not export it, and do not change a file.
-  3. If it does not answer, or it reaches its limit during the run, wait for the earliest reset time of the logins, probe that login, and run again with it.
-  4. Do not push before the critics pass, and do not loop: when no login answers, report the reset times and stop.
+  1. Probe the other login. Run `echo 'Reply OK' | CODEX_HOME=<folder> codex exec --ephemeral --ignore-user-config --skip-git-repo-check -m gpt-6.1-sol -` from an empty folder.
+  2. If it answers, run `factory check` again with `CODEX_HOME=<folder>` on the same command line. Do not export it.
+  3. When that login also reaches its limit, go back to the first login if its reset time has passed. Probe it first.
+  4. When no login answers, report the reset times and stop. Do not wait, and do not push before the critics pass.
 
-  Never copy, print or move an `auth.json`, and never sign a login out.
+  Never copy, print or move an `auth.json`.
 - `CRITICS NOT RUN` with a fix: the tree is not committed, HEAD is not on a branch, or the shared store did not answer. Do the fix and run again.
 
 ## When a pass is not stored
