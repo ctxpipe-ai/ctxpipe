@@ -132,6 +132,11 @@ describe("the committed case manifest", () => {
   const read = (name: string) =>
     JSON.parse(readFileSync(new URL(name, import.meta.url), "utf8"))
 
+  test("uses only the new name of the required story set", () => {
+    const text = readFileSync(new URL("./cases.json", import.meta.url), "utf8")
+    expect(text).not.toMatch(/\bg[o]lden\b/i)
+  })
+
   test("its JSON schema is the schema of the code", () => {
     expect(read("./cases.schema.json")).toEqual(caseManifestJsonSchema)
   })

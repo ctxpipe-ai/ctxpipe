@@ -102,6 +102,9 @@ function briefOf(sha: string): string {
     .split("\n")
     .filter((line) => !/^(Co-Authored-By|Signed-off-by):/i.test(line))
     .join("\n")
+    // The required story set had an older name that the team no longer
+    // uses (CTX-1178, Phase 0). A brief uses the new name.
+    .replace(/\bg[o]lden\b/gi, "required")
     .trim()
   const number = /\(#(\d+)\)$/m.exec(message.split("\n")[0] ?? "")?.[1]
   if (!number) return message
@@ -242,10 +245,20 @@ type Candidate = {
 const shot = (key: string, storyId: string, role: string) =>
   `${key}--${storyId}--${role}.png`
 
-/** Case ids: the prefix and a number with `width` digits. */
-const numbered = <T>(prefix: string, entries: readonly T[], width: number) =>
-  entries.map((entry, i): [string, T] => [
-    `${prefix}-${String(i + 1).padStart(width, "0")}`,
+/**
+ * Case ids: the prefix and a hash of the commit, the story and the class. A
+ * case keeps its id when another case drops out of a run, so a label that
+ * the owner gives to an id stays on its case.
+ */
+const identified = <T extends Candidate>(
+  prefix: string,
+  entries: readonly T[],
+) =>
+  entries.map((entry): [string, T] => [
+    `${prefix}-${createHash("sha256")
+      .update([entry.commit?.sha, entry.storyId, entry.mutation].join(" "))
+      .digest("hex")
+      .slice(0, 8)}`,
     entry,
   ])
 
@@ -265,6 +278,13 @@ async function main() {
   })
   const seed = Number(values.seed)
   const until = git("rev-parse", `${values.until}^{commit}`).trim()
+  // The builder installs and builds each commit on this host, so it reads
+  // only the reviewed history of main.
+  try {
+    git("merge-base", "--is-ancestor", until, "origin/main")
+  } catch {
+    throw new Error(`${until} is not in the history of origin/main.`)
+  }
   const out = resolve(values.out)
   if (relative(root, out).startsWith(".."))
     throw new Error(
@@ -350,7 +370,7 @@ async function main() {
         clean,
         mutated: {
           file: mixed,
-          kind: mutation,
+          mutation,
           seed: derive(seed, commit.sha, storyId, mutation),
         },
       })
@@ -387,7 +407,7 @@ async function main() {
         clean: before,
         mutated: {
           file: after,
-          kind: mutation,
+          mutation,
           seed: derive(seed, storyId, mutation),
         },
       })
@@ -415,32 +435,48 @@ async function main() {
     )
     smallest.push({ build: relative(root, join(out, "builds", key)), stories })
   }
+  // Two capture rounds. A shot whose two PNGs differ (a story that is not
+  // steady from run to run) gives no case, so that the same seed gives the
+  // same images.
   rmSync(join(out, "shots"), { recursive: true, force: true })
   mkdirSync(join(out, "jobs"), { recursive: true })
-  await Promise.all(
-    parts.map(async (part, i) => {
-      if (!part.length) return
-      const jobFile = join(out, "jobs", `shard-${i}.json`)
-      writeFileSync(jobFile, JSON.stringify(part))
-      await runInContainer(
-        "packages/visual-review/evals/critic/capture.ts",
-        [relative(root, jobFile)],
-        join(out, "shots", `shard-${i}`),
-      )
-    }),
-  )
+  const rounds: Map<string, ShotResult & { path: string }>[] = []
+  for (const round of [1, 2]) {
+    await Promise.all(
+      parts.map(async (part, i) => {
+        if (!part.length) return
+        const jobFile = join(out, "jobs", `shard-${i}.json`)
+        writeFileSync(jobFile, JSON.stringify(part))
+        await runInContainer(
+          "packages/visual-review/evals/critic/capture.ts",
+          [relative(root, jobFile)],
+          join(out, "shots", `round-${round}`, `shard-${i}`),
+        )
+      }),
+    )
+    const shots = new Map<string, ShotResult & { path: string }>()
+    parts.forEach((_, i) => {
+      const folder = join(out, "shots", `round-${round}`, `shard-${i}`)
+      const file = join(folder, "results.json")
+      if (!existsSync(file)) return
+      for (const result of (
+        JSON.parse(readFileSync(file, "utf8")) as { shots: ShotResult[] }
+      ).shots)
+        shots.set(result.file, { ...result, path: join(folder, result.file) })
+    })
+    rounds.push(shots)
+  }
+  const [first, second] = rounds
   const results = new Map<string, ShotResult & { path: string }>()
-  parts.forEach((_, i) => {
-    const file = join(out, "shots", `shard-${i}`, "results.json")
-    if (!existsSync(file)) return
-    for (const result of (
-      JSON.parse(readFileSync(file, "utf8")) as { shots: ShotResult[] }
-    ).shots)
-      results.set(result.file, {
-        ...result,
-        path: join(out, "shots", `shard-${i}`, result.file),
-      })
-  })
+  for (const [file, result] of first ?? []) {
+    const again = second?.get(file)
+    if (
+      result.status === "captured" &&
+      again?.status === "captured" &&
+      readFileSync(result.path).equals(readFileSync(again.path))
+    )
+      results.set(file, result)
+  }
 
   // Keep the pairs that differ beyond the tolerance of the visual check.
   const captured = (file: string | undefined) => {
@@ -498,23 +534,26 @@ async function main() {
   // two cases differ only by the hidden regression.
   const pick = (kind: Case["kind"], mutation: MutationClass | null) =>
     kept.filter((entry) => entry.kind === kind && entry.mutation === mutation)
-  const mixed = shuffle(
-    kept.filter((entry) => entry.kind === "mixed"),
-    derive(seed, "mixed"),
-  ).slice(0, 20)
+  // Each mixed candidate has its own seeded rank. So a candidate that one
+  // run loses (a story that is not steady) changes only its own place.
+  const rank = (entry: Kept) =>
+    derive(seed, "mixed", entry.commit?.sha ?? "", entry.storyId)
+  const mixed = kept
+    .filter((entry) => entry.kind === "mixed")
+    .sort((a, b) => rank(a) - rank(b))
+    .slice(0, 20)
   const selected = [
-    ...numbered("intended", pick("intended", null).slice(0, 60), 3),
+    ...identified("intended", pick("intended", null).slice(0, 60)),
     ...regressionClasses.flatMap((mutation) =>
-      numbered(
+      identified(
         `regression-${mutation}`,
         pick("regression", mutation).slice(0, 10),
-        2,
       ),
     ),
     ...noiseClasses.flatMap((mutation) =>
-      numbered(`noise-${mutation}`, pick("noise", mutation).slice(0, 10), 2),
+      identified(`noise-${mutation}`, pick("noise", mutation).slice(0, 10)),
     ),
-    ...numbered("mixed", mixed, 2),
+    ...identified("mixed", mixed),
   ]
   // A run with too few cases (for example, after failed builds) must not
   // replace the committed manifest.

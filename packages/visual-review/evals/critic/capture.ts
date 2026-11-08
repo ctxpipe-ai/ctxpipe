@@ -35,7 +35,7 @@ export type StoryJob = {
   /** The file name of the clean screenshot. */
   clean: string
   /** One more screenshot after a synthetic change, in the same page. */
-  mutated?: { file: string; kind: MutationClass; seed: number }
+  mutated?: { file: string; mutation: MutationClass; seed: number }
 }
 
 /** The stories of one Storybook build, a folder from the repository root. */
@@ -70,16 +70,16 @@ async function captureStory(
   job: StoryJob,
 ): Promise<ShotResult[]> {
   if (!job.mutated) return [await shoot(page, job.clean)]
-  const { file, kind, seed } = job.mutated
-  const facts = await page.evaluate(collectFacts, kind === "focus-ring")
-  const plan = planMutation(kind, facts, seeded(seed))
+  const { file, mutation, seed } = job.mutated
+  const facts = await page.evaluate(collectFacts, mutation === "focus-ring")
+  const plan = planMutation(mutation, facts, seeded(seed))
   if (plan?.focus) await page.evaluate(focusTarget, plan.target)
   const clean = await shoot(page, job.clean)
   if (!plan) return [clean, { file, status: "no-target" }]
   const before = facts.elements[plan.target]?.box
   const after = await page.evaluate(applyMutation, plan)
   const region =
-    isNoise(kind) || !before
+    isNoise(mutation) || !before
       ? null
       : knownRegion([before, ...after], facts.viewport)
   return [clean, { ...(await shoot(page, file)), region }]
