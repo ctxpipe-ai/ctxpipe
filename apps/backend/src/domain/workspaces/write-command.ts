@@ -316,5 +316,7 @@ function mirrorGuard(
       },
       read,
     )
+    // A reset or a rebind of the connector can come during that fetch.
+    await assertConnectorMirrorBinding(input.orgId, mirror, revision)
   }
 }

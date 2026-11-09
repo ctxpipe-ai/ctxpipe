@@ -297,6 +297,11 @@ it(
             "Connector mirror binding changed",
           )
           expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
+          // The reset came with the credential of the job ref push
+          // (CTX-1235): no captured page left the worker.
+          expect(
+            f.git("--git-dir", f.remote, "for-each-ref", "refs/ctxpipe/write/"),
+          ).toBe("")
         } finally {
           await worker.stop()
         }
