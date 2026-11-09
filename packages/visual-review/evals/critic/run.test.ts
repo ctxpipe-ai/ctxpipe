@@ -25,7 +25,7 @@ const gateway = "https://gateway.test/api/v1"
 const server = setupServer()
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }))
 afterEach(() => {
-  costOnlyOnce = false
+  priced = true
   server.resetHandlers()
   vi.unstubAllEnvs()
 })
@@ -156,8 +156,8 @@ const storyOf = (text: string) => /Story: (\S+)/.exec(text)?.[1] ?? ""
 
 let calls: string[] = []
 let prompts: string[] = []
-// When true, only the first call gives its cost.
-let costOnlyOnce = false
+// When false, no call gives its cost.
+let priced = true
 // The LLM is right with the critic prompt, and calls each case a regression
 // with the one-step prompt. Each call costs $0.01.
 const chat = http.post(`${gateway}/chat/completions`, async ({ request }) => {
@@ -206,7 +206,7 @@ const chat = http.post(`${gateway}/chat/completions`, async ({ request }) => {
         },
       },
     ],
-    usage: costOnlyOnce && calls.length > 1 ? {} : { cost: 0.01 },
+    usage: priced ? { cost: 0.01 } : {},
   })
 })
 // Jev finds each regression and its box ($0.001 a call). The other decision
@@ -456,9 +456,9 @@ test("the spend cap stops the paid calls, and the report says so", async () => {
   expect(results.results).toHaveLength(3)
 })
 
-test("a call without a cost counts as the most expensive call so far", async () => {
+test("a call without a cost counts as at least $0.10, also before any priced call", async () => {
   server.use(chat)
-  costOnlyOnce = true
+  priced = false
   const { text } = await run([
     "--cases",
     writeManifest(),
@@ -472,12 +472,12 @@ test("a call without a cost counts as the most expensive call so far", async () 
     "0.025",
   ])
 
-  // $0.01 with a cost, then two calls without one, which count $0.01 each.
-  expect(calls).toHaveLength(3)
+  // The first call has no cost: it counts $0.10, more than the cap.
+  expect(calls).toHaveLength(1)
   expect(text).toContain(
-    "Spend: $0.03 of the $0.025 cap. The spend cap stopped the run",
+    "Spend: $0.10 of the $0.025 cap. The spend cap stopped the run",
   )
-  expect(text).toContain("2 calls gave no cost")
+  expect(text).toContain("1 calls gave no cost")
 })
 
 test("an image that links outside the image folder stops the run before a call", async () => {

@@ -47,6 +47,10 @@ function groupBy<T>(items: readonly T[], key: (item: T) => string) {
   return groups
 }
 
+/** The delta of the quality `id` in a verdict, or undefined without one. */
+const deltaIn = (verdict: Verdict, id: string) =>
+  verdict.qualities.find(({ name }) => name === id)?.delta
+
 const share = <T>(items: readonly T[], test: (item: T) => boolean) =>
   items.length ? items.filter(test).length / items.length : undefined
 
@@ -102,8 +106,7 @@ function measure(
       new Map(
         qualities.map(({ id }) => {
           const deltas = results.flatMap(
-            ({ verdict }) =>
-              verdict.qualities.find(({ name }) => name === id)?.delta ?? [],
+            ({ verdict }) => deltaIn(verdict, id) ?? [],
           )
           return [id, deltas.length > 1 ? mode(deltas) : undefined]
         }),
@@ -137,8 +140,7 @@ function measure(
         id,
         agreement(
           (result) => deltaOf.get(key(result))?.get(id),
-          ({ verdict }) =>
-            verdict.qualities.find(({ name }) => name === id)?.delta,
+          ({ verdict }) => deltaIn(verdict, id),
         ),
       ]),
     )
@@ -310,7 +312,7 @@ export function report({
         : ""
     }${
       spend.unknownCost
-        ? ` ${spend.unknownCost} calls gave no cost: the spend counts each one as the most expensive call so far, and the cost per story leaves them out.`
+        ? ` ${spend.unknownCost} calls gave no cost: the spend counts each one as the most expensive call so far, and at least $0.10; the cost per story leaves them out.`
         : ""
     }`,
     "",

@@ -67,7 +67,7 @@ The runner compares each pair with the compare engine of the package and gives e
 
 The runner holds out 30% of the cases of each kind. A hash of the seed of the manifest and the case id selects them, so the same manifest gives the same set. All arms do all runs of the hold-out cases first. Then they do the other cases. A failed call gets one retry. If the retry fails, the verdict is `unsure` with an error.
 
-Two limits stop the run. When the cost of the run reaches `--max-cost`, no paid call starts. After `--max-minutes`, no call starts. Each call checks both limits, also a retry. The calls that already started finish, so the spend can go above the cap by the cost of those calls. A call without `usage.cost`, and a failed call, count as the most expensive call so far. The report gives the number of such calls. When a limit stops the run, the report counts only the cases and runs that every arm judged.
+Two limits stop the run. When the cost of the run reaches `--max-cost`, no paid call starts. After `--max-minutes`, no call starts. Each call checks both limits, also a retry. The calls that already started finish, so the spend can go above the cap by the cost of those calls. A call without `usage.cost`, and a failed call, count as the most expensive call so far, and at least $0.10. The report gives the number of such calls. When a limit stops the run, the report counts only the cases and runs that every arm judged.
 
 The runner writes `results.json` (each verdict of each arm, case and run) and `report.md` in `--out`, and prints the report.
 

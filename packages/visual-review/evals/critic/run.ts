@@ -48,7 +48,7 @@ const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--
   --runs         The runs of each arm on each case. Default: 3
   --max-cost     The spend cap in USD. No paid call starts when the cost of
                  the run reaches it. A call without a cost counts as the most
-                 expensive call so far. Default: 100
+                 expensive call so far, and at least $0.10. Default: 100
   --max-minutes  No call starts after this time, so that a job writes its
                  report before its timeout. Default: no limit.
   --concurrency  The calls at the same time for each paid arm. Default: 4
@@ -513,7 +513,8 @@ export async function bakeOff(
     const deadline = Date.now() + maxMinutes * 60_000
     let spent = 0
     // The cost of the most expensive call so far. A call without a known
-    // cost counts as this much, so that the cap still holds.
+    // cost counts as this much, and at least $0.10 (more than one image call
+    // of the models of the plan), so that the cap still holds.
     let highest = 0
     let stopped: "cost" | "time" | undefined
     let unknownCost = 0
@@ -521,7 +522,7 @@ export async function bakeOff(
     const count = (cost: number | null) => {
       if (cost === null) {
         unknownCost++
-        spent += highest
+        spent += Math.max(highest, 0.1)
       } else {
         spent += cost
         highest = Math.max(highest, cost)
