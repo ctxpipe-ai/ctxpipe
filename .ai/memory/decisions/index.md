@@ -67,6 +67,6 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-057](ADR-057-buildkite-connector-sources-only.md) | Buildkite connector, Workspace sources only | Accepted |
 | [ADR-059](ADR-059-plain-connector-sources-only.md) | Plain connector, Workspace sources only | Accepted |
 | [ADR-060](ADR-060-typecheck-with-bun-check.md) | The Typecheck check runs `bun check`: TypeScript 6 stays the dependency, allowances compare file, code, and count | Accepted |
-| [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) | Hosted ctxpipe on AWS (us-west-2) behind Cloudflare: tunnel-only ingress, Aurora, AgentCore sandboxes, preview clones, HyperDX only | Proposed |
+| [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) | Hosted ctxpipe on AWS (us-west-2) behind Cloudflare: Pulumi for hosted IaC, tunnel-only ingress, Aurora, AgentCore sandboxes, preview clones, HyperDX only | Proposed |
 
 Numbers 035 and 036 are unused. ADR-058 is reserved for the Zendesk connector. The next new ADR is 062.

@@ -1,6 +1,6 @@
 # ADR-061: Hosted ctxpipe on AWS (us-west-2) behind Cloudflare
 
-**Status:** Proposed (draft for the CTO's review, 2026-11-07) | **Date:** 2026-11-07 | **Tags:** infra, aws, cloudflare, aurora, agentcore, previews, observability, security
+**Status:** Proposed (draft for the CTO's review, 2026-11-07) | **Date:** 2026-11-07 | **Tags:** infra, aws, cloudflare, pulumi, aurora, agentcore, previews, observability, security
 
 ## Context
 
@@ -18,7 +18,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 2. The domain follows the audience and the account follows the data. `ctxpipe.ai` is public. `ctxpipe.dev` is internal behind Access, with public webhook paths only.
 3. The first region is us-west-2. The stack takes a region parameter for a later second stamp.
 4. Production and observability run in the production account. Previews run in a separate preview account in its own OU. The factory account holds no customer data.
-5. CDK manages AWS. Terraform manages Cloudflare. Both live in the factory repo. The hosted app is a private CDK app that composes the public `@ctxpipe/aws-cdk` construct, built from the ctxpipe commit of the images. The ctxpipe repo only pushes images to ECR. ECR tags are immutable, and each deploy pins its images by digest. Only builds of `main` push to the production account. PR builds push to the preview account with a different role. All deploys run from the factory repo.
+5. Pulumi (TypeScript) manages all hosted infrastructure: AWS (production, previews, observability), Cloudflare (DNS, tunnels, Access, WARP) and the GitHub environments. It lives in the factory repo. Each account keeps its Pulumi state in its own S3 bucket, encrypted with KMS; we do not use Pulumi Cloud. Each environment, and each preview, is one Pulumi stack. Each deploy role is scoped to its environment and has a permission boundary, because Pulumi calls the AWS APIs with that role. The organization stays in CDK (`machines/aws-core`). The public `@ctxpipe/aws-cdk` construct stays CDK and is not used by hosted: it is optimized for simple, single-tenant self-hosting. Hosted and self-host share only the container images and the environment contract. The ctxpipe repo only pushes images to ECR. ECR tags are immutable, and each deploy pins its images by digest. Only builds of `main` push to the production account. PR builds push to the preview account with a different role. All deploys run from the factory repo.
 
 **Production**
 
@@ -43,7 +43,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 
 19. `factory preview up <PR>` starts a factory workflow with a `preview-deploy` role in the preview account.
 20. Production shares its cluster with the preview account through AWS RAM. AWS allows one cross-account clone for each account. Thus the preview account keeps one preview source clone. Each preview is a same-account copy-on-write clone of that source.
-21. Shared parts deploy once: the network, the tunnel and one preview AgentCore runtime. A preview has three parts: its ECS services, one tunnel route and one clone. Direct ECS API calls create the services, without a CloudFormation stack.
+21. Shared parts deploy once: the network, the tunnel and one preview AgentCore runtime. A preview is one small Pulumi stack with three parts: its ECS services, one tunnel route and one clone. The preview workflow runs it through the Pulumi Automation API, and `factory preview down` destroys the stack.
 22. A preview keeps the isolation that `.github/workflows/pr-deploy.yaml` enforces today:
     - It does not build a PR from a fork.
     - Each preview gets its own `AUTH_SECRET` and its own connection-secret encryption key. Connection secrets that the clone copies from production do not decrypt on a preview.
@@ -65,9 +65,11 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 - **Filtered preview data.** Rejected: copy-on-write clones cannot filter, and previews must hold real data for debugging.
 - **Neptune for the graph.** Rejected for now: FalkorDB isolates each organization in its own graph, and [CTX-996](https://linear.app/ctxpipe/issue/CTX-996) replaces FalkorDB later.
 - **EFS for stateful services.** Rejected: EBS is about four times cheaper per GB, and git and Zoekt work better on a local disk.
+- **CDK for hosted, with Terraform for Cloudflare.** Rejected: two tools; CloudFormation is too slow for a stack for each preview (a V2 runtime and its endpoint took about 13 minutes in the spike, and two failed deploys stopped in `ROLLBACK_FAILED`); and composing the self-host construct would push multi-tenant and cost features into a product for single-tenant self-hosters.
+- **Terraform or OpenTofu for hosted.** Rejected: one tool too, but a stack for each preview is clumsy to drive from code (CDKTF is deprecated), and HCL is weaker than TypeScript for the conditional parts. ADR-013 picked Terraform for self-hosters' sake; that reason does not apply to internal infrastructure.
 - **AgentCore session endpoints.** Rejected: they are public only, and a resource policy cannot name their action.
 - **AgentCore Instances compute type, ASG self-healing, worker scale-to-zero, a separate indexer.** Rejected in the simplicity audit. Each adds machinery for a need that we did not measure.
-- **RDS Proxy, an ALB, a NAT gateway, an Aurora reader.** Rejected for cost at our load. Each one is a CDK change if the load grows.
+- **RDS Proxy, an ALB, a NAT gateway, an Aurora reader.** Rejected for cost at our load. Each one is a small IaC change if the load grows.
 
 ## Consequences
 
@@ -76,6 +78,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 - The stateful host and the NAT instance are single instances. A loss means up to 4 hours of degraded search and graph, or a short outbound outage. Both have runbooks.
 - Unreviewed preview code runs in the preview account, which holds a copy of customer data. For AWS resources, the account boundary is the security boundary. It does not cover the copied session and OAuth tokens: decision 22 records that accepted risk. The production account shares only the cluster (through RAM), its KMS key and read access to the artifact buckets.
 - Telemetry holds customer prompt content for 30 days. The data map ([CTX-1175](https://linear.app/ctxpipe/issue/CTX-1175)) must say so.
-- The `@ctxpipe/aws-cdk` construct gains tunnel ingress, FalkorDB on EBS, PG 17, multi-tenant mode and an AgentCore sandbox provider. Self-hosters can use these options.
-- After cutover: [ADR-013](ADR-013-switch-infra-from-pulumi-to-terraform.md), [ADR-029](ADR-029-railway-us-east-next-to-neon.md), [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md), [ADR-039](ADR-039-production-image-deploys-one-environment.md) and [ADR-054](ADR-054-secrets-sync-from-github-to-railway.md) are superseded. [ADR-048](ADR-048-native-postgres-sandbox-ownership.md) and [ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md) are amended. `infra/`, `ops/infra`, the Railway scripts, `railway-wake.ts`, the Vercel sandbox provider and the Langfuse files are deleted.
+- Hosted infrastructure does not shape `@ctxpipe/aws-cdk`. A hosted feature goes into the construct only when self-hosters need it too.
+- A failed Pulumi update does not roll back: the stack stays partial, and we fix forward. Production changes are additive and run in a preview first.
+- After cutover: [ADR-013](ADR-013-switch-infra-from-pulumi-to-terraform.md) (for hosted infrastructure), [ADR-029](ADR-029-railway-us-east-next-to-neon.md), [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md), [ADR-039](ADR-039-production-image-deploys-one-environment.md) and [ADR-054](ADR-054-secrets-sync-from-github-to-railway.md) are superseded. [ADR-048](ADR-048-native-postgres-sandbox-ownership.md) and [ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md) are amended. `infra/`, `ops/infra`, the Railway scripts, `railway-wake.ts`, the Vercel sandbox provider and the Langfuse files are deleted.
 - aws-core gains a preview account and OU. The factory `modify-aws` account table changes to match.
