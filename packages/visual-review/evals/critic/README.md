@@ -6,7 +6,7 @@ The bake-off compares critic models on a fixed set of labeled screenshot pairs (
 
 | Kind | Count | How the builder makes it | Label |
 | --- | --- | --- | --- |
-| `intended` | 60 | A real commit that changed a story file or a component beside a story file. The builder renders the story at the first parent and at the commit. The brief is the commit message, with the pull request title when the GitHub CLI finds it. The old name of the required story set becomes `required` in a brief. | `intended` (the owner can change it) |
+| `intended` | 60 | A real commit that changed a story file, a component beside a story file, or a module that a story file imports directly. The builder renders the story at the first parent and at the commit. The brief is the commit message, with the pull request title when the GitHub CLI finds it. The old name of the required story set becomes `required` in a brief. | `intended` (the owner can change it) |
 | `regression` | 8 × 10 | One CSS or DOM change on one element of a clean render, before the screenshot. The source does not change. The classes are in `mutations.ts`. | `regression`, with the class and the known region |
 | `noise` | 2 × 10 | A transform below one pixel, or a thin text stroke, on the whole story. | `noise` |
 | `mixed` | 20 | A real commit, with a synthetic regression in the after image. A mixed case can use the pair of an intended case; then the two cases differ only by the regression. | `regression`, with the class and the known region |

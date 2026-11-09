@@ -76,8 +76,10 @@ type Commit = {
   storyFiles: string[]
 }
 
-// The story files that a commit can change: a changed story file, and the
-// story file beside a changed component (X.tsx -> X.stories.tsx).
+// The story files that a commit can change: a changed story file, the story
+// file beside a changed component (X.tsx -> X.stories.tsx), and each story
+// file that imports a changed module directly (a shared component). A deeper
+// import chain is the job of the selection of the visual check.
 function storyFilesOf(sha: string, parent: string): string[] {
   const changed = git("diff", "--name-only", parent, sha, "--", "apps/ui/src")
     .split("\n")
@@ -87,10 +89,29 @@ function storyFilesOf(sha: string, parent: string): string[] {
   )
   const files = new Set<string>()
   for (const file of changed) {
-    const story = file.endsWith(".stories.tsx")
-      ? file
-      : file.replace(/\.(tsx|ts|css)$/, ".stories.tsx")
-    if (tree.has(story)) files.add(story)
+    if (file.endsWith(".stories.tsx")) {
+      if (tree.has(file)) files.add(file)
+      continue
+    }
+    const beside = file.replace(/\.(tsx|ts|css)$/, ".stories.tsx")
+    if (tree.has(beside)) files.add(beside)
+    const name = /([\w.-]+)\.(tsx|ts)$/.exec(file)?.[1]
+    if (!name || name === "index") continue
+    try {
+      const importers = git(
+        "grep",
+        "-l",
+        "-E",
+        `from ["'][^"']*/${name.replaceAll(".", "\\.")}["']`,
+        sha,
+        "--",
+        "apps/ui/src/**/*.stories.tsx",
+      )
+      for (const line of importers.split("\n").filter(Boolean))
+        files.add(line.slice(sha.length + 1))
+    } catch {
+      // git grep exits with 1 when no story file imports the module.
+    }
   }
   return [...files].sort()
 }
@@ -353,10 +374,11 @@ async function main() {
       .filter((entry) => files.has(entry.importPath) && !unstable.has(entry.id))
       .map((entry) => entry.id)
       .sort()
-    // Up to 10 stories of each commit.
+    // Up to 25 stories of each commit. Many stories of a shared component do
+    // not change, and only the pairs that differ give a case.
     for (const storyId of shuffle(stories, derive(seed, commit.sha)).slice(
       0,
-      10,
+      25,
     )) {
       const mutation =
         mixedClasses[
