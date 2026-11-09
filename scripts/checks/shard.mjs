@@ -16,10 +16,12 @@ export const profiles = {
   codesearch: { setupMinutes: 0.3, maxShards: 1 },
   vercel: { setupMinutes: 0.8, maxShards: 1 },
   storybook: { setupMinutes: 0.6, maxShards: 5 },
-  // The screenshots job: the setup of a Storybook shard and the pull of the
-  // pinned Playwright image (an estimate; the job is not measured yet). A
-  // full run captures about 900 stories in 4 shards (CTX-1192).
-  visual: { setupMinutes: 1.5, maxShards: 4 },
+  // The screenshots job: checkout, install, the Storybook build and the pull
+  // of the pinned Playwright image, from the job start to the first capture
+  // (43 seconds on CI run 42552424967; 22 to 39 seconds to the capture step
+  // in 3 more runs). Its one job captured about 900 stories in 30 minutes,
+  // so a full run has 4 shards.
+  visual: { setupMinutes: 0.8, maxShards: 4 },
 }
 
 // A Storybook or screenshots shard needs the Storybook build job first.

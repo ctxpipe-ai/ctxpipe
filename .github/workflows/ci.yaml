@@ -1044,8 +1044,10 @@ jobs:
 
   # Quarantines the screenshots that differed between the two captures of
   # the determinism job: a draft pull request adds them to the unstable list
-  # (scripts/ci/visual-unstable-stories.json), so that no screenshot check
-  # and no baseline is made for them until a person fixes the cause. It runs
+  # (scripts/ci/visual-unstable-stories.json) and removes their desktop
+  # baselines (an unstable screenshot has none, so a kept one would be an
+  # orphan), so that no screenshot check runs for them until a person fixes
+  # the cause. It runs
   # only on main, runs no repository script and has no AWS role. When GitHub
   # refuses the pull request, the error annotation names the stories.
   unstable-screenshots:
@@ -1068,9 +1070,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          ids="$(find "$RUNNER_TEMP/proof" -name proof.json -exec cat {} + | jq -sc '[.[].differing // [] | .[]] | unique')"
+          find "$RUNNER_TEMP/proof" -name proof.json -exec cat {} + |
+            jq -sc '[.[].differing // [] | .[]] | unique_by(.id)' > "$RUNNER_TEMP/differing.json"
+          ids="$(jq -c 'map(.id)' "$RUNNER_TEMP/differing.json")"
           if [ "$ids" = "[]" ]; then
-            echo "No story differed between the two captures; the job failed for another cause."
+            echo "No story gave two different images; the job failed for another cause (a broken story or the capture)."
             exit 0
           fi
           # One fixed branch and one pull request: each night adds its
@@ -1078,13 +1082,18 @@ jobs:
           # doubles.
           branch=ci/unstable-screenshots
           list=scripts/ci/visual-unstable-stories.json
-          open="$(gh pr list --head "$branch" --state open --json number --jq '.[].number')"
+          # Only the pull request of this job: a fork can open one from a
+          # branch with the same name.
+          open="$(gh pr list --head "$branch" --state open --json number,isCrossRepository,author \
+            --jq '.[] | select((.isCrossRepository | not) and .author.login == "app/github-actions") | .number')"
           # Without an open pull request, start again from main.
           if [ -n "$open" ] && git fetch -q origin "$branch"; then
             git switch -q -c "$branch" FETCH_HEAD
           else
             git switch -q -c "$branch"
           fi
+          jq -r '.[].baseline' "$RUNNER_TEMP/differing.json" |
+            while IFS= read -r baseline; do git rm -q --ignore-unmatch -- "$baseline"; done
           # Each entry needs the ticket that fixes it: CTX-1186 gives the
           # mask attribute and the per-story options that fix most of them.
           # A person sets another ticket when another one fixes the story.
@@ -1093,16 +1102,17 @@ jobs:
             | .stories += [($ids - $known)[] | {id: ., viewport: "desktop", reason: $reason, ticket: "CTX-1186"}]
           ' "$list" > "$RUNNER_TEMP/list.json"
           mv "$RUNNER_TEMP/list.json" "$list"
-          if git diff --quiet; then
+          if git diff --quiet HEAD; then
             echo "The unstable list already holds ${ids}."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -qam "Quarantine the screenshots that differed in the nightly run"
+          git add "$list"
+          git commit -qm "Quarantine the screenshots that differed in the nightly run"
           git push -q --force origin "$branch"
           [ -z "$open" ] || exit 0
-          body="The nightly job Screenshot determinism captured these stories two times, and the PNGs differed. This pull request adds them to the unstable list, so they get no screenshot check and no baseline. Find the cause (a mask, a fixed clock, an animation), fix it, and remove the entry. Each night adds its stories to this branch."
+          body="The nightly job Screenshot determinism captured these stories two times, and the PNGs differed. This pull request adds them to the unstable list and removes their desktop baselines, so they get no screenshot check. Find the cause (a mask, a fixed clock, an animation), fix it, and remove the entry. Each night adds its stories to this branch."
           if ! gh pr create --draft --base main --head "$branch" \
             --title "Quarantine the screenshots that differed in the nightly run" --body "$body"; then
             echo "::error::No pull request opened. Add ${ids} to ${list} by hand (branch ${branch})."

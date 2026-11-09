@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { test } from "node:test"
 
 import { readUnstableList } from "../checks/visual.mjs"
-import { judgeProof } from "../ci/visual-capture-proof.mjs"
+import { judgeProof, quarantineOf } from "../ci/visual-capture-proof.mjs"
 import { shootUntilSteady } from "../ci/visual-capture.mjs"
 
 // Gives the shots of a page whose pixels change in the given order, and
@@ -115,4 +115,34 @@ test("the committed unstable list is valid", () => {
     ),
   )
   assert.ok(readUnstableList(list).length > 0)
+})
+
+test("only a story whose two captures gave different images is quarantined, with its desktop baseline", () => {
+  const run = (status, sha256) => ({ status, ...(sha256 && { sha256 }) })
+  const entries = new Map(
+    ["a--one", "b--two", "c--three", "d--four"].map((id) => [
+      id,
+      { id, importPath: "./src/x/Card.stories.tsx", exportName: id.slice(3) },
+    ]),
+  )
+  const quarantined = quarantineOf(
+    [
+      { id: "a--one", runs: [run("captured", "1"), run("captured", "2")] },
+      { id: "b--two", runs: [run("captured", "1"), run("unstable")] },
+      // A broken story, not an unstable screenshot.
+      { id: "c--three", runs: [run("play-failed"), run("play-failed")] },
+      { id: "d--four", runs: [run("captured", "1"), run("missing")] },
+    ],
+    entries,
+  )
+  assert.deepEqual(quarantined, [
+    {
+      id: "a--one",
+      baseline: "apps/ui/src/x/screenshots/Card.one.desktop.screenshot.png",
+    },
+    {
+      id: "b--two",
+      baseline: "apps/ui/src/x/screenshots/Card.two.desktop.screenshot.png",
+    },
+  ])
 })

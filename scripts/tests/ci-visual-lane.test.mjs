@@ -236,7 +236,10 @@ test("the nightly trace records each story under the id of its screenshot check,
   const both = traceRecordsOf(played, record("storybook:plays:x#y"))
   assert.deepEqual(
     both.map(({ id }) => id),
-    ["storybook:plays:x#y", shot.id],
+    [
+      "storybook:plays:apps/ui/src/features/card/Card.stories.tsx#features-card--plain",
+      shot.id,
+    ],
   )
   assert.deepEqual(both[1].cases, both[0].cases)
   // The traced run renders every story, sorted by id, and no docs entry.

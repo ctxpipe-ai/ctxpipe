@@ -295,7 +295,12 @@ export async function playStories(
         // and a story without a play function also reaches it. A story with
         // a play must reach "played" first, because a play that did not run
         // also reaches "completed".
-        endPhase: afterPlay ? "completed" : "played",
+        // Storybook gives a story without a play function no "played" phase,
+        // so such a story (the nightly trace renders it) ends at "completed".
+        endPhase:
+          afterPlay || !(story.tags ?? []).includes("play-fn")
+            ? "completed"
+            : "played",
         needsPlay: (story.tags ?? []).includes("play-fn"),
         // Each page starts its clock at this time, and the clock then runs
         // at the real speed. A date in the page is then the same on each run

@@ -63,8 +63,7 @@ if (
   !["check", "update"].includes(mode) ||
   (mode === "check" && values.failed) ||
   (mode === "update" && (values.records || values.shard)) ||
-  (only && (values.failed || values.shard)) ||
-  (values.shard && !(Number.isInteger(at) && Number.isInteger(count)))
+  (only && (values.failed || values.shard))
 ) {
   process.stderr.write(
     "Usage: node scripts/ci/visual.mjs check [--only <id>,<id>... | --shard <i>/<n>] [--records <dir>]\n       node scripts/ci/visual.mjs update [--only <id>,<id>... | --failed]\n",

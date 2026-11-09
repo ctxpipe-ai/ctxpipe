@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import {
   browserTrace,
   storyCheck,
+  traceIdsOf,
   traceRecordsOf,
 } from "../checks/storybook.mjs"
 import { writeTrace } from "../checks/trace.mjs"
@@ -15,7 +16,6 @@ import {
   selectTracedStories,
   shardStories,
 } from "./storybook-select.mjs"
-import { visualCheckId } from "../checks/visual.mjs"
 import {
   playStories,
   serveStatic,
@@ -120,11 +120,7 @@ try {
       if (tracer) {
         const record = tracer.check(story, durationMs, coverage, mocks)
         if (record) traced.push(...traceRecordsOf(story, record))
-        else {
-          durations[visualCheckId(story)] = durationMs
-          if ((story.tags ?? []).includes("play-fn"))
-            durations[storyCheck(story).id] = durationMs
-        }
+        else for (const id of traceIdsOf(story)) durations[id] = durationMs
       }
       // A story without a play function is in the trace only.
       if (!(story.tags ?? []).includes("play-fn")) return

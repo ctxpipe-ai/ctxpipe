@@ -69,8 +69,16 @@ export function storyCheck(story) {
 // of the story's screenshot check. A screenshot is taken after the play, so
 // the screenshot runs the same lines.
 export function traceRecordsOf(story, record) {
-  const play = (story.tags ?? []).includes("play-fn")
-  return [...(play ? [record] : []), { ...record, id: visualCheckId(story) }]
+  return traceIdsOf(story).map((id) => ({ ...record, id }))
+}
+
+// The check ids that the trace of a rendered story records: its play check
+// (a story with a play function) and its screenshot check.
+export function traceIdsOf(story) {
+  return [
+    ...((story.tags ?? []).includes("play-fn") ? [storyCheck(story).id] : []),
+    visualCheckId(story),
+  ]
 }
 
 // The `intent` parameter of each story of one file, read with the Storybook
