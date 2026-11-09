@@ -28,23 +28,23 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - Edge and repository credentials: only a job in the `Production` GitHub environment holds the Cloudflare edit token. The same rule applies to the GitHub admin token and the production secret values.
     - The organization stays in CDK (`machines/aws-core`).
     - The public `@ctxpipe/aws-cdk` construct stays CDK, for simple, single-tenant self-hosting. Hosted does not use it. Hosted and self-host share only the container images and the environment contract.
-    - Images: the ctxpipe repo only pushes images to ECR. ECR tags are immutable. Each deploy pins its images by digest.
+    - Images: the ctxpipe repo only pushes images to ECR. It loses its deploy trust in the production account and keeps only an ECR push role. ECR tags are immutable. Each deploy pins its images by digest.
     - Image accounts: only builds of `main` push to the production account. PR builds push to the preview account, with a different role.
 
 **Production**
 
-6. Backend and UI on Fargate ARM. A cloudflared sidecar in each backend task replaces a load balancer.
+6. Backend and UI on Fargate ARM. A cloudflared sidecar in each backend task replaces a load balancer. Every production image runs on arm64 (Graviton). An image that does not run on arm64 is a bug ([CTX-1234](https://linear.app/ctxpipe/issue/CTX-1234)).
 7. The worker is one Fargate Spot task that scales up on queue depth. It does not scale to zero.
 8. Aurora PostgreSQL 17 Serverless v2, writer only, with a minimum of 0.5 ACU. It does not pause. No RDS Proxy. A customer-managed KMS key from day one, because a cross-account clone cannot use the default RDS key.
-9. FalkorDB and the codesearch query server run on one plain EC2 instance (ECS, EC2 launch type) with gp3 EBS volumes. Recovery is a runbook: restore the snapshot, then redeploy.
+9. FalkorDB and the codesearch query server run on one plain Graviton EC2 instance (ECS, EC2 launch type) with gp3 EBS volumes. Recovery is a runbook: restore the snapshot, then redeploy.
 10. S3 is the codesearch cold tier: durable Zoekt shards in S3, the EBS volume is an LRU cache. Indexing stays on the host.
 11. Outbound traffic goes through a NAT instance with a fixed Elastic IP.
-12. Email goes through SES. Secrets are in Secrets Manager. All secrets get new values at cutover, except the connection-secret encryption key. That key got a new value after the Railway incident ([CTX-983](https://linear.app/ctxpipe/issue/CTX-983)). The incident did not expose it, so it stays. The design owner accepts the residual risk: a person who gets this key can decrypt the stored connector tokens from any database copy.
+12. Email goes through the SES API with the task role, not SES SMTP: SMTP needs an IAM user with access keys. Self-host keeps SMTP. Secrets are in Secrets Manager. All secrets get new values at cutover, except the connection-secret encryption key. That key got a new value after the Railway incident ([CTX-983](https://linear.app/ctxpipe/issue/CTX-983)). The incident did not expose it, so it stays. The design owner accepts the residual risk: a person who gets this key can decrypt the stored connector tokens from any database copy.
 13. GuardDuty runs in every account. AWS Backup copies Aurora and the EBS volumes to the archive account each day (35 days).
 
 **Sandboxes**
 
-14. AgentCore Runtime V2 microVMs replace Vercel Sandbox, one session for each conversation or ingest shard. A repository-size cap replaces a second compute type.
+14. AgentCore Runtime V2 microVMs replace Vercel Sandbox, one session for each conversation or ingest shard. A repository-size cap replaces a second compute type. Production invokes a named runtime endpoint, so that a new sandbox version needs an explicit promote and can roll back at once. Previews use the `DEFAULT` endpoint, which follows the newest version by itself.
 15. The backend reaches a session only through `InvokeAgentRuntime` and `InvokeAgentRuntimeCommand` over PrivateLink. No session endpoints. A resource policy, an SCP and the VPC endpoint condition let only backend roles invoke.
 16. The sandbox reaches the backend's tool bridge and model proxy over the private network. It goes through Agent Vault, as in self-host ([ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md)). Agent Vault is the only egress proxy of the sandbox. Sandbox subnets have no internet route. They reach Agent Vault and the VPC endpoints for ECR, logs and AgentCore.
 17. The V2 memory snapshot holds only our shim. OpenCode starts after the restore. Secrets in the sandbox come from `/dev/urandom` per request.
@@ -70,7 +70,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - The `Production` and `Preview` environments never share a token, key or secret.
     - The preview source is not scrubbed. It keeps the session tokens and the OAuth tokens that it copies from production (`sessions`, `accounts`). The Neon preview branches of today do the same. The design owner accepts this residual risk. Unreviewed PR code can read these tokens. It can replay a copied session token against the production app. It can also use a copied OAuth token against a customer's provider. The account boundary does not stop these two effects. It only keeps PR code away from the AWS resources of the production account.
 23. Cloudflare Access protects `pr-N.ctxpipe.dev`. Access lets `/mcp`, the OAuth paths and the webhook path through, because those clients cannot do an Access login. The app's own auth protects these paths.
-24. At most 15 previews exist at a time. A preview is deleted on PR close, or 3 days after the last `preview up`. A warm pool of paused clones comes only if a clone and its instance take over 3 minutes. The spike measures this.
+24. At most 15 previews exist at a time. A preview is deleted on PR close, or 3 days after the last `preview up`. A warm pool of 1 to 2 paused clones keeps the first `preview up` short: in the spike, a clone and its instance took 8 to 8.5 minutes. An idle preview resumes in about 13 seconds on its first request.
 
 **Observability**
 
