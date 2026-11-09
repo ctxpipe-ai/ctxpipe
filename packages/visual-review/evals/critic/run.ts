@@ -109,9 +109,10 @@ export function holdOut(manifest: CaseManifest, seed: number): Set<string> {
  * change type and no confidence, as when the interpreter is not available.
  * There is no signature, so the free noise step does not apply.
  */
-function withoutFacts({ signature: _, ...story }: StoryInput): StoryInput {
+function withoutFacts(story: StoryInput): StoryInput {
   return {
     ...story,
+    signature: undefined,
     regions: story.regions.map((region) => ({
       ...region,
       changeType: null,

@@ -29,10 +29,10 @@ on:
         type: string
         default: "3"
       max_cost:
-        description: "The spend cap of the run in USD."
+        description: "The spend cap of the run in USD. Calls that already started finish after the cap, so keep a margin below the $100 limit of the key."
         required: false
         type: string
-        default: "100"
+        default: "90"
 
 concurrency:
   group: ${{ github.workflow }}

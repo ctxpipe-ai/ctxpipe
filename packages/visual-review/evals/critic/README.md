@@ -89,6 +89,6 @@ The report has a table for the hold-out set and a table for the other cases. Eac
 
 ## The workflow
 
-`.github/workflows/visual-bakeoff.yaml` runs the bake-off by hand in the `workbench` environment, with its spend-capped `MODEL_PROVIDER_API_KEY`. It downloads the case images as a `.tar.gz` of the builder output (`images_url`, checked with `images_sha256`). It installs the local judge of BlazeDiff in its own folder, and runs the arms with `--max-cost` (default 100) and `--max-minutes 300`. The job summary shows the report, and the artifact `visual-bakeoff-report` holds `report.md` and `results.json`.
+`.github/workflows/visual-bakeoff.yaml` runs the bake-off by hand in the `workbench` environment, with its spend-capped `MODEL_PROVIDER_API_KEY`. It downloads the case images as a `.tar.gz` of the builder output (`images_url`, checked with `images_sha256`). It installs the local judge of BlazeDiff in its own folder, and runs the arms with `--max-cost` (default 90, a margin for the calls that already started below the $100 limit of the key) and `--max-minutes 300`. The job summary shows the report, and the artifact `visual-bakeoff-report` holds `report.md` and `results.json`.
 
 The default arms are the models of the plan in the three prompt arms, Jev, the cascade with Sonnet, and the local judge. A full run of all of them costs more than $100. The hold-out cases go first, so a run that the cap stops still has the cases of the selection rule. To spend less, give fewer arms or fewer runs.

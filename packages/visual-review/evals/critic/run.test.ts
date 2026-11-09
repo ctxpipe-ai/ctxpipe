@@ -1,7 +1,13 @@
 // The dry run of the bake-off: every arm on a small case set, with msw in
 // place of OpenRouter and of the Jev Decisions API, and a stand-in package
 // for the local judge of BlazeDiff (its models do not run in a test).
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -96,6 +102,7 @@ const cases: Case[] = [
 const labelOf = (id: string) => cases.find((entry) => entry.id === id)?.label
 
 const folder = mkdtempSync(join(tmpdir(), "bakeoff-test-"))
+afterAll(() => rmSync(folder, { recursive: true, force: true }))
 const images = join(folder, "images")
 for (const entry of cases) {
   const [before, after] = pairs[entry.kind]
