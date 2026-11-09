@@ -117,12 +117,8 @@ async function run(jobs: Job[]) {
           else
             results.push(...failed(story, "play-failed", "Not in the build."))
         }
-        await playStories(
-          url,
-          [...jobOf.keys()],
-          () => undefined,
-          false,
-          async (page, entry, error) => {
+        await playStories(url, [...jobOf.keys()], () => undefined, {
+          afterPlay: async (page, entry, error) => {
             const story = jobOf.get(entry)
             if (!story) return
             if (error) {
@@ -137,7 +133,7 @@ async function run(jobs: Job[]) {
               )
             }
           },
-        )
+        })
       } finally {
         await new Promise((resolveClose) => server.close(resolveClose))
       }
