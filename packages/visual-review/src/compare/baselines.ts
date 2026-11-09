@@ -62,21 +62,25 @@ const maxDiffPixels = 10
  * Every story has a desktop baseline; a story with the `page` tag also has a
  * mobile one. A screenshot in `unstable` (a story id, at each viewport or at
  * one) has no baseline yet: it is skipped, and its old baseline is an
- * orphan. A
- * baseline file is an orphan when no story has it, also when its
- * `screenshots/` folder has no story file beside it.
+ * orphan. A `*.screenshot.png` file under apps/ui is an orphan when no story
+ * has it. This is also true when its `screenshots/` folder has no story file
+ * beside it, and when the file is not in a `screenshots/` folder.
  *
- * - `check` captures every story, compares each screenshot with its
- *   baseline, and writes the images of each story that is not unchanged and
- *   `manifest.json` into `out`. It never writes or deletes a baseline.
+ * - `check` captures every story (or only the stories of `only`), compares
+ *   each screenshot with its baseline, and writes the images of each story
+ *   that is not unchanged and `manifest.json` into `out`. It never writes or
+ *   deletes a baseline. With `only` (the visual checks of
+ *   scripts/checks/visual.mjs), it does not look for orphans, and only the
+ *   image budget of the baselines of those stories applies.
  * - `update` captures the selected stories (all, `only`, or with `failed`
  *   the stories of the last check that were not unchanged), writes each
  *   baseline that changed (recompressed without loss), and deletes the
  *   orphans.
  *
- * Both fail (return 1) when a baseline is above the size `budget`. `check`
+ * Both fail (code 1) when a baseline is above the size `budget`. `check`
  * also fails on each story that is not unchanged; `update` on each story with
- * no steady screenshot.
+ * no steady screenshot. The result also holds the manifest entries of a
+ * `check`, and each budget error with the baseline that it names.
  */
 export async function runVisual({
   mode,
@@ -106,13 +110,18 @@ export async function runVisual({
   /** The facts of the run, for the manifest. */
   run: Manifest["run"]
   print: (line: string) => void
-  /** Only with `update`: the story ids to accept. */
+  /** The story ids to compare (`check`) or to accept (`update`). */
   only?: readonly string[]
   /** Only with `update`: accept the stories that the last check failed. */
   failed?: boolean
   /** The largest total size and the largest size of one image, in bytes. */
   budget?: { total: number; image: number }
-}): Promise<number> {
+}): Promise<{
+  code: 0 | 1
+  /** The manifest entries of a `check`; empty for an `update`. */
+  stories: ManifestStory[]
+  budget: BudgetError[]
+}> {
   const shots = stories.flatMap((story): Shot[] => {
     const storyFile = posix.join("apps/ui", story.importPath)
     const page = (story.tags ?? []).includes("page")
@@ -138,7 +147,7 @@ export async function runVisual({
     )?.ticket
   for (const shot of shots) {
     const ticket = ticketOf(shot)
-    if (ticket)
+    if (ticket && (!only || only.includes(shot.story.id)))
       print(
         `skipped: ${shot.story.id} at ${shot.viewport} (known unstable, ${ticket})`,
       )
@@ -149,12 +158,14 @@ export async function runVisual({
   const expected = new Set(
     shots.filter((shot) => !ticketOf(shot)).map((shot) => shot.baseline),
   )
-  const orphans = (await baselineFiles(root))
-    .filter((path) => !expected.has(path))
-    .sort()
+  // A check of some stories does not look at the files of other stories.
+  const orphans =
+    mode === "check" && only
+      ? []
+      : (await baselineFiles(root)).filter((path) => !expected.has(path)).sort()
 
   let selected = shots.filter((shot) => !ticketOf(shot))
-  if (mode === "update" && only) {
+  if (only) {
     const unknown = only.filter(
       (id) => !stories.some((story) => story.id === id),
     )
@@ -162,9 +173,14 @@ export async function runVisual({
       throw new Error(`Not in the Storybook build: ${unknown.join(", ")}`)
     selected = selected.filter((shot) => only.includes(shot.story.id))
   } else if (mode === "update" && failed) {
-    const last = manifestSchema.parse(
-      JSON.parse(await readFile(join(out, "manifest.json"), "utf8")),
+    const text = await readFile(join(out, "manifest.json"), "utf8").catch(
+      () => {
+        throw new Error(
+          `${join(out, "manifest.json")} is missing. Run pnpm visual:check first: --failed accepts the stories that it failed.`,
+        )
+      },
     )
+    const last = manifestSchema.parse(JSON.parse(text))
     const failing = new Set(
       last.stories
         .filter((story) => !["unchanged", "removed"].includes(story.status))
@@ -186,9 +202,9 @@ export async function runVisual({
   }
 
   let failures = 0
+  const entries: ManifestStory[] = []
   if (mode === "check") {
     await rm(out, { recursive: true, force: true })
-    const entries: ManifestStory[] = []
     for (const [shot, result] of results) {
       const entry = await compareShot(root, out, shot, result)
       if (entry.status !== "unchanged") {
@@ -217,7 +233,7 @@ export async function runVisual({
       if (result.status !== "captured" || !result.png) {
         failures++
         print(
-          `${result.status === "unstable" ? "unstable" : "play-failed"}: ${shot.story.id} at ${shot.viewport}; no baseline written${result.error ? ` (${result.error})` : ""}`,
+          `${notCaptured(result)}: ${shot.story.id} at ${shot.viewport}; no baseline written${result.error ? ` (${result.error})` : ""}`,
         )
         continue
       }
@@ -248,10 +264,24 @@ export async function runVisual({
     )
   }
 
-  const over = await overBudget(root, budget)
-  for (const line of over) print(line)
-  return failures || over.length ? 1 : 0
+  const over = await overBudget(
+    root,
+    budget,
+    mode === "check" && only
+      ? selected.map((shot) => shot.baseline)
+      : undefined,
+  )
+  for (const error of over) print(error.message)
+  return {
+    code: failures || over.length ? 1 : 0,
+    stories: entries,
+    budget: over,
+  }
 }
+
+/** The manifest status of a screenshot that the capture did not give. */
+const notCaptured = (result: Captured) =>
+  result.status === "unstable" ? "unstable" : "play-failed"
 
 /** The manifest entry of one captured screenshot, with its images in `out`. */
 async function compareShot(
@@ -288,7 +318,7 @@ async function compareShot(
   if (result.status !== "captured" || !result.png)
     return {
       ...base,
-      status: result.status === "unstable" ? "unstable" : "play-failed",
+      status: notCaptured(result),
       summary: result.error ?? `The screenshot is ${result.status}.`,
       images: result.png ? await writeAfter(result.png) : {},
     }
@@ -331,13 +361,18 @@ async function compareShot(
 /** The manifest entry of a baseline that no story has. */
 function removedEntry(baseline: string): ManifestStory {
   const name = posix.basename(baseline)
-  const stem = name.split(".")[0] ?? name
+  // <stem>.<story name>[@<snapshot>].<viewport>.screenshot.png. A story file
+  // name can hold a dot; an export name cannot.
+  const story = name.replace(/\.(?:desktop|mobile)\.screenshot\.png$/, "")
+  const stem = story.includes(".")
+    ? story.slice(0, story.lastIndexOf("."))
+    : story
+  const folder = posix.dirname(baseline)
   return {
     id: baseline,
     title: "",
     componentFile: posix.join(
-      posix.dirname(baseline),
-      "..",
+      posix.basename(folder) === "screenshots" ? posix.dirname(folder) : folder,
       `${stem}.stories.tsx`,
     ),
     scope: "component",
@@ -357,45 +392,61 @@ function removedEntry(baseline: string): ManifestStory {
   }
 }
 
-/** Each `screenshots/*.screenshot.png` under apps/ui/src. */
+/**
+ * Each `*.screenshot.png` file under apps/ui, from the repository root. It
+ * does not look in `node_modules` or in the Storybook build.
+ */
 async function baselineFiles(root: string): Promise<string[]> {
-  const entries = await readdir(join(root, "apps/ui/src"), {
-    recursive: true,
-    withFileTypes: true,
-  }).catch(() => [])
-  return entries
-    .filter(
-      (entry) =>
-        entry.isFile() &&
-        entry.name.endsWith(".screenshot.png") &&
-        posix.basename(entry.parentPath) === "screenshots",
-    )
-    .map((entry) =>
-      posix.relative(root, posix.join(entry.parentPath, entry.name)),
-    )
+  const files: string[] = []
+  const walk = async (dir: string) => {
+    const entries = await readdir(join(root, dir), {
+      withFileTypes: true,
+    }).catch(() => [])
+    for (const entry of entries) {
+      const path = posix.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (!["node_modules", "storybook-static"].includes(entry.name))
+          await walk(path)
+      } else if (entry.isFile() && entry.name.endsWith(".screenshot.png"))
+        files.push(path)
+    }
+  }
+  await walk("apps/ui")
+  return files
 }
 
-/** The size budget errors of the committed baselines. */
+/** A size budget error, with the baseline that it names, if one. */
+type BudgetError = { path?: string; message: string }
+
+/**
+ * The size budget errors of the committed baselines. With `paths`, only the
+ * image budget of those baselines.
+ */
 async function overBudget(
   root: string,
   budget: { total: number; image: number },
-): Promise<string[]> {
-  const errors: string[] = []
+  paths?: readonly string[],
+): Promise<BudgetError[]> {
+  const errors: BudgetError[] = []
   let total = 0
-  for (const path of await baselineFiles(root)) {
-    const { size } = await stat(join(root, path))
+  for (const path of paths ?? (await baselineFiles(root))) {
+    const size = await stat(join(root, path)).then(
+      (file) => file.size,
+      () => 0,
+    )
     total += size
     if (size > budget.image)
-      errors.push(
-        `${path} is ${size} bytes; one image may be ${bytes(budget.image)}. Make the story smaller, or mask the content that does not compress.`,
-      )
+      errors.push({
+        path,
+        message: `${path} is ${mb(size)}; one image may be ${mb(budget.image)}. Make the story smaller, or mask the content that does not compress.`,
+      })
   }
-  if (total > budget.total)
-    errors.push(
-      `The baselines are ${total} bytes in total; the budget is ${bytes(budget.total)}.`,
-    )
+  if (!paths && total > budget.total)
+    errors.push({
+      message: `The baselines are ${mb(total)} in total; the budget is ${mb(budget.total)}.`,
+    })
   return errors
 }
 
-const bytes = (count: number) =>
-  count % (1024 * 1024) === 0 ? `${count / (1024 * 1024)} MB` : `${count} bytes`
+const mb = (count: number) =>
+  `${Number((count / (1024 * 1024)).toPrecision(3))} MB`

@@ -242,7 +242,7 @@ test("each planned check goes to the job that runs it, and a job without one doe
     /terraform-plan-pr\.yaml/,
   )
   assert.match(placeOf(deploy).workflow, /pr-deploy\.yaml/)
-  // Every Storybook check runs in the plays shards, after the build.
+  // Every Storybook play runs in the plays shards, after the build.
   const stories = planOf({
     files: {
       "llm-selection.json": {
@@ -256,6 +256,18 @@ test("each planned check goes to the job that runs it, and a job without one doe
   })
   assert.equal(stories.outputs["storybook-build"], "true")
   assert.equal(stories.jobs["storybook-plays"][0].plan.ids.length, 2)
+  // A screenshot check runs in the one screenshots job, after the build.
+  const screenshot = "storybook:visual:apps/ui/src/e.stories.tsx#e--one"
+  assert.deepEqual(placeOf(screenshot), { job: "storybook-visual" })
+  const shots = planOf({
+    files: {
+      "llm-selection.json": { ...llmRecord(), selected: [check(screenshot)] },
+    },
+  })
+  assert.equal(shots.outputs["storybook-build"], "true")
+  assert.equal(shots.outputs["storybook-visual"], "1")
+  assert.deepEqual(shots.jobs["storybook-visual"].ids, [screenshot])
+  assert.equal(shots.jobs["storybook-plays"], undefined)
 })
 
 test("shadow mode, a fork and a failed selector give a full run", () => {
@@ -706,6 +718,7 @@ test("each job of the plan needs the plan job, starts only with its output, and 
     "packages",
     "storybook-build",
     "storybook-plays",
+    "storybook-visual",
     "codesearch",
     "vercel-sandbox",
     "upgrade-from-previous-release",
@@ -741,6 +754,7 @@ test("each job of the plan needs the plan job, starts only with its output, and 
     "package-tests",
     "packages",
     "storybook-plays",
+    "storybook-visual",
     "vercel-sandbox",
   ]) {
     const text = job(name)

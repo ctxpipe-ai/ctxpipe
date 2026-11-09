@@ -94,7 +94,7 @@ const capture: Capture = async (viewport, ids) => {
   )
 }
 
-const visual = (
+const runWith = (
   mode: "check" | "update",
   more: Partial<Parameters<typeof runVisual>[0]> = {},
 ) =>
@@ -109,6 +109,10 @@ const visual = (
     print: (line) => lines.push(line),
     ...more,
   })
+const visual = async (
+  mode: "check" | "update",
+  more: Partial<Parameters<typeof runVisual>[0]> = {},
+) => (await runWith(mode, more)).code
 
 const put = async (path: string, bytes: Uint8Array | string) => {
   await mkdir(dirname(join(root, path)), { recursive: true })
@@ -281,9 +285,83 @@ describe("visual:check", () => {
     expect(await visual("check")).toBe(1)
     expect(await statuses()).toMatchObject({ [cardDesktop]: "size-changed" })
   })
+
+  test("an orphan of a story file with a dot in its name names that story file", async () => {
+    const orphan =
+      "apps/ui/src/features/card/screenshots/-github.link.Gone.desktop.screenshot.png"
+    await put(orphan, blue)
+    await visual("check")
+    const story = (await manifest()).stories.find(
+      (entry) => entry.baseline === orphan,
+    )
+    expect(story?.componentFile).toBe(
+      "apps/ui/src/features/card/-github.link.stories.tsx",
+    )
+  })
+
+  test("a screenshot file outside a screenshots folder is an orphan", async () => {
+    await visual("update")
+    const stray = "apps/ui/src/features/card/Card.Plain.desktop.screenshot.png"
+    const far = "apps/ui/public/old.screenshot.png"
+    await put(stray, blue)
+    await put(far, blue)
+    expect(await visual("check")).toBe(1)
+    expect(await statuses()).toMatchObject({
+      [stray]: "removed",
+      [far]: "removed",
+    })
+    expect(await visual("update")).toBe(0)
+    expect(Object.keys(await tree())).not.toContain(stray)
+    expect(Object.keys(await tree())).not.toContain(far)
+  })
+
+  test("with only, compares the named stories and returns their entries, with no orphan and no total budget", async () => {
+    await visual("update")
+    await put(
+      "apps/ui/src/features/card/screenshots/Card.Gone.desktop.screenshot.png",
+      blue,
+    )
+    shots.set(`${home.id} mobile`, { status: "captured", png: red })
+    captured = []
+    const result = await runWith("check", {
+      only: [home.id],
+      budget: { total: 100, image: 1024 * 1024 },
+    })
+    expect(captured.sort()).toEqual([`${home.id} desktop`, `${home.id} mobile`])
+    expect(result.code).toBe(1)
+    expect(
+      result.stories.map((story) => [story.baseline, story.status]),
+    ).toEqual([
+      [homeDesktop, "unchanged"],
+      [homeMobile, "changed"],
+    ])
+    expect(result.budget).toEqual([])
+    expect(await statuses()).toEqual({
+      [homeDesktop]: "unchanged",
+      [homeMobile]: "changed",
+    })
+  })
+
+  test("with only, a named story's baseline above the image budget fails and is named", async () => {
+    shots.set(`${card.id} desktop`, { status: "captured", png: noise() })
+    await visual("update")
+    await visual("update", { only: [home.id] })
+    const result = await runWith("check", { only: [home.id] })
+    expect(result).toMatchObject({ code: 0, budget: [] })
+    const big = await runWith("check", { only: [card.id] })
+    expect(big.code).toBe(1)
+    expect(big.budget).toEqual([
+      { path: cardDesktop, message: expect.stringMatching(/1 MB/) },
+    ])
+  })
 })
 
 describe("visual:update", () => {
+  test("--failed with no earlier check asks for visual:check first", async () => {
+    await expect(visual("update", { failed: true })).rejects.toThrow(
+      /Run pnpm visual:check first/,
+    )
+  })
   test("writes each missing baseline, recompressed without loss", async () => {
     expect(await visual("update")).toBe(0)
     for (const path of [cardDesktop, homeDesktop, homeMobile])
@@ -366,7 +444,7 @@ describe("the size budget", () => {
     shots.set(`${card.id} desktop`, { status: "captured", png: noise() })
     expect(await visual("update")).toBe(1)
     expect(lines.join("\n")).toMatch(
-      new RegExp(`${cardDesktop} is \\d+ bytes; one image may be 1 MB`),
+      new RegExp(`${cardDesktop} is [\\d.]+ MB; one image may be 1 MB`),
     )
     expect(await visual("check")).toBe(1)
   })
@@ -376,7 +454,7 @@ describe("the size budget", () => {
     const budget = { total: 100, image: 1024 * 1024 }
     expect(await visual("check", { budget })).toBe(1)
     expect(lines.join("\n")).toMatch(
-      /The baselines are \d+ bytes in total; the budget is 100 bytes/,
+      /The baselines are [\d.]+ MB in total; the budget is 0\.0000954 MB/,
     )
   })
 })

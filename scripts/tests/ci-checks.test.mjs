@@ -173,6 +173,26 @@ test("the manifest matches its schema and lists each check of each family", asyn
   assert.equal(count("vitest", "upgrade"), 1)
   assert.ok(count("storybook", "required") > 0)
   assert.ok(count("storybook", "plays") > 0)
+  // Each committed baseline is the own input of exactly one visual check, and
+  // each own input is a committed baseline: the names of
+  // scripts/checks/visual.mjs and of the compare engine agree.
+  const owned = manifest.checks
+    .filter((check) => check.lane === "visual")
+    .flatMap((check) => check.ownInputs)
+  const baselines = spawnSync("git", ["ls-files", "*.screenshot.png"], {
+    cwd: root,
+    encoding: "utf8",
+  })
+    .stdout.split("\n")
+    .filter(Boolean)
+  assert.ok(baselines.length > 0)
+  assert.deepEqual(owned.toSorted(), baselines.toSorted())
+  for (const check of manifest.checks)
+    assert.equal(
+      check.selectAll ?? false,
+      check.lane === "visual",
+      `${check.id}: selectAll`,
+    )
   // An expensive check states its intent in under about 40 words. A check
   // that calls a model or a wall clock is stochastic; a check that reads
   // remote state, base images by tag or a deployment is not cacheable.
@@ -361,6 +381,7 @@ test("the manifest marks exactly the platform-independent checks portable", () =
     "vitest:visual-review",
     "storybook:required",
     "storybook:plays",
+    "storybook:visual",
     "eval:mcp",
     "build:package",
   ])
@@ -389,6 +410,15 @@ test("the manifest marks exactly the platform-independent checks portable", () =
   assert.deepEqual(
     programs("contracts"),
     new Set(['["git","bun","zoekt","ast-grep","container-platform"]']),
+  )
+  // A screenshot is taken in the pinned image of the Docker server.
+  assert.deepEqual(
+    new Set(
+      checks
+        .filter((check) => check.lane === "visual")
+        .map((check) => JSON.stringify(check.programs)),
+    ),
+    new Set(['["container-platform"]']),
   )
   // A check that the denylist names is never portable.
   const denied = JSON.parse(readFileSync(script("non-portable.json"), "utf8"))

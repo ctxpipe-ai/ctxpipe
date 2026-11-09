@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { readUnstable } from "../checks/visual.mjs"
 import { captureInContainer } from "./visual-capture.mjs"
 
 // Proves that the capture container is deterministic: it captures a sample of
@@ -18,27 +19,6 @@ import { captureInContainer } from "./visual-capture.mjs"
 // "Screenshot determinism" in .github/workflows/ci.yaml) runs it.
 //
 // Usage: node scripts/ci/visual-capture-proof.mjs [sample size, default 20, or "all"]
-
-// The entries of the unstable list. Each one needs a story id, a reason and
-// the ticket that fixes it. An entry with a viewport (desktop or mobile) is
-// unstable only at that viewport (pnpm visual:check skips only that
-// screenshot).
-export function readUnstableList(list) {
-  for (const entry of list.stories ?? []) {
-    if (
-      typeof entry.id !== "string" ||
-      !entry.id ||
-      typeof entry.reason !== "string" ||
-      !entry.reason.trim() ||
-      !/^CTX-\d+$/.test(entry.ticket ?? "") ||
-      ![undefined, "desktop", "mobile"].includes(entry.viewport)
-    )
-      throw new Error(
-        `Each entry of visual-unstable-stories.json needs an id, a reason and a ticket (CTX-<n>), and an optional viewport (desktop or mobile): ${JSON.stringify(entry)}`,
-      )
-  }
-  return list.stories ?? []
-}
 
 // Splits the stories that are not identical in the two runs: a story that is
 // listed for the desktop viewport (the viewport of the proof) is skipped, and
@@ -103,15 +83,7 @@ async function prove() {
     return { id, identical, runs: [first, second] }
   })
 
-  const unstable = readUnstableList(
-    JSON.parse(
-      readFileSync(
-        join(root, "scripts/ci/visual-unstable-stories.json"),
-        "utf8",
-      ),
-    ),
-  )
-  const { skipped, failing } = judgeProof(results, unstable)
+  const { skipped, failing } = judgeProof(results, readUnstable())
 
   mkdirSync(out, { recursive: true })
   writeFileSync(
