@@ -473,7 +473,7 @@ export const workspaceTipCheck = defineWorkflow(
         )
           continue
         await cleanUpWorkspaceWriteRefs(
-          { orgId: input.orgId, workspaceId: workspace.id, now },
+          { orgId: input.orgId, workspaceId: workspace.id },
           env,
         ).catch((error: unknown) => {
           log.warn({

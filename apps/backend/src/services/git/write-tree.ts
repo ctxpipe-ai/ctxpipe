@@ -250,7 +250,6 @@ export async function stageGitFiles(
 export async function validateGitTree(
   staged: StagedGitTree,
   allowedPaths: readonly string[],
-  options: { allowNoChanges?: boolean } = {},
   read: GitRemoteRead | null,
 ): Promise<string[]> {
   return withGitDirectory(
@@ -262,7 +261,7 @@ export async function validateGitTree(
         to: staged.tree,
       })
       if (
-        (!options.allowNoChanges && !relative.length) ||
+        !relative.length ||
         relative.some((path) => !allowedPaths.includes(path))
       )
         throw new Error("Invalid write tree")

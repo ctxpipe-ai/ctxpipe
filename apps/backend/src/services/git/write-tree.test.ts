@@ -144,7 +144,6 @@ describe("a pack with a Workspace root folder", () => {
       await validateGitTree(
         staged,
         ["knowledge/services/a.md", "knowledge/services/b.md"],
-        undefined,
         null,
       ),
     ).toEqual(["knowledge/services/a.md", "knowledge/services/b.md"])

@@ -41,6 +41,7 @@ import { workspaceIndex } from "../openworkflow/workflows/workspace-index.js"
 import { workspaceTipCheck } from "../openworkflow/workflows/workspace-tip-check.js"
 import { closeGraphDb } from "../platform/graph/client.js"
 import { listenWithDockerOutsideMsw } from "./docker-outside-msw.js"
+import { expectSmallWriteStepOutputs } from "./write-step-outputs.js"
 
 export type NativeHydrationOptions = {
   namespaceId?: string
@@ -1032,25 +1033,4 @@ export async function withNativeHydrationFixture(
   } finally {
     await fixture.cleanup()
   }
-}
-
-/**
- * No Workspace write step keeps Git objects in its durable output
- * (CTX-1235): each completed step output of a write workflow of the org is at
- * most 4 KiB. Each contract test that runs a write workflow on this fixture
- * checks it. `capture-semantic-handoff` is not checked: it still holds the
- * file contents of the delta of a push that lost a race, which grow with the
- * change, not with the repository (a follow-up of CTX-1235).
- */
-async function expectSmallWriteStepOutputs(orgId: string) {
-  const large = await getSystemDb().execute(sql`
-    select wr.workflow_name, sa.step_name, octet_length(sa.output::text) as bytes
-    from openworkflow.step_attempts sa
-    join openworkflow.workflow_runs wr on wr.id = sa.workflow_run_id
-    where wr.input->>'orgId' = ${orgId}
-      and wr.workflow_name like 'workspace-write-%'
-      and sa.status = 'completed'
-      and sa.step_name not like 'capture-semantic-handoff%'
-      and octet_length(sa.output::text) > 4096`)
-  expect(large.rows).toEqual([])
 }

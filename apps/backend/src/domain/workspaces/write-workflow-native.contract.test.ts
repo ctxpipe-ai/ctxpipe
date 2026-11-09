@@ -398,6 +398,11 @@ it(
           expect(
             f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
           ).toBe(f.sha)
+          // The first write credential is the one of the job ref push
+          // (CTX-1235): no content leaves after the detach.
+          expect(
+            f.git("--git-dir", f.remote, "for-each-ref", "refs/ctxpipe/write/"),
+          ).toBe("")
           expect(result?.status).toBe("rejected")
           const run = await f.backend.getWorkflowRun({
             workflowRunId: handle.workflowRun.id,

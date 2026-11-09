@@ -890,14 +890,6 @@ export async function deleteRemoteRefs(
   return withScratchRepository((repoDir) => deleteRefs(repoDir, remote, refs))
 }
 
-/** The commit time of each SHA on the remote, in milliseconds. */
-export async function remoteCommitTimes(
-  remote: IngestRemote,
-  shas: string[],
-): Promise<Map<string, number>> {
-  return withScratchRepository((repoDir) => tipTimes(repoDir, remote, shas))
-}
-
 /**
  * Deletes each ref with a lease on its listed tip. A ref that moved since the
  * listing is skipped, not deleted, and does not stop the other deletes.

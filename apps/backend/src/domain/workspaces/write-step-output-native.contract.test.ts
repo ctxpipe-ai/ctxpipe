@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 
-import { expect, it, vi } from "vitest"
+import { expect, it } from "vitest"
 
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
@@ -11,7 +11,10 @@ import {
   persistBoundWriteJob,
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
-import { persistWriteJobCommitSha } from "../../models/workspaces.js"
+import {
+  persistWriteJobCommitSha,
+  persistWriteJobStatus,
+} from "../../models/workspaces.js"
 import { workspaceFileEdit } from "../../openworkflow/workflows/workspace-file-edit.js"
 import { defineKnowledgeRewriteWorkflow } from "../../openworkflow/workflows/workspace-knowledge-rewrite.js"
 import { workspaceSemanticMerge } from "../../openworkflow/workflows/workspace-semantic-merge.js"
@@ -406,7 +409,7 @@ it(
 )
 
 it(
-  "the tip check deletes the job refs of finished jobs and of old unknown jobs, and keeps the refs of an active job",
+  "the tip check deletes the job refs of completed and failed jobs, and keeps the refs of an active or unknown job",
   { timeout: 90_000 },
   async () => {
     await withNativeHydrationFixture(fixture(), async (f) => {
@@ -424,8 +427,9 @@ it(
       }
       const active = `wjob_${f.id}_active`
       const completed = `wjob_${f.id}_completed`
+      const failed = `wjob_${f.id}_failed`
       await withOrgIdContext(f.org, async () => {
-        for (const id of [active, completed])
+        for (const id of [active, completed, failed])
           await persistBoundWriteJob({
             id,
             kind: "ui_file_edit",
@@ -435,27 +439,18 @@ it(
             deletePaths: [],
           })
         await persistWriteJobCommitSha(completed, null)
+        await persistWriteJobStatus(failed, "failed")
       })
-      const keep = refFor(active)
-      const finished = refFor(completed)
-      const recentUnknown = refFor(`wjob_${f.id}_recent`)
-      // The clean-up reads the age of an unknown job's ref from the committer
-      // date of its commit.
-      vi.stubEnv("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
-      let oldUnknown: string
-      try {
-        oldUnknown = refFor(`wjob_${f.id}_old`)
-      } finally {
-        vi.unstubAllEnvs()
-      }
+      const kept = [refFor(active), refFor(`wjob_${f.id}_unknown`)]
+      const finished = [refFor(completed), refFor(failed)]
       const deleted = await withOrgIdContext(f.org, () =>
         cleanUpWorkspaceWriteRefs(
-          { orgId: f.org.id, workspaceId: f.workspaceId, now: new Date() },
+          { orgId: f.org.id, workspaceId: f.workspaceId },
           env,
         ),
       )
-      expect(deleted.sort()).toEqual([finished, oldUnknown].sort())
-      expect(writeRefs(f).sort()).toEqual([keep, recentUnknown].sort())
+      expect(deleted.sort()).toEqual(finished.sort())
+      expect(writeRefs(f).sort()).toEqual(kept.sort())
     })
   },
 )

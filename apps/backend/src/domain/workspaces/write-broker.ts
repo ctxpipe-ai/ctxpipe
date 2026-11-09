@@ -17,6 +17,7 @@ import {
   resolveGitRemoteTip,
 } from "../../services/git/clone-tree.js"
 import {
+  fetchGitCommits,
   type GitWriteCommit,
   nativeGit,
   type PublishGitCommit,
@@ -41,7 +42,6 @@ import {
   parseIngestRef,
   pushIngestAssemble,
   pushIngestStep,
-  remoteCommitTimes,
 } from "../ingestion/ingest-refs.js"
 import type { UnbornBootstrapBinding } from "./bootstrap-input.js"
 import { getUnbornBootstrapWorkspace } from "./bootstrap-unborn.js"
@@ -237,9 +237,10 @@ function sameWriteBinding(
 }
 
 /**
- * Whether the history of the remote tip holds `sha`. The fetch of the tip
- * into an empty directory brings exactly the commits that the tip reaches, so
- * `sha` need not be on the remote.
+ * Whether the history of the remote tip holds `sha`, a commit on top of
+ * `revision.sha`. The directory first gets `revision.sha` at depth 1, so the
+ * fetch of the tip brings only the commits between the two, and exactly the
+ * commits that the tip reaches: `sha` need not be on the remote.
  */
 async function remoteContainsCommit(
   revision: { remote: WorkspaceRevision["remote"]; sha: string | null },
@@ -252,6 +253,12 @@ async function remoteContainsCommit(
   return withGitDirectory(
     tipSha,
     async (directory) => {
+      if (revision.sha)
+        await fetchGitCommits(directory, {
+          url: revision.remote.url,
+          shas: [revision.sha],
+          token,
+        })
       await nativeGit(
         directory,
         ["fetch", "--", revision.remote.url, tipSha],
@@ -919,6 +926,13 @@ type WriteJob = {
 }
 
 /**
+ * The checks that a job ref push of a write job needs before any content
+ * leaves the worker. `guard` adds the checks of the job kind (the binding and
+ * the scope of a connector mirror).
+ */
+type WriteJobPush = WriteJob & { guard?: () => Promise<void> }
+
+/**
  * Admission of the job refs of a write job, before any credential
  * (CTX-1235). The job names a Workspace, never a URL: the URL comes from the
  * Workspace row, so a job reaches only the Workspace repository. The job must
@@ -961,8 +975,7 @@ function workspaceBrokerRemote(workspace: {
 
 /**
  * How long the tip check keeps cleaning the job refs of a Workspace after
- * its last write job changed, and how old the commit of an unknown job's ref
- * must be before the tip check deletes it.
+ * its last write job changed. The ingest refs use the same window.
  */
 export const WRITE_JOB_REF_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -974,11 +987,11 @@ export const WRITE_JOB_REF_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
  * Workspace read-only.
  */
 export async function prepareWithJobRef<T>(
-  job: WriteJob,
+  job: WriteJobPush,
   env: Env,
   prepare: (publish: PublishGitCommit) => Promise<T>,
 ): Promise<T | "paused"> {
-  const publish: PublishGitCommit = async (directory, sha) => {
+  const admitActive = async () => {
     const admitted = await admitWriteJob(job)
     if (
       admitted.state.status !== "running" &&
@@ -987,7 +1000,15 @@ export async function prepareWithJobRef<T>(
       throw new Error("The write job is not active")
     if (admitted.workspace.writeStatus !== "writable")
       throw new WorkspaceWriteAccessUnavailableError()
+    return admitted
+  }
+  const publish: PublishGitCommit = async (directory, sha) => {
+    const admitted = await admitActive()
     const remote = await brokerWriteRemote(job.orgId, admitted.remote, env)
+    // A detach, a relink, or a lost write access can come while GitHub
+    // issues the credential: check again before any content leaves.
+    await admitActive()
+    await job.guard?.()
     await nativeGit(
       directory,
       [
@@ -1112,14 +1133,14 @@ export async function deleteWriteJobRefs(job: WriteJob, env: Env) {
 
 /**
  * The stale write job ref clean-up of the Workspace tip check (CTX-1235): the
- * refs of a completed or a failed job of the org, and, when its commit is
- * older than 7 days, a ref of an unknown job or with a name that does not
- * parse (a repository can hold the refs of another Workspace). An active job
- * keeps its refs. It lists with the read credential and asks for the write
- * credential only to delete.
+ * refs of a completed or a failed job of the org. An active job keeps its
+ * refs, and so does a ref of an unknown job: a repository can hold the refs
+ * of a Workspace of another org, and the age of a commit does not tell if
+ * its job is active. It lists with the read credential and asks for the
+ * write credential only to delete.
  */
 export async function cleanUpWorkspaceWriteRefs(
-  input: { orgId: string; workspaceId: string; now: Date },
+  input: { orgId: string; workspaceId: string },
   env: Env,
 ): Promise<string[]> {
   const workspace = await getWorkspaceById(input.workspaceId, input.orgId)
@@ -1134,17 +1155,9 @@ export async function cleanUpWorkspaceWriteRefs(
   const statuses = await listWriteJobStatuses([
     ...new Set(refs.flatMap((ref) => (ref.target ? [ref.target.jobId] : []))),
   ])
-  const times = await remoteCommitTimes(
-    read,
-    refs
-      .filter((ref) => !ref.target || !statuses.has(ref.target.jobId))
-      .map((ref) => ref.sha),
-  )
-  const now = input.now.getTime()
   const stale = refs.filter((ref) => {
     const status = ref.target ? statuses.get(ref.target.jobId) : undefined
-    if (status) return status === "completed" || status === "failed"
-    return now - (times.get(ref.sha) ?? now) > WRITE_JOB_REF_WINDOW_MS
+    return status === "completed" || status === "failed"
   })
   if (!stale.length) return []
   return (

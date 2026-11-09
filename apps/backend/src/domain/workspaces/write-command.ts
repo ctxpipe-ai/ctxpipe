@@ -14,7 +14,7 @@ import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { prepareGitMerge } from "../../services/git/merge-tree.js"
-import type { GitPack } from "../../services/git/pack.js"
+import type { GitPack, GitRemoteRead } from "../../services/git/pack.js"
 import { prepareGitCommit } from "../../services/git/write-tree.js"
 import type { ConnectorMirrorSource } from "./connector-mirror.js"
 import {
@@ -153,28 +153,35 @@ export async function acquireWorkspaceWriteRevision(
  * same commit again, so a replay pushes the same ref.
  */
 export async function prepareWorkspaceWriteCommit(
-  input: Pick<WorkspaceWriteCommand, "orgId" | "workspaceId" | "jobId">,
+  input: Pick<
+    WorkspaceWriteCommand,
+    "orgId" | "workspaceId" | "jobId" | "mirror"
+  >,
   revision: WorkspaceRevision,
   pack: GitPack,
   change: { files: readonly GitFileChange[]; deletePaths: readonly string[] },
   commit: { subject: string; createdAt: Date | string },
   env: Env,
 ) {
+  // The acquire step proved that `revision.remote` is the bound repository.
+  const read = workspaceGitRead({
+    orgId: input.orgId,
+    env,
+    remote: revision.remote,
+  })
   return prepareWithJobRef(
-    { ...input, remote: revision.remote },
+    {
+      ...input,
+      remote: revision.remote,
+      guard: mirrorGuard(input, revision, pack, read),
+    },
     env,
     async (publish) => {
       const committed = await prepareGitCommit({
         pack,
         ...change,
         ...commit,
-        // The acquire step proved that `revision.remote` is the bound
-        // repository.
-        read: workspaceGitRead({
-          orgId: input.orgId,
-          env,
-          remote: revision.remote,
-        }),
+        read,
         publish,
       })
       await persistWriteJobPreparedCommit(input.jobId, committed.sha)
@@ -207,12 +214,19 @@ export async function prepareSemanticMergeCommit(
   commit: { subject: string; createdAt: Date | string },
   env: Env,
 ) {
+  // The acquire step proved that `revision.remote` is the bound repository.
+  const read = workspaceGitRead({
+    orgId: input.orgId,
+    env,
+    remote: revision.remote,
+  })
   const job = {
     orgId: input.orgId,
     workspaceId: input.workspaceId,
     jobId: input.jobId,
     remote: revision.remote,
     candidateSha: input.handoff?.candidateSha,
+    guard: mirrorGuard(input, revision, pack, read),
   }
   return prepareWithJobRef(job, env, async (publish) => {
     const found = await findPreparedMergeCommit(job, revision, env)
@@ -234,13 +248,7 @@ export async function prepareSemanticMergeCommit(
           flagUnresolved: true,
         }),
       ...commit,
-      // The acquire step proved that `revision.remote` is the bound
-      // repository.
-      read: workspaceGitRead({
-        orgId: input.orgId,
-        env,
-        remote: revision.remote,
-      }),
+      read,
       publish,
     })
     if (!committed) return null
@@ -268,4 +276,28 @@ export async function completeWorkspaceWrite(
 ) {
   await persistWriteJobCommitSha(job.jobId, commitSha)
   await deleteWriteJobRefs(job, env)
+}
+
+/**
+ * A connector mirror pushes its job ref only while its connector is still
+ * bound to the Workspace and its scope is active, as the broker push checks
+ * (CTX-1235): a captured page must not reach a repository that the connector
+ * left.
+ */
+function mirrorGuard(
+  input: Pick<WorkspaceWriteCommand, "orgId" | "mirror">,
+  revision: WorkspaceRevision,
+  pack: GitPack,
+  read: GitRemoteRead,
+) {
+  const { mirror } = input
+  if (!mirror) return undefined
+  return async () => {
+    await assertConnectorMirrorBinding(input.orgId, mirror, revision)
+    await assertConnectorMirrorScope(
+      mirror,
+      { ...pack, sha: revision.sha },
+      read,
+    )
+  }
 }
