@@ -1,6 +1,7 @@
 // `pnpm visual:review`: the visual critic for one visual run. It reads the
-// manifest of the run, reviews each changed story (see `reviewStories`), and
-// prints one verdict for each story or group. With `--images`, it reads the
+// manifest of the run, reviews each changed story (see `reviewStories`) and
+// each new story (see `judgeNewScreenshots`), and prints one verdict for each
+// story or group. With `--images`, it reads the
 // base and head images of the factory review folder instead, and prints one
 // verdict for each path (the visual critic of `critics.json`). A fork can run it with no
 // factory: `--judge model` uses the key of the contributor, and `--judge
@@ -34,11 +35,16 @@ import {
   toStoryInput,
 } from "./compare/manifest.ts"
 import { pngSize, prepareImage } from "./prepare.ts"
-import { buildPrompt } from "./prompt.ts"
+import { buildNewPrompt, buildPrompt, type Prompt } from "./prompt.ts"
 import { reviewStories } from "./review.ts"
 import { storiesOf } from "./story-tags.ts"
 import type { NewStoryInput, StoryInput } from "./story.ts"
-import { parseVerdict, type Verdict } from "./verdict.ts"
+import {
+  parseNewVerdict,
+  parseVerdict,
+  type RunFacts,
+  type Verdict,
+} from "./verdict.ts"
 
 const defaultModel = "anthropic/claude-sonnet-5.5"
 
@@ -51,6 +57,8 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|agen
        pnpm visual:review --images <folder> [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--json] -- <path>...
 
   --manifest  The manifest of the visual run. Default: .ci-results/visual/manifest.json
+              The command judges each changed story, and each new story on
+              its own against the rubric (see --images).
   --images    A folder with base/<path> and head/<path> for each screenshot
               path after --, as the factory writes it. The command compares
               each pair with its own compare engine and gives one verdict for
@@ -66,8 +74,8 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|agen
               cost. When that sum reaches the budget, it makes no more calls:
               each screenshot that is not judged yet is unsure with the error
               "Budget reached", and the exit code is 2. Thus a run spends at
-              most the budget plus one call. Only with --judge model. Default:
-              no budget.
+              most the budget plus one call. The new screenshots are judged
+              first. Only with --judge model. Default: no budget.
   --judge     model: a vision model through OpenRouter, with MODEL_PROVIDER_API_KEY
               (and MODEL_PROVIDER_URL). agent: write a judgment request for each
               story; your coding agent writes its verdict.json; run again to read it.
@@ -139,6 +147,10 @@ export async function visualReview(
     )
     return 2
   }
+  const judgeNewByModel = async (story: NewStoryInput) =>
+    (await paid(budget, () =>
+      judgeNewWithOpenRouter(story, model, process.env),
+    )) ?? budgetReached(story.storyId, budget)
   if (
     (judge !== "model" && judge !== "agent") ||
     (filter !== "jev" && filter !== "none") ||
@@ -188,12 +200,17 @@ export async function visualReview(
       }
       let judged: Verdict[]
       try {
+        // New UI first: when the budget is short, it gets the calls.
         judged = [
+          ...(await judgeNewScreenshots(
+            screenshots.flatMap(({ fresh }) => (fresh ? [fresh] : [])),
+            brief,
+            judgeNewByModel,
+          )),
           ...(await reviewStories(
             screenshots.flatMap(({ story }) => (story ? [story] : [])),
             (story) => judgeByModel(story, model, filter, budget),
           )),
-          ...(await judgeNewScreenshots(screenshots, brief, model, budget)),
         ]
       } catch (error) {
         print(`The review stopped: ${(error as Error).message}`)
@@ -218,9 +235,11 @@ export async function visualReview(
   }
 
   let stories: StoryInput[]
+  const fresh: NewShot[] = []
   const path = resolve(options.manifest ?? ".ci-results/visual/manifest.json")
   const root = dirname(path)
   let brief: string | undefined
+  let briefText: string | undefined
   try {
     // The manifest can come from an artifact that PR code wrote. A link
     // there could make this command read, and print, a file outside the run.
@@ -230,14 +249,29 @@ export async function visualReview(
       JSON.parse(await readFile(path, "utf8")),
     )
     brief = options.brief === undefined ? undefined : resolve(options.brief)
-    const briefText =
-      brief === undefined ? undefined : await readFile(brief, "utf8")
-    // The critic judges only a change beyond the tolerance. A new, removed,
-    // unstable or failed story is the job of the visual check.
+    briefText = brief === undefined ? undefined : await readFile(brief, "utf8")
+    // The critic judges a change beyond the tolerance, and a new screenshot
+    // on its own. A removed, unstable or failed story is the job of the
+    // visual check.
     const reviewed = manifest.stories.filter(
       ({ status }) => status === "changed" || status === "size-changed",
     )
     const realRoot = await realpath(root)
+    for (const story of manifest.stories) {
+      if (story.status !== "new" || !story.images.after) continue
+      const file = insideRoot(root, story.images.after)
+      await realInside(realRoot, file)
+      const size = pngSize(await readFile(file))
+      if (!size)
+        throw new Error(`The image of the new story ${story.id} is not a PNG.`)
+      const key = `${story.id}${story.snapshot ? `@${story.snapshot}` : ""}`
+      fresh.push({
+        id: `${key}.${story.viewport}`,
+        key,
+        scope: story.scope,
+        image: { path: file, size },
+      })
+    }
     stories = []
     for (const story of reviewed) {
       if (!story.images.before || !story.images.after)
@@ -283,12 +317,37 @@ export async function visualReview(
       ].join(" ")
       agent = { session, rerun, read: options.session !== undefined }
     }
-    verdicts = await reviewStories(
-      stories,
-      agent
-        ? (story) => judgeByAgent(story, agent)
-        : (story) => judgeByModel(story, model, filter, budget),
-    )
+    verdicts = [
+      ...(await judgeNewScreenshots(
+        fresh,
+        briefText,
+        agent
+          ? (story) =>
+              judgeByAgent(
+                {
+                  storyId: story.storyId,
+                  prompt: buildNewPrompt(story),
+                  parse: (reply, run) => parseNewVerdict(reply, story, run),
+                },
+                agent,
+              )
+          : judgeNewByModel,
+      )),
+      ...(await reviewStories(
+        stories,
+        agent
+          ? (story) =>
+              judgeByAgent(
+                {
+                  storyId: story.storyId,
+                  prompt: buildPrompt(story),
+                  parse: (reply, run) => parseVerdict(reply, story, run),
+                },
+                agent,
+              )
+          : (story) => judgeByModel(story, model, filter, budget),
+      )),
+    ]
   } catch (error) {
     print(`The review stopped: ${(error as Error).message}`)
     return 2
@@ -390,64 +449,63 @@ async function judgeByModel(
 type Screenshot = {
   path: string
   story?: StoryInput
-  /** A new screenshot: its head image in the private folder. */
-  fresh?: NewStoryInput["images"][number] & { scope: StoryInput["scope"] }
+  fresh?: NewShot
   verdict?: Verdict
   /** Added to the summary of the verdict. */
   note?: string
 }
 
 /**
- * Judge the new screenshots of `screenshots` on their own against the
- * rubric. The new screenshots of one story (the same path but for the
- * viewport) go to `model` in one call, inside `budget`. The first path of a
- * story gets the verdict of the call. Each other path gets a copy with
- * `groupedWith` and no evidence of its own, as a group of `reviewStories`.
+ * One new screenshot: the id of its verdict, the key of its story (the id
+ * without the viewport), its scope, and its head image.
+ */
+type NewShot = {
+  id: string
+  key: string
+  scope: StoryInput["scope"]
+  image: NewStoryInput["images"][number]
+}
+
+/**
+ * Judge the new screenshots `shots` on their own against the rubric. The new
+ * screenshots of one story (the same key) go to `judge` in one call. The
+ * first screenshot of a story gets the verdict of the call. Each other one
+ * gets a copy with `groupedWith` and no evidence of its own, as a group of
+ * `reviewStories`.
  */
 async function judgeNewScreenshots(
-  screenshots: readonly Screenshot[],
+  shots: readonly NewShot[],
   brief: string | undefined,
-  model: string,
-  budget: Budget,
+  judge: (story: NewStoryInput) => Promise<Verdict>,
 ): Promise<Verdict[]> {
-  type Fresh = { path: string; fresh: NonNullable<Screenshot["fresh"]> }
-  const stories = new Map<string, [Fresh, ...Fresh[]]>()
-  for (const { path, fresh } of screenshots) {
-    if (!fresh) continue
-    const key = path.replace(/\.(?:desktop|mobile)\.screenshot\.png$/, "")
-    const shots = stories.get(key)
-    if (shots) shots.push({ path, fresh })
-    else stories.set(key, [{ path, fresh }])
+  const stories = new Map<string, [NewShot, ...NewShot[]]>()
+  for (const shot of shots) {
+    const group = stories.get(shot.key)
+    if (group) group.push(shot)
+    else stories.set(shot.key, [shot])
   }
   const verdicts: Verdict[] = []
   for (const [first, ...rest] of stories.values()) {
-    const story: NewStoryInput = {
-      storyId: first.path,
-      scope: first.fresh.scope,
-      images: [first, ...rest].map(({ fresh: { path, size } }) => ({
-        path,
-        size,
-      })),
+    const verdict = await judge({
+      storyId: first.id,
+      scope: first.scope,
+      images: [first, ...rest].map(({ image }) => image),
       ...(brief === undefined ? {} : { brief }),
-    }
-    const verdict =
-      (await paid(budget, () =>
-        judgeNewWithOpenRouter(story, model, process.env),
-      )) ?? budgetReached(first.path, budget)
+    })
     verdicts.push(verdict)
     // A copy keeps the verdict and the error of the call, but not its
     // evidence: a finding box is in fractions of one of the images.
-    for (const { path } of rest)
+    for (const { id } of rest)
       verdicts.push({
         ...verdict,
-        storyId: path,
+        storyId: id,
         observations: [],
         qualities: [],
         findings: [],
         costUsd: 0,
         latencyMs: 0,
-        groupedWith: first.path,
-        summary: `One verdict for the story at each viewport, with ${first.path}: ${verdict.summary}`,
+        groupedWith: first.id,
+        summary: `One verdict for the story at each viewport, with ${first.id}: ${verdict.summary}`,
       })
   }
   return verdicts
@@ -551,11 +609,22 @@ async function compareImages(
         if (!size) throw new Error("The head image is not a PNG.")
         const head = join(work, `${index}-new.png`)
         await writeFile(head, after)
-        const { scope, note } = await scopeOf(path)
+        const key = path.replace(/\.(?:desktop|mobile)\.screenshot\.png$/, "")
+        const found = await scopeOf(path)
+        // A new story is not in the merge-base tree. Only a page story has a
+        // mobile screenshot (see `runVisual` in compare/baselines.ts), so a new mobile
+        // screenshot of the story makes its scope page.
+        const { scope, note } =
+          found.note && paths.includes(`${key}.mobile.screenshot.png`)
+            ? {
+                scope: "page" as const,
+                note: "The scope is page: the story of this screenshot is not at the merge base, and it has a mobile screenshot, which only a page story has.",
+              }
+            : found
         screenshots.push({
           path,
           ...(note ? { note } : {}),
-          fresh: { path: head, size, scope },
+          fresh: { id: path, key, scope, image: { path: head, size } },
         })
         continue
       }
@@ -646,7 +715,7 @@ async function ownSession(path: string): Promise<string> {
 }
 
 /**
- * The agent judge. It writes a judgment request for `story` into
+ * The agent judge. It writes a judgment request for one screenshot into
  * `<session>/<screenshot id>/`: `request.md` (the rules, the rubric, the
  * measured regions and the JSON Schema of the reply) and the images, prepared
  * to the side limits of the vision models. The coding agent reads them and
@@ -661,21 +730,29 @@ async function ownSession(path: string): Promise<string> {
  * the next call.
  */
 async function judgeByAgent(
-  story: StoryInput,
+  {
+    storyId,
+    prompt,
+    parse,
+  }: {
+    storyId: string
+    prompt: Prompt
+    /** Read the reply as a verdict: `parseVerdict` or `parseNewVerdict`. */
+    parse: (reply: string, run: RunFacts) => Verdict
+  },
   { session, rerun, read }: { session: string; rerun: string; read: boolean },
 ): Promise<Verdict> {
   // The screenshot id names the folder. Another character than a letter, a
   // digit, `_`, `-`, `.` or `@` becomes `_`, so the name stays one folder in
   // the session. A short hash of the id then keeps two ids apart.
-  const safe = story.storyId.replace(/[^\w@.-]/g, "_")
+  const safe = storyId.replace(/[^\w@.-]/g, "_")
   const folder = join(
     session,
-    safe === story.storyId
+    safe === storyId
       ? safe
-      : `${safe}-${createHash("sha256").update(story.storyId).digest("hex").slice(0, 8)}`,
+      : `${safe}-${createHash("sha256").update(storyId).digest("hex").slice(0, 8)}`,
   )
   await mkdir(folder, { recursive: true })
-  const prompt = buildPrompt(story)
   const images = await Promise.all(
     prompt.images.map(async ({ role, path }, index) => ({
       name: `${index + 1}-${role}.png`,
@@ -687,7 +764,7 @@ async function judgeByAgent(
   // move from one image to the next with the same hash.
   for (const { name, png } of images)
     hash.update(`${name} ${png.length}\n`).update(png)
-  const request = `# Visual judgment request: ${story.storyId}
+  const request = `# Visual judgment request: ${storyId}
 
 You are the judge. Read the rules and the story below. Then read each image file in this folder, in the order of the list. Write your reply as \`verdict.json\` in this folder: one JSON object that matches the JSON Schema at the end of the rules. Then run this command again: \`${rerun}\`
 
@@ -701,7 +778,7 @@ ${prompt.story}
 Input: sha256 ${hash.digest("hex")}
 `
   const pending = (error: string): Verdict => ({
-    storyId: story.storyId,
+    storyId,
     observations: [],
     verdict: "unsure",
     severity: "none",
@@ -731,14 +808,10 @@ Input: sha256 ${hash.digest("hex")}
     return pending(
       `Judge ${requestPath}, then write ${verdictPath}. Then run: ${rerun}`,
     )
-  // `parseVerdict` checks the reply against the judgment part of
-  // `verdictSchema`, as for a model reply. A reply that does not match gives
-  // `unsure` with the cause in `error`.
-  return parseVerdict(reply, story, {
-    model: "agent",
-    costUsd: 0,
-    latencyMs: 0,
-  })
+  // `parse` checks the reply against the reply schema of the prompt, as for a
+  // model reply. A reply that does not match gives `unsure` with the cause in
+  // `error`.
+  return parse(reply, { model: "agent", costUsd: 0, latencyMs: 0 })
 }
 
 /** One block for each judged story, with the stories of its group. */

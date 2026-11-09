@@ -523,6 +523,118 @@ describe("visual:review reads only in the run folder", () => {
   })
 })
 
+describe("visual:review judges a new story of the manifest on its own", () => {
+  const overflow = {
+    observations: [
+      {
+        part: 1,
+        seen: "A page with a header. Its title runs off the right edge.",
+      },
+    ],
+    verdict: "regression",
+    severity: "major",
+    confidence: 0.9,
+    summary: "The title of the new page overflows.",
+    qualities: [{ name: "focus", rating: "weak", confidence: 0.7 }],
+    findings: [
+      {
+        kind: "overflow",
+        region: { x: 0.5, y: 0.1, width: 0.5, height: 0.1 },
+        evidence: "Image 2: the title is cut at the right edge.",
+        rubricRef: "apps/ui/DESIGN.md › Focus / keyboard",
+        explainedByBrief: false,
+        suggestion: null,
+      },
+    ],
+  }
+
+  /** A run with one new page story at desktop and mobile. */
+  async function writeNewRun(): Promise<string> {
+    const manifest = await writeRun([])
+    const edited = JSON.parse(await readFile(manifest, "utf8"))
+    const [unchanged] = edited.stories
+    for (const viewport of ["desktop", "mobile"]) {
+      await mkdir(join(root, "settings--new", viewport), { recursive: true })
+      await writeFile(join(root, "settings--new", viewport, "after.png"), after)
+      edited.stories.push({
+        ...unchanged,
+        id: "settings--new",
+        scope: "page",
+        viewport,
+        status: "new",
+        size: null,
+        diffPixels: null,
+        regions: [],
+        severity: null,
+        summary: "The story has no baseline.",
+        signature: null,
+        images: { after: `settings--new/${viewport}/after.png` },
+      })
+    }
+    await writeFile(manifest, JSON.stringify(edited))
+    return manifest
+  }
+
+  test("--judge model: one call for both viewports, with the scope of the manifest; a broken new page blocks", async () => {
+    content = JSON.stringify(overflow)
+    const manifest = await writeNewRun()
+
+    const code = await run("--manifest", manifest, "--json")
+
+    expect(code).toBe(1)
+    expect(chats).toHaveLength(1)
+    expect(JSON.stringify(chats[0])).toContain("Scope: page")
+    const verdicts = verdictSchema.array().parse(JSON.parse(output.join("\n")))
+    expect(verdicts).toMatchObject([
+      {
+        storyId: "settings--new.desktop",
+        verdict: "regression",
+        severity: "major",
+        qualities: [{ name: "focus", delta: "weak" }],
+      },
+      {
+        storyId: "settings--new.mobile",
+        verdict: "regression",
+        groupedWith: "settings--new.desktop",
+      },
+    ])
+  })
+
+  test("--judge agent: the request has the rules of a new screenshot, and the verdict.json uses its schema", async () => {
+    const manifest = await writeNewRun()
+
+    expect(await run("--manifest", manifest, "--judge", "agent")).toBe(2)
+
+    const folder = join(session(), "settings--new.desktop")
+    const request = await readFile(join(folder, "request.md"), "utf8")
+    expect(request).toMatch(/judge the screenshot on its own/i)
+    expect(request).toContain("- 1-after.png")
+    expect(request).toContain("- 2-after.png")
+    await writeFile(join(folder, "verdict.json"), JSON.stringify(overflow))
+    const sessionFolder = session()
+    output = []
+
+    const code = await run(
+      "--manifest",
+      manifest,
+      "--judge",
+      "agent",
+      "--session",
+      sessionFolder,
+      "--json",
+    )
+
+    expect(code).toBe(1)
+    expect(chats).toHaveLength(0)
+    const [verdict] = verdictSchema.array().parse(JSON.parse(output.join("\n")))
+    expect(verdict).toMatchObject({
+      storyId: "settings--new.desktop",
+      verdict: "regression",
+      model: "agent",
+    })
+  })
+})
+
 describe("visual:review checks each screenshot", () => {
   test("two viewports and a named snapshot of one story get a judgment request each", async () => {
     const manifest = await writeRun(["button--primary"])
@@ -789,6 +901,8 @@ export const Primary = { render: () => null }
       expect(story?.text).toContain(
         "Image 1: the full new screenshot, 400 × 300",
       )
+      // A new story with no mobile screenshot is a component.
+      expect(story?.text).toContain("Scope: component")
       expect(attached.map(({ type }) => type)).toEqual(["image_url"])
       expect(JSON.stringify(sent(0).response_format)).toContain('"rating"')
       expect(verdicts()).toMatchObject([
@@ -836,6 +950,12 @@ export const Primary = { render: () => null }
         "Image 2: the full new screenshot, 390 × 600",
       )
       expect(parts[1]?.text).toContain("Add a card for the new connector.")
+      // The story is not at the merge base, but only a page story has a
+      // mobile screenshot: the page-only qualities apply.
+      expect(parts[1]?.text).toContain("Scope: page")
+      expect(verdicts()[0]?.summary).toContain(
+        "The scope is page: the story of this screenshot is not at the merge base, and it has a mobile screenshot",
+      )
       expect(verdicts()).toMatchObject([
         { path: desktop, verdict: "intended", costUsd: 0.01 },
         { path: link, verdict: "unsure", severity: "none", model: "none" },
