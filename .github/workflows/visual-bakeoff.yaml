@@ -1,0 +1,125 @@
+name: Visual critic bake-off
+
+# The bake-off of the visual critic (CTX-1202): each arm (a judge with its
+# settings) judges each case of packages/visual-review/evals/critic/cases.json,
+# and the job writes the report (packages/visual-review/evals/critic/README.md).
+# A model call costs money, so the workflow runs only by hand. Two limits keep
+# the spend below the budget of $100: the runner starts no paid call when the
+# known cost reaches max_cost, and the model key of the workbench environment
+# has its own spend cap.
+on:
+  workflow_dispatch:
+    inputs:
+      images_url:
+        description: "HTTPS URL of a .tar.gz of the case images: the output folder of pnpm visual:bakeoff:build, with cases/<id>/before.png and after.png."
+        required: true
+        type: string
+      images_sha256:
+        description: "The SHA-256 of that archive."
+        required: true
+        type: string
+      arms:
+        description: "The arms, comma-separated (see the README)."
+        required: false
+        type: string
+        default: "llm:anthropic/claude-opus-5.5,llm:anthropic/claude-sonnet-5.5,llm:anthropic/claude-haiku-5.5,llm:google/gemini-4-argon,llm:google/gemini-3.8-flash,llm:openai/gpt-6.1-sol,llm:qwen/qwen3.8-flash,llm-no-facts:anthropic/claude-opus-5.5,llm-no-facts:anthropic/claude-sonnet-5.5,llm-no-facts:anthropic/claude-haiku-5.5,llm-no-facts:google/gemini-4-argon,llm-no-facts:google/gemini-3.8-flash,llm-no-facts:openai/gpt-6.1-sol,llm-no-facts:qwen/qwen3.8-flash,llm-one-step:anthropic/claude-opus-5.5,llm-one-step:anthropic/claude-sonnet-5.5,llm-one-step:anthropic/claude-haiku-5.5,llm-one-step:google/gemini-4-argon,llm-one-step:google/gemini-3.8-flash,llm-one-step:openai/gpt-6.1-sol,llm-one-step:qwen/qwen3.8-flash,jev,cascade:anthropic/claude-sonnet-5.5,blazediff-local"
+      runs:
+        description: "The runs of each arm on each case."
+        required: false
+        type: string
+        default: "3"
+      max_cost:
+        description: "The spend cap of the run in USD."
+        required: false
+        type: string
+        default: "100"
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    name: Bake-off
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    timeout-minutes: 360
+    # The model key is a secret of the workbench environment: the
+    # spend-capped key of the bake-off. This job runs pnpm install and npm
+    # install, so it must never get the production key.
+    environment: workbench
+    env:
+      MODEL_PROVIDER_URL: ${{ vars.MODEL_PROVIDER_URL }}
+    steps:
+      - name: Check the workbench model key
+        env:
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+        run: |
+          [[ -n "$MODEL_PROVIDER_API_KEY" ]] || {
+            echo "::error::MODEL_PROVIDER_API_KEY is missing. Add the spend-capped model key to the workbench environment (Settings > Environments)."
+            exit 1
+          }
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Download the case images
+        env:
+          IMAGES_URL: ${{ inputs.images_url }}
+          IMAGES_SHA256: ${{ inputs.images_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGES_URL" == https://* ]] || {
+            echo "::error::images_url must be an HTTPS URL."
+            exit 1
+          }
+          curl --fail --silent --show-error --location --proto '=https' \
+            --output "$RUNNER_TEMP/images.tar.gz" "$IMAGES_URL"
+          echo "$IMAGES_SHA256  $RUNNER_TEMP/images.tar.gz" | sha256sum --check -
+          mkdir -p "$RUNNER_TEMP/visual-bakeoff"
+          tar --extract --gzip --no-same-owner \
+            --file "$RUNNER_TEMP/images.tar.gz" \
+            --directory "$RUNNER_TEMP/visual-bakeoff"
+      # The local judge of BlazeDiff runs ONNX models (about 460 MB of
+      # packages and the model weights), so it is not a dependency of the
+      # repository. It goes into its own folder.
+      - name: Install the local judge of BlazeDiff
+        if: contains(inputs.arms, 'blazediff-local')
+        run: |
+          npm install --prefix "$RUNNER_TEMP/blazediff-agent" --no-audit --no-fund \
+            @blazediff/agent@0.13.2 @huggingface/transformers@4.3.2
+      - name: Run the bake-off
+        env:
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          ARMS: ${{ inputs.arms }}
+          RUNS: ${{ inputs.runs }}
+          MAX_COST: ${{ inputs.max_cost }}
+        run: |
+          pnpm visual:bakeoff:run \
+            --arms "$ARMS" \
+            --runs "$RUNS" \
+            --max-cost "$MAX_COST" \
+            --max-minutes 300 \
+            --images "$RUNNER_TEMP/visual-bakeoff" \
+            --out "$RUNNER_TEMP/visual-bakeoff-report" \
+            --blazediff-agent "$RUNNER_TEMP/blazediff-agent"
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/visual-bakeoff-report/report.md" ]; then
+            cat "$RUNNER_TEMP/visual-bakeoff-report/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-bakeoff-report
+          path: ${{ runner.temp }}/visual-bakeoff-report/
+          if-no-files-found: ignore

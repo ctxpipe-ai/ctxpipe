@@ -57,7 +57,8 @@ const choiceQuestion = (instructions: string): Question => ({
 })
 
 /**
- * Judge one story with Jev. The key comes from `MODEL_PROVIDER_API_KEY` and
+ * Judge one story with Jev, or with another decision model of the OpenRouter
+ * Decisions API (`model`). The key comes from `MODEL_PROVIDER_API_KEY` and
  * the OpenRouter API base from `MODEL_PROVIDER_URL`. The verdict says
  * `regression` when Jev finds a
  * defect or a worse area or quality with a probability of 0.5 or more, and
@@ -75,12 +76,14 @@ const choiceQuestion = (instructions: string): Question => ({
  * requires it for an image or a Box question. The OpenRouter docs do not
  * mention it, and no real call has confirmed that OpenRouter needs it.
  */
-export async function judgeWithJev(story: StoryInput): Promise<Verdict> {
+export async function judgeWithJev(
+  story: StoryInput,
+  requestedModel = "typesafe/jev-1.14",
+): Promise<Verdict> {
   const apiKey = process.env.MODEL_PROVIDER_API_KEY
   if (!apiKey)
     throw new Error("Set MODEL_PROVIDER_API_KEY (the OpenRouter key).")
   const base = process.env.MODEL_PROVIDER_URL || "https://openrouter.ai/api/v1"
-  const requestedModel = "typesafe/jev-1.14"
 
   const unsure = (error: string, latencyMs = 0): Verdict => ({
     storyId: story.storyId,

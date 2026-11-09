@@ -268,8 +268,11 @@ function finish(
   return 0
 }
 
-/** The model judge: the explainer `model`, after the Jev filter if asked. */
-async function judgeByModel(
+/**
+ * The model judge: the explainer `model`, after the Jev filter if asked (the
+ * cascade). The bake-off runs the same cascade.
+ */
+export async function judgeByModel(
   story: StoryInput,
   model: string,
   filter: "jev" | "none",
