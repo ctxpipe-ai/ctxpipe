@@ -16,9 +16,13 @@ export const profiles = {
   codesearch: { setupMinutes: 0.3, maxShards: 1 },
   vercel: { setupMinutes: 0.8, maxShards: 1 },
   storybook: { setupMinutes: 0.6, maxShards: 5 },
+  // The screenshots job: the setup of a Storybook shard and the pull of the
+  // pinned Playwright image (an estimate; the job is not measured yet). One
+  // job: its shards are CTX-1192.
+  visual: { setupMinutes: 1.5, maxShards: 1 },
 }
 
-// A Storybook shard needs the Storybook build job first.
+// A Storybook or screenshots shard needs the Storybook build job first.
 export const storybookBuildMinutes = 1.2
 
 // Where each check runs, by `<family>:<lane>` or else `<family>`: `job` is
@@ -34,6 +38,7 @@ const runsIn = {
   policy: { job: "lint", profile: "project" },
   typecheck: { job: "typecheck", profile: "project" },
   "storybook:required": { job: "storybook-required", profile: "storybook" },
+  "storybook:visual": { job: "storybook-visual", profile: "visual" },
   storybook: { job: "storybook-plays", profile: "storybook" },
   "vitest:backend": { job: "test-shards", profile: "database" },
   "vitest:contracts": { job: "test-shards", profile: "database" },
@@ -225,6 +230,6 @@ export function shardMinutes(shards) {
   for (const [profile, list] of Object.entries(shards))
     for (const item of list)
       minutes += profiles[profile].setupMinutes + item.seconds / 60
-  if (shards.storybook) minutes += storybookBuildMinutes
+  if (shards.storybook || shards.visual) minutes += storybookBuildMinutes
   return Math.round(minutes * 10) / 10
 }

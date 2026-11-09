@@ -2,7 +2,8 @@ import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { test } from "node:test"
 
-import { judgeProof, readUnstableList } from "../ci/visual-capture-proof.mjs"
+import { readUnstableList } from "../checks/visual.mjs"
+import { judgeProof } from "../ci/visual-capture-proof.mjs"
 import { shootUntilSteady } from "../ci/visual-capture.mjs"
 
 // Gives the shots of a page whose pixels change in the given order, and
