@@ -936,7 +936,9 @@ export const SingleCreatePr: Story = {
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
-        page: noPrHandlers(),
+        // Clean and ahead: Create PR is the only publish action. A dirty
+        // status adds Sync when it loads.
+        page: [cleanAheadStatus(), ...noPrHandlers()],
       },
     },
   },
@@ -967,6 +969,9 @@ export const SingleCreatePr: Story = {
     if (!actions) throw new Error("The publish actions are missing")
     for (const button of within(actions).getAllByRole("button"))
       expect(getComputedStyle(button).borderTopWidth).toBe("0px")
+    // Maximize shows the conversation title in the pane header. The header
+    // reads the title from the conversation list, so wait for the list.
+    await page.findByRole("link", { name: "Repo layout" })
     // Maximized, the conversation is hidden: the pane header shows Create PR.
     await userEvent.click(page.getByRole("button", { name: "Maximize pane" }))
     await waitFor(() => {
@@ -974,6 +979,9 @@ export const SingleCreatePr: Story = {
       expect(buttons).toHaveLength(1)
       expect(buttons[0]?.closest("aside")).toBe(pane)
       expect(buttons[0]).toBeVisible()
+      expect(
+        within(pane).getByRole("button", { name: "Repo layout" }),
+      ).toBeVisible()
     })
   },
 }
@@ -1294,11 +1302,17 @@ export const MaximizedPaneMatchesHeader: Story = {
     const pane = document.querySelector("aside")
     if (!pane) throw new Error("The tools pane is missing")
     const headerNames = publishActionNames(header)
+    // Maximize shows the conversation title in the pane header. The header
+    // reads the title from the conversation list, so wait for the list.
+    await page.findByRole("link", { name: "Repo layout" })
     await userEvent.click(page.getByRole("button", { name: "Maximize pane" }))
     await waitFor(() => {
       expect(publishActionNames(pane)).toEqual(headerNames)
       expect(
         within(pane).getByRole("button", { name: "Create PR" }),
+      ).toBeVisible()
+      expect(
+        within(pane).getByRole("button", { name: "Repo layout" }),
       ).toBeVisible()
     })
   },
