@@ -1094,12 +1094,12 @@ jobs:
           fi
           jq -r '.[].baseline' "$RUNNER_TEMP/differing.json" |
             while IFS= read -r baseline; do git rm -q --ignore-unmatch -- "$baseline"; done
-          # Each entry needs the ticket that fixes it: CTX-1186 gives the
-          # mask attribute and the per-story options that fix most of them.
-          # A person sets another ticket when another one fixes the story.
+          # Each entry needs the ticket that fixes it: the standing ticket
+          # CTX-1237 (screenshots quarantined by the nightly run) holds each
+          # one until a person gives it its own ticket.
           jq --argjson ids "$ids" --arg reason "Two captures of the nightly run differed ($RUN_URL)." '
             ([.stories[] | select((.viewport // "desktop") == "desktop") | .id]) as $known
-            | .stories += [($ids - $known)[] | {id: ., viewport: "desktop", reason: $reason, ticket: "CTX-1186"}]
+            | .stories += [($ids - $known)[] | {id: ., viewport: "desktop", reason: $reason, ticket: "CTX-1237"}]
           ' "$list" > "$RUNNER_TEMP/list.json"
           mv "$RUNNER_TEMP/list.json" "$list"
           if git diff --quiet HEAD; then
