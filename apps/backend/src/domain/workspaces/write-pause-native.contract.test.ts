@@ -572,7 +572,8 @@ it(
         const rejected = join(f.remote, "rejected-candidate")
         writeFileSync(
           hook,
-          '#!/bin/sh\nprintf "%s" "$3" > rejected-candidate\necho "GH006: Protected branch update failed for refs/heads/main." >&2\nexit 1\n',
+          // Branch protection guards the default branch, not a job ref (CTX-1235).
+          '#!/bin/sh\n[ "$1" = refs/heads/main ] || exit 0\nprintf "%s" "$3" > rejected-candidate\necho "GH006: Protected branch update failed for refs/heads/main." >&2\nexit 1\n',
           { mode: 0o755 },
         )
         const jobId = `wjob_${f.id}_protected`

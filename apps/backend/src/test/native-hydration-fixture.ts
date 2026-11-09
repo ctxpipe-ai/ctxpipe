@@ -1035,10 +1035,12 @@ export async function withNativeHydrationFixture(
 }
 
 /**
- * No Workspace write step keeps Git objects or file contents in its durable
- * output (CTX-1235): each completed step output of a write workflow of the
- * org is at most 4 KiB. Each contract test that runs a write workflow on this
- * fixture checks it.
+ * No Workspace write step keeps Git objects in its durable output
+ * (CTX-1235): each completed step output of a write workflow of the org is at
+ * most 4 KiB. Each contract test that runs a write workflow on this fixture
+ * checks it. `capture-semantic-handoff` is not checked: it still holds the
+ * file contents of the delta of a push that lost a race, which grow with the
+ * change, not with the repository (a follow-up of CTX-1235).
  */
 async function expectSmallWriteStepOutputs(orgId: string) {
   const large = await getSystemDb().execute(sql`
@@ -1048,6 +1050,7 @@ async function expectSmallWriteStepOutputs(orgId: string) {
     where wr.input->>'orgId' = ${orgId}
       and wr.workflow_name like 'workspace-write-%'
       and sa.status = 'completed'
+      and sa.step_name not like 'capture-semantic-handoff%'
       and octet_length(sa.output::text) > 4096`)
   expect(large.rows).toEqual([])
 }

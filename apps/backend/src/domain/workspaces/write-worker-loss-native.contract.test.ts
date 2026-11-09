@@ -458,7 +458,11 @@ process.exit(result.status ?? 1);
                   (attempt) => attempt.stepName === "capture-semantic-handoff",
                 ),
               ).toHaveLength(2)
-            expect(writeCredentials).toBe(1)
+            // The job ref push and the ref deletion need a write credential
+            // too (CTX-1235). Each process asks for it at most once: the
+            // original writer and the two replacements.
+            expect(writeCredentials).toBeGreaterThanOrEqual(1)
+            expect(writeCredentials).toBeLessThanOrEqual(3)
             expect(unexpectedRequests).toEqual([])
           }
           if (boundary === "semantic handoff") {

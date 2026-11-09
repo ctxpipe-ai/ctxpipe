@@ -503,9 +503,11 @@ it.each([
                   `${index ? humanTips[index - 1] : f.sha}) git update-ref "$1" ${sha} "$2" ;;`,
               )
               .join("\n")
+            // The hook acts only on the default branch: a job ref push
+            // (CTX-1235) comes before it.
             writeFileSync(
               join(f.remote, "hooks/update"),
-              `#!/bin/sh\nset -e\ncase "$2" in\n${cases}\n*) rm -- "$0" ;;\nesac\n`,
+              `#!/bin/sh\nset -e\n[ "$1" = refs/heads/main ] || exit 0\ncase "$2" in\n${cases}\n*) rm -- "$0" ;;\nesac\n`,
               { mode: 0o755 },
             )
           }
