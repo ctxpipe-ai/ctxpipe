@@ -50,7 +50,7 @@ When you edit a file, write each new sentence to the standard. Change an old sen
 
 ## Agent skills
 
-After you complete the requested code changes, commit them. Then run `factory check --input <ticket or brief file>`. Fix what it reports, commit, and run it again until it passes. Then push and open or update a PR against `main`. Merge it when the merge gate passes, unless the Security critic applies to the PR: then the user merges. Analysis-only work needs no commit. Proving a fix uses the [tdd](.agents/skills/tdd/SKILL.md) skill; _proof_ is a real collaborator ([mocking.md](.agents/skills/tdd/mocking.md)).
+After you complete the requested code changes, commit them. Then run `factory check --input <ticket or brief file>`. Fix what it reports, commit, and run it again until it passes. Then push and open or update a PR against `main`. Merge it when the merge gate passes. Analysis-only work needs no commit. Proving a fix uses the [tdd](.agents/skills/tdd/SKILL.md) skill; _proof_ is a real collaborator ([mocking.md](.agents/skills/tdd/mocking.md)).
 
 ### Sub-agent models
 
