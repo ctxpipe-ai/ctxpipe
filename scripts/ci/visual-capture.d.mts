@@ -9,4 +9,5 @@ export function runInContainer(
   script: string,
   args: readonly string[],
   out: string,
+  files?: Readonly<Record<string, string>>,
 ): Promise<void>

@@ -19,7 +19,7 @@ import {
   listVisual,
   readUnstable,
   runVisualChecks,
-  visualSkips,
+  visualOptions,
 } from "./visual.mjs"
 
 // The Storybook checks: one for each story with a play function. A story
@@ -119,13 +119,9 @@ export async function listStorybook() {
         ...(intent && { intent }),
       }
     })
-  const skipped = visualSkips(entries, loadCsf)
   return [
     ...plays,
-    ...listVisual(
-      entries.filter((entry) => !skipped.has(entry.id)),
-      readUnstable(),
-    ),
+    ...listVisual(entries, readUnstable(), visualOptions(entries, loadCsf)),
   ]
 }
 
@@ -275,7 +271,7 @@ async function runPlays(checks, trace) {
         const record = tracer?.check(story, durationMs, coverage, mocks)
         if (record) traced.push(record)
       },
-      Boolean(trace),
+      { trace: Boolean(trace) },
     )
     tracer?.report()
   } finally {
