@@ -81,6 +81,18 @@
       "id": "components-workspaces-settingspane--delete-last-workspace-empties-home",
       "reason": "On an agent host it differed from the baseline (29330 pixels), and it passed in CI.",
       "ticket": "CTX-1229"
+    },
+    {
+      "id": "pages-workspaces--single-create-pr",
+      "viewport": "desktop",
+      "reason": "The conversation title in the header loads after the first render, so the screenshot shows \"New conversation\" or \"Repo layout\" (964 pixels).",
+      "ticket": "CTX-1229"
+    },
+    {
+      "id": "pages-workspaces--maximized-pane-matches-header",
+      "viewport": "desktop",
+      "reason": "The conversation title in the header loads after the first render, so the screenshot shows \"New conversation\" or \"Repo layout\" (964 pixels).",
+      "ticket": "CTX-1229"
     }
   ]
 }

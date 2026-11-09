@@ -102,14 +102,13 @@ jobs:
   typecheck:
     timeout-minutes: 30
     name: Typecheck
-    # A push to main also runs this job, so that a bad merge fails on main.
     # In gate mode it runs only when the plan selects a typecheck check
-    # (scripts/checks/README.md, Merge gate).
+    # (scripts/checks/README.md, Merge gate). A push to main runs no check
+    # (ADR-062): each night, the job Project check times runs every typecheck.
     needs: merge-gate-plan
     if: |
       !cancelled() &&
       (github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.typecheck != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
