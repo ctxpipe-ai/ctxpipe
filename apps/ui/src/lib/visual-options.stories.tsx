@@ -58,9 +58,9 @@ function Card() {
         Open menu
       </Button>
       {open ? (
-        <div role="group" aria-label="Actions" className="flex flex-col gap-2">
+        <fieldset aria-label="Actions" className="flex flex-col gap-2">
           <Button onPress={() => setSaved(true)}>Save</Button>
-        </div>
+        </fieldset>
       ) : null}
       {saved ? <p>Saved</p> : null}
     </div>
