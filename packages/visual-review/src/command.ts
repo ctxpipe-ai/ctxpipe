@@ -20,7 +20,10 @@ import { basename, dirname, join, posix, resolve } from "node:path"
 import { parseArgs } from "node:util"
 
 import { judgeWithJev } from "./adapters/jev.ts"
-import { judgeWithOpenRouter } from "./adapters/openrouter.ts"
+import {
+  judgeNewWithOpenRouter,
+  judgeWithOpenRouter,
+} from "./adapters/openrouter.ts"
 import { diff } from "./compare/diff.ts"
 import { writeStoryImages } from "./compare/images.ts"
 import {
@@ -30,32 +33,49 @@ import {
   storyInput,
   toStoryInput,
 } from "./compare/manifest.ts"
-import { prepareImage } from "./prepare.ts"
+import { pngSize, prepareImage } from "./prepare.ts"
 import { buildPrompt } from "./prompt.ts"
 import { reviewStories } from "./review.ts"
 import { storiesOf } from "./story-tags.ts"
-import type { StoryInput } from "./story.ts"
+import type { NewStoryInput, StoryInput } from "./story.ts"
 import { parseVerdict, type Verdict } from "./verdict.ts"
 
 const defaultModel = "anthropic/claude-sonnet-5.5"
 
-const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|agent] [--model <id>] [--filter jev|none] [--brief <file>] [--session <folder>] [--json]
-       pnpm visual:review --images <folder> [--model <id>] [--filter jev|none] [--brief <file>] [--json] -- <path>...
+// The cost that a model call with no `usage.cost` in its reply counts for in
+// `--budget-usd`. It is above the cost of one call of the default model with
+// five images at the largest side that the critic sends.
+const unknownCallUsd = 0.25
+
+const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|agent] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--session <folder>] [--json]
+       pnpm visual:review --images <folder> [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--json] -- <path>...
 
   --manifest  The manifest of the visual run. Default: .ci-results/visual/manifest.json
   --images    A folder with base/<path> and head/<path> for each screenshot
               path after --, as the factory writes it. The command compares
               each pair with its own compare engine and gives one verdict for
-              each path, with "path". A new or a removed screenshot is unsure.
-              Only with --judge model. Without MODEL_PROVIDER_API_KEY, the
-              exit code is 2, also when no screenshot needs a model.
+              each path, with "path". A new screenshot (no base image) is
+              judged on its own against the rubric: one call for the new
+              screenshots of one story, at all its viewports. A removed
+              screenshot is unsure. Only with --judge model. Without
+              MODEL_PROVIDER_API_KEY, the exit code is 2, also when no
+              screenshot needs a model.
+  --budget-usd The most that the model calls of this run can spend, in USD.
+              Before each call, the command adds the cost of the calls so far:
+              usage.cost of each reply, or ${unknownCallUsd} for a reply with no
+              cost. When that sum reaches the budget, it makes no more calls:
+              each screenshot that is not judged yet is unsure with the error
+              "Budget reached", and the exit code is 2. Thus a run spends at
+              most the budget plus one call. Only with --judge model. Default:
+              no budget.
   --judge     model: a vision model through OpenRouter, with MODEL_PROVIDER_API_KEY
               (and MODEL_PROVIDER_URL). agent: write a judgment request for each
               story; your coding agent writes its verdict.json; run again to read it.
               Default: model.
   --model     The explainer model of --judge model. Default: ${defaultModel}
   --filter    jev: ask the Jev filter first, and call the explainer only when Jev
-              does not accept the change. Only with --judge model. Default: none.
+              does not accept the change. Only with --judge model. A new
+              screenshot goes to the explainer. Default: none.
   --brief     A file with the ticket or the brief of the change. Without it, no
               verdict can be intended.
   --session   Only with --judge agent: the folder that the first call made and
@@ -64,7 +84,8 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|agen
   --json      Print the verdicts as one JSON array.
 
 Exit code: 2 when the review is not complete (a usage, manifest or image
-error, a verdict with an error, or an agent judgment that is not written yet); else 1
+error, a verdict with an error, a budget that is reached, or an agent judgment
+that is not written yet); else 1
 when a verdict is regression with severity major or blocker; else 0.
 
 The agent judge keeps its requests and verdicts in a new private folder in the
@@ -95,6 +116,7 @@ export async function visualReview(
         filter: { type: "string", default: "none" },
         brief: { type: "string" },
         session: { type: "string" },
+        "budget-usd": { type: "string" },
         json: { type: "boolean", default: false },
       },
     }))
@@ -103,6 +125,20 @@ export async function visualReview(
     return 2
   }
   const { judge, filter, model } = options
+  const limit = options["budget-usd"]
+  const budget: Budget = {
+    limitUsd: limit === undefined ? undefined : Number(limit),
+    spentUsd: 0,
+  }
+  if (
+    limit !== undefined &&
+    (judge !== "model" || !/^\d+(\.\d+)?$/.test(limit))
+  ) {
+    print(
+      `--budget-usd must be a number of USD, 0 or more, and it goes only with --judge model.\n\n${usage}`,
+    )
+    return 2
+  }
   if (
     (judge !== "model" && judge !== "agent") ||
     (filter !== "jev" && filter !== "none") ||
@@ -134,8 +170,9 @@ export async function visualReview(
     )
     try {
       let screenshots: Screenshot[]
+      let brief: string | undefined
       try {
-        const brief =
+        brief =
           options.brief === undefined
             ? undefined
             : await readFile(resolve(options.brief), "utf8")
@@ -151,10 +188,13 @@ export async function visualReview(
       }
       let judged: Verdict[]
       try {
-        judged = await reviewStories(
-          screenshots.flatMap(({ story }) => (story ? [story] : [])),
-          (story) => judgeByModel(story, model, filter),
-        )
+        judged = [
+          ...(await reviewStories(
+            screenshots.flatMap(({ story }) => (story ? [story] : [])),
+            (story) => judgeByModel(story, model, filter, budget),
+          )),
+          ...(await judgeNewScreenshots(screenshots, brief, model, budget)),
+        ]
       } catch (error) {
         print(`The review stopped: ${(error as Error).message}`)
         return 2
@@ -247,7 +287,7 @@ export async function visualReview(
       stories,
       agent
         ? (story) => judgeByAgent(story, agent)
-        : (story) => judgeByModel(story, model, filter),
+        : (story) => judgeByModel(story, model, filter, budget),
     )
   } catch (error) {
     print(`The review stopped: ${(error as Error).message}`)
@@ -268,17 +308,70 @@ function finish(
   return 0
 }
 
-/** The model judge: the explainer `model`, after the Jev filter if asked. */
+/**
+ * The spend of the model calls of one run, against its `--budget-usd`
+ * (`limitUsd`, undefined for no budget).
+ */
+type Budget = { limitUsd: number | undefined; spentUsd: number }
+
+/**
+ * Make the model call `call` when the spend of the run is under its budget,
+ * and add the cost of the call: `costUsd` of the verdict, or `unknownCallUsd`
+ * when the cost is unknown. Returns undefined, with no call, when the spend
+ * has reached the budget.
+ */
+async function paid(
+  budget: Budget,
+  call: () => Promise<Verdict>,
+): Promise<Verdict | undefined> {
+  if (budget.limitUsd !== undefined && budget.spentUsd >= budget.limitUsd)
+    return undefined
+  const verdict = await call()
+  budget.spentUsd += verdict.costUsd ?? unknownCallUsd
+  return verdict
+}
+
+/** The verdict on a story that got no model call: the budget is reached. */
+const budgetReached = (
+  storyId: string,
+  { spentUsd, limitUsd }: Budget,
+  costUsd: number | null = 0,
+): Verdict => ({
+  storyId,
+  observations: [],
+  verdict: "unsure",
+  severity: "none",
+  confidence: 0,
+  summary: "Budget reached: no model judged this screenshot.",
+  qualities: [],
+  findings: [],
+  model: "none",
+  costUsd,
+  latencyMs: 0,
+  error: `Budget reached: the run spent ${spentUsd.toFixed(4)} USD of its --budget-usd ${limitUsd}, so it made no more model calls.`,
+})
+
+/**
+ * The model judge: the explainer `model`, after the Jev filter if asked. Each
+ * call is inside `budget`.
+ */
 async function judgeByModel(
   story: StoryInput,
   model: string,
   filter: "jev" | "none",
+  budget: Budget,
 ): Promise<Verdict> {
-  const filtered = filter === "jev" ? await judgeWithJev(story) : undefined
+  const filtered =
+    filter === "jev" ? await paid(budget, () => judgeWithJev(story)) : undefined
+  if (filter === "jev" && !filtered) return budgetReached(story.storyId, budget)
   // Jev says intended only when nothing got worse and a brief or a source
   // diff explains the change: then no explainer is needed.
   if (filtered?.verdict === "intended" && !filtered.error) return filtered
-  const explained = await judgeWithOpenRouter(story, model, process.env)
+  const explained = await paid(budget, () =>
+    judgeWithOpenRouter(story, model, process.env),
+  )
+  if (!explained)
+    return budgetReached(story.storyId, budget, filtered ? filtered.costUsd : 0)
   if (!filtered) return explained
   return {
     ...explained,
@@ -291,15 +384,73 @@ async function judgeByModel(
 }
 
 /**
- * One screenshot of `--images`: the story for the judge, or a verdict that
- * needs no judge.
+ * One screenshot of `--images`: the story for the judge, a new screenshot
+ * for the judge, or a verdict that needs no judge.
  */
 type Screenshot = {
   path: string
   story?: StoryInput
+  /** A new screenshot: its head image in the private folder. */
+  fresh?: NewStoryInput["images"][number] & { scope: StoryInput["scope"] }
   verdict?: Verdict
   /** Added to the summary of the verdict. */
   note?: string
+}
+
+/**
+ * Judge the new screenshots of `screenshots` on their own against the
+ * rubric. The new screenshots of one story (the same path but for the
+ * viewport) go to `model` in one call, inside `budget`. The first path of a
+ * story gets the verdict of the call. Each other path gets a copy with
+ * `groupedWith` and no evidence of its own, as a group of `reviewStories`.
+ */
+async function judgeNewScreenshots(
+  screenshots: readonly Screenshot[],
+  brief: string | undefined,
+  model: string,
+  budget: Budget,
+): Promise<Verdict[]> {
+  type Fresh = { path: string; fresh: NonNullable<Screenshot["fresh"]> }
+  const stories = new Map<string, [Fresh, ...Fresh[]]>()
+  for (const { path, fresh } of screenshots) {
+    if (!fresh) continue
+    const key = path.replace(/\.(?:desktop|mobile)\.screenshot\.png$/, "")
+    const shots = stories.get(key)
+    if (shots) shots.push({ path, fresh })
+    else stories.set(key, [{ path, fresh }])
+  }
+  const verdicts: Verdict[] = []
+  for (const [first, ...rest] of stories.values()) {
+    const story: NewStoryInput = {
+      storyId: first.path,
+      scope: first.fresh.scope,
+      images: [first, ...rest].map(({ fresh: { path, size } }) => ({
+        path,
+        size,
+      })),
+      ...(brief === undefined ? {} : { brief }),
+    }
+    const verdict =
+      (await paid(budget, () =>
+        judgeNewWithOpenRouter(story, model, process.env),
+      )) ?? budgetReached(first.path, budget)
+    verdicts.push(verdict)
+    // A copy keeps the verdict and the error of the call, but not its
+    // evidence: a finding box is in fractions of one of the images.
+    for (const { path } of rest)
+      verdicts.push({
+        ...verdict,
+        storyId: path,
+        observations: [],
+        qualities: [],
+        findings: [],
+        costUsd: 0,
+        latencyMs: 0,
+        groupedWith: first.path,
+        summary: `One verdict for the story at each viewport, with ${first.path}: ${verdict.summary}`,
+      })
+  }
+  return verdicts
 }
 
 /**
@@ -350,8 +501,9 @@ async function scopeOf(
  * the compare engine. The images for the judge go into `work`. Thus the
  * command builds its own manifest: the branch cannot label a region as
  * rendering noise.
- * - A path with no base image is a new screenshot, and a path with no head
- *   image a removed one. Each is `unsure`: a person looks at it.
+ * - A path with no base image is a new screenshot: its head image goes into
+ *   `work` for `judgeNewScreenshots`. A path with no head image is a removed
+ *   screenshot. It is `unsure`: a person looks at it.
  * - A path whose images differ by at most the tolerance of the visual check
  *   is `noise`.
  * - Another path gets a story for the judge. Its story id is the path.
@@ -392,15 +544,19 @@ async function compareImages(
           latencyMs: 0,
         },
       })
-      if (!before && !after)
-        throw new Error(`${folder} has no base and no head image of it.`)
       if (!before) {
-        screenshots.push(
-          plain(
-            "unsure",
-            "A new screenshot: there is no base image to compare. A person looks at it.",
-          ),
-        )
+        if (!after)
+          throw new Error(`${folder} has no base and no head image of it.`)
+        const size = pngSize(after)
+        if (!size) throw new Error("The head image is not a PNG.")
+        const head = join(work, `${index}-new.png`)
+        await writeFile(head, after)
+        const { scope, note } = await scopeOf(path)
+        screenshots.push({
+          path,
+          ...(note ? { note } : {}),
+          fresh: { path: head, size, scope },
+        })
         continue
       }
       if (!after) {

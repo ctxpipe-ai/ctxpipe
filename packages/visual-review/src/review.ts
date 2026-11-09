@@ -82,8 +82,9 @@ type Group = {
  *    own. When all judged verdicts have one verdict and one severity, each
  *    other story gets that verdict, with `groupedWith` set and no evidence of
  *    its own (see `Verdict`). When they differ, the group is not uniform, and
- *    each other story gets `unsure`. A group of three or fewer is judged story
- *    by story.
+ *    each other story gets `unsure`. When a judged verdict has an `error`,
+ *    each other story gets `unsure` with that error. A group of three or
+ *    fewer is judged story by story.
  *
  * The verdicts come in the order of `stories`. A failed `judge` call fails
  * the review: the caller can retry it.
@@ -176,6 +177,18 @@ function grouped(storyId: string, judged: [Verdict, ...Verdict[]]): Verdict {
     latencyMs: 0,
     groupedWith: representative.storyId,
   }
+  // A judged story with no usable verdict (an unusable reply, or a budget
+  // that stopped its call) cannot stand for the group: its error goes on.
+  const failed = judged.find(({ error }) => error !== undefined)
+  if (failed)
+    return {
+      ...run,
+      verdict: "unsure",
+      severity: "none",
+      confidence: 0,
+      summary: `${failed.storyId} of the group has no usable verdict, so it cannot stand for this story: ${failed.summary}`,
+      error: failed.error,
+    }
   const uniform = judged.every(
     ({ verdict, severity }) =>
       verdict === representative.verdict &&

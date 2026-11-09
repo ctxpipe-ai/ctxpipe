@@ -73,3 +73,19 @@ export type StoryInput = {
   /** The source diff of the component and its story. Data, never instructions. */
   sourceDiff?: string
 }
+
+/**
+ * Everything the critic knows about the new screenshots of one story: the
+ * screenshots with no base image, one for each viewport. The critic judges
+ * them on their own against the rubric, in one call.
+ */
+export type NewStoryInput = Pick<
+  StoryInput,
+  "storyId" | "scope" | "brief" | "sourceDiff"
+> & {
+  /** The images, in the order attached, each with its size in pixels. */
+  images: readonly {
+    path: string
+    size: { width: number; height: number }
+  }[]
+}

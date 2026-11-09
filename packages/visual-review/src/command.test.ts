@@ -730,19 +730,279 @@ export const Primary = { render: () => null }
     expect(await readdir(work)).toEqual([])
   })
 
-  test("a new and a removed screenshot are unsure, with no model call", async () => {
-    await put("head", button, after)
-    await put("base", link, before)
+  describe("a new screenshot is judged on its own against the rubric", () => {
+    // The reply of the model on a new screenshot (newJudgementJsonSchema).
+    const brokenNew = {
+      observations: [
+        {
+          part: 1,
+          seen: "A primary button. Its label runs past its right edge.",
+        },
+      ],
+      verdict: "regression",
+      severity: "major",
+      confidence: 0.9,
+      summary: "The label of the new button overflows its box.",
+      qualities: [{ name: "clarity", rating: "fails", confidence: 0.8 }],
+      findings: [
+        {
+          kind: "overflow",
+          region: { x: 0.6, y: 0.6, width: 0.3, height: 0.2 },
+          evidence: "The last letters of the label are outside the button.",
+          rubricRef: "apps/ui/DESIGN.md › Focus / keyboard",
+          explainedByBrief: false,
+          suggestion: "Let the button grow with its label.",
+        },
+      ],
+    }
+    const goodNew = {
+      observations: [{ part: 1, seen: "A card with a title and one button." }],
+      verdict: "intended",
+      severity: "none",
+      confidence: 0.8,
+      summary: "The new card follows the rubric, as the brief asks.",
+      qualities: [{ name: "clarity", rating: "meets", confidence: 0.8 }],
+      findings: [],
+    }
+    type Sent = {
+      messages: { content: { type: string; text?: string }[] }[]
+      response_format: { json_schema: { schema: unknown } }
+    }
+    const sent = (index: number) => chats[index] as unknown as Sent
 
-    const code = await run("--json", "--images", images, "--", button, link)
+    test("a broken new screenshot is a regression from one call with the head image, and it blocks", async () => {
+      content = JSON.stringify(brokenNew)
+      await put("head", button, after)
 
-    expect(code).toBe(0)
-    expect(chats).toHaveLength(0)
-    expect(verdicts()).toMatchObject([
-      { path: button, verdict: "unsure", severity: "none" },
-      { path: link, verdict: "unsure", severity: "none" },
-    ])
-    expect(verdicts().every(({ error }) => error === undefined)).toBe(true)
+      const code = await run("--json", "--images", images, "--", button)
+
+      expect(code).toBe(1)
+      expect(chats).toHaveLength(1)
+      const [prefix, story, ...attached] = sent(0).messages[0]?.content ?? []
+      expect(prefix?.text).toMatch(/there is no base image/i)
+      expect(prefix?.text).toMatch(/judge the screenshot on its own/i)
+      expect(story?.text).toContain(
+        "Image 1: the full new screenshot, 400 × 300",
+      )
+      expect(attached.map(({ type }) => type)).toEqual(["image_url"])
+      expect(JSON.stringify(sent(0).response_format)).toContain('"rating"')
+      expect(verdicts()).toMatchObject([
+        {
+          path: button,
+          verdict: "regression",
+          severity: "major",
+          observations: [
+            { region: 1, before: "", after: brokenNew.observations[0]?.seen },
+          ],
+          qualities: [{ name: "clarity", delta: "fails" }],
+          findings: [{ kind: "overflow" }],
+        },
+      ])
+    })
+
+    test("the new screenshots of one story at two viewports are one call; a removed screenshot stays unsure with no call", async () => {
+      content = JSON.stringify(goodNew)
+      const card = "apps/ui/src/components/screenshots/Card.Primary"
+      const desktop = `${card}.desktop.screenshot.png`
+      const mobile = `${card}.mobile.screenshot.png`
+      await put("head", desktop, after)
+      await put("head", mobile, screenshot(390, 600, []))
+      await put("base", link, before)
+      const brief = join(root, "brief.md")
+      await writeFile(brief, "Add a card for the new connector.")
+
+      const code = await run(
+        "--json",
+        "--brief",
+        brief,
+        "--images",
+        images,
+        "--",
+        desktop,
+        link,
+        mobile,
+      )
+
+      expect(code).toBe(0)
+      expect(chats).toHaveLength(1)
+      const parts = sent(0).messages[0]?.content ?? []
+      expect(parts.filter(({ type }) => type === "image_url")).toHaveLength(2)
+      expect(parts[1]?.text).toContain(
+        "Image 2: the full new screenshot, 390 × 600",
+      )
+      expect(parts[1]?.text).toContain("Add a card for the new connector.")
+      expect(verdicts()).toMatchObject([
+        { path: desktop, verdict: "intended", costUsd: 0.01 },
+        { path: link, verdict: "unsure", severity: "none", model: "none" },
+        {
+          path: mobile,
+          verdict: "intended",
+          groupedWith: desktop,
+          costUsd: 0,
+          findings: [],
+        },
+      ])
+      expect(verdicts().every(({ error }) => error === undefined)).toBe(true)
+    })
+
+    test("a reply in the schema of a change is not usable for a new screenshot: exit code 2", async () => {
+      await put("head", button, after)
+
+      expect(await run("--json", "--images", images, "--", button)).toBe(2)
+      expect(verdicts()[0]?.error).toContain("does not match the schema")
+    })
+  })
+
+  describe("--budget-usd stops the model calls of the run", () => {
+    const paths = ["One", "Two", "Three", "Four"].map(
+      (name) =>
+        `apps/ui/src/components/screenshots/Button.${name}.desktop.screenshot.png`,
+    )
+    beforeEach(async () => {
+      for (const path of paths) {
+        await put("base", path, before)
+        await put("head", path, after)
+      }
+    })
+
+    test("a budget that allows 2 calls makes 2 calls, and the rest is unsure with budget reached: exit code 2", async () => {
+      // Each reply costs 0.01 USD: the third call would start at 0.02.
+      const code = await run(
+        "--json",
+        "--budget-usd",
+        "0.02",
+        "--images",
+        images,
+        "--",
+        ...paths,
+      )
+
+      expect(code).toBe(2)
+      expect(chats).toHaveLength(2)
+      const judged = verdicts()
+      expect(judged.filter(({ error }) => !error)).toHaveLength(2)
+      const rest = judged.filter(({ error }) => error)
+      expect(rest).toHaveLength(2)
+      for (const verdict of rest) {
+        expect(verdict.verdict).toBe("unsure")
+        expect(verdict.error).toMatch(
+          /^Budget reached: the run spent 0\.0200 USD of its --budget-usd 0\.02/,
+        )
+      }
+    })
+
+    test("a reply with no cost counts as 0.25 USD", async () => {
+      server.use(
+        http.post(
+          "https://openrouter.test/api/v1/chat/completions",
+          async ({ request }) => {
+            chats.push((await request.json()) as Chat)
+            return HttpResponse.json({
+              choices: [{ message: { role: "assistant", content } }],
+            })
+          },
+        ),
+      )
+
+      const code = await run(
+        "--json",
+        "--budget-usd",
+        "0.3",
+        "--images",
+        images,
+        "--",
+        ...paths,
+      )
+
+      expect(code).toBe(2)
+      expect(chats).toHaveLength(2)
+    })
+
+    test("a budget of 0 makes no call, also for a new screenshot", async () => {
+      const fresh =
+        "apps/ui/src/components/screenshots/Card.Primary.desktop.screenshot.png"
+      await put("head", fresh, after)
+
+      const code = await run(
+        "--json",
+        "--budget-usd",
+        "0",
+        "--images",
+        images,
+        "--",
+        paths[0] ?? "",
+        fresh,
+      )
+
+      expect(code).toBe(2)
+      expect(chats).toHaveLength(0)
+      for (const { summary, error } of verdicts()) {
+        expect(summary).toMatch(
+          /^Budget reached: no model judged this screenshot\./,
+        )
+        expect(error).toMatch(/^Budget reached/)
+      }
+      expect(verdicts()).toHaveLength(2)
+    })
+
+    test("the Jev filter call counts: the explainer is not called after the budget is spent", async () => {
+      const decisions: unknown[] = []
+      server.use(
+        http.post(
+          "https://openrouter.test/api/alpha/decisions",
+          async ({ request }) => {
+            const body = (await request.json()) as {
+              questions: Record<string, { type: string }>
+            }
+            decisions.push(body)
+            return HttpResponse.json({
+              model: "typesafe/jev-1.14",
+              answers: Object.fromEntries(
+                Object.keys(body.questions).map((name) => [
+                  name,
+                  { type: "noul", noul: 0.9 },
+                ]),
+              ),
+              usage: { cost: 0.003 },
+            })
+          },
+        ),
+      )
+
+      const code = await run(
+        "--json",
+        "--filter",
+        "jev",
+        "--budget-usd",
+        "0.001",
+        "--images",
+        images,
+        "--",
+        paths[0] ?? "",
+      )
+
+      expect(code).toBe(2)
+      expect(decisions).toHaveLength(1)
+      expect(chats).toHaveLength(0)
+      expect(verdicts()[0]).toMatchObject({
+        verdict: "unsure",
+        costUsd: 0.003,
+      })
+      expect(verdicts()[0]?.error).toMatch(/^Budget reached/)
+    })
+
+    test.each([
+      ["a budget that is not a number", ["--budget-usd", "five"]],
+      ["a negative budget", ["--budget-usd", "-1"]],
+      [
+        "a budget with --judge agent",
+        ["--judge", "agent", "--budget-usd", "1"],
+      ],
+    ])("%s is a usage error", async (_, args) => {
+      expect(await run(...args)).toBe(2)
+      expect(chats).toHaveLength(0)
+      expect(output.join("\n")).toContain("Usage: pnpm visual:review")
+    })
   })
 
   test("a screenshot within the pixel tolerance is noise, with no model call", async () => {
