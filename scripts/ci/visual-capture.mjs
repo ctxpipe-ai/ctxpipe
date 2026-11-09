@@ -189,7 +189,9 @@ export async function runInContainer(script, args, out) {
     docker(["cp", `${name}:/out/.`, out])
     if (status !== 0)
       process.stderr.write(
-        `The capture container exited with ${status}; some stories did not run.\n`,
+        status === null
+          ? "The capture container did not finish (no start, or the time limit); some stories did not run.\n"
+          : `The capture container exited with ${status}; some stories did not run.\n`,
       )
   } finally {
     spawnSync("docker", ["rm", "--force", name], { stdio: "ignore" })
