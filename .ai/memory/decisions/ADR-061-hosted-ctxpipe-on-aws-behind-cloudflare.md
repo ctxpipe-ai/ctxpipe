@@ -35,11 +35,15 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
         - aws-core: the organization, identity and SCPs;
         - cross-account resource policies: the RAM share, and the key and bucket policies that the preview account can use;
         - the tags and the deletion protection of protected resources, or delete such a resource;
-        - Cloudflare Access policies, and DNS records or tunnel ingress for internal hosts;
+        - Cloudflare Access policies, any tunnel and its ingress, and DNS records of `ctxpipe.dev` (a Cloudflare token cannot be scoped to single host names, so the normal token has no tunnel right and no DNS edit on `ctxpipe.dev`);
         - GitHub environments, branch rules and admin settings.
     - A separate job holds those rights. A person approves each run of it. Only that job holds the Cloudflare edit token, the GitHub admin token and the production secret values.
     - Defaults that close: deny-by-default Access apps on `ctxpipe.dev` and `*.ctxpipe.dev`, and every tunnel's ingress ends with a 404 catch-all.
-    - Code owners and a branch rule hold the guard code for a person's review: the policy pack, the list of protected resources, the Access and internal-host code, and the deploy workflows. The policy pack blocks a replace or a delete of a protected resource.
+    - Code owners and a branch rule hold the guard code for a person's review:
+        - the policy pack and the list of protected resources;
+        - the Access, tunnel and internal-host code;
+        - the deploy workflows.
+    - The policy pack blocks a replace or a delete of a protected resource.
     - The organization stays in CDK (`machines/aws-core`).
     - The public `@ctxpipe/aws-cdk` construct stays CDK, for simple, single-tenant self-hosting. Hosted does not use it. Hosted and self-host share only the container images and the environment contract.
     - Images: the ctxpipe repo only pushes images to ECR. It loses its deploy trust in the production account and keeps only an ECR push role. ECR tags are immutable. Each deploy pins its images by digest.
