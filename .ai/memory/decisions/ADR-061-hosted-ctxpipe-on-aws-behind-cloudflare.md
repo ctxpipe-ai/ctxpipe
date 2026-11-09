@@ -26,16 +26,19 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - High-value secrets stay out of the Pulumi state, so that the plan role can read the state safely. AWS manages the Aurora master password. Secrets Manager generates the application secrets. A `Production` job writes the tunnel tokens, and Pulumi never reads them.
     - Stacks: each environment is one Pulumi stack. Each preview is one Pulumi stack too.
     - Deploy roles: each one is scoped to its environment and has a permission boundary. Pulumi calls the AWS APIs with that role.
+    - OIDC trust: a deploy role trusts only its GitHub environment (`Production`, or `preview` for `preview-deploy`), and that environment admits only `main`. Only the plan role trusts pull requests.
     - Edge and repository credentials: only a job in the `Production` GitHub environment holds the Cloudflare edit token. The same rule applies to the GitHub admin token and the production secret values.
     - Approvals: the normal path needs no manual approval. `pulumi preview` runs on each pull request with the read-only plan role. An agent merges a pull request when the merge gate passes. `pulumi up` then runs from `main`.
-    - The plan role reads only metadata (`Describe*`, `List*`), the state bucket and the state key. Its boundary denies data reads: `s3:GetObject` outside the state bucket, log events, secret values, and `kms:Decrypt` with other keys. The plan job gets a read-only Cloudflare token and no GitHub admin token.
+    - The plan role reads only metadata (`Describe*`, `List*`), the state bucket and the state key. Its boundary denies data reads: `s3:GetObject` outside the state bucket, log events, secret values, and `kms:Decrypt` with other keys. The plan job gets a Cloudflare token with only DNS, Access and zone read, with no tunnel permission, so it cannot read a tunnel's run token. It gets no GitHub admin token.
     - A person approves only very sensitive changes:
         - aws-core: the organization, identity, SCPs and deploy-role boundaries;
         - the Cloudflare Access policies;
         - cross-account resource policies: the RAM share, the key policies and the bucket policies that the preview account can use;
         - the guards: the policy pack and the list of protected resources;
         - a replace or a delete of a protected resource.
-    - Code owners and a branch rule hold these files for a person's review. The policy pack blocks a replace or a delete of a protected resource. The deploy-role boundary also denies the delete of resources tagged as protected.
+    - Two deploy credentials. The normal deploy role and the normal Cloudflare token cannot do the very sensitive changes. A separate job holds those rights, and a person approves each run of it.
+    - The normal deploy role's boundary denies: changes to cross-account resource policies; untag, tag change and deletion-protection-off on resources tagged as protected; and their delete. The normal Cloudflare token has no Access edit right.
+    - Code owners and a branch rule hold the guards for a person's review: the policy pack, the list of protected resources, the Access policy code and the deploy workflows. The policy pack blocks a replace or a delete of a protected resource.
     - The organization stays in CDK (`machines/aws-core`).
     - The public `@ctxpipe/aws-cdk` construct stays CDK, for simple, single-tenant self-hosting. Hosted does not use it. Hosted and self-host share only the container images and the environment contract.
     - Images: the ctxpipe repo only pushes images to ECR. It loses its deploy trust in the production account and keeps only an ECR push role. ECR tags are immutable. Each deploy pins its images by digest.
