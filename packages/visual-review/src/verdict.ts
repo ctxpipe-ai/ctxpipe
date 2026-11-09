@@ -115,9 +115,6 @@ export const verdictSchema = judgementSchema.extend({
 
 export type Verdict = z.infer<typeof verdictSchema>
 
-/** What the reply rules need to know about the judged story. */
-type Judged = StoryInput | NewStoryInput
-
 type Judgement = Omit<
   Verdict,
   "storyId" | "model" | "costUsd" | "latencyMs" | "error" | "groupedWith"
@@ -133,7 +130,7 @@ type Judgement = Omit<
  */
 export function parseVerdict(
   text: string,
-  story: Judged,
+  story: StoryInput,
   run: RunFacts,
 ): Verdict {
   return parseReply(text, story, run, judgementSchema, (reply) => reply)
@@ -146,7 +143,7 @@ export function parseVerdict(
  */
 export function parseNewVerdict(
   text: string,
-  story: Judged,
+  story: NewStoryInput,
   run: RunFacts,
 ): Verdict {
   return parseReply(
@@ -172,7 +169,7 @@ export function parseNewVerdict(
 
 function parseReply<T>(
   text: string,
-  story: Judged,
+  story: StoryInput | NewStoryInput,
   run: RunFacts,
   schema: z.ZodType<T>,
   toJudgement: (reply: T) => Judgement,

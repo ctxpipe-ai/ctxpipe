@@ -73,7 +73,12 @@ const intended = {
   findings: [],
 }
 
-type Chat = { model: string }
+// The parts of a chat request that the tests read.
+type Chat = {
+  model: string
+  messages: { content: { type: string; text?: string }[] }[]
+  response_format: { json_schema: { schema: object } }
+}
 const chats: Chat[] = []
 let content = JSON.stringify(regression)
 const server = setupServer(
@@ -764,11 +769,11 @@ export const Primary = { render: () => null }
       qualities: [{ name: "clarity", rating: "meets", confidence: 0.8 }],
       findings: [],
     }
-    type Sent = {
-      messages: { content: { type: string; text?: string }[] }[]
-      response_format: { json_schema: { schema: unknown } }
+    const sent = (index: number) => {
+      const chat = chats[index]
+      if (!chat) throw new Error(`No chat call ${index}.`)
+      return chat
     }
-    const sent = (index: number) => chats[index] as unknown as Sent
 
     test("a broken new screenshot is a regression from one call with the head image, and it blocks", async () => {
       content = JSON.stringify(brokenNew)

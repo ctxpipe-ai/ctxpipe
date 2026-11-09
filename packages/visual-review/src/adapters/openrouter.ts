@@ -150,7 +150,7 @@ export async function judgeNewWithOpenRouter(
 /** One chat call: the reply text and its run facts, or it throws. */
 async function complete(
   prompt: Prompt,
-  schema: unknown,
+  schema: typeof judgementJsonSchema | typeof newJudgementJsonSchema,
   model: string,
   env: Record<string, string | undefined>,
 ): Promise<{ content: string; run: RunFacts }> {
