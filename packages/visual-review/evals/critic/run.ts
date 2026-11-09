@@ -4,7 +4,6 @@
 //
 // Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--out <dir>]
 //          [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4]
-//          [--seed <n>]
 //          [--blazediff-agent <dir>] [--cases <path>]
 
 import { createHash } from "node:crypto"
@@ -19,7 +18,11 @@ import { judgeWithOpenRouter } from "../../src/adapters/openrouter.ts"
 import { judgeByModel } from "../../src/command.ts"
 import { diff, type Comparison } from "../../src/compare/diff.ts"
 import { writeStoryImages } from "../../src/compare/images.ts"
-import { insideRoot, storyInput } from "../../src/compare/manifest.ts"
+import {
+  insideRoot,
+  realInside,
+  storyInput,
+} from "../../src/compare/manifest.ts"
 import { pngSize } from "../../src/prepare.ts"
 import { reviewStories } from "../../src/review.ts"
 import type { Box, StoryInput } from "../../src/story.ts"
@@ -27,7 +30,7 @@ import { parseVerdict, type Verdict } from "../../src/verdict.ts"
 import { caseManifestSchema, type Case, type CaseManifest } from "./cases.ts"
 import { report, type Result } from "./report.ts"
 
-const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--out <dir>] [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4] [--seed <n>] [--blazediff-agent <dir>] [--cases <path>]
+const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--out <dir>] [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4] [--blazediff-agent <dir>] [--cases <path>]
 
   --arms         The arms, comma-separated:
                    llm:<model>           the critic prompt (describe each side, then compare)
@@ -43,15 +46,16 @@ const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--
   --out          The folder for results.json and report.md.
                  Default: .ci-results/visual-bakeoff/report
   --runs         The runs of each arm on each case. Default: 3
-  --max-cost     The spend cap in USD. No paid call starts when the known cost
-                 of the run reaches it. Default: 100
+  --max-cost     The spend cap in USD. No paid call starts when the cost of
+                 the run reaches it. A call without a cost counts as the most
+                 expensive call so far. Default: 100
   --max-minutes  No call starts after this time, so that a job writes its
                  report before its timeout. Default: no limit.
   --concurrency  The calls at the same time for each paid arm. Default: 4
-  --seed         The seed of the hold-out split. Default: the seed of the manifest.
   --blazediff-agent
                  A folder with @blazediff/agent and @huggingface/transformers in
-                 node_modules (npm install --prefix <dir>). Needed for blazediff-local.
+                 node_modules, installed as .github/workflows/visual-bakeoff.yaml
+                 does. Needed for blazediff-local.
   --cases        The case manifest. Default: cases.json beside this file.
 
 The key and the endpoint of the paid arms come from MODEL_PROVIDER_API_KEY
@@ -86,8 +90,8 @@ type Arm = {
 
 /**
  * The cases of the hold-out set: 30% of each kind, the first ones in the
- * order of a hash of the seed and the case id. The same seed gives the same
- * set, and a new case does not move another case to the other set.
+ * order of a hash of the seed and the case id. The same seed and the same
+ * cases give the same set.
  */
 export function holdOut(manifest: CaseManifest, seed: number): Set<string> {
   const rank = (id: string) =>
@@ -131,7 +135,7 @@ async function armOf(
   const colon = id.indexOf(":")
   const kind = colon < 0 ? id : id.slice(0, colon)
   const model = colon < 0 ? "" : id.slice(colon + 1)
-  const paid = { id, paid: true, concurrency: options.concurrency }
+  const base = { id, paid: true, concurrency: options.concurrency }
   const needsModel = () => {
     if (!model) throw new Error(`Arm "${id}" needs a model: ${kind}:<model>.`)
   }
@@ -141,7 +145,7 @@ async function armOf(
     case "llm-no-facts":
       needsModel()
       return {
-        ...paid,
+        ...base,
         input: kind === "llm-no-facts" ? withoutFacts : same,
         judge: (story) =>
           judgeWithOpenRouter(
@@ -153,25 +157,25 @@ async function armOf(
       }
     case "jev":
       if (model) throw new Error(`Arm "jev" takes no model.`)
-      return { ...paid, input: same, judge: (story) => judgeWithJev(story) }
+      return { ...base, input: same, judge: (story) => judgeWithJev(story) }
     case "decision":
       needsModel()
       return {
-        ...paid,
+        ...base,
         input: same,
         judge: (story) => judgeWithJev(story, model),
       }
     case "cascade":
       needsModel()
       return {
-        ...paid,
+        ...base,
         input: same,
         judge: (story) => judgeByModel(story, model, "jev"),
       }
     case "blazediff-local":
       if (!options.blazediffAgent)
         throw new Error(
-          "Arm blazediff-local needs --blazediff-agent <dir> (npm install --prefix <dir> @blazediff/agent@0.13.2 @huggingface/transformers@4.3.2).",
+          "Arm blazediff-local needs --blazediff-agent <dir>: a folder with the packages that .github/workflows/visual-bakeoff.yaml installs.",
         )
       return {
         id,
@@ -280,21 +284,13 @@ async function blazediffLocal(folder: string, work: string): Promise<Judge> {
       latencyMs: performance.now() - started,
     }
     if (output.kind !== "judged")
-      return {
-        storyId: story.storyId,
-        observations: [],
-        verdict: "unsure",
-        severity: "none",
-        confidence: 0,
-        summary: "The local judge gave no verdict.",
-        qualities: [],
-        findings: [],
-        ...run,
-        error:
-          output.kind === "failed"
-            ? output.error.message
-            : "The local judge deferred the case to an agent.",
-      }
+      return failed(
+        story,
+        run,
+        output.kind === "failed"
+          ? output.error.message
+          : "The local judge deferred the case to an agent.",
+      )
     const verdict = verdicts[output.verdict.label]
     return parseVerdict(
       JSON.stringify({
@@ -331,12 +327,18 @@ async function prepare(
   for (const entry of manifest.cases) {
     const before = insideRoot(images, entry.images.before)
     const after = insideRoot(images, entry.images.after)
+    // The images can come from an archive. A symbolic link in it must not
+    // send a file outside the folder to a model provider.
+    const read = async (path: string) => {
+      await realInside(images, path)
+      return readFile(path)
+    }
     const [beforeBytes, afterBytes] = await Promise.all([
-      readFile(before),
-      readFile(after),
+      read(before),
+      read(after),
     ]).catch((error: Error) => {
       throw new Error(
-        `Case ${entry.id} has no image in ${images}: ${error.message}`,
+        `Case ${entry.id} has no usable image in ${images}: ${error.message}`,
       )
     })
     const comparison = await diff(beforeBytes, afterBytes)
@@ -372,9 +374,7 @@ async function prepare(
         regions: measured.regions,
         omittedRegions,
         signature: measured.signature,
-        // An unchanged pair (at most the tolerance) has no images: the free
-        // step calls it noise.
-        images: comparison.status === "unchanged" ? {} : written,
+        images: written,
         root: work,
         ...(entry.brief ? { brief: entry.brief } : {}),
       }),
@@ -396,6 +396,24 @@ const unchanged = (story: StoryInput): Verdict => ({
   model: "none",
   costUsd: 0,
   latencyMs: 0,
+})
+
+/** The verdict of a judge that gave no verdict: `unsure`, with the error. */
+const failed = (
+  story: StoryInput,
+  run: Pick<Verdict, "model" | "costUsd" | "latencyMs">,
+  error: string,
+): Verdict => ({
+  storyId: story.storyId,
+  observations: [],
+  verdict: "unsure",
+  severity: "none",
+  confidence: 0,
+  summary: "The judge gave no verdict.",
+  qualities: [],
+  findings: [],
+  ...run,
+  error,
 })
 
 /** A limit of the run (the spend cap or the time) stops a call. */
@@ -422,7 +440,6 @@ export async function bakeOff(
         "max-cost": { type: "string", default: "100" },
         "max-minutes": { type: "string" },
         concurrency: { type: "string", default: "4" },
-        seed: { type: "string" },
         "blazediff-agent": { type: "string" },
         cases: { type: "string" },
       },
@@ -442,11 +459,10 @@ export async function bakeOff(
     !(maxCost >= 0) ||
     !(maxMinutes > 0) ||
     !Number.isInteger(concurrency) ||
-    concurrency < 1 ||
-    (options.seed !== undefined && !Number.isInteger(Number(options.seed)))
+    concurrency < 1
   ) {
     print(
-      `--arms is required. --runs and --concurrency must be whole numbers of 1 or more, --max-cost a number of 0 or more, --max-minutes a number over 0, and --seed a whole number.\n\n${usage}`,
+      `--arms is required. --runs and --concurrency must be whole numbers of 1 or more, --max-cost a number of 0 or more, and --max-minutes a number over 0.\n\n${usage}`,
     )
     return 2
   }
@@ -492,82 +508,93 @@ export async function bakeOff(
       return 2
     }
 
-    const held = holdOut(manifest, Number(options.seed ?? manifest.seed))
-    // All runs of the hold-out cases go first, so that a run that the cap
-    // stops has the cases of the selection rule.
-    const tasks = [
-      prepared.filter(({ entry }) => held.has(entry.id)),
-      prepared.filter(({ entry }) => !held.has(entry.id)),
-    ].flatMap((set) =>
-      Array.from({ length: runs }, (_, run) =>
-        set.map((prepared) => ({ run: run + 1, prepared })),
-      ).flat(),
-    )
+    const held = holdOut(manifest, manifest.seed)
+    const armIds = arms.map(({ id }) => id)
     const deadline = Date.now() + maxMinutes * 60_000
     let spent = 0
+    // The cost of the most expensive call so far. A call without a known
+    // cost counts as this much, so that the cap still holds.
+    let highest = 0
     let stopped: "cost" | "time" | undefined
     let unknownCost = 0
     const results: Result[] = []
+    const count = (cost: number | null) => {
+      if (cost === null) {
+        unknownCost++
+        spent += highest
+      } else {
+        spent += cost
+        highest = Math.max(highest, cost)
+      }
+    }
 
-    await Promise.all(
-      arms.map(async (arm) => {
-        const queue = [...tasks]
-        const judge = async (story: StoryInput, prepared: Prepared) => {
-          if (arm.paid && spent >= maxCost) stopped = "cost"
-          else if (Date.now() >= deadline) stopped = "time"
-          else return call(story, prepared)
-          throw new Stopped()
-        }
-        const call = async (story: StoryInput, prepared: Prepared) => {
+    // Each call, also a retry, checks the limits first.
+    const attempt = (arm: Arm, story: StoryInput, prepared: Prepared) => {
+      if (arm.paid && spent >= maxCost) stopped = "cost"
+      else if (Date.now() >= deadline) stopped = "time"
+      else return arm.judge(story, prepared)
+      throw new Stopped()
+    }
+    const judge = async (arm: Arm, story: StoryInput, prepared: Prepared) => {
+      let verdict: Verdict
+      try {
+        verdict = await attempt(arm, story, prepared)
+      } catch (error) {
+        if (error instanceof Stopped) throw error
+        // One retry for a failed call (a rate limit, a timeout).
+        await new Promise((done) => setTimeout(done, 5_000))
+        verdict = await attempt(arm, story, prepared)
+      }
+      count(verdict.costUsd)
+      return verdict
+    }
+    const runArm = async (arm: Arm, cases: readonly Prepared[]) => {
+      const queue = Array.from({ length: runs }, (_, run) =>
+        cases.map((prepared) => ({ run: run + 1, prepared })),
+      ).flat()
+      const worker = async () => {
+        for (let task = queue.shift(); task; task = queue.shift()) {
+          const { run, prepared } = task
+          const story = arm.input(prepared.story)
           let verdict: Verdict
           try {
-            verdict = await arm.judge(story, prepared)
-          } catch {
-            // One retry for a failed call (a rate limit, a timeout).
-            await new Promise((done) => setTimeout(done, 5_000))
-            verdict = await arm.judge(story, prepared)
+            // The free noise step of the critic applies before the judge.
+            verdict =
+              prepared.comparison.status === "unchanged"
+                ? unchanged(story)
+                : ((
+                    await reviewStories([story], (story) =>
+                      judge(arm, story, prepared),
+                    )
+                  )[0] ?? unchanged(story))
+          } catch (error) {
+            if (error instanceof Stopped) return
+            // The cost of a failed call is not known.
+            count(null)
+            verdict = failed(
+              story,
+              { model: arm.id, costUsd: null, latencyMs: 0 },
+              (error as Error).message,
+            )
           }
-          if (verdict.costUsd === null) unknownCost++
-          else spent += verdict.costUsd
-          return verdict
+          results.push({ arm: arm.id, case: prepared.entry.id, run, verdict })
         }
-        const worker = async () => {
-          for (let task = queue.shift(); task; task = queue.shift()) {
-            const { run, prepared } = task
-            const story = arm.input(prepared.story)
-            let verdict: Verdict
-            try {
-              verdict =
-                prepared.comparison.status === "unchanged"
-                  ? unchanged(story)
-                  : ((
-                      await reviewStories([story], (story) =>
-                        judge(story, prepared),
-                      )
-                    )[0] ?? unchanged(story))
-            } catch (error) {
-              if (error instanceof Stopped) return
-              verdict = {
-                ...unchanged(story),
-                verdict: "unsure",
-                confidence: 0,
-                summary: "The judge failed.",
-                model: arm.id,
-                costUsd: null,
-                error: (error as Error).message,
-              }
-            }
-            results.push({ arm: arm.id, case: prepared.entry.id, run, verdict })
-          }
-        }
-        await Promise.all(Array.from({ length: arm.concurrency }, worker))
-      }),
-    )
+      }
+      await Promise.all(Array.from({ length: arm.concurrency }, worker))
+    }
+    // All arms finish all runs of the hold-out cases before any arm starts
+    // the other cases, so that a run that a limit stops has the cases of the
+    // selection rule.
+    for (const cases of [
+      prepared.filter(({ entry }) => held.has(entry.id)),
+      prepared.filter(({ entry }) => !held.has(entry.id)),
+    ])
+      await Promise.all(arms.map((arm) => runArm(arm, cases)))
 
     const text = report({
       manifest,
       holdOut: held,
-      arms: arms.map(({ id }) => id),
+      arms: armIds,
       runs,
       results,
       regions: new Map(prepared.map(({ entry, region }) => [entry.id, region])),
@@ -578,7 +605,7 @@ export async function bakeOff(
     await mkdir(out, { recursive: true })
     await writeFile(
       join(out, "results.json"),
-      `${JSON.stringify({ seed: Number(options.seed ?? manifest.seed), runs, arms: arms.map(({ id }) => id), spent, stopped: stopped ?? null, results }, null, 2)}\n`,
+      `${JSON.stringify({ seed: manifest.seed, runs, arms: armIds, spent, stopped: stopped ?? null, results }, null, 2)}\n`,
     )
     await writeFile(join(out, "report.md"), `${text}\n`)
     print(text)

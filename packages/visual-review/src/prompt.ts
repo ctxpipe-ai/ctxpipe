@@ -66,11 +66,6 @@ const data = (name: string, text: string | undefined) =>
     text?.trim() ? text.replace(/<\/data/gi, "<\\/data") : "(none)"
   }\n</data>`
 
-const prefixes: Record<Steps, string> = {
-  "describe-first": prefixOf("describe-first"),
-  "one-step": prefixOf("one-step"),
-}
-
 /** Build the prompt for one story: the fixed prefix, then the story part. */
 export function buildPrompt(
   input: StoryInput,
@@ -91,7 +86,8 @@ export function buildPrompt(
     ? input.regions
         .map(
           ({ box, changeType, position, confidence }, index) =>
-            `${index + 1}. ${changeType ?? "unlabeled change"} at ${position}; box x ${box.x}, y ${box.y}, width ${box.width}, height ${box.height}; confidence ${confidence}`,
+            // A region with no change type has no interpreter confidence.
+            `${index + 1}. ${changeType ?? "unlabeled change"} at ${position}; box x ${box.x}, y ${box.y}, width ${box.width}, height ${box.height}${changeType ? `; confidence ${confidence}` : ""}`,
         )
         .join("\n")
     : "No measured regions: the image size changed. Compare the full before and after images."
@@ -122,5 +118,5 @@ ${input.images
 ${data("brief", input.brief)}
 
 ${data("source-diff", input.sourceDiff)}`
-  return { prefix: prefixes[steps], story, images: input.images }
+  return { prefix: prefixOf(steps), story, images: input.images }
 }

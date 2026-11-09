@@ -189,9 +189,7 @@ function measure(
                 ),
             )
           : undefined,
-      cost: costs.some((cost) => cost === null)
-        ? undefined
-        : mean(costs.map((cost) => cost ?? 0)),
+      cost: mean(costs.filter((cost) => cost !== null)),
       p50: percentile(latencies, 50),
       p95: percentile(latencies, 95),
       taste: ownPicks.length
@@ -243,27 +241,26 @@ function table(
 /**
  * The selection rule: of the arms with recall ≥ 0.9 and precision ≥ 0.7 on
  * the hold-out set, the cheapest. Arms with the same cost per story (to
- * $0.0001) tie; the taste win rate breaks the tie. An arm with an unknown
- * cost comes after the others.
+ * $0.0001) tie; the taste win rate breaks the tie. An arm with no known cost
+ * comes after the others.
  */
 function select(metrics: ReadonlyMap<string, Metrics>): string {
-  const eligible = [...metrics].filter(
-    ([, m]) => (m.recall ?? 0) >= 0.9 && (m.precision ?? 0) >= 0.7,
-  )
-  if (!eligible.length)
-    return "No arm has recall ≥ 0.9 and precision ≥ 0.7 on the hold-out set."
-  const cents = (m: Metrics) =>
+  const costUnits = (m: Metrics) =>
     m.cost === undefined ? Infinity : Math.round(m.cost * 10_000)
-  const cheapest = Math.min(...eligible.map(([, m]) => cents(m)))
-  const tied = eligible.filter(([, m]) => cents(m) === cheapest)
-  const [first, ...others] = tied
-  if (!first) throw new Error("unreachable: eligible is not empty")
+  const eligible = [...metrics]
+    .filter(([, m]) => (m.recall ?? 0) >= 0.9 && (m.precision ?? 0) >= 0.7)
+    .sort(([, a], [, b]) => costUnits(a) - costUnits(b))
+  const [first] = eligible
+  if (!first)
+    return "No arm has recall ≥ 0.9 and precision ≥ 0.7 on the hold-out set."
   const names = eligible.map(([arm]) => `\`${arm}\``).join(", ")
-  if (!others.length)
+  const tied = eligible.filter(([, m]) => costUnits(m) === costUnits(first[1]))
+  if (tied.length === 1)
     return `Selected: \`${first[0]}\`, the cheapest of the arms with recall ≥ 0.9 and precision ≥ 0.7 on the hold-out set (${names}).`
-  const tasted = tied.filter(([, m]) => m.taste !== undefined)
-  const best = Math.max(...tasted.map(([, m]) => m.taste ?? 0))
-  const winners = tasted.filter(([, m]) => m.taste === best)
+  const best = Math.max(...tied.map(([, m]) => m.taste ?? -1))
+  const winners = tied.filter(
+    ([, m]) => m.taste !== undefined && m.taste === best,
+  )
   if (winners.length === 1 && winners[0])
     return `Selected: \`${winners[0][0]}\`. It ties on cost with ${tied.length - 1} other arms of recall ≥ 0.9 and precision ≥ 0.7, and has the highest taste win rate.`
   return `No single arm: ${tied.map(([arm]) => `\`${arm}\``).join(", ")} have recall ≥ 0.9, precision ≥ 0.7 and the same cost, and the taste win rate does not break the tie.`
@@ -313,7 +310,7 @@ export function report({
         : ""
     }${
       spend.unknownCost
-        ? ` ${spend.unknownCost} calls gave no usage.cost; the cap does not count them.`
+        ? ` ${spend.unknownCost} calls gave no cost: the spend counts each one as the most expensive call so far, and the cost per story leaves them out.`
         : ""
     }`,
     "",

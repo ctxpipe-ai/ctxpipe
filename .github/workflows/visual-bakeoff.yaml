@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       images_url:
-        description: "HTTPS URL of a .tar.gz of the case images: the output folder of pnpm visual:bakeoff:build, with cases/<id>/before.png and after.png."
+        description: "HTTPS URL of a .tar.gz of the case images: the output folder of pnpm visual:bakeoff:build, with cases/<id>/before.png and after.png. The public run log shows it, so it must hold no credential."
         required: true
         type: string
       images_sha256:

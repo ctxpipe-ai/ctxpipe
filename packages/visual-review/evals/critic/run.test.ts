@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -24,6 +25,7 @@ const gateway = "https://gateway.test/api/v1"
 const server = setupServer()
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }))
 afterEach(() => {
+  costOnlyOnce = false
   server.resetHandlers()
   vi.unstubAllEnvs()
 })
@@ -153,6 +155,9 @@ const region = {
 const storyOf = (text: string) => /Story: (\S+)/.exec(text)?.[1] ?? ""
 
 let calls: string[] = []
+let prompts: string[] = []
+// When true, only the first call gives its cost.
+let costOnlyOnce = false
 // The LLM is right with the critic prompt, and calls each case a regression
 // with the one-step prompt. Each call costs $0.01.
 const chat = http.post(`${gateway}/chat/completions`, async ({ request }) => {
@@ -163,6 +168,7 @@ const chat = http.post(`${gateway}/chat/completions`, async ({ request }) => {
   const [prefix, story] = body.messages[0]?.content ?? []
   const id = storyOf(story?.text ?? "")
   calls.push(`${body.model} ${id}`)
+  prompts.push(story?.text ?? "")
   const verdict = prefix?.text?.includes("in one step")
     ? "regression"
     : labelOf(id)
@@ -200,7 +206,7 @@ const chat = http.post(`${gateway}/chat/completions`, async ({ request }) => {
         },
       },
     ],
-    usage: { cost: 0.01 },
+    usage: costOnlyOnce && calls.length > 1 ? {} : { cost: 0.01 },
   })
 })
 // Jev finds each regression and its box ($0.001 a call). The other decision
@@ -255,6 +261,7 @@ const run = async (args: string[]) => {
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
   vi.stubEnv("MODEL_PROVIDER_URL", gateway)
   calls = []
+  prompts = []
   const out = mkdtempSync(join(folder, "out-"))
   const printed: string[] = []
   const code = await bakeOff(
@@ -394,7 +401,7 @@ test("a dry run judges every case with every arm and selects the cheapest arm th
     "12",
   ])
   expect(text).toContain(
-    "Selected: `jev`, the cheapest of the arms with recall ≥ 0.9 and precision ≥ 0.7 on the hold-out set (`llm:anthropic/claude-test`, `llm-no-facts:anthropic/claude-test`, `jev`, `cascade:anthropic/claude-test`).",
+    "Selected: `jev`, the cheapest of the arms with recall ≥ 0.9 and precision ≥ 0.7 on the hold-out set (`jev`, `cascade:anthropic/claude-test`, `llm:anthropic/claude-test`, `llm-no-facts:anthropic/claude-test`).",
   )
   // The LLM finds the known region exactly. It rates only clarity, as most
   // arms do; the local judge rates no quality.
@@ -412,6 +419,15 @@ test("a dry run judges every case with every arm and selects the cheapest arm th
   const results = JSON.parse(readFileSync(join(out, "results.json"), "utf8"))
   expect(results.results).toHaveLength(7 * 10 * 3)
   expect(results.stopped).toBe(null)
+
+  // The arm without the interpreter facts gets no change type and no
+  // confidence; the other arms get both.
+  const unlabeled = prompts.filter((text) => text.includes("unlabeled change"))
+  expect(unlabeled).toHaveLength(10 * 3)
+  expect(unlabeled.filter((text) => text.includes("confidence"))).toEqual([])
+  const labeled = prompts.filter((text) => !text.includes("unlabeled change"))
+  expect(labeled.length).toBeGreaterThan(0)
+  expect(labeled.every((text) => text.includes("; confidence "))).toBe(true)
 })
 
 test("the spend cap stops the paid calls, and the report says so", async () => {
@@ -438,6 +454,67 @@ test("the spend cap stops the paid calls, and the report says so", async () => {
   const results = JSON.parse(readFileSync(join(out, "results.json"), "utf8"))
   expect(results.stopped).toBe("cost")
   expect(results.results).toHaveLength(3)
+})
+
+test("a call without a cost counts as the most expensive call so far", async () => {
+  server.use(chat)
+  costOnlyOnce = true
+  const { text } = await run([
+    "--cases",
+    writeManifest(),
+    "--arms",
+    "llm:anthropic/claude-test",
+    "--runs",
+    "1",
+    "--concurrency",
+    "1",
+    "--max-cost",
+    "0.025",
+  ])
+
+  // $0.01 with a cost, then two calls without one, which count $0.01 each.
+  expect(calls).toHaveLength(3)
+  expect(text).toContain(
+    "Spend: $0.03 of the $0.025 cap. The spend cap stopped the run",
+  )
+  expect(text).toContain("2 calls gave no cost")
+})
+
+test("an image that links outside the image folder stops the run before a call", async () => {
+  server.use(chat)
+  const linked = mkdtempSync(join(folder, "linked-"))
+  const outside = join(folder, "private.png")
+  writeFileSync(outside, pairs.intended[0])
+  for (const entry of cases) {
+    mkdirSync(join(linked, "cases", entry.id), { recursive: true })
+    writeFileSync(join(linked, entry.images.before), pairs[entry.kind][0])
+    writeFileSync(join(linked, entry.images.after), pairs[entry.kind][1])
+  }
+  const target = join(linked, "cases", "regression-1", "after.png")
+  rmSync(target)
+  symlinkSync(outside, target)
+  vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+  vi.stubEnv("MODEL_PROVIDER_URL", gateway)
+  calls = []
+  const printed: string[] = []
+
+  const code = await bakeOff(
+    [
+      "--images",
+      linked,
+      "--out",
+      mkdtempSync(join(folder, "out-")),
+      "--cases",
+      writeManifest(),
+      "--arms",
+      "llm:anthropic/claude-test",
+    ],
+    (text) => printed.push(text),
+  )
+
+  expect(code).toBe(2)
+  expect(printed.join("\n")).toContain("Case regression-1 has no usable image")
+  expect(calls).toEqual([])
 })
 
 test("the taste win rate comes from the owner picks in the manifest", async () => {
