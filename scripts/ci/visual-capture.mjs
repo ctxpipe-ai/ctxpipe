@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import {
   existsSync,
   mkdirSync,
@@ -192,6 +192,66 @@ const docker = (args) => {
     )
 }
 
+let containers = 0
+
+// Runs a Node script of this repo in the pinned container, and copies the
+// /out folder of the container into `out`. The repo is /work, read-only. A
+// script that exits non-zero keeps its partial results in `out`. `files`
+// maps a path in the container to a host file that is copied there before
+// the start (an input that can be larger than the size limit of one
+// argument). The bake-off builder (packages/visual-review/evals/critic/build.ts)
+// uses it too.
+export async function runInContainer(script, args, out, files = {}) {
+  const failed = (await prepare(["visual-container"])).get("visual-container")
+  if (failed) throw new Error(failed)
+  const name = `ctxpipe-visual-capture-${process.pid}-${Date.now()}-${(containers += 1)}`
+  mkdirSync(out, { recursive: true })
+  try {
+    // --init reaps the browser processes and --ipc=host gives Chromium shared
+    // memory, as the Playwright documentation advises for the image.
+    docker([
+      "create",
+      "--name",
+      name,
+      "--platform",
+      pin.platform,
+      "--init",
+      "--ipc=host",
+      "--volume",
+      `${root}:/work:ro`,
+      "--workdir",
+      "/work",
+      `${pin.image}:${pin.tag}@${pin.digest}`,
+      "node",
+      script,
+      ...args,
+    ])
+    for (const [inside, host] of Object.entries(files))
+      docker(["cp", host, `${name}:${inside}`])
+    // A run that throws exits non-zero. Copy its partial results anyway.
+    // The desktop capture of about 900 stories took 25 minutes on a CI
+    // runner, so the run may take one hour. The start does not block, so
+    // that a caller can run more containers at once.
+    const status = await new Promise((resolveStart) => {
+      const started = spawn("docker", ["start", "--attach", name], {
+        stdio: "inherit",
+        timeout: 3_600_000,
+      })
+      started.on("error", () => resolveStart(null))
+      started.on("close", resolveStart)
+    })
+    docker(["cp", `${name}:/out/.`, out])
+    if (status !== 0)
+      process.stderr.write(
+        status === null
+          ? "The capture container did not finish (no start, or the time limit); some stories did not run.\n"
+          : `The capture container exited with ${status}; some stories did not run.\n`,
+      )
+  } finally {
+    spawnSync("docker", ["rm", "--force", name], { stdio: "ignore" })
+  }
+}
+
 // The capture plan of the stories `ids` of the static Storybook build: the
 // screenshot options of each one (visualOptions in scripts/checks/visual.mjs).
 export async function capturePlan(ids) {
@@ -216,53 +276,21 @@ export async function captureInContainer(plan, out, viewport = "desktop") {
     throw new Error(
       `${staticDir}/index.json is missing. Run: pnpm --filter @ctxpipe/ui build-storybook`,
     )
-  const failed = (await prepare(["visual-container"])).get("visual-container")
-  if (failed) throw new Error(failed)
-  const name = `ctxpipe-visual-capture-${process.pid}-${Date.now()}`
   mkdirSync(out, { recursive: true })
   for (const file of readdirSync(out))
     if (file.endsWith(".png") || file === "capture.json")
       rmSync(join(out, file))
+  // The plan can be larger than the size limit of one argument.
   const planFile = join(out, "plan.json")
   writeFileSync(planFile, JSON.stringify(plan))
   try {
-    // --init reaps the browser processes and --ipc=host gives Chromium shared
-    // memory, as the Playwright documentation advises for the image.
-    docker([
-      "create",
-      "--name",
-      name,
-      "--platform",
-      pin.platform,
-      "--init",
-      "--ipc=host",
-      "--volume",
-      `${root}:/work:ro`,
-      "--workdir",
-      "/work",
-      `${pin.image}:${pin.tag}@${pin.digest}`,
-      "node",
+    await runInContainer(
       "scripts/ci/visual-capture.mjs",
-      "--inside",
-      viewport,
-      "/plan.json",
-    ])
-    // The plan can be larger than the size limit of one argument.
-    docker(["cp", planFile, `${name}:/plan.json`])
-    // A run that throws exits non-zero. Copy its partial results anyway.
-    // The desktop capture of about 900 stories took 25 minutes on a CI
-    // runner, so the run may take one hour.
-    const started = spawnSync("docker", ["start", "--attach", name], {
-      stdio: "inherit",
-      timeout: 3_600_000,
-    })
-    docker(["cp", `${name}:/out/.`, out])
-    if (started.status !== 0)
-      process.stderr.write(
-        `The capture container exited with ${started.status}; some stories did not run.\n`,
-      )
+      ["--inside", viewport, "/plan.json"],
+      out,
+      { "/plan.json": planFile },
+    )
   } finally {
-    spawnSync("docker", ["rm", "--force", name], { stdio: "ignore" })
     rmSync(planFile, { force: true })
   }
   const { shots } = JSON.parse(readFileSync(join(out, "capture.json"), "utf8"))
