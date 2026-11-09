@@ -12,6 +12,7 @@ import {
 } from "../../models/workspace-write-jobs.js"
 import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
+import { resolveGitRemoteTip } from "../../services/git/clone-tree.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { prepareGitMerge } from "../../services/git/merge-tree.js"
 import type { GitPack, GitRemoteRead } from "../../services/git/pack.js"
@@ -231,10 +232,10 @@ export async function prepareSemanticMergeCommit(
   return prepareWithJobRef(job, env, async (publish) => {
     const found = await findPreparedMergeCommit(job, revision, env)
     if (found && "commit" in found) return found.commit
-    // A commit that a run recorded before its steps got new names and never
-    // pushed: no step reads it again.
+    // A recorded commit that no push sent (a crash between the record and
+    // the push, or a run from before the new step names): no step reads it.
     if (found) await discardWriteJobPreparedCommit(input.jobId, found.stale)
-    const committed = await prepareGitMerge({
+    return prepareGitMerge({
       pack,
       previousSha: input.previousSha,
       files: input.files,
@@ -249,16 +250,18 @@ export async function prepareSemanticMergeCommit(
         }),
       ...commit,
       read,
-      publish,
+      // Record the commit before its push: a commit on a job ref is always
+      // the recorded one, so a replay finds it and asks no model again.
+      publish: async (directory, sha) => {
+        if (input.handoff)
+          await validateSemanticHandoff(
+            { ...input, handoff: input.handoff },
+            sha,
+          )
+        else await persistWriteJobPreparedCommit(input.jobId, sha)
+        await publish(directory, sha)
+      },
     })
-    if (!committed) return null
-    if (input.handoff)
-      await validateSemanticHandoff(
-        { ...input, handoff: input.handoff },
-        committed.sha,
-      )
-    else await persistWriteJobPreparedCommit(input.jobId, committed.sha)
-    return committed
   })
 }
 
@@ -294,9 +297,23 @@ function mirrorGuard(
   if (!mirror) return undefined
   return async () => {
     await assertConnectorMirrorBinding(input.orgId, mirror, revision)
+    // The scope can change on the default branch after the acquire step:
+    // check it on the live tip.
+    const tip = await resolveGitRemoteTip({
+      url: read.url,
+      token: await read.token(),
+    })
+    if (tip?.branch !== revision.defaultBranch)
+      throw new Error("Default branch changed before the job ref push")
     await assertConnectorMirrorScope(
       mirror,
-      { ...pack, sha: revision.sha },
+      {
+        ...pack,
+        sha: tip.sha,
+        objects: "",
+        shallow: "",
+        base: { url: read.url, shas: [tip.sha] },
+      },
       read,
     )
   }

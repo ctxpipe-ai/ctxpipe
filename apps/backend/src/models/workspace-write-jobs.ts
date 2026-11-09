@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util"
 
-import { and, eq, gt, inArray, lt, ne, type SQL, sql } from "drizzle-orm"
+import { and, eq, inArray, lt, ne, type SQL, sql } from "drizzle-orm"
 
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
@@ -799,18 +799,5 @@ export async function listWriteJobStatuses(
       .from(workspaceWriteJobs)
       .where(inArray(workspaceWriteJobs.id, [...jobIds]))
     return new Map(rows.map((row) => [row.id, row.status]))
-  })
-}
-
-/** The Workspaces of the org that have a write job changed after `since`. */
-export async function listWorkspacesWithWriteJobsSince(
-  since: Date,
-): Promise<Set<string>> {
-  return orgSql(async () => {
-    const rows = await getOrgDb()
-      .selectDistinct({ workspaceId: workspaceWriteJobs.workspaceId })
-      .from(workspaceWriteJobs)
-      .where(gt(workspaceWriteJobs.updatedAt, since))
-    return new Set(rows.map((row) => row.workspaceId))
   })
 }

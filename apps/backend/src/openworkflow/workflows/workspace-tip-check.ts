@@ -34,7 +34,6 @@ import {
 import {
   cleanUpWorkspaceIngestRefs,
   cleanUpWorkspaceWriteRefs,
-  WRITE_JOB_REF_WINDOW_MS,
 } from "../../domain/workspaces/write-broker.js"
 import { resumePausedWriteJobs } from "../../domain/workspaces/write-job-resume.js"
 import {
@@ -45,7 +44,6 @@ import { orgHasRecentIngestionRun } from "../../models/ingestion-runs.js"
 import { getWorkspaceCommitProjection } from "../../models/workspace-commits.js"
 import { listUnfinishedHydrateShas } from "../../models/workspace-hydrate-runs.js"
 import { failStoppedUpgradeRun } from "../../models/workspace-upgrades.js"
-import { listWorkspacesWithWriteJobsSince } from "../../models/workspace-write-jobs.js"
 import {
   claimPausedWriteJob,
   ensureOrgFirstWorkspace,
@@ -455,17 +453,14 @@ export const workspaceTipCheck = defineWorkflow(
             })
           })
         }
-      // The job refs of finished and failed write jobs (CTX-1235), only in a
-      // Workspace with a write job changed in the last 7 days. The `complete`
-      // step deletes the refs of a job that lands its write; this check
-      // deletes what a failed run left. A failure here must not fail the tip
-      // check; the next check tries again.
-      const writeJobWorkspaces = await listWorkspacesWithWriteJobsSince(
-        new Date(now.getTime() - WRITE_JOB_REF_WINDOW_MS),
-      )
+      // The job refs of finished and failed write jobs (CTX-1235). The
+      // `complete` step deletes the refs of a job that lands its write; this
+      // check deletes what a failed run or a failed deletion left, in each
+      // writable Workspace, so the refs go also after a long access outage.
+      // A failure here must not fail the tip check; the next check tries
+      // again.
       for (const workspace of workspaces) {
         if (
-          !writeJobWorkspaces.has(workspace.id) ||
           !workspace.githubConnectionId ||
           noAccess.has(workspace.id) ||
           (writeStatusById.get(workspace.id) ?? workspace.writeStatus) !==

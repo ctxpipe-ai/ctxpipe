@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { writeFileSync } from "node:fs"
+import { rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { expect, it } from "vitest"
@@ -326,6 +326,41 @@ it(
       expect(
         f.git("--git-dir", f.remote, "show", `${first.sha}:${NOTES}`),
       ).toBe("# Owners\n\nOwners: Bob, Carol")
+    })
+  },
+)
+
+it(
+  "makes a new merge commit on a replay when the job ref push failed after the record",
+  { timeout: 90_000 },
+  async () => {
+    const answer = {
+      files: [{ path: NOTES, content: "# Owners\n\nOwners: Bob, Carol\n" }],
+    }
+    await withNativeHydrationFixture(fixture(answer), async (f) => {
+      const jobId = `wjob_${f.id}_refused`
+      const { prepare } = await mergeJob(f, jobId)
+      // The Git host refuses the job ref: the step recorded its commit, and
+      // no push sent it.
+      const hook = join(f.remote, "hooks/update")
+      writeFileSync(hook, "#!/bin/sh\nexit 1\n", { mode: 0o755 })
+      await expect(withOrgIdContext(f.org, prepare)).rejects.toThrow()
+      const recorded = (
+        await withOrgIdContext(f.org, () => getWriteJobRefState(jobId))
+      )?.commitSha
+      expect(recorded).toMatch(/^[0-9a-f]{40}$/)
+      expect(writeRefs(f)).toEqual([])
+      rmSync(hook)
+      answer.files = [{ path: NOTES, content: "# Owners\n\nOwners: Erin\n" }]
+      const replayed = await withOrgIdContext(f.org, prepare)
+      if (!replayed || replayed === "paused") throw new Error("No commit")
+      expect(replayed.sha).not.toBe(recorded)
+      expect(writeRefs(f)).toEqual([writeJobRef(jobId, replayed.sha)])
+      expect(
+        (await withOrgIdContext(f.org, () => getWriteJobRefState(jobId)))
+          ?.commitSha,
+      ).toBe(replayed.sha)
+      expect(f.semanticRequests).toHaveLength(2)
     })
   },
 )

@@ -974,12 +974,6 @@ function workspaceBrokerRemote(workspace: {
 }
 
 /**
- * How long the tip check keeps cleaning the job refs of a Workspace after
- * its last write job changed. The ingest refs use the same window.
- */
-export const WRITE_JOB_REF_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
-
-/**
  * Run a write step that pushes its commit to a job ref (CTX-1235). `prepare`
  * gets the publisher: the broker is the only pusher, and the credential never
  * leaves it. When the Workspace has no write access, the result is `paused`,
@@ -1005,10 +999,11 @@ export async function prepareWithJobRef<T>(
   const publish: PublishGitCommit = async (directory, sha) => {
     const admitted = await admitActive()
     const remote = await brokerWriteRemote(job.orgId, admitted.remote, env)
-    // A detach, a relink, or a lost write access can come while GitHub
-    // issues the credential: check again before any content leaves.
-    await admitActive()
     await job.guard?.()
+    // A detach, a relink, or a lost write access can come while GitHub
+    // issues the credential or while the guard reads: check again last,
+    // before any content leaves.
+    await admitActive()
     await nativeGit(
       directory,
       [
@@ -1045,9 +1040,9 @@ export async function prepareWithJobRef<T>(
 
 /**
  * The commit that an earlier execution of a merge step prepared for the job
- * (CTX-1235). The step records its commit on the job after the push to the
- * job ref, so a recorded commit with a job ref is the step's own result: a
- * replay returns it and does not ask the model again. A recorded commit that
+ * (CTX-1235). The step records its commit on the job before the push to the
+ * job ref, so each pushed commit is recorded: a replay returns it and does
+ * not ask the model again. A recorded commit that
  * the default branch has is the result too (a run that pushed before its
  * steps got new names). Else the recorded commit was never pushed, and
  * `stale` names it: the step makes a new one. `candidateSha` is the commit
