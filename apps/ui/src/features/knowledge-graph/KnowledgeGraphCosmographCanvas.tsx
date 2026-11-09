@@ -120,6 +120,12 @@ const CAMERA_MOVE_MS = 250
 const INITIAL_EXTENTS_FIT_PADDING = 0.1
 const GRAPH_SIMULATION_RESTART_ALPHA = 0.35
 const INITIAL_SIMULATION_AUTO_SETTLE_MS = 7000
+/**
+ * With reduced motion the layout runs in fewer steps, out of view, and the
+ * graph shows only when the layout has stopped. The steps do not depend on
+ * time, so the layout is the same on each device.
+ */
+const REDUCED_MOTION_SIMULATION_DECAY = 300
 const GRAPH_SIMULATION_PRESET = {
   simulationDecay: 1800,
   simulationGravity: 0.46,
@@ -587,11 +593,17 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 
       const n = points.length
       const isLargeGraph = n > 20_000
+      const reduceMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches
       setConfig({
         points: prepPoints,
         links: prepLinks,
         ...cosmographConfig,
         ...GRAPH_SIMULATION_PRESET,
+        ...(reduceMotion && {
+          simulationDecay: REDUCED_MOTION_SIMULATION_DECAY,
+        }),
         pointDefaultColor: KIND_FALLBACK_COLOR,
         pointDefaultSize: 7,
         pointSizeRange: isLargeGraph ? [1, 22] : [4, 12],
@@ -629,11 +641,11 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         fitViewPadding: 0.15,
         onSimulationStart: () => {
           setIsSimulationRunning(true)
-          autoSettleInitialSimulation()
+          if (!reduceMotion) autoSettleInitialSimulation()
         },
         onSimulationRestart: () => {
           setIsSimulationRunning(true)
-          autoSettleInitialSimulation()
+          if (!reduceMotion) autoSettleInitialSimulation()
         },
         onSimulationEnd: () => {
           clearAutoSettleTimer()
@@ -644,6 +656,8 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
           revealAfterInitialFit()
         },
         onGraphRebuilt: () => {
+          // With reduced motion, the end of the simulation shows the graph.
+          if (reduceMotion) return
           if (fitFallbackTimer) clearTimeout(fitFallbackTimer)
           fitFallbackTimer = setTimeout(() => {
             if (!hasInitialFitRef.current) {

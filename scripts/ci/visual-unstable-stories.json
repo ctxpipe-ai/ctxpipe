@@ -12,11 +12,6 @@
       "ticket": "CTX-1186"
     },
     {
-      "id": "components-workspaces-pane--graph",
-      "reason": "WebGL graph stays in a loading stage; differed in 2 of 3 multi-run proofs",
-      "ticket": "CTX-1186"
-    },
-    {
       "id": "pages-workspaces--shared-publish-pending",
       "viewport": "mobile",
       "reason": "The play asserts the desktop layout, so it fails at 390x844. The story needs an option to have only a desktop screenshot.",
@@ -51,16 +46,6 @@
       "viewport": "mobile",
       "reason": "The play asserts the desktop layout, so it fails at 390x844. The story needs an option to have only a desktop screenshot.",
       "ticket": "CTX-1226"
-    },
-    {
-      "id": "pages-onboarding--admin-finish-failure-continues",
-      "reason": "The count of stacked error toasts at the bottom differs between runs: a toast closes on a real timer. It needs a mask.",
-      "ticket": "CTX-1186"
-    },
-    {
-      "id": "components-workspacesources-pagerdutyscopeeditor--search-keeps-the-selection",
-      "reason": "When the play waits for the search result, the Selected item shows the service id, not its name, and the play fails. Without the wait, the result arrives after the play ends in some runs.",
-      "ticket": "CTX-1225"
     }
   ]
 }

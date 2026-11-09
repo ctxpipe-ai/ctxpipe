@@ -98,13 +98,22 @@ export const SearchKeepsTheSelection: Story = {
       }),
       "billing",
     )
+    // The search starts after a pause in the typing. Wait for its result,
+    // which does not hold checkout-api.
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("checkbox", { name: "checkout-api" }),
+      ).not.toBeInTheDocument(),
+    )
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: "billing-worker" }),
     )
-    // checkout-api is not in the results now, and it stays selected.
+    // checkout-api is not in the results now. It stays selected, with its
+    // name: the initial scope gave only its id.
     const selected = canvas.getByRole("grid", { name: "Selected" })
     await expect(within(selected).getByText("checkout-api")).toBeVisible()
     await expect(within(selected).getByText("billing-worker")).toBeVisible()
+    expect(within(selected).queryByText("PSVC001")).not.toBeInTheDocument()
     await expect(
       canvas.getByText(JSON.stringify({ services: ["PSVC001", "PSVC002"] })),
     ).toBeVisible()
