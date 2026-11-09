@@ -533,8 +533,23 @@ export async function bakeOff(
     const attempt = (arm: Arm, story: StoryInput, prepared: Prepared) => {
       if (arm.paid && spent >= maxCost) stopped = "cost"
       else if (Date.now() >= deadline) stopped = "time"
-      else return arm.judge(story, prepared)
+      else return reserved(arm, story, prepared)
       throw new Stopped()
+    }
+    // A paid call holds its estimated cost in the spend while it runs, so
+    // that calls at the same time cannot pass the cap together.
+    const reserved = async (
+      arm: Arm,
+      story: StoryInput,
+      prepared: Prepared,
+    ) => {
+      const reserve = arm.paid ? Math.max(highest, 0.1) : 0
+      spent += reserve
+      try {
+        return await arm.judge(story, prepared)
+      } finally {
+        spent -= reserve
+      }
     }
     const judge = async (arm: Arm, story: StoryInput, prepared: Prepared) => {
       let verdict: Verdict
@@ -542,6 +557,8 @@ export async function bakeOff(
         verdict = await attempt(arm, story, prepared)
       } catch (error) {
         if (error instanceof Stopped) throw error
+        // The cost of the failed call is not known.
+        count(null)
         // One retry for a failed call (a rate limit, a timeout).
         await new Promise((done) => setTimeout(done, 5_000))
         verdict = await attempt(arm, story, prepared)

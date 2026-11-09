@@ -456,6 +456,30 @@ test("the spend cap stops the paid calls, and the report says so", async () => {
   expect(results.results).toHaveLength(3)
 })
 
+test("calls at the same time cannot pass the spend cap together", async () => {
+  server.use(chat)
+  const { text } = await run([
+    "--cases",
+    writeManifest(),
+    "--arms",
+    "llm:anthropic/claude-test",
+    "--runs",
+    "1",
+    "--concurrency",
+    "4",
+    "--max-cost",
+    "0.025",
+  ])
+
+  // The first call holds $0.10 while it runs, more than the cap, so the
+  // other three workers start no call. The first worker then does the same
+  // calls as one worker alone. Without the hold, four calls start at $0.00.
+  expect(calls).toHaveLength(3)
+  expect(text).toContain(
+    "Spend: $0.03 of the $0.025 cap. The spend cap stopped the run",
+  )
+})
+
 test("a call without a cost counts as at least $0.10, also before any priced call", async () => {
   server.use(chat)
   priced = false
