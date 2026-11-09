@@ -38,11 +38,12 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
         - Cloudflare Access policies, any tunnel and its ingress, and DNS records of `ctxpipe.dev`. A Cloudflare token cannot be scoped to single host names. Thus the normal token has no tunnel right and no DNS edit on `ctxpipe.dev`;
         - GitHub environments, branch rules and admin settings.
     - A separate guard job holds those rights. It runs in its own GitHub environment, `guard`, with required reviewers, and that environment admits only `main`. The guard role trusts only the guard workflow on `main`. Only it holds the Cloudflare edit token, the GitHub admin token and the production secret values.
-    - The guard job runs the edge stack (Access, tunnels, internal DNS) and writes the tunnel tokens.
+    - The guard job runs the edge stack (Access, tunnels, internal DNS) and writes the tunnel tokens. The edge stack's state has its own prefix, and only the guard role can write it.
+    - The phase plans hold the exact guard details: IAM conditions, file lists and token scopes. A security review checks them in each phase pull request.
     - Defaults that close: deny-by-default Access apps on `ctxpipe.dev` and `*.ctxpipe.dev`, and every tunnel's ingress ends with a 404 catch-all.
     - Code owners and a branch rule hold the guard code for a person's review:
         - the policy pack and the list of protected resources;
-        - the deploy workflows;
+        - all of `.github/workflows/`;
         - the `CODEOWNERS` file itself;
         - every file that the guard job loads. The edge stack lives in its own folder, with its own package manifest and lockfile, and imports no shared module from outside that folder.
     - The policy pack blocks a replace or a delete of a protected resource.
