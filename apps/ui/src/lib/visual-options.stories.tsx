@@ -8,7 +8,7 @@ import { snapshot } from "./visual-snapshot"
 
 // This story proves the screenshot options of a story
 // (scripts/ci/visual-capture.mjs). Its play takes two named snapshots, so it
-// has three baselines: the end state, `@menu-open` and `@saved`. A clock and
+// has three baselines: `@closed`, `@menu-open` and the end state (saved). A clock and
 // a canvas change on each frame. The clock has the `data-visual-mask`
 // attribute, and `parameters.visual.masks` finds the canvas. Thus the capture
 // hides both, and two runs give the same pixels. Without the masks, each
@@ -80,11 +80,12 @@ type Story = StoryObj<typeof meta>
 
 export const NamedSnapshots: Story = {
   play: async ({ canvas, userEvent }) => {
+    await snapshot("closed")
     await userEvent.click(canvas.getByRole("button", { name: "Open menu" }))
     await expect(canvas.getByRole("group", { name: "Actions" })).toBeVisible()
     await snapshot("menu-open")
+    // The end state, after the play, is the saved state.
     await userEvent.click(canvas.getByRole("button", { name: "Save" }))
     await expect(canvas.getByText("Saved")).toBeVisible()
-    await snapshot("saved")
   },
 }
