@@ -442,18 +442,19 @@ test("the spend cap stops the paid calls, and the report says so", async () => {
     "--concurrency",
     "1",
     "--max-cost",
-    "0.025",
+    "0.135",
   ])
 
   expect(code).toBe(0)
-  // $0.00, $0.01 and $0.02 are under the cap; $0.03 is not.
-  expect(calls).toHaveLength(3)
+  // A call starts when its estimate of $0.10 fits under the cap: after
+  // $0.00, $0.01, $0.02 and $0.03, not after $0.04.
+  expect(calls).toHaveLength(4)
   expect(text).toContain(
-    "Spend: $0.03 of the $0.025 cap. The spend cap stopped the run",
+    "Spend: $0.04 of the $0.135 cap. The spend cap stopped the run",
   )
   const results = JSON.parse(readFileSync(join(out, "results.json"), "utf8"))
   expect(results.stopped).toBe("cost")
-  expect(results.results).toHaveLength(3)
+  expect(results.results).toHaveLength(4)
 })
 
 test("calls at the same time cannot pass the spend cap together", async () => {
@@ -468,15 +469,16 @@ test("calls at the same time cannot pass the spend cap together", async () => {
     "--concurrency",
     "4",
     "--max-cost",
-    "0.025",
+    "0.115",
   ])
 
-  // The first call holds $0.10 while it runs, more than the cap, so the
-  // other three workers start no call. The first worker then does the same
-  // calls as one worker alone. Without the hold, four calls start at $0.00.
-  expect(calls).toHaveLength(3)
+  // The first call holds $0.10 while it runs, so the estimate of a second
+  // call does not fit, and the other three workers start no call. The first
+  // worker then does the same calls as one worker alone: after $0.00 and
+  // $0.01, not after $0.02. Without the hold, four calls start at $0.00.
+  expect(calls).toHaveLength(2)
   expect(text).toContain(
-    "Spend: $0.03 of the $0.025 cap. The spend cap stopped the run",
+    "Spend: $0.02 of the $0.115 cap. The spend cap stopped the run",
   )
 })
 
@@ -493,13 +495,14 @@ test("a call without a cost counts as at least $0.10, also before any priced cal
     "--concurrency",
     "1",
     "--max-cost",
-    "0.025",
+    "0.135",
   ])
 
-  // The first call has no cost: it counts $0.10, more than the cap.
+  // The first call has no cost: it counts $0.10, so a second estimate of
+  // $0.10 does not fit under the cap.
   expect(calls).toHaveLength(1)
   expect(text).toContain(
-    "Spend: $0.10 of the $0.025 cap. The spend cap stopped the run",
+    "Spend: $0.10 of the $0.135 cap. The spend cap stopped the run",
   )
   expect(text).toContain("1 calls gave no cost")
 })

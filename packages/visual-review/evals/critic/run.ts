@@ -46,9 +46,10 @@ const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--
   --out          The folder for results.json and report.md.
                  Default: .ci-results/visual-bakeoff/report
   --runs         The runs of each arm on each case. Default: 3
-  --max-cost     The spend cap in USD. No paid call starts when the cost of
-                 the run reaches it. A call without a cost counts as the most
-                 expensive call so far, and at least $0.10. Default: 100
+  --max-cost     The spend cap in USD. A paid call starts only when its
+                 estimate (the most expensive call so far, and at least $0.10)
+                 fits under it. A call without a cost counts as its estimate.
+                 Default: 100
   --max-minutes  No call starts after this time, so that a job writes its
                  report before its timeout. Default: no limit.
   --concurrency  The calls at the same time for each paid arm. Default: 4
@@ -512,26 +513,28 @@ export async function bakeOff(
     const armIds = arms.map(({ id }) => id)
     const deadline = Date.now() + maxMinutes * 60_000
     let spent = 0
-    // The cost of the most expensive call so far. A call without a known
-    // cost counts as this much, and at least $0.10 (more than one image call
-    // of the models of the plan), so that the cap still holds.
     let highest = 0
+    // The estimate of a paid call: the most expensive call so far, and at
+    // least $0.10 (more than one image call of the models of the plan). A
+    // call without a known cost counts as this much.
+    const estimate = () => Math.max(highest, 0.1)
     let stopped: "cost" | "time" | undefined
     let unknownCost = 0
     const results: Result[] = []
     const count = (cost: number | null) => {
       if (cost === null) {
         unknownCost++
-        spent += Math.max(highest, 0.1)
+        spent += estimate()
       } else {
         spent += cost
         highest = Math.max(highest, cost)
       }
     }
 
-    // Each call, also a retry, checks the limits first.
+    // Each call, also a retry, checks the limits first. A paid call starts
+    // only when its estimate fits under the cap.
     const attempt = (arm: Arm, story: StoryInput, prepared: Prepared) => {
-      if (arm.paid && spent >= maxCost) stopped = "cost"
+      if (arm.paid && spent + estimate() > maxCost) stopped = "cost"
       else if (Date.now() >= deadline) stopped = "time"
       else return reserved(arm, story, prepared)
       throw new Stopped()
@@ -543,7 +546,7 @@ export async function bakeOff(
       story: StoryInput,
       prepared: Prepared,
     ) => {
-      const reserve = arm.paid ? Math.max(highest, 0.1) : 0
+      const reserve = arm.paid ? estimate() : 0
       spent += reserve
       try {
         return await arm.judge(story, prepared)
