@@ -31,19 +31,43 @@ export type IndexStory = {
   importPath: string
   exportName: string
   tags?: string[]
+  /** The screenshot options of the story (`parameters.visual`). */
+  visual?: VisualOptions
 }
 
-/** The screenshot of one story at one viewport, from the capture container. */
+/**
+ * The screenshot options of a story, from `parameters.visual` and the
+ * `snapshot()` calls of its play (scripts/checks/visual.mjs, visualOptions).
+ */
+export type VisualOptions = {
+  /** The count of pixels that may differ. Default 10. */
+  maxDiffPixels?: number
+  /** Default desktop, and mobile too for a story with the `page` tag. */
+  viewports?: Viewport[]
+  /** The names of the named snapshots of the play. */
+  snapshots?: string[]
+  /** The capture applies these; the compare does not read them. */
+  fullPage?: boolean
+  masks?: string[]
+}
+
+/**
+ * One screenshot of one story at one viewport, from the capture container:
+ * the end state, or a named snapshot.
+ */
 export type Captured = {
   status: "captured" | "unstable" | "play-failed" | "capture-failed" | "not-run"
   png?: Uint8Array
   error?: string
 }
 
-/** Takes the screenshots of the stories `ids` at `viewport`, by story id. */
+/**
+ * Takes the screenshots of `stories` at `viewport`. The key of a screenshot is
+ * the story id, or `<story id>@<name>` for a named snapshot.
+ */
 export type Capture = (
   viewport: Viewport,
-  ids: string[],
+  stories: IndexStory[],
 ) => Promise<Map<string, Captured>>
 
 type Shot = {
@@ -51,16 +75,21 @@ type Shot = {
   storyFile: string
   scope: "page" | "component"
   viewport: Viewport
+  snapshot: string | null
+  maxDiffPixels: number
   baseline: string
 }
 
-const maxDiffPixels = 10
+const shotKey = (shot: Shot) =>
+  shot.snapshot ? `${shot.story.id}@${shot.snapshot}` : shot.story.id
 
 /**
  * `visual:check` and `visual:update` for the stories of one Storybook build.
  *
  * Every story has a desktop baseline; a story with the `page` tag also has a
- * mobile one. A screenshot in `unstable` (a story id, at each viewport or at
+ * mobile one. `story.visual.viewports` replaces these viewports. Each named
+ * snapshot of `story.visual.snapshots` has a baseline at each viewport too.
+ * A screenshot in `unstable` (a story id, at each viewport or at
  * one) has no baseline yet: it is skipped, and its old baseline is an
  * orphan. A `*.screenshot.png` file under apps/ui is an orphan when no story
  * has it. This is also true when its `screenshots/` folder has no story file
@@ -125,19 +154,25 @@ export async function runVisual({
   const shots = stories.flatMap((story): Shot[] => {
     const storyFile = posix.join("apps/ui", story.importPath)
     const page = (story.tags ?? []).includes("page")
-    return (
-      page ? (["desktop", "mobile"] as const) : (["desktop"] as const)
-    ).map((viewport) => ({
-      story,
-      storyFile,
-      scope: page ? "page" : "component",
-      viewport,
-      baseline: baselinePath({
+    const viewports =
+      story.visual?.viewports ??
+      (page ? (["desktop", "mobile"] as const) : (["desktop"] as const))
+    return viewports.flatMap((viewport) =>
+      [null, ...(story.visual?.snapshots ?? [])].map((snapshot) => ({
+        story,
         storyFile,
-        storyName: story.exportName,
+        scope: page ? "page" : "component",
         viewport,
-      }),
-    }))
+        snapshot,
+        maxDiffPixels: story.visual?.maxDiffPixels ?? 10,
+        baseline: baselinePath({
+          storyFile,
+          storyName: story.exportName,
+          ...(snapshot && { snapshot }),
+          viewport,
+        }),
+      })),
+    )
   })
   const ticketOf = (shot: Shot) =>
     unstable.find(
@@ -193,12 +228,11 @@ export async function runVisual({
   for (const viewport of ["desktop", "mobile"] as const) {
     const group = selected.filter((shot) => shot.viewport === viewport)
     if (!group.length) continue
-    const captured = await capture(
-      viewport,
-      group.map((shot) => shot.story.id),
-    )
+    const captured = await capture(viewport, [
+      ...new Set(group.map((shot) => shot.story)),
+    ])
     for (const shot of group)
-      results.set(shot, captured.get(shot.story.id) ?? { status: "not-run" })
+      results.set(shot, captured.get(shotKey(shot)) ?? { status: "not-run" })
   }
 
   let failures = 0
@@ -233,7 +267,7 @@ export async function runVisual({
       if (result.status !== "captured" || !result.png) {
         failures++
         print(
-          `${notCaptured(result)}: ${shot.story.id} at ${shot.viewport}; no baseline written${result.error ? ` (${result.error})` : ""}`,
+          `${notCaptured(result)}: ${shotKey(shot)} at ${shot.viewport}; no baseline written${result.error ? ` (${result.error})` : ""}`,
         )
         continue
       }
@@ -241,7 +275,8 @@ export async function runVisual({
       const old = await readFile(path).catch(() => null)
       if (
         old &&
-        (await diff(old, result.png, { maxDiffPixels })).status === "unchanged"
+        (await diff(old, result.png, { maxDiffPixels: shot.maxDiffPixels }))
+          .status === "unchanged"
       )
         continue
       await mkdir(join(path, ".."), { recursive: true })
@@ -290,17 +325,19 @@ async function compareShot(
   shot: Shot,
   result: Captured,
 ): Promise<ManifestStory> {
-  const dir = posix.join(shot.story.id, shot.viewport)
+  const dir = shot.snapshot
+    ? posix.join(shot.story.id, `@${shot.snapshot}`, shot.viewport)
+    : posix.join(shot.story.id, shot.viewport)
   const base: ManifestStory = {
     id: shot.story.id,
     title: shot.story.title,
     componentFile: shot.storyFile,
     scope: shot.scope,
     viewport: shot.viewport,
-    snapshot: null,
+    snapshot: shot.snapshot,
     baseline: shot.baseline,
     status: "new",
-    maxDiffPixels,
+    maxDiffPixels: shot.maxDiffPixels,
     size: null,
     diffPixels: null,
     regions: [],
@@ -329,7 +366,9 @@ async function compareShot(
       summary: "The story has no baseline.",
       images: await writeAfter(result.png),
     }
-  const comparison = await diff(old, result.png, { maxDiffPixels })
+  const comparison = await diff(old, result.png, {
+    maxDiffPixels: shot.maxDiffPixels,
+  })
   const { images, omittedRegions } = await writeStoryImages(
     { root: out, dir },
     old,
@@ -363,7 +402,9 @@ function removedEntry(baseline: string): ManifestStory {
   const name = posix.basename(baseline)
   // <stem>.<story name>[@<snapshot>].<viewport>.screenshot.png. A story file
   // name can hold a dot; an export name cannot.
-  const story = name.replace(/\.(?:desktop|mobile)\.screenshot\.png$/, "")
+  const [story = "", snapshot = null] = name
+    .replace(/\.(?:desktop|mobile)\.screenshot\.png$/, "")
+    .split("@")
   const stem = story.includes(".")
     ? story.slice(0, story.lastIndexOf("."))
     : story
@@ -377,10 +418,10 @@ function removedEntry(baseline: string): ManifestStory {
     ),
     scope: "component",
     viewport: name.endsWith(".mobile.screenshot.png") ? "mobile" : "desktop",
-    snapshot: null,
+    snapshot,
     baseline,
     status: "removed",
-    maxDiffPixels,
+    maxDiffPixels: 10,
     size: null,
     diffPixels: null,
     regions: [],

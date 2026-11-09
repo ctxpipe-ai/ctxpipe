@@ -10,7 +10,9 @@ import {
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { csfTools } from "../../apps/ui/.storybook/check-modules.mjs"
 import { prepare } from "../checks/prerequisites.mjs"
+import { visualOptions } from "../checks/visual.mjs"
 import {
   playStories,
   serveStatic,
@@ -29,8 +31,12 @@ import pin from "./visual-container.json" with { type: "json" }
 // fonts loaded). The screenshot is the viewport (`desktop` 1440x900 or
 // `mobile` 390x844) at a pixel ratio of 1, taken after the play ends (or, for
 // a story without a play function, after Storybook completes the render).
-// Each one is written as
-// <out>/<story id>.png, with <out>/capture.json (the status of each story:
+// The options of the story (`parameters.visual`) can change this: `fullPage`
+// takes the full scroll height, and `masks` covers more elements than those
+// with the `data-visual-mask` attribute. Each `snapshot("<name>")` call of
+// the play takes one more screenshot at that point of the play.
+// Each one is written as <out>/<story id>.png (<out>/<story id>@<name>.png
+// for a named snapshot), with <out>/capture.json (the status of each shot:
 // captured, unstable, play-failed or capture-failed).
 //
 // Usage: node scripts/ci/visual-capture.mjs --out <dir> <story id>...
@@ -63,13 +69,50 @@ export async function shootUntilSteady(shoot, pause) {
   return { steady: false, png: previous }
 }
 
+// The key of one screenshot of a story: the story id, and `@<name>` for a
+// named snapshot. The capture writes it as <out>/<key>.png.
+export const shotKey = (id, snapshot) => (snapshot ? `${id}@${snapshot}` : id)
+
+// Takes one screenshot of the page with the options of its story, until two
+// shots in a row are the same, and writes it as <out>/<key>.png. Each element
+// with the `data-visual-mask` attribute, and each element that a selector of
+// `masks` finds, is hidden for the shot (`visibility: hidden`): its place
+// shows the background. A box of Playwright's `mask` option is drawn over
+// all content, so it also hides a control that is drawn over a masked canvas.
+// Returns the status of the shot: captured, unstable or capture-failed.
+async function takeShot(page, { fullPage = false, masks = [] }, out, key) {
+  try {
+    const style = `${["[data-visual-mask]", ...masks].join(", ")} { visibility: hidden !important; }`
+    const { steady, png } = await shootUntilSteady(
+      () =>
+        page.screenshot({
+          type: "png",
+          fullPage,
+          style,
+          // Ends a finite Web Animation and resets an infinite one, which
+          // the style sheet of the runner does not stop. Before a named
+          // snapshot, it also stops the CSS animations and transitions.
+          animations: "disabled",
+        }),
+      () => page.waitForTimeout(250),
+    )
+    writeFileSync(join(out, `${key}.png`), png)
+    return { status: steady ? "captured" : "unstable" }
+  } catch (shotError) {
+    return { status: "capture-failed", error: String(shotError.message) }
+  }
+}
+
 // Runs inside the container: /work is the repo, /out the folder of the PNGs.
-async function captureHere(ids, out, viewport) {
+// `plan` holds the screenshot options of each story
+// (`{ id, fullPage, masks, snapshots }`).
+async function captureHere(plan, out, viewport) {
   mkdirSync(out, { recursive: true })
   const server = await serveStatic(staticDir, 0)
-  const stories = []
-  const shotErrors = new Map()
-  const unsteady = new Set()
+  const shots = []
+  const options = new Map(plan.map((story) => [story.id, story]))
+  // The result of each shot of the story that plays now, by key.
+  let taken = new Map()
   try {
     const url = `http://127.0.0.1:${server.address().port}`
     await waitFor(`${url}/index.json`)
@@ -79,47 +122,53 @@ async function captureHere(ids, out, viewport) {
         .filter((entry) => entry.type === "story")
         .map((entry) => [entry.id, entry]),
     )
-    const unknown = ids.filter((id) => !byId.has(id))
+    const unknown = [...options.keys()].filter((id) => !byId.has(id))
     if (unknown.length)
       throw new Error(`Not in the Storybook build: ${unknown.join(", ")}`)
     await playStories(
       url,
-      ids.map((id) => byId.get(id)),
+      [...options.keys()].map((id) => byId.get(id)),
       (story, { error }) => {
-        const failure = error ?? shotErrors.get(story.id)
-        stories.push({
-          id: story.id,
-          status: error
-            ? "play-failed"
-            : failure
-              ? "capture-failed"
-              : unsteady.has(story.id)
-                ? "unstable"
-                : "captured",
-          ...(failure ? { error: failure } : {}),
-        })
-      },
-      false,
-      async (page, story, error) => {
-        if (error) return
-        try {
-          const { steady, png } = await shootUntilSteady(
-            () =>
-              page.screenshot({
-                type: "png",
-                // Ends a finite Web Animation and resets an infinite one,
-                // which the style sheet of the runner does not stop.
-                animations: "disabled",
-              }),
-            () => page.waitForTimeout(250),
-          )
-          writeFileSync(join(out, `${story.id}.png`), png)
-          if (!steady) unsteady.add(story.id)
-        } catch (shotError) {
-          shotErrors.set(story.id, String(shotError.message))
+        const { snapshots = [] } = options.get(story.id)
+        for (const snapshot of [undefined, ...snapshots]) {
+          const shot = taken.get(shotKey(story.id, snapshot)) ?? {
+            status: "play-failed",
+            error: `The play did not call snapshot("${snapshot}").`,
+          }
+          shots.push({
+            id: story.id,
+            ...(snapshot && { snapshot }),
+            // A play that failed fails each shot of the story.
+            ...(error ? { status: "play-failed", error } : shot),
+          })
         }
+        taken = new Map()
       },
-      viewports[viewport],
+      {
+        viewport: viewports[viewport],
+        // The play calls `snapshot(name)` (apps/ui/src/lib/visual.ts) to
+        // take a named snapshot. An error here fails the play.
+        beforePlay: (page, story) =>
+          page.exposeBinding("__ctxpipeSnapshot", async (_source, name) => {
+            const { snapshots = [] } = options.get(story.id)
+            const key = shotKey(story.id, name)
+            if (!snapshots.includes(name))
+              throw new Error(
+                `snapshot("${name}") is not a string literal in the play function of the story, so the screenshot has no baseline name. Call snapshot() with a literal name in the play of the story itself.`,
+              )
+            if (taken.has(key))
+              throw new Error(`The play called snapshot("${name}") two times.`)
+            await page.evaluate(() => document.fonts.ready)
+            taken.set(key, await takeShot(page, options.get(story.id), out, key))
+          }),
+        afterPlay: async (page, story, error) => {
+          if (error) return
+          taken.set(
+            story.id,
+            await takeShot(page, options.get(story.id), out, story.id),
+          )
+        },
+      },
     )
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose))
@@ -127,7 +176,7 @@ async function captureHere(ids, out, viewport) {
     // reach the host.
     writeFileSync(
       join(out, "capture.json"),
-      `${JSON.stringify({ stories }, null, 2)}\n`,
+      `${JSON.stringify({ shots }, null, 2)}\n`,
     )
   }
 }
@@ -143,11 +192,25 @@ const docker = (args) => {
     )
 }
 
-// Captures the stories in the pinned container and copies the PNGs and
-// capture.json into `out` (the old PNGs and capture.json of it are removed
-// first). Returns one status for each id: captured, unstable, play-failed,
-// capture-failed or not-run. `viewport` is desktop or mobile.
-export async function captureInContainer(ids, out, viewport = "desktop") {
+// The capture plan of the stories `ids` of the static Storybook build: the
+// screenshot options of each one (visualOptions in scripts/checks/visual.mjs).
+export async function capturePlan(ids) {
+  const index = JSON.parse(readFileSync(join(staticDir, "index.json"), "utf8"))
+  const stories = Object.values(index.entries).filter((entry) =>
+    ids.includes(entry.id),
+  )
+  const options = visualOptions(stories, (await csfTools()).loadCsf)
+  return ids.map((id) => ({ ...options.get(id), id }))
+}
+
+// Captures the stories of `plan` (`{ id, fullPage, masks, snapshots }` for
+// each story) in the pinned container, and copies the PNGs and capture.json
+// into `out` (the old PNGs and capture.json of it are removed first).
+// Returns one entry for each shot (the end state of each story, and each
+// named snapshot): `{ id, snapshot, status, error }`, with the status
+// captured, unstable, play-failed, capture-failed or not-run. The PNG of a
+// shot is <out>/<shotKey>.png. `viewport` is desktop or mobile.
+export async function captureInContainer(plan, out, viewport = "desktop") {
   if (!viewports[viewport]) throw new Error(`Unknown viewport: ${viewport}`)
   if (!existsSync(join(staticDir, "index.json")))
     throw new Error(
@@ -160,6 +223,8 @@ export async function captureInContainer(ids, out, viewport = "desktop") {
   for (const file of readdirSync(out))
     if (file.endsWith(".png") || file === "capture.json")
       rmSync(join(out, file))
+  const planFile = join(out, "plan.json")
+  writeFileSync(planFile, JSON.stringify(plan))
   try {
     // --init reaps the browser processes and --ipc=host gives Chromium shared
     // memory, as the Playwright documentation advises for the image.
@@ -180,8 +245,10 @@ export async function captureInContainer(ids, out, viewport = "desktop") {
       "scripts/ci/visual-capture.mjs",
       "--inside",
       viewport,
-      ...ids,
+      "/plan.json",
     ])
+    // The plan can be larger than the size limit of one argument.
+    docker(["cp", planFile, `${name}:/plan.json`])
     // A run that throws exits non-zero. Copy its partial results anyway.
     // The desktop capture of about 900 stories took 25 minutes on a CI
     // runner, so the run may take one hour.
@@ -196,13 +263,16 @@ export async function captureInContainer(ids, out, viewport = "desktop") {
       )
   } finally {
     spawnSync("docker", ["rm", "--force", name], { stdio: "ignore" })
+    rmSync(planFile, { force: true })
   }
-  const { stories } = JSON.parse(
-    readFileSync(join(out, "capture.json"), "utf8"),
-  )
-  return ids.map(
-    (id) =>
-      stories.find((story) => story.id === id) ?? { id, status: "not-run" },
+  const { shots } = JSON.parse(readFileSync(join(out, "capture.json"), "utf8"))
+  return plan.flatMap(({ id, snapshots = [] }) =>
+    [undefined, ...snapshots].map(
+      (snapshot) =>
+        shots.find(
+          (shot) => shot.id === id && shot.snapshot === snapshot,
+        ) ?? { id, ...(snapshot && { snapshot }), status: "not-run" },
+    ),
   )
 }
 
@@ -210,7 +280,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2)
   // Inside, a play failure is a status in capture.json, not an exit code, so
   // that `docker cp` still gets the PNGs of the other stories.
-  if (args[0] === "--inside") await captureHere(args.slice(2), "/out", args[1])
+  if (args[0] === "--inside")
+    await captureHere(
+      JSON.parse(readFileSync(args[2], "utf8")),
+      "/out",
+      args[1],
+    )
   else {
     const value = (name) => {
       const flag = args.indexOf(name)
@@ -226,10 +301,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       )
       process.exitCode = 1
     } else {
-      const stories = await captureInContainer(ids, resolve(out))
-      for (const story of stories)
-        process.stdout.write(`${story.status} ${story.id}\n`)
-      process.exitCode = stories.some((story) => story.status !== "captured")
+      const shots = await captureInContainer(
+        await capturePlan(ids),
+        resolve(out),
+      )
+      for (const shot of shots)
+        process.stdout.write(
+          `${shot.status} ${shotKey(shot.id, shot.snapshot)}\n`,
+        )
+      process.exitCode = shots.some((shot) => shot.status !== "captured")
         ? 1
         : 0
     }

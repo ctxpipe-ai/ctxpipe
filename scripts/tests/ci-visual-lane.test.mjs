@@ -1,7 +1,11 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 
-import { listVisual, visualRecords, visualSkips } from "../checks/visual.mjs"
+import {
+  listVisual,
+  visualOptions,
+  visualRecords,
+} from "../checks/visual.mjs"
 
 // Index entries of the Storybook build (buildIndex), with import paths
 // relative to apps/ui.
@@ -75,6 +79,28 @@ test("each story with a screenshot is one visual check that owns its baselines",
     homeDesktop,
     homeMobile,
   ])
+})
+
+test("the options of a story set its viewports and its named snapshots, and skip removes its check", () => {
+  const options = new Map([
+    [card.id, { viewports: ["desktop", "mobile"], snapshots: ["menu-open"] }],
+    [home.id, { viewports: ["desktop"] }],
+    [canvas.id, { skip: "A WebGL canvas." }],
+  ])
+  const checks = listVisual([card, home, canvas], [], options)
+  const folder = "apps/ui/src/features/card/screenshots"
+  assert.deepEqual(
+    checks.map((check) => check.ownInputs),
+    [
+      [
+        cardDesktop,
+        `${folder}/Card.Plain@menu-open.desktop.screenshot.png`,
+        `${folder}/Card.Plain.mobile.screenshot.png`,
+        `${folder}/Card.Plain@menu-open.mobile.screenshot.png`,
+      ],
+      [homeDesktop],
+    ],
+  )
 })
 
 // A manifest entry (packages/visual-review/src/compare/manifest.ts).
@@ -152,6 +178,30 @@ test("a record passes when each screenshot of the story is unchanged, and else g
   )
 })
 
+test("the case of a named snapshot names its viewport and its snapshot", () => {
+  const [record] = visualRecords(
+    {
+      stories: [
+        entry(card, "desktop", "unchanged", { snapshot: null }),
+        entry(card, "desktop", "changed", {
+          snapshot: "menu-open",
+          diffPixels: 40,
+        }),
+      ],
+      budget: [],
+    },
+    10,
+  )
+  assert.deepEqual(
+    record.cases.map(({ name, status }) => [name, status]),
+    [
+      ["desktop", "passed"],
+      ["desktop@menu-open", "failed"],
+    ],
+  )
+  assert.match(record.message, /^desktop@menu-open changed: 40 pixels differ/)
+})
+
 test("a story whose baseline is above the image budget fails", () => {
   const [record] = visualRecords(
     {
@@ -169,25 +219,36 @@ test("a story whose baseline is above the image budget fails", () => {
   assert.match(record.message, /one image may be 1 MB/)
 })
 
-test("a story with parameters.visual.skip and a reason has no screenshot", async () => {
-  const { csfTools } =
-    await import("../../apps/ui/.storybook/check-modules.mjs")
-  const { loadCsf } = await csfTools()
-  const story = (exportName) => ({
-    type: "story",
-    id: `features-x--${exportName.toLowerCase()}`,
-    importPath: "./src/features/x/X.stories.tsx",
-    exportName,
-  })
+const { csfTools } = await import("../../apps/ui/.storybook/check-modules.mjs")
+const { loadCsf } = await csfTools()
+const storyOf = (exportName) => ({
+  type: "story",
+  id: `features-x--${exportName.toLowerCase()}`,
+  importPath: "./src/features/x/X.stories.tsx",
+  exportName,
+})
+const optionsOf = (text, stories) =>
+  visualOptions(stories, loadCsf, () => text)
+
+test("a story with parameters.visual.skip and a reason has no screenshot", () => {
   const text = (skip) => `export default { title: "Features/X" }
 export const Plain = {}
 export const Canvas = {
   parameters: { intent: "draws", visual: { skip: ${skip} } },
 }
 `
+  const skips = (options) =>
+    new Map(
+      [...options]
+        .filter(([, value]) => value.skip)
+        .map(([id, value]) => [id, value.skip]),
+    )
   assert.deepEqual(
-    visualSkips([story("Plain"), story("Canvas")], loadCsf, () =>
-      text('"A WebGL canvas draws a new frame at each shot."'),
+    skips(
+      optionsOf(text('"A WebGL canvas draws a new frame at each shot."'), [
+        storyOf("Plain"),
+        storyOf("Canvas"),
+      ]),
     ),
     new Map([
       ["features-x--canvas", "A WebGL canvas draws a new frame at each shot."],
@@ -202,7 +263,7 @@ export const Plain = {}
 export const Canvas = { parameters: { visual: { skip: "Its own reason." } } }
 `
   assert.deepEqual(
-    visualSkips([story("Plain"), story("Canvas")], loadCsf, () => meta),
+    skips(optionsOf(meta, [storyOf("Plain"), storyOf("Canvas")])),
     new Map([
       ["features-x--plain", "The whole file draws a canvas."],
       ["features-x--canvas", "Its own reason."],
@@ -211,7 +272,76 @@ export const Canvas = { parameters: { visual: { skip: "Its own reason." } } }
   // An opt-out needs its reason.
   for (const skip of ['""', "true"])
     assert.throws(
-      () => visualSkips([story("Canvas")], loadCsf, () => text(skip)),
+      () => optionsOf(text(skip), [storyOf("Canvas")]),
       /apps\/ui\/src\/features\/x\/X\.stories\.tsx Canvas: parameters\.visual\.skip needs a reason/,
+    )
+})
+
+test("the options of a story merge over the options of its meta, and the play gives the named snapshots", () => {
+  const text = `import { snapshot } from "@/lib/visual-snapshot"
+export default {
+  title: "Features/X",
+  parameters: { visual: { masks: ["canvas"], maxDiffPixels: 40 } },
+}
+export const Plain = {}
+export const Menu = {
+  parameters: {
+    visual: { fullPage: true, maxDiffPixels: 0, viewports: ["desktop", "mobile"] },
+  },
+  play: async ({ canvas }) => {
+    await snapshot("menu-open")
+    if (canvas) await snapshot("saved")
+  },
+}
+`
+  const options = optionsOf(text, [storyOf("Plain"), storyOf("Menu")])
+  assert.deepEqual(options.get("features-x--plain"), {
+    masks: ["canvas"],
+    maxDiffPixels: 40,
+    snapshots: [],
+  })
+  assert.deepEqual(options.get("features-x--menu"), {
+    masks: ["canvas"],
+    maxDiffPixels: 0,
+    fullPage: true,
+    viewports: ["desktop", "mobile"],
+    snapshots: ["menu-open", "saved"],
+  })
+})
+
+test("an option that is not valid stops the list and names the story", () => {
+  const story = (visual, play = "") => `export default { title: "Features/X" }
+export const Menu = { parameters: { visual: ${visual} }${play} }
+`
+  for (const [visual, message] of [
+    ["{ fullPage: 1 }", /fullPage must be true or false/],
+    ["{ maxDiffPixels: 1.5 }", /maxDiffPixels must be a whole number/],
+    ["{ maxDiffPixels: -1 }", /maxDiffPixels must be a whole number/],
+    ['{ viewports: ["tablet"] }', /viewports must be a list/],
+    ["{ viewports: [] }", /viewports must be a list/],
+    ['{ viewports: ["desktop", "desktop"] }', /viewports must be a list/],
+    ["{ masks: [name] }", /masks must be a list of CSS selectors/],
+    ["{ mask: [] }", /has no option "mask"/],
+    ["shared", /must be an object literal/],
+  ])
+    assert.throws(
+      () => optionsOf(story(visual), [storyOf("Menu")]),
+      (error) =>
+        /X\.stories\.tsx Menu: parameters\.visual/.test(error.message) &&
+        message.test(error.message),
+      visual,
+    )
+  for (const [play, message] of [
+    ["snapshot(name)", /needs a name in kebab case/],
+    ['snapshot("Menu Open")', /needs a name in kebab case/],
+    ['snapshot("a"); await snapshot("a")', /two snapshot\("a"\) calls/],
+  ])
+    assert.throws(
+      () =>
+        optionsOf(story("{}", `, play: async () => { await ${play} }`), [
+          storyOf("Menu"),
+        ]),
+      message,
+      play,
     )
 })
