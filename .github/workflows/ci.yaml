@@ -3,8 +3,8 @@ name: CI
 on:
   workflow_dispatch:
   # A nightly run of the tests on main records the trace of main with
-  # `--trace`. Only the Typecheck, test, Storybook, codesearch, upgrade, build
-  # and Project check times jobs and the Trace job run on it. It is the safety
+  # `--trace`. Only the test, Storybook, codesearch, upgrade, build and
+  # Project check times jobs and the Trace job run on it. It is the safety
   # net of the merge gate.
   schedule:
     - cron: "23 2 * * *"
@@ -103,13 +103,12 @@ jobs:
     timeout-minutes: 30
     name: Typecheck
     # In gate mode it runs only when the plan selects a typecheck check
-    # (scripts/checks/README.md, Merge gate). The nightly run (schedule) also
-    # runs it: a push to main runs no check (ADR-062).
+    # (scripts/checks/README.md, Merge gate). A push to main runs no check
+    # (ADR-062): each night, the job Project check times runs every typecheck.
     needs: merge-gate-plan
     if: |
       !cancelled() &&
       (github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.typecheck != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
