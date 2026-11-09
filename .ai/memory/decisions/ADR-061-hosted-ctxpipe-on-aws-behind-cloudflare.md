@@ -23,7 +23,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - State: each account keeps its Pulumi state in its own S3 bucket. We do not use Pulumi Cloud.
     - Secrets in the state: the `awskms://` secrets provider encrypts them, with a key of that account.
     - Access to the state: only the deploy role and the read-only plan role of the account can read the bucket and use the key. Workload roles, for example preview tasks, cannot.
-    - High-value secrets stay out of the Pulumi state, so that the plan role can read the state safely. AWS manages the Aurora master password. Secrets Manager generates the application secrets. A `Production` job writes the tunnel tokens, and Pulumi never reads them.
+    - High-value secrets stay out of the Pulumi state, so that the plan role can read the state safely. AWS manages the Aurora master password. Secrets Manager generates the application secrets. The guard job writes the tunnel tokens, and Pulumi never reads them.
     - Stacks: each environment is one Pulumi stack. Each preview is one Pulumi stack too.
     - Deploy roles: each one is scoped to its environment and has a permission boundary. Pulumi calls the AWS APIs with that role.
     - OIDC trust: a deploy role trusts only its GitHub environment (`Production`, or `preview` for `preview-deploy`), and that environment admits only `main`. Only the plan role trusts pull requests.
@@ -35,9 +35,10 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
         - aws-core: the organization, identity and SCPs;
         - cross-account resource policies: the RAM share, and the key and bucket policies that the preview account can use;
         - the tags and the deletion protection of protected resources, or delete such a resource;
-        - Cloudflare Access policies, any tunnel and its ingress, and DNS records of `ctxpipe.dev` (a Cloudflare token cannot be scoped to single host names, so the normal token has no tunnel right and no DNS edit on `ctxpipe.dev`);
+        - Cloudflare Access policies, any tunnel and its ingress, and DNS records of `ctxpipe.dev`. A Cloudflare token cannot be scoped to single host names. Thus the normal token has no tunnel right and no DNS edit on `ctxpipe.dev`;
         - GitHub environments, branch rules and admin settings.
-    - A separate job holds those rights. A person approves each run of it. Only that job holds the Cloudflare edit token, the GitHub admin token and the production secret values.
+    - A separate guard job holds those rights. It runs in its own GitHub environment, `guard`, with required reviewers. Only that environment's OIDC subject is trusted by the guard role. Only it holds the Cloudflare edit token, the GitHub admin token and the production secret values.
+    - The guard job runs the edge stack (Access, tunnels, internal DNS) and writes the tunnel tokens.
     - Defaults that close: deny-by-default Access apps on `ctxpipe.dev` and `*.ctxpipe.dev`, and every tunnel's ingress ends with a 404 catch-all.
     - Code owners and a branch rule hold the guard code for a person's review:
         - the policy pack and the list of protected resources;
@@ -72,7 +73,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 
 19. `factory preview up <PR>` starts a factory workflow with a `preview-deploy` role in the preview account.
 20. Production shares its cluster with the preview account through AWS RAM. AWS allows one cross-account clone for each account. Thus the preview account keeps one preview source clone. Each preview is a same-account copy-on-write clone of that source.
-21. Shared parts deploy once, from the production-gated edge and preview-base stacks:
+21. Shared parts deploy once, from the edge stack (guard job) and the preview-base stack:
     - the network
     - one wildcard DNS record and one tunnel rule for the preview host names
     - the Access apps
