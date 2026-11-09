@@ -39,14 +39,14 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 9. FalkorDB and the codesearch query server run on one plain EC2 instance (ECS, EC2 launch type) with gp3 EBS volumes. Recovery is a runbook: restore the snapshot, then redeploy.
 10. S3 is the codesearch cold tier: durable Zoekt shards in S3, the EBS volume is an LRU cache. Indexing stays on the host.
 11. Outbound traffic goes through a NAT instance with a fixed Elastic IP.
-12. Email goes through SES. Secrets are in Secrets Manager. All secrets get new values at cutover, except the connection-secret encryption key. That key stays because it got a new value after the Railway incident ([CTX-983](https://linear.app/ctxpipe/issue/CTX-983)), and the incident did not expose it. The design owner accepts the residual risk: a person who gets this key can decrypt the stored connector tokens from any database copy.
+12. Email goes through SES. Secrets are in Secrets Manager. All secrets get new values at cutover, except the connection-secret encryption key. That key got a new value after the Railway incident ([CTX-983](https://linear.app/ctxpipe/issue/CTX-983)). The incident did not expose it, so it stays. The design owner accepts the residual risk: a person who gets this key can decrypt the stored connector tokens from any database copy.
 13. GuardDuty runs in every account. AWS Backup copies Aurora and the EBS volumes to the archive account each day (35 days).
 
 **Sandboxes**
 
 14. AgentCore Runtime V2 microVMs replace Vercel Sandbox, one session for each conversation or ingest shard. A repository-size cap replaces a second compute type.
 15. The backend reaches a session only through `InvokeAgentRuntime` and `InvokeAgentRuntimeCommand` over PrivateLink. No session endpoints. A resource policy, an SCP and the VPC endpoint condition let only backend roles invoke.
-16. The sandbox reaches the backend's tool bridge and model proxy over the private network, through Agent Vault, as in self-host ([ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md)). Agent Vault is the only egress proxy of the sandbox. Sandbox subnets have no internet route. They reach Agent Vault and the VPC endpoints for ECR, logs and AgentCore.
+16. The sandbox reaches the backend's tool bridge and model proxy over the private network. It goes through Agent Vault, as in self-host ([ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md)). Agent Vault is the only egress proxy of the sandbox. Sandbox subnets have no internet route. They reach Agent Vault and the VPC endpoints for ECR, logs and AgentCore.
 17. The V2 memory snapshot holds only our shim. OpenCode starts after the restore. Secrets in the sandbox come from `/dev/urandom` per request.
 18. A conversation resumes from git: a fresh clone of the Workspace repository and a private conversation ref. An S3 base bundle is added only if the clone is slower than about 3 s. Hosted ctxpipe stops the creation, selection and cleanup of Workspace bases (Vercel snapshots). The Docker Workspace base stays for self-host.
 
@@ -54,16 +54,23 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 
 19. `factory preview up <PR>` starts a factory workflow with a `preview-deploy` role in the preview account.
 20. Production shares its cluster with the preview account through AWS RAM. AWS allows one cross-account clone for each account. Thus the preview account keeps one preview source clone. Each preview is a same-account copy-on-write clone of that source.
-21. Shared parts deploy once, from the production-gated edge and preview-base stacks: the network, one wildcard DNS record and one tunnel rule for the preview host names, the Access apps, a router in the preview VPC that sends each host name to its preview, and one preview AgentCore runtime. The router runs its own preview tunnel with its own token. Only the router task can read that token. The preview account never holds the production tunnel token. A preview is one small Pulumi stack with two parts: its ECS services and one clone. A preview stack holds no Cloudflare credential, so a compromised preview workflow cannot change the production tunnel or the Access policies. The preview workflow runs it through the Pulumi Automation API, and `factory preview down` destroys the stack.
+21. Shared parts deploy once, from the production-gated edge and preview-base stacks:
+    - the network
+    - one wildcard DNS record and one tunnel rule for the preview host names
+    - the Access apps
+    - a router in the preview VPC that sends each host name to its preview
+    - one preview AgentCore runtime
+
+     The router runs its own preview tunnel with its own token. Only the router task can read that token. The preview account never holds the production tunnel token. A preview is one small Pulumi stack with two parts: its ECS services and one clone. A preview stack holds no Cloudflare credential. Thus a compromised preview workflow cannot change the production tunnel or the Access policies. The preview workflow runs the stack through the Pulumi Automation API. `factory preview down` destroys the stack.
 22. A preview keeps the isolation that `.github/workflows/pr-deploy.yaml` enforces today:
     - It does not build a PR from a fork.
     - Each preview gets its own `AUTH_SECRET` and its own connection-secret encryption key. Connection secrets that the clone copies from production do not decrypt on a preview.
     - Previews use the preview GitHub App, not the production app.
     - Each clone gets new passwords for its database roles. The clone copies the production passwords, and a preview does not use them.
     - The `Production` and `Preview` environments never share a token, key or secret.
-    - The preview source is not scrubbed. Like the Neon preview branches of today, it keeps the session tokens and the OAuth tokens (`sessions`, `accounts`) that it copies from production. The design owner accepts this residual risk. Unreviewed PR code can read these tokens. It can replay a copied session token against the production app. It can also use a copied OAuth token against a customer's provider. The account boundary does not stop these two effects. It only keeps PR code away from the AWS resources of the production account.
+    - The preview source is not scrubbed. It keeps the session tokens and the OAuth tokens that it copies from production (`sessions`, `accounts`). The Neon preview branches of today do the same. The design owner accepts this residual risk. Unreviewed PR code can read these tokens. It can replay a copied session token against the production app. It can also use a copied OAuth token against a customer's provider. The account boundary does not stop these two effects. It only keeps PR code away from the AWS resources of the production account.
 23. Cloudflare Access protects `pr-N.ctxpipe.dev`. Access lets `/mcp`, the OAuth paths and the webhook path through, because those clients cannot do an Access login. The app's own auth protects these paths.
-24. At most 15 previews exist at a time. A preview is deleted on PR close, or 3 days after the last `preview up`. A warm pool of paused clones is added only if the spike shows that a clone and its instance take more than about 3 minutes.
+24. At most 15 previews exist at a time. A preview is deleted on PR close, or 3 days after the last `preview up`. A warm pool of paused clones comes only if a clone and its instance take over 3 minutes. The spike measures this.
 
 **Observability**
 
@@ -76,8 +83,8 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 - **Filtered preview data.** Rejected: copy-on-write clones cannot filter, and previews must hold real data for debugging.
 - **Neptune for the graph.** Rejected for now: FalkorDB isolates each organization in its own graph, and [CTX-996](https://linear.app/ctxpipe/issue/CTX-996) replaces FalkorDB later.
 - **EFS for stateful services.** Rejected: EBS is about four times cheaper per GB, and git and Zoekt work better on a local disk.
-- **CDK for hosted, with Terraform for Cloudflare.** Rejected: two tools; CloudFormation is too slow for a stack for each preview (a V2 runtime and its endpoint took about 13 minutes in the spike, and two failed deploys stopped in `ROLLBACK_FAILED`); and composing the self-host construct would push multi-tenant and cost features into a product for single-tenant self-hosters.
-- **Terraform or OpenTofu for hosted.** Rejected: one tool too, but a stack for each preview is clumsy to drive from code (CDKTF is deprecated), and HCL is weaker than TypeScript for the conditional parts. ADR-013 picked Terraform for self-hosters' sake; that reason does not apply to internal infrastructure.
+- **CDK for hosted, with Terraform for Cloudflare.** Rejected for three reasons. It is two tools. CloudFormation is too slow for a stack for each preview: in the spike, two failed deploys stopped in `ROLLBACK_FAILED`. Composing the self-host construct would push multi-tenant and cost features into a product for single-tenant self-hosters.
+- **Terraform or OpenTofu for hosted.** Rejected. It is one tool too. But a stack for each preview is clumsy to drive from code, and CDKTF is deprecated. HCL is also weaker than TypeScript for the conditional parts. ADR-013 picked Terraform for self-hosters. That reason does not apply to internal infrastructure.
 - **AgentCore session endpoints.** Rejected: they are public only, and a resource policy cannot name their action.
 - **AgentCore Instances compute type, ASG self-healing, worker scale-to-zero, a separate indexer.** Rejected in the simplicity audit. Each adds machinery for a need that we did not measure.
 - **RDS Proxy, an ALB, a NAT gateway, an Aurora reader.** Rejected for cost at our load. Each one is a small IaC change if the load grows.
@@ -87,7 +94,10 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 - Sub-processors become AWS, Cloudflare and OpenRouter, plus Vercel for the marketing site and docs only.
 - Production costs about $300 a month, plus AgentCore usage. Previews cost about $40 to $45 a month fixed, plus about $8 for each 3-day preview. The aws-core budgets change to match, with a new preview budget.
 - The stateful host and the NAT instance are single instances. A loss means up to 4 hours of degraded search and graph, or a short outbound outage. Both have runbooks.
-- Unreviewed preview code runs in the preview account, which holds a copy of customer data. For AWS resources, the account boundary is the security boundary. It does not cover the copied session and OAuth tokens: decision 22 records that accepted risk. The production account shares only the cluster (through RAM), its KMS key and read access to the artifact buckets.
+- Unreviewed preview code runs in the preview account, which holds a copy of customer data. For AWS resources, the account boundary is the security boundary. It does not cover the copied session and OAuth tokens: decision 22 records that accepted risk. The production account shares three things with the preview account, each with a narrow grant:
+    - the cluster, through RAM;
+    - the cluster's KMS key: the key policy lets only the `preview-deploy` role use it, and only through RDS (`kms:ViaService`);
+    - read access to the codesearch shard prefix and the FalkorDB backups: only the preview FalkorDB and codesearch task roles can read them.
 - Telemetry holds customer prompt content for 30 days. The data map ([CTX-1175](https://linear.app/ctxpipe/issue/CTX-1175)) must say so.
 - Hosted infrastructure does not shape `@ctxpipe/aws-cdk`. A hosted feature goes into the construct only when self-hosters need it too.
 - A failed Pulumi update does not roll back: the stack stays partial, and we fix forward. Production changes are additive and run in a preview first.
