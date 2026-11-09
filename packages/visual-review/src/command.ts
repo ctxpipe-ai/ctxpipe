@@ -73,7 +73,8 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|agen
               usage.cost of each reply, or ${unknownCallUsd} for a reply with no
               cost. When that sum reaches the budget, it makes no more calls:
               each screenshot that is not judged yet is unsure with the error
-              "Budget reached", and the exit code is 2. Thus a run spends at
+              "Budget reached", and the exit code is 2. The exit code is 2
+              also when the last call reaches the budget. Thus a run spends at
               most the budget plus one call. The new screenshots are judged
               first. Only with --judge model. Default: no budget.
   --judge     model: a vision model through OpenRouter, with MODEL_PROVIDER_API_KEY
@@ -228,7 +229,7 @@ export async function visualReview(
           path,
         }
       })
-      return finish(verdicts, options.json, print)
+      return finish(verdicts, options.json, print, budget)
     } finally {
       await rm(work, { recursive: true, force: true })
     }
@@ -352,17 +353,27 @@ export async function visualReview(
     print(`The review stopped: ${(error as Error).message}`)
     return 2
   }
-  return finish(verdicts, options.json, print)
+  return finish(verdicts, options.json, print, budget)
 }
 
-/** Print the verdicts, and return the exit code. */
+/**
+ * Print the verdicts, and return the exit code. A run whose spend reached its
+ * budget exits with code 2, also when its last call judged the last
+ * screenshot: the run used all of its budget, so it is never a pass.
+ */
 function finish(
   verdicts: readonly Verdict[],
   json: boolean,
   print: (text: string) => void,
+  { limitUsd, spentUsd }: Budget,
 ): number {
-  print(json ? JSON.stringify(verdicts, null, 2) : report(verdicts))
-  if (verdicts.some(({ error }) => error !== undefined)) return 2
+  const reached = limitUsd !== undefined && spentUsd >= limitUsd
+  print(
+    json
+      ? JSON.stringify(verdicts, null, 2)
+      : `${report(verdicts)}${reached ? `\nBudget reached: the run spent ${spentUsd.toFixed(4)} USD of its --budget-usd ${limitUsd}.` : ""}`,
+  )
+  if (reached || verdicts.some(({ error }) => error !== undefined)) return 2
   if (verdicts.some(blocks)) return 1
   return 0
 }

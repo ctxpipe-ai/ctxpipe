@@ -1016,6 +1016,50 @@ export const Primary = { render: () => null }
       }
     })
 
+    test("a last call that uses up the budget gives exit code 2, also when every screenshot is judged and none blocks", async () => {
+      content = JSON.stringify(intended)
+      const brief = join(root, "brief.md")
+      await writeFile(brief, "Make the primary button red.")
+
+      const code = await run(
+        "--budget-usd",
+        "0.01",
+        "--brief",
+        brief,
+        "--images",
+        images,
+        "--",
+        paths[0] ?? "",
+      )
+
+      expect(code).toBe(2)
+      expect(chats).toHaveLength(1)
+      const text = output.join("\n")
+      expect(text).toContain("intended none")
+      expect(text).toContain(
+        "Budget reached: the run spent 0.0100 USD of its --budget-usd 0.01.",
+      )
+    })
+
+    test("a run that ends under its budget passes", async () => {
+      content = JSON.stringify(intended)
+      const brief = join(root, "brief.md")
+      await writeFile(brief, "Make the primary button red.")
+
+      expect(
+        await run(
+          "--budget-usd",
+          "0.02",
+          "--brief",
+          brief,
+          "--images",
+          images,
+          "--",
+          paths[0] ?? "",
+        ),
+      ).toBe(0)
+    })
+
     test("a reply with no cost counts as 0.25 USD", async () => {
       server.use(
         http.post(
