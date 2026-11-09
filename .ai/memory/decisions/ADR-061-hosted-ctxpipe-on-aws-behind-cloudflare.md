@@ -4,7 +4,7 @@
 
 ## Context
 
-Hosted ctxpipe runs on Railway (compute), Neon (Postgres) and Vercel Sandbox (chat and ingestion sandboxes). A POC partner asked for a stated region, fewer sub-processors and a self-host story ([CTX-1117](https://linear.app/ctxpipe/issue/CTX-1117)). Railway had a security incident that exposed environment variables ([CTX-982](https://linear.app/ctxpipe/issue/CTX-982)). Railway and Neon cost about $570 a month (cost telemetry, 7 days to 2026-11-07).
+Hosted ctxpipe runs on three providers. Railway runs the compute. Neon runs Postgres. Vercel Sandbox runs the chat and ingestion sandboxes. A POC partner asked for a stated region and fewer sub-processors ([CTX-1117](https://linear.app/ctxpipe/issue/CTX-1117)). The partner also asked for a self-host story. Railway had a security incident that exposed environment variables ([CTX-982](https://linear.app/ctxpipe/issue/CTX-982)). Railway and Neon cost about $570 a month (cost telemetry, 7 days to 2026-11-07).
 
 The AWS organization already exists (factory repo, `machines/aws-core`). It has management, production (empty), factory, selfhost-sandbox and archive accounts. It has Identity Center, SCPs, an org CloudTrail and CDK bootstrap restrictions. The SCP allows us-west-2 and us-east-1 only.
 
@@ -18,7 +18,18 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 2. The domain follows the audience and the account follows the data. `ctxpipe.ai` is public. `ctxpipe.dev` is internal behind Access, with public webhook paths only.
 3. The first region is us-west-2. The stack takes a region parameter for a later second stamp.
 4. Production and observability run in the production account. Previews run in a separate preview account in its own OU. The factory account holds no customer data.
-5. Pulumi (TypeScript) manages all hosted infrastructure: AWS (production, previews, observability), Cloudflare (DNS, tunnels, Access, WARP) and the GitHub environments. It lives in the factory repo. Each account keeps its Pulumi state in its own S3 bucket, and Pulumi encrypts the secret values in the state with the `awskms://` secrets provider and a key of that account; we do not use Pulumi Cloud. Only the deploy role of that account can read the state bucket and use the key; workload roles (for example preview tasks) cannot. Only a job in the `Production` GitHub environment holds the Cloudflare edit token, the GitHub admin token and the production secret values. Each environment, and each preview, is one Pulumi stack. Each deploy role is scoped to its environment and has a permission boundary, because Pulumi calls the AWS APIs with that role. The organization stays in CDK (`machines/aws-core`). The public `@ctxpipe/aws-cdk` construct stays CDK and is not used by hosted: it is optimized for simple, single-tenant self-hosting. Hosted and self-host share only the container images and the environment contract. The ctxpipe repo only pushes images to ECR. ECR tags are immutable, and each deploy pins its images by digest. Only builds of `main` push to the production account. PR builds push to the preview account with a different role. All deploys run from the factory repo.
+5. Pulumi (TypeScript) manages all hosted infrastructure. All deploys run from the factory repo.
+    - Scope: AWS (production, previews, observability), Cloudflare (DNS, tunnels, Access, WARP) and the GitHub environments.
+    - State: each account keeps its Pulumi state in its own S3 bucket. We do not use Pulumi Cloud.
+    - Secrets in the state: the `awskms://` secrets provider encrypts them, with a key of that account.
+    - Access to the state: only the deploy role of the account can read the bucket and use the key. Workload roles, for example preview tasks, cannot.
+    - Stacks: each environment is one Pulumi stack. Each preview is one Pulumi stack too.
+    - Deploy roles: each one is scoped to its environment and has a permission boundary. Pulumi calls the AWS APIs with that role.
+    - Edge and repository credentials: only a job in the `Production` GitHub environment holds the Cloudflare edit token. The same rule applies to the GitHub admin token and the production secret values.
+    - The organization stays in CDK (`machines/aws-core`).
+    - The public `@ctxpipe/aws-cdk` construct stays CDK, for simple, single-tenant self-hosting. Hosted does not use it. Hosted and self-host share only the container images and the environment contract.
+    - Images: the ctxpipe repo only pushes images to ECR. ECR tags are immutable. Each deploy pins its images by digest.
+    - Image accounts: only builds of `main` push to the production account. PR builds push to the preview account, with a different role.
 
 **Production**
 
@@ -43,14 +54,14 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 
 19. `factory preview up <PR>` starts a factory workflow with a `preview-deploy` role in the preview account.
 20. Production shares its cluster with the preview account through AWS RAM. AWS allows one cross-account clone for each account. Thus the preview account keeps one preview source clone. Each preview is a same-account copy-on-write clone of that source.
-21. Shared parts deploy once, from the production-gated edge and preview-base stacks: the network, one wildcard DNS record and one tunnel rule for the preview host names, the Access apps, a router in the preview VPC that sends each host name to its preview, and one preview AgentCore runtime. A preview is one small Pulumi stack with two parts: its ECS services and one clone. A preview stack holds no Cloudflare credential, so a compromised preview workflow cannot change the production tunnel or the Access policies. The preview workflow runs it through the Pulumi Automation API, and `factory preview down` destroys the stack.
+21. Shared parts deploy once, from the production-gated edge and preview-base stacks: the network, one wildcard DNS record and one tunnel rule for the preview host names, the Access apps, a router in the preview VPC that sends each host name to its preview, and one preview AgentCore runtime. The router runs its own preview tunnel with its own token. Only the router task can read that token. The preview account never holds the production tunnel token. A preview is one small Pulumi stack with two parts: its ECS services and one clone. A preview stack holds no Cloudflare credential, so a compromised preview workflow cannot change the production tunnel or the Access policies. The preview workflow runs it through the Pulumi Automation API, and `factory preview down` destroys the stack.
 22. A preview keeps the isolation that `.github/workflows/pr-deploy.yaml` enforces today:
     - It does not build a PR from a fork.
     - Each preview gets its own `AUTH_SECRET` and its own connection-secret encryption key. Connection secrets that the clone copies from production do not decrypt on a preview.
     - Previews use the preview GitHub App, not the production app.
     - Each clone gets new passwords for its database roles. The clone copies the production passwords, and a preview does not use them.
     - The `Production` and `Preview` environments never share a token, key or secret.
-    - The preview source is not scrubbed. Like the Neon preview branches of today, it keeps the session tokens and the OAuth tokens (`sessions`, `accounts`) that it copies from production. The design owner accepts this residual risk. Unreviewed PR code can read these tokens. It can replay a copied session token against the production app, and it can use a copied OAuth token against a customer's provider. The account boundary does not stop these two effects; it only keeps PR code away from AWS resources of the production account.
+    - The preview source is not scrubbed. Like the Neon preview branches of today, it keeps the session tokens and the OAuth tokens (`sessions`, `accounts`) that it copies from production. The design owner accepts this residual risk. Unreviewed PR code can read these tokens. It can replay a copied session token against the production app. It can also use a copied OAuth token against a customer's provider. The account boundary does not stop these two effects. It only keeps PR code away from the AWS resources of the production account.
 23. Cloudflare Access protects `pr-N.ctxpipe.dev`. Access lets `/mcp`, the OAuth paths and the webhook path through, because those clients cannot do an Access login. The app's own auth protects these paths.
 24. At most 15 previews exist at a time. A preview is deleted on PR close, or 3 days after the last `preview up`. A warm pool of paused clones is added only if the spike shows that a clone and its instance take more than about 3 minutes.
 
