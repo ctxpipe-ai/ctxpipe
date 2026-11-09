@@ -42,8 +42,8 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - Defaults that close: deny-by-default Access apps on `ctxpipe.dev` and `*.ctxpipe.dev`, and every tunnel's ingress ends with a 404 catch-all.
     - Code owners and a branch rule hold the guard code for a person's review:
         - the policy pack and the list of protected resources;
-        - the Access, tunnel and internal-host code;
-        - the deploy workflows.
+        - the deploy workflows;
+        - every file that the guard job loads. The edge stack lives in its own folder, with its own package manifest and lockfile, and imports no shared module from outside that folder.
     - The policy pack blocks a replace or a delete of a protected resource.
     - The organization stays in CDK (`machines/aws-core`).
     - The public `@ctxpipe/aws-cdk` construct stays CDK, for simple, single-tenant self-hosting. Hosted does not use it. Hosted and self-host share only the container images and the environment contract.
