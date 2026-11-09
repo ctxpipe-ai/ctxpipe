@@ -22,10 +22,13 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - Scope: AWS (production, previews, observability), Cloudflare (DNS, tunnels, Access, WARP) and the GitHub environments.
     - State: each account keeps its Pulumi state in its own S3 bucket. We do not use Pulumi Cloud.
     - Secrets in the state: the `awskms://` secrets provider encrypts them, with a key of that account.
-    - Access to the state: only the deploy role of the account can read the bucket and use the key. Workload roles, for example preview tasks, cannot.
+    - Access to the state: only the deploy role and the read-only plan role of the account can read the bucket and use the key. Workload roles, for example preview tasks, cannot.
+    - High-value secrets stay out of the Pulumi state, so that the plan role can read the state safely. AWS manages the Aurora master password. Secrets Manager generates the application secrets. A `Production` job writes the tunnel tokens, and Pulumi never reads them.
     - Stacks: each environment is one Pulumi stack. Each preview is one Pulumi stack too.
     - Deploy roles: each one is scoped to its environment and has a permission boundary. Pulumi calls the AWS APIs with that role.
     - Edge and repository credentials: only a job in the `Production` GitHub environment holds the Cloudflare edit token. The same rule applies to the GitHub admin token and the production secret values.
+    - Approvals: the normal path needs no manual approval. `pulumi preview` runs on each pull request with the read-only plan role. An agent merges a pull request when the merge gate passes. `pulumi up` then runs from `main`.
+    - Approvals by a person, only for very sensitive changes: aws-core (the organization, identity, SCPs, deploy-role boundaries), the Cloudflare Access policies, and a replace or a delete of a protected resource. The policy pack blocks a replace or a delete until a person approves it.
     - The organization stays in CDK (`machines/aws-core`).
     - The public `@ctxpipe/aws-cdk` construct stays CDK, for simple, single-tenant self-hosting. Hosted does not use it. Hosted and self-host share only the container images and the environment contract.
     - Images: the ctxpipe repo only pushes images to ECR. It loses its deploy trust in the production account and keeps only an ECR push role. ECR tags are immutable. Each deploy pins its images by digest.
