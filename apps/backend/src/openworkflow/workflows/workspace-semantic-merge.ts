@@ -17,13 +17,13 @@ import {
 } from "../../domain/workspaces/semantic-merge.js"
 import {
   attemptWorkspaceCommit,
-  deleteWriteJobRefs,
   publishWorkspaceWriteRevision,
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  completeWorkspaceWrite,
   prepareSemanticMergeCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
@@ -33,10 +33,7 @@ import {
   persistBoundWriteJob,
   validateSemanticHandoff,
 } from "../../models/workspace-write-jobs.js"
-import {
-  persistWriteJobCommitSha,
-  persistWriteJobStatus,
-} from "../../models/workspaces.js"
+import { persistWriteJobStatus } from "../../models/workspaces.js"
 import {
   gitFileChangeSchema,
   repositoryFilePathSchema,
@@ -320,13 +317,13 @@ export const workspaceSemanticMerge = defineWorkflow(
             )
           })
           if (!input.handoff)
-            await step.run({ name: "complete" }, async () => {
-              await persistWriteJobCommitSha(input.jobId, committed.sha)
-              await deleteWriteJobRefs(
+            await step.run({ name: "complete" }, () =>
+              completeWorkspaceWrite(
                 { ...input, remote: input.revision.remote },
+                committed.sha,
                 env,
-              )
-            })
+              ),
+            )
           return { committed: true as const, commitSha: committed.sha }
         }
         throw new Error("Default branch kept changing during semantic merge")

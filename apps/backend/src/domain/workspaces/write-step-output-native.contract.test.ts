@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
@@ -441,12 +441,12 @@ it(
       const recentUnknown = refFor(`wjob_${f.id}_recent`)
       // The clean-up reads the age of an unknown job's ref from the committer
       // date of its commit.
-      process.env.GIT_COMMITTER_DATE = "2026-01-01T00:00:00Z"
+      vi.stubEnv("GIT_COMMITTER_DATE", "2026-01-01T00:00:00Z")
       let oldUnknown: string
       try {
         oldUnknown = refFor(`wjob_${f.id}_old`)
       } finally {
-        delete process.env.GIT_COMMITTER_DATE
+        vi.unstubAllEnvs()
       }
       const deleted = await withOrgIdContext(f.org, () =>
         cleanUpWorkspaceWriteRefs(

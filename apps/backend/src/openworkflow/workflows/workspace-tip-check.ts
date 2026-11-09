@@ -34,6 +34,7 @@ import {
 import {
   cleanUpWorkspaceIngestRefs,
   cleanUpWorkspaceWriteRefs,
+  WRITE_JOB_REF_WINDOW_MS,
 } from "../../domain/workspaces/write-broker.js"
 import { resumePausedWriteJobs } from "../../domain/workspaces/write-job-resume.js"
 import {
@@ -460,7 +461,7 @@ export const workspaceTipCheck = defineWorkflow(
       // deletes what a failed run left. A failure here must not fail the tip
       // check; the next check tries again.
       const writeJobWorkspaces = await listWorkspacesWithWriteJobsSince(
-        new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000),
+        new Date(now.getTime() - WRITE_JOB_REF_WINDOW_MS),
       )
       for (const workspace of workspaces) {
         if (

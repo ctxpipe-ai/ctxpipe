@@ -18,13 +18,13 @@ import { packWorkspaceFormat } from "../../domain/workspaces/workspace-format-tr
 import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
-  deleteWriteJobRefs,
   publishWorkspaceWriteRevision,
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  completeWorkspaceWrite,
   prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
@@ -35,7 +35,6 @@ import {
 } from "../../models/workspace-write-jobs.js"
 import {
   getBindingWorkspaceFormat,
-  persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
 import { readGitFiles, writeCommitPack } from "../../services/git/pack.js"
@@ -290,16 +289,13 @@ export function defineKnowledgeRewriteWorkflow(options: {
               handoff,
               { name: "semantic-merge-child" },
             )
-            await step.run({ name: "complete-merged-result" }, async () => {
-              await persistWriteJobCommitSha(
-                input.jobId,
-                result.committed ? result.commitSha : null,
-              )
-              await deleteWriteJobRefs(
+            await step.run({ name: "complete-merged-result" }, () =>
+              completeWorkspaceWrite(
                 { ...input, remote: input.revision.remote },
+                result.committed ? result.commitSha : null,
                 env,
-              )
-            })
+              ),
+            )
             return result
           }
           const published = await step.run({ name: "publish-result" }, () =>
@@ -316,13 +312,13 @@ export function defineKnowledgeRewriteWorkflow(options: {
               { idempotencyKey: `${input.jobId}:hydrate` },
             )
           })
-          await step.run({ name: "complete" }, async () => {
-            await persistWriteJobCommitSha(input.jobId, committed.sha)
-            await deleteWriteJobRefs(
+          await step.run({ name: "complete" }, () =>
+            completeWorkspaceWrite(
               { ...input, remote: input.revision.remote },
+              committed.sha,
               env,
-            )
-          })
+            ),
+          )
           return { committed: true as const, commitSha: committed.sha }
         }
         throw new Error("Default branch kept changing during no-op validation")

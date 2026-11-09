@@ -176,6 +176,27 @@ export async function fetchGitCommits(
   }
 }
 
+/**
+ * The tree and the parents of a commit in `directory`. The raw commit keeps
+ * its parents; a shallow fetch hides them from `git log`.
+ */
+export async function readCommitHeader(
+  directory: string,
+  sha: string,
+): Promise<{ tree: string; parents: string[] }> {
+  const fields =
+    (await nativeGit(directory, ["cat-file", "commit", sha]))
+      .toString()
+      .split("\n\n", 1)[0]
+      ?.split("\n")
+      .map((line) => line.split(" ")) ?? []
+  const values = (name: string) =>
+    fields.flatMap(([key, value]) => (key === name && value ? [value] : []))
+  const [tree] = values("tree")
+  if (!tree) throw new Error("The commit has no tree")
+  return { tree, parents: values("parent") }
+}
+
 /** The tree of the pack's root folder, or null when that folder does not exist. */
 export async function packRootTree(
   directory: string,

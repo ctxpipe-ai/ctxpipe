@@ -5,6 +5,7 @@ import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import {
   discardWriteJobPreparedCommit,
+  persistWriteJobCommitSha,
   persistWriteJobPreparedCommit,
   reconcileWorkspaceWriteJob,
   validateSemanticHandoff,
@@ -25,7 +26,11 @@ import { workspaceGitRead } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import { workspaceRootPath } from "./root-path.js"
 import { resolveSemanticConflicts, type WriteOrigin } from "./semantic-merge.js"
-import { findPreparedMergeCommit, prepareWithJobRef } from "./write-broker.js"
+import {
+  deleteWriteJobRefs,
+  findPreparedMergeCommit,
+  prepareWithJobRef,
+} from "./write-broker.js"
 import type { WorkspaceWriteJobKind } from "./write-jobs.js"
 
 type WorkspaceWriteCommand = {
@@ -247,4 +252,20 @@ export async function prepareSemanticMergeCommit(
     else await persistWriteJobPreparedCommit(input.jobId, committed.sha)
     return committed
   })
+}
+
+/**
+ * The `complete` step of a Workspace write: record the result on the job and
+ * delete the job refs of the job (CTX-1235). The tip check deletes the refs
+ * of a job that ends another way.
+ */
+export async function completeWorkspaceWrite(
+  job: Pick<WorkspaceWriteCommand, "orgId" | "workspaceId" | "jobId"> & {
+    remote: WorkspaceRevision["remote"]
+  },
+  commitSha: string | null,
+  env: Env,
+) {
+  await persistWriteJobCommitSha(job.jobId, commitSha)
+  await deleteWriteJobRefs(job, env)
 }

@@ -11,7 +11,7 @@ import {
   getWorkspaceWriteAdmission,
   persistWriteStatus,
 } from "../../models/workspaces.js"
-import { log } from "../../observability/logger.js"
+import { getLogger } from "../../observability/logger.js"
 import {
   gitRemoteEnvironment,
   resolveGitRemoteTip,
@@ -20,6 +20,7 @@ import {
   type GitWriteCommit,
   nativeGit,
   type PublishGitCommit,
+  readCommitHeader,
   readGitPackFromRemote,
   withGitDirectory,
   writeCommitPack,
@@ -935,22 +936,35 @@ async function admitWriteJob(job: WriteJob) {
     workspace.githubConnectionId !== job.remote.connectionId
   )
     throw new Error("Workspace write binding changed")
+  const remote = workspaceBrokerRemote(workspace)
+  if (!remote)
+    throw new Error("Write job refs require a connected GitHub repository")
+  return { state, workspace, remote }
+}
+
+/** The connected GitHub repository of a Workspace row, or null. */
+function workspaceBrokerRemote(workspace: {
+  workspaceRepositoryUrl: string
+  githubConnectionId: string | null
+}): BrokerRemote | null {
   const repositoryName = githubRepoFullNameFromWorkspaceUrl(
     workspace.workspaceRepositoryUrl,
   )
-  const connectionId = workspace.githubConnectionId
-  if (!repositoryName || !connectionId)
-    throw new Error("Write job refs require a connected GitHub repository")
-  return {
-    state,
-    workspace,
-    remote: {
-      url: workspace.workspaceRepositoryUrl,
-      connectionId,
-      repositoryName,
-    },
-  }
+  return repositoryName && workspace.githubConnectionId
+    ? {
+        url: workspace.workspaceRepositoryUrl,
+        connectionId: workspace.githubConnectionId,
+        repositoryName,
+      }
+    : null
 }
+
+/**
+ * How long the tip check keeps cleaning the job refs of a Workspace after
+ * its last write job changed, and how old the commit of an unknown job's ref
+ * must be before the tip check deletes it.
+ */
+export const WRITE_JOB_REF_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 /**
  * Run a write step that pushes its commit to a job ref (CTX-1235). `prepare`
@@ -1057,24 +1071,13 @@ export async function findPreparedMergeCommit(
     ...(root ? { root } : {}),
     base: revision.sha,
   }
-  // The raw commit keeps its parents; a shallow fetch hides them from `log`.
-  const header = await withGitDirectory(
+  const { tree, parents } = await withGitDirectory(
     recorded,
-    async (directory) =>
-      (await nativeGit(directory, ["cat-file", "commit", recorded]))
-        .toString()
-        .split("\n\n", 1)[0] ?? "",
+    (directory) => readCommitHeader(directory, recorded),
     writeCommitPack(commit, revision.remote.url),
     read,
   )
-  const field = (name: string) =>
-    header.split("\n").flatMap((line) => {
-      const [key, value] = line.split(" ")
-      return key === name && value ? [value] : []
-    })
-  const [tree] = field("tree")
-  const parents = field("parent")
-  if (!tree || parents.length !== 1 || parents[0] !== revision.sha)
+  if (parents.length !== 1 || parents[0] !== revision.sha)
     throw new Error(
       "The recorded commit of the write job is not a commit on its revision",
     )
@@ -1098,11 +1101,11 @@ export async function deleteWriteJobRefs(job: WriteJob, env: Env) {
         refs,
       )
   } catch (error) {
-    log.warn({
+    getLogger().warn("The job refs of a write job were not deleted", {
       step: "workspace.write_job_ref_cleanup",
       workspaceId: job.workspaceId,
       jobId: job.jobId,
-      message: error instanceof Error ? error.message : String(error),
+      error: error instanceof Error ? error.message : String(error),
     })
   }
 }
@@ -1120,15 +1123,8 @@ export async function cleanUpWorkspaceWriteRefs(
   env: Env,
 ): Promise<string[]> {
   const workspace = await getWorkspaceById(input.workspaceId, input.orgId)
-  const repositoryName = workspace
-    ? githubRepoFullNameFromWorkspaceUrl(workspace.workspaceRepositoryUrl)
-    : null
-  if (!workspace?.githubConnectionId || !repositoryName) return []
-  const remote = {
-    url: workspace.workspaceRepositoryUrl,
-    connectionId: workspace.githubConnectionId,
-    repositoryName,
-  }
+  const remote = workspace ? workspaceBrokerRemote(workspace) : null
+  if (!remote) return []
   const read = await brokerReadRemote(input.orgId, remote, env)
   const refs = (await listRemoteRefs(read, WRITE_REF_ROOT)).map((ref) => ({
     ...ref,
@@ -1148,7 +1144,7 @@ export async function cleanUpWorkspaceWriteRefs(
   const stale = refs.filter((ref) => {
     const status = ref.target ? statuses.get(ref.target.jobId) : undefined
     if (status) return status === "completed" || status === "failed"
-    return now - (times.get(ref.sha) ?? now) > 7 * 24 * 60 * 60 * 1000
+    return now - (times.get(ref.sha) ?? now) > WRITE_JOB_REF_WINDOW_MS
   })
   if (!stale.length) return []
   return (

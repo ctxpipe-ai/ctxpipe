@@ -18,13 +18,13 @@ import {
 import { packWorkspaceFormat } from "../../domain/workspaces/workspace-format-tree.js"
 import {
   attemptWorkspaceCommit,
-  deleteWriteJobRefs,
   publishWorkspaceWriteRevision,
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  completeWorkspaceWrite,
   prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
@@ -35,10 +35,7 @@ import {
   discardWriteJobPreparedCommit,
   persistBoundWriteJob,
 } from "../../models/workspace-write-jobs.js"
-import {
-  persistWriteJobCommitSha,
-  persistWriteJobStatus,
-} from "../../models/workspaces.js"
+import { persistWriteJobStatus } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
@@ -299,13 +296,13 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
                 { idempotencyKey: `${input.jobId}:hydrate` },
               )
             })
-            await step.run({ name: "complete" }, async () => {
-              await persistWriteJobCommitSha(input.jobId, committed.sha)
-              await deleteWriteJobRefs(
+            await step.run({ name: "complete" }, () =>
+              completeWorkspaceWrite(
                 { ...input, remote: input.revision.remote },
+                committed.sha,
                 env,
-              )
-            })
+              ),
+            )
             return {
               committed: true as const,
               commitSha: committed.sha,

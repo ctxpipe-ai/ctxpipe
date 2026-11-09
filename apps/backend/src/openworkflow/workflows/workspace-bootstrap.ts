@@ -27,7 +27,6 @@ import {
 import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
-  deleteWriteJobRefs,
   prepareWithJobRef,
   publishWorkspaceWriteRevision,
   pushUnbornWorkspaceCommit,
@@ -36,6 +35,7 @@ import {
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  completeWorkspaceWrite,
   prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
@@ -47,10 +47,7 @@ import {
   persistUnbornBootstrapJob,
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
-import {
-  persistWriteJobCommitSha,
-  persistWriteJobStatus,
-} from "../../models/workspaces.js"
+import { persistWriteJobStatus } from "../../models/workspaces.js"
 import {
   listTreeBlobs,
   packRootTree,
@@ -254,13 +251,13 @@ export const workspaceBootstrap = defineWorkflow(
               { idempotencyKey: `${queued.jobId}:hydrate` },
             )
           })
-          await step.run({ name: "complete-unborn" }, async () => {
-            await persistWriteJobCommitSha(queued.jobId, committed.sha)
-            await deleteWriteJobRefs(
+          await step.run({ name: "complete-unborn" }, () =>
+            completeWorkspaceWrite(
               { ...queued, remote: queued.bootstrapBinding.remote },
+              committed.sha,
               env,
-            )
-          })
+            ),
+          )
           return {
             kind: "completed" as const,
             result: { committed: true as const, commitSha: committed.sha },
@@ -465,16 +462,13 @@ export const workspaceBootstrap = defineWorkflow(
               handoff,
               { name: "semantic-merge-child" },
             )
-            await step.run({ name: "complete-merged-result" }, async () => {
-              await persistWriteJobCommitSha(
-                input.jobId,
-                result.committed ? result.commitSha : null,
-              )
-              await deleteWriteJobRefs(
+            await step.run({ name: "complete-merged-result" }, () =>
+              completeWorkspaceWrite(
                 { ...input, remote: input.revision.remote },
+                result.committed ? result.commitSha : null,
                 env,
-              )
-            })
+              ),
+            )
             return result
           }
           const published = await step.run({ name: "publish-result" }, () =>
@@ -491,13 +485,13 @@ export const workspaceBootstrap = defineWorkflow(
               { idempotencyKey: `${input.jobId}:hydrate` },
             )
           })
-          await step.run({ name: "complete" }, async () => {
-            await persistWriteJobCommitSha(input.jobId, committed.sha)
-            await deleteWriteJobRefs(
+          await step.run({ name: "complete" }, () =>
+            completeWorkspaceWrite(
               { ...input, remote: input.revision.remote },
+              committed.sha,
               env,
-            )
-          })
+            ),
+          )
           return { committed: true as const, commitSha: committed.sha }
         }
         throw new Error("Default branch kept changing during no-op validation")

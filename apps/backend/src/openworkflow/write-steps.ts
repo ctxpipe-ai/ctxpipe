@@ -1,8 +1,5 @@
-import type { Workflow } from "openworkflow"
-
 import { persistWriteJobStatus } from "../models/workspaces.js"
-
-type Step = Parameters<Workflow<unknown, unknown, unknown>["fn"]>[0]["step"]
+import type { Step } from "./defineObservedWorkflow.js"
 
 /**
  * Run a Workspace write step that pushes its commit to a job ref

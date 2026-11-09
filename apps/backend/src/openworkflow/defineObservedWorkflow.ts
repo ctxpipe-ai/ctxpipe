@@ -16,7 +16,9 @@ type JobInput<S extends z.ZodType> = z.output<S> & { telemetry?: JobTelemetry }
 type JobRaw<S extends z.ZodType> = z.input<S> & { telemetry?: JobTelemetry }
 
 type OpenSpec = Workflow<unknown, unknown, unknown>["spec"]
-type Step = Parameters<Workflow<unknown, unknown, unknown>["fn"]>[0]["step"]
+export type Step = Parameters<
+  Workflow<unknown, unknown, unknown>["fn"]
+>[0]["step"]
 
 type ObservedSpec<S extends z.ZodType> = Pick<
   OpenSpec,

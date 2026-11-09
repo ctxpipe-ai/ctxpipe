@@ -16,22 +16,19 @@ import {
 import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
-  deleteWriteJobRefs,
   publishWorkspaceWriteRevision,
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  completeWorkspaceWrite,
   prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { persistBoundWriteJob } from "../../models/workspace-write-jobs.js"
-import {
-  persistWriteJobCommitSha,
-  persistWriteJobStatus,
-} from "../../models/workspaces.js"
+import { persistWriteJobStatus } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { repositoryFilePathSchema } from "../../services/git/file-change.js"
 import { readGitFiles } from "../../services/git/pack.js"
@@ -287,16 +284,13 @@ export const workspaceFileEdit = defineWorkflow(
               handoff,
               { name: "semantic-merge-child" },
             )
-            await step.run({ name: "complete-merged-result" }, async () => {
-              await persistWriteJobCommitSha(
-                input.jobId,
-                result.committed ? result.commitSha : null,
-              )
-              await deleteWriteJobRefs(
+            await step.run({ name: "complete-merged-result" }, () =>
+              completeWorkspaceWrite(
                 { ...input, remote: input.revision.remote },
+                result.committed ? result.commitSha : null,
                 env,
-              )
-            })
+              ),
+            )
             await scanAfterSetting()
             return result
           }
@@ -314,13 +308,13 @@ export const workspaceFileEdit = defineWorkflow(
               { idempotencyKey: `${input.jobId}:hydrate` },
             )
           })
-          await step.run({ name: "complete" }, async () => {
-            await persistWriteJobCommitSha(input.jobId, committed.sha)
-            await deleteWriteJobRefs(
+          await step.run({ name: "complete" }, () =>
+            completeWorkspaceWrite(
               { ...input, remote: input.revision.remote },
+              committed.sha,
               env,
-            )
-          })
+            ),
+          )
           await scanAfterSetting()
           return { committed: true as const, commitSha: committed.sha }
         }
