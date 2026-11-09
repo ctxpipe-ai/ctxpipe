@@ -43,6 +43,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - Code owners and a branch rule hold the guard code for a person's review:
         - the policy pack and the list of protected resources;
         - the deploy workflows;
+        - the `CODEOWNERS` file itself;
         - every file that the guard job loads. The edge stack lives in its own folder, with its own package manifest and lockfile, and imports no shared module from outside that folder.
     - The policy pack blocks a replace or a delete of a protected resource.
     - The organization stays in CDK (`machines/aws-core`).
