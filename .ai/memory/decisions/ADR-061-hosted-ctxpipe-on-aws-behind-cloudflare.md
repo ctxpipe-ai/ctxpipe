@@ -28,7 +28,14 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - Deploy roles: each one is scoped to its environment and has a permission boundary. Pulumi calls the AWS APIs with that role.
     - Edge and repository credentials: only a job in the `Production` GitHub environment holds the Cloudflare edit token. The same rule applies to the GitHub admin token and the production secret values.
     - Approvals: the normal path needs no manual approval. `pulumi preview` runs on each pull request with the read-only plan role. An agent merges a pull request when the merge gate passes. `pulumi up` then runs from `main`.
-    - Approvals by a person, only for very sensitive changes: aws-core (the organization, identity, SCPs, deploy-role boundaries), the Cloudflare Access policies, and a replace or a delete of a protected resource. The policy pack blocks a replace or a delete until a person approves it.
+    - The plan role reads only metadata (`Describe*`, `List*`), the state bucket and the state key. Its boundary denies data reads: `s3:GetObject` outside the state bucket, log events, secret values, and `kms:Decrypt` with other keys. The plan job gets a read-only Cloudflare token and no GitHub admin token.
+    - A person approves only very sensitive changes:
+        - aws-core: the organization, identity, SCPs and deploy-role boundaries;
+        - the Cloudflare Access policies;
+        - cross-account resource policies: the RAM share, the key policies and the bucket policies that the preview account can use;
+        - the guards: the policy pack and the list of protected resources;
+        - a replace or a delete of a protected resource.
+    - Code owners and a branch rule hold these files for a person's review. The policy pack blocks a replace or a delete of a protected resource. The deploy-role boundary also denies the delete of resources tagged as protected.
     - The organization stays in CDK (`machines/aws-core`).
     - The public `@ctxpipe/aws-cdk` construct stays CDK, for simple, single-tenant self-hosting. Hosted does not use it. Hosted and self-host share only the container images and the environment contract.
     - Images: the ctxpipe repo only pushes images to ECR. It loses its deploy trust in the production account and keeps only an ECR push role. ECR tags are immutable. Each deploy pins its images by digest.
@@ -49,7 +56,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 
 14. AgentCore Runtime V2 microVMs replace Vercel Sandbox, one session for each conversation or ingest shard. A repository-size cap replaces a second compute type. Production invokes a named runtime endpoint, so that a new sandbox version needs an explicit promote and can roll back at once. Previews use the `DEFAULT` endpoint, which follows the newest version by itself.
 15. The backend reaches a session only through `InvokeAgentRuntime` and `InvokeAgentRuntimeCommand` over PrivateLink. No session endpoints. A resource policy, an SCP and the VPC endpoint condition let only backend roles invoke.
-16. The sandbox reaches the backend's tool bridge and model proxy over the private network. It goes through Agent Vault, as in self-host ([ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md)). Agent Vault is the only egress proxy of the sandbox. Sandbox subnets have no internet route. They reach Agent Vault and the VPC endpoints for ECR, logs and AgentCore.
+16. The sandbox reaches the backend's tool bridge and model proxy over the private network. It goes through Agent Vault, as in self-host ([ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md)). Agent Vault is the only egress proxy of the sandbox. Sandbox subnets have no internet route. They reach Agent Vault and the VPC endpoints for ECR, logs and AgentCore. Each of these endpoints has a policy that allows only resources and principals of this account (`aws:ResourceAccount`, `aws:PrincipalAccount`). The S3 gateway endpoint allows only the ECR layer bucket.
 17. The V2 memory snapshot holds only our shim. OpenCode starts after the restore. Secrets in the sandbox come from `/dev/urandom` per request.
 18. A conversation resumes from git: a fresh clone of the Workspace repository and a private conversation ref. An S3 base bundle is added only if the clone is slower than about 3 s. Hosted ctxpipe stops the creation, selection and cleanup of Workspace bases (Vercel snapshots). The Docker Workspace base stays for self-host.
 
@@ -73,7 +80,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - The `Production` and `Preview` environments never share a token, key or secret.
     - The preview source is not scrubbed. It keeps the session tokens and the OAuth tokens that it copies from production (`sessions`, `accounts`). The Neon preview branches of today do the same. The design owner accepts this residual risk. Unreviewed PR code can read these tokens. It can replay a copied session token against the production app. It can also use a copied OAuth token against a customer's provider. The account boundary does not stop these two effects. It only keeps PR code away from the AWS resources of the production account.
 23. Cloudflare Access protects `pr-N.ctxpipe.dev`. Access lets `/mcp`, the OAuth paths and the webhook path through, because those clients cannot do an Access login. The app's own auth protects these paths.
-24. At most 15 previews exist at a time. A preview is deleted on PR close, or 3 days after the last `preview up`. A warm pool of 1 to 2 paused clones keeps the first `preview up` short: in the spike, a clone and its instance took 8 to 8.5 minutes. An idle preview resumes in about 13 seconds on its first request.
+24. At most 15 previews exist at a time. A preview is deleted on PR close, or 3 days after the last `preview up`. A warm pool of 1 to 2 paused clones keeps the first `preview up` short. In the spike, a clone and its instance took 8 to 8.5 minutes. An idle preview resumes in about 13 seconds on its first request.
 
 **Observability**
 
