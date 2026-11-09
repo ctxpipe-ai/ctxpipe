@@ -1,5 +1,6 @@
 import {
-  type QueryClient,
+  skipToken,
+  useQuery,
   useQueryClient,
   useSuspenseQuery,
 } from "@tanstack/react-query"
@@ -328,7 +329,6 @@ function WorkspaceSurfaceSession(props: {
 }) {
   const { orgSlug, workspaceSlug, workspace, conversationId, paneParam } = props
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const initialPane = landingPane(paneParam)
   const [shownPane, setShownPane] = useState<ParsedPane | null>(initialPane)
   const [maximized, setMaximized] = useState(false)
@@ -340,6 +340,20 @@ function WorkspaceSurfaceSession(props: {
     previewPath: null,
   })
 
+  // The pane header shows the title when the conversation column is hidden.
+  // Read it from the conversation list, and render again when the list loads.
+  // This query does not fetch: the conversation list in the side nav does.
+  const { data: listedTitle } = useQuery({
+    queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
+    queryFn: skipToken,
+    select: (data: { pages: { items: { id: string; name: string }[] }[] }) =>
+      data.pages
+        .flatMap((page) => page.items)
+        .find((item) => item.id === conversationId)
+        ?.name.trim(),
+  })
+  const conversationTitle =
+    (conversationId && listedTitle) || "New conversation"
   const fileFromPane = shownPane?.kind === "file" ? shownPane.path : null
   const openFileTabs = tabsIncludingPanePath(fileTabs.tabs, fileFromPane)
 
@@ -379,12 +393,7 @@ function WorkspaceSurfaceSession(props: {
       orgSlug={orgSlug}
       workspace={workspace}
       conversationId={conversationId}
-      conversationTitle={conversationTitleFromList(
-        queryClient,
-        orgSlug,
-        workspace.id,
-        conversationId,
-      )}
+      conversationTitle={conversationTitle}
       shownPane={shownPane}
       maximized={maximized}
       paneWidth={paneWidth}
@@ -400,22 +409,6 @@ function WorkspaceSurfaceSession(props: {
       setPane={setPane}
     />
   )
-}
-
-function conversationTitleFromList(
-  queryClient: QueryClient,
-  orgSlug: string,
-  workspaceId: string,
-  conversationId?: string,
-) {
-  if (!conversationId) return "New conversation"
-  const cached = queryClient.getQueryData<{
-    pages: { items: { id: string; name: string }[] }[]
-  }>(workspaceKeys.conversations(orgSlug, workspaceId))
-  const name = cached?.pages
-    .flatMap((page) => page.items)
-    .find((item) => item.id === conversationId)?.name
-  return name?.trim() || "New conversation"
 }
 
 function WorkspaceSurfaceLayout(props: {

@@ -450,16 +450,25 @@ export const DismissedCollapseToIcon: Story = {
     for (const name of [
       "Dismiss: Docs, Upgrade to format 3",
       "Dismiss: Docs, Fresh re-ingestion of the source repositories",
-    ])
+    ]) {
       await userEvent.click(await canvas.findByRole("button", { name }))
-    const show = await canvas.findByRole("button", {
-      name: "Show notices: 2 upgrades",
+      await waitFor(() =>
+        expect(canvas.queryByRole("button", { name })).toBeNull(),
+      )
+    }
+    // The stack animates after each dismiss. Query again on each try, and
+    // wait for each state that the play checks.
+    const showName = "Show notices: 2 upgrades"
+    await waitFor(() => {
+      const show = canvas.getByRole("button", { name: showName })
+      expect(show).toBeVisible()
+      expect(show.textContent).toBe("2")
     })
-    await waitFor(() => expect(show).toBeVisible())
-    expect(show.textContent).toBe("2")
     // The Handbook toast stays in the stack.
-    expect(canvas.getByText("Handbook upgrade available")).toBeVisible()
-    await userEvent.click(show)
+    await waitFor(() =>
+      expect(canvas.getByText("Handbook upgrade available")).toBeVisible(),
+    )
+    await userEvent.click(canvas.getByRole("button", { name: showName }))
     await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(3))
     await waitFor(() =>
       expect(canvas.queryByRole("button", { name: /Show notices/ })).toBeNull(),
