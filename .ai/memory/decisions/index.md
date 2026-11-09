@@ -4,7 +4,7 @@ Naming: `ADR-NNN-title-slug.md`. Status | Date | Tags; Context; Decision; Conseq
 
 Parent: [`.ai/memory/README.md`](../README.md).
 
-**Updated:** 2026-10-16
+**Updated:** 2026-11-09
 
 ## Index
 
