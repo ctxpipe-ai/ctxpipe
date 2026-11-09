@@ -17,9 +17,9 @@ export const profiles = {
   vercel: { setupMinutes: 0.8, maxShards: 1 },
   storybook: { setupMinutes: 0.6, maxShards: 5 },
   // The screenshots job: the setup of a Storybook shard and the pull of the
-  // pinned Playwright image (an estimate; the job is not measured yet). One
-  // job: its shards are CTX-1192.
-  visual: { setupMinutes: 1.5, maxShards: 1 },
+  // pinned Playwright image (an estimate; the job is not measured yet). A
+  // full run captures about 900 stories in 4 shards (CTX-1192).
+  visual: { setupMinutes: 1.5, maxShards: 4 },
 }
 
 // A Storybook or screenshots shard needs the Storybook build job first.

@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { readUnstable } from "../checks/visual.mjs"
+import { shardStories } from "./storybook-select.mjs"
 import { captureInContainer } from "./visual-capture.mjs"
 
 // Proves that the capture container is deterministic: it captures a sample of
@@ -15,10 +16,14 @@ import { captureInContainer } from "./visual-capture.mjs"
 // (proof.json, and the PNGs of both runs). The exit code is 1 when a story
 // differs between the runs, is unstable in a run, or does not capture. A
 // story in scripts/ci/visual-unstable-stories.json is known to differ: it is
-// reported as skipped and does not fail the run. The nightly CI run (the job
-// "Screenshot determinism" in .github/workflows/ci.yaml) runs it.
+// reported as skipped and does not fail the run. proof.json lists each other
+// story that differs in `differing`. The nightly CI run (the job "Screenshot
+// determinism" in .github/workflows/ci.yaml) runs it on every story, in
+// shards (--shard i/n keeps every n-th story of the sample), and quarantines
+// the stories that differ: the job "Unstable screenshots" adds them to the
+// unstable list in a draft pull request.
 //
-// Usage: node scripts/ci/visual-capture-proof.mjs [sample size, default 20, or "all"]
+// Usage: node scripts/ci/visual-capture-proof.mjs [sample size, default 20, or "all"] [--shard i/n]
 
 // Splits the stories that are not identical in the two runs: a story that is
 // listed for the desktop viewport (the viewport of the proof) is skipped, and
@@ -50,13 +55,16 @@ async function prove() {
     .map((entry) => entry.id)
     .sort()
   if (!all.length) throw new Error("The Storybook build has no story.")
+  const sample = process.argv[2]?.startsWith("--") ? undefined : process.argv[2]
   const size =
-    process.argv[2] === "all"
-      ? all.length
-      : Math.min(Number(process.argv[2] ?? 20), all.length)
-  const ids = Array.from(
-    { length: size },
-    (_, k) => all[Math.floor((k * all.length) / size)],
+    sample === "all" ? all.length : Math.min(Number(sample ?? 20), all.length)
+  const shard = process.argv.indexOf("--shard")
+  const ids = shardStories(
+    Array.from(
+      { length: size },
+      (_, k) => all[Math.floor((k * all.length) / size)],
+    ),
+    shard > 0 ? process.argv[shard + 1] : undefined,
   )
 
   const sha = (file) =>
@@ -88,7 +96,7 @@ async function prove() {
   mkdirSync(out, { recursive: true })
   writeFileSync(
     join(out, "proof.json"),
-    `${JSON.stringify({ sample: ids.length, identical: results.filter((result) => result.identical).length, skipped: skipped.map((result) => result.id), results }, null, 2)}\n`,
+    `${JSON.stringify({ sample: ids.length, identical: results.filter((result) => result.identical).length, skipped: skipped.map((result) => result.id), differing: failing.map((result) => result.id), results }, null, 2)}\n`,
   )
   process.stdout.write(
     `${results.filter((result) => result.identical).length} of ${results.length} stories gave identical PNGs in two runs; ${skipped.length} known unstable stories skipped.\n`,

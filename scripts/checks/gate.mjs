@@ -671,6 +671,18 @@ export function criticsText(checked, repoUrl) {
       )
     }
   }
+  // The section of a command critic: its changed screenshots, with a link to
+  // each one at the merge base and at the head. The factory makes it and
+  // escapes each path of the PR (`factory review gate`, CTX-1192); the gate
+  // only includes it, with a bound on its length.
+  for (const critic of checked.critics)
+    if (typeof critic.section === "string" && critic.section.trim())
+      lines.push(
+        "",
+        `##### ${code(critic.critic, { cell: false })}`,
+        "",
+        critic.section.slice(0, 25000).trimEnd(),
+      )
   if (checked.missing.length > 0)
     lines.push(
       "",

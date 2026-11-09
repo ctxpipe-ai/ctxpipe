@@ -203,7 +203,7 @@ export function withStoreHits(selection, store) {
 
 // Where a check runs in a gated run. The Lint and format job runs each lint
 // and policy check as a step, on each run. Every Storybook play runs in the
-// Storybook plays shards, and each screenshot in the one screenshots job
+// Storybook plays shards, and each screenshot in the screenshots shards
 // (runsIn). A check that ci.yaml does not run is `external`:
 // another workflow runs it, and its own status reports the result.
 const external = {
@@ -232,6 +232,9 @@ const imageOptions = {
   "chat-sandbox": { context: "scripts/chat-sandbox", platforms: "linux/arm64" },
 }
 
+// The matrix jobs whose checks shard.mjs packs into shards.
+const shardedJobs = ["test-shards", "storybook-plays", "storybook-visual"]
+
 // The jobs that a gated run starts, with the checks of each (`jobs` in
 // plan.json). Each job has the ids that it runs and the ids that it runs once
 // more when they fail (`rerun`: a stored pass has the key of the check, so a
@@ -250,7 +253,7 @@ export function jobPlans(ran, seconds, rerun = new Set()) {
   const jobs = {}
   for (const [job, ids] of byJob) {
     ids.sort()
-    if (job === "test-shards" || job === "storybook-plays") {
+    if (shardedJobs.includes(job)) {
       const shards = Object.values(shard(ids, seconds)).flat()
       jobs[job] = shards.map((item, index) => ({
         lane: "selected",
@@ -292,7 +295,7 @@ function jobOutputs(jobs) {
 // of tests in all shards and in the longest shard.
 function packing(ran, seconds) {
   const out = {}
-  for (const job of ["test-shards", "storybook-plays"]) {
+  for (const job of shardedJobs) {
     const ids = ran.filter((id) => placeOf(id).job === job)
     for (const [profile, list] of Object.entries(shard(ids, seconds))) {
       const minutes = (value) => Math.round((value / 60) * 10) / 10

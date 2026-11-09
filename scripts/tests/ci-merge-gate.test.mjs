@@ -958,11 +958,23 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
     job: "storybook-visual",
     profile: "visual",
   })
-  // The screenshots job has one shard and needs the Storybook build too.
+  // Two short screenshot checks fit in one shard; the shards need the
+  // Storybook build too. A selection of about 900 stories at 3 seconds each
+  // takes at most the 4 shards of a full run.
   assert.equal(
     shard(["storybook:visual:a#x", "storybook:visual:b#y"], new Map(), {})
       .visual.length,
     1,
+  )
+  assert.equal(
+    shard(
+      Array.from({ length: 900 }, (_, n) => `storybook:visual:a#s${n}`),
+      new Map(
+        Array.from({ length: 900 }, (_, n) => [`storybook:visual:a#s${n}`, 3]),
+      ),
+      {},
+    ).visual.length,
+    4,
   )
   assert.equal(
     shardMinutes({ visual: [{ ids: [], seconds: 60 }] }),
@@ -1472,6 +1484,52 @@ test("the critics job projection keeps each override and raised limit for the co
       ),
       text,
     )
+})
+
+test("the comment includes the screenshots section that the factory makes for a command critic", () => {
+  // The output of the factory binary, from the factory CLI test
+  // `the_gate_json_of_a_command_critic_holds_the_section_of_its_changed_images`
+  // (run it with `--nocapture`), through the jq filter of the critics job.
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const [, filter] = workflow.match(/jq -c '(\{critics: [^']+)'/) ?? []
+  const fixture = join(
+    root,
+    "scripts/tests/fixtures/factory/review-gate-section.json",
+  )
+  const projected = spawnSync("jq", ["-c", filter, fixture], {
+    encoding: "utf8",
+  })
+  assert.equal(projected.status, 0, projected.stderr)
+  const record = JSON.parse(projected.stdout)
+  const { section } = JSON.parse(readFileSync(fixture, "utf8")).critics.find(
+    (critic) => critic.critic === "critic:visual",
+  )
+  assert.match(section, /^Changed screenshots: 2\./)
+  // A model critic has no section, so the projection adds none.
+  assert.equal(
+    record.critics.find((critic) => critic.critic === "critic:spec").section,
+    undefined,
+  )
+  const text = criticsText(critics(inputs({ "critics.json": record })))
+  assert.ok(text.includes(`##### \`critic:visual\`\n\n${section}`), text)
+  // A section that is not text never reaches the comment.
+  const odd = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          critics: [
+            {
+              critic: "critic:visual",
+              status: "missing",
+              reason: "r",
+              section: { text: "x" },
+            },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(!odd.includes("#####"), odd)
 })
 
 test("a raised limit of another shape never reaches the comment", () => {
