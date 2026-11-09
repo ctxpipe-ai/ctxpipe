@@ -27,6 +27,8 @@ import {
 import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
+  deleteWriteJobRefs,
+  prepareWithJobRef,
   publishWorkspaceWriteRevision,
   pushUnbornWorkspaceCommit,
   refreshWorkspaceWriteRevision,
@@ -34,6 +36,7 @@ import {
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { isBootstrapAllowedPath } from "../../domain/workspaces/write-jobs.js"
@@ -54,18 +57,10 @@ import {
   readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
-import {
-  commitUnbornGitTree,
-  stageUnbornGitFiles,
-  validateUnbornGitTree,
-} from "../../services/git/unborn-tree.js"
-import {
-  commitGitTree,
-  stageGitFiles,
-  validateGitTree,
-} from "../../services/git/write-tree.js"
+import { prepareUnbornGitCommit } from "../../services/git/unborn-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
@@ -156,25 +151,6 @@ export const workspaceBootstrap = defineWorkflow(
               ]
             },
           )
-          const staged = await step.run({ name: "stage-unborn" }, () =>
-            stageUnbornGitFiles(
-              files,
-              workspaceRootPath(queued.bootstrapBinding),
-            ),
-          )
-          await step.run({ name: "validate-unborn" }, () =>
-            validateUnbornGitTree(
-              staged,
-              files
-                .filter(
-                  (file) =>
-                    isBootstrapAllowedPath(file.path) ||
-                    file.path === WORKSPACE_FORMAT_PATH,
-                )
-                .map((file) => file.path),
-              workspaceRootPath(queued.bootstrapBinding),
-            ),
-          )
           const subject = await step.run(
             { name: "commit-subject-unborn" },
             () =>
@@ -187,16 +163,33 @@ export const workspaceBootstrap = defineWorkflow(
                 fileNames: files.map((file) => file.path),
               }),
           )
-          const committed = await step.run(
-            { name: "commit-unborn" },
-            async () => {
-              const pack = await commitUnbornGitTree(staged, {
-                subject,
-                createdAt: run.createdAt,
-              })
-              await persistWriteJobPreparedCommit(queued.jobId, pack.sha)
-              return pack
-            },
+          const committed = await runJobRefStep(
+            step,
+            queued.jobId,
+            { name: "prepare-commit-unborn" },
+            () =>
+              prepareWithJobRef(
+                { ...queued, remote: queued.bootstrapBinding.remote },
+                env,
+                async (publish) => {
+                  const commit = await prepareUnbornGitCommit({
+                    files,
+                    root: workspaceRootPath(queued.bootstrapBinding),
+                    allowedPaths: files
+                      .filter(
+                        (file) =>
+                          isBootstrapAllowedPath(file.path) ||
+                          file.path === WORKSPACE_FORMAT_PATH,
+                      )
+                      .map((file) => file.path),
+                    subject,
+                    createdAt: run.createdAt,
+                    publish,
+                  })
+                  await persistWriteJobPreparedCommit(queued.jobId, commit.sha)
+                  return commit
+                },
+              ),
           )
           for (;;) {
             const pushed = await step.run(
@@ -261,9 +254,13 @@ export const workspaceBootstrap = defineWorkflow(
               { idempotencyKey: `${queued.jobId}:hydrate` },
             )
           })
-          await step.run({ name: "complete-unborn" }, () =>
-            persistWriteJobCommitSha(queued.jobId, committed.sha),
-          )
+          await step.run({ name: "complete-unborn" }, async () => {
+            await persistWriteJobCommitSha(queued.jobId, committed.sha)
+            await deleteWriteJobRefs(
+              { ...queued, remote: queued.bootstrapBinding.remote },
+              env,
+            )
+          })
           return {
             kind: "completed" as const,
             result: { committed: true as const, commitSha: committed.sha },
@@ -322,8 +319,9 @@ export const workspaceBootstrap = defineWorkflow(
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
           >
           for (;;) {
-            const candidate = await step.run({ name: "acquire-revision" }, () =>
-              acquireWorkspaceWriteRevision(input, revision, env),
+            const candidate = await step.run(
+              { name: "acquire-revision-v2" },
+              () => acquireWorkspaceWriteRevision(input, revision, env),
             )
             if (candidate) {
               acquired = candidate
@@ -398,25 +396,6 @@ export const workspaceBootstrap = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const staged = await step.run({ name: "stage" }, () => {
-            if (
-              files.some(
-                (file) =>
-                  !isBootstrapAllowedPath(file.path) &&
-                  file.path !== WORKSPACE_FORMAT_PATH,
-              )
-            )
-              throw new Error("Bootstrap path is outside its allowed files")
-            return stageGitFiles(acquired.pack, files, [], read)
-          })
-          await step.run({ name: "validate" }, () =>
-            validateGitTree(
-              staged,
-              files.map((file) => file.path),
-              {},
-              read,
-            ),
-          )
           const subject = await step.run({ name: "commit-subject" }, () =>
             generateCommitSubject({
               repoName: repositoryName.split("/")[1] ?? repositoryName,
@@ -424,18 +403,29 @@ export const workspaceBootstrap = defineWorkflow(
               fileNames: files.map((file) => file.path),
             }),
           )
-          const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(
-              staged,
-              {
-                subject,
-                createdAt: run.createdAt,
-              },
-              read,
-            )
-            await persistWriteJobPreparedCommit(input.jobId, pack.sha)
-            return pack
-          })
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
+            async () => {
+              if (
+                files.some(
+                  (file) =>
+                    !isBootstrapAllowedPath(file.path) &&
+                    file.path !== WORKSPACE_FORMAT_PATH,
+                )
+              )
+                throw new Error("Bootstrap path is outside its allowed files")
+              return prepareWorkspaceWriteCommit(
+                input,
+                revision,
+                acquired.pack,
+                { files, deletePaths: [] },
+                { subject, createdAt: run.createdAt },
+                env,
+              )
+            },
+          )
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             pushed = await step.run(
@@ -475,12 +465,16 @@ export const workspaceBootstrap = defineWorkflow(
               handoff,
               { name: "semantic-merge-child" },
             )
-            await step.run({ name: "complete-merged-result" }, () =>
-              persistWriteJobCommitSha(
+            await step.run({ name: "complete-merged-result" }, async () => {
+              await persistWriteJobCommitSha(
                 input.jobId,
                 result.committed ? result.commitSha : null,
-              ),
-            )
+              )
+              await deleteWriteJobRefs(
+                { ...input, remote: input.revision.remote },
+                env,
+              )
+            })
             return result
           }
           const published = await step.run({ name: "publish-result" }, () =>
@@ -497,9 +491,13 @@ export const workspaceBootstrap = defineWorkflow(
               { idempotencyKey: `${input.jobId}:hydrate` },
             )
           })
-          await step.run({ name: "complete" }, () =>
-            persistWriteJobCommitSha(input.jobId, committed.sha),
-          )
+          await step.run({ name: "complete" }, async () => {
+            await persistWriteJobCommitSha(input.jobId, committed.sha)
+            await deleteWriteJobRefs(
+              { ...input, remote: input.revision.remote },
+              env,
+            )
+          })
           return { committed: true as const, commitSha: committed.sha }
         }
         throw new Error("Default branch kept changing during no-op validation")

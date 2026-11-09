@@ -57,6 +57,43 @@ export type GitPack = {
 export type GitPackBase = {
   url: string
   shas: string[]
+  /**
+   * The history depth of each fetched commit (default 1). A write commit is
+   * fetched with its parent (2): a push from a commit with a shallow parent
+   * link is not a fast-forward for Git.
+   */
+  depth?: number
+}
+
+/**
+ * A commit that a Workspace write step made and pushed to its job ref
+ * (`refs/ctxpipe/write/<jobId>/<sha>`, CTX-1235). A durable step output
+ * holds only this identity, never a Git object: each later step fetches the
+ * commit from the Git host again. `base` is the parent of the commit; an
+ * unborn bootstrap commit has no parent.
+ */
+export type GitWriteCommit = {
+  sha: string
+  tree: string
+  root?: string
+  base: string | null
+}
+
+/**
+ * Push the commit `sha` in `directory` to the Git host before the directory
+ * goes away. The caller owns the credential and the ref name.
+ */
+export type PublishGitCommit = (directory: string, sha: string) => Promise<void>
+
+/** The pack, with no objects, that reads a write commit and its parent from `url`. */
+export function writeCommitPack(commit: GitWriteCommit, url: string): GitPack {
+  return {
+    sha: commit.sha,
+    objects: "",
+    shallow: "",
+    ...(commit.root ? { root: commit.root } : {}),
+    base: { url, shas: [commit.sha], depth: commit.base ? 2 : 1 },
+  }
 }
 
 /**
@@ -109,13 +146,25 @@ function isTransientFetchError(error: unknown): boolean {
  */
 export async function fetchGitCommits(
   directory: string,
-  input: { url: string; shas: readonly string[]; token?: string },
+  input: {
+    url: string
+    shas: readonly string[]
+    token?: string
+    depth?: number
+  },
 ): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     try {
       await nativeGit(
         directory,
-        ["fetch", "--depth", "1", "--", input.url, ...input.shas],
+        [
+          "fetch",
+          "--depth",
+          String(input.depth ?? 1),
+          "--",
+          input.url,
+          ...input.shas,
+        ],
         undefined,
         gitRemoteEnvironment({ url: input.url, token: input.token }),
       )
@@ -457,6 +506,7 @@ export async function withGitDirectory<T>(
           url: pack.base.url,
           shas: pack.base.shas,
           token: await read.token(),
+          depth: pack.base.depth,
         })
       }
       if (pack.objects) await indexGitPack(directory, pack.objects)

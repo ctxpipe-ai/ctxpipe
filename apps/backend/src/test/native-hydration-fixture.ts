@@ -1028,7 +1028,26 @@ export async function withNativeHydrationFixture(
   const fixture = await createNativeHydrationFixture(options)
   try {
     await run(fixture)
+    await expectSmallWriteStepOutputs(fixture.org.id)
   } finally {
     await fixture.cleanup()
   }
+}
+
+/**
+ * No Workspace write step keeps Git objects or file contents in its durable
+ * output (CTX-1235): each completed step output of a write workflow of the
+ * org is at most 4 KiB. Each contract test that runs a write workflow on this
+ * fixture checks it.
+ */
+async function expectSmallWriteStepOutputs(orgId: string) {
+  const large = await getSystemDb().execute(sql`
+    select wr.workflow_name, sa.step_name, octet_length(sa.output::text) as bytes
+    from openworkflow.step_attempts sa
+    join openworkflow.workflow_runs wr on wr.id = sa.workflow_run_id
+    where wr.input->>'orgId' = ${orgId}
+      and wr.workflow_name like 'workspace-write-%'
+      and sa.status = 'completed'
+      and octet_length(sa.output::text) > 4096`)
+  expect(large.rows).toEqual([])
 }

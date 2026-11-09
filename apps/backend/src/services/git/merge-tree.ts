@@ -6,15 +6,16 @@ import type { GitFileChange } from "./file-change.js"
 import {
   type GitPack,
   type GitRemoteRead,
+  type GitWriteCommit,
   nativeGit,
-  packGitObjects,
+  type PublishGitCommit,
   withGitDirectory,
 } from "./pack.js"
 import { workspaceRelativePath } from "./root-folder.js"
 import {
-  commitGitTree,
-  type StagedGitTree,
-  stageGitFiles,
+  changedRootPaths,
+  commitGitTreeIn,
+  stageGitTree,
 } from "./write-tree.js"
 
 export type GitMergeConflict = {
@@ -24,38 +25,32 @@ export type GitMergeConflict = {
   incoming: string | null
 }
 
-type GitMergeResult = {
-  staged: StagedGitTree
-  paths: string[]
-  conflicts: GitMergeConflict[]
-}
-
-/** Rebase an unpushed file command using Git's native three-way tree merge. */
-export async function mergeGitFiles(input: {
+/**
+ * Rebase an unpushed file command onto the tip `pack` with Git's native
+ * three-way tree merge, resolve the conflicts with `resolve`, and commit and
+ * publish the result in one Git directory (CTX-1235). `pack` must also read
+ * `previousSha`. Null when the merge changes nothing. Only a conflict path
+ * may take a resolution, and only a path that the merge changes may differ
+ * from the tip.
+ */
+export async function prepareGitMerge(input: {
   pack: GitPack
   previousSha: string
   files: readonly GitFileChange[]
   deletePaths: readonly string[]
+  resolve: (
+    conflicts: GitMergeConflict[],
+  ) => Promise<ReadonlyArray<{ path: string; content: string | null }>>
+  subject: string
+  createdAt: Date | string
   read: GitRemoteRead | null
-}): Promise<GitMergeResult | null> {
-  const candidateTree = await stageGitFiles(
-    { ...input.pack, sha: input.previousSha },
-    input.files,
-    input.deletePaths,
-    input.read,
-  )
-  // This unreachable object gives merge-tree a commit identity for the captured command.
-  const candidate = await commitGitTree(
-    candidateTree,
-    {
-      subject: "Captured unpushed workspace change",
-      createdAt: "2000-01-01T00:00:00.000Z",
-    },
-    input.read,
-  )
+  publish: PublishGitCommit
+}): Promise<GitWriteCommit | null> {
+  const root = input.pack.root ?? ""
+  const tip = input.pack.sha
   // Paths in the result are relative to the Workspace root folder.
   const rootRelative = (path: string) => {
-    const relative = workspaceRelativePath(input.pack.root ?? "", path)
+    const relative = workspaceRelativePath(root, path)
     if (relative === null)
       throw new Error(
         "The merge changes a path outside the Workspace root folder",
@@ -63,13 +58,20 @@ export async function mergeGitFiles(input: {
     return relative
   }
   return withGitDirectory(
-    input.pack.sha,
+    tip,
     async (directory) => {
-      await nativeGit(
-        directory,
-        ["index-pack", "--stdin"],
-        Buffer.from(candidate.objects, "base64"),
-      )
+      // This unreachable commit gives merge-tree an identity for the captured command.
+      const candidate = await commitGitTreeIn(directory, {
+        tree: await stageGitTree(directory, {
+          from: input.previousSha,
+          root,
+          files: input.files,
+          deletePaths: input.deletePaths,
+        }),
+        parents: [input.previousSha],
+        subject: "Captured unpushed workspace change",
+        createdAt: "2000-01-01T00:00:00.000Z",
+      })
       let conflicted = false
       const output = await nativeGit(directory, [
         "merge-tree",
@@ -77,8 +79,8 @@ export async function mergeGitFiles(input: {
         "--name-only",
         "-z",
         `--merge-base=${input.previousSha}`,
-        input.pack.sha,
-        candidate.sha,
+        tip,
+        candidate,
       ]).catch((error: unknown) => {
         if (
           !(error instanceof Error) ||
@@ -92,23 +94,14 @@ export async function mergeGitFiles(input: {
         return error.stdout
       })
       const entries = output.toString().split("\0")
-      const tree = entries.shift()?.trim()
-      if (!tree || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(tree))
+      const merged = entries.shift()?.trim()
+      if (!merged || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(merged))
         throw new Error("Native merge did not produce a tree")
-      const paths = (
-        await nativeGit(directory, [
-          "diff-tree",
-          "--no-commit-id",
-          "--name-only",
-          "-r",
-          "-z",
-          input.pack.sha,
-          tree,
-        ])
-      )
-        .toString()
-        .split("\0")
-        .filter(Boolean)
+      const paths = await changedRootPaths(directory, {
+        root,
+        from: tip,
+        to: merged,
+      })
       const conflicts: GitMergeConflict[] = []
       if (conflicted) {
         const read = async (sha: string, path: string) => {
@@ -132,62 +125,54 @@ export async function mergeGitFiles(input: {
           conflicts.push({
             path: rootRelative(path),
             base: await read(input.previousSha, path),
-            current: await read(input.pack.sha, path),
-            incoming: await read(candidate.sha, path),
+            current: await read(tip, path),
+            incoming: await read(candidate, path),
           })
         }
         if (!conflicts.length)
           throw new Error("Native merge conflict has no file paths")
       }
       if (!paths.length && !conflicts.length) return null
-      const objects = await packGitObjects(
-        directory,
-        [input.pack.sha, tree],
-        input.pack.base ?? null,
-      )
-      return {
-        staged: {
-          pack: { ...input.pack, objects },
-          tree,
-        },
-        paths: [
-          ...new Set([
-            ...paths.map(rootRelative),
-            ...conflicts.map((conflict) => conflict.path),
-          ]),
-        ],
-        conflicts,
+      const allowed = new Set([
+        ...paths,
+        ...conflicts.map((conflict) => conflict.path),
+      ])
+      let tree = merged
+      if (conflicts.length) {
+        const resolved = await input.resolve(conflicts)
+        tree = await stageGitTree(directory, {
+          from: merged,
+          root,
+          files: resolved.flatMap((file) =>
+            file.content === null
+              ? []
+              : [{ path: file.path, content: file.content }],
+          ),
+          deletePaths: resolved
+            .filter((file) => file.content === null)
+            .map((file) => file.path),
+        })
       }
+      const changed = await changedRootPaths(directory, {
+        root,
+        from: tip,
+        to: tree,
+      })
+      if (changed.some((path) => !allowed.has(path)))
+        throw new Error("Invalid write tree")
+      if (!changed.length) return null
+      const sha = await commitGitTreeIn(directory, {
+        tree,
+        parents: [tip],
+        subject: input.subject,
+        createdAt: input.createdAt,
+      })
+      await input.publish(directory, sha)
+      return { sha, tree, ...(root ? { root } : {}), base: tip }
     },
     input.pack,
     input.read,
   )
-}
-
-/** Apply only validated conflict resolutions while retaining Git's clean merged changes. */
-export async function resolveGitMergeTree(
-  merged: GitMergeResult,
-  files: readonly { path: string; content: string | null }[],
-  read: GitRemoteRead | null,
-): Promise<StagedGitTree> {
-  const parent = merged.staged.pack.sha
-  const candidate = await commitGitTree(
-    merged.staged,
-    {
-      subject: "Unpublished semantic merge tree",
-      createdAt: "2000-01-01T00:00:00.000Z",
-    },
-    read,
-  )
-  const staged = await stageGitFiles(
-    candidate,
-    files.flatMap((file) =>
-      file.content === null ? [] : [{ path: file.path, content: file.content }],
-    ),
-    files.filter((file) => file.content === null).map((file) => file.path),
-    read,
-  )
-  return { ...staged, pack: { ...staged.pack, sha: parent } }
 }
 
 /**

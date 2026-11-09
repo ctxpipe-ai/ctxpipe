@@ -16,19 +16,18 @@ import {
 import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
+  deleteWriteJobRefs,
   publishWorkspaceWriteRevision,
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import {
-  persistBoundWriteJob,
-  persistWriteJobPreparedCommit,
-} from "../../models/workspace-write-jobs.js"
+import { persistBoundWriteJob } from "../../models/workspace-write-jobs.js"
 import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
@@ -36,13 +35,9 @@ import {
 import { log } from "../../observability/logger.js"
 import { repositoryFilePathSchema } from "../../services/git/file-change.js"
 import { readGitFiles } from "../../services/git/pack.js"
-import {
-  commitGitTree,
-  stageGitFiles,
-  validateGitTree,
-} from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
@@ -161,8 +156,9 @@ export const workspaceFileEdit = defineWorkflow(
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
           >
           for (;;) {
-            const candidate = await step.run({ name: "acquire-revision" }, () =>
-              acquireWorkspaceWriteRevision(input, revision, env),
+            const candidate = await step.run(
+              { name: "acquire-revision-v2" },
+              () => acquireWorkspaceWriteRevision(input, revision, env),
             )
             if (candidate) {
               acquired = candidate
@@ -241,17 +237,6 @@ export const workspaceFileEdit = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const staged = await step.run({ name: "stage" }, () =>
-            stageGitFiles(acquired.pack, files, changes.deletePaths, read),
-          )
-          await step.run({ name: "validate" }, () =>
-            validateGitTree(
-              staged,
-              [...files.map((file) => file.path), ...changes.deletePaths],
-              {},
-              read,
-            ),
-          )
           const subject = await step.run({ name: "commit-subject" }, () =>
             generateCommitSubject({
               repoName: repositoryName.split("/")[1] ?? repositoryName,
@@ -262,18 +247,20 @@ export const workspaceFileEdit = defineWorkflow(
               ],
             }),
           )
-          const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(
-              staged,
-              {
-                subject,
-                createdAt: run.createdAt,
-              },
-              read,
-            )
-            await persistWriteJobPreparedCommit(input.jobId, pack.sha)
-            return pack
-          })
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
+            () =>
+              prepareWorkspaceWriteCommit(
+                input,
+                revision,
+                acquired.pack,
+                { files, deletePaths: changes.deletePaths },
+                { subject, createdAt: run.createdAt },
+                env,
+              ),
+          )
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             pushed = await step.run(
@@ -300,12 +287,16 @@ export const workspaceFileEdit = defineWorkflow(
               handoff,
               { name: "semantic-merge-child" },
             )
-            await step.run({ name: "complete-merged-result" }, () =>
-              persistWriteJobCommitSha(
+            await step.run({ name: "complete-merged-result" }, async () => {
+              await persistWriteJobCommitSha(
                 input.jobId,
                 result.committed ? result.commitSha : null,
-              ),
-            )
+              )
+              await deleteWriteJobRefs(
+                { ...input, remote: input.revision.remote },
+                env,
+              )
+            })
             await scanAfterSetting()
             return result
           }
@@ -323,9 +314,13 @@ export const workspaceFileEdit = defineWorkflow(
               { idempotencyKey: `${input.jobId}:hydrate` },
             )
           })
-          await step.run({ name: "complete" }, () =>
-            persistWriteJobCommitSha(input.jobId, committed.sha),
-          )
+          await step.run({ name: "complete" }, async () => {
+            await persistWriteJobCommitSha(input.jobId, committed.sha)
+            await deleteWriteJobRefs(
+              { ...input, remote: input.revision.remote },
+              env,
+            )
+          })
           await scanAfterSetting()
           return { committed: true as const, commitSha: committed.sha }
         }

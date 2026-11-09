@@ -3,11 +3,18 @@ import { isDeepStrictEqual } from "node:util"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
-import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
+import {
+  discardWriteJobPreparedCommit,
+  persistWriteJobPreparedCommit,
+  reconcileWorkspaceWriteJob,
+  validateSemanticHandoff,
+} from "../../models/workspace-write-jobs.js"
 import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
+import { prepareGitMerge } from "../../services/git/merge-tree.js"
 import type { GitPack } from "../../services/git/pack.js"
+import { prepareGitCommit } from "../../services/git/write-tree.js"
 import type { ConnectorMirrorSource } from "./connector-mirror.js"
 import {
   assertConnectorMirrorBinding,
@@ -17,6 +24,8 @@ import type { IngestPublishSource } from "./extraction-source.js"
 import { workspaceGitRead } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import { workspaceRootPath } from "./root-path.js"
+import { resolveSemanticConflicts, type WriteOrigin } from "./semantic-merge.js"
+import { findPreparedMergeCommit, prepareWithJobRef } from "./write-broker.js"
 import type { WorkspaceWriteJobKind } from "./write-jobs.js"
 
 type WorkspaceWriteCommand = {
@@ -129,4 +138,113 @@ export async function acquireWorkspaceWriteRevision(
       workspaceGitRead({ orgId: input.orgId, env, remote: revision.remote }),
     )
   return { pack, displayName: workspace.displayName }
+}
+
+/**
+ * The `prepare-commit` step of a Workspace write (CTX-1235): stage, check,
+ * and commit the change on the acquired revision, push the commit to its job
+ * ref, and record it on the job. The output is the commit identity, never a
+ * Git object. A fixed revision, change, subject, and `createdAt` give the
+ * same commit again, so a replay pushes the same ref.
+ */
+export async function prepareWorkspaceWriteCommit(
+  input: Pick<WorkspaceWriteCommand, "orgId" | "workspaceId" | "jobId">,
+  revision: WorkspaceRevision,
+  pack: GitPack,
+  change: { files: readonly GitFileChange[]; deletePaths: readonly string[] },
+  commit: { subject: string; createdAt: Date | string },
+  env: Env,
+) {
+  return prepareWithJobRef(
+    { ...input, remote: revision.remote },
+    env,
+    async (publish) => {
+      const committed = await prepareGitCommit({
+        pack,
+        ...change,
+        ...commit,
+        // The acquire step proved that `revision.remote` is the bound
+        // repository.
+        read: workspaceGitRead({
+          orgId: input.orgId,
+          env,
+          remote: revision.remote,
+        }),
+        publish,
+      })
+      await persistWriteJobPreparedCommit(input.jobId, committed.sha)
+      return committed
+    },
+  )
+}
+
+/**
+ * The `prepare-merge-commit` step of a semantic merge (CTX-1235): merge the
+ * captured change onto the acquired tip, resolve each conflict with the
+ * model, commit, push the commit to its job ref, and record it on the job.
+ * Null when the merge changes nothing. The model can answer differently on a
+ * replay, so a replay returns the commit that an earlier execution recorded:
+ * a second answer cannot make a second commit.
+ */
+export async function prepareSemanticMergeCommit(
+  input: Pick<
+    WorkspaceWriteCommand,
+    "orgId" | "workspaceId" | "jobId" | "revision" | "mirror" | "extraction"
+  > & {
+    origin: WriteOrigin
+    previousSha: string
+    files: GitFileChange[]
+    deletePaths: string[]
+    handoff?: { ownerRunId: string; candidateSha: string }
+  },
+  revision: WorkspaceRevision,
+  pack: GitPack,
+  commit: { subject: string; createdAt: Date | string },
+  env: Env,
+) {
+  const job = {
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+    jobId: input.jobId,
+    remote: revision.remote,
+    candidateSha: input.handoff?.candidateSha,
+  }
+  return prepareWithJobRef(job, env, async (publish) => {
+    const found = await findPreparedMergeCommit(job, revision, env)
+    if (found && "commit" in found) return found.commit
+    // A commit that a run recorded before its steps got new names and never
+    // pushed: no step reads it again.
+    if (found) await discardWriteJobPreparedCommit(input.jobId, found.stale)
+    const committed = await prepareGitMerge({
+      pack,
+      previousSha: input.previousSha,
+      files: input.files,
+      deletePaths: input.deletePaths,
+      // A Markdown file that the model cannot resolve keeps both versions in
+      // conflict markers, so the write is not lost (CTX-958). Hydrate skips
+      // it and tells the user.
+      resolve: (conflicts) =>
+        resolveSemanticConflicts(conflicts, {
+          origin: input.origin,
+          flagUnresolved: true,
+        }),
+      ...commit,
+      // The acquire step proved that `revision.remote` is the bound
+      // repository.
+      read: workspaceGitRead({
+        orgId: input.orgId,
+        env,
+        remote: revision.remote,
+      }),
+      publish,
+    })
+    if (!committed) return null
+    if (input.handoff)
+      await validateSemanticHandoff(
+        { ...input, handoff: input.handoff },
+        committed.sha,
+      )
+    else await persistWriteJobPreparedCommit(input.jobId, committed.sha)
+    return committed
+  })
 }

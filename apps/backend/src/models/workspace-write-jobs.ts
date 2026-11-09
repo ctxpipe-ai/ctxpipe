@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util"
 
-import { and, eq, inArray, lt, ne, type SQL, sql } from "drizzle-orm"
+import { and, eq, gt, inArray, lt, ne, type SQL, sql } from "drizzle-orm"
 
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
@@ -761,5 +761,56 @@ export async function adoptInitializedBootstrapRevision(input: {
         updatedAt: new Date(),
       })
       .where(eq(workspaceWriteJobs.id, input.jobId))
+  })
+}
+
+/**
+ * The Workspace, the status and the recorded commit of a write job, for the
+ * admission of its job refs (CTX-1235). Row-level security keeps the read in
+ * the org of the caller.
+ */
+export async function getWriteJobRefState(jobId: string): Promise<{
+  workspaceId: string
+  status: string
+  commitSha: string | null
+} | null> {
+  return orgSql(async () => {
+    const [row] = await getOrgDb()
+      .select({
+        workspaceId: workspaceWriteJobs.workspaceId,
+        status: workspaceWriteJobs.status,
+        commitSha: workspaceWriteJobs.commitSha,
+      })
+      .from(workspaceWriteJobs)
+      .where(eq(workspaceWriteJobs.id, jobId))
+      .limit(1)
+    return row ?? null
+  })
+}
+
+/** The status of each write job of the org, by job id. */
+export async function listWriteJobStatuses(
+  jobIds: readonly string[],
+): Promise<Map<string, string>> {
+  if (!jobIds.length) return new Map()
+  return orgSql(async () => {
+    const rows = await getOrgDb()
+      .select({ id: workspaceWriteJobs.id, status: workspaceWriteJobs.status })
+      .from(workspaceWriteJobs)
+      .where(inArray(workspaceWriteJobs.id, [...jobIds]))
+    return new Map(rows.map((row) => [row.id, row.status]))
+  })
+}
+
+/** The Workspaces of the org that have a write job changed after `since`. */
+export async function listWorkspacesWithWriteJobsSince(
+  since: Date,
+): Promise<Set<string>> {
+  return orgSql(async () => {
+    const rows = await getOrgDb()
+      .selectDistinct({ workspaceId: workspaceWriteJobs.workspaceId })
+      .from(workspaceWriteJobs)
+      .where(gt(workspaceWriteJobs.updatedAt, since))
+    return new Set(rows.map((row) => row.workspaceId))
   })
 }

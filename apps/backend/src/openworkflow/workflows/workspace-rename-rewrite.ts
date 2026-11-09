@@ -11,30 +11,25 @@ import {
 import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
+  deleteWriteJobRefs,
   publishWorkspaceWriteRevision,
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import {
-  persistBoundWriteJob,
-  persistWriteJobPreparedCommit,
-} from "../../models/workspace-write-jobs.js"
+import { persistBoundWriteJob } from "../../models/workspace-write-jobs.js"
 import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import {
-  commitGitTree,
-  stageGitFiles,
-  validateGitTree,
-} from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
@@ -101,13 +96,15 @@ export const workspaceRenameRewrite = defineWorkflow(
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
           >
           for (;;) {
-            const candidate = await step.run({ name: "acquire-revision" }, () =>
-              acquireWorkspaceWriteRevision(
-                input,
-                revision,
-                env,
-                input.previousSha,
-              ),
+            const candidate = await step.run(
+              { name: "acquire-revision-v2" },
+              () =>
+                acquireWorkspaceWriteRevision(
+                  input,
+                  revision,
+                  env,
+                  input.previousSha,
+                ),
             )
             if (candidate) {
               acquired = candidate
@@ -142,26 +139,6 @@ export const workspaceRenameRewrite = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const staged = await step.run({ name: "stage" }, () => {
-            if (
-              files.some(
-                (file) =>
-                  file.path === "AGENTS.md" ||
-                  file.path.startsWith(".agents/") ||
-                  !file.path.endsWith(".md"),
-              )
-            )
-              throw new Error("Rename repair may only edit knowledge Markdown")
-            return stageGitFiles(acquired.pack, files, [], read)
-          })
-          await step.run({ name: "validate" }, () =>
-            validateGitTree(
-              staged,
-              files.map((file) => file.path),
-              {},
-              read,
-            ),
-          )
           const subject = await step.run({ name: "commit-subject" }, () =>
             generateCommitSubject({
               repoName: repositoryName.split("/")[1] ?? repositoryName,
@@ -169,18 +146,32 @@ export const workspaceRenameRewrite = defineWorkflow(
               fileNames: files.map((file) => file.path),
             }),
           )
-          const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(
-              staged,
-              {
-                subject,
-                createdAt: run.createdAt,
-              },
-              read,
-            )
-            await persistWriteJobPreparedCommit(input.jobId, pack.sha)
-            return pack
-          })
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
+            async () => {
+              if (
+                files.some(
+                  (file) =>
+                    file.path === "AGENTS.md" ||
+                    file.path.startsWith(".agents/") ||
+                    !file.path.endsWith(".md"),
+                )
+              )
+                throw new Error(
+                  "Rename repair may only edit knowledge Markdown",
+                )
+              return prepareWorkspaceWriteCommit(
+                input,
+                revision,
+                acquired.pack,
+                { files, deletePaths: [] },
+                { subject, createdAt: run.createdAt },
+                env,
+              )
+            },
+          )
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             pushed = await step.run(
@@ -207,12 +198,16 @@ export const workspaceRenameRewrite = defineWorkflow(
               handoff,
               { name: "semantic-merge-child" },
             )
-            await step.run({ name: "complete-merged-result" }, () =>
-              persistWriteJobCommitSha(
+            await step.run({ name: "complete-merged-result" }, async () => {
+              await persistWriteJobCommitSha(
                 input.jobId,
                 result.committed ? result.commitSha : null,
-              ),
-            )
+              )
+              await deleteWriteJobRefs(
+                { ...input, remote: input.revision.remote },
+                env,
+              )
+            })
             return result
           }
           const published = await step.run({ name: "publish-result" }, () =>
@@ -229,9 +224,13 @@ export const workspaceRenameRewrite = defineWorkflow(
               { idempotencyKey: `${input.jobId}:hydrate` },
             )
           })
-          await step.run({ name: "complete" }, () =>
-            persistWriteJobCommitSha(input.jobId, committed.sha),
-          )
+          await step.run({ name: "complete" }, async () => {
+            await persistWriteJobCommitSha(input.jobId, committed.sha)
+            await deleteWriteJobRefs(
+              { ...input, remote: input.revision.remote },
+              env,
+            )
+          })
           return { committed: true as const, commitSha: committed.sha }
         }
         throw new Error("Default branch kept changing during no-op validation")

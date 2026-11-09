@@ -11,14 +11,13 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
 import { workspaceSandboxInstances } from "../../db/schema/workspaces.js"
-import { captureGitPack } from "../../services/git/pack.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import {
   pushConversationSession,
   shellSingleQuote,
 } from "./conversation-publish.js"
 import { adaptTanstackHandle } from "./job-sandbox.js"
-import { pushWorkspaceCommit } from "./write-broker.js"
+import { pushWorkspaceCommit, writeJobRef } from "./write-broker.js"
 
 /*
  * The Workspace root folder (CTX-709) at the two push brokers, with real git:
@@ -51,11 +50,15 @@ it(
         writeFileSync(join(f.directory, `${ROOT}/notes.md`), "# Changed\n")
         f.git("add", "-A")
         f.git("commit", "-m", "Change a file outside the root folder")
-        const committed = await captureGitPack(
-          f.directory,
-          f.git("rev-parse", "HEAD"),
-          null,
-        )
+        // The broker reads the commit from its job ref (CTX-1235).
+        const sha = f.git("rev-parse", "HEAD")
+        f.git("push", f.remote, `${sha}:${writeJobRef(`wjob_${f.id}`, sha)}`)
+        const committed = {
+          sha,
+          tree: f.git("rev-parse", "HEAD^{tree}"),
+          root: ROOT,
+          base: f.sha,
+        }
         expect(f.revision.rootPath).toBe(ROOT)
         await expect(
           withOrgIdContext(f.org, () =>

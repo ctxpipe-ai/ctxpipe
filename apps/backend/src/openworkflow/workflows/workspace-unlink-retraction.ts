@@ -18,12 +18,14 @@ import {
 import { packWorkspaceFormat } from "../../domain/workspaces/workspace-format-tree.js"
 import {
   attemptWorkspaceCommit,
+  deleteWriteJobRefs,
   publishWorkspaceWriteRevision,
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
@@ -32,20 +34,15 @@ import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import {
   discardWriteJobPreparedCommit,
   persistBoundWriteJob,
-  persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
 import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
-import {
-  commitGitTree,
-  stageGitFiles,
-  validateGitTree,
-} from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
 export const workspaceUnlinkRetractionInputSchema = z
@@ -144,7 +141,7 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
             >
             for (;;) {
               const candidate = await step.run(
-                { name: "acquire-revision" },
+                { name: "acquire-revision-v2" },
                 () => acquireWorkspaceWriteRevision(input, revision, env),
               )
               if (candidate) {
@@ -236,17 +233,6 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
                 skipped: changes.skipped,
               }
             }
-            const staged = await step.run({ name: "stage" }, () =>
-              stageGitFiles(
-                acquired.pack,
-                changes.files,
-                changes.deletePaths,
-                read,
-              ),
-            )
-            await step.run({ name: "validate" }, () =>
-              validateGitTree(staged, changedPaths, {}, read),
-            )
             const subject = await step.run({ name: "commit-subject" }, () =>
               generateCommitSubject({
                 repoName: repositoryName.split("/")[1] ?? repositoryName,
@@ -254,18 +240,20 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
                 fileNames: changedPaths,
               }),
             )
-            const committed = await step.run({ name: "commit" }, async () => {
-              const pack = await commitGitTree(
-                staged,
-                {
-                  subject,
-                  createdAt: run.createdAt,
-                },
-                read,
-              )
-              await persistWriteJobPreparedCommit(input.jobId, pack.sha)
-              return pack
-            })
+            const committed = await runJobRefStep(
+              step,
+              input.jobId,
+              { name: "prepare-commit" },
+              () =>
+                prepareWorkspaceWriteCommit(
+                  input,
+                  revision,
+                  acquired.pack,
+                  { files: changes.files, deletePaths: changes.deletePaths },
+                  { subject, createdAt: run.createdAt },
+                  env,
+                ),
+            )
             let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
             for (;;) {
               pushed = await step.run(
@@ -311,9 +299,13 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
                 { idempotencyKey: `${input.jobId}:hydrate` },
               )
             })
-            await step.run({ name: "complete" }, () =>
-              persistWriteJobCommitSha(input.jobId, committed.sha),
-            )
+            await step.run({ name: "complete" }, async () => {
+              await persistWriteJobCommitSha(input.jobId, committed.sha)
+              await deleteWriteJobRefs(
+                { ...input, remote: input.revision.remote },
+                env,
+              )
+            })
             return {
               committed: true as const,
               commitSha: committed.sha,

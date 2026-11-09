@@ -11,19 +11,18 @@ import {
 import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
+  deleteWriteJobRefs,
   publishWorkspaceWriteRevision,
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import {
-  persistBoundWriteJob,
-  persistWriteJobPreparedCommit,
-} from "../../models/workspace-write-jobs.js"
+import { persistBoundWriteJob } from "../../models/workspace-write-jobs.js"
 import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
@@ -34,13 +33,9 @@ import {
   packRootTree,
   withGitDirectory,
 } from "../../services/git/pack.js"
-import {
-  commitGitTree,
-  stageGitFiles,
-  validateGitTree,
-} from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
@@ -107,8 +102,9 @@ export const workspaceConnectorMirror = defineWorkflow(
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
           >
           for (;;) {
-            const candidate = await step.run({ name: "acquire-revision" }, () =>
-              acquireWorkspaceWriteRevision(input, revision, env),
+            const candidate = await step.run(
+              { name: "acquire-revision-v2" },
+              () => acquireWorkspaceWriteRevision(input, revision, env),
             )
             if (candidate) {
               acquired = candidate
@@ -122,8 +118,10 @@ export const workspaceConnectorMirror = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
+          // Paths only: the file contents are in the workflow input
+          // (CTX-1235).
           const changes = await step.run(
-            { name: "transform-connector-mirror" },
+            { name: "transform-connector-mirror-v2" },
             () =>
               withGitDirectory(
                 revision.sha,
@@ -142,7 +140,7 @@ export const workspaceConnectorMirror = defineWorkflow(
                         .toString()
                         .split("\0")
                     : []
-                  const files: typeof input.files = []
+                  const filePaths: string[] = []
                   for (const file of input.files) {
                     const existing = paths.includes(file.path)
                       ? await nativeGit(directory, [
@@ -150,10 +148,11 @@ export const workspaceConnectorMirror = defineWorkflow(
                           `${tree}:${file.path}`,
                         ])
                       : null
-                    if (!existing?.equals(gitFileBytes(file))) files.push(file)
+                    if (!existing?.equals(gitFileBytes(file)))
+                      filePaths.push(file.path)
                   }
                   return {
-                    files,
+                    filePaths,
                     deletePaths: input.deletePaths.filter((path) =>
                       paths.includes(path),
                     ),
@@ -163,7 +162,8 @@ export const workspaceConnectorMirror = defineWorkflow(
                 read,
               ),
           )
-          const files = changes.files
+          const changed = new Set(changes.filePaths)
+          const files = input.files.filter((file) => changed.has(file.path))
           if (!files.length && !changes.deletePaths.length) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
@@ -180,17 +180,6 @@ export const workspaceConnectorMirror = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const staged = await step.run({ name: "stage" }, () =>
-            stageGitFiles(acquired.pack, files, changes.deletePaths, read),
-          )
-          await step.run({ name: "validate" }, () =>
-            validateGitTree(
-              staged,
-              [...files.map((file) => file.path), ...changes.deletePaths],
-              {},
-              read,
-            ),
-          )
           const subject = await step.run({ name: "commit-subject" }, () =>
             generateCommitSubject({
               repoName: repositoryName.split("/")[1] ?? repositoryName,
@@ -201,18 +190,20 @@ export const workspaceConnectorMirror = defineWorkflow(
               ],
             }),
           )
-          const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(
-              staged,
-              {
-                subject,
-                createdAt: run.createdAt,
-              },
-              read,
-            )
-            await persistWriteJobPreparedCommit(input.jobId, pack.sha)
-            return pack
-          })
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
+            () =>
+              prepareWorkspaceWriteCommit(
+                input,
+                revision,
+                acquired.pack,
+                { files, deletePaths: changes.deletePaths },
+                { subject, createdAt: run.createdAt },
+                env,
+              ),
+          )
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             pushed = await step.run(
@@ -239,12 +230,16 @@ export const workspaceConnectorMirror = defineWorkflow(
               handoff,
               { name: "semantic-merge-child" },
             )
-            await step.run({ name: "complete-merged-result" }, () =>
-              persistWriteJobCommitSha(
+            await step.run({ name: "complete-merged-result" }, async () => {
+              await persistWriteJobCommitSha(
                 input.jobId,
                 result.committed ? result.commitSha : null,
-              ),
-            )
+              )
+              await deleteWriteJobRefs(
+                { ...input, remote: input.revision.remote },
+                env,
+              )
+            })
             return result
           }
           const published = await step.run({ name: "publish-result" }, () =>
@@ -261,9 +256,13 @@ export const workspaceConnectorMirror = defineWorkflow(
               { idempotencyKey: `${input.jobId}:hydrate` },
             )
           })
-          await step.run({ name: "complete" }, () =>
-            persistWriteJobCommitSha(input.jobId, committed.sha),
-          )
+          await step.run({ name: "complete" }, async () => {
+            await persistWriteJobCommitSha(input.jobId, committed.sha)
+            await deleteWriteJobRefs(
+              { ...input, remote: input.revision.remote },
+              env,
+            )
+          })
           return { committed: true as const, commitSha: committed.sha }
         }
         throw new Error("Default branch kept changing during no-op validation")

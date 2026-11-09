@@ -30,6 +30,7 @@ import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js
 import { packWorkspaceFormat } from "../../domain/workspaces/workspace-format-tree.js"
 import {
   attemptWorkspaceCommit,
+  deleteWriteJobRefs,
   mergeWorkspaceIngestPublish,
   publishWorkspaceWriteRevision,
   refreshWorkspaceWriteRevision,
@@ -37,30 +38,27 @@ import {
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import {
   discardWriteJobPreparedCommit,
   persistBoundWriteJob,
-  persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
 import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
 import {
-  type GitPack,
   type GitRemoteRead,
+  type GitWriteCommit,
   readGitFiles,
+  writeCommitPack,
 } from "../../services/git/pack.js"
-import {
-  commitGitTree,
-  stageGitFiles,
-  validateGitTree,
-} from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
 /** Native idempotency key of the hydrate an extraction write job admits after publishing. */
@@ -140,16 +138,24 @@ export function defineWorkspaceExtractIngestWorkflow() {
     },
     async ({ input: queuedInput, step, run }): Promise<ExtractIngestResult> => {
       const input = workspaceExtractIngestInputSchema.parse(queuedInput)
-      const pipelineStopped = async (pack: GitPack, read: GitRemoteRead) =>
-        workspacePublishPipeline(await packWorkspaceFormat(pack, read)) !== "v2"
+      const pipelineStopped = async (
+        committed: GitWriteCommit,
+        read: GitRemoteRead,
+      ) =>
+        workspacePublishPipeline(
+          await packWorkspaceFormat(writeCommitPack(committed, read.url), read),
+        ) !== "v2"
       // An ingestion v2 publish needs its source file in the tree that it
       // pushes on, and the file must still name the source repository. Else
       // the repository was unlinked while the run was in flight.
-      const sourceUnlinked = async (pack: GitPack, read: GitRemoteRead) => {
+      const sourceUnlinked = async (
+        committed: GitWriteCommit,
+        read: GitRemoteRead,
+      ) => {
         if (!input.ingest) return false
         const { sourcePath, source } = input.ingest
         const [file] = await readGitFiles(
-          pack,
+          writeCommitPack(committed, read.url),
           (path) => path === sourcePath,
           undefined,
           read,
@@ -220,7 +226,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
             >
             for (;;) {
               const candidate = await step.run(
-                { name: "acquire-revision" },
+                { name: "acquire-revision-v2" },
                 () => acquireWorkspaceWriteRevision(input, revision, env),
               )
               if (candidate) {
@@ -371,37 +377,31 @@ export function defineWorkspaceExtractIngestWorkflow() {
                 withheld: withheld.length ? withheld : undefined,
               }
             }
-            const staged = await step.run({ name: "stage" }, () =>
-              stageGitFiles(acquired.pack, files, deletePaths, read),
-            )
-            await step.run({ name: "validate" }, () =>
-              validateGitTree(
-                staged,
-                [...files.map((file) => file.path), ...deletePaths],
-                {},
-                read,
-              ),
-            )
             const subject = await step.run(
               { name: "commit-subject" },
               // A fixed message: the same run makes the same commit.
               async () =>
                 `Update extracted knowledge\n\nCtxpipe-Run: ${ingestSource.runId}`,
             )
-            const committed = await step.run({ name: "commit" }, async () => {
-              const pack = await commitGitTree(
-                staged,
-                {
-                  subject,
-                  // A replay of a publish is a new workflow run: the run's
-                  // author time keeps the SHA.
-                  createdAt: new Date(ingestSource.authorTime),
-                },
-                read,
-              )
-              await persistWriteJobPreparedCommit(input.jobId, pack.sha)
-              return pack
-            })
+            const committed = await runJobRefStep(
+              step,
+              input.jobId,
+              { name: "prepare-commit" },
+              () =>
+                prepareWorkspaceWriteCommit(
+                  input,
+                  revision,
+                  acquired.pack,
+                  { files, deletePaths },
+                  {
+                    subject,
+                    // A replay of a publish is a new workflow run: the run's
+                    // author time keeps the SHA.
+                    createdAt: new Date(ingestSource.authorTime),
+                  },
+                  env,
+                ),
+            )
             let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
             for (;;) {
               const attempt = await step.run(
@@ -477,9 +477,13 @@ export function defineWorkspaceExtractIngestWorkflow() {
                 { idempotencyKey: extractionHydrateKey(input.jobId) },
               )
             })
-            await step.run({ name: "complete" }, () =>
-              persistWriteJobCommitSha(input.jobId, committed.sha),
-            )
+            await step.run({ name: "complete" }, async () => {
+              await persistWriteJobCommitSha(input.jobId, committed.sha)
+              await deleteWriteJobRefs(
+                { ...input, remote: input.revision.remote },
+                env,
+              )
+            })
             return {
               committed: true as const,
               commitSha: committed.sha,

@@ -282,7 +282,7 @@ it.each(["valid", "out-of-scope", "empty"] as const)(
             })
           ).data
           const resolveAttempts = attempts.filter(
-            (step) => step.stepName === "resolve-semantic-conflicts",
+            (step) => step.stepName === "prepare-merge-commit",
           )
           const pushed = attempts.find(
             (step) => step.stepName === "broker-push",

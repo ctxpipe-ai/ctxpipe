@@ -838,9 +838,20 @@ async function listIngestRefs(
   repoDir: string,
   remote: IngestRemote,
 ): Promise<ListedRef[]> {
+  return (await lsRemoteRefs(repoDir, remote, INGEST_REF_ROOT)).map((ref) => ({
+    ...ref,
+    target: parseIngestRef(ref.name),
+  }))
+}
+
+async function lsRemoteRefs(
+  repoDir: string,
+  remote: IngestRemote,
+  prefix: string,
+): Promise<RemoteRef[]> {
   const out = await runGit(
     repoDir,
-    ["ls-remote", "--", remote.url, `${INGEST_REF_ROOT}*`],
+    ["ls-remote", "--", remote.url, `${prefix}*`],
     { env: remote.env },
   )
   return out
@@ -848,9 +859,43 @@ async function listIngestRefs(
     .split("\n")
     .flatMap((line) => {
       const [sha = "", name = ""] = line.split("\t")
-      if (!name.startsWith(INGEST_REF_ROOT) || !sha) return []
-      return [{ name, sha, target: parseIngestRef(name) }]
+      if (!name.startsWith(prefix) || !sha) return []
+      return [{ name, sha }]
     })
+}
+
+/** A ref on a remote and its tip. */
+type RemoteRef = { name: string; sha: string }
+
+/**
+ * The refs below `prefix` on the remote, with their tips. Other ctxpipe ref
+ * families (the Workspace write job refs, CTX-1235) list and delete their
+ * refs with these helpers.
+ */
+export async function listRemoteRefs(
+  remote: IngestRemote,
+  prefix: string,
+): Promise<RemoteRef[]> {
+  return withScratchRepository((repoDir) =>
+    lsRemoteRefs(repoDir, remote, prefix),
+  )
+}
+
+/** Deletes each ref with a lease on its listed tip. See `deleteRefs`. */
+export async function deleteRemoteRefs(
+  remote: IngestRemote,
+  refs: RemoteRef[],
+): Promise<{ deleted: string[]; skipped: string[] }> {
+  if (!refs.length) return { deleted: [], skipped: [] }
+  return withScratchRepository((repoDir) => deleteRefs(repoDir, remote, refs))
+}
+
+/** The commit time of each SHA on the remote, in milliseconds. */
+export async function remoteCommitTimes(
+  remote: IngestRemote,
+  shas: string[],
+): Promise<Map<string, number>> {
+  return withScratchRepository((repoDir) => tipTimes(repoDir, remote, shas))
 }
 
 /**
@@ -860,7 +905,7 @@ async function listIngestRefs(
 async function deleteRefs(
   repoDir: string,
   remote: IngestRemote,
-  refs: ListedRef[],
+  refs: RemoteRef[],
 ): Promise<{ deleted: string[]; skipped: string[] }> {
   const deleted: string[] = []
   const skipped: string[] = []
