@@ -39,25 +39,29 @@ const inputs = [
   "packages/visual-review/src/compare/**",
 ]
 
-// The checks of the stories of the Storybook index (without the stories of
-// visualSkips). A story has a desktop
-// screenshot, and a story with the `page` tag also has a mobile one. A
-// screenshot in the unstable list (scripts/ci/visual-unstable-stories.json)
-// has no baseline. A story with no other screenshot has no check.
+// The checks of the stories of the Storybook index. `options` are the
+// screenshot options of each story (visualOptions); a story with `skip` has
+// no check. A story has a screenshot at each of its viewports: by default
+// desktop, and for a story with the `page` tag also mobile. Each named
+// snapshot of its play adds one screenshot at each viewport. A screenshot in
+// the unstable list (scripts/ci/visual-unstable-stories.json) has no
+// baseline. A story with no other screenshot has no check.
 // `ownInputs` are the baselines of the story: only its check reads them.
 // The names are those of `baselinePath` in
 // packages/visual-review/src/compare/manifest.ts (a test of the manifest
 // keeps them equal to the committed baselines).
-export function listVisual(entries, unstable) {
+export function listVisual(entries, unstable, options = new Map()) {
   return entries
-    .filter((entry) => entry.type === "story")
+    .filter((entry) => entry.type === "story" && !options.get(entry.id)?.skip)
     .flatMap((story) => {
       const file = `apps/ui/${story.importPath.replace(/^\.\//, "")}`
       const stem = posix.basename(file).replace(/\.stories\.tsx$/, "")
+      const { viewports, snapshots = [] } = options.get(story.id) ?? {}
       const ownInputs = (
-        (story.tags ?? []).includes("page")
+        viewports ??
+        ((story.tags ?? []).includes("page")
           ? ["desktop", "mobile"]
-          : ["desktop"]
+          : ["desktop"])
       )
         .filter(
           (viewport) =>
@@ -67,11 +71,14 @@ export function listVisual(entries, unstable) {
                 (entry.viewport ?? viewport) === viewport,
             ),
         )
-        .map((viewport) =>
-          posix.join(
-            posix.dirname(file),
-            "screenshots",
-            `${stem}.${story.exportName}.${viewport}.screenshot.png`,
+        .flatMap((viewport) =>
+          [story.exportName, ...snapshots.map((name) => `${story.exportName}@${name}`)].map(
+            (name) =>
+              posix.join(
+                posix.dirname(file),
+                "screenshots",
+                `${stem}.${name}.${viewport}.screenshot.png`,
+              ),
           ),
         )
       if (!ownInputs.length) return []
@@ -129,49 +136,145 @@ export const readUnstable = () =>
     ),
   )
 
-// The stories that opt out of screenshots, with their reasons: a story with
-// `parameters: { visual: { skip: "<reason>" } }` in its own annotations, or
-// in the meta (the default export) of its file. The
-// reason must be one string literal; the Storybook CSF parser reads it, so
-// the build does not run. An opt-out without a reason is an error. `read`
-// gives the text of a story file (from the repository root).
-export function visualSkips(
+// The screenshot options of each story, by story id. A story sets them in
+// `parameters: { visual: { ... } }`, in its own annotations or in the meta
+// (the default export) of its file. The value of the story wins over the value
+// of the meta, key by key. The Storybook CSF parser reads them, so each value
+// must be a literal and the build does not run:
+// - `skip`: a reason (a string). The story has no screenshot.
+// - `fullPage`: true takes the full scroll height, not only the viewport.
+// - `maxDiffPixels`: the count of pixels that may differ (default 10).
+// - `viewports`: the viewports, from "desktop" and "mobile" (default
+//   desktop, and mobile too for a story with the `page` tag).
+// - `masks`: CSS selectors of content that the capture hides for the shot.
+// Each `snapshot("<name>")` call in the play function of the story (its own,
+// or that of the meta) is one named snapshot, in `snapshots`. The name must
+// be a string literal in kebab case. An option that is not valid is an error.
+// `read` gives the text of a story file (from the repository root).
+export function visualOptions(
   stories,
   loadCsf,
   read = (file) => readFileSync(join(root, file), "utf8"),
 ) {
-  const skips = new Map()
+  const options = new Map()
   const byFile = Map.groupBy(
     stories.filter((story) => story.type === "story"),
     (story) => `apps/ui/${story.importPath.replace(/^\.\//, "")}`,
   )
-  const named = (node, key) =>
-    node?.properties?.find(
-      (property) =>
-        property.type === "ObjectProperty" &&
-        (property.key.name ?? property.key.value) === key,
-    )
-  const skipOf = (annotations) =>
-    named(named(annotations?.parameters, "visual")?.value, "skip")?.value
   for (const [file, inFile] of byFile) {
     const csf = loadCsf(read(file), {
       fileName: file,
       makeTitle: (title) => title ?? file,
     }).parse()
+    const meta = parameterOptions(file, "meta", csf._metaAnnotations)
     for (const story of inFile) {
-      // The story's own value wins over the value of its meta.
-      const skip =
-        skipOf(csf._storyAnnotations[story.exportName]) ??
-        skipOf(csf._metaAnnotations)
-      if (!skip) continue
-      if (skip.type !== "StringLiteral" || !skip.value.trim())
-        throw new Error(
-          `${file} ${story.exportName}: parameters.visual.skip needs a reason (a string literal).`,
-        )
-      skips.set(story.id, skip.value)
+      const annotations = csf._storyAnnotations[story.exportName]
+      options.set(story.id, {
+        ...meta,
+        ...parameterOptions(file, story.exportName, annotations),
+        snapshots: snapshotNames(
+          `${file} ${story.exportName}`,
+          annotations?.play ?? csf._metaAnnotations?.play,
+        ),
+      })
     }
   }
-  return skips
+  return options
+}
+
+// The property `key` of an object literal node.
+const property = (node, key) =>
+  node?.properties?.find(
+    (item) =>
+      item.type === "ObjectProperty" && (item.key.name ?? item.key.value) === key,
+  )
+
+const strings = (node) =>
+  node?.type === "ArrayExpression" &&
+  node.elements.every((item) => item?.type === "StringLiteral")
+    ? node.elements.map((item) => item.value)
+    : undefined
+
+// The literal values of `parameters.visual` of one annotations node.
+function parameterOptions(file, name, annotations) {
+  const visual = property(annotations?.parameters, "visual")?.value
+  if (!visual) return {}
+  const fail = (problem) => {
+    throw new Error(`${file} ${name}: parameters.visual${problem}`)
+  }
+  if (visual.type !== "ObjectExpression") fail(" must be an object literal.")
+  const options = {}
+  for (const item of visual.properties) {
+    const key = item.key?.name ?? item.key?.value
+    const value = item.value
+    if (item.type !== "ObjectProperty") fail(" must have literal keys.")
+    if (key === "skip") {
+      if (value.type !== "StringLiteral" || !value.value.trim())
+        fail(".skip needs a reason (a string literal).")
+      options.skip = value.value
+    } else if (key === "fullPage") {
+      if (value.type !== "BooleanLiteral")
+        fail(".fullPage must be true or false.")
+      options.fullPage = value.value
+    } else if (key === "maxDiffPixels") {
+      if (value.type !== "NumericLiteral" || !Number.isInteger(value.value))
+        fail(".maxDiffPixels must be a whole number literal.")
+      options.maxDiffPixels = value.value
+    } else if (key === "viewports") {
+      const viewports = strings(value)
+      if (
+        !viewports?.length ||
+        new Set(viewports).size !== viewports.length ||
+        viewports.some((viewport) => !["desktop", "mobile"].includes(viewport))
+      )
+        fail(
+          '.viewports must be a list of "desktop" and "mobile", each one time.',
+        )
+      options.viewports = viewports
+    } else if (key === "masks") {
+      const masks = strings(value)
+      if (!masks?.every((mask) => mask.trim()))
+        fail(".masks must be a list of CSS selectors (string literals).")
+      options.masks = masks
+    } else
+      fail(
+        ` has no option ${JSON.stringify(key)}. The options are skip, fullPage, maxDiffPixels, viewports and masks.`,
+      )
+  }
+  return options
+}
+
+// The names of the `snapshot("<name>")` calls in a play function node.
+function snapshotNames(story, play) {
+  const names = []
+  const seen = new Set()
+  const walk = (node) => {
+    if (!node || typeof node !== "object" || seen.has(node)) return
+    seen.add(node)
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item)
+      return
+    }
+    if (
+      node.type === "CallExpression" &&
+      node.callee?.type === "Identifier" &&
+      node.callee.name === "snapshot"
+    ) {
+      const [argument] = node.arguments
+      const name = argument?.type === "StringLiteral" ? argument.value : null
+      if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name))
+        throw new Error(
+          `${story}: snapshot() needs a name in kebab case (a string literal), for example snapshot("menu-open").`,
+        )
+      if (names.includes(name))
+        throw new Error(`${story}: two snapshot("${name}") calls.`)
+      names.push(name)
+    }
+    for (const [key, value] of Object.entries(node))
+      if (!["loc", "start", "end", "extra"].includes(key)) walk(value)
+  }
+  walk(play)
+  return names
 }
 
 // One result record for each story of a `visual:check` result (runVisual):
@@ -190,18 +293,22 @@ export function visualRecords({ stories, budget }, durationMs) {
   return [...byCheck].map(([id, entries]) => {
     const storyId = entries[0].id
     const cases = entries.map((entry) => {
+      // The case of a named snapshot is `<viewport>@<name>`.
+      const name = entry.snapshot
+        ? `${entry.viewport}@${entry.snapshot}`
+        : entry.viewport
       const problems = [
         ...(entry.status === "unchanged"
           ? []
           : [
-              `${entry.viewport} ${entry.status}${entry.diffPixels ? `: ${entry.diffPixels} pixels differ` : ""}${entry.summary ? `. ${entry.summary.replace(/\.$/, "")}` : ""}`,
+              `${name} ${entry.status}${entry.diffPixels ? `: ${entry.diffPixels} pixels differ` : ""}${entry.summary ? `. ${entry.summary.replace(/\.$/, "")}` : ""}`,
             ]),
         ...budget
           .filter((error) => error.path === entry.baseline)
           .map((error) => error.message.replace(/\.$/, "")),
       ]
       return {
-        name: entry.viewport,
+        name,
         status: problems.length ? "failed" : "passed",
         durationMs: Math.round(each / entries.length),
         ...(problems.length && { message: problems.join("; ") }),

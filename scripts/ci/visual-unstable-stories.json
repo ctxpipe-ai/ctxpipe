@@ -2,16 +2,6 @@
   "$comment": "Stories whose screenshot is known to differ between two runs. scripts/ci/visual-capture-proof.mjs reports each one as skipped and does not fail on it. Each entry needs a reason and the ticket that fixes it. Remove the entry when the ticket is done. An entry with a viewport (desktop or mobile) is unstable only at that viewport; pnpm visual:check and pnpm visual:update skip only that screenshot.",
   "stories": [
     {
-      "id": "components-knowledge-graph-cosmograph-canvas--drawer-open-dims-overlays",
-      "reason": "A WebGL canvas draws a new frame at each shot. It needs a mask.",
-      "ticket": "CTX-1186"
-    },
-    {
-      "id": "components-knowledge-graph-cosmograph-canvas--timeline-plays-without-range",
-      "reason": "A WebGL canvas draws a new frame at each shot. It needs a mask.",
-      "ticket": "CTX-1186"
-    },
-    {
       "id": "pages-workspaces--shared-publish-pending",
       "viewport": "mobile",
       "reason": "The play asserts the desktop layout, so it fails at 390x844. The story needs an option to have only a desktop screenshot.",
