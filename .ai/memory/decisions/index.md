@@ -67,5 +67,6 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-057](ADR-057-buildkite-connector-sources-only.md) | Buildkite connector, Workspace sources only | Accepted |
 | [ADR-059](ADR-059-plain-connector-sources-only.md) | Plain connector, Workspace sources only | Accepted |
 | [ADR-060](ADR-060-typecheck-with-bun-check.md) | The Typecheck check runs `bun check`: TypeScript 6 stays the dependency, allowances compare file, code, and count | Accepted |
+| [ADR-062](ADR-062-checks-run-before-merge-not-on-main.md) | Checks run before the merge (`factory check`, then the merge gate); a push to `main` runs no check; one nightly full run of `main` is the safety net | Accepted |
 
-Numbers 035 and 036 are unused. ADR-058 is reserved for the Zendesk connector. The next new ADR is 061.
+Numbers 035 and 036 are unused. ADR-058 is reserved for the Zendesk connector. ADR-061 is reserved for hosted ctxpipe on AWS (draft PR 632). The next new ADR is 063.
