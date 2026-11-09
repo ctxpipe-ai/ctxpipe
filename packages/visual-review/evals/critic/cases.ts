@@ -37,6 +37,10 @@ const region = z.object({ x: count, y: count, width: count, height: count })
  * - `noise`: a change that a person does not see.
  * - `mixed`: a real commit, with a synthetic regression of `class` hidden in
  *   the after image.
+ * - `new`: a story that a real commit added. There is no before image and no
+ *   diff: the critic judges the after image on its own. With `class` null,
+ *   it is the clean render (label `intended`); with a `class`, a synthetic
+ *   regression of that class is in it (label `regression`, with its region).
  */
 export const caseSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -75,6 +79,18 @@ export const caseSchema = z.discriminatedUnion("kind", [
     commit,
     region,
   }),
+  z.object({
+    ...common,
+    kind: z.literal("new"),
+    label: z.enum(["intended", "regression"]),
+    class: z.enum(regressionClasses).nullable(),
+    brief: z.string().min(1),
+    commit,
+    region: region.nullable(),
+    diffPixels: z.null(),
+    // Strict: a new case that has a before image is not a new case.
+    images: z.strictObject({ after: imagePath }),
+  }),
 ])
 export type Case = z.infer<typeof caseSchema>
 
@@ -95,6 +111,20 @@ export const caseManifestSchema = z
       new Set(manifest.cases.map((entry) => entry.id)).size ===
       manifest.cases.length,
     { message: "Each case id must be unique." },
+  )
+  .refine(
+    (manifest) =>
+      manifest.cases.every(
+        (entry) =>
+          entry.kind !== "new" ||
+          (entry.class === null
+            ? entry.region === null
+            : entry.region !== null && entry.label === "regression"),
+      ),
+    {
+      message:
+        "A new case with a class has its region and the label regression; a new case with no class has no region.",
+    },
   )
 export type CaseManifest = z.infer<typeof caseManifestSchema>
 

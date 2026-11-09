@@ -256,7 +256,8 @@ type Candidate = {
   mutation: MutationClass | null
   storyId: string
   commit: Commit | null
-  before: string
+  /** Absent for a new case: the story is not in the first parent. */
+  before?: string
   after: string
   /** For a mixed case: the clean after image, without the regression. */
   clean?: string
@@ -374,6 +375,9 @@ async function main() {
       .filter((entry) => files.has(entry.importPath) && !unstable.has(entry.id))
       .map((entry) => entry.id)
       .sort()
+    // A story that the first parent does not have is new: it has no before
+    // image, so it gives new cases.
+    const old = new Set(storyEntries(out, before).map((entry) => entry.id))
     // Up to 25 stories of each commit. Many stories of a shared component do
     // not change, and only the pairs that differ give a case.
     for (const storyId of shuffle(stories, derive(seed, commit.sha)).slice(
@@ -386,7 +390,9 @@ async function main() {
         ] ?? "padding"
       const clean = shot(after, storyId, "clean")
       const mixed = shot(after, storyId, `mixed-${mutation}`)
-      add(before, { id: storyId, clean: shot(before, storyId, "clean") })
+      const isNew = !old.has(storyId)
+      if (!isNew)
+        add(before, { id: storyId, clean: shot(before, storyId, "clean") })
       add(after, {
         id: storyId,
         clean,
@@ -396,6 +402,13 @@ async function main() {
           seed: derive(seed, commit.sha, storyId, mutation),
         },
       })
+      if (isNew) {
+        candidates.push(
+          { kind: "new", mutation: null, storyId, commit, after: clean },
+          { kind: "new", mutation, storyId, commit, after: mixed, clean },
+        )
+        continue
+      }
       const common = {
         storyId,
         commit,
@@ -512,15 +525,37 @@ async function main() {
     return comparison.status === "changed" ? comparison.diffPixels : null
   }
   type Kept = Candidate & {
-    diffPixels: number
+    /** Null for a new case: there is no before image. */
+    diffPixels: number | null
     region: ShotResult["region"]
-    beforePath: string
+    beforePath: string | null
     afterPath: string
   }
   const kept: Kept[] = []
   for (const candidate of candidates) {
-    const before = captured(candidate.before)
     const after = captured(candidate.after)
+    if (candidate.kind === "new") {
+      // A broken new case needs a regression that shows: its after image
+      // differs from the clean render, and it has a known region.
+      const clean = candidate.clean ? captured(candidate.clean) : undefined
+      if (
+        !after ||
+        (candidate.clean &&
+          (!clean ||
+            !after.region ||
+            (await differs(clean.path, after.path)) === null))
+      )
+        continue
+      kept.push({
+        ...candidate,
+        diffPixels: null,
+        region: candidate.clean ? after.region : null,
+        beforePath: null,
+        afterPath: after.path,
+      })
+      continue
+    }
+    const before = captured(candidate.before)
     if (!before || !after) continue
     // A mixed case needs both parts: the real change (the before and the
     // clean after image differ) and the regression (the clean after and the
@@ -576,6 +611,15 @@ async function main() {
       identified(`noise-${mutation}`, pick("noise", mutation).slice(0, 10)),
     ),
     ...identified("mixed", mixed),
+    // Up to 10 new stories as they render, and up to 10 with a regression.
+    ...identified("new", pick("new", null).slice(0, 10)),
+    ...identified(
+      "new-broken",
+      kept
+        .filter((entry) => entry.kind === "new" && entry.mutation)
+        .sort((a, b) => rank(a) - rank(b))
+        .slice(0, 10),
+    ),
   ]
   // A run with too few cases (for example, after failed builds) must not
   // replace the committed manifest.
@@ -587,7 +631,8 @@ async function main() {
   rmSync(join(out, "cases"), { recursive: true, force: true })
   const cases = selected.map(([id, entry]) => {
     mkdirSync(join(out, "cases", id), { recursive: true })
-    copyFileSync(entry.beforePath, join(out, "cases", id, "before.png"))
+    if (entry.beforePath)
+      copyFileSync(entry.beforePath, join(out, "cases", id, "before.png"))
     copyFileSync(entry.afterPath, join(out, "cases", id, "after.png"))
     return {
       id,
@@ -595,11 +640,16 @@ async function main() {
       viewport: { name: "desktop", width: 1440, height: 900 },
       diffPixels: entry.diffPixels,
       images: {
-        before: `cases/${id}/before.png`,
+        ...(entry.beforePath ? { before: `cases/${id}/before.png` } : {}),
         after: `cases/${id}/after.png`,
       },
       kind: entry.kind,
-      label: entry.kind === "mixed" ? "regression" : entry.kind,
+      label:
+        entry.kind === "mixed" || (entry.kind === "new" && entry.mutation)
+          ? "regression"
+          : entry.kind === "new"
+            ? "intended"
+            : entry.kind,
       class: entry.mutation,
       brief: entry.commit?.brief ?? null,
       commit: entry.commit
@@ -624,7 +674,9 @@ async function main() {
     join(here, "cases.schema.json"),
     `${JSON.stringify(caseManifestJsonSchema, null, 2)}\n`,
   )
-  const counts = (["intended", "regression", "noise", "mixed"] as const).map(
+  const counts = (
+    ["intended", "regression", "noise", "mixed", "new"] as const
+  ).map(
     (kind) =>
       `${manifest.cases.filter((entry) => entry.kind === kind).length} ${kind}`,
   )

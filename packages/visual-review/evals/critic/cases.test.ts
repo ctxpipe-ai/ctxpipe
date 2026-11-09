@@ -70,6 +70,32 @@ const manifest = {
       diffPixels: 900,
       images: images("mixed-01"),
     },
+    {
+      id: "new-01",
+      kind: "new",
+      label: "intended",
+      class: null,
+      brief: "Add the empty state of the connector list",
+      commit: { sha: sha("d"), parent: sha("e") },
+      storyId: "connectors-connectorlist--empty",
+      viewport,
+      region: null,
+      diffPixels: null,
+      images: { after: "cases/new-01/after.png" },
+    },
+    {
+      id: "new-broken-01",
+      kind: "new",
+      label: "regression",
+      class: "overflow",
+      brief: "Add the empty state of the connector list",
+      commit: { sha: sha("d"), parent: sha("e") },
+      storyId: "connectors-connectorlist--empty",
+      viewport,
+      region: { x: 40, y: 40, width: 300, height: 30 },
+      diffPixels: null,
+      images: { after: "cases/new-broken-01/after.png" },
+    },
   ],
 }
 
@@ -89,7 +115,36 @@ const change = (
 
 describe("caseManifestSchema", () => {
   test("accepts a case of each kind", () => {
-    expect(caseManifestSchema.parse(manifest).cases).toHaveLength(4)
+    expect(caseManifestSchema.parse(manifest).cases).toHaveLength(6)
+  })
+
+  test("a new case has only an after image and no diff", () => {
+    const withBefore = change(4, (entry) => {
+      entry.images = images("new-01")
+    })
+    expect(caseManifestSchema.safeParse(withBefore).success).toBe(false)
+    const withDiff = change(4, (entry) => {
+      entry.diffPixels = 10
+    })
+    expect(caseManifestSchema.safeParse(withDiff).success).toBe(false)
+  })
+
+  test("a broken new case has its region and the label regression", () => {
+    const noRegion = change(5, (entry) => {
+      entry.region = null
+    })
+    expect(caseManifestSchema.safeParse(noRegion).success).toBe(false)
+    const intended = change(5, (entry) => {
+      entry.label = "intended"
+    })
+    expect(caseManifestSchema.safeParse(intended).success).toBe(false)
+  })
+
+  test("a clean new case has no region", () => {
+    const withRegion = change(4, (entry) => {
+      entry.region = { x: 0, y: 0, width: 10, height: 10 }
+    })
+    expect(caseManifestSchema.safeParse(withRegion).success).toBe(false)
   })
 
   test("a synthetic regression must have a known region", () => {
@@ -145,6 +200,20 @@ describe("the committed case manifest", () => {
     const { cases } = caseManifestSchema.parse(read("./cases.json"))
     expect(cases.length).toBeGreaterThanOrEqual(150)
     const kinds = new Set(cases.map((entry) => entry.kind))
-    expect(kinds).toEqual(new Set(["intended", "regression", "noise", "mixed"]))
+    expect(kinds).toEqual(
+      new Set(["intended", "regression", "noise", "mixed", "new"]),
+    )
+  })
+
+  test("has a clean new screenshot and a broken one, each with only an after image", () => {
+    const { cases } = caseManifestSchema.parse(read("./cases.json"))
+    const fresh = cases.filter((entry) => entry.kind === "new")
+    expect(fresh.some(({ label }) => label === "intended")).toBe(true)
+    expect(
+      fresh.some(
+        (entry) => entry.label === "regression" && entry.region !== null,
+      ),
+    ).toBe(true)
+    expect(fresh.every(({ images }) => !("before" in images))).toBe(true)
   })
 })
