@@ -146,7 +146,7 @@ export const readUnstable = () =>
 // - `maxDiffPixels`: the count of pixels that may differ (default 10).
 // - `viewports`: the viewports, from "desktop" and "mobile" (default
 //   desktop, and mobile too for a story with the `page` tag).
-// - `masks`: CSS selectors of content that the capture covers with a box.
+// - `masks`: CSS selectors of content that the capture hides for the shot.
 // Each `snapshot("<name>")` call in the play function of the story (its own,
 // or that of the meta) is one named snapshot, in `snapshots`. The name must
 // be a string literal in kebab case. An option that is not valid is an error.

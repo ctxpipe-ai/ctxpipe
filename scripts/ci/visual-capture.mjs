@@ -146,7 +146,7 @@ async function captureHere(plan, out, viewport) {
       },
       {
         viewport: viewports[viewport],
-        // The play calls `snapshot(name)` (apps/ui/src/lib/visual.ts) to
+        // The play calls `snapshot(name)` (apps/ui/src/lib/visual-snapshot.ts) to
         // take a named snapshot. An error here fails the play.
         beforePlay: (page, story) =>
           page.exposeBinding("__ctxpipeSnapshot", async (_source, name) => {

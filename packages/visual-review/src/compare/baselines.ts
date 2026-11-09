@@ -80,6 +80,9 @@ type Shot = {
   baseline: string
 }
 
+/** The default count of pixels that may differ. */
+const maxDiffPixels = 10
+
 const shotKey = (shot: Shot) =>
   shot.snapshot ? `${shot.story.id}@${shot.snapshot}` : shot.story.id
 
@@ -164,7 +167,7 @@ export async function runVisual({
         scope: page ? "page" : "component",
         viewport,
         snapshot,
-        maxDiffPixels: story.visual?.maxDiffPixels ?? 10,
+        maxDiffPixels: story.visual?.maxDiffPixels ?? maxDiffPixels,
         baseline: baselinePath({
           storyFile,
           storyName: story.exportName,
@@ -421,7 +424,7 @@ function removedEntry(baseline: string): ManifestStory {
     snapshot,
     baseline,
     status: "removed",
-    maxDiffPixels: 10,
+    maxDiffPixels,
     size: null,
     diffPixels: null,
     regions: [],

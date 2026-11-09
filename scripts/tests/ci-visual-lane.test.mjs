@@ -231,27 +231,26 @@ const optionsOf = (text, stories) =>
   visualOptions(stories, loadCsf, () => text)
 
 test("a story with parameters.visual.skip and a reason has no screenshot", () => {
-  const text = (skip) => `export default { title: "Features/X" }
+  const text = (reason) => `export default { title: "Features/X" }
 export const Plain = {}
 export const Canvas = {
-  parameters: { intent: "draws", visual: { skip: ${skip} } },
+  parameters: { intent: "draws", visual: { skip: ${reason} } },
 }
 `
-  const skips = (options) =>
-    new Map(
-      [...options]
-        .filter(([, value]) => value.skip)
-        .map(([id, value]) => [id, value.skip]),
-    )
   assert.deepEqual(
-    skips(
-      optionsOf(text('"A WebGL canvas draws a new frame at each shot."'), [
-        storyOf("Plain"),
-        storyOf("Canvas"),
-      ]),
-    ),
+    optionsOf(text('"A WebGL canvas draws a new frame at each shot."'), [
+      storyOf("Plain"),
+      storyOf("Canvas"),
+    ]),
     new Map([
-      ["features-x--canvas", "A WebGL canvas draws a new frame at each shot."],
+      ["features-x--plain", { snapshots: [] }],
+      [
+        "features-x--canvas",
+        {
+          skip: "A WebGL canvas draws a new frame at each shot.",
+          snapshots: [],
+        },
+      ],
     ]),
   )
   // A story inherits an opt-out of its meta (the default export).
@@ -263,16 +262,19 @@ export const Plain = {}
 export const Canvas = { parameters: { visual: { skip: "Its own reason." } } }
 `
   assert.deepEqual(
-    skips(optionsOf(meta, [storyOf("Plain"), storyOf("Canvas")])),
+    optionsOf(meta, [storyOf("Plain"), storyOf("Canvas")]),
     new Map([
-      ["features-x--plain", "The whole file draws a canvas."],
-      ["features-x--canvas", "Its own reason."],
+      [
+        "features-x--plain",
+        { skip: "The whole file draws a canvas.", snapshots: [] },
+      ],
+      ["features-x--canvas", { skip: "Its own reason.", snapshots: [] }],
     ]),
   )
   // An opt-out needs its reason.
-  for (const skip of ['""', "true"])
+  for (const reason of ['""', "true"])
     assert.throws(
-      () => optionsOf(text(skip), [storyOf("Canvas")]),
+      () => optionsOf(text(reason), [storyOf("Canvas")]),
       /apps\/ui\/src\/features\/x\/X\.stories\.tsx Canvas: parameters\.visual\.skip needs a reason/,
     )
 })

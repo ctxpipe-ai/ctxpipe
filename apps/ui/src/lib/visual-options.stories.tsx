@@ -58,7 +58,7 @@ function Card() {
         Open menu
       </Button>
       {open ? (
-        <div role="menu" aria-label="Actions" className="flex flex-col gap-2">
+        <div role="group" aria-label="Actions" className="flex flex-col gap-2">
           <Button onPress={() => setSaved(true)}>Save</Button>
         </div>
       ) : null}
@@ -81,7 +81,7 @@ type Story = StoryObj<typeof meta>
 export const NamedSnapshots: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: "Open menu" }))
-    await expect(canvas.getByRole("menu", { name: "Actions" })).toBeVisible()
+    await expect(canvas.getByRole("group", { name: "Actions" })).toBeVisible()
     await snapshot("menu-open")
     await userEvent.click(canvas.getByRole("button", { name: "Save" }))
     await expect(canvas.getByText("Saved")).toBeVisible()
