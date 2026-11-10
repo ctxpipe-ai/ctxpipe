@@ -52,7 +52,7 @@ function withLogin(
 type Server = { id: string; url: string }
 
 /** Starts a server and returns the URL of its superuser on 127.0.0.1. */
-async function startServer(superuser: string, args: string[]): Promise<Server> {
+async function startServer(superuser: string): Promise<Server> {
   const id = await docker(
     "run",
     "-d",
@@ -65,7 +65,9 @@ async function startServer(superuser: string, args: string[]): Promise<Server> {
     "POSTGRES_DB=postgres",
     "-p",
     "127.0.0.1::5432",
-    ...args,
+    // Parallel index builds (the HNSW index of the embeddings) need more
+    // shared memory than the Docker default of 64 MB.
+    "--shm-size=1g",
     POSTGRES_IMAGE,
   )
   const port = (await docker("port", id, "5432/tcp")).split(":").pop()
@@ -102,16 +104,13 @@ export type PostgresPair = {
  * Starts the pair. Each name in `targetDatabases` is an empty database of the
  * master login on the target, with the vector extension: the Aurora master
  * login can make it, and a plain non-superuser cannot.
- * `serverArgs` go to `docker run` of both servers (for example
- * `--shm-size=1g` for a large rehearsal).
  */
 export async function startPostgresPair(
   targetDatabases: string[],
-  serverArgs: string[] = [],
 ): Promise<PostgresPair> {
   const [source, target] = await Promise.all([
-    startServer("cloud_admin", serverArgs),
-    startServer("rdsadmin", serverArgs),
+    startServer("cloud_admin"),
+    startServer("rdsadmin"),
   ])
   const stop = async () => {
     await Promise.all(
