@@ -229,7 +229,7 @@ export function placeOf(id) {
 // The image builds of the Production build job. A test keeps these entries
 // equal to the matrix of ci.yaml.
 const imageOptions = {
-  "chat-sandbox": { context: "scripts/chat-sandbox", platforms: "linux/arm64" },
+  "chat-sandbox": { context: "scripts/chat-sandbox" },
 }
 
 // The matrix jobs whose checks shard.mjs packs into shards.
