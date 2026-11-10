@@ -45,14 +45,14 @@ const SKIPPED_TOC_ENTRY = /^\d+; \d+ \d+ COMMENT \S+ EXTENSION /
 
 type Phase = { name: string; ms: number }
 
-export type TableResult = {
+type TableResult = {
   table: string
   sourceRows: string
   targetRows: string | null
   match: boolean
 }
 
-export type CopyReport = {
+type CopyReport = {
   ok: boolean
   phases: Phase[]
   totalMs: number
@@ -62,7 +62,7 @@ export type CopyReport = {
   canceledRuns?: number
 }
 
-export type PreflightReport = {
+type PreflightReport = {
   sourceVersion: string
   targetVersion: string
   clientVersion: string
@@ -73,7 +73,7 @@ export type PreflightReport = {
   problems: string[]
 }
 
-export type VerifyReport = {
+type VerifyReport = {
   ok: boolean
   tables: TableResult[]
   sequences: { sequence: string; source: string; target: string | null }[]
