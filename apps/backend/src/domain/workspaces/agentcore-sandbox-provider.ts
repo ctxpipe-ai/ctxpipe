@@ -83,11 +83,11 @@ const AGENTCORE_CAPS: SandboxCapabilities = {
   fork: false,
 }
 
-/** Stay under Linux `MAX_ARG_STRLEN` (128 KiB) after base64 and quoting. */
-const WRITE_CHUNK_BYTES = 32_768
-
-/** Where a session keeps its marker and its create environment. */
-type SessionPaths = { state: string; workdir: string }
+/**
+ * Where a session keeps its marker and its create environment, its
+ * workspace, and the shim's address as the session reaches it.
+ */
+type SessionLayout = { state: string; workdir: string; shim: string }
 
 /** POSIX single-quote escape for `sh -c`. */
 function q(value: string): string {
@@ -102,6 +102,92 @@ function exports(env: Record<string, string> | undefined): string {
       return `export ${name}=${q(value)}\n`
     })
     .join("")
+}
+
+/** One event of the shim's answer (see `agentcore-shim.mjs`). */
+type ShimEvent =
+  | { type: "head"; status: number; headers: Record<string, string> }
+  | { type: "body"; data: string }
+  | { type: "end" }
+  | { type: "stored" }
+  | { type: "error"; message: string }
+
+/** The events of one `InvokeAgentRuntime` call to the shim. */
+async function* shimEvents(
+  runtime: AgentCoreRuntime,
+  sessionId: string,
+  payload: Record<string, unknown>,
+  signal?: AbortSignal,
+): AsyncGenerator<ShimEvent> {
+  const output = await runtime.client.send(
+    new InvokeAgentRuntimeCommand({
+      agentRuntimeArn: runtime.runtimeArn,
+      qualifier: runtime.qualifier,
+      runtimeSessionId: sessionId,
+      contentType: "application/json",
+      accept: "text/event-stream",
+      payload: Buffer.from(JSON.stringify(payload)),
+    }),
+    signal ? { abortSignal: signal } : {},
+  )
+  let buffer = ""
+  const decoder = new TextDecoder()
+  for await (const chunk of output.response as AsyncIterable<Uint8Array>) {
+    buffer += decoder.decode(chunk, { stream: true })
+    for (
+      let end = buffer.indexOf("\n\n");
+      end >= 0;
+      end = buffer.indexOf("\n\n")
+    ) {
+      const block = buffer.slice(0, end)
+      buffer = buffer.slice(end + 2)
+      if (block.startsWith("data: "))
+        yield JSON.parse(block.slice("data: ".length)) as ShimEvent
+    }
+  }
+}
+
+/**
+ * Store `data` in the session's shim for one read by a command, and give its
+ * id. AgentCore writes the text of each command to the runtime's CloudWatch
+ * log group, but not an invocation payload (the API model marks it
+ * sensitive). Thus each script and each file goes this way, and a command's
+ * text holds only the id: no proxy session, no password, no repository
+ * content.
+ */
+async function stage(
+  runtime: AgentCoreRuntime,
+  sessionId: string,
+  data: Buffer,
+): Promise<string> {
+  const id = randomBytes(16).toString("hex")
+  for await (const event of shimEvents(runtime, sessionId, {
+    action: "put",
+    id,
+    data: data.toString("base64"),
+  })) {
+    if (event.type === "stored") return id
+    if (event.type === "error")
+      throw new Error(`Sending data to the sandbox failed: ${event.message}`)
+  }
+  throw new Error("The shim did not store the data")
+}
+
+/** Shell text that reads a staged blob once, to stdout. */
+function readStaged(layout: SessionLayout, id: string): string {
+  return `curl -sSf --noproxy '*' ${q(`${layout.shim}/blobs/${id}`)}`
+}
+
+/**
+ * Shell text that reads a staged script once and runs it with `sh`. The
+ * script deletes its own file first (see {@link stagedScript}).
+ */
+function runStaged(layout: SessionLayout, id: string): string {
+  return `f=$(mktemp) && ${readStaged(layout, id)} > "$f" && exec sh "$f"`
+}
+
+function stagedScript(script: string): Buffer {
+  return Buffer.from(`rm -f "$0"\n${script}`)
 }
 
 /** One event of a command stream: output, or the end with its exit code. */
@@ -201,12 +287,12 @@ function drainCommand(...fds: number[]): string {
 function agentCoreHandle(
   runtime: AgentCoreRuntime,
   sessionId: string,
-  paths: SessionPaths,
+  paths: SessionLayout,
   /** Runs the handle's commands as this user; else as the image user. */
   user?: string,
 ): {
   handle: SandboxHandle
-  /** A command without the session env, for the provider's own steps. */
+  /** A command as the image user, without the session env. */
   run: (command: string) => Promise<ExecResult>
 } {
   const handleEnv: Record<string, string> = {}
@@ -247,13 +333,19 @@ function agentCoreHandle(
       await run(`kill -${name} -${group} 2>/dev/null; true`)
     }
     // The outer shell reads the session env (only the image user can) and
-    // passes it on (`runuser -m`). Its job notices go to /dev/null; the job
-    // keeps stderr, which fd 3 keeps open for the drain.
+    // passes it on (`runuser -m`). The job reads its staged script. The
+    // outer shell's job notices go to /dev/null; the job keeps stderr,
+    // which fd 3 keeps open for the drain.
     const runAs = user ? `runuser -u ${q(user)} -m -- ` : ""
-    const wrapped = `[ -r ${q(envFile)} ] && . ${q(envFile)}\nset -m\n${runAs}sh -c ${q(script(command, options))} &\necho "${PGID_MARKER}$!"\nexec 3>&2 2>/dev/null\nwait $!\ncode=$?\n${drainCommand(1, 3)}\nexit $code`
     let pending = ""
     const exited = (async () => {
       try {
+        const id = await stage(
+          runtime,
+          sessionId,
+          stagedScript(script(command, options)),
+        )
+        const wrapped = `[ -r ${q(envFile)} ] && . ${q(envFile)}\nset -m\n${runAs}sh -c ${q(runStaged(paths, id))} &\necho "${PGID_MARKER}$!"\nexec 3>&2 2>/dev/null\nwait $!\ncode=$?\n${drainCommand(1, 3)}\nexit $code`
         for await (const event of commandEvents(
           runtime,
           sessionId,
@@ -264,6 +356,9 @@ function agentCoreHandle(
             if (pending) stdout.push(pending)
             if (pgid === undefined)
               rejectPgid(new Error("The command did not start"))
+            // An aborted command fails, also when it ended before the abort
+            // reached the stream.
+            options.signal?.throwIfAborted()
             return event.timedOut ? 124 : event.exitCode
           }
           if (event.stderr) stderr.push(event.stderr)
@@ -336,10 +431,15 @@ function agentCoreHandle(
   const run = async (command: string): Promise<ExecResult> => {
     let stdout = ""
     let stderr = ""
+    const id = await stage(
+      runtime,
+      sessionId,
+      stagedScript(`${command}\ncode=$?\n${drainCommand(1, 2)}\nexit $code`),
+    )
     for await (const event of commandEvents(
       runtime,
       sessionId,
-      `sh -c ${q(`${command}\ncode=$?\n${drainCommand(1, 2)}\nexit $code`)}`,
+      `sh -c ${q(runStaged(paths, id))}`,
     )) {
       if ("exitCode" in event)
         return { stdout, stderr, exitCode: event.exitCode }
@@ -379,17 +479,11 @@ function agentCoreHandle(
         ),
       write: async (path, data) => {
         const target = abs(path)
-        const bytes =
-          typeof data === "string" ? Buffer.from(data) : Buffer.from(data)
+        const id = await stage(runtime, sessionId, Buffer.from(data))
         await checked(
           "write",
-          `mkdir -p ${q(target.replace(/\/[^/]*$/, "") || "/")} && : > ${q(target)}`,
+          `mkdir -p ${q(target.replace(/\/[^/]*$/, "") || "/")} && ${readStaged(paths, id)} > ${q(target)}`,
         )
-        for (let at = 0; at < bytes.byteLength; at += WRITE_CHUNK_BYTES)
-          await checked(
-            "write",
-            `printf %s ${q(bytes.subarray(at, at + WRITE_CHUNK_BYTES).toString("base64"))} | base64 -d >> ${q(target)}`,
-          )
       },
       list: async (path) =>
         (await checked("list", `ls -1Ap ${q(abs(path))}`)).stdout
@@ -457,7 +551,7 @@ async function stopSession(
  */
 export function agentCoreSandboxProvider(input: {
   runtime: AgentCoreRuntime
-  paths?: SessionPaths
+  paths?: SessionLayout
   /**
    * Runs the handle's commands as this user. The image user is root, which
    * the provider's own steps and an ingest sandbox's root commands need.
@@ -465,7 +559,11 @@ export function agentCoreSandboxProvider(input: {
   user?: string
 }): SandboxProvider {
   const { runtime } = input
-  const paths = input.paths ?? { state: "/tmp/ctxpipe", workdir: "/workspace" }
+  const paths = input.paths ?? {
+    state: "/tmp/ctxpipe",
+    workdir: "/workspace",
+    shim: "http://127.0.0.1:8080",
+  }
   return {
     name: "agentcore",
     capabilities: () => AGENTCORE_CAPS,
@@ -491,9 +589,13 @@ export function agentCoreSandboxProvider(input: {
         // The create env (the run's proxy session) is readable only by the
         // image user, which reads it for each command.
         if (createInput.env && Object.keys(createInput.env).length > 0) {
-          const env = Buffer.from(exports(createInput.env)).toString("base64")
+          const id = await stage(
+            runtime,
+            sessionId,
+            Buffer.from(exports(createInput.env)),
+          )
           const written = await run(
-            `umask 077 && printf %s ${q(env)} | base64 -d > ${q(`${paths.state}/env.sh`)}`,
+            `umask 077 && ${readStaged(paths, id)} > ${q(`${paths.state}/env.sh`)}`,
           )
           if (written.exitCode !== 0)
             throw new Error(
@@ -587,53 +689,27 @@ async function forward(
   const aborted = new AbortController()
   response.on("close", () => aborted.abort())
   try {
-    const output = await route.runtime.client.send(
-      new InvokeAgentRuntimeCommand({
-        agentRuntimeArn: route.runtime.runtimeArn,
-        qualifier: route.runtime.qualifier,
-        runtimeSessionId: route.sessionId,
-        contentType: "application/json",
-        accept: "text/event-stream",
-        payload: Buffer.from(
-          JSON.stringify({
-            action: "http",
-            port: route.port,
-            method: request.method ?? "GET",
-            path: `/${rest.join("/")}${url.search}`,
-            headers,
-            ...(body.byteLength > 0 ? { body: body.toString("base64") } : {}),
-          }),
-        ),
-      }),
-      { abortSignal: aborted.signal },
-    )
-    let buffer = ""
-    const decoder = new TextDecoder()
-    for await (const chunk of output.response as AsyncIterable<Uint8Array>) {
-      buffer += decoder.decode(chunk, { stream: true })
-      for (
-        let end = buffer.indexOf("\n\n");
-        end >= 0;
-        end = buffer.indexOf("\n\n")
-      ) {
-        const block = buffer.slice(0, end)
-        buffer = buffer.slice(end + 2)
-        if (!block.startsWith("data: ")) continue
-        const event = JSON.parse(block.slice("data: ".length)) as
-          | { type: "head"; status: number; headers: Record<string, string> }
-          | { type: "body"; data: string }
-          | { type: "end" }
-          | { type: "error"; message: string }
-        if (event.type === "head")
-          response.writeHead(event.status, event.headers)
-        else if (event.type === "body")
-          response.write(Buffer.from(event.data, "base64"))
-        else if (event.type === "error")
-          throw new Error(`The sandbox port did not answer: ${event.message}`)
-        else {
-          response.end()
-          return
-        }
+    for await (const event of shimEvents(
+      route.runtime,
+      route.sessionId,
+      {
+        action: "http",
+        port: route.port,
+        method: request.method ?? "GET",
+        path: `/${rest.join("/")}${url.search}`,
+        headers,
+        ...(body.byteLength > 0 ? { body: body.toString("base64") } : {}),
+      },
+      aborted.signal,
+    )) {
+      if (event.type === "head") response.writeHead(event.status, event.headers)
+      else if (event.type === "body")
+        response.write(Buffer.from(event.data, "base64"))
+      else if (event.type === "error")
+        throw new Error(`The sandbox port did not answer: ${event.message}`)
+      else if (event.type === "end") {
+        response.end()
+        return
       }
     }
     throw new Error("The shim answer ended early")

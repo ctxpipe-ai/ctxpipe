@@ -75,6 +75,8 @@ function fakeAgentCoreServer(microVm: MicroVm) {
   const running = new Set<string>()
   const calls: { api: string; sessionId: string; qualifier: string | null }[] =
     []
+  /** The text of each command, as AgentCore writes it to its log group. */
+  const commandTexts: string[] = []
   let failNext: "platform" | "exception" | undefined
   const freshMicroVm = (sessionId: string) => {
     if (running.has(sessionId)) return
@@ -130,6 +132,7 @@ function fakeAgentCoreServer(microVm: MicroVm) {
         return
       }
       const { command } = JSON.parse(body.toString()) as { command: string }
+      commandTexts.push(command)
       response.writeHead(200, {
         "content-type": "application/vnd.amazon.eventstream",
       })
@@ -180,6 +183,7 @@ function fakeAgentCoreServer(microVm: MicroVm) {
   return {
     server,
     calls,
+    commandTexts,
     running,
     failNextCommand: (kind: "platform" | "exception") => (failNext = kind),
   }
@@ -224,15 +228,20 @@ const SHIM_FILE = fileURLToPath(
  */
 export async function startFakeAgentCore(qualifier?: string) {
   const root = mkdtempSync(join(tmpdir(), "agentcore-fake-"))
-  const paths = { state: join(root, "state"), workdir: join(root, "workspace") }
   // The shim is a plain ESM file of the sandbox image.
   const { shimServer } = (await import(pathToFileURL(SHIM_FILE).href)) as {
     shimServer: () => Server
   }
   const shim = shimServer()
+  const shimPort = await listen(shim)
+  const paths = {
+    state: join(root, "state"),
+    workdir: join(root, "workspace"),
+    shim: `http://127.0.0.1:${shimPort}`,
+  }
   const fake = await withFakeEndpoint(
     {
-      shimPort: await listen(shim),
+      shimPort,
       run: (command) => {
         mkdirSync(paths.workdir, { recursive: true })
         // AgentCore runs the command text with a shell.

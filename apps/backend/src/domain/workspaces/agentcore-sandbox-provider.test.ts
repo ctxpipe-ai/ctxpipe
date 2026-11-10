@@ -73,6 +73,29 @@ describe("agentCoreSandboxProvider", () => {
     await provider.destroy({ id: handle.id })
   })
 
+  it("keeps env values, scripts and file content out of the command text, which AgentCore logs", async () => {
+    const handle = await provider.create({
+      env: { HTTPS_PROXY: "https://session-secret@vault:14322" },
+    })
+    await handle.env.set({ OPENCODE_SERVER_PASSWORD: "turn-password" })
+    await handle.fs.write("notes.md", "repository content")
+    const result = await handle.process.exec(
+      'echo "$HTTPS_PROXY $OPENCODE_SERVER_PASSWORD $(cat notes.md) inline-script-text"',
+    )
+    expect(result.stdout).toBe(
+      "https://session-secret@vault:14322 turn-password repository content inline-script-text\n",
+    )
+    const logged = fake.commandTexts.join("\n")
+    for (const value of [
+      "session-secret",
+      "turn-password",
+      "repository content",
+      "inline-script-text",
+    ])
+      expect(logged).not.toContain(value)
+    await provider.destroy({ id: handle.id })
+  })
+
   it("reads, writes and lists files, also a file larger than one command", async () => {
     const handle = await provider.create({})
     const large = `${"x".repeat(100_000)}\n'quoted' $HOME\n`
