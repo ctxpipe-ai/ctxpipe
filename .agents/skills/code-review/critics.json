@@ -184,6 +184,8 @@
           "{folder}/brief.md",
           "--images",
           "{folder}/binary",
+          "--budget-usd",
+          "{budgetUsd}",
           "--",
           "{paths}"
         ]

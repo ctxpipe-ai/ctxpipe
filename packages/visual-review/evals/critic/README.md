@@ -1,6 +1,6 @@
 # Bake-off of the visual critic
 
-The bake-off compares critic models on a fixed set of labeled screenshot pairs ([CTX-1178](https://linear.app/ctxpipe/issue/CTX-1178), Phase 4). This folder holds the builder of that set, the runner, and the report. The runner skips a `new` case for now. A follow-up of [CTX-1202](https://linear.app/ctxpipe/issue/CTX-1202) sends it to the judge of a new screenshot (`judgeNewWithOpenRouter`), not to the judge of a change.
+The bake-off compares critic models on a fixed set of labeled screenshot pairs ([CTX-1178](https://linear.app/ctxpipe/issue/CTX-1178), Phase 4). This folder holds the builder of that set, the runner, and the report. The runner sends a `new` case to the judge of a new screenshot, not to the judge of a change ([CTX-1243](https://linear.app/ctxpipe/issue/CTX-1243)).
 
 ## Cases
 
@@ -65,6 +65,13 @@ An arm is a judge with its settings. `<model>` is an OpenRouter id.
 | `cascade:<filter>+<model>` | The same cascade with the decision model `<filter>` in place of Jev. |
 | `blazediff-local` | The local judge of BlazeDiff: Moondream describes each region, and Qwen classifies the change. It runs on the host at no cost. It needs `--blazediff-agent <dir>`: a folder with `@blazediff/agent` and `@huggingface/transformers`, installed with the pinned versions of the install step of the workflow. These packages are about 460 MB, so they are not dependencies of the repository. |
 
+A `new` case has no before image. Each arm judges it with its judge of a new screenshot, as `pnpm visual:review` judges one:
+
+- The three prompt arms (`llm`, `llm-one-step`, `llm-no-facts`) use the new-screenshot prompt (`judgeNewWithOpenRouter`). That prompt has no steps and no interpreter facts, so the three arms get the same prompt.
+- `jev` and `decision:<model>` ask whether the screenshot breaks a rule of each area and each quality of the rubric (`judgeNewWithJev`). Only Jev 1.14 takes the box question. For another model, the region of a finding is the whole image.
+- A `cascade` arm sends a new screenshot to its model, never to the filter, as `pnpm visual:review --filter jev` does.
+- `blazediff-local` judges a pair of images, so it cannot judge a new screenshot. The report says "not applicable" for it, and the run makes no call.
+
 The runner compares each pair with the compare engine of the package and gives each arm the same story input as `pnpm visual:review`. As in the critic, a case whose regions are all `rendering-noise` is `noise` with no call. An `llm-no-facts` arm has no change types, so this step does not apply to it. The case manifest has no scope, so each case is judged as a part of the UI, and the page-only qualities are not judged.
 
 The runner holds out 30% of the cases of each kind. A hash of the seed of the manifest and the case id selects them, so the same manifest gives the same set. All arms do all runs of the hold-out cases first. Then they do the other cases. A failed call gets one retry. If the retry fails, the verdict is `unsure` with an error.
@@ -86,6 +93,8 @@ The report has a table for the hold-out set and a table for the other cases. Eac
 - **Cost per story**: the mean of `usage.cost`, over the calls that gave one. It is `unknown` when no call gave one.
 - **p50 ms** and **p95 ms**: the latency of the judge, as the adapters measure it.
 - **Taste win rate**: from the `taste` picks in `cases.json`. A pick is a blind pairwise choice of the owner: a case, two arms, and the winner or `tie`. A win counts 1 and a tie counts 0.5, over the picks of the arm. The cells say "no labels yet" when the manifest has no picks.
+
+**New screenshots:** a separate table, with one row for each arm. **Recall (broken)** is the share of the verdicts on the broken new screenshots that are `regression`. **False alarms (clean)** is the share of the verdicts on the clean new screenshots that are `regression`. The table also gives **Unsure**, **Errors**, **Cost per story** and the number of verdicts. It counts only the cases and runs that each arm with a judge of a new screenshot judged. The hold-out set, the other tables and the selection rule do not include the new screenshots.
 
 **Selection rule:** of the arms with recall ≥ 0.9 and precision ≥ 0.7 on the hold-out set, the report selects the cheapest. Arms with the same cost per story (to $0.0001) tie, and the taste win rate breaks the tie. An arm with an unknown cost comes after the others.
 

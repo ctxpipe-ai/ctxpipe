@@ -18,7 +18,7 @@ import {
 } from "vitest"
 
 import { areas, qualities, verdictSchema, type StoryInput } from "../index.ts"
-import { judgeWithJev } from "./jev.ts"
+import { judgeNewWithJev, judgeWithJev } from "./jev.ts"
 
 type DecisionsBody = {
   model: string
@@ -543,5 +543,138 @@ describe("judgeWithJev errors", () => {
     await expect(judgeWithJev(await story())).rejects.toThrow(
       /MODEL_PROVIDER_API_KEY/,
     )
+  })
+})
+
+describe("judgeNewWithJev", () => {
+  const newStory = async (brief?: string) => ({
+    storyId: "connectors-card--new",
+    scope: "component" as const,
+    images: [
+      {
+        path: await png("new.png", 800, 500),
+        size: { width: 800, height: 500 },
+      },
+    ],
+    ...(brief ? { brief } : {}),
+  })
+  const noul = (value: number) => ({ type: "noul", noul: value })
+
+  test("asks whether the screenshot breaks a rule, with no change and a box only for Jev 1.14", async () => {
+    const seen = serve(() => noul(0.02))
+    await judgeNewWithJev(await newStory())
+    const { questions, state } = seen.body
+    expect(Object.keys(questions)).toEqual([
+      "defect",
+      ...areas.map(({ id }) => `area.${id}`),
+      ...qualities
+        .filter(({ pageOnly }) => !pageOnly)
+        .map(({ id }) => `quality.${id}`),
+      "defect-box",
+    ])
+    expect(
+      Object.entries(questions)
+        .filter(([name]) => name !== "defect-box")
+        .every(([, { type }]) => type === "noul"),
+    ).toBe(true)
+    expect(JSON.stringify(questions)).not.toMatch(/better, the same or worse/)
+    expect(state).toContain("Image 1 (after):")
+
+    const other = serve(() => noul(0.02))
+    await judgeNewWithJev(await newStory(), "baseten/elephant-1")
+    expect(Object.keys(other.body.questions)).not.toContain("defect-box")
+  })
+
+  test("a broken area is a regression in the region of the box", async () => {
+    serve((name) => {
+      if (name === "area.spacing") return noul(0.9)
+      if (name === "defect") return noul(0.85)
+      if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
+      return noul(0.02)
+    })
+    const verdict = await judgeNewWithJev(await newStory())
+    expect(verdictSchema.parse(verdict)).toEqual(verdict)
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.severity).toBe("major")
+    expect(verdict.findings.map(({ kind }) => kind)).toEqual(["spacing"])
+    expect(verdict.findings[0]?.region.x).toBeCloseTo(0.1)
+    expect(verdict.findings[0]?.region.height).toBeCloseTo(0.3)
+    expect(verdict.qualities.every(({ delta }) => delta === "meets")).toBe(true)
+  })
+
+  test("another decision model places a finding on the whole image", async () => {
+    serve((name) => (name === "area.spacing" ? noul(0.7) : noul(0.02)))
+    const verdict = await judgeNewWithJev(await newStory(), "baseten/mammoth-1")
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.severity).toBe("minor")
+    expect(verdict.findings[0]?.region).toEqual({
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+    })
+  })
+
+  test("a failed quality is a regression with a fails rating", async () => {
+    serve((name) => (name === "quality.clarity" ? noul(0.6) : noul(0.02)))
+    const verdict = await judgeNewWithJev(await newStory())
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.findings).toEqual([])
+    expect(verdict.qualities).toContainEqual({
+      name: "clarity",
+      delta: "fails",
+      confidence: 0.6,
+    })
+  })
+
+  test("nothing broken is intended with a brief, and unsure without one", async () => {
+    serve(() => noul(0.02))
+    expect(
+      (await judgeNewWithJev(await newStory("Add the card."))).verdict,
+    ).toBe("intended")
+    expect((await judgeNewWithJev(await newStory())).verdict).toBe("unsure")
+  })
+
+  test("a doubtful, a missing or an unplaced answer is unsure, not intended", async () => {
+    serve((name) => (name === "quality.hierarchy" ? noul(0.3) : noul(0.02)))
+    expect(
+      (await judgeNewWithJev(await newStory("Add the card."))).verdict,
+    ).toBe("unsure")
+    serve((name) => (name === "area.spacing" ? {} : noul(0.02)))
+    expect(
+      (await judgeNewWithJev(await newStory("Add the card."))).verdict,
+    ).toBe("unsure")
+    // A broken area with no usable box has no region: unsure.
+    serve((name) =>
+      name === "area.spacing"
+        ? noul(0.9)
+        : name === "defect-box"
+          ? {}
+          : noul(0.02),
+    )
+    const unplaced = await judgeNewWithJev(await newStory("Add the card."))
+    expect(unplaced.verdict).toBe("unsure")
+    expect(unplaced.findings).toEqual([])
+  })
+
+  test("a 400 answer is unsure with the error, and a file that is not a PNG makes no call", async () => {
+    server.use(
+      http.post(endpoint, () =>
+        HttpResponse.json({ error: "bad" }, { status: 400 }),
+      ),
+    )
+    const refused = await judgeNewWithJev(await newStory())
+    expect(refused.verdict).toBe("unsure")
+    expect(refused.error).toMatch(/400/)
+
+    const text = join(dir, "not-a-png.png")
+    await writeFile(text, "text")
+    const story = await newStory()
+    const verdict = await judgeNewWithJev({
+      ...story,
+      images: [{ path: text, size: { width: 1, height: 1 } }],
+    })
+    expect(verdict.verdict).toBe("unsure")
+    expect(verdict.error).toMatch(/not a PNG/)
   })
 })

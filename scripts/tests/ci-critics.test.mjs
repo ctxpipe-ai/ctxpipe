@@ -76,6 +76,9 @@ test("Visual is a command critic that runs visual:review only on changed screens
   assert.deepEqual(run.slice(0, 3), ["pnpm", "-s", "visual:review"])
   assert.deepEqual(run.slice(-2), ["--", "{paths}"])
   assert.equal(run[run.indexOf("--images") + 1], "{folder}/binary")
+  // The factory gives the rest of the spend limit of the PR (CTX-1233), so
+  // that visual:review stops its own model calls there.
+  assert.equal(run[run.indexOf("--budget-usd") + 1], "{budgetUsd}")
   const scripts = JSON.parse(readFileSync(`${root}package.json`, "utf8")).scripts
   assert.equal(
     scripts["visual:review"],
