@@ -82,6 +82,24 @@ export function shardStore(): ShardStore | null {
   return cached.store
 }
 
+/**
+ * The store for writes (upload and delete), or null when no store is set
+ * or `CODESEARCH_SHARD_STORE_READ_ONLY=true`. A preview reads the production
+ * store in read-only mode: it fetches shards, and it never uploads, deletes
+ * or sweeps in S3.
+ */
+export function writableShardStore(): ShardStore | null {
+  return isShardStoreReadOnly() ? null : shardStore()
+}
+
+/** True when a shard store is set in read-only mode (a preview). */
+export function isShardStoreReadOnly(): boolean {
+  return (
+    shardStore() !== null &&
+    process.env["CODESEARCH_SHARD_STORE_READ_ONLY"] === "true"
+  )
+}
+
 function storeFromUrl(url: string, endpoint: string | undefined): ShardStore {
   const location = parseS3Url(url)
   if (!location)

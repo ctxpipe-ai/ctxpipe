@@ -200,3 +200,37 @@ describe("sweepRepositoryDisk when S3 does not answer", () => {
     expect(await readdir(zoektDir)).toContain(name)
   })
 })
+
+describe("read-only shard store (a preview)", () => {
+  it("makes no S3 write in purge, checkout GC and sweep, and never asks for a rebuild", async () => {
+    await publish("repo_ro", "default")
+    await publish("repo_ro", revA)
+    await publish("repo_ro", revB)
+    const before = await server.keys()
+    vi.stubEnv("CODESEARCH_SHARD_STORE_READ_ONLY", "true")
+
+    await deleteCheckoutFromDisk({
+      orgId: ORG,
+      repoId: "repo_ro",
+      checkoutKey: revA,
+      zoektRepoId: 4,
+    })
+    const result = await sweepRepositoryDisk({
+      orgId: ORG,
+      repoId: "repo_ro",
+      rowKeys: new Set(),
+      publishedCheckoutKey: "default",
+      minAgeMs: 0,
+    })
+    await purgeRepositoryFromDisk({
+      orgId: ORG,
+      repoId: "repo_ro",
+      repoName: "team/app",
+      zoektRepoId: 4,
+    })
+
+    expect(await server.keys()).toEqual(before)
+    // The published checkout is missing on disk, as in each preview.
+    expect(result.publishedMissing).toBe(false)
+  })
+})
