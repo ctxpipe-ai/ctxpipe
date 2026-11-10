@@ -28,7 +28,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - Projects: `machines/hosted` holds production. `machines/previews` holds all preview infrastructure (decision 21). The edge stack has its own folder.
     - Configuration:
         - Each stack's `Pulumi.<stack>.yaml` holds its plain values: the account, the region, the sizes and the host names. It holds no secret.
-        - The production image digests are in `machines/hosted/Pulumi.production.yaml`. The ctxpipe release pipeline opens a factory pull request that changes them. An agent merges it when the merge gate passes. Thus `main` always holds what runs, and a change to the infrastructure only does not roll back an image.
+        - The production image digests are in `machines/hosted/Pulumi.production.yaml`. A factory workflow opens the pull request that changes them. It reads the newest digests from the production ECR, where only builds of ctxpipe `main` push. It changes only the `images` key, and a check fails the pull request if it changes another line. The ctxpipe pipeline can only start this workflow. It gets no write access to the factory repo. An agent merges the pull request when the merge gate passes. Thus `main` always holds what runs, and a change to the infrastructure only does not roll back an image.
         - Values cross a stack boundary by fixed names, not by stack outputs. For example, `hosted` reads the tunnel token from a fixed secret name, and the edge stack finds the SES DKIM tokens with an AWS lookup. A stack reads the outputs of another stack only in the same backend and at the same trust level: a preview stack reads `previews/base`.
         - The preview workflow gives each preview stack its configuration when it runs: the PR number, the image digests and the clone endpoint. No file holds the configuration of one preview.
         - `machines/hosted`, `previews/base` and `previews/pr` share one package of components. The edge stack and `previews/data` do not import it, because the guard job loads them.
@@ -37,12 +37,12 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - Approvals: the normal path needs no manual approval. `pulumi preview` runs on each pull request with the read-only plan role. An agent merges a pull request when the merge gate passes. `pulumi up` then runs from `main`.
     - The plan role reads only metadata (`Describe*`, `List*`), the state bucket and the state key. Its boundary denies data reads: objects outside the state bucket, log events, secret values, and other keys.
     - The plan job gets a Cloudflare token with only DNS, Access and zone read. It has no tunnel right, so it cannot read a tunnel's run token. The plan job gets no GitHub token with write rights.
-    - **Rule: normal deploy credentials cannot change a guard.** The normal deploy role, the normal Cloudflare token and the normal GitHub token cannot change:
+    - **Rule: normal deploy credentials cannot change a guard.** The normal deploy role and the normal GitHub token cannot change:
         - IAM boundaries, role trust to other accounts, or a role without the workload boundary (no path to more rights);
         - aws-core: the organization, identity and SCPs;
         - cross-account access: the VPC peering, the `preview-db` role and the bucket policies that the preview account can use;
         - the tags and the deletion protection of protected resources, or delete such a resource;
-        - Cloudflare Access policies, any tunnel and its ingress, and DNS records of `ctxpipe.dev`. A Cloudflare token cannot be scoped to single host names. Thus the normal token has no tunnel right and no DNS edit on `ctxpipe.dev`;
+        - any Cloudflare resource. No normal job holds a Cloudflare token with edit rights. The edge stack holds all DNS records of both zones, the tunnels and Access, and only the guard job runs it;
         - GitHub environments, branch rules and admin settings.
     - A separate guard job holds those rights. It runs in its own GitHub environment, `guard`, with required reviewers, and that environment admits only `main`. The guard role trusts only the guard workflow on `main`. Only it holds the Cloudflare edit token, the GitHub admin token and the production secret values.
     - The guard job runs the edge stack (Access, tunnels, internal DNS) and the preview-data stack (decision 21). It also writes the tunnel tokens. Each of these two stacks has its own state prefix, and only the guard role can write it.
