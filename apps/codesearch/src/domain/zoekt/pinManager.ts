@@ -16,6 +16,7 @@ import {
   zoektStoreDirFromIndexDir,
 } from "../../config/paths.js"
 import { log } from "../../observability/logger.js"
+import { keyedMutex } from "../../utils/keyedMutex.js"
 import type { StoreManifest } from "../store/shardStore.js"
 import { isZoektShardBasenameForName } from "./shardPrefix.js"
 
@@ -35,32 +36,11 @@ type PinEntry = {
 const pins = new Map<number, PinEntry>()
 
 /** Per-repo async mutex so pin/unpin/unload never interleave on the same id. */
-const repoQueues = new Map<number, Promise<void>>()
+const repoLock = keyedMutex<number>()
+const withRepoLock = repoLock.run
 
 function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error
-}
-
-async function withRepoLock<T>(
-  zoektRepoId: number,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const previous = repoQueues.get(zoektRepoId) ?? Promise.resolve()
-  let release!: () => void
-  const gate = new Promise<void>((resolve) => {
-    release = resolve
-  })
-  const next = previous.catch(() => {}).then(() => gate)
-  repoQueues.set(zoektRepoId, next)
-  await previous.catch(() => {})
-  try {
-    return await fn()
-  } finally {
-    release()
-    if (repoQueues.get(zoektRepoId) === next) {
-      repoQueues.delete(zoektRepoId)
-    }
-  }
 }
 
 async function listDirBasenamesForRepo(
@@ -191,7 +171,7 @@ type PinResult = {
 }
 
 async function pinRepoLocked(
-  repo: { zoektRepoId: number; zoektName: string },
+  repo: ZoektRepo,
   coldDir: string,
   hotDir: string,
   idleTtlMs: number,
@@ -238,7 +218,7 @@ async function pinRepoLocked(
  * Missing cold shards is a no-op for files (TTL still arms for the id).
  */
 export async function pinRepos(
-  repos: ReadonlyArray<{ zoektRepoId: number; zoektName: string }>,
+  repos: ReadonlyArray<ZoektRepo>,
   options?: {
     coldDir?: string
     hotDir?: string
@@ -265,7 +245,7 @@ export async function pinRepos(
 
 /** Drop pin state and hot entries for a repo immediately. */
 export async function unpinRepo(
-  repo: { zoektRepoId: number; zoektName: string },
+  repo: ZoektRepo,
   options?: { coldDir?: string; hotDir?: string },
 ): Promise<void> {
   const hotDir = options?.hotDir ?? ZOEKT_HOT_DIR
@@ -284,7 +264,7 @@ export async function unpinRepo(
  * Prevents a concurrent search from re-pinning between unpin and cold delete.
  */
 export async function purgeZoektShardsForRepo(
-  repo: { zoektRepoId: number; zoektName: string },
+  repo: ZoektRepo,
   options?: { coldDir?: string; hotDir?: string },
 ): Promise<void> {
   const coldDir = options?.coldDir ?? ZOEKT_INDEX_DIR
@@ -306,7 +286,7 @@ export async function purgeZoektShardsForRepo(
  * exists only while the cold shards of the name are the ones in the S3
  * manifest, so that eviction can delete them and fetch them again.
  */
-function localManifestPath(coldDir: string, zoektName: string): string {
+export function localManifestPath(coldDir: string, zoektName: string): string {
   return join(
     zoektStoreDirFromIndexDir(coldDir),
     `${encodeURIComponent(zoektName)}.json`,
@@ -379,5 +359,5 @@ export function isRepoPinned(zoektRepoId: number): boolean {
 export function resetPinManagerForTests(): void {
   for (const entry of pins.values()) clearTimeout(entry.timer)
   pins.clear()
-  repoQueues.clear()
+  repoLock.clear()
 }

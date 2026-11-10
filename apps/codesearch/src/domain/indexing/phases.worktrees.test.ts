@@ -230,6 +230,16 @@ describe("sweepRepositoryDisk", () => {
       `${encodeURIComponent(zoektRepositoryName({ orgId: ORG, repoId: `${repoId}x`, checkoutKey: orphan }))}_v16.00000.zoekt`,
     )
     await writeFile(other, "shard")
+    // Local manifest copies (shard store): the orphan's goes with its shard.
+    const copy = (key: string) =>
+      join(
+        zoektDir,
+        ".store",
+        `${encodeURIComponent(zoektRepositoryName({ orgId: ORG, repoId, checkoutKey: key }))}.json`,
+      )
+    await mkdir(join(zoektDir, ".store"), { recursive: true })
+    await writeFile(copy(orphan), "{}")
+    await writeFile(copy(withRow), "{}")
     for (const name of [
       orphan,
       published,
@@ -273,6 +283,8 @@ describe("sweepRepositoryDisk", () => {
     expect(await exists(shard(withRow))).toBe(true)
     expect(await exists(shard(published))).toBe(true)
     expect(await exists(other)).toBe(true)
+    expect(await exists(copy(orphan))).toBe(false)
+    expect(await exists(copy(withRow))).toBe(true)
     expect(result.deletedEntries).toBe(6)
     expect(result.deletedBytes).toBeGreaterThan(0)
     expect(result.publishedMissing).toBe(false)

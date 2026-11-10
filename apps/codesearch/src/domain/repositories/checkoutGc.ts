@@ -2,7 +2,10 @@ import { lstat, readdir, rm } from "node:fs/promises"
 import { join } from "node:path"
 
 import { ZOEKT_HOT_DIR, ZOEKT_INDEX_DIR } from "../../config/paths.js"
-import { purgeZoektShardsForRepo } from "../zoekt/pinManager.js"
+import {
+  localManifestPath,
+  purgeZoektShardsForRepo,
+} from "../zoekt/pinManager.js"
 import {
   parseZoektShardBasename,
   zoektRepositoryName,
@@ -161,6 +164,12 @@ export async function sweepRepositoryDisk(input: {
     if (!(await oldEnough(path))) continue
     const size = (await lstat(path).catch(() => null))?.size ?? 0
     await rm(join(ZOEKT_HOT_DIR, name), { force: true })
+    // The local manifest copy says the cold shards are the uploaded ones.
+    const parsed = parseZoektShardBasename(name)
+    if (parsed && !parsed.temporary)
+      await rm(localManifestPath(ZOEKT_INDEX_DIR, parsed.zoektName), {
+        force: true,
+      })
     await rm(path, { force: true })
     result.deletedEntries += 1
     result.deletedBytes += size

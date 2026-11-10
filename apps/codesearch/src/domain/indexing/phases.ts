@@ -25,6 +25,7 @@ import {
 import { repositoryCheckouts } from "../../db/schema.js"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 import { type GitRemote, repositoryGitRemote } from "../../utils/git.js"
+import { keyedMutex } from "../../utils/keyedMutex.js"
 import {
   assertScipIndex,
   encodeScipIndex,
@@ -465,6 +466,8 @@ async function diffRangeNameStatus(params: {
   )
 }
 
+const zoektPublishLock = keyedMutex<string>()
+
 async function indexRepository(params: {
   clonePath: string
   zoektRepoId: number
@@ -512,8 +515,13 @@ async function indexRepository(params: {
         },
       ),
     )
-    const shardPaths = await installStagedShards(repo, stagingDir)
-    await uploadShards(repo, params.address, shardPaths)
+    // Index operations of one repository can overlap. One install, upload
+    // and mark at a time for each Name keeps a publish from deleting the
+    // generation of another, and marks only the shards that it uploaded.
+    await zoektPublishLock.run(params.zoektName, async () => {
+      const shardPaths = await installStagedShards(repo, stagingDir)
+      await uploadShards(repo, params.address, shardPaths)
+    })
   } finally {
     await rm(stagingDir, { recursive: true, force: true })
     await rm(metaPath, { force: true })

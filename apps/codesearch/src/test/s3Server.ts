@@ -11,9 +11,7 @@ import { vi } from "vitest"
  * bucket is a directory under `root`, and each object is a file.
  */
 export async function startS3Server(): Promise<{
-  root: string
   bucket: string
-  endpoint: string
   /** Every object key in the bucket, sorted. */
   keys: () => Promise<string[]>
   /** Points `CODESEARCH_SHARD_STORE` and the AWS SDK at this server. */
@@ -69,9 +67,7 @@ export async function startS3Server(): Promise<{
       .sort()
   }
   return {
-    root,
     bucket,
-    endpoint,
     keys,
     stubEnv: (prefix) => {
       vi.stubEnv("CODESEARCH_SHARD_STORE", `s3://${bucket}/${prefix}`)

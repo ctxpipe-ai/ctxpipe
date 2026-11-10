@@ -45,7 +45,11 @@ const manifestSchema = z.object({
   gen: z.string().regex(/^[0-9A-Za-z-]+$/),
   files: z.array(
     z.object({
-      name: z.string().min(1),
+      // One file name: a fetch writes it into a local directory.
+      name: z
+        .string()
+        .regex(/^[^/\\]+$/)
+        .refine((name) => name !== "." && name !== ".."),
       size: z.number().int().nonnegative(),
       sha256: z.string().regex(/^[0-9a-f]{64}$/),
     }),
@@ -211,7 +215,18 @@ export async function publishArtifact(
   paths: readonly string[],
 ): Promise<StoreManifest> {
   const prefix = addressPrefix(store, address)
-  const previous = await readManifest(store, address)
+  // A manifest that does not parse must not stop each later publish.
+  const previous = await readManifest(store, address).catch((error) => {
+    if (error instanceof SyntaxError || error instanceof z.ZodError) {
+      log.warn({
+        step: "codesearch.store.manifest_unreadable",
+        kind: address.kind,
+        error: error.message,
+      })
+      return null
+    }
+    throw error
+  })
   const gen = newGen()
   const files = await mapLimit(paths, 4, async (path) => {
     const name = basename(path)

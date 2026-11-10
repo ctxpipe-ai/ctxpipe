@@ -12,7 +12,8 @@ import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("../../config/paths.js", () => ({
+vi.mock("../../config/paths.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../config/paths.js")>()),
   REPO_CACHE_DIR: "",
   ZOEKT_INDEX_DIR: "",
   ZOEKT_HOT_DIR: "",

@@ -111,6 +111,24 @@ describe("phaseZoekt with a shard store", () => {
     )
   })
 
+  it("publishes one at a time when two Zoekt phases of one Name overlap", async () => {
+    server.stubEnv("prod")
+    const ctx = context("repo_twice")
+
+    await Promise.all([phaseZoekt(ctx), phaseZoekt(ctx)])
+
+    const manifest = JSON.parse(
+      await readFile(localCopy(ctx.zoektName), "utf8"),
+    )
+    const prefix = `prod/v1/${ORG}/repo_twice/rev:${sha}/zoekt/`
+    const keys = await server.keys()
+    for (const file of manifest.files as { name: string }[])
+      expect(keys).toContain(`${prefix}${manifest.gen}/${file.name}`)
+    expect(manifest.files.map((file: { name: string }) => file.name)).toEqual(
+      (await shardsOf(ctx.zoektName)).sort(),
+    )
+  })
+
   it("keeps the new shards without a local manifest copy when the upload fails", async () => {
     server.stubEnv("prod")
     vi.stubEnv("AWS_ENDPOINT_URL_S3", "http://127.0.0.1:1")

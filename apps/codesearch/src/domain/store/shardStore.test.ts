@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { PutObjectCommand } from "@aws-sdk/client-s3"
 import {
   afterAll,
   afterEach,
@@ -54,6 +55,12 @@ async function file(name: string, content: string): Promise<string> {
   const path = join(dir, name)
   await writeFile(path, content)
   return path
+}
+
+async function putObject(key: string, body: string) {
+  await store().client.send(
+    new PutObjectCommand({ Bucket: server.bucket, Key: key, Body: body }),
+  )
 }
 
 function store() {
@@ -148,6 +155,33 @@ describe("publishArtifact", () => {
     ).rejects.toThrow()
 
     expect(await readManifest(store(), other)).toEqual(good)
+  })
+
+  it("publishes over a manifest that does not parse", async () => {
+    const other = { ...address, repoId: "repo_corrupt" }
+    await putObject(
+      `prod/codesearch/v1/org_alpha/repo_corrupt/${address.checkoutKey}/zoekt/manifest.json`,
+      "not json",
+    )
+
+    const manifest = await publishArtifact(store(), other, [
+      await file("c_v16.00000.zoekt", "fixed"),
+    ])
+
+    expect(await readManifest(store(), other)).toEqual(manifest)
+  })
+
+  it("refuses a manifest whose file name is a path", async () => {
+    const other = { ...address, repoId: "repo_path" }
+    await putObject(
+      `prod/codesearch/v1/org_alpha/repo_path/${address.checkoutKey}/zoekt/manifest.json`,
+      JSON.stringify({
+        gen: "g1",
+        files: [{ name: "../escape", size: 1, sha256: "0".repeat(64) }],
+      }),
+    )
+
+    await expect(readManifest(store(), other)).rejects.toThrow()
   })
 
   it("refuses an address segment with a slash", async () => {
