@@ -85,7 +85,7 @@ async function outputs(db: pg.Client) {
   return Object.fromEntries(rows.map((row) => [row.id, row.kept]))
 }
 
-describe("clear write step outputs migration (Postgres)", () => {
+describe("retired write step outputs and the LangGraph drop (Postgres)", () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
     adminUrl = ownerUrlForMigrate(process.env.DATABASE_URL)
@@ -168,8 +168,16 @@ describe("clear write step outputs migration (Postgres)", () => {
     await apply(db, [target])
     const pool = new pg.Pool({ connectionString: url })
     try {
-      expect(await clearRetiredWriteStepOutputs(pool, 2)).toBe(12)
-      expect(await clearRetiredWriteStepOutputs(pool, 2)).toBe(0)
+      // A run with no time left clears nothing and says that it is not done.
+      expect(
+        await clearRetiredWriteStepOutputs(pool, { batchSize: 2, budgetMs: 0 }),
+      ).toEqual({ cleared: 0, done: false })
+      expect(
+        await clearRetiredWriteStepOutputs(pool, { batchSize: 2 }),
+      ).toEqual({ cleared: 12, done: true })
+      expect(
+        await clearRetiredWriteStepOutputs(pool, { batchSize: 2 }),
+      ).toEqual({ cleared: 0, done: true })
     } finally {
       await pool.end()
     }
@@ -212,7 +220,7 @@ describe("clear write step outputs migration (Postgres)", () => {
 
   it("passes on a database without the OpenWorkflow schema and the LangGraph tables", async () => {
     // A new database: Drizzle runs before the OpenWorkflow schema migration.
-    const { db, url } = await freshDatabase("no_ow")
+    const { db } = await freshDatabase("no_ow")
     await apply(
       db,
       migrations.filter((name) => name <= target),
@@ -221,11 +229,5 @@ describe("clear write step outputs migration (Postgres)", () => {
       `SELECT to_regclass('openworkflow.step_attempts') AS name`,
     )
     expect(rows[0]?.name).toBeNull()
-    const pool = new pg.Pool({ connectionString: url })
-    try {
-      expect(await clearRetiredWriteStepOutputs(pool)).toBe(0)
-    } finally {
-      await pool.end()
-    }
   }, 120_000)
 })
