@@ -54,13 +54,6 @@ const chunk = (body: unknown) =>
     body,
   )
 
-/**
- * A fake AgentCore endpoint on loopback, with one fake microVM whose files
- * are in `root`. A call to a session that is not running starts a new
- * microVM with empty folders, as AgentCore does. It is a real HTTP server,
- * not msw: msw does not close the answer when the caller closes the
- * connection, and the port bridge depends on that close.
- */
 /** Where the fake microVM runs: this host's shell, or a container. */
 type MicroVm = {
   /** Runs the command text with a shell in the workspace folder. */
@@ -71,6 +64,13 @@ type MicroVm = {
   shimPort: number
 }
 
+/**
+ * A fake AgentCore endpoint on loopback, with one fake microVM. A call to
+ * a session that is not running starts a new, empty microVM, as AgentCore
+ * does. It is a real HTTP server,
+ * not msw: msw does not close the answer when the caller closes the
+ * connection, and the port bridge depends on that close.
+ */
 function fakeAgentCoreServer(microVm: MicroVm) {
   const running = new Set<string>()
   const calls: { api: string; sessionId: string; qualifier: string | null }[] =

@@ -22,6 +22,9 @@ import {
   type SandboxProvider,
   type SpawnHandle,
 } from "@tanstack/ai-sandbox"
+import { z } from "zod"
+
+import { log } from "../../observability/logger.js"
 
 /**
  * Chat and ingest sandboxes on Amazon Bedrock AgentCore Runtime (CTX-1219).
@@ -44,7 +47,13 @@ import {
 export type AgentCoreRuntime = {
   client: BedrockAgentCoreClient
   runtimeArn: string
-  /** The runtime endpoint; AgentCore uses `DEFAULT` when it is not set. */
+  /**
+   * The runtime endpoint. Production invokes a named endpoint, so that a new
+   * sandbox image needs an explicit promote and can roll back at once;
+   * previews use `DEFAULT`, which follows the newest version (ADR-061
+   * decision 14, AWS migration design). AgentCore uses `DEFAULT` when it is
+   * not set.
+   */
   qualifier?: string
 }
 
@@ -90,33 +99,52 @@ const AGENTCORE_CAPS: SandboxCapabilities = {
 type SessionLayout = { state: string; workdir: string; shim: string }
 
 /** POSIX single-quote escape for `sh -c`. */
-function q(value: string): string {
+function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
-function exports(env: Record<string, string> | undefined): string {
+function exportLines(env: Record<string, string> | undefined): string {
   return Object.entries(env ?? {})
     .map(([name, value]) => {
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
         throw new Error(`Not a valid environment variable name: ${name}`)
-      return `export ${name}=${q(value)}\n`
+      return `export ${name}=${shellQuote(value)}\n`
     })
     .join("")
 }
 
 /** One event of the shim's answer (see `agentcore-shim.mjs`). */
-type ShimEvent =
-  | { type: "head"; status: number; headers: Record<string, string> }
-  | { type: "body"; data: string }
-  | { type: "end" }
-  | { type: "stored" }
-  | { type: "error"; message: string }
+const shimEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("head"),
+    status: z.number().int(),
+    headers: z.record(z.string(), z.string()),
+  }),
+  z.object({ type: z.literal("body"), data: z.string() }),
+  z.object({ type: z.literal("end") }),
+  z.object({ type: z.literal("stored") }),
+  z.object({ type: z.literal("error"), message: z.string() }),
+])
+
+type ShimEvent = z.infer<typeof shimEventSchema>
+
+/** The two actions of the shim. */
+type ShimRequest =
+  | { action: "put"; id: string; data: string }
+  | {
+      action: "http"
+      port: number
+      method: string
+      path: string
+      headers: Record<string, string>
+      body?: string
+    }
 
 /** The events of one `InvokeAgentRuntime` call to the shim. */
 async function* shimEvents(
   runtime: AgentCoreRuntime,
   sessionId: string,
-  payload: Record<string, unknown>,
+  payload: ShimRequest,
   signal?: AbortSignal,
 ): AsyncGenerator<ShimEvent> {
   const output = await runtime.client.send(
@@ -142,7 +170,7 @@ async function* shimEvents(
       const block = buffer.slice(0, end)
       buffer = buffer.slice(end + 2)
       if (block.startsWith("data: "))
-        yield JSON.parse(block.slice("data: ".length)) as ShimEvent
+        yield shimEventSchema.parse(JSON.parse(block.slice("data: ".length)))
     }
   }
 }
@@ -178,7 +206,7 @@ async function stage(
  * socket. Only root and `node` can reach the socket.
  */
 function readStaged(layout: SessionLayout, id: string): string {
-  return `curl -sSf --noproxy '*' --unix-socket ${q(layout.shim)} http://shim/blobs/${id}`
+  return `curl -sSf --noproxy '*' --unix-socket ${shellQuote(layout.shim)} http://shim/blobs/${id}`
 }
 
 /**
@@ -311,7 +339,7 @@ function agentCoreHandle(
 
   /** The shell text of one command: its env, its folder, the command. */
   const script = (command: string, options: ProcessOptions = {}) =>
-    `${exports(handleEnv)}${exports(options.env)}cd ${q(abs(options.cwd ?? paths.workdir))} || exit 1\n${command}`
+    `${exportLines(handleEnv)}${exportLines(options.env)}cd ${shellQuote(abs(options.cwd ?? paths.workdir))} || exit 1\n${command}`
 
   const spawn = async (
     command: string,
@@ -339,7 +367,10 @@ function agentCoreHandle(
     // passes it on (`runuser -m`). The job reads its staged script. The
     // outer shell's job notices go to /dev/null; the job keeps stderr,
     // which fd 3 keeps open for the drain.
-    const runAs = user ? `runuser -u ${q(user)} -m -- ` : ""
+    // `-m` keeps the session env; HOME, USER and LOGNAME become the user's.
+    const runAs = user
+      ? `runuser -u ${shellQuote(user)} -m -- env HOME="$(getent passwd ${shellQuote(user)} | cut -d: -f6)" USER=${shellQuote(user)} LOGNAME=${shellQuote(user)} `
+      : ""
     let pending = ""
     const exited = (async () => {
       try {
@@ -348,11 +379,11 @@ function agentCoreHandle(
           sessionId,
           stagedScript(script(command, options)),
         )
-        const wrapped = `[ -r ${q(envFile)} ] && . ${q(envFile)}\nset -m\n${runAs}sh -c ${q(runStaged(paths, id))} &\necho "${PGID_MARKER}$!"\nexec 3>&2 2>/dev/null\nwait $!\ncode=$?\n${drainCommand(1, 3)}\nexit $code`
+        const wrapped = `[ -r ${shellQuote(envFile)} ] && . ${shellQuote(envFile)}\nset -m\n${runAs}sh -c ${shellQuote(runStaged(paths, id))} &\necho "${PGID_MARKER}$!"\nexec 3>&2 2>/dev/null\nwait $!\ncode=$?\n${drainCommand(1, 3)}\nexit $code`
         for await (const event of commandEvents(
           runtime,
           sessionId,
-          `bash -c ${q(wrapped)}`,
+          `bash -c ${shellQuote(wrapped)}`,
           stream.signal,
         )) {
           if ("exitCode" in event) {
@@ -417,16 +448,16 @@ function agentCoreHandle(
     command: string,
     options: ProcessOptions = {},
   ): Promise<ExecResult> => {
-    const process = await spawn(command, options)
+    const job = await spawn(command, options)
     const collect = async (stream: AsyncIterable<string>) => {
       let text = ""
       for await (const chunk of stream) text += chunk
       return text
     }
     const [stdout, stderr, exitCode] = await Promise.all([
-      collect(process.stdout),
-      collect(process.stderr),
-      process.wait(),
+      collect(job.stdout),
+      collect(job.stderr),
+      job.wait(),
     ])
     return { stdout, stderr, exitCode }
   }
@@ -442,7 +473,7 @@ function agentCoreHandle(
     for await (const event of commandEvents(
       runtime,
       sessionId,
-      `sh -c ${q(runStaged(paths, id))}`,
+      `sh -c ${shellQuote(runStaged(paths, id))}`,
     )) {
       if ("exitCode" in event)
         return { stdout, stderr, exitCode: event.exitCode }
@@ -459,37 +490,33 @@ function agentCoreHandle(
     return result
   }
 
-  const process = { exec, spawn }
+  const readBytes = async (path: string) =>
+    Buffer.from(
+      (await checked("read", `base64 < ${shellQuote(abs(path))}`)).stdout,
+      "base64",
+    )
+
+  const processApi = { exec, spawn }
   const handle: SandboxHandle = {
     id: sessionId,
     provider: "agentcore",
     workspaceRoot: paths.workdir,
     capabilities: AGENTCORE_CAPS,
-    process,
-    git: createExecBackedGit(process, paths.workdir),
+    process: processApi,
+    git: createExecBackedGit(processApi, paths.workdir),
     fs: {
-      read: async (path) =>
-        Buffer.from(
-          (await checked("read", `base64 < ${q(abs(path))}`)).stdout,
-          "base64",
-        ).toString("utf8"),
-      readBytes: async (path) =>
-        new Uint8Array(
-          Buffer.from(
-            (await checked("read", `base64 < ${q(abs(path))}`)).stdout,
-            "base64",
-          ),
-        ),
+      read: async (path) => (await readBytes(path)).toString("utf8"),
+      readBytes: async (path) => new Uint8Array(await readBytes(path)),
       write: async (path, data) => {
         const target = abs(path)
         const id = await stage(runtime, sessionId, Buffer.from(data))
         await checked(
           "write",
-          `mkdir -p ${q(target.replace(/\/[^/]*$/, "") || "/")} && ${readStaged(paths, id)} > ${q(target)}`,
+          `mkdir -p ${shellQuote(target.replace(/\/[^/]*$/, "") || "/")} && ${readStaged(paths, id)} > ${shellQuote(target)}`,
         )
       },
       list: async (path) =>
-        (await checked("list", `ls -1Ap ${q(abs(path))}`)).stdout
+        (await checked("list", `ls -1Ap ${shellQuote(abs(path))}`)).stdout
           .split("\n")
           .filter((line) => line.trim() !== "")
           .map((entry) => {
@@ -502,16 +529,19 @@ function agentCoreHandle(
             }
           }),
       mkdir: async (path) => {
-        await checked("mkdir", `mkdir -p ${q(abs(path))}`)
+        await checked("mkdir", `mkdir -p ${shellQuote(abs(path))}`)
       },
       remove: async (path) => {
-        await checked("remove", `rm -rf ${q(abs(path))}`)
+        await checked("remove", `rm -rf ${shellQuote(abs(path))}`)
       },
       rename: async (from, to) => {
-        await checked("rename", `mv ${q(abs(from))} ${q(abs(to))}`)
+        await checked(
+          "rename",
+          `mv ${shellQuote(abs(from))} ${shellQuote(abs(to))}`,
+        )
       },
       exists: async (path) =>
-        (await exec(`test -e ${q(abs(path))}`)).exitCode === 0,
+        (await exec(`test -e ${shellQuote(abs(path))}`)).exitCode === 0,
     },
     env: {
       set: async (vars) => {
@@ -532,6 +562,9 @@ async function stopSession(
   runtime: AgentCoreRuntime,
   sessionId: string,
 ): Promise<void> {
+  // A later request to an old port URL would start a new, empty microVM.
+  for (const [token, route] of bridgeRoutes)
+    if (route.sessionId === sessionId) bridgeRoutes.delete(token)
   try {
     await runtime.client.send(
       new StopRuntimeSessionCommand({
@@ -583,7 +616,7 @@ export function agentCoreSandboxProvider(input: {
       try {
         // The marker tells `resume` that the microVM is this sandbox's.
         const marked = await run(
-          `umask 077 && mkdir -p ${q(paths.state)} && printf %s ${q(sessionId)} > ${q(`${paths.state}/session`)}`,
+          `umask 077 && mkdir -p ${shellQuote(paths.state)} && printf %s ${shellQuote(sessionId)} > ${shellQuote(`${paths.state}/session`)}`,
         )
         if (marked.exitCode !== 0)
           throw new Error(
@@ -595,10 +628,10 @@ export function agentCoreSandboxProvider(input: {
           const id = await stage(
             runtime,
             sessionId,
-            Buffer.from(exports(createInput.env)),
+            Buffer.from(exportLines(createInput.env)),
           )
           const written = await run(
-            `umask 077 && ${readStaged(paths, id)} > ${q(`${paths.state}/env.sh`)}`,
+            `umask 077 && ${readStaged(paths, id)} > ${shellQuote(`${paths.state}/env.sh`)}`,
           )
           if (written.exitCode !== 0)
             throw new Error(
@@ -606,7 +639,13 @@ export function agentCoreSandboxProvider(input: {
             )
         }
       } catch (error) {
-        await stopSession(runtime, sessionId).catch(() => undefined)
+        await stopSession(runtime, sessionId).catch((stopError: unknown) =>
+          log.warn({
+            step: "agentcore-sandbox-create",
+            message: `Stopping a session whose create failed failed: ${String(stopError)}`,
+            sessionId,
+          }),
+        )
         throw error
       }
       return handle
@@ -615,7 +654,7 @@ export function agentCoreSandboxProvider(input: {
       const { handle, run } = agentCoreHandle(runtime, id, paths, input.user)
       // A call to a session that is gone starts a new, empty microVM.
       const marker = await run(
-        `cat ${q(`${paths.state}/session`)} 2>/dev/null; true`,
+        `cat ${shellQuote(`${paths.state}/session`)} 2>/dev/null; true`,
       )
       if (marker.stdout === id) return handle
       await stopSession(runtime, id)
@@ -636,7 +675,10 @@ type BridgeRoute = {
 /** Routes that nobody used for this long are removed. */
 const BRIDGE_ROUTE_IDLE_MS = 8 * 60 * 60_000
 
-let bridge: Promise<{ server: Server; routes: Map<string, BridgeRoute> }>
+/** The bridge's routes by token. */
+const bridgeRoutes = new Map<string, BridgeRoute>()
+
+let bridge: Promise<Server> | undefined
 
 /**
  * The URL of a sandbox port: `http://127.0.0.1:<bridge>/<token>`. The bridge
@@ -646,23 +688,26 @@ let bridge: Promise<{ server: Server; routes: Map<string, BridgeRoute> }>
 async function portBridgeUrl(
   route: Omit<BridgeRoute, "usedAt">,
 ): Promise<string> {
-  bridge ??= new Promise((resolve, reject) => {
-    const routes = new Map<string, BridgeRoute>()
+  bridge ??= new Promise<Server>((resolve, reject) => {
     const server = createServer((request, response) => {
-      void forward(routes, request, response)
+      void forward(request, response)
     })
     server.on("error", reject)
     server.listen(0, "127.0.0.1", () => {
       server.unref()
-      resolve({ server, routes })
+      resolve(server)
     })
+  }).catch((error: unknown) => {
+    // The next connect tries again.
+    bridge = undefined
+    throw error
   })
-  const { server, routes } = await bridge
+  const server = await bridge
   const now = Date.now()
-  for (const [token, entry] of routes)
-    if (now - entry.usedAt > BRIDGE_ROUTE_IDLE_MS) routes.delete(token)
+  for (const [token, entry] of bridgeRoutes)
+    if (now - entry.usedAt > BRIDGE_ROUTE_IDLE_MS) bridgeRoutes.delete(token)
   const token = randomBytes(24).toString("hex")
-  routes.set(token, { ...route, usedAt: now })
+  bridgeRoutes.set(token, { ...route, usedAt: now })
   const address = server.address()
   if (!address || typeof address === "string")
     throw new Error("The AgentCore port bridge has no address")
@@ -671,27 +716,27 @@ async function portBridgeUrl(
 
 /** Send one HTTP request through the shim and stream its answer back. */
 async function forward(
-  routes: Map<string, BridgeRoute>,
   request: IncomingMessage,
   response: ServerResponse,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://bridge")
   const [, token = "", ...rest] = url.pathname.split("/")
-  const route = routes.get(token)
+  const route = bridgeRoutes.get(token)
   if (!route) {
     response.writeHead(404).end()
     return
   }
   route.usedAt = Date.now()
-  const chunks: Buffer[] = []
-  for await (const chunk of request) chunks.push(chunk as Buffer)
-  const body = Buffer.concat(chunks)
-  const headers: Record<string, string> = {}
-  for (const [name, value] of Object.entries(request.headers))
-    if (typeof value === "string") headers[name] = value
   const aborted = new AbortController()
   response.on("close", () => aborted.abort())
   try {
+    // Inside the try: a client that leaves during its upload ends here.
+    const chunks: Buffer[] = []
+    for await (const chunk of request) chunks.push(chunk as Buffer)
+    const body = Buffer.concat(chunks)
+    const headers: Record<string, string> = {}
+    for (const [name, value] of Object.entries(request.headers))
+      if (typeof value === "string") headers[name] = value
     for await (const event of shimEvents(
       route.runtime,
       route.sessionId,

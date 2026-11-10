@@ -24,10 +24,11 @@ describe("the AgentCore provider in the chat sandbox image", () => {
   it("runs commands as node in /workspace, with the create environment that only root can read", async () => {
     const handle = await provider.create({ env: { PROXY_SESSION: "it's set" } })
     const result = await handle.process.exec(
-      'id -un; pwd; echo "$PROXY_SESSION"; readlink /proc/$$/exe; cat /tmp/ctxpipe/env.sh 2>/dev/null || echo unreadable',
+      'id -un; echo "$HOME $USER"; pwd; echo "$PROXY_SESSION"; readlink /proc/$$/exe; cat /tmp/ctxpipe/env.sh 2>/dev/null || echo unreadable',
     )
     expect(result).toEqual({
-      stdout: "node\n/workspace\nit's set\n/usr/bin/dash\nunreadable\n",
+      stdout:
+        "node\n/home/node node\n/workspace\nit's set\n/usr/bin/dash\nunreadable\n",
       stderr: "",
       exitCode: 0,
     })

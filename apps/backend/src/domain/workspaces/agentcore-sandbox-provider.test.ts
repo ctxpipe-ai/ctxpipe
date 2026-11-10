@@ -227,6 +227,10 @@ describe("agentCoreSandboxProvider", () => {
       controller.abort()
       await closed
 
+      // A stopped session's port is gone, so no request starts a new microVM.
+      await provider.destroy({ id: handle.id })
+      expect((await fetch(`${channel.url}/session`)).status).toBe(404)
+
       // A wrong token reaches no session.
       const wrong = await fetch(
         channel.url.replace(/[0-9a-f]{48}$/, "0".repeat(48)),
