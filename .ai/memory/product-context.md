@@ -32,7 +32,7 @@ under the MIT License.
   AWS account (factory `machines/observability`, ADR-061 decision 25). The
   collector is `otel.ctxpipe.dev` and HyperDX is `hyperdx.ctxpipe.dev`, both
   behind Cloudflare Access. Langfuse is gone.
-- **`apps/otel-collector`** — laptop OTLP debug sink for `pnpm dev:infra` (stdout only). Hosted ingest is [`ops/observability`](../../ops/observability/).
+- **`apps/otel-collector`** — laptop OTLP debug sink for `pnpm dev:infra` (stdout only). Hosted ingest is the collector on AWS (factory `machines/observability`); see [USING.md](../../ops/observability/USING.md).
 - **`apps/forge-ctxpipe-agent`** — Atlassian Forge app for Confluence.
 - **`packages/cli`** — the `ctxpipe` CLI, including `npx ctxpipe init` and local
   Markdown memory setup.

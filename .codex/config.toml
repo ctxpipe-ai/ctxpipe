@@ -36,7 +36,7 @@ args = ["-y", "@railway/cli@5.63.1", "mcp", "local"]
 [mcp_servers.hyperdx]
 url = "https://hyperdx.ctxpipe.dev/api/mcp"
 bearer_token_env_var = "HYPERDX_ACCESS_KEY"
-# The Cloudflare Access service token of agents (ops/observability/USING.md, "MCP").
+# The Cloudflare Access service token of agents (ops/observability/USING.md, "Agent hosts").
 env_http_headers = { "CF-Access-Client-Id" = "HYPERDX_CF_ACCESS_CLIENT_ID", "CF-Access-Client-Secret" = "HYPERDX_CF_ACCESS_CLIENT_SECRET" }
 
 [mcp_servers.cloudflare]

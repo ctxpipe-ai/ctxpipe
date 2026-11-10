@@ -3,12 +3,12 @@
 This file holds repo-wide rules. In an app or package, also read that folder's `AGENTS.md` if it exists.
 
 - **apps/backend**: [apps/backend/AGENTS.md](apps/backend/AGENTS.md) — API, OpenAPI, MCP, Drizzle, TypeScript, etc. **[Source-connectors skill](.agents/skills/source-connectors/)** when designing, building, or reviewing a source connector (Linear, Notion, Slack, git-native mirror/capture, `connections.config`, self-host), when provider requests can multiply per related record, or when a full import must resume after a crash.
-- **apps/otel-collector**: laptop OTLP debug sink for `pnpm dev:infra` (stdout only). Hosted ingest is [`ops/observability`](ops/observability/) ([ADR-038](.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md)).
+- **apps/otel-collector**: laptop OTLP debug sink for `pnpm dev:infra` (stdout only). Hosted ingest: factory `machines/observability` ([USING.md](ops/observability/USING.md)).
 - **apps/codesearch**: [apps/codesearch/AGENTS.md](apps/codesearch/AGENTS.md) — Zoekt/SCIP orchestration, read-only DB, OpenAPI + Zod, and the manual Kubernetes ingest memory gate.
 - **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest; **[React skill](.agents/skills/react/)** when building or editing components; **[product-ui skill](.agents/skills/product-ui/)** and [DESIGN.md](apps/ui/DESIGN.md) when building or restyling product screens.
 - **apps/docs**: [apps/docs/AGENTS.md](apps/docs/AGENTS.md) — Fumadocs documentation site (Next.js 15, Shiki, forced-dark, deploys to docs.ctxpipe.ai).
 - **examples/**: runnable consumer examples for ctxpipe packages (manual e2e tests against real infra). See [examples/README.md](examples/README.md).
-- **ops/observability**: internal ClickStack + Langfuse Railway project (not product deploy). See [ops/observability/README.md](ops/observability/README.md) and [ADR-038](.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md).
+- **ops/observability**: [USING.md](ops/observability/USING.md) and the old Railway stack. The stack runs on AWS (factory `machines/observability`).
 - **plugins/ctxpipe**: Claude plugin for the hosted product MCP. See [ADR-026](.ai/memory/decisions/ADR-026-claude-plugin-mcp-distribution.md).
 
 **Agent harness layout:** Shared agent content lives in `AGENTS.md` and `.agents/` (`.agents/skills/`, `.agents/hooks/`). `.claude/`, `.codex/`, `.cursor/`, and `opencode.json` are thin adapters that point at it. Put a new skill or hook in `.agents/`. Keep this file under 24 KiB, because Codex reads only the first 32 KiB of all `AGENTS.md` files together. CI runs [`scripts/ci/check-agent-harness.mjs`](scripts/ci/check-agent-harness.mjs) to check the sizes, MCP parity, and skill symlinks. See [ADR-055](.ai/memory/decisions/ADR-055-harness-agnostic-agent-setup.md).

@@ -1,8 +1,8 @@
 # Using the stack
 
-How to read hosted telemetry and how to send a laptop into it. What runs and how it is deployed: [README.md](./README.md). Agents: [observability skill](../../.agents/skills/observability/SKILL.md).
+How to read hosted telemetry and how to send a laptop into it. What runs and how it is deployed: factory `machines/observability`. [README.md](./README.md) describes the old Railway stack until it is deleted. Agents: [observability skill](../../.agents/skills/observability/SKILL.md).
 
-HyperDX: https://hyperdx.ctxpipe.dev, behind Cloudflare Access (factory `machines/observability`, CTX-1216). Spans keep the prompt text; Langfuse is gone. OTLP: https://otel.ctxpipe.dev with `OTEL_EXPORTER_OTLP_HEADERS=CF-Access-Client-Id=<id>,CF-Access-Client-Secret=<secret>` (the Access service token `telemetry`, in production Secrets Manager at `cloudflare/access/telemetry`; the GitHub secret `OBSERVABILITY_OTLP_HEADERS` holds the same value).
+HyperDX: https://hyperdx.ctxpipe.dev, behind Cloudflare Access (factory `machines/observability`, CTX-1216). Spans keep the prompt text; Langfuse is gone. OTLP: https://otel.ctxpipe.dev with `OTEL_EXPORTER_OTLP_HEADERS=CF-Access-Client-Id=<id>,CF-Access-Client-Secret=<secret>`: a Cloudflare Access service token, one for each kind of sender, so a leaked one can be revoked alone. Production sends with `telemetry` (the GitHub secret `OBSERVABILITY_OTLP_HEADERS` of the environment `production`), previews with `telemetry-preview` (the same secret name in the environment `Preview`), laptops with `telemetry-local`. The values are in production Secrets Manager at `cloudflare/access/<name>`.
 
 ## Accounts
 
@@ -39,7 +39,7 @@ Repo config: [`.mcp.json`](../../.mcp.json) (Claude Code), [`.codex/config.toml`
 | `hyperdx` | `https://hyperdx.ctxpipe.dev/api/mcp` | `Authorization: Bearer <key>`, `CF-Access-Client-Id`, `CF-Access-Client-Secret` | `HYPERDX_ACCESS_KEY`, `HYPERDX_CF_ACCESS_CLIENT_ID`, `HYPERDX_CF_ACCESS_CLIENT_SECRET` |
 | `railway` | stdio `railway mcp local` | — | `RAILWAY_API_TOKEN` |
 
-Cloudflare Access checks the two `CF-Access-*` headers (the `agents` service token) and HyperDX checks the bearer key. Without the Access headers the call gets the Access login page (HTTP 302 or 403). A wrong HyperDX key often shows up as HTTP 405 while the client probes OAuth.
+Cloudflare Access checks the two `CF-Access-*` headers (the `agents` service token, which Access admits on `/api/mcp` only) and HyperDX checks the bearer key. Without the Access headers the call gets the Access login page (HTTP 302 or 403). A wrong HyperDX key often shows up as HTTP 405 while the client probes OAuth.
 
 ```bash
 claude mcp add --transport http hyperdx https://hyperdx.ctxpipe.dev/api/mcp \
@@ -74,17 +74,17 @@ Never print, paste, or commit the values. Put them here:
 
 Check: `claude mcp list` (or `codex mcp list`) shows `hyperdx` as connected.
 
-**AWS reads.** The `factory-audit` role of each account reads CloudWatch Logs and metrics, ECS, RDS, EC2 and AgentCore state, and no secret, object or log-unmask (factory `machines/aws-core/stacks/baseline/README.md`). On a laptop, use your SSO profile. On a factory host, chain from the host's `ctxpipe-factory-auditor` profile; add to `~/.aws/config`:
+**AWS reads.** The `factory-audit` role of each account reads CloudWatch Logs and metrics, ECS, RDS, EC2 and AgentCore state, and no secret, object or log-unmask (factory `machines/aws-core/stacks/baseline/README.md`). Only the `factory-auditor` role of an agent host can assume it, so a laptop where agents run is an agent host too: `factory agent-host install` (factory `machines/cli`) gives it a certificate and the profile `ctxpipe-factory-auditor`, the same as a factory host. An agent never uses a person's SSO session: in production that is an admin session. On each agent host, add to `~/.aws/config` (the account IDs are in factory `machines/aws-core/stacks/org/config.ts`):
 
 ```ini
 [profile ctxpipe-production-audit]
 source_profile = ctxpipe-factory-auditor
-role_arn = arn:aws:iam::213102790567:role/factory-audit
+role_arn = arn:aws:iam::<production account ID>:role/factory-audit
 region = us-west-2
 
 [profile ctxpipe-preview-audit]
 source_profile = ctxpipe-factory-auditor
-role_arn = arn:aws:iam::573018602187:role/factory-audit
+role_arn = arn:aws:iam::<preview account ID>:role/factory-audit
 region = us-west-2
 ```
 
@@ -107,7 +107,7 @@ OTEL_EXPORTER_OTLP_HEADERS=CF-Access-Client-Id=<id>,CF-Access-Client-Secret=<sec
 OTEL_RESOURCE_ATTRIBUTES=deployment.environment=local-<name>
 ```
 
-`<name>` is the person or agent. Filter HyperDX to that environment. The header values are the Access service token `telemetry` (`cloudflare/access/telemetry` in production Secrets Manager), not a HyperDX key. Add `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=https://otel.ctxpipe.dev/v1/metrics` only when the run needs metrics; `local-*` uses the 60s metric reader, so a process that exits immediately can miss gauges.
+`<name>` is the person or agent. Filter HyperDX to that environment. The header values are the Access service token `telemetry-local` (`cloudflare/access/telemetry-local` in production Secrets Manager), not a HyperDX key. Add `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=https://otel.ctxpipe.dev/v1/metrics` only when the run needs metrics; `local-*` uses the 60s metric reader, so a process that exits immediately can miss gauges.
 
 `pnpm dev` hands them to every local process: Bun loads `.env.local` for the backend and the OpenWorkflow worker, `scripts/codesearch-docker-dev.sh` passes them into the codesearch container, and Turbo passes them to the UI server, whose `/.otel` relay then forwards browser spans. The worker reports as `service.name=backend` unless `OTEL_SERVICE_NAME` is set, and that is fine locally. Use `OTEL_RESOURCE_ATTRIBUTES`, not `DEPLOYMENT_ENVIRONMENT`: the backend also reads `DEPLOYMENT_ENVIRONMENT` for preview behavior. Headless runs (`scripts/dev-headless.sh`, the cloud-VM runbook) load `.env.local` only into the backend and worker; export the same variables in the shell that starts them to cover the UI and codesearch. The codesearch container reaches a laptop collector at `localhost` or `127.0.0.1` through `host.docker.internal`.
 

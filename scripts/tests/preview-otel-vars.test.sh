@@ -10,37 +10,15 @@ fail() {
 
 bash -n "$script" || fail "preview-otel-vars.sh must pass bash -n"
 
-got="$(
-  jq -n '{
-    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://otel.ctxpipe.dev/v1/traces",
-    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://otel.ctxpipe.dev/v1/logs",
-    OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "https://otel.ctxpipe.dev/v1/metrics",
-    OTEL_EXPORTER_OTLP_HEADERS: "authorization=test-ingest",
-    DATABASE_URL: "postgresql://should-not-copy"
-  }' | "$script" extract
-)"
+got="$(OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret" "$script" build)"
 echo "$got" | jq -e '
   .OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == "https://otel.ctxpipe.dev/v1/traces"
   and .OTEL_EXPORTER_OTLP_LOGS_ENDPOINT == "https://otel.ctxpipe.dev/v1/logs"
   and .OTEL_EXPORTER_OTLP_METRICS_ENDPOINT == "https://otel.ctxpipe.dev/v1/metrics"
-  and .OTEL_EXPORTER_OTLP_HEADERS == "authorization=test-ingest"
-  and (keys | length) == 4
-  and (has("DATABASE_URL") | not)
-' >/dev/null || fail "extract should keep only the four exporter keys"
+  and .OTEL_EXPORTER_OTLP_HEADERS == "CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret"
+' >/dev/null || fail "build should use the collector on the tunnel by default"
 
-if jq -n '{OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:"https://otel.ctxpipe.dev/v1/traces"}' | "$script" extract 2>/dev/null; then
-  fail "extract should fail when headers/logs/metrics are missing"
-fi
-
-got="$(OBSERVABILITY_OTLP_HEADERS="authorization=from-secret" "$script" build)"
-echo "$got" | jq -e '
-  .OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == "https://otel.ctxpipe.dev/v1/traces"
-  and .OTEL_EXPORTER_OTLP_LOGS_ENDPOINT == "https://otel.ctxpipe.dev/v1/logs"
-  and .OTEL_EXPORTER_OTLP_METRICS_ENDPOINT == "https://otel.ctxpipe.dev/v1/metrics"
-  and .OTEL_EXPORTER_OTLP_HEADERS == "authorization=from-secret"
-' >/dev/null || fail "build should use the ClickStack public collector default"
-
-got="$(OBSERVABILITY_OTLP_HEADERS="authorization=custom" "$script" build "https://example.test/otel/")"
+got="$(OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=custom-id,CF-Access-Client-Secret=custom-secret" "$script" build "https://example.test/otel/")"
 echo "$got" | jq -e '
   .OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == "https://example.test/otel/v1/traces"
 ' >/dev/null || fail "build should trim a trailing slash on a custom endpoint"
@@ -242,42 +220,37 @@ prod_complete="$(jq -nc '{
   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://otel.ctxpipe.dev/v1/traces",
   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://otel.ctxpipe.dev/v1/logs",
   OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "https://otel.ctxpipe.dev/v1/metrics",
-  OTEL_EXPORTER_OTLP_HEADERS: "authorization=from-prod",
+  OTEL_EXPORTER_OTLP_HEADERS: "CF-Access-Client-Id=prod-id,CF-Access-Client-Secret=prod-secret",
   DATABASE_URL: "postgresql://should-not-copy"
 }')"
 out="$(
-  OBSERVABILITY_OTLP_HEADERS="authorization=from-secret" \
-    run_sync "$prod_complete" "$tmp/from-prod" 2>&1
-)" || fail "sync should succeed when production backend has exporter vars"
-printf '%s' "$out" | grep -Fq "Resolved preview OTEL exporter vars from production backend" \
-  || fail "sync should report the production-backend source"
-if printf '%s' "$out" | grep -Eq 'authorization=from-prod|authorization=from-secret|postgresql://should-not-copy'; then
+  OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret" \
+    run_sync "$prod_complete" "$tmp/own-token" 2>&1
+)" || fail "sync should succeed with the Preview token"
+printf '%s' "$out" | grep -Fq "from the Preview OBSERVABILITY_OTLP_HEADERS" \
+  || fail "sync should report the Preview token as its source"
+if printf '%s' "$out" | grep -Eq 'prod-secret|preview-secret|postgresql://should-not-copy'; then
   fail "orchestration must not print OTEL headers or DATABASE_URL"
 fi
-assert_four_upserts "$tmp/from-prod/upserts" "authorization=from-prod"
-jq -e '
-  .projectId == "proj_test"
-  and .environmentId == "env_prod"
-  and .serviceId == "svc_backend"
-' "$tmp/from-prod/prod_read" >/dev/null || fail "production read must target production backend"
+# A preview never sends with production's token, and never reads production's variables for it.
+assert_four_upserts "$tmp/own-token/upserts" "CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret"
+[[ ! -e "$tmp/own-token/prod_read" ]] || fail "sync must not read production's exporter variables"
 
 prod_missing='{}'
 out="$(
-  OBSERVABILITY_OTLP_HEADERS="authorization=from-secret" \
+  OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret" \
     run_sync "$prod_missing" "$tmp/from-secret" 2>&1
-)" || fail "sync should fall back to OBSERVABILITY_OTLP_HEADERS when production vars are incomplete"
-printf '%s' "$out" | grep -Fq "building from OBSERVABILITY_OTLP_HEADERS" \
-  || fail "sync should report the secret fallback"
-if printf '%s' "$out" | grep -Fq "authorization=from-secret"; then
-  fail "fallback must not print OBSERVABILITY_OTLP_HEADERS"
+)" || fail "sync should build from the Preview OBSERVABILITY_OTLP_HEADERS"
+if printf '%s' "$out" | grep -Fq "CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret"; then
+  fail "sync must not print OBSERVABILITY_OTLP_HEADERS"
 fi
-assert_four_upserts "$tmp/from-secret/upserts" "authorization=from-secret"
+assert_four_upserts "$tmp/from-secret/upserts" "CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret"
 jq -e '
   .input.variables.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == "https://otel.ctxpipe.dev/v1/traces"
-' "$tmp/from-secret/upserts" >/dev/null || fail "fallback should build the default collector traces URL"
+' "$tmp/from-secret/upserts" >/dev/null || fail "sync should build the default collector traces URL"
 
 if OBSERVABILITY_OTLP_HEADERS="" run_sync '{}' "$tmp/empty-secret" >/dev/null 2>&1; then
-  fail "sync should fail when production vars and OBSERVABILITY_OTLP_HEADERS are both missing"
+  fail "sync should fail when OBSERVABILITY_OTLP_HEADERS is empty"
 fi
 
 if (
@@ -294,7 +267,7 @@ if (
   export RAILWAY_PROJECT_ID=proj_test ENV_ID=env_preview
   export BACKEND_SERVICE_ID=svc_backend WORKER_SERVICE_ID=svc_worker
   export UI_SERVICE_ID=svc_ui CODESEARCH_SERVICE_ID=svc_codesearch
-  export OBSERVABILITY_OTLP_HEADERS="authorization=from-secret"
+  export OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret"
   sync_preview_otel_variables
 ) >/dev/null 2>&1; then
   fail "sync should fail when the production Railway environment cannot be resolved"
@@ -314,7 +287,7 @@ narrow="$(
   export RAILWAY_PROJECT_ID=proj_test BACKEND_SERVICE_ID=svc_backend
   production_backend_vars OTEL_EXPORTER_OTLP_HEADERS NOT_SET_IN_PRODUCTION
 )" || fail "production_backend_vars should succeed"
-[[ "$narrow" == '{"OTEL_EXPORTER_OTLP_HEADERS":"authorization=from-prod"}' ]] \
+[[ "$narrow" == '{"OTEL_EXPORTER_OTLP_HEADERS":"CF-Access-Client-Id=prod-id,CF-Access-Client-Secret=prod-secret"}' ]] \
   || fail "production_backend_vars must return only the named variables that exist (got keys: $(printf '%s' "$narrow" | jq -c keys))"
 
 echo "preview-otel-vars tests passed"

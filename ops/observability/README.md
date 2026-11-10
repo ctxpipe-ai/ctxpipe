@@ -49,7 +49,7 @@ No secret is set by hand in Railway. The protected GitHub `observability` Enviro
 | railway-telemetry | `TELEMETRY_RAILWAY_WORKSPACE_TOKEN` → `RAILWAY_API_TOKEN` | collector OTLP header |
 | cost-telemetry | `COST_TELEMETRY_*` provider credentials, `TELEMETRY_RAILWAY_WORKSPACE_TOKEN` → `RAILWAY_API_TOKEN` | collector OTLP header |
 
-`DATABASE_URL` and `DIRECT_URL` include `connection_limit=1&keepalives=0`. The product GitHub secret `OBSERVABILITY_OTLP_HEADERS` is `authorization=<HYPERDX_API_KEY>`, so change both together.
+`DATABASE_URL` and `DIRECT_URL` include `connection_limit=1&keepalives=0`. The product GitHub secret `OBSERVABILITY_OTLP_HEADERS` now holds the Access service token headers of the collector on AWS (`CF-Access-Client-Id=…,CF-Access-Client-Secret=…`), one token for each GitHub environment ([USING.md](./USING.md)), not `HYPERDX_API_KEY`.
 
 Langfuse reads the `LANGFUSE_INIT_PROJECT_*` values only to create a missing API key. It finds the key by its public key. So a key rotation needs a new `LANGFUSE_PUBLIC_KEY` and a new `LANGFUSE_SECRET_KEY` together; then delete the old key in the Langfuse project settings. The sync sets no `LANGFUSE_INIT_USER_*` value and deletes them from `langfuse-web`: Langfuse already has its user. Manage users and passwords in Langfuse. A new `SALT` does not revoke an old key. A new `ENCRYPTION_KEY` makes stored LLM connection keys unreadable: enter them again. While the services restart after a ClickHouse or key rotation, OTLP ingestion and LLM traces stop for a short time.
 
