@@ -8,7 +8,7 @@ import Docker from "dockerode"
 import { parseEnv } from "../../config/env.js"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import type {
-  RunningSandboxProvider,
+  FileKeepingSandboxProvider,
   SandboxInstanceRecord,
 } from "../../models/workspace-sandboxes.js"
 import { type RunVault, writeProxyCa } from "./agent-vault.js"
@@ -43,7 +43,10 @@ export const DOCKER_LABELS = {
 } as const
 
 /** The deployment's sandbox provider and the agent image bases are built on. */
-export type SandboxAgent = { provider: RunningSandboxProvider; image: string }
+export type SandboxAgent = {
+  provider: FileKeepingSandboxProvider
+  image: string
+}
 
 /**
  * The agent image Workspace bases are built on, so a new one gets new bases:
@@ -51,7 +54,7 @@ export type SandboxAgent = { provider: RunningSandboxProvider; image: string }
  * Vercel.
  */
 export function sandboxAgentImage(
-  provider: RunningSandboxProvider,
+  provider: FileKeepingSandboxProvider,
 ): Promise<string> {
   return provider === "docker"
     ? dockerImageId(workspaceChatDockerImage())
@@ -201,7 +204,7 @@ export function dockerWorkspaceBaseBuilder(input: {
 
 /** The builder for a provider. */
 export async function workspaceBaseBuilder(input: {
-  provider: RunningSandboxProvider
+  provider: FileKeepingSandboxProvider
   orgId: string
   revision: WorkspaceRevision
 }): Promise<WorkspaceBaseBuilder> {
@@ -257,7 +260,7 @@ export async function workspaceBaseBuilder(input: {
  * failure throws, and the caller keeps the base.
  */
 export async function workspaceBaseExists(
-  provider: RunningSandboxProvider,
+  provider: FileKeepingSandboxProvider,
   ref: string,
 ): Promise<boolean> {
   assertNotInOrgDbContext()

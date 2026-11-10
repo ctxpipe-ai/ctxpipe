@@ -53,6 +53,32 @@ export const WORKSPACE_CHAT_DOCKER_SETUP = [
 ] as const
 
 /**
+ * The repository-size cap of an AgentCore sandbox (CTX-1219). A session has
+ * a 9.8 GB disk with about 7 GB free (spike CTX-1213). The check runs after
+ * the clone: a checkout that uses more than 6 GB, or that leaves less than
+ * 512 MB free, fails the setup with a clear message, before the agent fills
+ * the disk.
+ */
+export function agentCoreSizeCapCommand(capGb = 6, minFreeMb = 512): string {
+  return `used_kb=$(du -sk . 2>/dev/null | cut -f1)
+free_kb=$(df -Pk . | awk 'NR == 2 { print $4 }')
+if [ "\${used_kb:-0}" -gt ${Math.round(capGb * 1024 * 1024)} ] || [ "\${free_kb:-0}" -lt ${minFreeMb * 1024} ]; then
+  echo "This repository is too large for a hosted sandbox: its checkout uses $(( \${used_kb:-0} / 1024 )) MB, and the limit is ${capGb} GB."
+  exit 1
+fi`
+}
+
+/**
+ * AgentCore sandboxes: the image has OpenCode, and the repository-size cap
+ * runs after the clone.
+ */
+export const WORKSPACE_CHAT_AGENTCORE_SETUP = [
+  WORKSPACE_CHAT_DOCKER_SETUP[0],
+  agentCoreSizeCapCommand(),
+  ...WORKSPACE_CHAT_DOCKER_SETUP.slice(1),
+] as const
+
+/**
  * The pinned tools of a hosted ingest sandbox (ADR-052): OpenCode, ast-grep
  * and ripgrep. OpenCode and ast-grep have the versions of the Docker chat
  * image. The ripgrep package holds a static binary, so the snapshot builder

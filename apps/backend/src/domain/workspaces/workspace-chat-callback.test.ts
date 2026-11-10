@@ -38,6 +38,29 @@ const compose = network({
   sources: { "172.21.0.2": "172.21.0.3" },
 })
 
+describe("sandbox callback host for AgentCore", () => {
+  it("names the address this process reaches Agent Vault from, because the sandbox reaches the backend only through it", async () => {
+    const vpc = network({
+      hosts: {
+        "agent-vault.ctxpipe.internal": { address: "10.0.4.7", family: 4 },
+      },
+      sources: { "10.0.4.7": "10.0.1.42" },
+    })
+    const env = {
+      SANDBOX_PROVIDER: "agentcore",
+      AGENT_VAULT_ADDR: "http://agent-vault.ctxpipe.internal:14321",
+      SANDBOX_CALLBACK_DNS_SUFFIX: "us-west-2.compute.internal",
+    }
+    await expect(sandboxCallbackHost(env, vpc)).resolves.toBe(
+      "ip-10-0-1-42.us-west-2.compute.internal",
+    )
+    // Another provider does not route towards Agent Vault.
+    await expect(
+      sandboxCallbackHost({ ...env, SANDBOX_PROVIDER: "vercel" }, vpc),
+    ).resolves.toBeUndefined()
+  })
+})
+
 describe("sandbox callback host for a remote Docker daemon", () => {
   it("uses the address this process reaches the daemon from", async () => {
     await expect(

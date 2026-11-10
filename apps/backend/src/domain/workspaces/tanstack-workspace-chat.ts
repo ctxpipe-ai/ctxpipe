@@ -46,6 +46,7 @@ import {
   WORKSPACE_CHAT_CLONE_SHA_SECRET,
   WORKSPACE_CHAT_CLONE_TOKEN_SECRET,
   WORKSPACE_CHAT_CLONE_URL_SECRET,
+  WORKSPACE_CHAT_AGENTCORE_SETUP,
   WORKSPACE_CHAT_DOCKER_SETUP,
   WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_SANDBOX_SETUP,
@@ -96,6 +97,7 @@ import {
   withSingleOpencodeServer,
 } from "./sandbox-process-guards.js"
 import {
+  configuredAgentCoreProvider,
   discoverSandboxProvider,
   remoteDockerHost,
   type SandboxProvider as SandboxProviderName,
@@ -279,6 +281,17 @@ export function conversationSandboxProvider(
     if (!vercel) throw new Error("Vercel sandbox options are missing")
     return withSingleOpencodeServer(vercelConversationProvider(vercel))
   }
+  // AgentCore: as Docker, the run's Agent Vault adds each credential. A new
+  // session starts from git (no Workspace base, ADR-061 decision 18).
+  if (isolation === "agentcore")
+    return withSingleOpencodeServer(
+      withProxyCa(
+        withSessionOnlyEnv(
+          withDockerAgentPort(configuredAgentCoreProvider(), { agentPassword }),
+        ),
+        proxyCaPem,
+      ),
+    )
   if (isolation === "unsandboxed")
     return withOpencodeServeRetry(
       withOwnerWatchdog(
@@ -1302,6 +1315,14 @@ async function buildWorkspaceChatSandbox(
       error: error instanceof Error ? error.message : String(error),
     }
   }
+  // An AgentCore session reaches the backend only by its private name.
+  if (selectedProvider === "agentcore" && !callbackHost)
+    return {
+      ok: false as const,
+      status: 503 as const,
+      error:
+        "AgentCore sandboxes need SANDBOX_CALLBACK_HOST: the backend's name on the private network",
+    }
   const session = await resolveWorkspaceChatSession(
     input,
     selectedProvider,
@@ -1312,7 +1333,12 @@ async function buildWorkspaceChatSandbox(
   // `image` is part of the sandbox key; `agentImage` picks the base.
   let image = "local-process"
   let agentImage = image
-  if (selectedProvider !== "unsandboxed") {
+  if (selectedProvider === "agentcore") {
+    // One fixed value: a new image never orphans a conversation, which
+    // starts again from git anyway.
+    image = "agentcore-agent"
+    agentImage = image
+  } else if (selectedProvider !== "unsandboxed") {
     try {
       agentImage = await sandboxAgentImage(selectedProvider)
       // Docker: the chat image's id, so a new image gives new sandboxes.
@@ -1337,7 +1363,7 @@ async function buildWorkspaceChatSandbox(
     ref?: string
     failed: () => Promise<void>
   }> => {
-    if (selectedProvider === "unsandboxed")
+    if (selectedProvider === "unsandboxed" || selectedProvider === "agentcore")
       return { failed: async () => undefined }
     const choice = await baseForNewSandbox({
       orgId: input.orgId,
@@ -1353,7 +1379,10 @@ async function buildWorkspaceChatSandbox(
   // Docker: the run's vault holds the GitHub token and Agent Vault adds it.
   // A Files read (no label) runs no network command and gets no vault.
   let vault: RunVault | undefined
-  if (selectedProvider === "docker" && cloneLabel) {
+  if (
+    (selectedProvider === "docker" || selectedProvider === "agentcore") &&
+    cloneLabel
+  ) {
     try {
       vault = await openDockerRunVault({
         orgId: input.orgId,
@@ -1374,7 +1403,7 @@ async function buildWorkspaceChatSandbox(
   // Hosted sandboxes never hold the token: the firewall adds it to GitHub
   // calls. Docker sandboxes never hold it either: Agent Vault adds it.
   const cloneToken =
-    selectedProvider === "vercel" || selectedProvider === "docker"
+    selectedProvider !== "unsandboxed"
       ? ""
       : input.cloneToken
         ? input.cloneToken
@@ -1548,7 +1577,7 @@ function conversationSandboxWorkspace(input: {
       ? { [WORKSPACE_CHAT_SESSION_BRANCH_SECRET]: chatInput.lastBranch }
       : {}),
     ...opencodeHome.homeEnv,
-    ...(input.isolation === "docker"
+    ...(input.isolation === "docker" || input.isolation === "agentcore"
       ? {
           ...input.proxyEnv,
           // `gh` sends no request without a token; Agent Vault replaces the header.
@@ -1559,13 +1588,16 @@ function conversationSandboxWorkspace(input: {
   const setup = [
     ...(input.isolation === "docker"
       ? WORKSPACE_CHAT_DOCKER_SETUP
-      : input.isolation === "vercel"
-        ? WORKSPACE_CHAT_VERCEL_SETUP
-        : WORKSPACE_CHAT_SANDBOX_SETUP),
+      : input.isolation === "agentcore"
+        ? WORKSPACE_CHAT_AGENTCORE_SETUP
+        : input.isolation === "vercel"
+          ? WORKSPACE_CHAT_VERCEL_SETUP
+          : WORKSPACE_CHAT_SANDBOX_SETUP),
     ...WORKSPACE_CHAT_THREAD_SETUP,
   ]
   const setupNames = [
     "setup-opencode",
+    ...(input.isolation === "agentcore" ? ["setup-size-cap"] : []),
     "setup-git-exclude",
     "setup-checkout",
     "setup-opencode-json",

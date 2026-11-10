@@ -14,6 +14,7 @@ import {
   deleteSandboxInstance,
   getSandboxInstance,
   isRunningSandboxProvider,
+  keepsFilesWhenStopped,
   listSandboxInstances,
   ownershipOf,
   persistSandboxInstance,
@@ -302,7 +303,13 @@ async function stopSandboxRow(
 ): Promise<boolean> {
   return postgresSandboxLocks(orgId).withLock(`sandbox:${id}`, async () => {
     const row = await getSandboxInstance(id, orgId)
-    if (!row || row.state !== "live" || !isRunningSandboxProvider(row.provider))
+    if (
+      !row ||
+      row.state !== "live" ||
+      !isRunningSandboxProvider(row.provider) ||
+      // The idle sweep pushes and deletes it (see `sweepConversationSandboxes`).
+      !keepsFilesWhenStopped(row.provider)
+    )
       return false
     if (idleSince && row.lastHeartbeatAt > idleSince) return false
     if (!row.providerSandboxId) {
@@ -437,13 +444,18 @@ export async function sweepConversationSandboxes(
     const conversationId = row.conversationId
     // Workspace bases have no conversation; base cleanup owns them.
     if (!conversationId) continue
+    const running =
+      row.state === "live" && isRunningSandboxProvider(row.provider)
     const expired =
       row.state === "destroy_failed" ||
       !conversations.has(conversationId) ||
       now.getTime() - row.lastHeartbeatAt.getTime() >=
-        CHAT_SANDBOX_DELETE_AFTER_MS
-    const running =
-      row.state === "live" && isRunningSandboxProvider(row.provider)
+        CHAT_SANDBOX_DELETE_AFTER_MS ||
+      // A stop would lose the files: an idle one is pushed and deleted.
+      (running &&
+        isRunningSandboxProvider(row.provider) &&
+        !keepsFilesWhenStopped(row.provider) &&
+        row.lastHeartbeatAt <= idleSince)
     // A stopped sandbox is deleted while its saved state still exists, so
     // the last push can resume it.
     if (!expired && !running) {

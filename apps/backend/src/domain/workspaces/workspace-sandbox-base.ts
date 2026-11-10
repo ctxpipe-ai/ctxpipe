@@ -13,10 +13,11 @@ import {
   getSandboxInstance,
   heartbeatSandboxInstance,
   isRunningSandboxProvider,
+  keepsFilesWhenStopped,
   listSandboxInstances,
   ownershipOf,
   persistSandboxInstance,
-  type RunningSandboxProvider,
+  type FileKeepingSandboxProvider,
   type SandboxInstanceRecord,
   updateBuildingBase,
 } from "../../models/workspaces.js"
@@ -174,7 +175,7 @@ export function startingFromBase(input: {
 
 /** What the base builder runs: the stock clone, then the provider's setup. */
 function workspaceBaseDefinition(input: {
-  provider: RunningSandboxProvider
+  provider: FileKeepingSandboxProvider
   revision: WorkspaceRevision
 }) {
   // No token: Agent Vault (Docker) or the firewall (Vercel) adds it.
@@ -293,6 +294,7 @@ export async function runWorkspaceBaseBuild(input: {
   if (
     !row?.revision ||
     !isRunningSandboxProvider(row.provider) ||
+    !keepsFilesWhenStopped(row.provider) ||
     !row.leaseHeld ||
     row.providerSandboxId
   )

@@ -1,6 +1,6 @@
 # ADR-049: Self-host chat sandboxes: stock Docker on DinD and an EC2 host
 
-**Status:** Accepted | **Date:** 2026-10-05 (credentials: 2026-10-08) | **Tags:** sandbox, self-host, docker, compose, aws-cdk, security
+**Status:** Accepted (amended 2026-11-10 for AgentCore, see the end) | **Date:** 2026-10-05 (credentials: 2026-10-08) | **Tags:** sandbox, self-host, docker, compose, aws-cdk, security
 
 ## Context
 
@@ -95,3 +95,10 @@ Lifecycle, limits, and cleanup are as in [ADR-048](ADR-048-native-postgres-sandb
 - [ADR-015](ADR-015-docker-compose-profiles-and-small-scale-deploy.md): Compose profiles, including `dind` and `chat-sandbox-image`.
 - [ADR-048](ADR-048-native-postgres-sandbox-ownership.md): ownership, providers, lifecycle, Workspace base, and cleanup shared with hosted.
 - Self-hosting docs: `apps/docs/content/docs/self-hosting/` (architecture, configuration, Docker, AWS, operations).
+
+## Amendment 2026-11-10: hosted AgentCore uses the same credential path (CTX-1219)
+
+Hosted ctxpipe on AgentCore (`SANDBOX_PROVIDER=agentcore`) uses the credential path of this ADR, not the Vercel firewall. Each run opens a run vault in Agent Vault. The sandbox gets only the vault's proxy session and its CA. Agent Vault adds the GitHub token, the model capability and the tool-bridge token outside the sandbox, with the rules of `sandbox-credential-rules.ts`. Agent Vault is the only egress proxy, because the sandbox subnets have no internet route.
+
+The sandbox calls the backend replica that runs its turn. As on the CDK sandbox host, that name is the backend's own VPC address under `SANDBOX_CALLBACK_DNS_SUFFIX`; for AgentCore it is the address on the route to Agent Vault, the sandbox's only way to the backend.
+
