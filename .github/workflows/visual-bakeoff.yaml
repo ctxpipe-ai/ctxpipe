@@ -10,14 +10,6 @@ name: Visual critic bake-off
 on:
   workflow_dispatch:
     inputs:
-      images_url:
-        description: "HTTPS URL of a .tar.gz of the case images: the output folder of pnpm visual:bakeoff:build, with cases/<id>/before.png and after.png. The public run log shows it, so it must hold no credential."
-        required: true
-        type: string
-      images_sha256:
-        description: "The SHA-256 of that archive."
-        required: true
-        type: string
       arms:
         description: "The arms, comma-separated (see the README)."
         required: false
@@ -33,6 +25,11 @@ on:
         required: false
         type: string
         default: "90"
+      hold_out_only:
+        description: "Run only the cases of the hold-out set."
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}
@@ -70,23 +67,6 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Download the case images
-        env:
-          IMAGES_URL: ${{ inputs.images_url }}
-          IMAGES_SHA256: ${{ inputs.images_sha256 }}
-        run: |
-          set -euo pipefail
-          [[ "$IMAGES_URL" == https://* ]] || {
-            echo "::error::images_url must be an HTTPS URL."
-            exit 1
-          }
-          curl --fail --silent --show-error --location --proto '=https' \
-            --output "$RUNNER_TEMP/images.tar.gz" "$IMAGES_URL"
-          echo "$IMAGES_SHA256  $RUNNER_TEMP/images.tar.gz" | sha256sum --check -
-          mkdir -p "$RUNNER_TEMP/visual-bakeoff"
-          tar --extract --gzip --no-same-owner \
-            --file "$RUNNER_TEMP/images.tar.gz" \
-            --directory "$RUNNER_TEMP/visual-bakeoff"
       # The local judge of BlazeDiff runs ONNX models (about 460 MB of
       # packages and the model weights), so it is not a dependency of the
       # repository. It goes into its own folder.
@@ -95,19 +75,26 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/blazediff-agent" --no-audit --no-fund \
             @blazediff/agent@0.13.2 @huggingface/transformers@4.3.2
+      # The runner gets the image of a case from the release
+      # visual-bakeoff-images only when the case runs, and checks it against
+      # the SHA-256 of the manifest.
       - name: Run the bake-off
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
           ARMS: ${{ inputs.arms }}
           RUNS: ${{ inputs.runs }}
           MAX_COST: ${{ inputs.max_cost }}
+          HOLD_OUT_ONLY: ${{ inputs.hold_out_only }}
         run: |
+          extra=()
+          if [[ "$HOLD_OUT_ONLY" == true ]]; then extra+=(--hold-out-only); fi
           pnpm visual:bakeoff:run \
             --arms "$ARMS" \
             --runs "$RUNS" \
             --max-cost "$MAX_COST" \
             --max-minutes 300 \
-            --images "$RUNNER_TEMP/visual-bakeoff" \
+            "${extra[@]}" \
+            --images "$RUNNER_TEMP/visual-bakeoff-images" \
             --out "$RUNNER_TEMP/visual-bakeoff-report" \
             --blazediff-agent "$RUNNER_TEMP/blazediff-agent"
       - name: Summary

@@ -4,7 +4,8 @@
 //
 // Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--out <dir>]
 //          [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4]
-//          [--blazediff-agent <dir>] [--cases <path>]
+//          [--blazediff-agent <dir>] [--cases <path>] [--release <url>]
+//          [--hold-out-only]
 
 import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
@@ -21,19 +22,16 @@ import {
 import { judgeByModel } from "../../src/command.ts"
 import { diff, type Comparison } from "../../src/compare/diff.ts"
 import { writeStoryImages } from "../../src/compare/images.ts"
-import {
-  insideRoot,
-  realInside,
-  storyInput,
-} from "../../src/compare/manifest.ts"
+import { storyInput } from "../../src/compare/manifest.ts"
 import { pngSize } from "../../src/prepare.ts"
 import { reviewStories } from "../../src/review.ts"
 import type { Box, NewStoryInput, StoryInput } from "../../src/story.ts"
 import { parseVerdict, type Verdict } from "../../src/verdict.ts"
 import { caseManifestSchema, type Case, type CaseManifest } from "./cases.ts"
+import { imageFile, imageStore, releaseUrl } from "./images.ts"
 import { report, type Result } from "./report.ts"
 
-const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--out <dir>] [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4] [--blazediff-agent <dir>] [--cases <path>]
+const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--out <dir>] [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4] [--blazediff-agent <dir>] [--cases <path>] [--release <url>] [--hold-out-only]
 
   --arms         The arms, comma-separated:
                    llm:<model>           the critic prompt (describe each side, then compare)
@@ -46,8 +44,9 @@ const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--
                                          the decision model <filter> instead of Jev
                    blazediff-local       the local judge of BlazeDiff (no cost)
                  <model> is an OpenRouter id, for example anthropic/claude-sonnet-5.5.
-  --images       The output folder of pnpm visual:bakeoff:build, with cases/<id>/.
-                 Default: .ci-results/visual-bakeoff
+  --images       The folder of the case images, as <sha256>.png. An image that
+                 is not in it comes from --release when its case runs, and
+                 goes into it. Default: .ci-results/visual-bakeoff/images
   --out          The folder for results.json and report.md.
                  Default: .ci-results/visual-bakeoff/report
   --runs         The runs of each arm on each case. Default: 3
@@ -63,9 +62,14 @@ const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--
                  node_modules, installed as .github/workflows/visual-bakeoff.yaml
                  does. Needed for blazediff-local.
   --cases        The case manifest. Default: cases.json beside this file.
+  --release      The URL of the release assets with the images.
+                 Default: ${releaseUrl}
+  --hold-out-only
+                 Run only the cases of the hold-out set.
 
 The key and the endpoint of the paid arms come from MODEL_PROVIDER_API_KEY
-and MODEL_PROVIDER_URL. Exit code: 2 for a usage or input error; else 0.`
+and MODEL_PROVIDER_URL. Exit code: 2 for a usage or input error, also a
+missing or changed image; else 0.`
 
 /** One case of a change, ready for the judges. */
 type Prepared = {
@@ -353,32 +357,32 @@ async function blazediffLocal(folder: string, work: string): Promise<Judge> {
 }
 
 /**
- * Compare the before and after image of each case with the compare engine,
- * and write the images for the judges into `work`. A `new` case has only its
- * after image, which goes to `work` as it is. A case with no image throws:
- * the run needs every image of the manifest.
+ * Get the images of `cases` (images.ts), compare the before and after image
+ * of each case with the compare engine, and write the images for the judges
+ * into `work`. A `new` case has only its after image, which goes to `work` as
+ * it is. A case with no image, or with an image that does not have its
+ * SHA-256, throws.
  */
 async function prepare(
-  manifest: CaseManifest,
+  cases: readonly Case[],
   images: string,
+  release: string,
   work: string,
 ): Promise<(Prepared | PreparedNew)[]> {
   const prepared: (Prepared | PreparedNew)[] = []
-  // The images can come from an archive. A symbolic link in it must not
-  // send a file outside the folder to a model provider.
-  const read = async (entry: Case, path: string) => {
+  const get = imageStore(images, release)
+  const read = async (entry: Case, sha256: string) => {
     try {
-      await realInside(images, path)
-      return await readFile(path)
+      return await get(sha256)
     } catch (error) {
       throw new Error(
-        `Case ${entry.id} has no usable image in ${images}: ${(error as Error).message}`,
+        `Case ${entry.id} has no usable image: ${(error as Error).message}`,
       )
     }
   }
-  for (const entry of manifest.cases) {
+  for (const entry of cases) {
     if (entry.kind === "new") {
-      const bytes = await read(entry, insideRoot(images, entry.images.after))
+      const bytes = await read(entry, entry.images.after)
       const size = pngSize(bytes)
       if (!size)
         throw new Error(`The image of the new case ${entry.id} is not a PNG.`)
@@ -398,11 +402,9 @@ async function prepare(
       })
       continue
     }
-    const before = insideRoot(images, entry.images.before)
-    const after = insideRoot(images, entry.images.after)
     const [beforeBytes, afterBytes] = await Promise.all([
-      read(entry, before),
-      read(entry, after),
+      read(entry, entry.images.before),
+      read(entry, entry.images.after),
     ])
     const comparison = await diff(beforeBytes, afterBytes)
     const { images: written, omittedRegions } = await writeStoryImages(
@@ -420,8 +422,8 @@ async function prepare(
       kind: "change",
       entry,
       comparison,
-      before,
-      after,
+      before: join(images, imageFile(entry.images.before)),
+      after: join(images, imageFile(entry.images.after)),
       region: entry.region && {
         x: entry.region.x / size.width,
         y: entry.region.y / size.height,
@@ -498,7 +500,12 @@ export async function bakeOff(
       strict: true,
       options: {
         arms: { type: "string" },
-        images: { type: "string", default: ".ci-results/visual-bakeoff" },
+        images: {
+          type: "string",
+          default: ".ci-results/visual-bakeoff/images",
+        },
+        release: { type: "string", default: releaseUrl },
+        "hold-out-only": { type: "boolean", default: false },
         out: { type: "string", default: ".ci-results/visual-bakeoff/report" },
         runs: { type: "string", default: "3" },
         "max-cost": { type: "string", default: "100" },
@@ -534,8 +541,13 @@ export async function bakeOff(
   const work = await mkdtemp(join(tmpdir(), "visual-bakeoff-"))
   try {
     let manifest: CaseManifest
+    let held: Set<string>
     let arms: Arm[]
     let prepared: (Prepared | PreparedNew)[]
+    // The cases of the run, in two parts: the hold-out cases, then the
+    // others. A part gets its images only when it starts.
+    let parts: Case[][]
+    const images = resolve(options.images)
     try {
       manifest = caseManifestSchema.parse(
         JSON.parse(
@@ -566,13 +578,25 @@ export async function bakeOff(
         throw new Error(
           "Set MODEL_PROVIDER_API_KEY (the OpenRouter key) for the paid arms.",
         )
-      prepared = await prepare(manifest, resolve(options.images), work)
+      // The hold-out set comes from all cases, so that a label of the owner
+      // does not move other cases in or out of it. A case that the owner
+      // labeled unsure has no answer, so it does not run.
+      held = holdOut(manifest, manifest.seed)
+      const cases = manifest.cases.filter(
+        ({ id, label }) =>
+          label !== "unsure" && (held.has(id) || !options["hold-out-only"]),
+      )
+      manifest = { ...manifest, cases }
+      parts = [
+        cases.filter(({ id }) => held.has(id)),
+        cases.filter(({ id }) => !held.has(id)),
+      ]
+      prepared = await prepare(parts[0] ?? [], images, options.release, work)
     } catch (error) {
       print((error as Error).message)
       return 2
     }
 
-    const held = holdOut(manifest, manifest.seed)
     const armIds = arms.map(({ id }) => id)
     const deadline = Date.now() + maxMinutes * 60_000
     let spent = 0
@@ -581,7 +605,7 @@ export async function bakeOff(
     // least $0.10 (more than one image call of the models of the plan). A
     // call without a known cost counts as this much.
     const estimate = () => Math.max(highest, 0.1)
-    let stopped: "cost" | "time" | undefined
+    let stopped: "cost" | "time" | "image" | undefined
     let unknownCost = 0
     const results: Result[] = []
     const count = (cost: number | null) => {
@@ -679,12 +703,28 @@ export async function bakeOff(
     }
     // All arms finish all runs of the hold-out cases before any arm starts
     // the other cases, so that a run that a limit stops has the cases of the
-    // selection rule.
-    for (const cases of [
-      prepared.filter(({ entry }) => held.has(entry.id)),
-      prepared.filter(({ entry }) => !held.has(entry.id)),
-    ])
-      await Promise.all(arms.map((arm) => runArm(arm, cases)))
+    // selection rule. The other cases get their images only when a call can
+    // still start.
+    await Promise.all(arms.map((arm) => runArm(arm, prepared)))
+    const limit =
+      Date.now() >= deadline
+        ? "time"
+        : arms.every(({ paid }) => paid && spent + estimate() > maxCost)
+          ? "cost"
+          : undefined
+    if (limit && parts[1]?.length) stopped ??= limit
+    else if (parts[1]?.length) {
+      let others: (Prepared | PreparedNew)[] = []
+      try {
+        others = await prepare(parts[1], images, options.release, work)
+      } catch (error) {
+        // The report keeps the verdicts on the hold-out cases.
+        print((error as Error).message)
+        stopped = "image"
+      }
+      prepared.push(...others)
+      await Promise.all(arms.map((arm) => runArm(arm, others)))
+    }
 
     const text = report({
       manifest,
@@ -711,7 +751,8 @@ export async function bakeOff(
     )
     await writeFile(join(out, "report.md"), `${text}\n`)
     print(text)
-    return 0
+    // A bad image is an error of the input, also when it stops a run late.
+    return stopped === "image" ? 2 : 0
   } finally {
     await rm(work, { recursive: true, force: true })
   }
