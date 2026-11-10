@@ -2,6 +2,7 @@ import {
   TransientHttpError,
   withTransientHttpRetry,
 } from "../../../lib/withTransientHttpRetry.js"
+import { gatewayCost } from "../../../observability/gatewayCost.js"
 import {
   HostTextAdapter,
   messageText,
@@ -109,6 +110,7 @@ export function openAiHostAdapter(
             promptTokens: result.usage.prompt_tokens,
             completionTokens: result.usage.completion_tokens,
             totalTokens: result.usage.total_tokens,
+            cost: gatewayCost(result.usage),
           }
         : undefined,
     }

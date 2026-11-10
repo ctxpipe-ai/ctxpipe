@@ -1,3 +1,4 @@
+import { gatewayCost } from "../../observability/gatewayCost.js"
 import { log } from "../../observability/logger.js"
 import { recordWorkspaceChatProxyGeneration } from "./workspace-chat-otel.js"
 
@@ -55,23 +56,6 @@ function completionUsage(value: unknown): WorkspaceChatCompletionUsage | null {
     cachedInputTokens: numberOrUndefined(details.cached_tokens),
     cost: gatewayCost(usage),
   }
-}
-
-/**
- * USD of one call. With a bring-your-own-key route, OpenRouter reports in
- * `cost` only its own fee and puts the provider charge in
- * `cost_details.upstream_inference_cost`, so the call costs both.
- */
-function gatewayCost(usage: Record<string, unknown>): number | undefined {
-  const cost = numberOrUndefined(usage.cost)
-  const details =
-    usage.cost_details && typeof usage.cost_details === "object"
-      ? (usage.cost_details as Record<string, unknown>)
-      : {}
-  const upstream = numberOrUndefined(details.upstream_inference_cost)
-  if (usage.is_byok === true && upstream !== undefined)
-    return (cost ?? 0) + upstream
-  return cost
 }
 
 export function observeWorkspaceChatCompletionStream(): {

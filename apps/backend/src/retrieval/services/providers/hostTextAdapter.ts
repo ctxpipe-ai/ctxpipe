@@ -14,6 +14,9 @@ import type { ProviderCallOpts } from "./providerTypes.js"
 /** Name of the forced tool that carries a structured reply. */
 export const STRUCTURED_OUTPUT_TOOL = "structured_output"
 
+/** Token usage, and the cost in USD when the gateway reports it (OpenRouter `usage.cost`). */
+type HostUsage = TokenUsage & { cost?: number }
+
 /**
  * One provider request. With a schema, the provider forces the structured
  * output tool and `text` holds the JSON arguments of that tool call.
@@ -21,7 +24,7 @@ export const STRUCTURED_OUTPUT_TOOL = "structured_output"
 type HostRequest = (
   options: TextOptions,
   schema?: JSONSchema,
-) => Promise<{ text: string; usage?: TokenUsage }>
+) => Promise<{ text: string; usage?: HostUsage }>
 
 /** Plain text of a TanStack message, as the providers accept it. */
 export function messageText(
@@ -76,6 +79,7 @@ export class HostTextAdapter extends BaseTextAdapter<
                 input: result.usage.promptTokens,
                 output: result.usage.completionTokens,
                 total: result.usage.totalTokens,
+                cost: result.usage.cost,
               }
             : undefined,
       },
