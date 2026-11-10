@@ -9,7 +9,8 @@
     "PORTLESS_PORT",
     "ZOEKT_WEBSERVER_URL",
     "SMTP_CONNECTION_URL",
-    "EMAIL_FROM_ADDRESS"
+    "EMAIL_FROM_ADDRESS",
+    "EMAIL_TRANSPORT"
   ],
   "tasks": {
     "build": {

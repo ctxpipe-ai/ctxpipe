@@ -50,6 +50,7 @@ and sends no password reset or invitation email. The backend logs a warning.
 |---|---|
 | `SMTP_CONNECTION_URL` | SMTP connection URL, for example `smtps://user:pass@smtp.resend.com:465` |
 | `EMAIL_FROM_ADDRESS` | From address for transactional email, for example `noreply@example.com` |
+| `EMAIL_TRANSPORT` | `smtp` (the default) or `ses`. With `ses`, the backend sends through the Amazon SES v2 API. It uses the AWS credentials of its process (for example an ECS task role) and its `AWS_REGION`. It needs no `SMTP_CONNECTION_URL`. The role needs `ses:SendEmail` on the sender identity. |
 
 ## Social sign-in
 
