@@ -9,6 +9,7 @@ import {
   selectRequiredStories,
   selectPlayStories,
   shardStories,
+  storiesOfChecks,
 } from "../ci/storybook-select.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -153,4 +154,16 @@ test("every scripts/ci file that the play runner reads at run time is a Storyboo
   )
   assert.ok(paths.has("scripts/ci/failures/storybook-required.json"))
   for (const path of paths) assert.ok(inputs.includes(path), path)
+})
+
+test("the nightly run renders the stories of its play and screenshot checks", () => {
+  const stories = ["a--one", "a--two", "b--one"].map((id) => ({ id }))
+  assert.deepEqual(
+    storiesOfChecks(stories, [
+      "storybook:plays:apps/ui/src/a.stories.tsx#a--one",
+      "storybook:visual:apps/ui/src/b.stories.tsx#b--one",
+    ]).map((story) => story.id),
+    ["a--one", "b--one"],
+  )
+  assert.deepEqual(storiesOfChecks(stories, []), [])
 })

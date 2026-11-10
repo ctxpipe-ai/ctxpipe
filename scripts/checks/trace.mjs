@@ -13,8 +13,10 @@ import { gunzipSync, gzipSync } from "node:zlib"
 // Trace files (schema/trace.v1.schema.json): for each check and test case,
 // the source lines that the case executed. The runner collects them with
 // trace-reporter.mjs and trace-worker.mjs. Usage:
-//   trace.mjs merge <out> <trace>...
+//   trace.mjs merge <out> [<trace>...]
 // merges trace files of one commit (for example the CI shards) into one.
+// Without a trace file, it writes the empty trace of HEAD: a nightly run whose
+// plan has no check traces nothing (scripts/checks/README.md, Traces).
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 
@@ -97,11 +99,11 @@ function readTrace(path) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     const [command, out, ...inputs] = process.argv.slice(2)
-    if (command !== "merge" || !out || !inputs.length)
-      throw new Error("Usage: trace.mjs merge <out> <trace>...")
+    if (command !== "merge" || !out)
+      throw new Error("Usage: trace.mjs merge <out> [<trace>...]")
     const traces = inputs.map(readTrace)
     const commits = new Set(traces.map(({ commit }) => commit))
-    if (commits.size !== 1)
+    if (commits.size > 1)
       throw new Error(`Traces of more than one commit: ${[...commits]}`)
     const checks = traces.flatMap((trace) => trace.checks)
     const ids = [
@@ -113,6 +115,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     writeTrace(
       out,
       checks,
+      // Without a trace file, the default commit: HEAD.
       [...commits][0],
       Object.assign({}, ...traces.map((trace) => trace.durations)),
     )

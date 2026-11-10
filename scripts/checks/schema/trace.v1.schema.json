@@ -21,6 +21,21 @@
         "$ref": "#/$defs/check"
       }
     },
+    "planId": {
+      "description": "In a trace of a nightly run that `factory trace combine` wrote: the id of the plan of the run (`factory nightly plan`). The Results writer accepts only that plan. Optional.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "fullTraceCommit": {
+      "description": "In a trace that `factory trace combine` wrote: the commit of the last full trace that it builds on. It is `commit` after a full run. A record of a check whose inputs did not change since that trace is kept from it: its lines are the same at `commit`. Optional.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "fullTraceAt": {
+      "description": "In a trace that `factory trace combine` wrote: when the plan of the last full trace was made (RFC 3339). A full trace runs again when it is 7 days old. Optional.",
+      "type": "string",
+      "format": "date-time"
+    },
     "durations": {
       "description": "The time in milliseconds of each check that ran but has no record in `checks` (a project check, a Bun lane), by check id. Optional. A check in it was not traced.",
       "type": "object",

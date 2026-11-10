@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -15,6 +15,7 @@ import {
   selectPlayStories,
   selectTracedStories,
   shardStories,
+  storiesOfChecks,
 } from "./storybook-select.mjs"
 import {
   playStories,
@@ -46,6 +47,9 @@ const run = (command, args, cwd = ui) => {
 // renders the stories without a play function, and records each story under
 // the id of its screenshot check too (traceRecordsOf). A story without a play
 // function has no play check, so it gives no result.
+// STORYBOOK_IDS=<file> keeps the stories of the check ids in the file, one
+// per line: the play or screenshot checks of the stories (the story id after
+// `#`). The nightly run gives the checks that need a new trace record.
 const mode = process.env.STORYBOOK_PLAYS === "all" ? "all" : "required"
 const trace = process.argv.slice(2).includes("--trace")
 
@@ -58,7 +62,7 @@ const chosenStories = (index) => {
           : selectPlayStories(index)
         : selectRequiredStories(index)
     const only = (process.env.STORYBOOK_ONLY ?? "").split(",").filter(Boolean)
-    const filtered = only.length
+    const onlyStories = only.length
       ? stories.filter((story) =>
           only.some(
             (part) =>
@@ -66,6 +70,16 @@ const chosenStories = (index) => {
           ),
         )
       : stories
+    const idsFile = process.env.STORYBOOK_IDS
+    const filtered = idsFile
+      ? storiesOfChecks(
+          onlyStories,
+          readFileSync(idsFile, "utf8")
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean),
+        )
+      : onlyStories
     return shardStories(filtered, process.env.STORYBOOK_SHARD)
   } catch (error) {
     fail(error.message)

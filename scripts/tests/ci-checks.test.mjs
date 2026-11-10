@@ -1615,3 +1615,73 @@ test("the rerun of selected.mjs reads MANIFEST and lists no checks", () => {
     rmSync(directory, { recursive: true, force: true })
   }
 })
+
+test("a trace of a nightly run matches the schema, with its plan and its last full trace", () => {
+  const document = schema("trace")
+  const trace = {
+    schemaVersion: 1,
+    commit: "a".repeat(40),
+    checks: [],
+    planId: "b".repeat(32),
+    fullTraceCommit: "c".repeat(40),
+    fullTraceAt: "2026-11-10T02:30:00Z",
+  }
+  validate(trace, document, document)
+  assert.throws(() =>
+    validate({ ...trace, planId: "../x" }, document, document),
+  )
+})
+
+test("a planned job traces its checks when TRACE names a folder", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-selected-trace-"))
+  try {
+    const id = "vitest:ui:apps/ui/src/components/onboarding/org-name.test.ts"
+    const planPath = join(directory, "plan.json")
+    writeFileSync(
+      planPath,
+      JSON.stringify({ jobs: { "package-tests": { ids: [id], rerun: [] } } }),
+    )
+    const results = join(directory, "selected")
+    const run = spawnSync(
+      process.execPath,
+      [script("selected.mjs"), results, planPath, "package-tests"],
+      {
+        cwd: root,
+        encoding: "utf8",
+        env: { ...process.env, TRACE: results },
+        maxBuffer: 64 * 1024 * 1024,
+      },
+    )
+    assert.equal(run.status, 0, run.stderr)
+    const trace = JSON.parse(
+      gunzipSync(readFileSync(join(results, "trace.json.gz"))).toString("utf8"),
+    )
+    assert.deepEqual(
+      trace.checks.map((check) => check.id),
+      [id],
+    )
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("a merge of no trace writes the empty trace of HEAD", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-empty-trace-"))
+  try {
+    const out = join(directory, "trace.json.gz")
+    const result = node([script("trace.mjs"), "merge", out])
+    assert.equal(result.status, 0, result.stderr)
+    const trace = JSON.parse(gunzipSync(readFileSync(out)).toString("utf8"))
+    const head = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+    })
+    assert.deepEqual(trace, {
+      schemaVersion: 1,
+      commit: head.stdout.trim(),
+      checks: [],
+    })
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})

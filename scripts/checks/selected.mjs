@@ -23,7 +23,8 @@ const root = fileURLToPath(new URL("../../", import.meta.url))
 // step with a credential sets it, so that the check discovery (which imports
 // PR code) runs without the credential. The
 // script writes the result records to <results dir>/records.ndjson, prints
-// them, and prints the end of the log of each check that did not pass. Each
+// them, and prints the end of the log of each check that did not pass. With
+// TRACE=<dir> (the nightly run), it also writes <dir>/trace.json.gz. Each
 // failed check in `rerun` runs once more (rerun-failed.mjs): a stored pass
 // has its key, so the merge gate needs a second result. The exit code is
 // that of the first run.
@@ -54,6 +55,7 @@ try {
         ...(process.env.MANIFEST
           ? ["--manifest", resolve(process.env.MANIFEST)]
           : []),
+        ...(process.env.TRACE ? ["--trace", resolve(process.env.TRACE)] : []),
       ],
       {
         cwd: root,
