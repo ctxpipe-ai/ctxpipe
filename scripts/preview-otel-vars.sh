@@ -22,7 +22,7 @@ preview_otel_vars_extract() {
 }
 
 preview_otel_vars_build() {
-  local endpoint="${1:-https://telemetry.ctxpipe.ai}"
+  local endpoint="${1:-https://otel.ctxpipe.dev}"
   local headers="${OBSERVABILITY_OTLP_HEADERS:-}"
   endpoint="${endpoint%/}"
   if [[ -z "${headers//[[:space:]]/}" ]]; then

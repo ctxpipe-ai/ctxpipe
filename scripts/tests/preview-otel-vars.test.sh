@@ -12,31 +12,31 @@ bash -n "$script" || fail "preview-otel-vars.sh must pass bash -n"
 
 got="$(
   jq -n '{
-    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://telemetry.ctxpipe.ai/v1/traces",
-    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://telemetry.ctxpipe.ai/v1/logs",
-    OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "https://telemetry.ctxpipe.ai/v1/metrics",
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://otel.ctxpipe.dev/v1/traces",
+    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://otel.ctxpipe.dev/v1/logs",
+    OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "https://otel.ctxpipe.dev/v1/metrics",
     OTEL_EXPORTER_OTLP_HEADERS: "authorization=test-ingest",
     DATABASE_URL: "postgresql://should-not-copy"
   }' | "$script" extract
 )"
 echo "$got" | jq -e '
-  .OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == "https://telemetry.ctxpipe.ai/v1/traces"
-  and .OTEL_EXPORTER_OTLP_LOGS_ENDPOINT == "https://telemetry.ctxpipe.ai/v1/logs"
-  and .OTEL_EXPORTER_OTLP_METRICS_ENDPOINT == "https://telemetry.ctxpipe.ai/v1/metrics"
+  .OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == "https://otel.ctxpipe.dev/v1/traces"
+  and .OTEL_EXPORTER_OTLP_LOGS_ENDPOINT == "https://otel.ctxpipe.dev/v1/logs"
+  and .OTEL_EXPORTER_OTLP_METRICS_ENDPOINT == "https://otel.ctxpipe.dev/v1/metrics"
   and .OTEL_EXPORTER_OTLP_HEADERS == "authorization=test-ingest"
   and (keys | length) == 4
   and (has("DATABASE_URL") | not)
 ' >/dev/null || fail "extract should keep only the four exporter keys"
 
-if jq -n '{OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:"https://telemetry.ctxpipe.ai/v1/traces"}' | "$script" extract 2>/dev/null; then
+if jq -n '{OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:"https://otel.ctxpipe.dev/v1/traces"}' | "$script" extract 2>/dev/null; then
   fail "extract should fail when headers/logs/metrics are missing"
 fi
 
 got="$(OBSERVABILITY_OTLP_HEADERS="authorization=from-secret" "$script" build)"
 echo "$got" | jq -e '
-  .OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == "https://telemetry.ctxpipe.ai/v1/traces"
-  and .OTEL_EXPORTER_OTLP_LOGS_ENDPOINT == "https://telemetry.ctxpipe.ai/v1/logs"
-  and .OTEL_EXPORTER_OTLP_METRICS_ENDPOINT == "https://telemetry.ctxpipe.ai/v1/metrics"
+  .OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == "https://otel.ctxpipe.dev/v1/traces"
+  and .OTEL_EXPORTER_OTLP_LOGS_ENDPOINT == "https://otel.ctxpipe.dev/v1/logs"
+  and .OTEL_EXPORTER_OTLP_METRICS_ENDPOINT == "https://otel.ctxpipe.dev/v1/metrics"
   and .OTEL_EXPORTER_OTLP_HEADERS == "authorization=from-secret"
 ' >/dev/null || fail "build should use the ClickStack public collector default"
 
@@ -239,9 +239,9 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 prod_complete="$(jq -nc '{
-  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://telemetry.ctxpipe.ai/v1/traces",
-  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://telemetry.ctxpipe.ai/v1/logs",
-  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "https://telemetry.ctxpipe.ai/v1/metrics",
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://otel.ctxpipe.dev/v1/traces",
+  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://otel.ctxpipe.dev/v1/logs",
+  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "https://otel.ctxpipe.dev/v1/metrics",
   OTEL_EXPORTER_OTLP_HEADERS: "authorization=from-prod",
   DATABASE_URL: "postgresql://should-not-copy"
 }')"
@@ -273,7 +273,7 @@ if printf '%s' "$out" | grep -Fq "authorization=from-secret"; then
 fi
 assert_four_upserts "$tmp/from-secret/upserts" "authorization=from-secret"
 jq -e '
-  .input.variables.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == "https://telemetry.ctxpipe.ai/v1/traces"
+  .input.variables.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == "https://otel.ctxpipe.dev/v1/traces"
 ' "$tmp/from-secret/upserts" >/dev/null || fail "fallback should build the default collector traces URL"
 
 if OBSERVABILITY_OTLP_HEADERS="" run_sync '{}' "$tmp/empty-secret" >/dev/null 2>&1; then

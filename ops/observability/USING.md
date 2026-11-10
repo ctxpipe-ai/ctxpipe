@@ -2,7 +2,7 @@
 
 How to read hosted telemetry and how to send a laptop into it. What runs and how it is deployed: [README.md](./README.md). Agents: [observability skill](../../.agents/skills/observability/SKILL.md).
 
-HyperDX: https://hyperdx.ctxpipe.dev, behind Cloudflare Access (factory `machines/observability`, CTX-1216). Spans keep the prompt text; Langfuse is gone. OTLP: https://telemetry.ctxpipe.ai with `OTEL_EXPORTER_OTLP_HEADERS=authorization=<HYPERDX_API_KEY>` (the ingest token, not the personal access key).
+HyperDX: https://hyperdx.ctxpipe.dev, behind Cloudflare Access (factory `machines/observability`, CTX-1216). Spans keep the prompt text; Langfuse is gone. OTLP: https://otel.ctxpipe.dev with `OTEL_EXPORTER_OTLP_HEADERS=CF-Access-Client-Id=<id>,CF-Access-Client-Secret=<secret>` (the Access service token `telemetry`, in production Secrets Manager at `cloudflare/access/telemetry`; the GitHub secret `OBSERVABILITY_OTLP_HEADERS` holds the same value).
 
 ## Accounts
 
@@ -96,18 +96,18 @@ Leave `OTEL_EXPORTER_OTLP_*` unset unless this run needs a backend. `pnpm dev` d
 
 **Laptop collector.** `pnpm dev:infra` publishes `${CTXPIPE_OTEL_COLLECTOR_HOST_PORT:-4318}:4318` on every interface. Point the app at `http://127.0.0.1:4318/v1/traces`, `/v1/logs`, and `/v1/metrics`. Omit the headers. `OTEL_SERVICE_NAME` is `backend`, `openworkflow`, or `codesearch`. The collector prints OTLP to its own logs. There is no local HyperDX.
 
-**Shared collector (opt-in).** Use it when the hosted dashboards should show this run; [preview-env](../../.agents/skills/preview-env/run-setup.md#local-trace-export) local runs always do. The 4 GiB ClickHouse node and the Langfuse prompt store are why it stays opt-in.
+**Shared collector (opt-in).** Use it when the hosted dashboards should show this run; [preview-env](../../.agents/skills/preview-env/run-setup.md#local-trace-export) local runs always do. It stays opt-in because the run's prompts go into the shared store for 30 days.
 
-Put these lines in `apps/backend/.env.local` (gitignored; never commit the key):
+Put these lines in `apps/backend/.env.local` (gitignored; never commit the token):
 
 ```bash
-OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://telemetry.ctxpipe.ai/v1/traces
-OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=https://telemetry.ctxpipe.ai/v1/logs
-OTEL_EXPORTER_OTLP_HEADERS=authorization=<HYPERDX_API_KEY>
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://otel.ctxpipe.dev/v1/traces
+OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=https://otel.ctxpipe.dev/v1/logs
+OTEL_EXPORTER_OTLP_HEADERS=CF-Access-Client-Id=<id>,CF-Access-Client-Secret=<secret>
 OTEL_RESOURCE_ATTRIBUTES=deployment.environment=local-<name>
 ```
 
-`<name>` is the person or agent. Filter HyperDX to that environment. Langfuse tag is `env:local-<name>`. Add `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=https://telemetry.ctxpipe.ai/v1/metrics` only when the run needs metrics; `local-*` uses the 60s metric reader, so a process that exits immediately can miss gauges.
+`<name>` is the person or agent. Filter HyperDX to that environment. The header values are the Access service token `telemetry` (`cloudflare/access/telemetry` in production Secrets Manager), not a HyperDX key. Add `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=https://otel.ctxpipe.dev/v1/metrics` only when the run needs metrics; `local-*` uses the 60s metric reader, so a process that exits immediately can miss gauges.
 
 `pnpm dev` hands them to every local process: Bun loads `.env.local` for the backend and the OpenWorkflow worker, `scripts/codesearch-docker-dev.sh` passes them into the codesearch container, and Turbo passes them to the UI server, whose `/.otel` relay then forwards browser spans. The worker reports as `service.name=backend` unless `OTEL_SERVICE_NAME` is set, and that is fine locally. Use `OTEL_RESOURCE_ATTRIBUTES`, not `DEPLOYMENT_ENVIRONMENT`: the backend also reads `DEPLOYMENT_ENVIRONMENT` for preview behavior. Headless runs (`scripts/dev-headless.sh`, the cloud-VM runbook) load `.env.local` only into the backend and worker; export the same variables in the shell that starts them to cover the UI and codesearch. The codesearch container reaches a laptop collector at `localhost` or `127.0.0.1` through `host.docker.internal`.
 
@@ -115,8 +115,8 @@ OTEL_RESOURCE_ATTRIBUTES=deployment.environment=local-<name>
 
 | Data | Hot (volume) | Then |
 | --- | --- | --- |
-| `otel` tables | 3 days | Cold bucket, delete after 390 days |
-| `langfuse.traces`, `observations`, `scores` | 30 days, then cold | Kept |
+| Traces, logs, sessions (they hold prompt text) | 3 days | Cold bucket, deleted after 30 days |
+| Metrics | 3 days | Cold bucket, deleted after 390 days |
 | `system.query_log`, `system.error_log` | 3 days, local disk | Deleted |
 
-A search older than the hot window reads the bucket. If the bucket is down, that query fails within 120 seconds. `count()` can use local part metadata. Detail: [clickhouse/README.md](./clickhouse/README.md).
+A search older than the hot window reads the bucket. If the bucket is down, that query fails within 120 seconds. `count()` can use local part metadata. Detail: factory `machines/observability/clickhouse/README.md`.

@@ -27,10 +27,11 @@ under the MIT License.
   connectors, authentication, and organization settings.
 - **`apps/docs`** — Fumadocs on Next.js 15. Documentation routes use the
   `/docs` base path; local docs run separately on port 3003.
-- **`ops/observability`** — internal ClickStack + Langfuse stack (not a product
-  runtime). Public collector is `telemetry.ctxpipe.ai`; HyperDX is
-  `hyperdx.ctxpipe.ai`; Langfuse is `langfuse.ctxpipe.ai`. See
-  [ADR-038](decisions/ADR-038-self-hosted-clickstack-langfuse.md).
+- **`ops/observability`** — the query guide and the old Railway stack of the
+  internal ClickStack (not a product runtime). The stack runs in the production
+  AWS account (factory `machines/observability`, ADR-061 decision 25). The
+  collector is `otel.ctxpipe.dev` and HyperDX is `hyperdx.ctxpipe.dev`, both
+  behind Cloudflare Access. Langfuse is gone.
 - **`apps/otel-collector`** — laptop OTLP debug sink for `pnpm dev:infra` (stdout only). Hosted ingest is [`ops/observability`](../../ops/observability/).
 - **`apps/forge-ctxpipe-agent`** — Atlassian Forge app for Confluence.
 - **`packages/cli`** — the `ctxpipe` CLI, including `npx ctxpipe init` and local
