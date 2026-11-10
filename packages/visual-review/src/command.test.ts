@@ -1192,6 +1192,8 @@ export const Primary = { render: () => null }
     test.each([
       ["a budget that is not a number", ["--budget-usd", "five"]],
       ["a negative budget", ["--budget-usd", "-1"]],
+      // Number() gives Infinity for it, which would turn the budget off.
+      ["a budget too large to be finite", ["--budget-usd", "9".repeat(400)]],
       [
         "a budget with --judge agent",
         ["--judge", "agent", "--budget-usd", "1"],

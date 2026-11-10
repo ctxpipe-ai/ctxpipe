@@ -141,12 +141,15 @@ export async function visualReview(
     limitUsd: limit === undefined ? undefined : Number(limit),
     spentUsd: 0,
   }
+  // A very long digit string is Infinity, which would turn the budget off.
   if (
     limit !== undefined &&
-    (judge !== "model" || !/^\d+(\.\d+)?$/.test(limit))
+    (judge !== "model" ||
+      !/^\d+(\.\d+)?$/.test(limit) ||
+      !Number.isFinite(budget.limitUsd))
   ) {
     print(
-      `--budget-usd must be a number of USD, 0 or more, and it goes only with --judge model.\n\n${usage}`,
+      `--budget-usd must be a finite number of USD, 0 or more, and it goes only with --judge model.\n\n${usage}`,
     )
     return 2
   }
