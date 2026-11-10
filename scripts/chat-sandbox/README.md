@@ -22,3 +22,30 @@ carries plain HTTP. The image loads `node-http-proxy.cjs` through
 `NODE_OPTIONS=--import`: that file sends a plain `http://` request to the proxy
 in absolute form, as curl and Bun do. OpenCode runs on Bun, so this change is
 only for Node processes (for example skill scripts).
+
+## AgentCore target
+
+`docker build --target agentcore scripts/chat-sandbox` builds the image for
+AgentCore Runtime. Its entry point is
+[`agentcore-shim.mjs`](agentcore-shim.mjs) on port 8080. AgentCore sends only
+`GET /ping` and `POST /invocations` to a session. The backend reaches the
+OpenCode port through the shim: each invocation holds one HTTP request, and
+the shim streams the answer back as server-sent events. Commands go through
+`InvokeAgentRuntimeCommand`, not through the shim.
+
+AgentCore writes the text of each command to the runtime's CloudWatch log
+group, but not the payload of an invocation. Thus the backend stores each
+script and each file that it sends in the shim first (the `put` action), and
+the command only reads it once, by its id, from a Unix socket in a 0700
+folder of `node` (`/tmp/ctxpipe-shim/blobs.sock`): root and `node` can read
+it, the ingest agent user cannot. No proxy session and no repository content
+is in a command's text.
+
+The memory snapshot holds the shim only. OpenCode starts later as a command.
+The shim does not create a secret and does not use Node `crypto`, because a value that
+a restored process makes can repeat in each session.
+
+AgentCore runs each command as the image user. In the `agentcore` target,
+that user is root, because an ingest sandbox needs root to seal its inputs
+and to run its agent as another user (ADR-052). The backend runs each chat
+command as `node`. `tini` is PID 1 and reaps orphans; the shim runs as `node`.

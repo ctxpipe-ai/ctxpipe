@@ -1,5 +1,5 @@
 # node:24.22.1-bookworm multi-arch index, pinned 2026-10-25.
-FROM node@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4240a
+FROM node@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4240a AS base
 
 # Build-time tools only; a conversation never installs its harness as root.
 # The ingest skills run ast-grep and ripgrep in this image (ADR-052).
@@ -23,3 +23,24 @@ ENV HOME=/home/node
 USER 1000:1000
 WORKDIR /workspace
 CMD ["sh", "-c", "tail -f /dev/null"]
+
+# AgentCore Runtime (`--target agentcore`): the shim on port 8080 is the
+# entry point. The memory snapshot holds the shim only; OpenCode starts later
+# as a command (CTX-1219).
+FROM base AS agentcore
+# PID 1 must reap orphans: a killed command leaves its children to PID 1, and
+# Node does not reap them. tini does, and it passes signals to the shim.
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/*
+COPY agentcore-shim.mjs /usr/local/lib/ctxpipe/agentcore-shim.mjs
+EXPOSE 8080
+# AgentCore runs each command as the image user. Root is that user here,
+# because an ingest sandbox needs root (ADR-052); the backend runs each chat
+# command as `node`. The shim itself runs as `node`.
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["setpriv", "--reuid=1000", "--regid=1000", "--clear-groups", "node", "/usr/local/lib/ctxpipe/agentcore-shim.mjs"]
+
+# The default target: Docker and Compose sandboxes.
+FROM base

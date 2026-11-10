@@ -85,6 +85,8 @@ jobs:
         run: node scripts/ci/check-adr.mjs . origin/main
       - name: Reject new single-use module-scope values
         run: node scripts/ci/check-module-scope-values.mjs .
+      - name: Chat sandbox AgentCore shim tests
+        run: node --test scripts/tests/chat-sandbox-agentcore-shim.test.mjs
       - name: CI command regression tests
         run: |
           node --test scripts/tests/ci-*.test.mjs
