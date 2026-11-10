@@ -331,6 +331,10 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     "ci.yaml:merge-gate-select",
     "ci.yaml:merge-gate-llm",
     "ci.yaml:results-writer",
+    // The nightly plan reads the manifest and the toolchain record of the
+    // manifest job only as data, and runs only the factory release (checked
+    // against its pinned SHA-256). It runs no repository script.
+    "ci.yaml:nightly-plan",
     // The job reads the result records and the visual manifests of the
     // nightly Storybook jobs only as data (scripts/ci/nightly.mjs), with the
     // Linear key of the workbench environment. It runs no downloaded file.

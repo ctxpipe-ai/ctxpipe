@@ -621,14 +621,14 @@ jobs:
           MODE: ${{ needs.merge-gate-plan.outputs.mode }}
         run: |
           set -o pipefail
-          if [ "$MODE" = gate ]; then
-            jq -r '.jobs["project-checks"].ids[]' "$RUNNER_TEMP/plan/plan.json" > "$RUNNER_TEMP/project-checks.txt"
-          else
+          if [ "$MODE" != gate ]; then
             # A check with cacheable false reads outside state (Terraform, Docker, a
             # PR deploy) that this job lacks, and its time is not the job's purpose.
             pnpm -s checks:list |
               jq -r '.checks[] | select((.family == "typecheck" or .family == "lint" or .family == "policy") and .cacheable != false) | .id' \
               > "$RUNNER_TEMP/project-checks.txt"
+          else
+            jq -r '.jobs["project-checks"].ids[]' "$RUNNER_TEMP/plan/plan.json" > "$RUNNER_TEMP/project-checks.txt"
           fi
           mkdir -p "$RUNNER_TEMP/project-trace"
           # The result records also go to the Results writer.
