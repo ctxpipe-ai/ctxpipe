@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process"
+import { type ChildProcess, execFileSync, spawn } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import {
   createServer,
@@ -8,6 +8,7 @@ import {
 } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { BedrockAgentCoreClient } from "@aws-sdk/client-bedrock-agentcore"
 import { EventStreamCodec } from "@smithy/eventstream-codec"
@@ -56,18 +57,25 @@ const chunk = (body: unknown) =>
  * not msw: msw does not close the answer when the caller closes the
  * connection, and the port bridge depends on that close.
  */
-function fakeAgentCoreServer(root: string, shimPort: () => number) {
+/** Where the fake microVM runs: this host's shell, or a container. */
+type MicroVm = {
+  /** Runs the command text with a shell in the workspace folder. */
+  run: (command: string) => ChildProcess
+  /** Empties the microVM, as a new session would find it. */
+  reset: () => void
+  /** The shim's port 8080 as this host reaches it. */
+  shimPort: number
+}
+
+function fakeAgentCoreServer(microVm: MicroVm) {
   const running = new Set<string>()
   const calls: { api: string; sessionId: string; qualifier: string | null }[] =
     []
   let failNext: "platform" | "exception" | undefined
   const freshMicroVm = (sessionId: string) => {
-    if (!running.has(sessionId)) {
-      rmSync(join(root, "state"), { recursive: true, force: true })
-      rmSync(join(root, "workspace"), { recursive: true, force: true })
-      running.add(sessionId)
-    }
-    mkdirSync(join(root, "workspace"), { recursive: true })
+    if (running.has(sessionId)) return
+    microVm.reset()
+    running.add(sessionId)
   }
   const readBody = async (request: IncomingMessage) => {
     const chunks: Buffer[] = []
@@ -104,7 +112,7 @@ function fakeAgentCoreServer(root: string, shimPort: () => number) {
         const upstream = httpRequest(
           {
             host: "127.0.0.1",
-            port: shimPort(),
+            port: microVm.shimPort,
             method: "POST",
             path: "/invocations",
           },
@@ -144,9 +152,7 @@ function fakeAgentCoreServer(root: string, shimPort: () => number) {
         return
       }
       // AgentCore runs the command text with a shell.
-      const child = spawn("/bin/sh", ["-c", command], {
-        cwd: join(root, "workspace"),
-      })
+      const child = microVm.run(command)
       child.stdout.on("data", (data: Buffer) =>
         response.write(chunk({ contentDelta: { stdout: data.toString() } })),
       )
@@ -183,24 +189,9 @@ export const listen = (server: Server) =>
     }),
   )
 
-/**
- * A fake AgentCore endpoint with one fake microVM, and the real shim of the
- * image on its port 8080. `paths` are the microVM's folders for the
- * provider; `runtime` is a client of the fake endpoint.
- */
-export async function startFakeAgentCore(qualifier?: string) {
-  const root = mkdtempSync(join(tmpdir(), "agentcore-fake-"))
-  // The shim is a plain ESM file of the sandbox image.
-  const shimFile = new URL(
-    "../../../../scripts/chat-sandbox/agentcore-shim.mjs",
-    import.meta.url,
-  ).href
-  const { shimServer } = (await import(shimFile)) as {
-    shimServer: () => Server
-  }
-  const shim = shimServer()
-  const shimPort = await listen(shim)
-  const fake = fakeAgentCoreServer(root, () => shimPort)
+/** A client of the fake endpoint, and the fake's controls. */
+async function withFakeEndpoint(microVm: MicroVm, qualifier?: string) {
+  const fake = fakeAgentCoreServer(microVm)
   const endpoint = `http://127.0.0.1:${await listen(fake.server)}`
   const runtime: AgentCoreRuntime = {
     client: new BedrockAgentCoreClient({
@@ -212,15 +203,123 @@ export async function startFakeAgentCore(qualifier?: string) {
     runtimeArn: RUNTIME_ARN,
     ...(qualifier ? { qualifier } : {}),
   }
+  return { ...fake, endpoint, runtime }
+}
+
+const SHIM_FILE = fileURLToPath(
+  new URL(
+    "../../../../scripts/chat-sandbox/agentcore-shim.mjs",
+    import.meta.url,
+  ),
+)
+
+/**
+ * A fake AgentCore endpoint whose microVM is this host: commands run with the
+ * host shell in a temporary folder, and the real shim of the image runs in
+ * this process. `paths` are the microVM's folders for the provider.
+ */
+export async function startFakeAgentCore(qualifier?: string) {
+  const root = mkdtempSync(join(tmpdir(), "agentcore-fake-"))
+  const paths = { state: join(root, "state"), workdir: join(root, "workspace") }
+  // The shim is a plain ESM file of the sandbox image.
+  const { shimServer } = (await import(pathToFileURL(SHIM_FILE).href)) as {
+    shimServer: () => Server
+  }
+  const shim = shimServer()
+  const fake = await withFakeEndpoint(
+    {
+      shimPort: await listen(shim),
+      run: (command) => {
+        mkdirSync(paths.workdir, { recursive: true })
+        // AgentCore runs the command text with a shell.
+        return spawn("/bin/sh", ["-c", command], { cwd: paths.workdir })
+      },
+      reset: () => {
+        rmSync(paths.state, { recursive: true, force: true })
+        rmSync(paths.workdir, { recursive: true, force: true })
+      },
+    },
+    qualifier,
+  )
   return {
     ...fake,
-    endpoint,
-    runtime,
-    paths: { state: join(root, "state"), workdir: join(root, "workspace") },
+    paths,
     close() {
       shim.close()
       fake.server.close()
       rmSync(root, { recursive: true, force: true })
     },
+  }
+}
+
+/**
+ * A fake AgentCore endpoint whose microVM is a container of the chat sandbox
+ * image, with the shim of this checkout as its entry point on port 8080: the
+ * same as the image's `agentcore` target. Commands run as the image user with
+ * the image's `sh` (dash), as on AgentCore.
+ */
+export async function startContainerAgentCore(image: string) {
+  const docker = (args: string[]) =>
+    execFileSync("docker", args, { encoding: "utf8" }).trim()
+  const shimPath = "/usr/local/lib/ctxpipe/agentcore-shim.mjs"
+  const container = docker([
+    "run",
+    "-d",
+    "--rm",
+    // tini as PID 1, as the image's `agentcore` target has.
+    "--init",
+    "-p",
+    "127.0.0.1::8080",
+    "-v",
+    `${SHIM_FILE}:${shimPath}:ro`,
+    image,
+    "node",
+    shimPath,
+  ])
+  try {
+    const shimPort = Number(
+      docker(["port", container, "8080/tcp"]).split(":").at(-1),
+    )
+    for (let attempt = 0; ; attempt++) {
+      const ready = await fetch(`http://127.0.0.1:${shimPort}/ping`).then(
+        (answer) => answer.ok,
+        () => false,
+      )
+      if (ready) break
+      if (attempt > 100) throw new Error("The shim did not start")
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    const fake = await withFakeEndpoint({
+      shimPort,
+      run: (command) =>
+        spawn("docker", [
+          "exec",
+          "-i",
+          "-w",
+          "/workspace",
+          container,
+          "sh",
+          "-c",
+          command,
+        ]),
+      reset: () =>
+        docker([
+          "exec",
+          container,
+          "sh",
+          "-c",
+          "rm -rf /tmp/ctxpipe /workspace/* /workspace/.[!.]*",
+        ]),
+    })
+    return {
+      ...fake,
+      close() {
+        fake.server.close()
+        docker(["rm", "-f", container])
+      },
+    }
+  } catch (error) {
+    docker(["rm", "-f", container])
+    throw error
   }
 }

@@ -187,6 +187,18 @@ function textChannel() {
  */
 const PGID_MARKER = "__ctxpipe_agentcore_pgid:"
 
+/**
+ * Wait until AgentCore has read the command's output pipes, at most 5 s for
+ * each. AgentCore stops reading the pipes when the command exits, so up to
+ * one pipe buffer (64 KiB) at the end of the output was lost in a test
+ * against a real runtime (2 of 6 large outputs). `FIONREAD` (0x541B) gives
+ * the bytes that are still in a pipe. The arguments are the file
+ * descriptors. Perl is in every Debian image.
+ */
+function drainCommand(...fds: number[]): string {
+  return `perl -e 'for my $fd (@ARGV) { open(my $fh, ">&=", $fd) or next; for (1..500) { my $n = pack("i", 0); ioctl($fh, 0x541B, $n) or last; last if unpack("i", $n) == 0; select(undef, undef, undef, 0.01) } }' ${fds.join(" ")}`
+}
+
 function agentCoreHandle(
   runtime: AgentCoreRuntime,
   sessionId: string,
@@ -230,10 +242,12 @@ function agentCoreHandle(
       if (group === undefined) return
       const name =
         typeof signal === "number" ? String(signal) : signal.replace(/^SIG/, "")
-      await run(`kill -${name} -- -${group} 2>/dev/null; true`)
+      // Dash's `kill` refuses `--`: the group id follows the signal.
+      await run(`kill -${name} -${group} 2>/dev/null; true`)
     }
-    // The outer shell's job notices go to /dev/null; the job keeps stderr.
-    const wrapped = `set -m\nsh -c ${q(script(command, options))} &\necho "${PGID_MARKER}$!"\nexec 2>/dev/null\nwait $!`
+    // The outer shell's job notices go to /dev/null; the job keeps stderr,
+    // which fd 3 keeps open for the drain.
+    const wrapped = `set -m\nsh -c ${q(script(command, options))} &\necho "${PGID_MARKER}$!"\nexec 3>&2 2>/dev/null\nwait $!\ncode=$?\n${drainCommand(1, 3)}\nexit $code`
     let pending = ""
     const exited = (async () => {
       try {
@@ -322,7 +336,7 @@ function agentCoreHandle(
     for await (const event of commandEvents(
       runtime,
       sessionId,
-      `sh -c ${q(command)}`,
+      `sh -c ${q(`${command}\ncode=$?\n${drainCommand(1, 2)}\nexit $code`)}`,
     )) {
       if ("exitCode" in event)
         return { stdout, stderr, exitCode: event.exitCode }

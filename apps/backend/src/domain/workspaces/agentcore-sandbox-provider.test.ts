@@ -104,7 +104,7 @@ describe("agentCoreSandboxProvider", () => {
     await server.kill("SIGKILL")
     expect(await server.wait()).not.toBe(0)
     const left = await handle.process.exec(
-      `kill -0 -- -${server.pid} 2>/dev/null && echo alive || echo gone`,
+      `kill -0 -${server.pid} 2>/dev/null && echo alive || echo gone`,
     )
     expect(left.stdout.trim()).toBe("gone")
     await provider.destroy({ id: handle.id })
