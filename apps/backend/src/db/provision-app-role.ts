@@ -190,7 +190,7 @@ function appRoleMissingMessage(roleName: string): string {
     "Do one of these steps, then run migrate again:",
     "- Docker Compose: set POSTGRES_PASSWORD in the root .env file. The migrate service sends it as DATABASE_APP_PASSWORD.",
     "- AWS CDK: deploy the stack again. The migrate task reads DATABASE_APP_PASSWORD from the app database credentials secret.",
-    "- Hosted (Neon): run `terraform apply -target=module.ctxpipe.random_password.app_database`, then give `terraform output -raw ctxpipe_app_password` as DATABASE_APP_PASSWORD.",
+    "- Hosted (AWS): the migrate task reads DATABASE_APP_PASSWORD from the ctxpipe_app password secret in Secrets Manager (factory repo, machines/hosted). Make sure that the secret has a value, then deploy again.",
     `- Other: set DATABASE_APP_PASSWORD to the password for ${roleName}. Migrate creates the role with it.`,
   ].join("\n")
 }
