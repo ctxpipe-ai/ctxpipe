@@ -1,4 +1,4 @@
-# Builds scip-clang and scip-ruby from their pinned upstream tags for
+# Builds scip-clang and scip-ruby from their pinned upstream commits for
 # linux/amd64 and linux/arm64 on Debian Bookworm (apps/codesearch/indexers/Dockerfile).
 # Upstream publishes only x86_64 binaries, and they need GLIBC 2.38.
 #
@@ -7,9 +7,10 @@
 #   their SHA256SUMS to the GitHub release `codesearch-indexers-<commit>`.
 #   Then pin the new files in apps/codesearch/release-assets.txt.
 #
-# Each run builds from a clean runner. The release is the cache: the codesearch
-# image downloads the published binaries and never compiles them. A build runs
-# only when an indexer version or the build changes.
+# Each run builds from a clean runner, because the binaries go to production.
+# The release is the cache: the codesearch image downloads the published
+# binaries and never compiles them. A cold build takes more than 10 minutes,
+# but it runs only when an indexer version or the build changes.
 
 name: Indexer binaries
 
@@ -30,11 +31,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The two build jobs share their steps (the anchor). Only the runner and
+  # ARCH differ: check-runners.mjs needs a literal runner label on each job.
   build-arm64:
     timeout-minutes: 240
     name: Build (arm64)
     runs-on: blacksmith-16vcpu-ubuntu-2404-arm
-    steps:
+    env:
+      ARCH: arm64
+    steps: &build-steps
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -46,12 +51,12 @@ jobs:
             --output "type=local,dest=$RUNNER_TEMP/out" .
           seconds="$(( $(date +%s) - start ))"
           cd "$RUNNER_TEMP/out"
-          mv scip-clang scip-clang-linux-arm64
-          mv scip-ruby scip-ruby-linux-arm64
-          echo "linux/arm64 build: ${seconds} s on ${RUNNER_NAME}" | tee build-time-arm64.txt >> "$GITHUB_STEP_SUMMARY"
+          mv scip-clang "scip-clang-linux-$ARCH"
+          mv scip-ruby "scip-ruby-linux-$ARCH"
+          echo "linux/$ARCH build: ${seconds} s on ${RUNNER_NAME}" | tee "build-time-$ARCH.txt" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: indexers-arm64
+          name: indexers-${{ env.ARCH }}
           path: ${{ runner.temp }}/out/*
           if-no-files-found: error
 
@@ -60,26 +65,9 @@ jobs:
     name: Build (amd64)
     # amd64: it builds the linux/amd64 binaries natively.
     runs-on: blacksmith-16vcpu-ubuntu-2404
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - name: Build and verify
-        run: |
-          start="$(date +%s)"
-          docker buildx build --progress=plain \
-            -f apps/codesearch/indexers/Dockerfile --target binaries \
-            --output "type=local,dest=$RUNNER_TEMP/out" .
-          seconds="$(( $(date +%s) - start ))"
-          cd "$RUNNER_TEMP/out"
-          mv scip-clang scip-clang-linux-amd64
-          mv scip-ruby scip-ruby-linux-amd64
-          echo "linux/amd64 build: ${seconds} s on ${RUNNER_NAME}" | tee build-time-amd64.txt >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: indexers-amd64
-          path: ${{ runner.temp }}/out/*
-          if-no-files-found: error
+    env:
+      ARCH: amd64
+    steps: *build-steps
 
   # Only this job can write to the repository. It runs no build and no
   # upstream code: it uploads the files that the build jobs verified.

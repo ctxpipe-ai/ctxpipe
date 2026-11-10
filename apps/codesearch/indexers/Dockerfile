@@ -1,4 +1,4 @@
-# Builds scip-clang and scip-ruby from their pinned upstream tags for the
+# Builds scip-clang and scip-ruby from their pinned upstream commits for the
 # platform of the build (linux/amd64 or linux/arm64).
 #
 # Upstream publishes these binaries only for x86_64 Linux, and those binaries
@@ -7,8 +7,9 @@
 # fails when a binary needs a GLIBC version above 2.36.
 #
 # The workflow .github/workflows/indexer-binaries.yaml runs this file and
-# publishes the binaries to a GitHub release. apps/codesearch/release-assets.txt
-# pins them by checksum. Local run, from the repository root:
+# publishes the binaries to a GitHub release. After a release, pin the new
+# files by checksum in apps/codesearch/release-assets.txt. Local run, from the
+# repository root:
 #
 #   docker buildx build -f apps/codesearch/indexers/Dockerfile \
 #     --target binaries --output type=local,dest=out .
@@ -65,9 +66,8 @@ WORKDIR /home/builder
 FROM toolchain AS scip-clang
 ARG TARGETARCH
 # Tag v0.4.0.
-ARG SCIP_CLANG_REV=1860adf8deab7870fed2199eadc190e3965a92ff
 RUN git init -q src && cd src \
-  && git fetch -q --depth 1 https://github.com/sourcegraph/scip-clang.git "${SCIP_CLANG_REV}" \
+  && git fetch -q --depth 1 https://github.com/sourcegraph/scip-clang.git 1860adf8deab7870fed2199eadc190e3965a92ff \
   && git checkout -q FETCH_HEAD
 WORKDIR /home/builder/src
 RUN --mount=type=cache,id=bazel-scip-clang-${TARGETARCH},target=/home/builder/.cache/bazel,uid=1000,gid=1000 \
@@ -84,9 +84,8 @@ RUN --mount=type=cache,id=bazel-scip-clang-${TARGETARCH},target=/home/builder/.c
 FROM toolchain AS scip-ruby
 ARG TARGETARCH
 # Tag scip-ruby-v0.4.7.
-ARG SCIP_RUBY_REV=319524058d87cfe5992cfb9eec12ec70fc91213d
 RUN git init -q src && cd src \
-  && git fetch -q --depth 1 https://github.com/sourcegraph/scip-ruby.git "${SCIP_RUBY_REV}" \
+  && git fetch -q --depth 1 https://github.com/sourcegraph/scip-ruby.git 319524058d87cfe5992cfb9eec12ec70fc91213d \
   && git checkout -q FETCH_HEAD
 WORKDIR /home/builder/src
 RUN --mount=type=cache,id=bazel-scip-ruby-${TARGETARCH},target=/home/builder/.cache/bazel,uid=1000,gid=1000 \
@@ -117,6 +116,7 @@ RUN set -eu; \
   for binary in scip-clang scip-ruby; do \
     newest="$(objdump -T "/usr/local/bin/${binary}" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -Vu | tail -n 1)"; \
     echo "${binary} needs GLIBC ${newest}"; \
+    test -n "${newest}"; \
     test "$(printf '%s\n2.36\n' "${newest}" | sort -V | tail -n 1)" = 2.36; \
   done
 # Index each fixture and look for the symbol of its greet method in the SCIP
