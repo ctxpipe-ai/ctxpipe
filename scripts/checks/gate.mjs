@@ -680,7 +680,7 @@ export function criticsText(checked, repoUrl) {
       // A cut ends at a line, so no table row or link is cut in two.
       const cut =
         critic.section.length > 25000
-          ? `${critic.section.slice(0, critic.section.lastIndexOf("\n", 25000))}\n\nThe section is cut: see the Files changed tab.`
+          ? `${critic.section.slice(0, Math.max(critic.section.lastIndexOf("\n", 25000), 0) || 25000)}\n\nThe section is cut: see the Files changed tab.`
           : critic.section
       lines.push(
         "",

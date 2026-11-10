@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 
 import { baselinePath } from "../../packages/visual-review/src/compare/manifest.ts"
 import { readUnstable } from "../checks/visual.mjs"
-import { shardStories } from "./storybook-select.mjs"
+import { selectTracedStories, shardStories } from "./storybook-select.mjs"
 import {
   captureInContainer,
   capturePlan,
@@ -86,12 +86,9 @@ async function prove() {
   const index = JSON.parse(
     readFileSync(join(root, "apps/ui/storybook-static/index.json"), "utf8"),
   )
-  const entries = new Map(
-    Object.values(index.entries)
-      .filter((entry) => entry.type === "story")
-      .map((entry) => [entry.id, entry]),
-  )
-  const all = [...entries.keys()].sort()
+  const stories = selectTracedStories(index)
+  const entries = new Map(stories.map((entry) => [entry.id, entry]))
+  const all = stories.map((entry) => entry.id)
   if (!all.length) throw new Error("The Storybook build has no story.")
   const sample = process.argv[2]?.startsWith("--") ? undefined : process.argv[2]
   const size =

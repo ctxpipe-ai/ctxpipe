@@ -1046,10 +1046,10 @@ jobs:
   # the determinism job: a draft pull request adds them to the unstable list
   # (scripts/ci/visual-unstable-stories.json) and removes their desktop
   # baselines, also of their named snapshots (an unstable screenshot has
-  # none, so a kept one would be an orphan), so that no screenshot check runs for them until a person fixes
-  # the cause. It runs
-  # only on main, runs no repository script and has no AWS role. When GitHub
-  # refuses the pull request, the error annotation names the stories.
+  # none, so a kept one would be an orphan). Then no screenshot check runs
+  # for them until a person fixes the cause. It runs only on main, runs no
+  # repository script and has no AWS role. When GitHub refuses the pull
+  # request, the error annotation names the stories.
   unstable-screenshots:
     timeout-minutes: 10
     name: Unstable screenshots

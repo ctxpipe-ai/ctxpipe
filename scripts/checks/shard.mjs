@@ -151,8 +151,13 @@ function laneMedian(seconds, lane) {
 // weights of CI (scripts/ci/test-weights.json), then the median of the
 // traced checks of its lane, then a fixed guess.
 export function estimate(id, seconds, fileWeights = weights()) {
-  if (seconds.has(id)) return seconds.get(id)
   const [family, lane, ...rest] = id.split(":")
+  // The trace holds the lines of a screenshot check from the plays run
+  // (storybook-plays.mjs), so its time is the play time, not the capture
+  // time in the container. A full run captured about 900 stories in 30
+  // minutes: 2 seconds each.
+  if (family === "storybook" && lane === "visual") return 2
+  if (seconds.has(id)) return seconds.get(id)
   const file = rest.join(":")
   const directory = { backend: "apps/backend/", contracts: "apps/backend/" }
   const weight = fileWeights[lane]?.[file.replace(directory[lane] ?? "", "")]

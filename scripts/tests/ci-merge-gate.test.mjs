@@ -958,9 +958,15 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
     job: "storybook-visual",
     profile: "visual",
   })
+  // A screenshot check counts 2 seconds, not the play time that the trace
+  // holds for it.
+  assert.equal(
+    estimate("storybook:visual:a#x", new Map([["storybook:visual:a#x", 0.2]]), {}),
+    2,
+  )
   // Two short screenshot checks fit in one shard; the shards need the
-  // Storybook build too. A selection of about 900 stories at 3 seconds each
-  // takes at most the 4 shards of a full run.
+  // Storybook build too. A selection of about 900 stories (2 seconds each)
+  // takes 3 shards of the 10-minute target, under the 4 of a full run.
   assert.equal(
     shard(["storybook:visual:a#x", "storybook:visual:b#y"], new Map(), {})
       .visual.length,
@@ -974,7 +980,7 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
       ),
       {},
     ).visual.length,
-    4,
+    3,
   )
   assert.equal(
     shardMinutes({ visual: [{ ids: [], seconds: 60 }] }),
@@ -1530,6 +1536,25 @@ test("the comment includes the screenshots section that the factory makes for a 
     ),
   )
   assert.ok(!odd.includes("#####"), odd)
+  // A long section with no line break is cut at the bound all the same.
+  const long = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          critics: [
+            {
+              critic: "critic:visual",
+              status: "missing",
+              reason: "r",
+              section: "x".repeat(30000),
+            },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(long.includes(`${"x".repeat(25000)}\n\nThe section is cut`), "cut")
+  assert.ok(!long.includes("x".repeat(25001)), "bound")
 })
 
 test("a raised limit of another shape never reaches the comment", () => {
