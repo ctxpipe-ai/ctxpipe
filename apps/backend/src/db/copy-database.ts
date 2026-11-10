@@ -277,7 +277,8 @@ export async function preflight(
     }
 
     // Any object of the user, except those of an extension (the vector
-    // extension is there before the restore).
+    // extension is there before the restore). A standalone composite type is
+    // a pg_class row of kind 'c', so the second count has it.
     const notExtension = (oid: string) =>
       `NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = ${oid} AND d.deptype = 'e')`
     const used = await one<{ n: string }>(

@@ -158,12 +158,15 @@ describe("copy-database (two Postgres 17 containers)", () => {
       }),
     ).rejects.toThrow(/Restore only into an empty database/)
 
-    // No table, but a schema and a function would clash with the restore.
+    // No table, but a schema, a function and a composite type would clash
+    // with the restore.
     const schemaOnly = pair.targetUrl("ctxpipe_schema_only")
     await sql(
       schemaOnly,
       "CREATE SCHEMA leftover",
       "CREATE FUNCTION leftover.one() RETURNS int LANGUAGE sql AS 'SELECT 1'",
+      // A standalone composite type is a pg_class row of kind 'c'.
+      "CREATE TYPE public.leftover_pair AS (a int, b int)",
     )
     await expect(
       copyDatabase({
@@ -173,7 +176,7 @@ describe("copy-database (two Postgres 17 containers)", () => {
         jobs: 2,
       }),
     ).rejects.toThrow(
-      /has 2 schemas, tables, views, sequences, types or functions/,
+      /has 3 schemas, tables, views, sequences, types or functions/,
     )
   }, 120_000)
 
