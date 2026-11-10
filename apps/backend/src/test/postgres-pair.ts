@@ -10,8 +10,7 @@ import pg from "pg"
  * (CTX-1217). The source has the roles of Neon: an owner login
  * `neondb_owner` that is a member of `neon_superuser`, which has BYPASSRLS.
  * The target has the roles of Aurora: a master login `ctxpipe` that is not a
- * superuser, in an `rds_superuser` group. The copy test and the local
- * rehearsal use them.
+ * superuser, in an `rds_superuser` group. The copy test uses them.
  */
 
 const exec = promisify(execFile)

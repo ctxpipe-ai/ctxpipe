@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { promisify } from "node:util"
 
@@ -31,7 +31,7 @@ const exec = promisify(execFile)
 const SYSTEM_SCHEMA = `n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
   AND n.nspname NOT LIKE 'pg_temp_%' AND n.nspname NOT LIKE 'pg_toast_temp_%'`
 
-type Phase = { name: string; ms: number }
+type Phase = { name: string; ms: number; failed?: boolean }
 
 type TableResult = {
   table: string
@@ -70,35 +70,62 @@ type VerifyReport = {
   problems: string[]
 }
 
-type Connection = {
-  /** The URL without its password, for `--dbname`. */
+type Endpoint = {
+  name: string
+  hostname: string
+  /** The libpq URL without its password, for `--dbname`. */
   dbname: string
   password: string | undefined
+  pool: pg.PoolConfig
 }
 
 /**
- * The libpq form of a URL: its password (from the user part or the
- * `password` parameter) goes to PGPASSWORD, not to the arguments. libpq
- * checks no certificate for `sslmode=require`, so a URL of a remote host
- * gets `sslmode=verify-full` and the system roots: the dump of production
- * crosses the internet. Node-postgres already treats `require` as
- * `verify-full`.
+ * Reads one database URL. The password (from the user part or the
+ * `password` parameter) goes to PGPASSWORD for the tools, not to their
+ * arguments. A remote host gets TLS with a certificate check on each path:
+ * libpq checks no certificate for `sslmode=require`, and node-postgres sends
+ * no TLS without `sslmode`. The CA is the system roots (Neon), or the file
+ * that `sslrootcert` names (the RDS bundle for Aurora). A URL that does not
+ * parse gives a fixed message: the parse error of Bun holds the whole URL.
  */
-function connection(url: string, verifyRemote: boolean): Connection {
-  const parsed = new URL(url)
+async function endpoint(url: string, name: string): Promise<Endpoint> {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error(
+      `The ${name} URL does not parse. Percent-encode the special characters of its password.`,
+    )
+  }
   const password =
     (parsed.password ? decodeURIComponent(parsed.password) : undefined) ??
     parsed.searchParams.get("password") ??
     undefined
   parsed.password = ""
   parsed.searchParams.delete("password")
-  const local = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)
-  if (verifyRemote && !local) {
+  // node-postgres takes TLS from `ssl` below; URL parameters would replace it.
+  const forPool = new URL(parsed.toString())
+  for (const key of [...forPool.searchParams.keys()])
+    if (key.startsWith("ssl") || key === "uselibpqcompat")
+      forPool.searchParams.delete(key)
+  if (password) forPool.password = encodeURIComponent(password)
+  let ssl: pg.PoolConfig["ssl"]
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)) {
+    const rootCert = parsed.searchParams.get("sslrootcert") ?? "system"
     parsed.searchParams.set("sslmode", "verify-full")
-    if (!parsed.searchParams.has("sslrootcert"))
-      parsed.searchParams.set("sslrootcert", "system")
+    parsed.searchParams.set("sslrootcert", rootCert)
+    ssl =
+      rootCert === "system"
+        ? { rejectUnauthorized: true }
+        : { rejectUnauthorized: true, ca: await readFile(rootCert, "utf8") }
   }
-  return { dbname: parsed.toString(), password }
+  return {
+    name,
+    hostname: parsed.hostname,
+    dbname: parsed.toString(),
+    password,
+    pool: { connectionString: forPool.toString(), ...(ssl ? { ssl } : {}) },
+  }
 }
 
 /**
@@ -136,8 +163,8 @@ async function pgTool(
   }
 }
 
-function pool(url: string, max: number): pg.Pool {
-  const created = new pg.Pool({ connectionString: url, max })
+function pool(at: Endpoint, max: number): pg.Pool {
+  const created = new pg.Pool({ ...at.pool, max })
   created.on("connect", (client) => {
     // The text form of a row must be the same on both servers, so that one
     // row gives one checksum on each side.
@@ -182,17 +209,18 @@ export async function preflight(
   sourceUrl: string,
   targetUrl: string,
 ): Promise<PreflightReport> {
-  const source = pool(sourceUrl, 1)
-  const target = pool(targetUrl, 1)
+  const ends = [
+    await endpoint(sourceUrl, "source"),
+    await endpoint(targetUrl, "target"),
+  ] as const
+  const source = pool(ends[0], 1)
+  const target = pool(ends[1], 1)
   try {
     const problems: string[] = []
-    for (const [name, url] of [
-      ["source", sourceUrl],
-      ["target", targetUrl],
-    ] as const)
-      if (new URL(url).hostname.includes("-pooler"))
+    for (const end of ends)
+      if (end.hostname.includes("-pooler"))
         problems.push(
-          `The ${name} URL is a pooler. Give the direct URL: the checksums need session settings.`,
+          `The ${end.name} URL is a pooler. Give the direct URL: the checksums need session settings.`,
         )
     const version = async (db: pg.Pool) =>
       (
@@ -383,8 +411,8 @@ export async function verifyDatabaseCopy(
   targetUrl: string,
   jobs = 4,
 ): Promise<VerifyReport> {
-  const source = pool(sourceUrl, jobs)
-  const target = pool(targetUrl, jobs)
+  const source = pool(await endpoint(sourceUrl, "source"), jobs)
+  const target = pool(await endpoint(targetUrl, "target"), jobs)
   try {
     const problems: string[] = []
     const sourceTables = await tables(source)
@@ -428,6 +456,11 @@ export async function verifyDatabaseCopy(
         )
       return { sequence, source: value, target: copied }
     })
+    for (const sequence of targetSequences.keys())
+      if (!sourceSequences.has(sequence))
+        problems.push(
+          `The target has the sequence ${sequence}, the source has not.`,
+        )
 
     const sourceObjects = await objectCounts(source)
     const targetObjects = await objectCounts(target)
@@ -465,7 +498,7 @@ export async function verifyDatabaseCopy(
  * does not do the work of production a second time.
  */
 async function cancelOpenRuns(targetUrl: string): Promise<number> {
-  const target = pool(targetUrl, 1)
+  const target = pool(await endpoint(targetUrl, "target"), 1)
   try {
     const result = await target.query(
       `UPDATE openworkflow.workflow_runs
@@ -503,12 +536,17 @@ export async function copyDatabase(options: {
   const started = Date.now()
   const timed = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
     const begin = Date.now()
-    const result = await fn()
-    phases.push({ name, ms: Date.now() - begin })
-    return result
+    try {
+      const result = await fn()
+      phases.push({ name, ms: Date.now() - begin })
+      return result
+    } catch (error) {
+      phases.push({ name, ms: Date.now() - begin, failed: true })
+      throw error
+    }
   }
-  const source = connection(options.sourceUrl, true)
-  const target = connection(options.targetUrl, false)
+  const source = await endpoint(options.sourceUrl, "source")
+  const target = await endpoint(options.targetUrl, "target")
   const dumpDir = join(options.workDir, "dump")
   const jobs = String(options.jobs)
   const reportFile = join(options.workDir, "report.json")

@@ -1,8 +1,8 @@
 import pg from "pg"
 
 /*
- * Synthetic rows in each table of a migrated database, for the cutover
- * rehearsal and the copy test (CTX-1217). No row holds customer data: each
+ * Synthetic rows in each table of a migrated database, for the cutover copy
+ * test (CTX-1217). No row holds customer data: each
  * value comes from the row number.
  *
  * Each value is a function of its table, its column and the row number, so a

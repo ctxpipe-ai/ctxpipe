@@ -5,7 +5,11 @@
  * with 1 when a check fails.
  *
  * Give the URLs in the environment, not as arguments, so that no password
- * shows in the process list. Give direct URLs, not a pooler. Give a work
+ * shows in the process list. Each remote URL gets TLS with a certificate
+ * check: Neon uses the system roots, and an Aurora URL must name the RDS CA
+ * bundle (`?sslrootcert=/path/global-bundle.pem`, from
+ * https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem).
+ * Give direct URLs, not a pooler. Give a work
  * directory on the storage of the task only: the dump holds every row, and
  * the copy deletes it at the end. The target URL is the login that owns the
  * restored objects (on Aurora, the master user). Run migrate after the copy:
