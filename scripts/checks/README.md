@@ -331,7 +331,7 @@ An escalated finding holds each hunk that it names. A finding that names no chan
 
 The agent acts with the identity of the person on its host, so it can run `factory decide` without a decision of the person. "Only a person decides" is a rule that the agent follows, as for a register proposal and for a verdict. The control is that each dismissal shows its reason and its writer in the PR comment.
 
-No text of an accepted risk goes into this repo, its PR comments or its artifacts. The PR comment and the artifact show only the status of each critic. They show no finding.
+No text of an accepted risk goes into this repo, its PR comments or its artifacts. The PR comment and the artifact show the status of each critic and no finding text. They also show the finding id, the reason, the writer and the commit of each override and each dismissal. Those reasons are public, so they hold no customer name and no secret.
 
 The critics job removes each URL and each credential-like string from the stderr of `factory review gate` (sed). This occurs before the text goes into the log and the cause file. Only the critics job redacts: `gate.mjs` shows the cause as it is.
 
