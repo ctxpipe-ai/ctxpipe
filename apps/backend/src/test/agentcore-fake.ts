@@ -62,11 +62,12 @@ function fakeAgentCoreServer(root: string, shimPort: () => number) {
     []
   let failNext: "platform" | "exception" | undefined
   const freshMicroVm = (sessionId: string) => {
-    if (running.has(sessionId)) return
-    rmSync(join(root, "state"), { recursive: true, force: true })
-    rmSync(join(root, "workspace"), { recursive: true, force: true })
+    if (!running.has(sessionId)) {
+      rmSync(join(root, "state"), { recursive: true, force: true })
+      rmSync(join(root, "workspace"), { recursive: true, force: true })
+      running.add(sessionId)
+    }
     mkdirSync(join(root, "workspace"), { recursive: true })
-    running.add(sessionId)
   }
   const readBody = async (request: IncomingMessage) => {
     const chunks: Buffer[] = []
@@ -151,6 +152,11 @@ function fakeAgentCoreServer(root: string, shimPort: () => number) {
       )
       child.stderr.on("data", (data: Buffer) =>
         response.write(chunk({ contentDelta: { stderr: data.toString() } })),
+      )
+      child.on("error", () =>
+        response.end(
+          chunk({ contentStop: { exitCode: -1, status: "COMPLETED" } }),
+        ),
       )
       child.on("close", (code) =>
         response.end(
