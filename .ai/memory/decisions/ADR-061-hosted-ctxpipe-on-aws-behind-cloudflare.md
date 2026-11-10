@@ -54,9 +54,8 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - Code owners and a branch rule hold only the files that can change a guardrail, for a person's review (the CTO, 2026-11-10):
         - `machines/aws-core/` and its deploy workflow `aws-core.yml`: the organization, the roles, the permission boundaries and the SCPs;
         - the `CODEOWNERS` file itself;
-        - `ci.yml`, the merge gate. A pull request runs its own `ci.yml`, so a `ci.yml` without a code owner could rewrite the gate;
         - the security risk register (`risk-register.md`).
-    - Everything else merges on the merge gate: the edge stack, `guard.yml`, the deploy workflows, the policy pack and the guard stacks. The permission boundaries in aws-core are the control, because a deploy role cannot change a guard.
+    - Everything else merges on the merge gate: `ci.yml` and the gate scripts, the edge stack, `guard.yml`, the deploy workflows, the policy pack and the guard stacks. The nightly audit checks changes to the gate. The permission boundaries in aws-core are the control, because a deploy role cannot change a guard.
     - No GitHub environment holds a long-lived secret, because any workflow on `main` can name an environment. A job gets a long-lived secret from AWS Secrets Manager, through a role that pins its workflow file.
     - The policy pack blocks a replace or a delete of a protected resource.
     - The organization stays in CDK (`machines/aws-core`).
