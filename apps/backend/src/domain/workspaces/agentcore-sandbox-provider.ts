@@ -356,6 +356,15 @@ function agentCoreHandle(
       rejectPgid = reject
     })
     let settled = false
+    let killFailure: unknown
+    /** Why an aborted command fails: the abort, and a kill that failed. */
+    const abortError = () =>
+      killFailure === undefined
+        ? options.signal?.reason
+        : new Error(
+            `The command was aborted, and killing it failed: ${String(killFailure)}`,
+            { cause: killFailure },
+          )
     const kill = async (signal: NodeJS.Signals | number = "SIGTERM") => {
       const group = pgid ?? (await started.catch(() => undefined))
       // A finished process has nothing to kill, and a call to a stopped
@@ -368,8 +377,9 @@ function agentCoreHandle(
     }
     // The outer shell reads the session env (only the image user can) and
     // passes it on (`runuser -m`). The job reads its staged script. The
-    // outer shell's job notices go to /dev/null; the job keeps stderr,
-    // which fd 3 keeps open for the drain.
+    // outer shell's own messages (job control) go to /dev/null before the
+    // job starts; the job writes to the first stderr, which fd 3 keeps open
+    // for the job and for the drain.
     // `-m` keeps the session env; HOME, USER and LOGNAME become the user's.
     const runAs = user
       ? `runuser -u ${shellQuote(user)} -m -- env HOME="$(getent passwd ${shellQuote(user)} | cut -d: -f6)" USER=${shellQuote(user)} LOGNAME=${shellQuote(user)} `
@@ -382,7 +392,7 @@ function agentCoreHandle(
           sessionId,
           stagedScript(script(command, options)),
         )
-        const wrapped = `[ -r ${shellQuote(envFile)} ] && . ${shellQuote(envFile)}\nset -m\n${runAs}sh -c ${shellQuote(runStaged(paths, id))} &\necho "${PGID_MARKER}$!"\nexec 3>&2 2>/dev/null\nwait $!\ncode=$?\n${drainCommand(1, 3)}\nexit $code`
+        const wrapped = `[ -r ${shellQuote(envFile)} ] && . ${shellQuote(envFile)}\nexec 3>&2 2>/dev/null\nset -m\n${runAs}sh -c ${shellQuote(runStaged(paths, id))} 2>&3 3>&- &\necho "${PGID_MARKER}$!"\nwait $!\ncode=$?\n${drainCommand(1, 3)}\nexit $code`
         for await (const event of commandEvents(
           runtime,
           sessionId,
@@ -395,7 +405,7 @@ function agentCoreHandle(
               rejectPgid(new Error("The command did not start"))
             // An aborted command fails, also when it ended before the abort
             // reached the stream.
-            options.signal?.throwIfAborted()
+            if (options.signal?.aborted) throw abortError()
             return event.timedOut ? 124 : event.exitCode
           }
           if (event.stderr) stderr.push(event.stderr)
@@ -416,7 +426,8 @@ function agentCoreHandle(
           if (rest) stdout.push(rest)
         }
         throw new Error("The AgentCore command stream ended early")
-      } catch (error) {
+      } catch (caught) {
+        const error = options.signal?.aborted ? abortError() : caught
         rejectPgid(error)
         throw error
       } finally {
@@ -427,16 +438,12 @@ function agentCoreHandle(
     if (options.signal) {
       const { signal } = options
       // The stream always ends, also when the kill call fails; the command
-      // then fails with the abort reason (see `throwIfAborted` above).
+      // then fails with the abort and the kill failure (`abortError`).
       const onAbort = () => {
         kill("SIGKILL")
-          .catch((error: unknown) =>
-            log.warn({
-              step: "agentcore-sandbox-kill",
-              message: `Killing an aborted command failed: ${String(error)}`,
-              sessionId,
-            }),
-          )
+          .catch((error: unknown) => {
+            killFailure = error
+          })
           .finally(() => stream.abort(signal.reason))
       }
       if (signal.aborted) onAbort()

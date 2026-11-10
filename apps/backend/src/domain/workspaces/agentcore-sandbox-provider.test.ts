@@ -144,6 +144,21 @@ describe("agentCoreSandboxProvider", () => {
     await provider.destroy({ id: handle.id })
   })
 
+  it("fails an aborted command with the kill failure when its kill fails", async () => {
+    const handle = await provider.create({})
+    const controller = new AbortController()
+    const running = handle.process.exec("sleep 5", {
+      signal: controller.signal,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    fake.failNextCommand("exception")
+    controller.abort(new Error("step limit"))
+    await expect(running).rejects.toThrow(
+      "The command was aborted, and killing it failed",
+    )
+    await provider.destroy({ id: handle.id })
+  })
+
   it("makes no call for a kill or an abort after a command finished, so a stopped session stays stopped", async () => {
     const handle = await provider.create({})
     const controller = new AbortController()
