@@ -101,14 +101,31 @@ const cases: Case[] = [
     region: knownRegion,
   })),
 ]
+// A new case has only an after image. The runner skips it (no arm judges a
+// new screenshot yet), so no result and no count below includes it.
+cases.push({
+  ...common("new-1"),
+  kind: "new",
+  label: "intended",
+  class: null,
+  brief: "Add the status bar.",
+  commit: { sha: sha("a"), parent: sha("b") },
+  region: null,
+  diffPixels: null,
+  images: { after: "cases/new-1/after.png" },
+})
 const labelOf = (id: string) => cases.find((entry) => entry.id === id)?.label
 
 const folder = mkdtempSync(join(tmpdir(), "bakeoff-test-"))
 afterAll(() => rmSync(folder, { recursive: true, force: true }))
 const images = join(folder, "images")
 for (const entry of cases) {
-  const [before, after] = pairs[entry.kind]
   mkdirSync(join(images, "cases", entry.id), { recursive: true })
+  if (entry.kind === "new") {
+    writeFileSync(join(images, entry.images.after), page(gray, teal))
+    continue
+  }
+  const [before, after] = pairs[entry.kind]
   writeFileSync(join(images, entry.images.before), before)
   writeFileSync(join(images, entry.images.after), after)
 }
@@ -549,6 +566,7 @@ test("an image that links outside the image folder stops the run before a call",
   const outside = join(folder, "private.png")
   writeFileSync(outside, pairs.intended[0])
   for (const entry of cases) {
+    if (entry.kind === "new") continue
     mkdirSync(join(linked, "cases", entry.id), { recursive: true })
     writeFileSync(join(linked, entry.images.before), pairs[entry.kind][0])
     writeFileSync(join(linked, entry.images.after), pairs[entry.kind][1])

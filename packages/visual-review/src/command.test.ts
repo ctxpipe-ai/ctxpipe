@@ -73,7 +73,12 @@ const intended = {
   findings: [],
 }
 
-type Chat = { model: string }
+// The parts of a chat request that the tests read.
+type Chat = {
+  model: string
+  messages: { content: { type: string; text?: string }[] }[]
+  response_format: { json_schema: { schema: object } }
+}
 const chats: Chat[] = []
 let content = JSON.stringify(regression)
 const server = setupServer(
@@ -518,6 +523,118 @@ describe("visual:review reads only in the run folder", () => {
   })
 })
 
+describe("visual:review judges a new story of the manifest on its own", () => {
+  const overflow = {
+    observations: [
+      {
+        part: 1,
+        seen: "A page with a header. Its title runs off the right edge.",
+      },
+    ],
+    verdict: "regression",
+    severity: "major",
+    confidence: 0.9,
+    summary: "The title of the new page overflows.",
+    qualities: [{ name: "focus", rating: "weak", confidence: 0.7 }],
+    findings: [
+      {
+        kind: "overflow",
+        region: { x: 0.5, y: 0.1, width: 0.5, height: 0.1 },
+        evidence: "Image 2: the title is cut at the right edge.",
+        rubricRef: "apps/ui/DESIGN.md › Focus / keyboard",
+        explainedByBrief: false,
+        suggestion: null,
+      },
+    ],
+  }
+
+  /** A run with one new page story at desktop and mobile. */
+  async function writeNewRun(): Promise<string> {
+    const manifest = await writeRun([])
+    const edited = JSON.parse(await readFile(manifest, "utf8"))
+    const [unchanged] = edited.stories
+    for (const viewport of ["desktop", "mobile"]) {
+      await mkdir(join(root, "settings--new", viewport), { recursive: true })
+      await writeFile(join(root, "settings--new", viewport, "after.png"), after)
+      edited.stories.push({
+        ...unchanged,
+        id: "settings--new",
+        scope: "page",
+        viewport,
+        status: "new",
+        size: null,
+        diffPixels: null,
+        regions: [],
+        severity: null,
+        summary: "The story has no baseline.",
+        signature: null,
+        images: { after: `settings--new/${viewport}/after.png` },
+      })
+    }
+    await writeFile(manifest, JSON.stringify(edited))
+    return manifest
+  }
+
+  test("--judge model: one call for both viewports, with the scope of the manifest; a broken new page blocks", async () => {
+    content = JSON.stringify(overflow)
+    const manifest = await writeNewRun()
+
+    const code = await run("--manifest", manifest, "--json")
+
+    expect(code).toBe(1)
+    expect(chats).toHaveLength(1)
+    expect(JSON.stringify(chats[0])).toContain("Scope: page")
+    const verdicts = verdictSchema.array().parse(JSON.parse(output.join("\n")))
+    expect(verdicts).toMatchObject([
+      {
+        storyId: "settings--new.desktop",
+        verdict: "regression",
+        severity: "major",
+        qualities: [{ name: "focus", delta: "weak" }],
+      },
+      {
+        storyId: "settings--new.mobile",
+        verdict: "regression",
+        groupedWith: "settings--new.desktop",
+      },
+    ])
+  })
+
+  test("--judge agent: the request has the rules of a new screenshot, and the verdict.json uses its schema", async () => {
+    const manifest = await writeNewRun()
+
+    expect(await run("--manifest", manifest, "--judge", "agent")).toBe(2)
+
+    const folder = join(session(), "settings--new.desktop")
+    const request = await readFile(join(folder, "request.md"), "utf8")
+    expect(request).toMatch(/judge the screenshot on its own/i)
+    expect(request).toContain("- 1-after.png")
+    expect(request).toContain("- 2-after.png")
+    await writeFile(join(folder, "verdict.json"), JSON.stringify(overflow))
+    const sessionFolder = session()
+    output = []
+
+    const code = await run(
+      "--manifest",
+      manifest,
+      "--judge",
+      "agent",
+      "--session",
+      sessionFolder,
+      "--json",
+    )
+
+    expect(code).toBe(1)
+    expect(chats).toHaveLength(0)
+    const [verdict] = verdictSchema.array().parse(JSON.parse(output.join("\n")))
+    expect(verdict).toMatchObject({
+      storyId: "settings--new.desktop",
+      verdict: "regression",
+      model: "agent",
+    })
+  })
+})
+
 describe("visual:review checks each screenshot", () => {
   test("two viewports and a named snapshot of one story get a judgment request each", async () => {
     const manifest = await writeRun(["button--primary"])
@@ -730,19 +847,362 @@ export const Primary = { render: () => null }
     expect(await readdir(work)).toEqual([])
   })
 
-  test("a new and a removed screenshot are unsure, with no model call", async () => {
-    await put("head", button, after)
-    await put("base", link, before)
+  describe("a new screenshot is judged on its own against the rubric", () => {
+    // The reply of the model on a new screenshot (newJudgementJsonSchema).
+    const brokenNew = {
+      observations: [
+        {
+          part: 1,
+          seen: "A primary button. Its label runs past its right edge.",
+        },
+      ],
+      verdict: "regression",
+      severity: "major",
+      confidence: 0.9,
+      summary: "The label of the new button overflows its box.",
+      qualities: [{ name: "clarity", rating: "fails", confidence: 0.8 }],
+      findings: [
+        {
+          kind: "overflow",
+          region: { x: 0.6, y: 0.6, width: 0.3, height: 0.2 },
+          evidence: "The last letters of the label are outside the button.",
+          rubricRef: "apps/ui/DESIGN.md › Focus / keyboard",
+          explainedByBrief: false,
+          suggestion: "Let the button grow with its label.",
+        },
+      ],
+    }
+    const goodNew = {
+      observations: [{ part: 1, seen: "A card with a title and one button." }],
+      verdict: "intended",
+      severity: "none",
+      confidence: 0.8,
+      summary: "The new card follows the rubric, as the brief asks.",
+      qualities: [{ name: "clarity", rating: "meets", confidence: 0.8 }],
+      findings: [],
+    }
+    const sent = (index: number) => {
+      const chat = chats[index]
+      if (!chat) throw new Error(`No chat call ${index}.`)
+      return chat
+    }
 
-    const code = await run("--json", "--images", images, "--", button, link)
+    test("a broken new screenshot is a regression from one call with the head image, and it blocks", async () => {
+      content = JSON.stringify(brokenNew)
+      await put("head", button, after)
 
-    expect(code).toBe(0)
-    expect(chats).toHaveLength(0)
-    expect(verdicts()).toMatchObject([
-      { path: button, verdict: "unsure", severity: "none" },
-      { path: link, verdict: "unsure", severity: "none" },
-    ])
-    expect(verdicts().every(({ error }) => error === undefined)).toBe(true)
+      const code = await run("--json", "--images", images, "--", button)
+
+      expect(code).toBe(1)
+      expect(chats).toHaveLength(1)
+      const [prefix, story, ...attached] = sent(0).messages[0]?.content ?? []
+      expect(prefix?.text).toMatch(/there is no base image/i)
+      expect(prefix?.text).toMatch(/judge the screenshot on its own/i)
+      expect(story?.text).toContain(
+        "Image 1: the full new screenshot, 400 × 300",
+      )
+      // A new story with no mobile screenshot is a component.
+      expect(story?.text).toContain("Scope: component")
+      expect(attached.map(({ type }) => type)).toEqual(["image_url"])
+      expect(JSON.stringify(sent(0).response_format)).toContain('"rating"')
+      expect(verdicts()).toMatchObject([
+        {
+          path: button,
+          verdict: "regression",
+          severity: "major",
+          observations: [
+            { region: 1, before: "", after: brokenNew.observations[0]?.seen },
+          ],
+          qualities: [{ name: "clarity", delta: "fails" }],
+          findings: [{ kind: "overflow" }],
+        },
+      ])
+    })
+
+    test("the new screenshots of one story at two viewports are one call; a removed screenshot stays unsure with no call", async () => {
+      content = JSON.stringify(goodNew)
+      const card = "apps/ui/src/components/screenshots/Card.Primary"
+      const desktop = `${card}.desktop.screenshot.png`
+      const mobile = `${card}.mobile.screenshot.png`
+      await put("head", desktop, after)
+      await put("head", mobile, screenshot(390, 600, []))
+      await put("base", link, before)
+      const brief = join(root, "brief.md")
+      await writeFile(brief, "Add a card for the new connector.")
+
+      const code = await run(
+        "--json",
+        "--brief",
+        brief,
+        "--images",
+        images,
+        "--",
+        desktop,
+        link,
+        mobile,
+      )
+
+      expect(code).toBe(0)
+      expect(chats).toHaveLength(1)
+      const parts = sent(0).messages[0]?.content ?? []
+      expect(parts.filter(({ type }) => type === "image_url")).toHaveLength(2)
+      expect(parts[1]?.text).toContain(
+        "Image 2: the full new screenshot, 390 × 600",
+      )
+      expect(parts[1]?.text).toContain("Add a card for the new connector.")
+      // The story is not at the merge base, but only a page story has a
+      // mobile screenshot: the page-only qualities apply.
+      expect(parts[1]?.text).toContain("Scope: page")
+      expect(verdicts()[0]?.summary).toContain(
+        "The scope is page: the story of this screenshot is not at the merge base, and it has a mobile screenshot",
+      )
+      expect(verdicts()).toMatchObject([
+        { path: desktop, verdict: "intended", costUsd: 0.01 },
+        { path: link, verdict: "unsure", severity: "none", model: "none" },
+        {
+          path: mobile,
+          verdict: "intended",
+          groupedWith: desktop,
+          costUsd: 0,
+          findings: [],
+        },
+      ])
+      expect(verdicts().every(({ error }) => error === undefined)).toBe(true)
+    })
+
+    test("a reply in the schema of a change is not usable for a new screenshot: exit code 2", async () => {
+      await put("head", button, after)
+
+      expect(await run("--json", "--images", images, "--", button)).toBe(2)
+      expect(verdicts()[0]?.error).toContain("does not match the schema")
+    })
+  })
+
+  describe("--budget-usd stops the model calls of the run", () => {
+    const paths = ["One", "Two", "Three", "Four"].map(
+      (name) =>
+        `apps/ui/src/components/screenshots/Button.${name}.desktop.screenshot.png`,
+    )
+    beforeEach(async () => {
+      for (const path of paths) {
+        await put("base", path, before)
+        await put("head", path, after)
+      }
+    })
+
+    test("a budget that allows 2 calls makes 2 calls, and the rest is unsure with budget reached: exit code 2", async () => {
+      // Each reply costs 0.01 USD: the third call would start at 0.02.
+      const code = await run(
+        "--json",
+        "--budget-usd",
+        "0.02",
+        "--images",
+        images,
+        "--",
+        ...paths,
+      )
+
+      expect(code).toBe(2)
+      expect(chats).toHaveLength(2)
+      const judged = verdicts()
+      expect(judged.filter(({ error }) => !error)).toHaveLength(2)
+      const rest = judged.filter(({ error }) => error)
+      expect(rest).toHaveLength(2)
+      for (const verdict of rest) {
+        expect(verdict.verdict).toBe("unsure")
+        expect(verdict.error).toMatch(
+          /^Budget reached: the run spent 0\.0200 USD of its --budget-usd 0\.02/,
+        )
+      }
+    })
+
+    test("a last call that uses up the budget gives exit code 2, also when every screenshot is judged and none blocks", async () => {
+      content = JSON.stringify(intended)
+      const brief = join(root, "brief.md")
+      await writeFile(brief, "Make the primary button red.")
+
+      const code = await run(
+        "--budget-usd",
+        "0.01",
+        "--brief",
+        brief,
+        "--images",
+        images,
+        "--",
+        paths[0] ?? "",
+      )
+
+      expect(code).toBe(2)
+      expect(chats).toHaveLength(1)
+      const text = output.join("\n")
+      expect(text).toContain("intended none")
+      expect(text).toContain(
+        "Budget reached: the run spent 0.0100 USD of its --budget-usd 0.01.",
+      )
+    })
+
+    test("with --json, the reason of a budget that the last call reached goes to stderr, and stdout stays JSON", async () => {
+      content = JSON.stringify(intended)
+      const brief = join(root, "brief.md")
+      await writeFile(brief, "Make the primary button red.")
+      const errors: string[] = []
+
+      const code = await visualReview(
+        [
+          "--json",
+          "--budget-usd",
+          "0.01",
+          "--brief",
+          brief,
+          "--images",
+          images,
+          "--",
+          paths[0] ?? "",
+        ],
+        (text) => output.push(text),
+        (text) => errors.push(text),
+      )
+
+      expect(code).toBe(2)
+      expect(verdicts()).toMatchObject([{ verdict: "intended" }])
+      expect(errors).toEqual([
+        "Budget reached: the run spent 0.0100 USD of its --budget-usd 0.01.",
+      ])
+    })
+
+    test("a run that ends under its budget passes", async () => {
+      content = JSON.stringify(intended)
+      const brief = join(root, "brief.md")
+      await writeFile(brief, "Make the primary button red.")
+
+      expect(
+        await run(
+          "--budget-usd",
+          "0.02",
+          "--brief",
+          brief,
+          "--images",
+          images,
+          "--",
+          paths[0] ?? "",
+        ),
+      ).toBe(0)
+    })
+
+    test("a reply with no cost counts as 0.25 USD", async () => {
+      server.use(
+        http.post(
+          "https://openrouter.test/api/v1/chat/completions",
+          async ({ request }) => {
+            chats.push((await request.json()) as Chat)
+            return HttpResponse.json({
+              choices: [{ message: { role: "assistant", content } }],
+            })
+          },
+        ),
+      )
+
+      const code = await run(
+        "--json",
+        "--budget-usd",
+        "0.3",
+        "--images",
+        images,
+        "--",
+        ...paths,
+      )
+
+      expect(code).toBe(2)
+      expect(chats).toHaveLength(2)
+    })
+
+    test("a budget of 0 makes no call, also for a new screenshot", async () => {
+      const fresh =
+        "apps/ui/src/components/screenshots/Card.Primary.desktop.screenshot.png"
+      await put("head", fresh, after)
+
+      const code = await run(
+        "--json",
+        "--budget-usd",
+        "0",
+        "--images",
+        images,
+        "--",
+        paths[0] ?? "",
+        fresh,
+      )
+
+      expect(code).toBe(2)
+      expect(chats).toHaveLength(0)
+      for (const { summary, error } of verdicts()) {
+        expect(summary).toMatch(
+          /^Budget reached: no model judged this screenshot\./,
+        )
+        expect(error).toMatch(/^Budget reached/)
+      }
+      expect(verdicts()).toHaveLength(2)
+    })
+
+    test("the Jev filter call counts: the explainer is not called after the budget is spent", async () => {
+      const decisions: unknown[] = []
+      server.use(
+        http.post(
+          "https://openrouter.test/api/alpha/decisions",
+          async ({ request }) => {
+            const body = (await request.json()) as {
+              questions: Record<string, { type: string }>
+            }
+            decisions.push(body)
+            return HttpResponse.json({
+              model: "typesafe/jev-1.14",
+              answers: Object.fromEntries(
+                Object.keys(body.questions).map((name) => [
+                  name,
+                  { type: "noul", noul: 0.9 },
+                ]),
+              ),
+              usage: { cost: 0.003 },
+            })
+          },
+        ),
+      )
+
+      const code = await run(
+        "--json",
+        "--filter",
+        "jev",
+        "--budget-usd",
+        "0.001",
+        "--images",
+        images,
+        "--",
+        paths[0] ?? "",
+      )
+
+      expect(code).toBe(2)
+      expect(decisions).toHaveLength(1)
+      expect(chats).toHaveLength(0)
+      expect(verdicts()[0]).toMatchObject({
+        verdict: "unsure",
+        costUsd: 0.003,
+      })
+      expect(verdicts()[0]?.error).toMatch(/^Budget reached/)
+    })
+
+    test.each([
+      ["a budget that is not a number", ["--budget-usd", "five"]],
+      ["a negative budget", ["--budget-usd", "-1"]],
+      // Number() gives Infinity for it, which would turn the budget off.
+      ["a budget too large to be finite", ["--budget-usd", "9".repeat(400)]],
+      [
+        "a budget with --judge agent",
+        ["--judge", "agent", "--budget-usd", "1"],
+      ],
+    ])("%s is a usage error", async (_, args) => {
+      expect(await run(...args)).toBe(2)
+      expect(chats).toHaveLength(0)
+      expect(output.join("\n")).toContain("Usage: pnpm visual:review")
+    })
   })
 
   test("a screenshot within the pixel tolerance is noise, with no model call", async () => {

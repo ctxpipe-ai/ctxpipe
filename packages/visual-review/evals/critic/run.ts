@@ -333,6 +333,7 @@ async function prepare(
 ): Promise<Prepared[]> {
   const prepared: Prepared[] = []
   for (const entry of manifest.cases) {
+    if (entry.kind === "new") continue
     const before = insideRoot(images, entry.images.before)
     const after = insideRoot(images, entry.images.after)
     // The images can come from an archive. A symbolic link in it must not
@@ -481,7 +482,7 @@ export async function bakeOff(
     let arms: Arm[]
     let prepared: Prepared[]
     try {
-      manifest = caseManifestSchema.parse(
+      const parsed = caseManifestSchema.parse(
         JSON.parse(
           await readFile(
             resolve(options.cases ?? join(import.meta.dirname, "cases.json")),
@@ -489,6 +490,12 @@ export async function bakeOff(
           ),
         ),
       )
+      // A new case has no before image. Its judge is not an arm yet
+      // (a follow-up of CTX-1202), so the run skips it.
+      manifest = {
+        ...parsed,
+        cases: parsed.cases.filter(({ kind }) => kind !== "new"),
+      }
       const ids = options.arms
         .split(",")
         .map((arm) => arm.trim())

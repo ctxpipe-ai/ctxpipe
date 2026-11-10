@@ -362,6 +362,34 @@ describe("reviewStories", () => {
     expect(sample.every(({ verdict }) => verdict === "regression")).toBe(true)
   })
 
+  test("a judged story with an error makes the rest of the group unsure, with that error", async () => {
+    const { judge: fake } = judge(({ storyId }) =>
+      storyId === "ripple--story-7"
+        ? verdict(storyId, {
+            verdict: "unsure",
+            severity: "none",
+            summary: "Budget reached: no model judged this screenshot.",
+            error: "Budget reached: the run spent 0.0200 USD.",
+          })
+        : verdict(storyId),
+    )
+    const ripple = Array.from({ length: 10 }, (_, i) =>
+      story(`ripple--story-${i}`, "color-change@left:288x90"),
+    )
+
+    const results = await reviewStories(ripple, fake)
+
+    const rest = results.filter(({ groupedWith }) => groupedWith)
+    expect(rest).toHaveLength(7)
+    for (const result of rest) {
+      expect(result).toMatchObject({
+        verdict: "unsure",
+        error: "Budget reached: the run spent 0.0200 USD.",
+      })
+      expect(result.summary).toContain("ripple--story-7 of the group")
+    }
+  })
+
   test("the same verdict with another severity is a disagreement", async () => {
     const { judge: fake } = judge(({ storyId }) =>
       verdict(storyId, {
