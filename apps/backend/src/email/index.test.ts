@@ -1,19 +1,25 @@
 import { initLogger } from "evlog"
+import { HttpResponse, http } from "msw"
 import { createElement } from "react"
 import {
   afterAll,
   afterEach,
   beforeAll,
   beforeEach,
+  describe,
   expect,
   it,
   vi,
 } from "vitest"
 
+import { useMswServer } from "../../test/msw.js"
 import { type FakeSmtp, startFakeSmtp } from "../test/fake-smtp.js"
 import { sendEmail } from "./index.js"
 
 const records: Record<string, unknown>[] = []
+const ses = useMswServer()
+const sesSendUrl =
+  "https://email.us-west-2.amazonaws.com/v2/email/outbound-emails"
 let smtp: FakeSmtp
 
 const template = createElement("div", null, "Hello")
@@ -115,4 +121,90 @@ it("sends from the display name ctxpipe and the configured address", async () =>
     /^From: "?ctxpipe"? <noreply@example\.com>\r?$/m,
   )
   expect(smtp.mails[0]?.body).not.toMatch(/^Reply-To:/im)
+})
+
+describe("with EMAIL_TRANSPORT=ses", () => {
+  beforeEach(() => {
+    vi.stubEnv("EMAIL_TRANSPORT", "ses")
+    vi.stubEnv("SMTP_CONNECTION_URL", undefined)
+    vi.stubEnv("AWS_REGION", "us-west-2")
+    // Stand-ins for the task role credentials that ECS gives the process.
+    vi.stubEnv("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE")
+    vi.stubEnv("AWS_SECRET_ACCESS_KEY", "example-secret")
+    vi.stubEnv("AWS_SESSION_TOKEN", "example-session")
+  })
+
+  it("sends through the SES v2 API, signed with the process credentials", async () => {
+    let sent: { body: unknown; authorization: string | null } | undefined
+    ses.use(
+      http.post(sesSendUrl, async ({ request }) => {
+        sent = {
+          body: await request.json(),
+          authorization: request.headers.get("authorization"),
+        }
+        return HttpResponse.json({ MessageId: "ses-message-1" })
+      }),
+    )
+
+    await sendEmail("invitee@example.com", "Invitation", template)
+
+    expect(sent?.authorization).toContain("Credential=AKIAEXAMPLE/")
+    expect(sent?.authorization).toContain("/us-west-2/ses/aws4_request")
+    expect(sent?.body).toMatchObject({
+      FromEmailAddress: "ctxpipe <noreply@example.com>",
+      Destination: { ToAddresses: ["invitee@example.com"] },
+      Content: {
+        Simple: {
+          Subject: { Data: "Invitation" },
+          Body: {
+            Html: { Data: expect.stringContaining("Hello") },
+            Text: { Data: expect.stringContaining("Hello") },
+          },
+        },
+      },
+    })
+    expect(
+      records.find((record) => record.step === "email.sent"),
+    ).toMatchObject({
+      level: "info",
+      subject: "Invitation",
+      messageId: "ses-message-1",
+    })
+    expect(JSON.stringify(records)).not.toContain("invitee@example.com")
+  })
+
+  it("logs a rejection and throws an error, and neither names the recipient", async () => {
+    ses.use(
+      http.post(sesSendUrl, () =>
+        HttpResponse.json(
+          { message: "Email address is not verified: invitee@example.com" },
+          {
+            status: 400,
+            headers: {
+              "x-amzn-ErrorType": "MessageRejected",
+              "x-amzn-RequestId": "request-1",
+            },
+          },
+        ),
+      ),
+    )
+
+    const error = await sendEmail("invitee@example.com", "Invitation", template)
+      .then(() => null)
+      .catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(Error)
+    expect(everythingOf(error)).not.toContain("invitee")
+    expect(
+      records.find((record) => record.step === "email.failed"),
+    ).toMatchObject({
+      level: "error",
+      subject: "Invitation",
+      code: "MessageRejected",
+      responseCode: 400,
+      requestId: "request-1",
+    })
+    expect(records.some((record) => record.step === "email.sent")).toBe(false)
+    expect(JSON.stringify(records)).not.toContain("invitee")
+  })
 })

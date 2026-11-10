@@ -216,6 +216,15 @@ describe("createBetterAuth", () => {
     })
   })
 
+  it("requires email verification with the SES transport and no SMTP", () => {
+    vi.stubEnv("SMTP_CONNECTION_URL", "")
+    vi.stubEnv("EMAIL_TRANSPORT", "ses")
+    vi.stubEnv("EMAIL_FROM_ADDRESS", "noreply@example.com")
+    expect(createAuth().options.emailAndPassword).toMatchObject({
+      requireEmailVerification: true,
+    })
+  })
+
   it("does not require email verification without SMTP", () => {
     vi.stubEnv("SMTP_CONNECTION_URL", "")
     vi.stubEnv("EMAIL_FROM_ADDRESS", "")
