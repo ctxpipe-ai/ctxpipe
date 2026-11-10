@@ -70,6 +70,8 @@ Logs go through evlog (`getLogger()` or `log` from `observability/logger.ts`). W
 
 Metrics: a gauge for a current level, a counter for a cumulative count.
 
+The worker (`service.name=openworkflow`) samples the queue depth of its namespace (runs that wait for a worker) once a minute and reports it as the gauge `openworkflow.queue.depth`, for the dashboard. Each worker task reports the same value, so take the maximum over tasks, not the sum. A hosted deployment (`DEPLOYMENT_ENVIRONMENT` set) also writes each sample as a CloudWatch EMF line on stdout (`ctxpipe` / `WorkerQueueDepth`, no dimensions). The worker autoscaling reads that metric.
+
 Export stays off the request and job path. evlog logs go through `createDrainPipeline` (backend and codesearch), spans through the batch processor, metrics through the periodic reader. Never await a collector call in a handler, middleware, or job; a telemetry relay gets a short upstream timeout. Flush only on shutdown or before a script exits (`flushEvlog()`).
 
 A deployment name (`DEPLOYMENT_ENVIRONMENT`, else `RAILWAY_ENVIRONMENT_NAME`) that matches `pr-<digits>` uses flush-on-demand and `forceFlushOtel()` after the response or job. Production uses a 60s reader.
