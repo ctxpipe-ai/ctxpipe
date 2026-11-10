@@ -209,9 +209,10 @@ describe("vercelRootExec through the Vercel SDK", () => {
 })
 
 describe("assertIngestProvider", () => {
-  it("accepts Docker and Vercel", () => {
+  it("accepts Docker, Vercel and AgentCore", () => {
     expect(() => assertIngestProvider("docker")).not.toThrow()
     expect(() => assertIngestProvider("vercel")).not.toThrow()
+    expect(() => assertIngestProvider("agentcore")).not.toThrow()
   })
 
   it("refuses ingest in unsandboxed mode", () => {

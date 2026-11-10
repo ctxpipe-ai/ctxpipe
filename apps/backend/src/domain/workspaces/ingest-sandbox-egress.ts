@@ -449,8 +449,6 @@ export function dockerIngestSandboxProvider(
      * direct connections (DinD, AWS).
      */
     network?: string
-    /** Ports to publish, for example the OpenCode server's (T09). */
-    publishPorts?: number[]
   },
 ): SandboxProvider {
   const { network } = input
@@ -458,7 +456,6 @@ export function dockerIngestSandboxProvider(
     dockerSandbox({
       image: input.image,
       dockerodeOptions: { timeout: 120_000 },
-      ...(input.publishPorts ? { publishPorts: input.publishPorts } : {}),
     }),
     input,
     {
