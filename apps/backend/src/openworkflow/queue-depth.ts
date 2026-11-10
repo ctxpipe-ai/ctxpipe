@@ -48,14 +48,15 @@ function queueDepthEmfLine(depth: number): string {
 
 /**
  * Sample the queue depth now and then once a minute. Each sample sets the
- * OTel gauge `openworkflow.queue.depth` (the dashboard). With `emf`, each
- * sample also writes the CloudWatch EMF line on stdout (the autoscaling);
- * that line is a metric record, not a log event, so it does not go through
- * evlog. The gauge reads the last sample, so a metric flush runs no SQL.
+ * OTel gauge `openworkflow.queue.depth` (the dashboard). With `writeEmf`
+ * (the worker gives stdout), each sample also writes the CloudWatch EMF
+ * line (the autoscaling); that line is a metric record, not a log event, so
+ * it does not go through evlog. The gauge reads the last sample, so a metric
+ * flush runs no SQL. After a failed sample, the gauge reports nothing.
  * Each worker task reports the same depth: take the maximum, not the sum.
  */
 export function startQueueDepthReports(
-  emf: boolean,
+  writeEmf?: (line: string) => void,
   meter: Meter = metrics.getMeter("ctxpipe-backend"),
 ): { firstSample: Promise<void>; stop: () => void } {
   let depth: number | undefined
@@ -68,18 +69,18 @@ export function startQueueDepthReports(
     .addCallback((result) => {
       if (depth !== undefined) result.observe(depth)
     })
-  const sample = () =>
-    openWorkflowQueueDepth()
-      .then((next) => {
-        depth = next
-        if (emf) process.stdout.write(queueDepthEmfLine(next))
+  const sample = async () => {
+    try {
+      depth = await openWorkflowQueueDepth()
+      writeEmf?.(queueDepthEmfLine(depth))
+    } catch (error) {
+      depth = undefined
+      log.error({
+        step: "openworkflow.queue-depth",
+        message: `Reading the queue depth failed: ${String(error)}`,
       })
-      .catch((error: unknown) =>
-        log.error({
-          step: "openworkflow.queue-depth",
-          message: `Reading the queue depth failed: ${String(error)}`,
-        }),
-      )
+    }
+  }
   const firstSample = sample()
   const timer = setInterval(() => void sample(), 60_000)
   timer.unref()

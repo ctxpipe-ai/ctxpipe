@@ -6,7 +6,7 @@ import {
   MeterProvider,
 } from "@opentelemetry/sdk-metrics"
 import { sql } from "drizzle-orm"
-import { afterAll, beforeAll, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 
 import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { FlushOnDemandMetricReader } from "../observability/flushOnDemandMetricReader.js"
@@ -23,18 +23,26 @@ beforeAll(async () => {
   initDb(process.env.DATABASE_URL)
   // Ready: a pending run, a sleeping run whose wake time came, and a
   // running run whose lease ended.
-  await insertRun("pending", -5)
-  await insertRun("sleeping", -5)
-  await insertRun("running", -5)
+  await insertRun({ status: "pending", availableInSeconds: -5 })
+  await insertRun({ status: "sleeping", availableInSeconds: -5 })
+  await insertRun({ status: "running", availableInSeconds: -5 })
   // Not ready: a running run with a live lease, a scheduled run, a
   // sleeping run, a finished run, a run past its deadline, and a run of
   // another namespace.
-  await insertRun("running", 60)
-  await insertRun("pending", 3_600)
-  await insertRun("sleeping", 3_600)
-  await insertRun("completed", null)
-  await insertRun("pending", -5, openWorkflowNamespaceId(), -1)
-  await insertRun("pending", -5, `other-${randomUUID()}`)
+  await insertRun({ status: "running", availableInSeconds: 60 })
+  await insertRun({ status: "pending", availableInSeconds: 3_600 })
+  await insertRun({ status: "sleeping", availableInSeconds: 3_600 })
+  await insertRun({ status: "completed", availableInSeconds: null })
+  await insertRun({
+    status: "pending",
+    availableInSeconds: -5,
+    deadlineInSeconds: -1,
+  })
+  await insertRun({
+    status: "pending",
+    availableInSeconds: -5,
+    namespace: `other-${randomUUID()}`,
+  })
 })
 
 afterAll(async () => {
@@ -44,13 +52,19 @@ afterAll(async () => {
   await closeDb()
 })
 
-/** One run row as OpenWorkflow writes it. `available` is seconds from now. */
-async function insertRun(
-  status: string,
-  available: number | null,
-  namespace = openWorkflowNamespaceId(),
-  deadline: number | null = null,
-) {
+/** One run row as OpenWorkflow writes it. The times are seconds from now. */
+async function insertRun(run: {
+  status: string
+  availableInSeconds: number | null
+  deadlineInSeconds?: number
+  namespace?: string
+}) {
+  const {
+    status,
+    availableInSeconds: available,
+    deadlineInSeconds: deadline = null,
+    namespace = openWorkflowNamespaceId(),
+  } = run
   const id = randomUUID()
   ids.push(id)
   await getSystemDb().execute(sql`
@@ -72,19 +86,12 @@ async function report(emf: boolean) {
     readers: [new FlushOnDemandMetricReader(exporter)],
   })
   const lines: string[] = []
-  const write = vi
-    .spyOn(process.stdout, "write")
-    .mockImplementation((chunk: string | Uint8Array) => {
-      lines.push(String(chunk))
-      return true
-    })
-  const reports = startQueueDepthReports(emf, provider.getMeter("test"))
-  try {
-    await reports.firstSample
-  } finally {
-    reports.stop()
-    write.mockRestore()
-  }
+  const reports = startQueueDepthReports(
+    emf ? (line) => lines.push(line) : undefined,
+    provider.getMeter("test"),
+  )
+  await reports.firstSample
+  reports.stop()
   await provider.forceFlush()
   const points = exporter
     .getMetrics()

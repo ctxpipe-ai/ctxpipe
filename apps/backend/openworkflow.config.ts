@@ -23,7 +23,11 @@ initDb(databaseUrl)
 // Queue depth for the dashboard (OTel). A hosted deployment sets
 // DEPLOYMENT_ENVIRONMENT and also gets the CloudWatch EMF line that its
 // worker autoscaling reads; self-host leaves it unset.
-startQueueDepthReports(Boolean(process.env.DEPLOYMENT_ENVIRONMENT?.trim()))
+startQueueDepthReports(
+  process.env.DEPLOYMENT_ENVIRONMENT?.trim()
+    ? (line) => void process.stdout.write(line)
+    : undefined,
+)
 // Restart sandbox sweep chains that a failed schedule or crash left behind,
 // and sweep dormant orgs (on Docker each sweep also prunes the host).
 void scheduleSweepsForOrgsNeedingIt().catch((error: unknown) =>
