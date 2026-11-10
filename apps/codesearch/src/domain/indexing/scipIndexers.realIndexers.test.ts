@@ -10,12 +10,10 @@ import type { ScipIndexerId } from "./detectLanguages.js"
 import { runScipIndexer } from "./scipIndexers.js"
 
 // These tests run the real scip-clang and scip-ruby of the codesearch image
-// (release-assets.txt pins them for amd64 and arm64). The test lanes run on
-// linux/arm64. A missing arm64 build, or a binary that needs a newer GLIBC
-// than the image has, fails here.
-const fixtures = fileURLToPath(
-  new URL("../../../test/fixtures/", import.meta.url),
-)
+// (release-assets.txt pins them for amd64 and arm64). The image has the
+// platform of the Docker server: linux/arm64 in CI and on Apple silicon. A
+// missing build for that platform, or a binary that needs a newer GLIBC than
+// the image has, fails here.
 
 type Document = { relativePath: string; symbols?: { symbol: string }[] }
 
@@ -27,7 +25,13 @@ async function indexFixture(
   const directory = await mkdtemp(join(tmpdir(), "ctxpipe-real-scip-"))
   try {
     const checkoutPath = join(directory, "checkout")
-    await cp(join(fixtures, fixture), checkoutPath, { recursive: true })
+    await cp(
+      fileURLToPath(
+        new URL(`../../../test/fixtures/${fixture}/`, import.meta.url),
+      ),
+      checkoutPath,
+      { recursive: true },
+    )
     await prepare(checkoutPath)
     const shardPath = join(directory, `${indexerId}.scip`)
     await runScipIndexer({ indexerId, checkoutPath, shardPath })

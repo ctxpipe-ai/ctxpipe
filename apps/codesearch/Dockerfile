@@ -4,8 +4,8 @@
 # are downloaded in isolated stages. This keeps package-manager build caches
 # separate from application dependencies. The image builds for linux/amd64 and
 # linux/arm64 with the complete indexer matrix. Upstream publishes scip-clang
-# and scip-ruby only for x86_64, with a GLIBC that is too new for Bookworm, so
-# apps/codesearch/indexers/Dockerfile builds both for each platform, and
+# and scip-ruby only for x86_64, with a GLIBC that is too new for Bookworm.
+# Thus apps/codesearch/indexers/Dockerfile builds both for each platform, and
 # release-assets.txt pins the release of that build. Railway pulls
 # linux/amd64, and the AWS hosts pull linux/arm64.
 
