@@ -21,11 +21,12 @@ const migrations = readdirSync(migrationsDir, { withFileTypes: true })
   .sort()
 
 let admin: pg.Client
+let adminUrl: string
 const databases: string[] = []
 const clients: pg.Client[] = []
 
 async function freshDatabase(name: string) {
-  const ownerUrl = new URL(ownerUrlForMigrate(process.env.DATABASE_URL!))
+  const ownerUrl = new URL(adminUrl)
   const database = `ctxpipe_test_${name}_${suffix}`
   await admin.query(`CREATE DATABASE "${database}"`)
   databases.push(database)
@@ -48,12 +49,17 @@ async function apply(db: pg.Client, names: string[]) {
   }
 }
 
-async function addRun(db: pg.Client, id: string, workflowName: string) {
+async function addRun(
+  db: pg.Client,
+  id: string,
+  workflowName: string,
+  status = "completed",
+) {
   await db.query(
     `INSERT INTO openworkflow.workflow_runs
        (namespace_id, id, workflow_name, status, config, attempts, created_at, updated_at)
-     VALUES ('default', $1, $2, 'completed', '{}', 1, now(), now())`,
-    [id, workflowName],
+     VALUES ('default', $1, $2, $3, '{}', 1, now(), now())`,
+    [id, workflowName, status],
   )
 }
 
@@ -81,9 +87,8 @@ async function outputs(db: pg.Client) {
 describe("clear write step outputs migration (Postgres)", () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
-    admin = new pg.Client({
-      connectionString: ownerUrlForMigrate(process.env.DATABASE_URL),
-    })
+    adminUrl = ownerUrlForMigrate(process.env.DATABASE_URL)
+    admin = new pg.Client({ connectionString: adminUrl })
     await admin.connect()
   }, 60_000)
 
@@ -118,6 +123,7 @@ describe("clear write step outputs migration (Postgres)", () => {
       "stage",
       "stage:2",
       "commit:1",
+      "validate:12",
       "commit-subject",
       "broker-push",
     ]) {
@@ -131,8 +137,11 @@ describe("clear write step outputs migration (Postgres)", () => {
     ]) {
       await addStep(db, "mirror", step)
     }
-    await addRun(db, "boot", "workspace-write-bootstrap")
+    await addRun(db, "boot", "workspace-write-bootstrap", "failed")
     await addStep(db, "boot", "commit-unborn")
+    // A run that can still resume keeps its outputs.
+    await addRun(db, "live", "workspace-write-ui-file-edit", "sleeping")
+    await addStep(db, "live", "stage")
     // A step of the same name in a workflow that is not a write workflow.
     await addRun(db, "ingest", "repository-ingestion-orchestrator")
     for (const step of ["stage", "discover-roots", "resolve"]) {
@@ -146,6 +155,7 @@ describe("clear write step outputs migration (Postgres)", () => {
       "ingest/discover-roots": true,
       "ingest/resolve": true,
       "ingest/stage": true,
+      "live/stage": true,
       "merge/acquire-revision": false,
       "merge/broker-push": true,
       "merge/commit-subject": true,
@@ -153,6 +163,7 @@ describe("clear write step outputs migration (Postgres)", () => {
       "merge/stage": false,
       "merge/stage:2": false,
       "merge/transform-semantic-merge": false,
+      "merge/validate:12": false,
       "mirror/capture-config-binding": true,
       "mirror/transform-connector-mirror": false,
       "mirror/usage": true,

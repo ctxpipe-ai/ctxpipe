@@ -2,7 +2,9 @@
 -- outputs of steps that CTX-1235 retired. No code reads these outputs again.
 -- Clear them and keep the rows: other code reads the rows. OpenWorkflow adds
 -- `:N` to a step name that repeats in a run. The selection uses the workflow
--- name and the step name only: a read of `output` would load the stored packs.
+-- name, the run status and the step name only: a read of `output` would load
+-- the stored packs. Only finished runs: a run that can still resume keeps its
+-- outputs.
 -- A new database has no OpenWorkflow schema yet: the OpenWorkflow migration
 -- runs after Drizzle. A second run clears nothing.
 DO $$
@@ -14,6 +16,7 @@ BEGIN
     WHERE wr."namespace_id" = sa."namespace_id"
       AND wr."id" = sa."workflow_run_id"
       AND wr."workflow_name" LIKE 'workspace-write-%'
+      AND wr."status" IN ('completed', 'succeeded', 'failed', 'canceled')
       AND regexp_replace(sa."step_name", ':[0-9]+$', '') IN (
         'acquire-revision',
         'stage',
