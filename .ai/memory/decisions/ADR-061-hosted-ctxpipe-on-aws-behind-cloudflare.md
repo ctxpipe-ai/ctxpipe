@@ -36,6 +36,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - OIDC trust: a deploy role trusts only its GitHub environment (`Production`, or `preview` for `preview-deploy`), and that environment admits only `main`. Only the plan role trusts pull requests.
     - Approvals: the normal path needs no manual approval. `pulumi preview` runs on each pull request with the read-only plan role. An agent merges a pull request when the merge gate passes. `pulumi up` then runs from `main`.
     - The plan role reads only metadata (`Describe*`, `List*`), the state bucket and the state key. Its boundary denies data reads: objects outside the state bucket, log events, secret values, and other keys.
+    - Accepted security risk (the CTO, 2026-11-10): `pulumi preview` runs unreviewed pull-request code with the plan role. Thus a pull-request author can read the production Pulumi state and AWS metadata. The state holds no high-value secret, the guard state and key are out of reach, and the repo takes no forks. The real diff lets the policy pack block a replace or a delete of a protected resource before the merge.
     - The plan job gets no Cloudflare token, because it previews no stack with a Cloudflare resource. It gets no GitHub token with write rights.
     - **Rule: normal deploy credentials cannot change a guard.** The normal deploy role and the normal GitHub token cannot change:
         - IAM boundaries, role trust to other accounts, or a role without the workload boundary (no path to more rights);
