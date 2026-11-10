@@ -26,6 +26,12 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - High-value secrets stay out of the Pulumi state, so that the plan role can read the state safely. AWS manages the Aurora master password. Secrets Manager generates the application secrets. The guard job writes the tunnel tokens, and Pulumi never reads them.
     - Stacks: each environment is one Pulumi stack. Each preview is one Pulumi stack too.
     - Projects: `machines/hosted` holds production. `machines/previews` holds all preview infrastructure (decision 21). The edge stack has its own folder.
+    - Configuration:
+        - Each stack's `Pulumi.<stack>.yaml` holds its plain values: the account, the region, the sizes and the host names. It holds no secret.
+        - The production image digests are in `machines/hosted/Pulumi.production.yaml`. The ctxpipe release pipeline opens a factory pull request that changes them. An agent merges it when the merge gate passes. Thus `main` always holds what runs, and a change to the infrastructure only does not roll back an image.
+        - Values cross a stack boundary by fixed names, not by stack outputs. For example, `hosted` reads the tunnel token from a fixed secret name, and the edge stack finds the SES DKIM tokens with an AWS lookup. A stack reads the outputs of another stack only in the same backend and at the same trust level: a preview stack reads `previews/base`.
+        - The preview workflow gives each preview stack its configuration when it runs: the PR number, the image digests and the clone endpoint. No file holds the configuration of one preview.
+        - `machines/hosted`, `previews/base` and `previews/pr` share one package of components. The edge stack and `previews/data` do not import it, because the guard job loads them.
     - Deploy roles: each one is scoped to its environment and has a permission boundary. Pulumi calls the AWS APIs with that role.
     - OIDC trust: a deploy role trusts only its GitHub environment (`Production`, or `preview` for `preview-deploy`), and that environment admits only `main`. Only the plan role trusts pull requests.
     - Approvals: the normal path needs no manual approval. `pulumi preview` runs on each pull request with the read-only plan role. An agent merges a pull request when the merge gate passes. `pulumi up` then runs from `main`.
