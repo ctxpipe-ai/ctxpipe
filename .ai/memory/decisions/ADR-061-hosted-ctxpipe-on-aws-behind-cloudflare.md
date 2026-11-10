@@ -33,7 +33,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
         - The preview workflow gives each preview stack its configuration when it runs: the PR number, the image digests and the clone endpoint. No file holds the configuration of one preview.
         - `machines/hosted`, `previews/base` and `previews/pr` share one package of components. The edge stack and `previews/data` do not import it, because the guard job loads them.
     - Deploy roles: each one is scoped to its environment and has a permission boundary. Pulumi calls the AWS APIs with that role.
-    - OIDC trust: a deploy role trusts only its GitHub environment (`Production`, or `preview` for `preview-deploy`), and that environment admits only `main`. Only the plan role trusts pull requests.
+    - OIDC trust: a deploy role trusts only its GitHub environment (`Production`, or `preview` for `preview-deploy`), and that environment admits only `main`. It also trusts only its named workflow files (`job_workflow_ref`). Only the plan role trusts pull requests.
     - Approvals: the normal path needs no manual approval. `pulumi preview` runs on each pull request with the read-only plan role. An agent merges a pull request when the merge gate passes. `pulumi up` then runs from `main`.
     - The plan role reads only metadata (`Describe*`, `List*`), the state bucket and the state key. Its boundary denies data reads: objects outside the state bucket, log events, secret values, and other keys.
     - Accepted security risk (the CTO, 2026-11-10): `pulumi preview` runs unreviewed pull-request code with the plan role. Thus a pull-request author can read the production Pulumi state and AWS metadata. The state holds no high-value secret, the guard state and key are out of reach, and the repo takes no forks. The real diff lets the policy pack block a replace or a delete of a protected resource before the merge.
@@ -52,7 +52,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - Defaults that close: deny-by-default Access apps on `ctxpipe.dev` and `*.ctxpipe.dev`, and every tunnel's ingress ends with a 404 catch-all.
     - Code owners and a branch rule hold the guard code for a person's review:
         - the policy pack and the list of protected resources;
-        - all of `.github/workflows/`;
+        - `ci.yml`, each workflow file that gets deploy, guard or writer credentials, and the composite actions that these workflows use. Each such role also pins `job_workflow_ref` to its workflow files on `main`, so a workflow without a code owner gets no credentials. The rest of `.github/` merges on the merge gate;
         - the `CODEOWNERS` file itself;
         - every file that the guard job loads. The edge stack and the preview-data stack each have their own folder, package manifest and lockfile. They import no shared module from outside their folder.
     - The policy pack blocks a replace or a delete of a protected resource.
