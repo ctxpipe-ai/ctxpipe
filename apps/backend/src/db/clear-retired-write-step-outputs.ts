@@ -8,14 +8,15 @@ import { log } from "../observability/logger.js"
  * clear touches about 150 GB of TOAST in production, and in the one transaction
  * of a deploy it ran for more than 9 minutes. Each batch commits on its own, and
  * a keyset cursor moves past the rows that a batch cleared, so a stopped run
- * keeps its progress. Each run stops at a time budget. The selection uses the workflow name, the run status and
+ * keeps its progress. Each run stops at a time budget, and each batch has a
+ * statement timeout. The selection uses the workflow name, the run status and
  * the step name only: a read of `output` would load the stored packs. Every
  * output of the retired migration export workflow (ADR-053) goes too. It is
  * idempotent; once production is clean, the next major release removes it.
  */
 export async function clearRetiredWriteStepOutputs(
   pool: Pool,
-  { batchSize = 200, budgetMs = 300_000 } = {},
+  { batchSize = 200, budgetMs = 300_000, statementTimeoutMs = 60_000 } = {},
 ): Promise<{ cleared: number; done: boolean }> {
   // The Workspace write steps that CTX-1235 retired (the table of retired
   // steps in PR #641).
@@ -56,13 +57,27 @@ export async function clearRetiredWriteStepOutputs(
   // The migrate step of a deploy has 20 minutes: a run stops at the budget,
   // and the next migrate goes on, because a cleared output is not selected
   // again.
-  while (Date.now() - started < budgetMs) {
-    const { rows: batch } = await pool.query<{
-      cleared: string
-      namespace: string | null
-      id: string | null
-    }>(
-      `WITH batch AS (
+  // One connection with a statement timeout: a batch that frees much TOAST
+  // stops at the timeout, and the next try takes half as many rows. So a
+  // migrate takes at most the budget and one statement timeout.
+  const client = await pool.connect()
+  try {
+    await client.query(
+      `SET statement_timeout = ${Math.trunc(statementTimeoutMs)}`,
+    )
+    while (Date.now() - started < budgetMs) {
+      let batch: {
+        cleared: string
+        namespace: string | null
+        id: string | null
+      }[]
+      try {
+        ;({ rows: batch } = await client.query<{
+          cleared: string
+          namespace: string | null
+          id: string | null
+        }>(
+          `WITH batch AS (
          SELECT sa."namespace_id", sa."id"
          FROM "openworkflow"."step_attempts" AS sa
          JOIN "openworkflow"."workflow_runs" AS wr
@@ -93,15 +108,27 @@ export async function clearRetiredWriteStepOutputs(
        SELECT (SELECT count(*) FROM cleared) AS cleared,
               (SELECT "namespace_id" FROM last) AS namespace,
               (SELECT "id" FROM last) AS id`,
-      [cursor.namespace, cursor.id, retiredSteps, batchSize],
-    )
-    const row = batch[0]
-    if (!row?.namespace || row.id === null) {
-      done = true
-      break
+          [cursor.namespace, cursor.id, retiredSteps, batchSize],
+        ))
+      } catch (error) {
+        // 57014: the statement timeout; 55P03: the lock timeout of the
+        // migrate pool. Both stop only this batch.
+        const code = (error as { code?: string }).code
+        if (code !== "57014" && code !== "55P03") throw error
+        batchSize = Math.max(1, Math.floor(batchSize / 2))
+        continue
+      }
+      const row = batch[0]
+      if (!row?.namespace || row.id === null) {
+        done = true
+        break
+      }
+      total += Number(row.cleared)
+      cursor = { namespace: row.namespace, id: row.id }
     }
-    total += Number(row.cleared)
-    cursor = { namespace: row.namespace, id: row.id }
+  } finally {
+    await client.query("RESET statement_timeout").catch(() => {})
+    client.release()
   }
   if (total > 0 || !done)
     log.info({

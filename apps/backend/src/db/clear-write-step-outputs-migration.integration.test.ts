@@ -172,6 +172,26 @@ describe("retired write step outputs and the LangGraph drop (Postgres)", () => {
       expect(
         await clearRetiredWriteStepOutputs(pool, { batchSize: 2, budgetMs: 0 }),
       ).toEqual({ cleared: 0, done: false })
+      // A batch that waits past the statement timeout stops, and the next try
+      // takes half as many rows. Here a lock holds the first row of the clear,
+      // so every batch waits, and the run ends at its budget without an error.
+      const locker = await pool.connect()
+      try {
+        await locker.query("BEGIN")
+        await locker.query(
+          `SELECT 1 FROM openworkflow.step_attempts WHERE id = 'boot/commit-unborn' FOR UPDATE`,
+        )
+        expect(
+          await clearRetiredWriteStepOutputs(pool, {
+            batchSize: 2,
+            budgetMs: 1_000,
+            statementTimeoutMs: 100,
+          }),
+        ).toEqual({ cleared: 0, done: false })
+      } finally {
+        await locker.query("ROLLBACK")
+        locker.release()
+      }
       expect(
         await clearRetiredWriteStepOutputs(pool, { batchSize: 2 }),
       ).toEqual({ cleared: 12, done: true })
