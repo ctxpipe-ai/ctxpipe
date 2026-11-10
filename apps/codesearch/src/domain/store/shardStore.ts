@@ -89,18 +89,29 @@ function storeFromUrl(url: string, endpoint: string | undefined): ShardStore {
     )
   const prefix = (match[2] ?? "").replace(/^\/+|\/+$/g, "")
   return {
-    client: new S3Client({
-      // The manifest holds a sha256 for each file, and a fetch checks it.
-      // The SDK's default CRC trailers need aws-chunked uploads, which
-      // S3-compatible servers often refuse.
-      requestChecksumCalculation: "WHEN_REQUIRED",
-      responseChecksumValidation: "WHEN_REQUIRED",
-      // An S3-compatible server on a custom endpoint has no bucket DNS names.
-      forcePathStyle: Boolean(endpoint),
-    }),
+    client: s3Client(endpoint),
     bucket,
     root: prefix ? `${prefix}/v1` : "v1",
   }
+}
+
+/**
+ * An S3 client for the store and for the cutover transfer prefix. The
+ * credentials and the region come from the SDK default chain.
+ */
+export function s3Client(
+  endpoint = process.env["AWS_ENDPOINT_URL_S3"] ||
+    process.env["AWS_ENDPOINT_URL"],
+): S3Client {
+  return new S3Client({
+    // The manifest holds a sha256 for each file, and a fetch checks it.
+    // The SDK's default CRC trailers need aws-chunked uploads, which
+    // S3-compatible servers often refuse.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
+    // An S3-compatible server on a custom endpoint has no bucket DNS names.
+    forcePathStyle: Boolean(endpoint),
+  })
 }
 
 /** One key segment: no `/`, and not `.` or `..`. */
