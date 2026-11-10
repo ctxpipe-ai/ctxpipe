@@ -9,7 +9,6 @@ import { planUnlinkRetraction } from "../../domain/ingestion/unlink-retraction.j
 import { sourcesHaveNoRepository } from "../../domain/workspace-sources/projection-plan.js"
 import { checkSourcePath } from "../../domain/workspace-sources/source-file.js"
 import { readSourcesTree } from "../../domain/workspace-sources/source-tree.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
@@ -33,7 +32,9 @@ import { sourceRowsNameRepository } from "../../models/workspace-source-state.js
 import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import {
   discardWriteJobPreparedCommit,
+  getWriteJobUnchangedFiles,
   persistBoundWriteJob,
+  persistWriteJobUnchangedFiles,
 } from "../../models/workspace-write-jobs.js"
 import { persistWriteJobStatus } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
@@ -128,6 +129,10 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
               retractSourcePath: input.retractSourcePath,
             }),
           )
+          // The files that the retraction cannot delete, from the job: the
+          // step that planned them recorded them there.
+          const skippedFiles = async () =>
+            (await getWriteJobUnchangedFiles(input.jobId)).skipped ?? []
           // A no-op plan is checked against a fresh tip at most 3 times; a
           // lost push race has its own bound.
           let noOpChecks = 0
@@ -153,66 +158,85 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
                 persistWriteJobStatus(input.jobId, "running"),
               )
             }
-            const changes = await step.run(
-              { name: "transform-unlink-retraction" },
-              async () => {
-                const none: Awaited<ReturnType<typeof planUnlinkRetraction>> = {
-                  files: [],
-                  deletePaths: [],
-                  skipped: [],
-                }
-                if (
-                  workspacePublishPipeline(
-                    await packWorkspaceFormat(acquired.pack, read),
-                  ) !== "v2"
-                )
-                  return none
-                // The CTX-710 fence: a repository that a source names again
-                // keeps its files, also when that entry is invalid for now.
-                // The tip text gives an invalid entry no scope, so a stored
-                // row that still holds the repository also keeps it.
-                const { sourcesFile, sourceFiles } = await readSourcesTree(
+            // One step makes the change, commits it, and pushes the commit to
+            // its job ref: no step output holds a file (CTX-1239).
+            const committed = await runJobRefStep(
+              step,
+              input.jobId,
+              { name: "prepare-commit" },
+              () =>
+                prepareWorkspaceWriteCommit(
+                  input,
+                  revision,
                   acquired.pack,
-                  read,
-                )
-                if (
-                  !(await sourcesHaveNoRepository(
-                    { text: sourcesFile, sourceFiles },
-                    input.retractRepositoryUrl,
-                  )) ||
-                  sourceRowsNameRepository(
-                    await listWorkspaceSourceRows(input),
-                    input.retractRepositoryUrl,
-                  )
-                )
-                  return none
-                const plan = await planUnlinkRetraction({
-                  pack: acquired.pack,
-                  read,
-                  sourceUrl: input.retractRepositoryUrl,
-                  sourcePath: input.retractSourcePath,
-                  workspaceRepositoryUrl: revision.remote.url,
-                  observedAt: new Date(run.createdAt).toISOString(),
-                })
-                // A file that the validator cannot delete stays. The job
-                // result lists it, so the retraction does not fail forever.
-                if (plan.skipped.length)
-                  getLogger().warn(
-                    "The unlink retraction left files outside the allowed knowledge folders unchanged",
-                    {
-                      workspaceId: input.workspaceId,
-                      jobId: input.jobId,
-                      skipped: plan.skipped,
+                  {
+                    change: async () => {
+                      const plan = await (async () => {
+                        const none: Awaited<ReturnType<typeof planUnlinkRetraction>> = {
+                          files: [],
+                          deletePaths: [],
+                          skipped: [],
+                        }
+                        if (
+                          workspacePublishPipeline(
+                            await packWorkspaceFormat(acquired.pack, read),
+                          ) !== "v2"
+                        )
+                          return none
+                        // The CTX-710 fence: a repository that a source names again
+                        // keeps its files, also when that entry is invalid for now.
+                        // The tip text gives an invalid entry no scope, so a stored
+                        // row that still holds the repository also keeps it.
+                        const { sourcesFile, sourceFiles } = await readSourcesTree(
+                          acquired.pack,
+                          read,
+                        )
+                        if (
+                          !(await sourcesHaveNoRepository(
+                            { text: sourcesFile, sourceFiles },
+                            input.retractRepositoryUrl,
+                          )) ||
+                          sourceRowsNameRepository(
+                            await listWorkspaceSourceRows(input),
+                            input.retractRepositoryUrl,
+                          )
+                        )
+                          return none
+                        const plan = await planUnlinkRetraction({
+                          pack: acquired.pack,
+                          read,
+                          sourceUrl: input.retractRepositoryUrl,
+                          sourcePath: input.retractSourcePath,
+                          workspaceRepositoryUrl: revision.remote.url,
+                          observedAt: new Date(run.createdAt).toISOString(),
+                        })
+                        // A file that the validator cannot delete stays. The job
+                        // result lists it, so the retraction does not fail forever.
+                        if (plan.skipped.length)
+                          getLogger().warn(
+                            "The unlink retraction left files outside the allowed knowledge folders unchanged",
+                            {
+                              workspaceId: input.workspaceId,
+                              jobId: input.jobId,
+                              skipped: plan.skipped,
+                            },
+                          )
+                        return plan
+                      })()
+                      // The list of skipped files can be long: the job keeps
+                      // it, not the step output (CTX-1239).
+                      await persistWriteJobUnchangedFiles(input.jobId, {
+                        skipped: plan.skipped,
+                      })
+                      return { files: plan.files, deletePaths: plan.deletePaths }
                     },
-                  )
-                return plan
-              },
+                    subject: { trigger: "unlink_retraction" },
+                    createdAt: run.createdAt,
+                  },
+                  env,
+                ),
             )
-            const changedPaths = [
-              ...changes.files.map((file) => file.path),
-              ...changes.deletePaths,
-            ]
-            if (!changedPaths.length) {
+            if (!committed) {
               const refreshed = await step.run({ name: "confirm-no-op" }, () =>
                 refreshWorkspaceWriteRevision(input, revision, env),
               )
@@ -227,30 +251,9 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
               return {
                 committed: false as const,
                 reason: "no_changes" as const,
-                skipped: changes.skipped,
+                skipped: await skippedFiles(),
               }
             }
-            const subject = await step.run({ name: "commit-subject" }, () =>
-              generateCommitSubject({
-                repoName: repositoryName.split("/")[1] ?? repositoryName,
-                trigger: "unlink_retraction",
-                fileNames: changedPaths,
-              }),
-            )
-            const committed = await runJobRefStep(
-              step,
-              input.jobId,
-              { name: "prepare-commit" },
-              () =>
-                prepareWorkspaceWriteCommit(
-                  input,
-                  revision,
-                  acquired.pack,
-                  { files: changes.files, deletePaths: changes.deletePaths },
-                  { subject, createdAt: run.createdAt },
-                  env,
-                ),
-            )
             let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
             for (;;) {
               pushed = await step.run(
@@ -306,7 +309,7 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
             return {
               committed: true as const,
               commitSha: committed.sha,
-              skipped: changes.skipped,
+              skipped: await skippedFiles(),
             }
           }
           throw new Error(

@@ -1,7 +1,6 @@
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { claimsUpgradeFiles } from "../../domain/workspaces/hydrate-write-jobs.js"
 import { hydrateKnowledgeTree } from "../../domain/workspaces/hydrate.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
@@ -106,26 +105,44 @@ export const workspaceClaimsUpgrade = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const files = await step.run(
-            { name: "transform-claims-upgrade" },
-            async () => {
-              const sourceFiles = await readGitFiles(
+          // One step makes the change, commits it, and pushes the commit to
+          // its job ref: no step output holds a file (CTX-1239).
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
+            () =>
+              prepareWorkspaceWriteCommit(
+                input,
+                revision,
                 acquired.pack,
-                (path) => path.endsWith(".md"),
-                undefined,
-                read,
-              )
-              const parsed = hydrateKnowledgeTree({
-                workspaceId: input.workspaceId,
-                files: sourceFiles,
-              })
-              return claimsUpgradeFiles({
-                files: sourceFiles,
-                units: parsed.units,
-              })
-            },
+                {
+                  change: async () => {
+                    const sourceFiles = await readGitFiles(
+                      acquired.pack,
+                      (path) => path.endsWith(".md"),
+                      undefined,
+                      read,
+                    )
+                    const parsed = hydrateKnowledgeTree({
+                      workspaceId: input.workspaceId,
+                      files: sourceFiles,
+                    })
+                    const files = claimsUpgradeFiles({
+                      files: sourceFiles,
+                      units: parsed.units,
+                    })
+                    if (files.some((file) => !file.path.endsWith(".md")))
+                      throw new Error("Claims upgrade may only edit Markdown")
+                    return { files, deletePaths: [] }
+                  },
+                  subject: { trigger: "claims_upgrade" },
+                  createdAt: run.createdAt,
+                },
+                env,
+              ),
           )
-          if (!files.length) {
+          if (!committed) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -141,30 +158,6 @@ export const workspaceClaimsUpgrade = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "claims_upgrade",
-              fileNames: files.map((file) => file.path),
-            }),
-          )
-          const committed = await runJobRefStep(
-            step,
-            input.jobId,
-            { name: "prepare-commit" },
-            async () => {
-              if (files.some((file) => !file.path.endsWith(".md")))
-                throw new Error("Claims upgrade may only edit Markdown")
-              return prepareWorkspaceWriteCommit(
-                input,
-                revision,
-                acquired.pack,
-                { files, deletePaths: [] },
-                { subject, createdAt: run.createdAt },
-                env,
-              )
-            },
-          )
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             pushed = await step.run(
@@ -182,7 +175,7 @@ export const workspaceClaimsUpgrade = defineWorkflow(
           }
           if (!pushed.pushed) {
             const handoff = await step.run(
-              { name: "capture-semantic-handoff" },
+              { name: "capture-semantic-handoff-v2" },
               () =>
                 captureSemanticHandoff(input, revision, committed, env, "host"),
             )

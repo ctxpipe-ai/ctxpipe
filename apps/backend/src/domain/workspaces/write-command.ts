@@ -4,7 +4,6 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import {
-  discardWriteJobPreparedCommit,
   persistWriteJobCommitSha,
   persistWriteJobPreparedCommit,
   reconcileWorkspaceWriteJob,
@@ -15,24 +14,34 @@ import { createLogger, withLogger } from "../../observability/logger.js"
 import { resolveGitRemoteTip } from "../../services/git/clone-tree.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { prepareGitMerge } from "../../services/git/merge-tree.js"
-import type { GitPack, GitRemoteRead } from "../../services/git/pack.js"
-import { prepareGitCommit } from "../../services/git/write-tree.js"
+import {
+  type GitPack,
+  type GitRemoteRead,
+  type GitWriteCommit,
+  writeCommitPack,
+} from "../../services/git/pack.js"
+import { prepareUnbornGitCommit } from "../../services/git/unborn-tree.js"
+import {
+  prepareGitCommit,
+  readGitCommitChanges,
+} from "../../services/git/write-tree.js"
+import type { UnbornBootstrapBinding } from "./bootstrap-input.js"
+import { getUnbornBootstrapWorkspace } from "./bootstrap-unborn.js"
+import { generateCommitSubject } from "./commit-subject.js"
 import type { ConnectorMirrorSource } from "./connector-mirror.js"
 import {
   assertConnectorMirrorBinding,
   assertConnectorMirrorScope,
 } from "./connector-mirror.js"
+import { connectorMirrorContentSchema } from "./connector-mirror-input.js"
 import type { IngestPublishSource } from "./extraction-source.js"
 import { workspaceGitRead } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import { workspaceRootPath } from "./root-path.js"
 import { resolveSemanticConflicts, type WriteOrigin } from "./semantic-merge.js"
-import {
-  deleteWriteJobRefs,
-  findPreparedMergeCommit,
-  prepareWithJobRef,
-} from "./write-broker.js"
+import { deleteWriteJobRefs, prepareRecordedCommit } from "./write-broker.js"
 import type { WorkspaceWriteJobKind } from "./write-jobs.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 type WorkspaceWriteCommand = {
   orgId: string
@@ -146,73 +155,160 @@ export async function acquireWorkspaceWriteRevision(
   return { pack, displayName: workspace.displayName }
 }
 
+/** The files that a write changes and deletes, relative to the Workspace root folder. */
+type WriteChange = { files: GitFileChange[]; deletePaths: string[] }
+
+/** The subject line of a write commit, from the names of the changed files. */
+function writeCommitSubject(
+  remote: WorkspaceRevision["remote"],
+  trigger: string,
+  change: WriteChange,
+) {
+  const repositoryName =
+    githubRepoFullNameFromWorkspaceUrl(remote.url) ?? remote.url
+  return generateCommitSubject({
+    repoName: repositoryName.split("/")[1] ?? repositoryName,
+    trigger,
+    fileNames: [
+      ...change.files.map((file) => file.path),
+      ...change.deletePaths,
+    ],
+  })
+}
+
 /**
- * The `prepare-commit` step of a Workspace write (CTX-1235): stage, check,
- * and commit the change on the acquired revision, push the commit to its job
- * ref, and record it on the job. The output is the commit identity, never a
- * Git object. A fixed revision, change, subject, and `createdAt` give the
- * same commit again, so a replay pushes the same ref.
+ * The `prepare-commit` step of a Workspace write (CTX-1235, CTX-1239): make
+ * the change on the acquired revision (`change`), name it, commit it, record
+ * it on the job, and push it to its job ref. The output is the commit
+ * identity, never a file or a Git object; a later step reads the commit from
+ * Git. Null when the change changes nothing. `change` can also stop the
+ * write with a small outcome. A replay returns the commit that an earlier
+ * execution pushed, also when `change` or the subject model answers
+ * differently now.
  */
-export async function prepareWorkspaceWriteCommit(
+export async function prepareWorkspaceWriteCommit<
+  Change extends WriteChange | { stopped: unknown },
+>(
   input: Pick<
     WorkspaceWriteCommand,
     "orgId" | "workspaceId" | "jobId" | "mirror"
   >,
   revision: WorkspaceRevision,
   pack: GitPack,
-  change: { files: readonly GitFileChange[]; deletePaths: readonly string[] },
-  commit: { subject: string; createdAt: Date | string },
+  write: {
+    change: () => Promise<Change>
+    /** A fixed subject, or the trigger of a generated subject. */
+    subject: string | { trigger: string }
+    createdAt: Date | string
+  },
   env: Env,
-) {
+): Promise<
+  GitWriteCommit | Exclude<Change, WriteChange> | null | "paused"
+> {
   // The acquire step proved that `revision.remote` is the bound repository.
   const read = workspaceGitRead({
     orgId: input.orgId,
     env,
     remote: revision.remote,
   })
-  return prepareWithJobRef(
+  return prepareRecordedCommit(
     {
       ...input,
       remote: revision.remote,
       guard: mirrorGuard(input, revision, pack, read),
     },
+    { sha: revision.sha, root: pack.root ?? "" },
     env,
-    async (publish) => {
-      const committed = await prepareGitCommit({
-        pack,
-        ...change,
-        ...commit,
-        read,
-        publish,
-      })
-      await persistWriteJobPreparedCommit(input.jobId, committed.sha)
-      return committed
+    {
+      build: async (publish) => {
+        const change: WriteChange | { stopped: unknown } = await write.change()
+        if ("stopped" in change)
+          return change as Exclude<Change, WriteChange>
+        if (!change.files.length && !change.deletePaths.length) return null
+        return prepareGitCommit({
+          pack,
+          ...change,
+          subject:
+            typeof write.subject === "string"
+              ? write.subject
+              : await writeCommitSubject(
+                  revision.remote,
+                  write.subject.trigger,
+                  change,
+                ),
+          createdAt: write.createdAt,
+          read,
+          publish,
+        })
+      },
+      reuse: (commit) => commit,
     },
   )
 }
 
+type SemanticMergeCommand = Pick<
+  WorkspaceWriteCommand,
+  "orgId" | "workspaceId" | "jobId" | "revision" | "mirror" | "extraction"
+> & {
+  origin: WriteOrigin
+  previousSha: string
+  files?: GitFileChange[]
+  deletePaths?: string[]
+  handoff?: { ownerRunId: string; candidateSha: string; dropPaths?: string[] }
+}
+
+/**
+ * The change that a semantic merge puts onto the tip: the files of its
+ * input, or for a handoff child the change of the parent's candidate commit
+ * on its job ref (CTX-1239), without the dropped paths.
+ */
+export async function readSemanticMergeChange(
+  input: SemanticMergeCommand,
+  read: GitRemoteRead,
+): Promise<WriteChange> {
+  if (!input.handoff)
+    return { files: input.files ?? [], deletePaths: input.deletePaths ?? [] }
+  const root = workspaceRootPath(input.revision)
+  const delta = await readGitCommitChanges(
+    writeCommitPack(
+      {
+        sha: input.handoff.candidateSha,
+        tree: "",
+        ...(root ? { root } : {}),
+        base: input.previousSha,
+      },
+      read.url,
+    ),
+    input.previousSha,
+    read,
+  )
+  const dropped = new Set(input.handoff.dropPaths)
+  const change = {
+    files: delta.files.filter((file) => !dropped.has(file.path)),
+    deletePaths: delta.deletePaths.filter((path) => !dropped.has(path)),
+  }
+  if (
+    input.mirror &&
+    !connectorMirrorContentSchema.safeParse({ mirror: input.mirror, ...change })
+      .success
+  )
+    throw new Error("Connector handoff must retain its managed paths")
+  return change
+}
+
 /**
  * The `prepare-merge-commit` step of a semantic merge (CTX-1235): merge the
- * captured change onto the acquired tip, resolve each conflict with the
- * model, commit, push the commit to its job ref, and record it on the job.
- * Null when the merge changes nothing. The model can answer differently on a
- * replay, so a replay returns the commit that an earlier execution recorded:
- * a second answer cannot make a second commit.
+ * change onto the acquired tip, resolve each conflict with the model,
+ * commit, push the commit to its job ref, and record it on the job. Null
+ * when the merge changes nothing. As in `prepareWorkspaceWriteCommit`, a
+ * replay returns the pushed commit: a second model answer cannot make a
+ * second commit.
  */
 export async function prepareSemanticMergeCommit(
-  input: Pick<
-    WorkspaceWriteCommand,
-    "orgId" | "workspaceId" | "jobId" | "revision" | "mirror" | "extraction"
-  > & {
-    origin: WriteOrigin
-    previousSha: string
-    files: GitFileChange[]
-    deletePaths: string[]
-    handoff?: { ownerRunId: string; candidateSha: string }
-  },
+  input: SemanticMergeCommand,
   revision: WorkspaceRevision,
   pack: GitPack,
-  commit: { subject: string; createdAt: Date | string },
+  createdAt: Date | string,
   env: Env,
 ) {
   // The acquire step proved that `revision.remote` is the bound repository.
@@ -221,48 +317,95 @@ export async function prepareSemanticMergeCommit(
     env,
     remote: revision.remote,
   })
-  const job = {
-    orgId: input.orgId,
-    workspaceId: input.workspaceId,
-    jobId: input.jobId,
-    remote: revision.remote,
-    candidateSha: input.handoff?.candidateSha,
-    guard: mirrorGuard(input, revision, pack, read),
-  }
-  return prepareWithJobRef(job, env, async (publish) => {
-    const found = await findPreparedMergeCommit(job, revision, env)
-    if (found && "commit" in found) return found.commit
-    // A recorded commit that no push sent (a crash between the record and
-    // the push, or a run from before the new step names): no step reads it.
-    if (found) await discardWriteJobPreparedCommit(input.jobId, found.stale)
-    return prepareGitMerge({
-      pack,
-      previousSha: input.previousSha,
-      files: input.files,
-      deletePaths: input.deletePaths,
-      // A Markdown file that the model cannot resolve keeps both versions in
-      // conflict markers, so the write is not lost (CTX-958). Hydrate skips
-      // it and tells the user.
-      resolve: (conflicts) =>
-        resolveSemanticConflicts(conflicts, {
-          origin: input.origin,
-          flagUnresolved: true,
-        }),
-      ...commit,
-      read,
-      // Record the commit before its push: a commit on a job ref is always
-      // the recorded one, so a replay finds it and asks no model again.
-      publish: async (directory, sha) => {
-        if (input.handoff)
-          await validateSemanticHandoff(
-            { ...input, handoff: input.handoff },
-            sha,
-          )
-        else await persistWriteJobPreparedCommit(input.jobId, sha)
-        await publish(directory, sha)
+  const { handoff } = input
+  return prepareRecordedCommit(
+    {
+      orgId: input.orgId,
+      workspaceId: input.workspaceId,
+      jobId: input.jobId,
+      remote: revision.remote,
+      candidateSha: handoff?.candidateSha,
+      guard: mirrorGuard(input, revision, pack, read),
+    },
+    { sha: revision.sha, root: pack.root ?? "" },
+    env,
+    {
+      build: async (publish) => {
+        const change = await readSemanticMergeChange(input, read)
+        return prepareGitMerge({
+          pack,
+          previousSha: input.previousSha,
+          ...change,
+          // A Markdown file that the model cannot resolve keeps both
+          // versions in conflict markers, so the write is not lost
+          // (CTX-958). Hydrate skips it and tells the user.
+          resolve: (conflicts) =>
+            resolveSemanticConflicts(conflicts, {
+              origin: input.origin,
+              flagUnresolved: true,
+            }),
+          subject: await writeCommitSubject(
+            revision.remote,
+            "semantic_merge",
+            change,
+          ),
+          createdAt,
+          read,
+          publish,
+        })
       },
-    })
-  })
+      reuse: (commit) => commit,
+      record: (sha) =>
+        handoff
+          ? validateSemanticHandoff({ ...input, handoff }, sha)
+          : persistWriteJobPreparedCommit(input.jobId, sha),
+    },
+  )
+}
+
+/**
+ * The `prepare-commit-unborn` step of a bootstrap (CTX-1235, CTX-1239):
+ * make the first commit of an unborn repository, push it to its job ref,
+ * and record it on the job. The output is the commit identity.
+ */
+export async function prepareUnbornWorkspaceCommit(
+  input: Pick<WorkspaceWriteCommand, "orgId" | "workspaceId" | "jobId"> & {
+    bootstrapBinding: UnbornBootstrapBinding
+  },
+  write: {
+    files: (displayName: string) => GitFileChange[]
+    allowedPath: (path: string) => boolean
+    createdAt: Date | string
+  },
+  env: Env,
+) {
+  const binding = input.bootstrapBinding
+  const root = workspaceRootPath(binding)
+  return prepareRecordedCommit(
+    { ...input, remote: binding.remote },
+    { sha: null, root },
+    env,
+    {
+      build: async (publish) => {
+        const workspace = await getUnbornBootstrapWorkspace(binding)
+        const files = write.files(workspace.displayName)
+        return prepareUnbornGitCommit({
+          files,
+          root,
+          allowedPaths: files
+            .map((file) => file.path)
+            .filter(write.allowedPath),
+          subject: await writeCommitSubject(binding.remote, "bootstrap", {
+            files,
+            deletePaths: [],
+          }),
+          createdAt: write.createdAt,
+          publish,
+        })
+      },
+      reuse: (commit) => commit,
+    },
+  )
 }
 
 /**

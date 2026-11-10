@@ -1,7 +1,6 @@
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { hostOnlyRefusal } from "../../domain/workspaces/host-only.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
@@ -169,55 +168,69 @@ export const workspaceFileEdit = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const changes = await step.run(
-            { name: "transform-file-edit" },
-            async () => {
-              const named = new Set([
-                ...input.files.map((file) => file.path),
-                ...input.deletePaths,
-              ])
-              // Root-relative paths below the Workspace root folder.
-              const existing = new Map(
-                (
-                  await readGitFiles(
-                    acquired.pack,
-                    (path) => named.has(path),
-                    undefined,
-                    read,
-                  )
-                ).map((file) => [file.path, file.content]),
-              )
-              // The format file changes only in its upgrade setting: a merged
-              // upgrade pull request can have changed the format after the
-              // job was queued.
-              const files = input.files.map((file) => {
-                if (file.path !== WORKSPACE_FORMAT_PATH) return file
-                const requested = readWorkspaceFormat(file.content)
-                const content =
-                  requested.kind === "format"
-                    ? withWorkspaceFormatFields(
-                        existing.get(file.path) ?? null,
-                        { upgrades: requested.upgrades },
+          // One step makes the change, commits it, and pushes the commit to
+          // its job ref: no step output holds a file (CTX-1239).
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
+            () =>
+              prepareWorkspaceWriteCommit(
+                input,
+                revision,
+                acquired.pack,
+                {
+                  change: async () => {
+                  const named = new Set([
+                    ...input.files.map((file) => file.path),
+                    ...input.deletePaths,
+                  ])
+                  // Root-relative paths below the Workspace root folder.
+                  const existing = new Map(
+                    (
+                      await readGitFiles(
+                        acquired.pack,
+                        (path) => named.has(path),
+                        undefined,
+                        read,
                       )
-                    : null
-                if (content === null)
-                  throw new Error(
-                    `${WORKSPACE_FORMAT_PATH} is not valid. ctxpipe cannot change its upgrade setting.`,
+                    ).map((file) => [file.path, file.content]),
                   )
-                return { path: file.path, content }
-              })
-              return {
-                files: files.filter(
-                  (file) => existing.get(file.path) !== file.content,
-                ),
-                deletePaths: input.deletePaths.filter((path) =>
-                  existing.has(path),
-                ),
-              }
-            },
+                  // The format file changes only in its upgrade setting: a merged
+                  // upgrade pull request can have changed the format after the
+                  // job was queued.
+                  const files = input.files.map((file) => {
+                    if (file.path !== WORKSPACE_FORMAT_PATH) return file
+                    const requested = readWorkspaceFormat(file.content)
+                    const content =
+                      requested.kind === "format"
+                        ? withWorkspaceFormatFields(
+                            existing.get(file.path) ?? null,
+                            { upgrades: requested.upgrades },
+                          )
+                        : null
+                    if (content === null)
+                      throw new Error(
+                        `${WORKSPACE_FORMAT_PATH} is not valid. ctxpipe cannot change its upgrade setting.`,
+                      )
+                    return { path: file.path, content }
+                  })
+                  return {
+                    files: files.filter(
+                      (file) => existing.get(file.path) !== file.content,
+                    ),
+                    deletePaths: input.deletePaths.filter((path) =>
+                      existing.has(path),
+                    ),
+                  }
+                  },
+                  subject: { trigger: "ui_file_edit" },
+                  createdAt: run.createdAt,
+                },
+                env,
+              ),
           )
-          const files = changes.files
-          if (!files.length && !changes.deletePaths.length) {
+          if (!committed) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -234,30 +247,6 @@ export const workspaceFileEdit = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "ui_file_edit",
-              fileNames: [
-                ...files.map((file) => file.path),
-                ...changes.deletePaths,
-              ],
-            }),
-          )
-          const committed = await runJobRefStep(
-            step,
-            input.jobId,
-            { name: "prepare-commit" },
-            () =>
-              prepareWorkspaceWriteCommit(
-                input,
-                revision,
-                acquired.pack,
-                { files, deletePaths: changes.deletePaths },
-                { subject, createdAt: run.createdAt },
-                env,
-              ),
-          )
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             pushed = await step.run(
@@ -275,7 +264,7 @@ export const workspaceFileEdit = defineWorkflow(
           }
           if (!pushed.pushed) {
             const handoff = await step.run(
-              { name: "capture-semantic-handoff" },
+              { name: "capture-semantic-handoff-v2" },
               () =>
                 captureSemanticHandoff(input, revision, committed, env, "host"),
             )

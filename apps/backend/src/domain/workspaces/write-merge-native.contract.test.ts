@@ -586,11 +586,16 @@ it.each([
               reconcileWorkspaceWriteJob(`${command.jobId}:semantic`),
             ),
           ).toBeNull()
-          expect(
-            runs.filter(
-              (run) => run.workflowName === "workspace-write-semantic-merge",
-            ),
-          ).toHaveLength(1)
+          const children = runs.filter(
+            (run) => run.workflowName === "workspace-write-semantic-merge",
+          )
+          expect(children).toHaveLength(1)
+          // The child input names the candidate commit on its job ref, not
+          // its files (CTX-1239).
+          expect(children[0]?.input).toMatchObject({
+            handoff: { candidateSha: expect.stringMatching(/^[0-9a-f]{40}$/) },
+          })
+          expect(children[0]?.input).not.toHaveProperty("files")
           const replay = await f.runner.runWorkflow(
             workspaceFileEdit.spec,
             command,

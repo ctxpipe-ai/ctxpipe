@@ -1,7 +1,6 @@
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { validFromPersistFiles } from "../../domain/workspaces/hydrate-write-jobs.js"
 import { hydrateKnowledgeTree } from "../../domain/workspaces/hydrate.js"
 import {
@@ -111,57 +110,70 @@ export const workspaceValidFromPersist = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const introduced = await step.run(
-            { name: "read-introducing-commits" },
-            async () => {
-              const token = await resolveRepositoryReadCredential({
-                orgId: input.orgId,
-                env,
-                remote: revision.remote,
-              })
-              const files = await listMarkdownFilesAtGitSha({
-                url: revision.remote.url,
-                sha: revision.sha,
-                token,
-                includeIntroducingCommits: true,
-                root: workspaceRootPath(revision),
-              })
-              const timestamps: Record<string, string> = {}
-              for (const file of files)
-                if (file.introducingCommitTimestamp)
-                  timestamps[file.path] = file.introducingCommitTimestamp
-              return timestamps
-            },
-          )
-          const files = await step.run(
-            { name: "transform-valid-from-persist" },
-            async () => {
-              const sourceFiles = await readGitFiles(
+          // One step makes the change, commits it, and pushes the commit to
+          // its job ref: no step output holds a file (CTX-1239).
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
+            () =>
+              prepareWorkspaceWriteCommit(
+                input,
+                revision,
                 acquired.pack,
-                (path) => path.endsWith(".md"),
-                undefined,
-                read,
-              )
-              const parsed = hydrateKnowledgeTree({
-                workspaceId: input.workspaceId,
-                files: sourceFiles,
-              })
-              return sourceFiles.flatMap((file) => {
-                const timestamp = introduced[file.path]
-                const changes = validFromPersistFiles({
-                  files: [file],
-                  units: parsed.units,
-                  introducingCommitTimestamp: timestamp ?? "",
-                })
-                if (changes.length && !timestamp)
-                  throw new Error(
-                    "Missing native introducing timestamp for a claim repair",
-                  )
-                return changes
-              })
-            },
+                {
+                  change: async () => {
+                    const token = await resolveRepositoryReadCredential({
+                      orgId: input.orgId,
+                      env,
+                      remote: revision.remote,
+                    })
+                    const introduced = new Map<string, string>()
+                    for (const file of await listMarkdownFilesAtGitSha({
+                      url: revision.remote.url,
+                      sha: revision.sha,
+                      token,
+                      includeIntroducingCommits: true,
+                      root: workspaceRootPath(revision),
+                    }))
+                      if (file.introducingCommitTimestamp)
+                        introduced.set(file.path, file.introducingCommitTimestamp)
+                    const sourceFiles = await readGitFiles(
+                      acquired.pack,
+                      (path) => path.endsWith(".md"),
+                      undefined,
+                      read,
+                    )
+                    const parsed = hydrateKnowledgeTree({
+                      workspaceId: input.workspaceId,
+                      files: sourceFiles,
+                    })
+                    const files = sourceFiles.flatMap((file) => {
+                      const timestamp = introduced.get(file.path)
+                      const changes = validFromPersistFiles({
+                        files: [file],
+                        units: parsed.units,
+                        introducingCommitTimestamp: timestamp ?? "",
+                      })
+                      if (changes.length && !timestamp)
+                        throw new Error(
+                          "Missing native introducing timestamp for a claim repair",
+                        )
+                      return changes
+                    })
+                    if (files.some((file) => !file.path.endsWith(".md")))
+                      throw new Error(
+                        "Validity maintenance may only edit Markdown",
+                      )
+                    return { files, deletePaths: [] }
+                  },
+                  subject: { trigger: "valid_from_persist" },
+                  createdAt: run.createdAt,
+                },
+                env,
+              ),
           )
-          if (!files.length) {
+          if (!committed) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -177,30 +189,6 @@ export const workspaceValidFromPersist = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "valid_from_persist",
-              fileNames: files.map((file) => file.path),
-            }),
-          )
-          const committed = await runJobRefStep(
-            step,
-            input.jobId,
-            { name: "prepare-commit" },
-            async () => {
-              if (files.some((file) => !file.path.endsWith(".md")))
-                throw new Error("Validity maintenance may only edit Markdown")
-              return prepareWorkspaceWriteCommit(
-                input,
-                revision,
-                acquired.pack,
-                { files, deletePaths: [] },
-                { subject, createdAt: run.createdAt },
-                env,
-              )
-            },
-          )
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             pushed = await step.run(
@@ -218,7 +206,7 @@ export const workspaceValidFromPersist = defineWorkflow(
           }
           if (!pushed.pushed) {
             const handoff = await step.run(
-              { name: "capture-semantic-handoff" },
+              { name: "capture-semantic-handoff-v2" },
               () =>
                 captureSemanticHandoff(input, revision, committed, env, "host"),
             )

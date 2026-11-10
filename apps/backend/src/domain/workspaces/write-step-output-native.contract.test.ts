@@ -28,14 +28,16 @@ import {
 import {
   acquireWorkspaceWriteRevision,
   prepareSemanticMergeCommit,
+  prepareWorkspaceWriteCommit,
 } from "./write-command.js"
 
 // OpenWorkflow keeps each step output in Postgres and reads all of them
 // again on each claim of a run. A step output with Git objects put the
 // Workspace through Postgres for each write (CTX-955, CTX-1232). A write step
 // now pushes its commit to a job ref and returns only the commit identity
-// (CTX-1235). `withNativeHydrationFixture` also checks that each completed
-// write step output of a test is at most 4 KiB.
+// (CTX-1235). The step that makes the content of a write also commits it, so
+// no step output holds a file either (CTX-1239). `withNativeHydrationFixture`
+// checks that each completed write step output of a test is at most 4 KiB.
 
 /** About 256 KiB of text that Git cannot compress much. */
 const largeBody = Array.from({ length: 4096 }, (_, index) =>
@@ -142,7 +144,7 @@ async function mergeJob(f: Fixture, jobId: string) {
         input,
         revision,
         acquired.pack,
-        { subject: "Merge the owners", createdAt: "2026-11-09T00:00:00Z" },
+        "2026-11-09T00:00:00Z",
         env,
       )
     return { input, revision, env, prepare }
@@ -168,13 +170,13 @@ it(
           workspaceId: f.workspaceId,
           jobId: `wjob_${f.id}_edit`,
           revision: { ...f.revision, access: "write-default" },
-          files: [{ path: NOTES, content: "# Owners\n\nOwners: Dana\n" }],
+          files: [{ path: NOTES, content: `# Owners\n\n${largeBody}\n` }],
           deletePaths: [],
         })
         const result = await handle.result({ timeoutMs: 60_000 })
         expect(result).toMatchObject({ committed: true })
         expect(f.git("--git-dir", f.remote, "show", `main:${NOTES}`)).toBe(
-          "# Owners\n\nOwners: Dana",
+          `# Owners\n\n${largeBody}`,
         )
         const outputs = await stepOutputs(f, handle.workflowRun.id)
         const prepared = outputs.get("prepare-commit") as Record<
@@ -186,7 +188,13 @@ it(
           sha: result.committed ? result.commitSha : "",
           base: f.sha,
         })
-        for (const retired of ["acquire-revision", "stage", "commit"])
+        for (const retired of [
+          "acquire-revision",
+          "transform-file-edit",
+          "commit-subject",
+          "stage",
+          "commit",
+        ])
           expect(outputs.has(retired)).toBe(false)
         // The `complete` step deleted the job ref.
         expect(writeRefs(f)).toEqual([])
@@ -210,7 +218,7 @@ it(
         transform: (files) =>
           files.flatMap((file) =>
             file.path === NOTES
-              ? [{ ...file, content: file.content.replace("Alice", "Frank") }]
+              ? [{ ...file, content: `${file.content}\n${largeBody}\n` }]
               : [],
           ),
       })
@@ -230,11 +238,12 @@ it(
           committed: true,
         })
         expect(f.git("--git-dir", f.remote, "show", `main:${NOTES}`)).toBe(
-          "# Owners\n\nOwners: Frank",
+          `${original}\n${largeBody}`,
         )
-        expect(
-          (await stepOutputs(f, handle.workflowRun.id)).get("prepare-commit"),
-        ).toMatchObject({ base: f.sha })
+        const outputs = await stepOutputs(f, handle.workflowRun.id)
+        expect(outputs.get("prepare-commit")).toMatchObject({ base: f.sha })
+        for (const retired of ["transform-import-key-cleanup", "commit-subject"])
+          expect(outputs.has(retired)).toBe(false)
         expect(writeRefs(f)).toEqual([])
       } finally {
         await worker.stop()
@@ -288,6 +297,7 @@ it(
           for (const retired of [
             "transform-semantic-merge",
             "resolve-semantic-conflicts",
+            "commit-subject",
             "stage",
             "commit",
           ])
@@ -298,6 +308,74 @@ it(
         }
       },
     )
+  },
+)
+
+it(
+  "returns the pushed commit on a replay of a prepare step, also when its transform answers differently",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(fixture(), async (f) => {
+      const jobId = `wjob_${f.id}_transform_replay`
+      const revision = { ...f.revision, access: "write-default" as const }
+      const input = {
+        orgId: f.org.id,
+        workspaceId: f.workspaceId,
+        jobId,
+        revision,
+      }
+      const env = parseEnv(process.env)
+      await withOrgIdContext(f.org, async () => {
+        await persistBoundWriteJob({
+          id: jobId,
+          kind: "import_key_cleanup",
+          revision,
+          workflowRunId: `run_${jobId}`,
+        })
+        const acquired = await acquireWorkspaceWriteRevision(
+          input,
+          revision,
+          env,
+        )
+        if (!acquired) throw new Error("The fixture Workspace is not writable")
+        // A transform can ask a model, so a replay can get another answer.
+        let owner = "Bob"
+        let transforms = 0
+        const prepare = () =>
+          prepareWorkspaceWriteCommit(
+            input,
+            revision,
+            acquired.pack,
+            {
+              change: async () => {
+                transforms++
+                return {
+                  files: [
+                    { path: NOTES, content: `# Owners\n\nOwners: ${owner}\n` },
+                  ],
+                  deletePaths: [],
+                }
+              },
+              subject: { trigger: "import_key_cleanup" },
+              createdAt: "2026-11-09T00:00:00Z",
+            },
+            env,
+          )
+        const first = await prepare()
+        if (!first || first === "paused") throw new Error("No commit")
+        expect(writeRefs(f)).toEqual([writeJobRef(jobId, first.sha)])
+        expect((await getWriteJobRefState(jobId))?.commitSha).toBe(first.sha)
+        // The step crashed after its push and its record, before OpenWorkflow
+        // stored its output. The replay runs the same step again.
+        owner = "Erin"
+        expect(await prepare()).toEqual(first)
+        expect(transforms).toBe(1)
+        expect(writeRefs(f)).toEqual([writeJobRef(jobId, first.sha)])
+        expect(
+          f.git("--git-dir", f.remote, "show", `${first.sha}:${NOTES}`),
+        ).toBe("# Owners\n\nOwners: Bob")
+      })
+    })
   },
 )
 

@@ -1,7 +1,6 @@
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import {
   connectorMirrorContentSchema,
   connectorMirrorSourceSchema,
@@ -25,6 +24,7 @@ import {
   completedWorkspaceWrite,
   completeWorkspaceWrite,
   prepareSemanticMergeCommit,
+  readSemanticMergeChange,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
@@ -75,21 +75,40 @@ export const semanticMergeContentSchema = z
     "Connector handoff must retain its managed paths",
   )
 
-export const workspaceSemanticMergeInputSchema = semanticMergeContentSchema
-  .safeExtend({
-    orgId: z.string().min(1),
-    workspaceId: z.string().min(1),
-    jobId: z.string().min(1),
-    revision: workspaceRevisionSchema,
-    origin: writeOriginSchema,
-    handoff: z
-      .object({
-        ownerRunId: z.string().min(1),
-        candidateSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+const semanticMergeCommandSchema = z.object({
+  orgId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  jobId: z.string().min(1),
+  revision: workspaceRevisionSchema,
+  origin: writeOriginSchema,
+})
+
+/**
+ * A semantic merge carries its files (a standalone merge), or it is the
+ * handoff child of a write that lost the push race. A handoff names the
+ * candidate commit of the parent on its job ref, never its files
+ * (CTX-1239): the child reads the change from Git.
+ */
+export const workspaceSemanticMergeInputSchema = z
+  .union([
+    semanticMergeContentSchema.safeExtend(semanticMergeCommandSchema.shape),
+    semanticMergeCommandSchema
+      .extend({
+        mirror: connectorMirrorSourceSchema.optional(),
+        previousSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+        handoff: z
+          .object({
+            ownerRunId: z.string().min(1),
+            candidateSha: z
+              .string()
+              .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+            /** Paths of the candidate change that stay off the new tip. */
+            dropPaths: z.array(repositoryFilePathSchema).min(1).optional(),
+          })
+          .strict(),
       })
-      .strict()
-      .optional(),
-  })
+      .strict(),
+  ])
   .refine(
     (input) =>
       input.workspaceId === input.revision.workspaceId &&
@@ -124,11 +143,12 @@ export const workspaceSemanticMerge = defineWorkflow(
           throw new Error(
             "Workspace writes require a connected GitHub repository",
           )
-        const completed = input.handoff
-          ? await validateSemanticHandoff({ ...input, handoff: input.handoff })
-          : await completedWorkspaceWrite(input, "semantic_merge", run.id)
+        const completed =
+          "handoff" in input
+            ? await validateSemanticHandoff(input)
+            : await completedWorkspaceWrite(input, "semantic_merge", run.id)
         if (completed) return completed
-        if (input.extraction) {
+        if ("extraction" in input && input.extraction) {
           // The old pipeline is gone: no ingestion writes to a
           // Workspace below format 3. A handoff that it queued ends here.
           await step.run({ name: "complete-retired" }, () =>
@@ -144,7 +164,7 @@ export const workspaceSemanticMerge = defineWorkflow(
             commitSha: undefined,
           }
         }
-        if (!input.handoff)
+        if (!("handoff" in input))
           await step.run({ name: "claim-command" }, () =>
             persistBoundWriteJob({
               id: input.jobId,
@@ -196,7 +216,8 @@ export const workspaceSemanticMerge = defineWorkflow(
                 retryPolicy: { maximumAttempts: 1 },
               },
               async () => {
-                const paths = new Set(input.files.map((file) => file.path))
+                const change = await readSemanticMergeChange(input, read)
+                const paths = new Set(change.files.map((file) => file.path))
                 const current = new Map(
                   (
                     await readGitFiles(
@@ -209,22 +230,11 @@ export const workspaceSemanticMerge = defineWorkflow(
                 )
                 assertWriteOriginAllowed({
                   origin: input.origin,
-                  files: input.files,
-                  deletePaths: input.deletePaths,
+                  ...change,
                   current,
                 })
               },
             )
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "semantic_merge",
-              fileNames: [
-                ...input.files.map((file) => file.path),
-                ...input.deletePaths,
-              ],
-            }),
-          )
           const committed = await runJobRefStep(
             step,
             input.jobId,
@@ -245,7 +255,7 @@ export const workspaceSemanticMerge = defineWorkflow(
                 input,
                 revision,
                 acquired.pack,
-                { subject, createdAt: run.createdAt },
+                run.createdAt,
                 env,
               ),
           )
@@ -268,7 +278,7 @@ export const workspaceSemanticMerge = defineWorkflow(
                 { idempotencyKey: `${input.jobId}:hydrate` },
               ),
             )
-            if (!input.handoff)
+            if (!("handoff" in input))
               await step.run({ name: "complete-no-op" }, () =>
                 persistWriteJobStatus(input.jobId, "completed"),
               )
@@ -316,7 +326,7 @@ export const workspaceSemanticMerge = defineWorkflow(
               { idempotencyKey: `${input.jobId}:hydrate` },
             )
           })
-          if (!input.handoff)
+          if (!("handoff" in input))
             await step.run({ name: "complete" }, () =>
               completeWorkspaceWrite(
                 { ...input, remote: input.revision.remote },

@@ -1,7 +1,6 @@
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { connectorMirrorContentSchema } from "../../domain/workspaces/connector-mirror-input.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
@@ -115,53 +114,66 @@ export const workspaceConnectorMirror = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          // Paths only: the file contents are in the workflow input
-          // (CTX-1235).
-          const changes = await step.run(
-            { name: "transform-connector-mirror-v2" },
+          // One step makes the change, commits it, and pushes the commit to
+          // its job ref: no step output holds a file (CTX-1239).
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
             () =>
-              withGitDirectory(
-                revision.sha,
-                async (directory) => {
-                  const tree = await packRootTree(directory, acquired.pack)
-                  const paths = tree
-                    ? (
-                        await nativeGit(directory, [
-                          "ls-tree",
-                          "-r",
-                          "--name-only",
-                          "-z",
-                          tree,
-                        ])
-                      )
-                        .toString()
-                        .split("\0")
-                    : []
-                  const filePaths: string[] = []
-                  for (const file of input.files) {
-                    const existing = paths.includes(file.path)
-                      ? await nativeGit(directory, [
-                          "show",
-                          `${tree}:${file.path}`,
-                        ])
-                      : null
-                    if (!existing?.equals(gitFileBytes(file)))
-                      filePaths.push(file.path)
-                  }
-                  return {
-                    filePaths,
-                    deletePaths: input.deletePaths.filter((path) =>
-                      paths.includes(path),
-                    ),
-                  }
-                },
+              prepareWorkspaceWriteCommit(
+                input,
+                revision,
                 acquired.pack,
-                read,
+                {
+                  change: async () => {
+                    return withGitDirectory(
+                      revision.sha,
+                      async (directory) => {
+                        const tree = await packRootTree(directory, acquired.pack)
+                        const paths = tree
+                          ? (
+                              await nativeGit(directory, [
+                                "ls-tree",
+                                "-r",
+                                "--name-only",
+                                "-z",
+                                tree,
+                              ])
+                            )
+                              .toString()
+                              .split("\0")
+                          : []
+                        const filePaths: string[] = []
+                        for (const file of input.files) {
+                          const existing = paths.includes(file.path)
+                            ? await nativeGit(directory, [
+                                "show",
+                                `${tree}:${file.path}`,
+                              ])
+                            : null
+                          if (!existing?.equals(gitFileBytes(file)))
+                            filePaths.push(file.path)
+                        }
+                        const changed = new Set(filePaths)
+                        return {
+                          files: input.files.filter((file) => changed.has(file.path)),
+                          deletePaths: input.deletePaths.filter((path) =>
+                            paths.includes(path),
+                          ),
+                        }
+                      },
+                      acquired.pack,
+                      read,
+                    )
+                  },
+                  subject: { trigger: "connector_mirror" },
+                  createdAt: run.createdAt,
+                },
+                env,
               ),
           )
-          const changed = new Set(changes.filePaths)
-          const files = input.files.filter((file) => changed.has(file.path))
-          if (!files.length && !changes.deletePaths.length) {
+          if (!committed) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -177,30 +189,6 @@ export const workspaceConnectorMirror = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "connector_mirror",
-              fileNames: [
-                ...files.map((file) => file.path),
-                ...changes.deletePaths,
-              ],
-            }),
-          )
-          const committed = await runJobRefStep(
-            step,
-            input.jobId,
-            { name: "prepare-commit" },
-            () =>
-              prepareWorkspaceWriteCommit(
-                input,
-                revision,
-                acquired.pack,
-                { files, deletePaths: changes.deletePaths },
-                { subject, createdAt: run.createdAt },
-                env,
-              ),
-          )
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             pushed = await step.run(
@@ -218,7 +206,7 @@ export const workspaceConnectorMirror = defineWorkflow(
           }
           if (!pushed.pushed) {
             const handoff = await step.run(
-              { name: "capture-semantic-handoff" },
+              { name: "capture-semantic-handoff-v2" },
               () =>
                 captureSemanticHandoff(input, revision, committed, env, "host"),
             )

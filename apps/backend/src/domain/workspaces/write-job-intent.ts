@@ -1,6 +1,8 @@
 import { z } from "zod"
 
 import type { GitFileChange } from "../../services/git/file-change.js"
+import type { WithheldFile } from "../ingestion/ingest-refs.js"
+import type { SkippedRetraction } from "../ingestion/unlink-retraction.js"
 import { gitFileChangeSchema } from "../../services/git/file-change.js"
 import type { UnbornBootstrapBinding } from "./bootstrap-input.js"
 import type { ConnectorMirrorSource } from "./connector-mirror-input.js"
@@ -21,12 +23,16 @@ export const WRITE_JOB_STATUSES = {
 export type WriteJobStatus =
   (typeof WRITE_JOB_STATUSES)[keyof typeof WRITE_JOB_STATUSES]
 
+/**
+ * A write that lost the push race, for its semantic merge child. The child
+ * reads the change from the candidate commit on its job ref (CTX-1239),
+ * without `dropPaths`.
+ */
 export type WorkspaceSemanticHandoff = {
   ownerRunId: string
   candidateSha: string
   revision: WorkspaceRevision
-  files: GitFileChange[]
-  deletePaths: string[]
+  dropPaths?: string[]
 }
 
 export type WorkspaceWritePlanning = {
@@ -60,6 +66,17 @@ export type WorkspaceWriteJobPayload = {
   remoteTipSha?: string | null
   mergeFiles?: GitFileChange[]
   mergeDeletePaths?: string[]
+  unchangedFiles?: WriteJobUnchangedFiles
+}
+
+/**
+ * The files that a write left unchanged, with the reasons, for the job
+ * result: the withheld files of an ingestion publish (CTX-1081) or the
+ * skipped files of an unlink retraction.
+ */
+export type WriteJobUnchangedFiles = {
+  withheld?: WithheldFile[]
+  skipped?: SkippedRetraction[]
 }
 
 const writeJobBaseSchema = z.object({

@@ -1,7 +1,6 @@
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { folderListFiles } from "../../domain/workspaces/folder-list.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
@@ -130,59 +129,77 @@ export const workspaceOpsFolderList = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const files = await step.run(
-            {
-              name: "transform-ops-folder-list",
-              retryPolicy: { maximumAttempts: 1 },
-            },
+          // One step makes the change, commits it, and pushes the commit to
+          // its job ref: no step output holds a file (CTX-1239).
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
             () =>
-              withGitDirectory(
-                revision.sha,
-                async (directory) => {
-                  const pathsAt = async (sha: string) => {
-                    const tree = await packRootTree(directory, {
-                      sha,
-                      root: acquired.pack.root,
-                    })
-                    return tree
-                      ? (
-                          await nativeGit(directory, [
-                            "ls-tree",
-                            "-r",
-                            "--name-only",
-                            "-z",
-                            tree,
-                          ])
-                        )
-                          .toString()
-                          .split("\0")
-                      : []
-                  }
-                  const paths = await pathsAt(revision.sha)
-                  const existingAgentsMd = paths.includes("AGENTS.md")
-                    ? (
-                        await nativeGit(directory, [
-                          "show",
-                          `${revision.sha}:${workspaceRepositoryPath(acquired.pack.root ?? "", "AGENTS.md")}`,
-                        ])
-                      ).toString()
-                    : null
-                  return folderListFiles({
-                    displayName: acquired.displayName,
-                    requestedDisplayName: input.displayName,
-                    existingAgentsMd,
-                    paths,
-                    // The acquired pack also holds the previous tree.
-                    ...(input.previousSha
-                      ? { previousPaths: await pathsAt(input.previousSha) }
-                      : {}),
-                  })
-                },
+              prepareWorkspaceWriteCommit(
+                input,
+                revision,
                 acquired.pack,
-                read,
+                {
+                  change: async () => {
+                    const files = await withGitDirectory(
+                      revision.sha,
+                      async (directory) => {
+                        const pathsAt = async (sha: string) => {
+                          const tree = await packRootTree(directory, {
+                            sha,
+                            root: acquired.pack.root,
+                          })
+                          return tree
+                            ? (
+                                await nativeGit(directory, [
+                                  "ls-tree",
+                                  "-r",
+                                  "--name-only",
+                                  "-z",
+                                  tree,
+                                ])
+                              )
+                                .toString()
+                                .split("\0")
+                            : []
+                        }
+                        const paths = await pathsAt(revision.sha)
+                        const existingAgentsMd = paths.includes("AGENTS.md")
+                          ? (
+                              await nativeGit(directory, [
+                                "show",
+                                `${revision.sha}:${workspaceRepositoryPath(acquired.pack.root ?? "", "AGENTS.md")}`,
+                              ])
+                            ).toString()
+                          : null
+                        return folderListFiles({
+                          displayName: acquired.displayName,
+                          requestedDisplayName: input.displayName,
+                          existingAgentsMd,
+                          paths,
+                          // The acquired pack also holds the previous tree.
+                          ...(input.previousSha
+                            ? { previousPaths: await pathsAt(input.previousSha) }
+                            : {}),
+                        })
+                      },
+                      acquired.pack,
+                      read,
+                    )
+                    if (files.some((file) => file.path !== "AGENTS.md"))
+                      throw new Error(
+                        "Folder map maintenance may only edit AGENTS.md",
+                      )
+                    return { files, deletePaths: [] }
+                  },
+                  subject: { trigger: "ops_folder_map" },
+                  createdAt: run.createdAt,
+                },
+                env,
               ),
           )
-          if (!files.length) {
+          if (!committed) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -198,32 +215,6 @@ export const workspaceOpsFolderList = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "ops_folder_map",
-              fileNames: files.map((file) => file.path),
-            }),
-          )
-          const committed = await runJobRefStep(
-            step,
-            input.jobId,
-            { name: "prepare-commit" },
-            async () => {
-              if (files.some((file) => file.path !== "AGENTS.md"))
-                throw new Error(
-                  "Folder map maintenance may only edit AGENTS.md",
-                )
-              return prepareWorkspaceWriteCommit(
-                input,
-                revision,
-                acquired.pack,
-                { files, deletePaths: [] },
-                { subject, createdAt: run.createdAt },
-                env,
-              )
-            },
-          )
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             pushed = await step.run(
@@ -241,7 +232,7 @@ export const workspaceOpsFolderList = defineWorkflow(
           }
           if (!pushed.pushed) {
             const handoff = await step.run(
-              { name: "capture-semantic-handoff" },
+              { name: "capture-semantic-handoff-v2" },
               () =>
                 captureSemanticHandoff(input, revision, committed, env, "host"),
             )

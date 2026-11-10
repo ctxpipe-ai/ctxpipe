@@ -1,7 +1,6 @@
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { nativeRenameRewriteFiles } from "../../domain/workspaces/native-rename-rewrite.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
@@ -115,12 +114,44 @@ export const workspaceRenameRewrite = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const files = await step.run(
-            { name: "transform-rename-rewrite" },
+          // One step makes the change, commits it, and pushes the commit to
+          // its job ref: no step output holds a file (CTX-1239).
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
             () =>
-              nativeRenameRewriteFiles(acquired.pack, input.previousSha, read),
+              prepareWorkspaceWriteCommit(
+                input,
+                revision,
+                acquired.pack,
+                {
+                  change: async () => {
+                    const files = await nativeRenameRewriteFiles(
+                      acquired.pack,
+                      input.previousSha,
+                      read,
+                    )
+                    if (
+                      files.some(
+                        (file) =>
+                          file.path === "AGENTS.md" ||
+                          file.path.startsWith(".agents/") ||
+                          !file.path.endsWith(".md"),
+                      )
+                    )
+                      throw new Error(
+                        "Rename repair may only edit knowledge Markdown",
+                      )
+                    return { files, deletePaths: [] }
+                  },
+                  subject: { trigger: "rename_rewrite" },
+                  createdAt: run.createdAt,
+                },
+                env,
+              ),
           )
-          if (!files.length) {
+          if (!committed) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -136,39 +167,6 @@ export const workspaceRenameRewrite = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "rename_rewrite",
-              fileNames: files.map((file) => file.path),
-            }),
-          )
-          const committed = await runJobRefStep(
-            step,
-            input.jobId,
-            { name: "prepare-commit" },
-            async () => {
-              if (
-                files.some(
-                  (file) =>
-                    file.path === "AGENTS.md" ||
-                    file.path.startsWith(".agents/") ||
-                    !file.path.endsWith(".md"),
-                )
-              )
-                throw new Error(
-                  "Rename repair may only edit knowledge Markdown",
-                )
-              return prepareWorkspaceWriteCommit(
-                input,
-                revision,
-                acquired.pack,
-                { files, deletePaths: [] },
-                { subject, createdAt: run.createdAt },
-                env,
-              )
-            },
-          )
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             pushed = await step.run(
@@ -186,7 +184,7 @@ export const workspaceRenameRewrite = defineWorkflow(
           }
           if (!pushed.pushed) {
             const handoff = await step.run(
-              { name: "capture-semantic-handoff" },
+              { name: "capture-semantic-handoff-v2" },
               () =>
                 captureSemanticHandoff(input, revision, committed, env, "host"),
             )

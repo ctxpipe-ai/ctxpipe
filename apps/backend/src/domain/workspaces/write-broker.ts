@@ -2,9 +2,11 @@ import type { Env } from "../../config/env.js"
 import { getRepoWriteCloneToken } from "../../models/github-installation.js"
 import { ingestionRunStates } from "../../models/ingestion-runs.js"
 import {
+  discardWriteJobPreparedCommit,
   getWriteJobRefState,
   listWriteJobStatuses,
   persistSemanticHandoff,
+  persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
 import {
   getWorkspaceById,
@@ -53,7 +55,6 @@ import {
 import {
   resolveRepositoryReadCredential,
   resolveWorkspaceReadRevision,
-  workspaceGitRead,
 } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import {
@@ -391,7 +392,11 @@ export async function attemptWorkspaceCommit(
   }
 }
 
-/** Capture the unpushed native delta and current binding as an immutable child command. */
+/**
+ * Capture the unpushed write and the current binding as an immutable child
+ * command. The child input names the candidate commit on its job ref, never
+ * its files (CTX-1239): the child reads the change from Git.
+ */
 export async function captureSemanticHandoff(
   input: {
     orgId: string
@@ -403,34 +408,17 @@ export async function captureSemanticHandoff(
   committed: GitWriteCommit,
   env: Env,
   origin: WriteOrigin,
-  /** Paths of the delta that must not go onto the new tip. */
+  /** Paths of the change that must not go onto the new tip. */
   dropPaths?: (nextRevision: WorkspaceRevision) => Promise<string[]>,
 ) {
-  const { readGitCommitChanges } =
-    await import("../../services/git/write-tree.js")
-  // The refresh comes first: it proves that the remote is the bound
-  // repository before the delta read sends it a credential.
   const nextRevision = await refreshWorkspaceWriteRevision(input, revision, env)
-  const delta = await readGitCommitChanges(
-    writeCommitPack(committed, nextRevision.remote.url),
-    revision.sha,
-    workspaceGitRead({
-      orgId: input.orgId,
-      env,
-      remote: nextRevision.remote,
-    }),
-  )
-  const dropped = new Set(dropPaths ? await dropPaths(nextRevision) : [])
-  const changes = {
-    files: delta.files.filter((file) => !dropped.has(file.path)),
-    deletePaths: delta.deletePaths.filter((path) => !dropped.has(path)),
-  }
+  const dropped = dropPaths ? await dropPaths(nextRevision) : []
   const handoff = await persistSemanticHandoff({
     jobId: input.jobId,
     revision,
     nextRevision,
     candidateSha: committed.sha,
-    ...changes,
+    ...(dropped.length ? { dropPaths: dropped } : {}),
     mirror: input.mirror,
   })
   return {
@@ -441,11 +429,10 @@ export async function captureSemanticHandoff(
     handoff: {
       ownerRunId: handoff.ownerRunId,
       candidateSha: handoff.candidateSha,
+      ...(handoff.dropPaths ? { dropPaths: handoff.dropPaths } : {}),
     },
     revision: handoff.revision,
     previousSha: revision.sha,
-    files: handoff.files,
-    deletePaths: handoff.deletePaths,
     ...(input.mirror ? { mirror: input.mirror } : {}),
   }
 }
@@ -980,7 +967,7 @@ function workspaceBrokerRemote(workspace: {
  * as for `attemptWorkspaceCommit`; a denial that GitHub names makes the
  * Workspace read-only.
  */
-export async function prepareWithJobRef<T>(
+async function prepareWithJobRef<T>(
   job: WriteJobPush,
   env: Env,
   prepare: (publish: PublishGitCommit) => Promise<T>,
@@ -1039,18 +1026,18 @@ export async function prepareWithJobRef<T>(
 }
 
 /**
- * The commit that an earlier execution of a merge step prepared for the job
- * (CTX-1235). The step records its commit on the job before the push to the
- * job ref, so each pushed commit is recorded: a replay returns it and does
- * not ask the model again. A recorded commit that
- * the default branch has is the result too (a run that pushed before its
- * steps got new names). Else the recorded commit was never pushed, and
- * `stale` names it: the step makes a new one. `candidateSha` is the commit
- * of a parent run that a handoff child starts from; it is not a result.
+ * The commit that an earlier execution of a prepare step recorded for the job
+ * (CTX-1235, CTX-1239). The step records its commit on the job before the
+ * push to the job ref, so each pushed commit is recorded. A recorded commit
+ * that the default branch has is the result too (a run that pushed before
+ * its steps got new names). Else the recorded commit was never pushed, and
+ * `stale` names it. `candidateSha` is the commit of a parent run that a
+ * handoff child starts from; it is not a result. `parent` is the commit that
+ * the step writes on, or null for the first commit of an unborn repository.
  */
-export async function findPreparedMergeCommit(
+async function findPreparedCommit(
   job: WriteJob & { candidateSha?: string },
-  revision: WorkspaceRevision,
+  parent: { sha: string | null; root: string },
   env: Env,
 ): Promise<{ commit: GitWriteCommit } | { stale: string } | null> {
   const admitted = await admitWriteJob(job)
@@ -1059,45 +1046,93 @@ export async function findPreparedMergeCommit(
   const token = await resolveRepositoryReadCredential({
     orgId: job.orgId,
     env,
-    remote: revision.remote,
+    remote: job.remote,
   })
   const ref = writeJobRef(job.jobId, recorded)
   const onRef = (
     await listRemoteRefs(
       {
-        url: revision.remote.url,
-        env: gitRemoteEnvironment({ url: revision.remote.url, token }),
+        url: job.remote.url,
+        env: gitRemoteEnvironment({ url: job.remote.url, token }),
       },
       ref,
     )
   ).some((listed) => listed.name === ref && listed.sha === recorded)
   const tip = onRef
     ? null
-    : await resolveGitRemoteTip({ url: revision.remote.url, token })
+    : await resolveGitRemoteTip({ url: job.remote.url, token })
   if (
     !onRef &&
-    !(tip && (await remoteContainsCommit(revision, recorded, tip.sha, token)))
+    !(
+      tip &&
+      (await remoteContainsCommit(
+        { remote: job.remote, sha: parent.sha },
+        recorded,
+        tip.sha,
+        token,
+      ))
+    )
   )
     return { stale: recorded }
-  const root = workspaceRootPath(revision)
-  const read = { url: revision.remote.url, token: async () => token }
   const commit: GitWriteCommit = {
     sha: recorded,
     tree: "",
-    ...(root ? { root } : {}),
-    base: revision.sha,
+    ...(parent.root ? { root: parent.root } : {}),
+    base: parent.sha,
   }
   const { tree, parents } = await withGitDirectory(
     recorded,
     (directory) => readCommitHeader(directory, recorded),
-    writeCommitPack(commit, revision.remote.url),
-    read,
+    writeCommitPack(commit, job.remote.url),
+    { url: job.remote.url, token: async () => token },
   )
-  if (parents.length !== 1 || parents[0] !== revision.sha)
+  if (parents.join() !== (parent.sha ?? ""))
     throw new Error(
       "The recorded commit of the write job is not a commit on its revision",
     )
   return { commit: { ...commit, tree } }
+}
+
+/**
+ * Run the prepare step of a Workspace write (CTX-1235, CTX-1239): the step
+ * makes the content of the write (a transform, a merge, or a model answer),
+ * commits it, records the commit on the job, and pushes it to its job ref.
+ * The step output is the result of `build`: a commit identity and small
+ * metadata, never a file or a Git object.
+ *
+ * A model can answer differently on a replay, so a replay returns the
+ * commit that an earlier execution recorded and pushed (`reuse`): a second
+ * answer cannot make a second commit. A recorded commit that no push sent is
+ * discarded, and `build` runs again. `record` replaces the default record of
+ * the commit on the job (a semantic handoff child records on its parent's
+ * job).
+ */
+export async function prepareRecordedCommit<T>(
+  job: WriteJobPush & { candidateSha?: string },
+  parent: { sha: string | null; root: string },
+  env: Env,
+  steps: {
+    build: (publish: PublishGitCommit) => Promise<T>
+    reuse: (commit: GitWriteCommit) => T
+    record?: (sha: string) => Promise<unknown>
+  },
+): Promise<T | "paused"> {
+  const record =
+    steps.record ??
+    ((sha: string) => persistWriteJobPreparedCommit(job.jobId, sha))
+  return prepareWithJobRef(job, env, async (publish) => {
+    const found = await findPreparedCommit(job, parent, env)
+    if (found && "commit" in found) return steps.reuse(found.commit)
+    // A crash between the record and the push, or a run from before the
+    // new step names: no step reads the recorded commit.
+    if (found) await discardWriteJobPreparedCommit(job.jobId, found.stale)
+    // Record the commit before its push: a commit on a job ref is always
+    // the recorded one, so a replay finds it and asks no model again.
+    return steps.build(async (directory, sha) => {
+      await record(sha)
+      await publish(directory, sha)
+    })
+  })
 }
 
 /**

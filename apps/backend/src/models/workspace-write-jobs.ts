@@ -14,7 +14,9 @@ import {
   type WorkspaceRevision,
 } from "../domain/workspaces/revision.js"
 import {
+  type WorkspaceSemanticHandoff,
   type WorkspaceWriteJobPayload,
+  type WriteJobUnchangedFiles,
   WRITE_JOB_STATUSES,
 } from "../domain/workspaces/write-job-intent.js"
 import type { WorkspaceWriteJobKind } from "../domain/workspaces/write-jobs.js"
@@ -201,14 +203,16 @@ export async function persistWriteJobCommitSha(
   })
 }
 
-/** Bind the exact native delta to the existing command before admitting its child. */
+/**
+ * Bind the unpushed candidate commit to the existing command before admitting
+ * its child. The handoff names the commit, not its files (CTX-1239).
+ */
 export async function persistSemanticHandoff(input: {
   jobId: string
   revision: WorkspaceRevision
   nextRevision: WorkspaceRevision
   candidateSha: string
-  files: GitFileChange[]
-  deletePaths: string[]
+  dropPaths?: string[]
   mirror?: ConnectorMirrorSource
   extraction?: Record<string, unknown>
 }) {
@@ -230,20 +234,18 @@ export async function persistSemanticHandoff(input: {
       throw new Error(
         "Semantic handoff requires the owning unpublished command",
       )
-    const handoff = {
+    const handoff: WorkspaceSemanticHandoff = {
       ownerRunId: row.payload.workflowRunId,
       candidateSha: input.candidateSha,
       revision: input.nextRevision,
-      files: input.files,
-      deletePaths: input.deletePaths,
+      ...(input.dropPaths ? { dropPaths: input.dropPaths } : {}),
     }
     const existing = row.payload.semanticHandoff
     if (existing) {
       if (
         existing.ownerRunId !== handoff.ownerRunId ||
         existing.candidateSha !== handoff.candidateSha ||
-        !isDeepStrictEqual(existing.files, handoff.files) ||
-        !isDeepStrictEqual(existing.deletePaths, handoff.deletePaths)
+        !isDeepStrictEqual(existing.dropPaths, handoff.dropPaths)
       )
         throw new Error("Write job already has a different semantic handoff")
       // A committed handoff survives loss of this SQL reply. The semantic child
@@ -268,11 +270,9 @@ export async function validateSemanticHandoff(
     workspaceId: string
     revision: WorkspaceRevision
     previousSha: string
-    files: GitFileChange[]
-    deletePaths: string[]
     mirror?: ConnectorMirrorSource
     extraction?: Record<string, unknown>
-    handoff: { ownerRunId: string; candidateSha: string }
+    handoff: { ownerRunId: string; candidateSha: string; dropPaths?: string[] }
   },
   preparedSha?: string,
 ) {
@@ -292,8 +292,6 @@ export async function validateSemanticHandoff(
       !isDeepStrictEqual(row.payload?.semanticHandoff, {
         ...input.handoff,
         revision: input.revision,
-        files: input.files,
-        deletePaths: input.deletePaths,
       })
     )
       throw new Error("Semantic child does not match the admitted handoff")
@@ -316,6 +314,41 @@ export async function validateSemanticHandoff(
         .where(eq(workspaceWriteJobs.id, input.jobId))
     }
     return null
+  })
+}
+
+/**
+ * Record on the job the files that its write leaves unchanged, with the
+ * reasons: the withheld files of an ingestion publish (CTX-1081) or the
+ * skipped files of an unlink retraction. The lists can be long, so no step
+ * output holds them (CTX-1239): the workflow reads them back for its result.
+ */
+export async function persistWriteJobUnchangedFiles(
+  jobId: string,
+  unchanged: WriteJobUnchangedFiles,
+): Promise<void> {
+  await orgSql(async () => {
+    await getOrgDb()
+      .update(workspaceWriteJobs)
+      .set({
+        payload: sql`jsonb_set(coalesce(${workspaceWriteJobs.payload}, '{}'::jsonb), '{unchangedFiles}', ${JSON.stringify(unchanged)}::jsonb)`,
+        updatedAt: new Date(),
+      })
+      .where(eq(workspaceWriteJobs.id, jobId))
+  })
+}
+
+/** The files that the write of a job left unchanged (`persistWriteJobUnchangedFiles`). */
+export async function getWriteJobUnchangedFiles(
+  jobId: string,
+): Promise<WriteJobUnchangedFiles> {
+  return orgSql(async () => {
+    const [row] = await getOrgDb()
+      .select({ payload: workspaceWriteJobs.payload })
+      .from(workspaceWriteJobs)
+      .where(eq(workspaceWriteJobs.id, jobId))
+      .limit(1)
+    return row?.payload?.unchangedFiles ?? {}
   })
 }
 

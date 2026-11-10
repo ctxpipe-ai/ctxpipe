@@ -22,6 +22,7 @@ import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import type {
   WorkspaceSemanticHandoff,
   WorkspaceWritePlanning,
+  WriteJobUnchangedFiles,
 } from "../../domain/workspaces/write-job-intent.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { connections } from "./connections.js"
@@ -249,6 +250,7 @@ export const workspaceWriteJobs = pgTable.withRLS(
       remoteTipSha?: string | null
       mergeFiles?: GitFileChange[]
       mergeDeletePaths?: string[]
+      unchangedFiles?: WriteJobUnchangedFiles
       /** Only on rows of kind `upgrade` (ADR-053). */
       upgrade?: WorkspaceUpgradePayload
     } | null>(),

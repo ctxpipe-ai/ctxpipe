@@ -7,7 +7,6 @@ import {
 } from "../../domain/ingestion/ingestion-v2-config.js"
 import type { SourceFileBlob } from "../../domain/workspace-sources/projection-plan.js"
 import { readSourcesTree } from "../../domain/workspace-sources/source-tree.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
@@ -162,23 +161,50 @@ export function defineKnowledgeRewriteWorkflow(options: {
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const files = await step.run(
-            { name: `transform-${options.kind.replaceAll("_", "-")}` },
-            async () =>
-              options.transform(
-                await readGitFiles(
-                  acquired.pack,
-                  (path) =>
-                    path.startsWith("knowledge/") && path.endsWith(".md"),
-                  undefined,
-                  read,
-                ),
+          // One step makes the change, commits it, and pushes the commit to
+          // its job ref: no step output holds a file (CTX-1239).
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
+            () =>
+              prepareWorkspaceWriteCommit(
+                input,
                 revision,
-                (await readSourcesTree(acquired.pack, read)).sourceFiles,
-                input.orgId,
+                acquired.pack,
+                {
+                  change: async () => {
+                    const files = await options.transform(
+                      await readGitFiles(
+                        acquired.pack,
+                        (path) =>
+                          path.startsWith("knowledge/") && path.endsWith(".md"),
+                        undefined,
+                        read,
+                      ),
+                      revision,
+                      (await readSourcesTree(acquired.pack, read)).sourceFiles,
+                      input.orgId,
+                    )
+                    if (
+                      files.some(
+                        (file) =>
+                          !file.path.startsWith("knowledge/") ||
+                          !file.path.endsWith(".md"),
+                      )
+                    )
+                      throw new Error(
+                        "A knowledge rewrite may only edit knowledge Markdown",
+                      )
+                    return { files, deletePaths: [] }
+                  },
+                  subject: { trigger: options.kind },
+                  createdAt: run.createdAt,
+                },
+                env,
               ),
           )
-          if (!files.length) {
+          if (!committed) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -194,38 +220,6 @@ export function defineKnowledgeRewriteWorkflow(options: {
               reason: "no_changes" as const,
             }
           }
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: options.kind,
-              fileNames: files.map((file) => file.path),
-            }),
-          )
-          const committed = await runJobRefStep(
-            step,
-            input.jobId,
-            { name: "prepare-commit" },
-            async () => {
-              if (
-                files.some(
-                  (file) =>
-                    !file.path.startsWith("knowledge/") ||
-                    !file.path.endsWith(".md"),
-                )
-              )
-                throw new Error(
-                  "A knowledge rewrite may only edit knowledge Markdown",
-                )
-              return prepareWorkspaceWriteCommit(
-                input,
-                revision,
-                acquired.pack,
-                { files, deletePaths: [] },
-                { subject, createdAt: run.createdAt },
-                env,
-              )
-            },
-          )
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             const attempt = await step.run(
@@ -280,7 +274,7 @@ export function defineKnowledgeRewriteWorkflow(options: {
           }
           if (!pushed.pushed) {
             const handoff = await step.run(
-              { name: "capture-semantic-handoff" },
+              { name: "capture-semantic-handoff-v2" },
               () =>
                 captureSemanticHandoff(input, revision, committed, env, "host"),
             )

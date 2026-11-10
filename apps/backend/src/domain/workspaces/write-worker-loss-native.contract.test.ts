@@ -455,7 +455,7 @@ process.exit(result.status ?? 1);
             if (boundary === "semantic handoff")
               expect(
                 attempts.filter(
-                  (attempt) => attempt.stepName === "capture-semantic-handoff",
+                  (attempt) => attempt.stepName === "capture-semantic-handoff-v2",
                 ),
               ).toHaveLength(2)
             // The job ref push and the ref deletion need a write credential
