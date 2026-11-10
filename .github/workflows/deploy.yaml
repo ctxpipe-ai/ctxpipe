@@ -234,11 +234,18 @@ jobs:
       packages: read
     env:
       AWS_ACCOUNT: "213102790567"
+      ECR_REGION: us-west-2
     steps:
-      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      # Until aws-core deploys the push role, this login fails. Then the copy
+      # step only checks the sources (a dry run) and warns, so a main deploy
+      # does not fail. After the role exists, the copies start without a
+      # change here.
+      - id: aws
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT }}:role/github-actions-ctxpipe-ecr-push
-          aws-region: us-west-2
+          aws-region: ${{ env.ECR_REGION }}
 
       - name: Install crane
         run: |
@@ -251,6 +258,7 @@ jobs:
         env:
           DIGESTS: ${{ needs.ecr_digests.outputs.digests }}
           GH_TOKEN: ${{ github.token }}
+          PUSH: ${{ steps.aws.outcome == 'success' }}
         run: |
           # A late rerun of an older run must not make an older build the
           # newest tagged image, so each attempt checks the head of main.
@@ -260,14 +268,23 @@ jobs:
             exit 0
           fi
           crane="$RUNNER_TEMP/crane"
-          ecr="$AWS_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com"
+          ecr="$AWS_ACCOUNT.dkr.ecr.$ECR_REGION.amazonaws.com"
           echo "$GH_TOKEN" | "$crane" auth login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          aws ecr get-login-password | "$crane" auth login "$ecr" -u AWS --password-stdin
+          if [ "$PUSH" = true ]; then
+            aws ecr get-login-password | "$crane" auth login "$ecr" -u AWS --password-stdin
+          else
+            echo "::warning::The push role github-actions-ctxpipe-ecr-push could not be assumed: a dry run checks the sources and copies nothing."
+          fi
           # The tags are immutable. A rerun skips a tag that already holds
           # the same digest, and fails on a tag that holds another digest.
           copy() { # <source>@<digest> <repository> <tag>
             target="$ecr/$2:$3"
             digest="${1#*@}"
+            if [ "$PUSH" != true ]; then
+              platforms="$("$crane" manifest "$1" | jq -r '[.manifests[].platform | select(.os != "unknown") | "\(.os)/\(.architecture)"] | join(",")')"
+              echo "dry run: $1 ($platforms) -> $target" | tee -a "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
             if existing="$("$crane" digest "$target" 2> /dev/null)"; then
               [ "$existing" = "$digest" ] || { echo "::error::$target holds $existing, not $digest"; return 1; }
               echo "$target already holds $existing"
