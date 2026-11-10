@@ -7,10 +7,10 @@ import type { Box } from "../../src/story.ts"
 import type { Verdict } from "../../src/verdict.ts"
 import type { CaseManifest } from "./cases.ts"
 
-/** The verdict of one arm on one case in one run. */
 /** The limit or the input error that stopped a run. */
 export type StopReason = "cost" | "time" | "image"
 
+/** The verdict of one arm on one case in one run. */
 export type Result = {
   arm: string
   case: string

@@ -665,6 +665,12 @@ export async function bakeOff(
             stopped = limit
             return
           }
+          // While the images come, a paid arm holds the estimate of its call
+          // in the spend, as a call does. Thus other workers do not get
+          // images for calls that the cap does not let start. The call takes
+          // the hold over in the same tick: no await is between them.
+          const hold = arm.paid ? estimate() : 0
+          spent += hold
           let prepared: Prepared | PreparedNew
           try {
             prepared = await preparedOf(entry)
@@ -674,6 +680,8 @@ export async function bakeOff(
             imageError ??= (error as Error).message
             stopped = "image"
             return
+          } finally {
+            spent -= hold
           }
           let verdict: Verdict
           try {

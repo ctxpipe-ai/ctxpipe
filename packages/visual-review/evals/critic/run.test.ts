@@ -845,6 +845,28 @@ test("a run that the spend cap stops before its first call gets no image", async
   expect(calls).toEqual([])
 })
 
+test("workers at the same time get only the images of the calls that the spend cap lets start", async () => {
+  server.use(chat, releaseOf())
+  const cache = mkdtempSync(join(folder, "cache-"))
+
+  // As in the test of the spend cap with four workers: two calls start.
+  const { code } = await fromRelease(cache, [
+    "--arms",
+    "llm:anthropic/claude-test",
+    "--concurrency",
+    "4",
+    "--max-cost",
+    "0.115",
+  ])
+
+  expect(code).toBe(0)
+  expect(calls).toHaveLength(2)
+  const called = calls.map((call) => call.split(" ")[1])
+  expect([...downloads].sort()).toEqual(
+    files(cases.filter(({ id }) => called.includes(id))),
+  )
+})
+
 test("an arm that judges no new screenshot gets no image of a new case", async () => {
   server.use(releaseOf())
   const cache = mkdtempSync(join(folder, "cache-"))
