@@ -179,12 +179,14 @@ jobs:
       digests: ${{ steps.digests.outputs.digests }}
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: github.run_attempt == 1
         with:
           pattern: index-*
           path: ${{ runner.temp }}/index
           merge-multiple: true
       - id: digests
         run: |
+          set -o pipefail
           # Only the first attempt reads the artifacts: in a later attempt,
           # dependency code of release or terraform from an earlier attempt
           # could have uploaded one. A rerun of only copy_images_to_ecr keeps
@@ -195,11 +197,17 @@ jobs:
             exit 0
           fi
           cd "$RUNNER_TEMP/index"
+          # Only the images of the build matrix go to the ECR. Another name
+          # is skipped, so a new image does not stop the Railway deploy.
           for image in *; do
-            # The images of the build matrix.
-            [[ "$image" =~ ^(backend|worker|ui|codesearch|chat-sandbox)$ && "$(cat "$image")" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$image is no production image digest" >&2; exit 1; }
-          done
-          echo "digests=$(for image in *; do jq -n --arg image "$image" --arg digest "$(cat "$image")" '{($image): $digest}'; done | jq -cs add)" >> "$GITHUB_OUTPUT"
+            digest="$(cat "$image")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$image holds no image digest" >&2; exit 1; }
+            if [[ ! "$image" =~ ^(backend|worker|ui|codesearch|chat-sandbox)$ ]]; then
+              echo "::notice::$image is not on the ECR list of this job; it is not copied" >&2
+              continue
+            fi
+            echo "$image $digest"
+          done | jq -Rcs 'split("\n") | map(select(. != "") | split(" ") | {(.[0]): .[1]}) | add // {}' | sed 's/^/digests=/' >> "$GITHUB_OUTPUT"
 
   # Copies each production image, and the cloudflared image that the edge
   # stack pins, to the production ECR (CTX-1215 X2). crane copies the
@@ -268,9 +276,9 @@ jobs:
             "$crane" copy "$1" "$target"
             echo "$target $digest" | tee -a "$GITHUB_STEP_SUMMARY"
           }
-          for image in $(jq -r 'keys[]' <<< "$DIGESTS"); do
-            copy "ghcr.io/ctxpipe-ai/$image@$(jq -r --arg image "$image" '.[$image]' <<< "$DIGESTS")" "ctxpipe/$image" "$GITHUB_SHA"
-          done
+          while read -r image digest; do
+            copy "ghcr.io/ctxpipe-ai/$image@$digest" "ctxpipe/$image" "$GITHUB_SHA"
+          done < <(jq -r 'to_entries[] | "\(.key) \(.value)"' <<< "$DIGESTS")
           # cloudflared 2026.10.7 (multi-platform index), the version of the
           # edge stack and the backend sidecar. Its tag is its version, so a
           # new tag comes only with a new pin.
