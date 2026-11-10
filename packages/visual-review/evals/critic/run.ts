@@ -646,7 +646,8 @@ export async function bakeOff(
       const worker = async () => {
         for (let task = queue.shift(); task; task = queue.shift()) {
           const { run, entry } = task
-          if (stopped === "image") return
+          // A bad image of another worker stops the run.
+          if (imageError) return
           // The report says "not applicable": no image is necessary.
           if (entry.kind === "new" && !arm.judgeNew) continue
           const limit = limitFor(arm)
@@ -664,6 +665,8 @@ export async function bakeOff(
             stopped = "image"
             return
           }
+          // Another worker can find a bad image while this one waits.
+          if (imageError) return
           let verdict: Verdict
           try {
             verdict = await verdictOf(arm, prepared)
