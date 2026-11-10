@@ -35,7 +35,11 @@ describe("copy-database (two Postgres 17 containers)", () => {
   beforeAll(async () => {
     const bin = await clientToolsDirectory(workRoot)
     vi.stubEnv("PATH", `${bin}:${process.env.PATH ?? ""}`)
-    pair = await startPostgresPair(["ctxpipe", "ctxpipe_rehearsal"])
+    pair = await startPostgresPair([
+      "ctxpipe",
+      "ctxpipe_rehearsal",
+      "ctxpipe_schema_only",
+    ])
     targetUrl = pair.targetUrl("ctxpipe")
 
     await runMigrations({
@@ -153,6 +157,24 @@ describe("copy-database (two Postgres 17 containers)", () => {
         jobs: 2,
       }),
     ).rejects.toThrow(/Restore only into an empty database/)
+
+    // No table, but a schema and a function would clash with the restore.
+    const schemaOnly = pair.targetUrl("ctxpipe_schema_only")
+    await sql(
+      schemaOnly,
+      "CREATE SCHEMA leftover",
+      "CREATE FUNCTION leftover.one() RETURNS int LANGUAGE sql AS 'SELECT 1'",
+    )
+    await expect(
+      copyDatabase({
+        sourceUrl: pair.sourceUrl,
+        targetUrl: schemaOnly,
+        workDir: join(workRoot, "schema-only"),
+        jobs: 2,
+      }),
+    ).rejects.toThrow(
+      /has 2 schemas, tables, views, sequences, types or functions/,
+    )
   }, 120_000)
 
   it("cancels the open runs of a rehearsal copy and finds a changed row", async () => {

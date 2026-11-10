@@ -5,6 +5,8 @@ import { promisify } from "node:util"
 
 import pg from "pg"
 
+import pins from "../../../../scripts/ci/service-pins.json" with { type: "json" }
+
 /*
  * Two Postgres 17 servers in containers, with the role models of the cutover
  * (CTX-1217). The source has the roles of Neon: an owner login
@@ -15,8 +17,8 @@ import pg from "pg"
 
 const exec = promisify(execFile)
 
-const POSTGRES_IMAGE =
-  "pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8"
+// The pin of the CI Postgres service, so that a pin bump moves this test too.
+const POSTGRES_IMAGE = `${pins.postgres.image}:${pins.postgres.tag}@${pins.postgres.digest}`
 const OWNER_PASSWORD = "owner-password"
 const ADMIN_PASSWORD = "admin"
 

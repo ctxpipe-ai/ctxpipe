@@ -276,15 +276,25 @@ export async function preflight(
         )
     }
 
+    // Any object of the user, except those of an extension (the vector
+    // extension is there before the restore).
+    const notExtension = (oid: string) =>
+      `NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = ${oid} AND d.deptype = 'e')`
     const used = await one<{ n: string }>(
       target,
-      `SELECT count(*) AS n FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-       WHERE ${SYSTEM_SCHEMA} AND c.relkind IN ('r', 'p', 'v', 'm', 'S')
-         AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = c.oid AND d.deptype = 'e')`,
+      `SELECT (
+         (SELECT count(*) FROM pg_namespace n WHERE ${SYSTEM_SCHEMA} AND n.nspname <> 'public' AND ${notExtension("n.oid")})
+       + (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE ${SYSTEM_SCHEMA} AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f', 'c') AND ${notExtension("c.oid")})
+       + (SELECT count(*) FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+            WHERE ${SYSTEM_SCHEMA} AND t.typtype IN ('e', 'd', 'r', 'm') AND ${notExtension("t.oid")})
+       + (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE ${SYSTEM_SCHEMA} AND ${notExtension("p.oid")})
+       )::text AS n`,
     )
     if (Number(used.n) > 0)
       problems.push(
-        `The target database has ${used.n} tables, views or sequences. Restore only into an empty database.`,
+        `The target database has ${used.n} schemas, tables, views, sequences, types or functions. Restore only into an empty database.`,
       )
 
     // Row security hides rows from a login that does not own the table and
