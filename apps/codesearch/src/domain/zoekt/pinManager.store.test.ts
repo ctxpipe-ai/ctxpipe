@@ -24,6 +24,10 @@ import {
   vi,
 } from "vitest"
 
+import {
+  zoektStagingDirFromIndexDir,
+  zoektStoreDirFromIndexDir,
+} from "../../config/paths.js"
 import { startS3Server } from "../../test/s3Server.js"
 import {
   publishArtifact,
@@ -33,6 +37,7 @@ import {
 import {
   evictColdShards,
   installStagedShards,
+  localManifestPath,
   markShardsUploaded,
   pinRepos,
   resetPinManagerForTests,
@@ -92,7 +97,7 @@ function repoOf(repoId: string, zoektRepoId: number) {
 /** Indexes `srcDir` with the real zoekt-index, installs and uploads it. */
 async function indexAndPublish(repoId: string, zoektRepoId: number) {
   const { address, repo } = repoOf(repoId, zoektRepoId)
-  const stagingDir = join(coldDir, ".build", repoId)
+  const stagingDir = join(zoektStagingDirFromIndexDir(coldDir), repoId)
   const metaPath = join(root, `${repoId}.meta.json`)
   await writeFile(
     metaPath,
@@ -128,8 +133,7 @@ const coldShards = async (zoektName: string) =>
   (await readdir(coldDir)).filter((name) =>
     name.startsWith(zoektShardFilePrefix(zoektName)),
   )
-const localCopy = (zoektName: string) =>
-  join(coldDir, ".store", `${encodeURIComponent(zoektName)}.json`)
+const localCopy = (zoektName: string) => localManifestPath(coldDir, zoektName)
 const emptyCold = async () => {
   for (const name of await readdir(coldDir))
     await rm(join(coldDir, name), { recursive: true, force: true })
@@ -167,7 +171,7 @@ describe("fetch on pin", () => {
       expect(
         JSON.parse(await readFile(localCopy(repo.zoektName), "utf8")),
       ).toEqual(manifest)
-      expect(await readdir(join(coldDir, ".build"))).toEqual([])
+      expect(await readdir(zoektStagingDirFromIndexDir(coldDir))).toEqual([])
       await waitUntilZoektReposLoaded({
         repoIds: [repo.zoektRepoId],
         baseUrl,
@@ -210,7 +214,7 @@ describe("fetch on pin", () => {
     )
 
     expect(await coldShards(repo.zoektName)).toEqual([])
-    expect(await readdir(join(coldDir, ".build"))).toEqual([])
+    expect(await readdir(zoektStagingDirFromIndexDir(coldDir))).toEqual([])
   })
 
   it("refuses a manifest that names a file of another name", async () => {
@@ -238,7 +242,7 @@ describe("fetch on pin", () => {
   it("ends with the shards of an index that races a fetch, and no local manifest copy", async () => {
     const { repo } = await indexAndPublish("repo_race", 35)
     await emptyCold()
-    const stagingDir = join(coldDir, ".build", "race")
+    const stagingDir = join(zoektStagingDirFromIndexDir(coldDir), "race")
     await mkdir(stagingDir, { recursive: true })
     const staged = `${zoektShardFilePrefix(repo.zoektName)}v16.00000.zoekt`
     await writeFile(join(stagingDir, staged), "from the index")
@@ -265,7 +269,7 @@ describe("evictColdShards", () => {
       repoId,
     )
     if (lastPin !== null) {
-      await mkdir(join(coldDir, ".store"), { recursive: true })
+      await mkdir(zoektStoreDirFromIndexDir(coldDir), { recursive: true })
       await writeFile(localCopy(zoektName), "{}")
       const time = new Date(lastPin)
       await utimes(localCopy(zoektName), time, time)
@@ -281,7 +285,7 @@ describe("evictColdShards", () => {
     // Two evictions free enough space.
     let evictions = 0
     const freeRatio = async () => {
-      const left = (await readdir(join(coldDir, ".store"))).length
+      const left = (await readdir(zoektStoreDirFromIndexDir(coldDir))).length
       evictions = 3 - left
       return evictions >= 2 ? 0.5 : 0.1
     }
@@ -302,6 +306,8 @@ describe("evictColdShards", () => {
       hotDir,
       idleTtlMs: 60_000,
     })
+    // The pin made the copy new; make it old, so only the pin keeps the name.
+    await utimes(localCopy(pinned), new Date(1_000), new Date(1_000))
 
     expect(await evictColdShards({ coldDir, freeRatio: async () => 0 })).toBe(0)
 
@@ -315,6 +321,25 @@ describe("evictColdShards", () => {
     expect(await evictColdShards({ coldDir, freeRatio: async () => 0 })).toBe(0)
 
     expect((await coldShards(fresh)).length).toBe(1)
+  })
+
+  it("keeps a name that an upload made new after the eviction listed it", async () => {
+    const name = await coldName("repo_raced", 1_000)
+    let first = true
+    const freeRatio = async () => {
+      // The first check lists the names; then an upload writes the copy again.
+      if (first) {
+        first = false
+        return 0
+      }
+      const now = new Date()
+      await utimes(localCopy(name), now, now)
+      return 0
+    }
+
+    expect(await evictColdShards({ coldDir, freeRatio })).toBe(0)
+
+    expect((await coldShards(name)).length).toBe(1)
   })
 
   it("does nothing while enough of the volume is free", async () => {

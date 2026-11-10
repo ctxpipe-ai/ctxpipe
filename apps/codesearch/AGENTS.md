@@ -72,3 +72,7 @@ These instructions supplement the repository-root `AGENTS.md`.
   gate after hot/cold or ingest changes and update the ceiling from the
   printed peak before raising it — do not treat 5670m as a new-model
   calibration until that re-run lands.
+- Re-run of 2026-11-10 (the S3 cold tier, CTX-1215): the gate passed (exit 0,
+  no OOM kill, hot empty), but the cgroup peak reached the 5670m ceiling
+  (page cache counts), so it gives no new calibration. The ceiling stays
+  provisional.

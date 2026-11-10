@@ -312,18 +312,26 @@ describe("POST /search", () => {
       )
       const db = mockDb([{ ...alpha, zoektRepoId: 1 }])
       const app = createTestApp(db)
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+      try {
+        const pending = app.request("/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ Q: "needle", RepoIDs: [1] }),
+        })
+        // Past the 8 s budget, in steps, so the route can start its timer.
+        for (let step = 0; step < 9; step++)
+          await vi.advanceTimersByTimeAsync(1_000)
+        const res = await pending
 
-      const res = await app.request("/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ Q: "needle", RepoIDs: [1] }),
-      })
-
-      expect(res.status).toBe(503)
-      await expect(res.json()).resolves.toMatchObject({
-        error: expect.stringContaining("loading from the shard store"),
-      })
-    }, 20_000)
+        expect(res.status).toBe(503)
+        await expect(res.json()).resolves.toMatchObject({
+          error: expect.stringContaining("loading from the shard store"),
+        })
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 
   it("pins same-name repositories with distinct stable identities", async () => {

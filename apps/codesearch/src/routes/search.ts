@@ -64,7 +64,8 @@ const searchRoute = createRoute({
           schema: z.object({ error: z.string() }),
         },
       },
-      description: "Database or Zoekt not available",
+      description:
+        "Database or Zoekt not available, or the search index is still loading from the shard store",
     },
   },
 })
@@ -183,7 +184,12 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
     // One budget for the pin (which can fetch shards from the shard store)
     // and the warm-up, under the backend codesearch tool's 10 s timeout. A
     // fetch that does not finish in time continues, and a retry finds it.
-    const deadline = Date.now() + 8_000
+    const budgetMs = 8_000
+    const deadline = Date.now() + budgetMs
+    const notReady = () =>
+      new ZoektWarmupTimeoutError(
+        "The search index is loading from the shard store; try again",
+      )
     let budgetTimer: ReturnType<typeof setTimeout> | undefined
     try {
       const pinning = pinRepos(toPin)
@@ -191,30 +197,22 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
       const pinResults = await Promise.race([
         pinning,
         new Promise<never>((_, reject) => {
-          budgetTimer = setTimeout(
-            () =>
-              reject(
-                new ZoektWarmupTimeoutError(
-                  "The search index is loading from the shard store; try again",
-                ),
-              ),
-            deadline - Date.now(),
-          )
+          budgetTimer = setTimeout(() => reject(notReady()), budgetMs)
         }),
       ])
-      clearTimeout(budgetTimer)
       const waitForIds = pinResults
         .filter((r) => r.shardCount > 0)
         .map((r) => r.zoektRepoId)
       if (waitForIds.length > 0) {
+        const remainingMs = deadline - Date.now()
+        if (remainingMs <= 0) throw notReady()
         await waitUntilZoektReposLoaded({
           repoIds: waitForIds,
           baseUrl: ZOEKT_WEBSERVER_URL,
-          timeoutMs: Math.max(1_000, deadline - Date.now()),
+          timeoutMs: remainingMs,
         })
       }
     } catch (error) {
-      clearTimeout(budgetTimer)
       if (error instanceof ZoektWarmupTimeoutError) {
         return c.json({ error: error.message }, 503)
       }
@@ -223,6 +221,8 @@ export function registerSearchRoutes(app: OpenAPIHono<AppEnv>) {
         error: error instanceof Error ? error.message : String(error),
       })
       return c.json({ error: "Zoekt webserver is unavailable" }, 503)
+    } finally {
+      clearTimeout(budgetTimer)
     }
 
     const payload = {

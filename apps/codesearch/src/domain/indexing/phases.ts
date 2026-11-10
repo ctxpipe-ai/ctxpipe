@@ -523,6 +523,8 @@ async function indexRepository(params: {
       const shardPaths = await installStagedShards(repo, stagingDir)
       await uploadShards(repo, params.address, shardPaths)
     })
+    // The disk grows only by index builds and fetches; each makes room after.
+    void evictColdShards()
   } finally {
     await rm(stagingDir, { recursive: true, force: true })
     await rm(metaPath, { force: true })
@@ -551,7 +553,6 @@ async function uploadShards(
       durationMs: Date.now() - startMs,
       marked,
     })
-    void evictColdShards()
   } catch (error) {
     tryEmitIndexEvent("codesearch.index.zoekt.upload_failed", {
       durationMs: Date.now() - startMs,

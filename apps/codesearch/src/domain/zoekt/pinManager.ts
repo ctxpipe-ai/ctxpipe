@@ -262,12 +262,18 @@ async function fetchShardsLocked(
     if (!isZoektShardBasenameForName(file.name, zoektName))
       throw new Error(`The S3 manifest names a foreign file: ${file.name}`)
   const startMs = Date.now()
+  // The disk grows only by fetches and index builds; each makes room first.
+  void evictColdShards({ coldDir })
   const stagingDir = join(zoektStagingDirFromIndexDir(coldDir), randomUUID())
   await mkdir(stagingDir, { recursive: true })
   try {
     await downloadArtifact(store, address, manifest, stagingDir)
     for (const file of manifest.files)
       await rename(join(stagingDir, file.name), join(coldDir, file.name))
+  } catch (error) {
+    // A move that stopped part way leaves no partial set of shards in cold.
+    await removeColdEntries(zoektName, coldDir)
+    throw error
   } finally {
     await rm(stagingDir, { recursive: true, force: true })
   }
@@ -440,21 +446,20 @@ let eviction: Promise<number> | null = null
  * name is not deleted at once); a fetch on the next pin brings them back.
  * One eviction runs at a time. It gives the number of names it evicted.
  */
-export function evictColdShards(options?: {
+type EvictOptions = {
   coldDir?: string
   /** The free share of the cold volume (tests replace it). */
   freeRatio?: () => Promise<number>
-}): Promise<number> {
+}
+
+export function evictColdShards(options?: EvictOptions): Promise<number> {
   eviction ??= evict(options).finally(() => {
     eviction = null
   })
   return eviction
 }
 
-async function evict(options?: {
-  coldDir?: string
-  freeRatio?: () => Promise<number>
-}): Promise<number> {
+async function evict(options?: EvictOptions): Promise<number> {
   const coldDir = options?.coldDir ?? ZOEKT_INDEX_DIR
   const freeRatio =
     options?.freeRatio ??
@@ -487,8 +492,11 @@ async function evict(options?: {
           (entry) => entry.zoektName === zoektName,
         )
         if (pinned) return false
+        // Read the copy again under the lock: a pin, fetch or upload since
+        // the listing makes the name new again.
         const copy = localManifestPath(coldDir, zoektName)
-        if (!(await lstat(copy).catch(() => null))) return false
+        const current = await lstat(copy).catch(() => null)
+        if (!current || current.mtimeMs > idleSince) return false
         await removeColdEntries(zoektName, coldDir)
         await rm(copy, { force: true })
         return true
