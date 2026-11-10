@@ -6,6 +6,7 @@ import { config } from "dotenv"
 import pg from "pg"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
+import { clearRetiredWriteStepOutputs } from "./clear-retired-write-step-outputs.js"
 import { migrateOpenWorkflow } from "./migrate-openworkflow.js"
 import { ownerUrlForMigrate } from "./owner-migrate-url.js"
 
@@ -100,7 +101,7 @@ describe("clear write step outputs migration (Postgres)", () => {
     await admin?.end()
   })
 
-  it("the batched script clears the retired write step outputs and keeps the rows and other outputs; the migration drops the LangGraph tables", async () => {
+  it("migrate drops the LangGraph tables and clears the retired write step outputs in batches, and keeps the rows and other outputs", async () => {
     const { db, url } = await freshDatabase("write_outputs")
     await apply(
       db,
@@ -161,12 +162,17 @@ describe("clear write step outputs migration (Postgres)", () => {
       await addStep(db, "ingest", step)
     }
 
-    // The clear runs outside the deploy (batches that each commit), then the
-    // migration drops the LangGraph tables.
-    await db.query(
-      readFileSync(join(__dirname, "clear-write-step-outputs.sql"), "utf8"),
-    )
+    // Migrate drops the LangGraph tables in the Drizzle transaction, then
+    // clears the outputs after it, in batches that each commit. A batch of 2
+    // takes several rounds of the cursor.
     await apply(db, [target])
+    const pool = new pg.Pool({ connectionString: url })
+    try {
+      expect(await clearRetiredWriteStepOutputs(pool, 2)).toBe(12)
+      expect(await clearRetiredWriteStepOutputs(pool, 2)).toBe(0)
+    } finally {
+      await pool.end()
+    }
 
     expect(await outputs(db)).toEqual({
       "boot/commit-unborn": false,
@@ -206,7 +212,7 @@ describe("clear write step outputs migration (Postgres)", () => {
 
   it("passes on a database without the OpenWorkflow schema and the LangGraph tables", async () => {
     // A new database: Drizzle runs before the OpenWorkflow schema migration.
-    const { db } = await freshDatabase("no_ow")
+    const { db, url } = await freshDatabase("no_ow")
     await apply(
       db,
       migrations.filter((name) => name <= target),
@@ -215,5 +221,11 @@ describe("clear write step outputs migration (Postgres)", () => {
       `SELECT to_regclass('openworkflow.step_attempts') AS name`,
     )
     expect(rows[0]?.name).toBeNull()
+    const pool = new pg.Pool({ connectionString: url })
+    try {
+      expect(await clearRetiredWriteStepOutputs(pool)).toBe(0)
+    } finally {
+      await pool.end()
+    }
   }, 120_000)
 })
