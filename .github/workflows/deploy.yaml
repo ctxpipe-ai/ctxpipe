@@ -28,12 +28,12 @@ permissions:
   pull-requests: write
 
 jobs:
-  # Each image builds natively on an amd64 runner and on an arm64 runner (QEMU
-  # is too slow for the codesearch toolchain), and each build pushes its image
-  # by digest only. The images job then joins the two digests in one manifest
-  # list with the tags <sha> and latest. Railway pulls the linux/amd64 image;
-  # the AWS hosts (Graviton) pull the linux/arm64 image. Self-hosters can run
-  # either.
+  # Each image builds natively on an amd64 runner and on an arm64 runner. QEMU
+  # is too slow for the codesearch toolchain. Each build pushes its image by
+  # digest only. The publish_images job then joins the two digests in one
+  # manifest list with the tags <sha> and latest. Railway pulls the
+  # linux/amd64 image, and the AWS hosts (Graviton) pull the linux/arm64
+  # image. Self-hosters can run either.
   build_images_amd64:
     timeout-minutes: 45
     name: Build image (${{ matrix.image }}, amd64)
@@ -108,7 +108,7 @@ jobs:
       matrix: *images
     steps: *build_image_steps
 
-  images:
+  publish_images:
     timeout-minutes: 10
     name: Publish image (${{ matrix.image }})
     if: github.event_name != 'workflow_dispatch'
@@ -116,6 +116,9 @@ jobs:
       - build_images_amd64
       - build_images_arm64
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # It only reads the digest artifacts of this run and writes manifests.
+    permissions:
+      packages: write
     strategy:
       fail-fast: false
       matrix: *images
@@ -150,7 +153,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     needs:
-      - images
+      - publish_images
     permissions:
       contents: write
       pull-requests: write
@@ -206,7 +209,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     environment: production
     needs:
-      - images
+      - publish_images
     defaults:
       run:
         working-directory: infra
