@@ -13,6 +13,7 @@ import {
   scipIndexPath,
 } from "../domain/repositories/paths.js"
 import { getAccessibleRepository } from "../domain/repositories/service.js"
+import { ensureScipIndex } from "../domain/store/scipStore.js"
 import { repositoryOrPathNotFoundResponse } from "./errorBody.js"
 
 const graphPrimitiveSchema = z.enum([
@@ -162,6 +163,10 @@ export function registerGraphRoutes(app: OpenAPIHono<AppEnv>) {
 
     const checkoutPath = repoCheckoutPath(repo.orgId, repo.id, checkoutKey)
     const graphIndexPath = scipIndexPath(repo.orgId, repo.id, checkoutKey)
+    await ensureScipIndex(
+      { orgId: repo.orgId, repoId: repo.id, checkoutKey },
+      graphIndexPath,
+    )
     let resolvedFilePath: string | undefined
     try {
       resolvedFilePath = body.filePath

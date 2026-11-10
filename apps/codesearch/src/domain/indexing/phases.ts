@@ -39,6 +39,7 @@ import {
   ensureCheckoutWorktree,
   withSharedClone,
 } from "../repositories/worktrees.js"
+import { uploadScipIndex } from "../store/scipStore.js"
 import {
   publishArtifact,
   shardStore,
@@ -896,12 +897,17 @@ export async function phaseMergeScip(
           ),
         )
       }
-      return publishMergedScipIndex({
+      const result = await publishMergedScipIndex({
         detectedLanguages: detected,
         shardPaths,
         outputPath: ctx.scipIndexPath,
         checkoutPath: ctx.clonePath,
       })
+      await uploadScipIndex(
+        { orgId: ctx.orgId, repoId: ctx.repoId, checkoutKey: ctx.checkoutKey },
+        ctx.scipIndexPath,
+      )
+      return result
     })
   } catch (error) {
     await rm(ctx.scipIndexPath, { force: true })

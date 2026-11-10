@@ -40,7 +40,7 @@ export type StoreAddress = {
   orgId: string
   repoId: string
   checkoutKey: string
-  kind: "zoekt"
+  kind: "zoekt" | "scip"
 }
 
 const manifestSchema = z.object({

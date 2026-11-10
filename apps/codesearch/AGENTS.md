@@ -25,8 +25,11 @@ These instructions supplement the repository-root `AGENTS.md`.
   with no cold shard fetches it from S3 (the search returns 503 when the fetch
   does not finish in 8 s; the fetch continues). Below 20% free disk, eviction
   deletes the least recently pinned names that have a local manifest copy and
-  are not pinned. Unset means local only (Compose, self-host). Tests use
-  `rclone serve s3` (`src/test/s3Server.ts`).
+  are not pinned. The merged SCIP index uses the same store (kind `scip`,
+  `src/domain/store/scipStore.ts`): `/merge-scip` uploads it, and a graph
+  read fetches it when it is missing. Unset means local only (Compose,
+  self-host).
+  Tests use `rclone serve s3` (`src/test/s3Server.ts`).
 
 ## Logging (evlog)
 
