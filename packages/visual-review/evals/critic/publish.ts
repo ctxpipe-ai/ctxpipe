@@ -12,7 +12,7 @@ import { readFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { parseArgs, promisify } from "node:util"
 
-import { caseManifestSchema } from "./cases.ts"
+import { readManifest } from "./cases.ts"
 import { imageFile, imageRelease, sha256Of } from "./images.ts"
 
 /** Runs the GitHub CLI with `args` and gives its standard output. */
@@ -53,14 +53,7 @@ export async function publish(
     print(`${(error as Error).message}\n\n${usage}`)
     return 2
   }
-  const manifest = caseManifestSchema.parse(
-    JSON.parse(
-      await readFile(
-        resolve(options.cases ?? join(import.meta.dirname, "cases.json")),
-        "utf8",
-      ),
-    ),
-  )
+  const manifest = await readManifest(options.cases)
   const hashes = new Set(
     manifest.cases.flatMap(({ images }) => Object.values(images)),
   )

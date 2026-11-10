@@ -2,6 +2,9 @@
 // images are not in git: the manifest holds the SHA-256 of each image, and
 // the image is the asset `<sha256>.png` of a public release (images.ts).
 
+import { readFile } from "node:fs/promises"
+import { join, resolve } from "node:path"
+
 import { z } from "zod"
 
 import { noiseClasses, regressionClasses } from "./mutations.ts"
@@ -154,3 +157,15 @@ export const caseManifestSchema = z
 export type CaseManifest = z.infer<typeof caseManifestSchema>
 
 export const caseManifestJsonSchema = z.toJSONSchema(caseManifestSchema)
+
+/** Read and check the case manifest at `path`, or cases.json beside this file. */
+export async function readManifest(path?: string): Promise<CaseManifest> {
+  return caseManifestSchema.parse(
+    JSON.parse(
+      await readFile(
+        resolve(path ?? join(import.meta.dirname, "cases.json")),
+        "utf8",
+      ),
+    ),
+  )
+}

@@ -18,7 +18,8 @@ import type { Verdict } from "../../src/verdict.ts"
 import { caseManifestSchema } from "./cases.ts"
 import { labelQueue } from "./queue.ts"
 
-const host = "https://langfuse.test"
+// The Langfuse host of the script; msw answers in its place.
+const host = "https://langfuse.ctxpipe.ai"
 const server = setupServer()
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }))
 afterEach(() => {
@@ -148,9 +149,8 @@ const run = async (args: string[]) => {
   const cases = join(mkdtempSync(join(folder, "cases-")), "cases.json")
   copyFileSync(join(import.meta.dirname, "cases.json"), cases)
   const printed: string[] = []
-  const code = await labelQueue(
-    [...args, "--cases", cases, "--langfuse", host],
-    (text) => printed.push(text),
+  const code = await labelQueue([...args, "--cases", cases], (text) =>
+    printed.push(text),
   )
   return { code, cases, text: printed.join("\n") }
 }

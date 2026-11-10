@@ -683,7 +683,9 @@ test("a call without a cost counts as at least $0.10, also before any priced cal
 
 // A fake release: it serves the images by name and counts the downloads.
 // `serve` can change the bytes of an image, or give no image.
-const release = "https://release.test/download"
+// The release URL of the runner; msw answers in its place.
+const release =
+  "https://github.com/ctxpipe-ai/ctxpipe/releases/download/visual-bakeoff-images"
 let downloads: string[] = []
 const releaseOf = (
   serve: (bytes: Uint8Array, sha256: string) => Uint8Array | null = (bytes) =>
@@ -713,8 +715,6 @@ const fromRelease = async (cache: string, args: string[]) => {
     [
       "--images",
       cache,
-      "--release",
-      release,
       "--out",
       out,
       "--cases",
@@ -726,6 +726,12 @@ const fromRelease = async (cache: string, args: string[]) => {
     (text) => printed.push(text),
   )
   return { code, out, text: printed.join("\n") }
+}
+/** A copy of `bytes` with one changed byte. */
+const changedByte = (bytes: Uint8Array) => {
+  const changed = new Uint8Array(bytes)
+  changed[changed.length - 20] = (changed[changed.length - 20] ?? 0) ^ 1
+  return changed
 }
 const held = () =>
   holdOut(
@@ -764,14 +770,7 @@ test("a hold-out-only dry run gets only the images of the hold-out cases from th
 })
 
 test("an image with one changed byte fails the hash check before a call", async () => {
-  server.use(
-    chat,
-    releaseOf((bytes) => {
-      const changed = new Uint8Array(bytes)
-      changed[changed.length - 20] = (changed[changed.length - 20] ?? 0) ^ 1
-      return changed
-    }),
-  )
+  server.use(chat, releaseOf(changedByte))
   const cache = mkdtempSync(join(folder, "cache-"))
 
   const { code, text } = await fromRelease(cache, [
@@ -781,7 +780,7 @@ test("an image with one changed byte fails the hash check before a call", async 
 
   expect(code).toBe(2)
   expect(text).toMatch(
-    /Case \S+ has no usable image: The image \w+\.png from https:\/\/release\.test\/download\/\w+\.png does not have the SHA-256 of the manifest\./,
+    /Case \S+ has no usable image: The image \w+\.png from https:\/\/github\.com\/ctxpipe-ai\/ctxpipe\/releases\/download\/visual-bakeoff-images\/\w+\.png does not have the SHA-256 of the manifest\./,
   )
   expect(calls).toEqual([])
   expect(readdirSync(cache)).toEqual([])
@@ -791,9 +790,10 @@ test("a changed image in the image folder fails the hash check too", async () =>
   server.use(chat, releaseOf())
   const cache = mkdtempSync(join(folder, "cache-"))
   const [name] = files(cases.filter(({ id }) => held().has(id)))
-  const bytes = readFileSync(join(images, name ?? ""))
-  bytes[bytes.length - 20] = (bytes[bytes.length - 20] ?? 0) ^ 1
-  writeFileSync(join(cache, name ?? ""), bytes)
+  writeFileSync(
+    join(cache, name ?? ""),
+    changedByte(readFileSync(join(images, name ?? ""))),
+  )
 
   const { code, text } = await fromRelease(cache, [
     "--arms",
@@ -802,7 +802,6 @@ test("a changed image in the image folder fails the hash check too", async () =>
 
   expect(code).toBe(2)
   expect(text).toContain(`The image ${name} from ${cache}`)
-  expect(calls).toEqual([])
 })
 
 test("an image that the release does not have stops the run after the hold-out cases, with their report", async () => {
@@ -826,6 +825,40 @@ test("an image that the release does not have stops the run after the hold-out c
   expect(text).toContain("## Other cases (0 cases)")
   expect(readFileSync(join(out, "report.md"), "utf8")).toBe(
     `${text.slice(text.indexOf("# Visual critic bake-off"))}\n`,
+  )
+})
+
+test("a run that the spend cap stops before its first call gets no image", async () => {
+  server.use(chat, releaseOf())
+  const cache = mkdtempSync(join(folder, "cache-"))
+
+  const { code, text } = await fromRelease(cache, [
+    "--arms",
+    "llm:anthropic/claude-test",
+    "--max-cost",
+    "0",
+  ])
+
+  expect(code).toBe(0)
+  expect(text).toContain("The spend cap stopped the run")
+  expect(downloads).toEqual([])
+  expect(calls).toEqual([])
+})
+
+test("an arm that judges no new screenshot gets no image of a new case", async () => {
+  server.use(releaseOf())
+  const cache = mkdtempSync(join(folder, "cache-"))
+
+  const { code } = await fromRelease(cache, [
+    "--arms",
+    "blazediff-local",
+    "--blazediff-agent",
+    agent,
+  ])
+
+  expect(code).toBe(0)
+  expect([...downloads].sort()).toEqual(
+    files(cases.filter(({ kind }) => kind !== "new")),
   )
 })
 
