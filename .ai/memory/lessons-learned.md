@@ -615,3 +615,9 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Category:** docs
 - **Date:** 2026-10-19
 - **Source:** CTO correction during the README update for PR 280
+
+### A critic fix must not give up a requirement the owner chose
+- **Rule:** When a fix for a review finding would give up a requirement that the owner chose (for example continuous deployment, speed, or a simple workflow), do not make that trade alone. Find a fix that keeps the requirement. If no such fix exists, state the trade-off and ask the owner. Example: a broad token that starts any workflow was first "fixed" with a cron job for deploys. The fix that kept continuous deployment was an ECR push event that starts the workflow through an EventBridge API destination, with the token held in AWS as a guard.
+- **Category:** workflow
+- **Date:** 2026-11-10
+- **Source:** CTO correction during the ADR-061 review rounds
