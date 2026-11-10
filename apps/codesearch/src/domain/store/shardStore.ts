@@ -292,3 +292,66 @@ export async function downloadArtifact(
       )
   })
 }
+
+/**
+ * Deletes every object under a prefix, then lists the prefix again: the S3
+ * copies are customer data, so a key that stays is an error (fail-closed).
+ */
+async function deletePrefix(store: ShardStore, prefix: string): Promise<void> {
+  await deleteKeys(store, await listKeys(store, prefix))
+  const left = await listKeys(store, prefix)
+  if (left.length > 0)
+    throw new Error(`${left.length} S3 objects stay after the delete`)
+}
+
+/** Deletes all artifacts of a repository: each checkout key and each kind. */
+export async function deleteRepositoryArtifacts(
+  store: ShardStore,
+  repo: { orgId: string; repoId: string },
+): Promise<void> {
+  await deletePrefix(
+    store,
+    `${store.root}/${segment(repo.orgId)}/${segment(repo.repoId)}/`,
+  )
+}
+
+/** Deletes all artifacts of one checkout key of a repository. */
+export async function deleteCheckoutArtifacts(
+  store: ShardStore,
+  checkout: { orgId: string; repoId: string; checkoutKey: string },
+): Promise<void> {
+  await deletePrefix(
+    store,
+    `${store.root}/${segment(checkout.orgId)}/${segment(checkout.repoId)}/${segment(checkout.checkoutKey)}/`,
+  )
+}
+
+/**
+ * The checkout keys of a repository that have artifacts in S3, each with the
+ * time of its newest object.
+ */
+export async function listCheckoutArtifacts(
+  store: ShardStore,
+  repo: { orgId: string; repoId: string },
+): Promise<Map<string, number>> {
+  const prefix = `${store.root}/${segment(repo.orgId)}/${segment(repo.repoId)}/`
+  const newest = new Map<string, number>()
+  let token: string | undefined
+  do {
+    const page = await store.client.send(
+      new ListObjectsV2Command({
+        Bucket: store.bucket,
+        Prefix: prefix,
+        ContinuationToken: token,
+      }),
+    )
+    for (const object of page.Contents ?? []) {
+      const key = object.Key?.slice(prefix.length).split("/")[0]
+      if (!key) continue
+      const time = object.LastModified?.getTime() ?? Date.now()
+      newest.set(key, Math.max(newest.get(key) ?? 0, time))
+    }
+    token = page.IsTruncated ? page.NextContinuationToken : undefined
+  } while (token)
+  return newest
+}

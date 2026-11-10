@@ -3,6 +3,11 @@ import { join } from "node:path"
 
 import { ZOEKT_HOT_DIR, ZOEKT_INDEX_DIR } from "../../config/paths.js"
 import {
+  deleteCheckoutArtifacts,
+  listCheckoutArtifacts,
+  shardStore,
+} from "../store/shardStore.js"
+import {
   localManifestPath,
   purgeZoektShardsForRepo,
 } from "../zoekt/pinManager.js"
@@ -29,7 +34,8 @@ export const COLLECTABLE_CHECKOUT_KEY = new RegExp(`^rev:${SHA}$`)
 /**
  * Deletes one checkout key of a repository from disk: the clone directory,
  * its `.scip` files, and its Zoekt shards (under the pin lock, so a search
- * cannot pin the shards again during the delete). A key that has no files
+ * cannot pin the shards again during the delete). It first deletes the
+ * artifacts of the key in the shard store; an S3 error throws. A key that has no files
  * deletes nothing, so a second call is safe.
  */
 export async function deleteCheckoutFromDisk(input: {
@@ -54,6 +60,9 @@ export async function deleteCheckoutFromDisk(input: {
     repoId: input.repoId,
     checkoutKey: input.checkoutKey,
   })
+  // The S3 copies go first and fail-closed, as in the repository purge.
+  const store = shardStore()
+  if (store) await deleteCheckoutArtifacts(store, input)
   const sharedPath = repoSharedClonePath(input.orgId, input.repoId)
   await withSharedClone(sharedPath, async () => {
     for (const path of paths)
@@ -82,7 +91,8 @@ async function entrySize(path: string): Promise<number> {
  * Deletes the files of one repository that no checkout row names, so that
  * no reader can reach them: a checkout directory or `.scip` file of a key
  * with no row, a Zoekt shard of a key with no row, and a temporary file that
- * a stopped index build left. It keeps the published key and each key in
+ * a stopped index build left, and the shard store artifacts of a key with
+ * no row (an S3 error throws). It keeps the published key and each key in
  * `rowKeys`, and each file that changed in the last `minAgeMs`. The caller
  * holds the purge operation of the repository, so no index build of it runs.
  * It gives the count and the size of what it deleted, and whether the
@@ -173,6 +183,17 @@ export async function sweepRepositoryDisk(input: {
     await rm(path, { force: true })
     result.deletedEntries += 1
     result.deletedBytes += size
+  }
+
+  // The S3 copies of keys with no row, with the same age rule.
+  const store = shardStore()
+  if (store) {
+    const artifacts = await listCheckoutArtifacts(store, input)
+    for (const [key, newestMs] of artifacts) {
+      if (keep(key) || now - newestMs < input.minAgeMs) continue
+      await deleteCheckoutArtifacts(store, { ...input, checkoutKey: key })
+      result.deletedEntries += 1
+    }
   }
   return result
 }
