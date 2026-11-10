@@ -61,8 +61,9 @@ export function otelServiceName(
 
 /**
  * The deployment name (`shared/deployment-environment.ts`), else
- * `deployment.environment` in `OTEL_RESOURCE_ATTRIBUTES`, else `production` when NODE_ENV is production,
- * else `development`. Logs and the Langfuse `env:` tag call this.
+ * `deployment.environment` in `OTEL_RESOURCE_ATTRIBUTES`, else `production`
+ * when NODE_ENV is production, else `development`. Logs and the Langfuse
+ * `env:` tag call this.
  */
 export function otelDeploymentEnvironment(
   nodeEnv = process.env.NODE_ENV,
