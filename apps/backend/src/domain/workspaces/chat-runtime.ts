@@ -54,10 +54,12 @@ export const WORKSPACE_CHAT_DOCKER_SETUP = [
 
 /**
  * The repository-size cap of an AgentCore sandbox (CTX-1219). A session has
- * a 9.8 GB disk with about 7 GB free (spike CTX-1213). The check runs after
- * the clone: a checkout that uses more than 6 GB, or that leaves less than
- * 512 MB free, fails the setup with a clear message, before the agent fills
- * the disk.
+ * a 9.8 GB disk with about 7 GB free (spike CTX-1213). The check runs as the
+ * last setup step, after the clone, the fetch of the desired commit and the
+ * session branch: a checkout that uses more than 6 GB, or that leaves less
+ * than 512 MB free, fails the setup with a clear message, before the agent
+ * fills the disk. A clone or a fetch that fills the disk first fails with
+ * the provider's disk-full message (`agentcore-sandbox-provider.ts`).
  */
 export function agentCoreSizeCapCommand(capGb = 6, minFreeMb = 512): string {
   return `used_kb=$(du -sk . 2>/dev/null | cut -f1)
@@ -67,16 +69,6 @@ if [ "\${used_kb:-0}" -gt ${Math.round(capGb * 1024 * 1024)} ] || [ "\${free_kb:
   exit 1
 fi`
 }
-
-/**
- * AgentCore sandboxes: the image has OpenCode, and the repository-size cap
- * runs after the clone.
- */
-export const WORKSPACE_CHAT_AGENTCORE_SETUP = [
-  WORKSPACE_CHAT_DOCKER_SETUP[0],
-  agentCoreSizeCapCommand(),
-  ...WORKSPACE_CHAT_DOCKER_SETUP.slice(1),
-] as const
 
 /**
  * The pinned tools of a hosted ingest sandbox (ADR-052): OpenCode, ast-grep

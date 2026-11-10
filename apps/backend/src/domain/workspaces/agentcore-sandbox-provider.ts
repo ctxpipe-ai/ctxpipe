@@ -98,6 +98,10 @@ const AGENTCORE_CAPS: SandboxCapabilities = {
  */
 type SessionLayout = { state: string; workdir: string; shim: string }
 
+/** What a command that filled the sandbox disk also reports. */
+export const AGENTCORE_DISK_FULL =
+  "The sandbox ran out of disk space. A hosted sandbox holds repositories of up to 6 GB on disk."
+
 /** POSIX single-quote escape for `sh -c`. */
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
@@ -489,6 +493,14 @@ function agentCoreHandle(
       collect(job.stderr),
       job.wait(),
     ])
+    // A full disk gets a clear line in both streams: a setup error shows
+    // stdout, a caller may show stderr.
+    if (exitCode !== 0 && /No space left on device/.test(stdout + stderr))
+      return {
+        stdout: `${stdout}${AGENTCORE_DISK_FULL}\n`,
+        stderr: `${stderr}${AGENTCORE_DISK_FULL}\n`,
+        exitCode,
+      }
     return { stdout, stderr, exitCode }
   }
 
@@ -533,7 +545,23 @@ function agentCoreHandle(
     workspaceRoot: paths.workdir,
     capabilities: AGENTCORE_CAPS,
     process: processApi,
-    git: createExecBackedGit(processApi, paths.workdir),
+    git: createExecBackedGit(
+      {
+        ...processApi,
+        // The stock clone does not check git's exit code. A clone that
+        // fills the disk fails here with the clear message.
+        exec: async (command, options) => {
+          const result = await exec(command, options)
+          if (
+            /\bclone\b/.test(command) &&
+            result.stderr.includes(AGENTCORE_DISK_FULL)
+          )
+            throw new Error(AGENTCORE_DISK_FULL)
+          return result
+        },
+      },
+      paths.workdir,
+    ),
     fs: {
       read: async (path) => (await readBytes(path)).toString("utf8"),
       readBytes: async (path) => new Uint8Array(await readBytes(path)),

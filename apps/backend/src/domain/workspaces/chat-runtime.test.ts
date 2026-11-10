@@ -8,7 +8,6 @@ import { describe, expect, it } from "vitest"
 
 import {
   agentCoreSizeCapCommand,
-  WORKSPACE_CHAT_AGENTCORE_SETUP,
   WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_RUNTIME,
   WORKSPACE_CHAT_SANDBOX_SETUP,
@@ -194,8 +193,7 @@ describe("AgentCore repository-size cap", () => {
     expect(check(dir, agentCoreSizeCapCommand(6, 1024 ** 3)).exitCode).toBe(1)
   })
 
-  it("runs after the OpenCode check, with the default 6 GB cap", () => {
-    expect(WORKSPACE_CHAT_AGENTCORE_SETUP[1]).toBe(agentCoreSizeCapCommand())
+  it("has a 6 GB cap by default", () => {
     expect(agentCoreSizeCapCommand()).toContain("-gt 6291456")
   })
 })

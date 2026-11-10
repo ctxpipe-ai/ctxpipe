@@ -100,5 +100,7 @@ Lifecycle, limits, and cleanup are as in [ADR-048](ADR-048-native-postgres-sandb
 
 Hosted ctxpipe on AgentCore (`SANDBOX_PROVIDER=agentcore`) uses the credential path of this ADR, not the Vercel firewall. Each run opens a run vault in Agent Vault. The sandbox gets only the vault's proxy session and its CA. Agent Vault adds the GitHub token, the model capability and the tool-bridge token outside the sandbox, with the rules of `sandbox-credential-rules.ts`. Agent Vault is the only egress proxy, because the sandbox subnets have no internet route.
 
+The run vault of a hosted AgentCore chat refuses each host that no rule names (`unmatchedHosts: "deny"`), as an ingest shard's vault does. With passthrough, Agent Vault would forward a sandbox request to any address that it can reach: private VPC addresses (the database, other backend ports) and the task metadata endpoint of its Fargate task. Self-host limits Agent Vault with network rules on the host; hosted ctxpipe has no such filter yet. Thus a hosted chat agent reaches GitHub, the model proxy and its tool bridge, and not the open internet. Open egress for hosted chat needs an Agent Vault destination filter (refuse private, link-local and metadata addresses, except the backend callback ports) first.
+
 The sandbox calls the backend replica that runs its turn. As on the CDK sandbox host, that name is the backend's own VPC address under `SANDBOX_CALLBACK_DNS_SUFFIX`; for AgentCore it is the address on the route to Agent Vault, the sandbox's only way to the backend.
 

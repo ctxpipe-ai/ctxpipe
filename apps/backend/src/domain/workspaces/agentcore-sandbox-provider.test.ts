@@ -1,4 +1,6 @@
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs"
 import { createServer } from "node:http"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -9,6 +11,7 @@ import {
   startFakeAgentCore,
 } from "../../test/agentcore-fake.js"
 import {
+  AGENTCORE_DISK_FULL,
   agentCoreRuntime,
   agentCoreSandboxProvider,
 } from "./agentcore-sandbox-provider.js"
@@ -141,6 +144,29 @@ describe("agentCoreSandboxProvider", () => {
     })
     setTimeout(() => controller.abort(), 200)
     await expect(running).rejects.toThrow()
+    await provider.destroy({ id: handle.id })
+  })
+
+  it("reports a full disk clearly, also for a clone, which the stock clone does not check", async () => {
+    const handle = await provider.create({})
+    const full = await handle.process.exec(
+      "echo 'fatal: write error: No space left on device' >&2; exit 128",
+    )
+    expect(full.exitCode).toBe(128)
+    expect(full.stdout).toContain(AGENTCORE_DISK_FULL)
+    expect(full.stderr).toContain("No space left on device")
+    expect(full.stderr).toContain(AGENTCORE_DISK_FULL)
+    // A git that fails as a clone into a full disk does.
+    const bin = mkdtempSync(join(tmpdir(), "agentcore-git-"))
+    writeFileSync(
+      join(bin, "git"),
+      "#!/bin/sh\necho 'fatal: write error: No space left on device' >&2\nexit 128\n",
+    )
+    chmodSync(join(bin, "git"), 0o755)
+    await handle.env.set({ PATH: `${bin}:${process.env.PATH ?? ""}` })
+    await expect(
+      handle.git.clone({ url: "https://example.test/large.git" }),
+    ).rejects.toThrow(AGENTCORE_DISK_FULL)
     await provider.destroy({ id: handle.id })
   })
 

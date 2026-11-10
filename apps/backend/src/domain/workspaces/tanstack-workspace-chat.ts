@@ -46,7 +46,7 @@ import {
   WORKSPACE_CHAT_CLONE_SHA_SECRET,
   WORKSPACE_CHAT_CLONE_TOKEN_SECRET,
   WORKSPACE_CHAT_CLONE_URL_SECRET,
-  WORKSPACE_CHAT_AGENTCORE_SETUP,
+  agentCoreSizeCapCommand,
   WORKSPACE_CHAT_DOCKER_SETUP,
   WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_SANDBOX_SETUP,
@@ -1389,6 +1389,11 @@ async function buildWorkspaceChatSandbox(
         conversationId: input.conversationId,
         label: cloneLabel,
         revision: revision.data,
+        // Hosted: the proxy forwards only its rules. Passthrough could reach
+        // private VPC addresses and the Fargate task metadata endpoint.
+        ...(selectedProvider === "agentcore"
+          ? { unmatchedHosts: "deny" as const }
+          : {}),
       })
     } catch (error) {
       if (!(error instanceof AgentVaultUnavailableError)) throw error
@@ -1586,21 +1591,21 @@ function conversationSandboxWorkspace(input: {
       : { [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: cloneToken }),
   })
   const setup = [
-    ...(input.isolation === "docker"
+    ...(input.isolation === "docker" || input.isolation === "agentcore"
       ? WORKSPACE_CHAT_DOCKER_SETUP
-      : input.isolation === "agentcore"
-        ? WORKSPACE_CHAT_AGENTCORE_SETUP
-        : input.isolation === "vercel"
-          ? WORKSPACE_CHAT_VERCEL_SETUP
-          : WORKSPACE_CHAT_SANDBOX_SETUP),
+      : input.isolation === "vercel"
+        ? WORKSPACE_CHAT_VERCEL_SETUP
+        : WORKSPACE_CHAT_SANDBOX_SETUP),
     ...WORKSPACE_CHAT_THREAD_SETUP,
+    // AgentCore: the size cap runs last, after the fetches and checkouts.
+    ...(input.isolation === "agentcore" ? [agentCoreSizeCapCommand()] : []),
   ]
   const setupNames = [
     "setup-opencode",
-    ...(input.isolation === "agentcore" ? ["setup-size-cap"] : []),
     "setup-git-exclude",
     "setup-checkout",
     "setup-opencode-json",
+    "setup-size-cap",
   ]
   return defineWorkspace({
     source: gitSource({
