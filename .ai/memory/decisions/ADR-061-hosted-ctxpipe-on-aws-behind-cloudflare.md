@@ -46,8 +46,9 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
         - any Cloudflare resource. No normal job holds a Cloudflare token with edit rights. The edge stack holds all DNS records of both zones, the tunnels and Access, and only the guard job runs it;
         - GitHub environments, branch rules and admin settings.
         - the deploy dispatch path: the EventBridge connection, every API destination and rule that can use it, and their target. The target is fixed to the factory digest workflow on `main`;
-    - A separate guard job holds those rights. It runs in its own GitHub environment, `guard`, with required reviewers, and that environment admits only `main`. The guard role trusts only the guard workflow on `main`. Only it holds the Cloudflare edit token, the GitHub admin token and the production secret values.
-    - The guard job runs the edge stack (Access, tunnels, internal DNS) and the preview-data stack (decision 21). It also writes the tunnel tokens. Each of these two stacks has its own state prefix and key, which only the guard role can use. The guard job runs `pulumi preview` for them before `up`, so the person who approves the run sees the change.
+    - A separate guard job holds those rights. It runs from `guard.yml` on `main` only. The guard role trusts only that workflow file on `main`. Only the guard role can read the Cloudflare edit token, the GitHub admin token and the production secret values, which are in production Secrets Manager.
+    - The person's approval is the code-owner review of each guard pull request: every file that the guard job loads has a code owner, so no guard change merges without a person. A per-run approval is not available, because GitHub supports required reviewers on environments of a private repository only on the Enterprise plan.
+    - The guard job runs the edge stack (Access, tunnels, internal DNS) and the preview-data stack (decision 21). It also writes the tunnel tokens. Each of these two stacks has its own state prefix and key, which only the guard role can use. A guard pull request runs the policy rules against an empty stack, with no credentials, and the reviewer reads the code change. The guard job runs `pulumi preview` before `up`, and the policy pack blocks a replace or a delete of a protected resource.
     - The phase plans hold the exact guard details: IAM conditions, file lists and token scopes. A security review checks them in each phase pull request.
     - Defaults that close: deny-by-default Access apps on `ctxpipe.dev` and `*.ctxpipe.dev`, and every tunnel's ingress ends with a 404 catch-all.
     - Code owners and a branch rule hold the guard code for a person's review:
@@ -56,7 +57,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
         - `machines/aws-core/` and the security risk register (`risk-register.md`);
         - the `CODEOWNERS` file itself;
         - every file that the guard job loads. The edge stack and the preview-data stack each have their own folder, package manifest and lockfile. They import no shared module from outside their folder.
-    - A GitHub environment without required reviewers holds no long-lived secret. A job gets a long-lived secret from AWS Secrets Manager, through a role that pins its workflow file. Only the `guard` environment, which needs a person's approval for each run, holds tokens such as the Cloudflare edit token.
+    - No GitHub environment holds a long-lived secret, because any workflow on `main` can name an environment. A job gets a long-lived secret from AWS Secrets Manager, through a role that pins its workflow file.
     - The policy pack blocks a replace or a delete of a protected resource.
     - The organization stays in CDK (`machines/aws-core`).
     - The public `@ctxpipe/aws-cdk` construct stays CDK, for simple, single-tenant self-hosting. Hosted does not use it. Hosted and self-host share only the container images and the environment contract.
