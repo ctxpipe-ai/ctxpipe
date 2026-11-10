@@ -12,7 +12,9 @@
 //   invocation payload. Thus the scripts and the files that the backend
 //   sends (with proxy sessions and repository content) go through `put`, and
 //   a command holds only the id. A blob is deleted at its first read or
-//   after 5 minutes.
+//   after 5 minutes. An id is never stored twice, and the backend runs a
+//   command only after the `stored` answer, so a blob always holds the
+//   backend's data.
 //
 // The V2 memory snapshot holds this process only. OpenCode starts later, as
 // a command. The shim does not create a secret and does not use Node
@@ -67,6 +69,12 @@ function endToEndHeaders(headers) {
  */
 function blobStore() {
   const blobs = new Map()
+  // Each id that was ever stored. Any local user can call `put` on port
+  // 8080, and a blob id is visible in a command line. An id that is refused
+  // for the life of the shim cannot hold another user's data after its
+  // blob was read or expired. The backend makes a new random id for each
+  // command, and it runs the command only after the `stored` answer.
+  const used = new Set()
   const validId = (id) => typeof id === "string" && /^[0-9a-f]{32,64}$/.test(id)
   return {
     put({ id, data }) {
@@ -74,7 +82,7 @@ function blobStore() {
         return { error: "The id must be 32 to 64 hex characters" }
       if (typeof data !== "string")
         return { error: "The data must be base64 text" }
-      if (blobs.has(id)) return { error: "The id is in use" }
+      if (used.has(id)) return { error: "The id was used before" }
       const bytes = Buffer.from(data, "base64")
       let stored = bytes.length
       for (const blob of blobs.values()) stored += blob.bytes.length
@@ -82,6 +90,7 @@ function blobStore() {
       if (stored > 256 * 1024 * 1024) return { error: "The blob store is full" }
       const expiry = setTimeout(() => blobs.delete(id), 5 * 60_000)
       expiry.unref()
+      used.add(id)
       blobs.set(id, { bytes, expiry })
       return {}
     },

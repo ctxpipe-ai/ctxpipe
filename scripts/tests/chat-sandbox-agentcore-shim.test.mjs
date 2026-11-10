@@ -207,7 +207,7 @@ test("the shim keeps a blob for one read on its socket, not on TCP", async (t) =
   )
   // A second put with the same id does not replace the first.
   assert.deepEqual(await invoke(port, { action: "put", id, data: "eA==" }), [
-    { type: "error", message: "The id is in use" },
+    { type: "error", message: "The id was used before" },
   ])
   // AgentCore's port does not serve blobs.
   assert.equal(
@@ -218,6 +218,10 @@ test("the shim keeps a blob for one read on its socket, not on TCP", async (t) =
   assert.equal(first.status, 200)
   assert.deepEqual(first.body, data)
   assert.equal((await getOnSocket(socket, `/blobs/${id}`)).status, 404)
+  // After the read, nobody can store other data under the same id.
+  assert.deepEqual(await invoke(port, { action: "put", id, data: "eA==" }), [
+    { type: "error", message: "The id was used before" },
+  ])
   assert.deepEqual(
     await invoke(port, { action: "put", id: "short", data: "" }),
     [{ type: "error", message: "The id must be 32 to 64 hex characters" }],
