@@ -24,6 +24,12 @@ import { pathToFileURL } from "node:url"
 //     scripts/ci/visual-unstable-stories.json, each with the baselines of
 //     the story, which the Unstable screenshots job removes.
 //
+//   node scripts/ci/nightly.mjs minutes
+//     Writes the runner minutes of this run (its jobs that ended) and of the
+//     last full nightly run of main to $GITHUB_STEP_SUMMARY. A nightly run
+//     traces only the checks whose inputs changed (CTX-1246), so the two
+//     numbers show what the incremental run saves.
+//
 // Environment: GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_SHA,
 // GITHUB_SERVER_URL, GH_TOKEN (read the runs, jobs and artifacts), and for
 // `tickets` LINEAR_API_KEY. Without the Linear key, `tickets` gives an error
@@ -37,6 +43,61 @@ export async function nightlyChanged({ repo, sha, token }) {
     token,
   )
   return runs[0]?.head_sha !== sha
+}
+
+// The runner minutes of the jobs of a run that started and ended.
+async function runMinutes({ repo, runId, token }) {
+  const { jobs } = await github(
+    `/repos/${repo}/actions/runs/${runId}/jobs?per_page=100&filter=latest`,
+    token,
+  )
+  const ms = jobs
+    .filter((job) => job.started_at && job.completed_at)
+    .reduce(
+      (sum, job) => sum + Date.parse(job.completed_at) - Date.parse(job.started_at),
+      0,
+    )
+  return Math.round(ms / 60_000)
+}
+
+// The runner minutes of this run, and of the last full nightly run of main
+// before it: a scheduled run or a run by hand on main that uploaded a trace,
+// and whose plan was full (artifact `nightly-full`) or that is older than the
+// nightly plan (no artifact `nightly-plan`).
+export async function nightlyMinutes({ repo, runId, token }) {
+  const current = await runMinutes({ repo, runId, token })
+  const { workflow_runs: runs } = await github(
+    `/repos/${repo}/actions/workflows/ci.yaml/runs?branch=main&status=completed&per_page=30`,
+    token,
+  )
+  for (const run of runs) {
+    if (String(run.id) === String(runId)) continue
+    if (!["schedule", "workflow_dispatch"].includes(run.event)) continue
+    const { artifacts } = await github(
+      `/repos/${repo}/actions/runs/${run.id}/artifacts?per_page=100`,
+      token,
+    )
+    const names = new Set(artifacts.map((artifact) => artifact.name))
+    if (![...names].some((name) => name.startsWith("trace-"))) continue
+    if (names.has("nightly-full") || !names.has("nightly-plan"))
+      return {
+        current,
+        full: {
+          id: run.id,
+          url: run.html_url,
+          createdAt: run.created_at,
+          minutes: await runMinutes({ repo, runId: run.id, token }),
+        },
+      }
+  }
+  return { current }
+}
+
+// The text of nightlyMinutes for the job summary.
+export function minutesText({ current, full }) {
+  return full
+    ? `Runner minutes: ${current} in this run (the jobs that ended), against ${full.minutes} in the last full nightly run (${full.url}, ${full.createdAt.slice(0, 10)}).`
+    : `Runner minutes: ${current} in this run (the jobs that ended). No full nightly run of main was found to compare with.`
 }
 
 // The tickets of one nightly run. Returns the entries for the unstable list.
@@ -322,6 +383,17 @@ if (
           "main has no commit since the last successful nightly run: the other jobs do not run.",
         )
       output(`run=${run}`)
+    } else if (command === "minutes") {
+      const text = minutesText(
+        await nightlyMinutes({
+          repo,
+          runId: env.GITHUB_RUN_ID,
+          token: env.GH_TOKEN,
+        }),
+      )
+      console.log(text)
+      if (env.GITHUB_STEP_SUMMARY)
+        appendFileSync(env.GITHUB_STEP_SUMMARY, `## Nightly runner minutes\n\n${text}\n`)
     } else if (command === "tickets" && results) {
       if (!env.LINEAR_API_KEY) {
         console.log(
@@ -340,7 +412,10 @@ if (
         today: new Date().toISOString().slice(0, 10),
       })
       output(`unstable=${JSON.stringify(unstable)}`)
-    } else throw new Error("Usage: nightly.mjs changed | tickets <results dir>")
+    } else
+      throw new Error(
+        "Usage: nightly.mjs changed | minutes | tickets <results dir>",
+      )
   } catch (error) {
     console.log(`::error::nightly.mjs: ${error.message}`)
     process.exitCode = 1

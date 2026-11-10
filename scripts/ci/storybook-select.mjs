@@ -39,3 +39,11 @@ export function shardStories(stories, spec) {
     throw new Error(`Bad shard ${spec}; use i/n with 1 <= i <= n`)
   return stories.filter((_, position) => position % count === at - 1)
 }
+
+// The stories of the check ids `ids` (play or screenshot checks): the story
+// id is the part after the last `#` of a check id. The nightly run gives the
+// checks that need a new trace record (STORYBOOK_IDS).
+export function storiesOfChecks(stories, ids) {
+  const wanted = new Set(ids.map((id) => id.slice(id.lastIndexOf("#") + 1)))
+  return stories.filter((story) => wanted.has(story.id))
+}

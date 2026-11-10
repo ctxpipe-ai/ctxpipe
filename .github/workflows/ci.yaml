@@ -342,6 +342,7 @@ jobs:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
           merge-multiple: true
           path: ${{ runner.temp }}/plan
+      # The nightly run of main traces the checks of its plan.
       - name: Selected tests (merge gate)
         if: matrix.lane == 'selected'
         env:
@@ -349,6 +350,7 @@ jobs:
           AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
           DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
           SHARD: ${{ matrix.shard }}
+          TRACE: ${{ github.event_name != 'pull_request' && '.ci-results/selected' || '' }}
         run: node scripts/checks/selected.mjs .ci-results/selected "$RUNNER_TEMP/plan/plan.json" test-shards "$SHARD"
       - name: FalkorDB diagnostics
         if: failure()
@@ -428,8 +430,11 @@ jobs:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
           merge-multiple: true
           path: ${{ runner.temp }}/plan
+      # The nightly run of main traces the checks of its plan.
       - name: Selected UI, CLI and CDK tests (merge gate)
         if: needs.merge-gate-plan.outputs.mode == 'gate'
+        env:
+          TRACE: ${{ github.event_name != 'pull_request' && '.ci-results/selected' || '' }}
         run: node scripts/checks/selected.mjs .ci-results/selected "$RUNNER_TEMP/plan/plan.json" package-tests
       # The Results writer quarantines a key only when its check fails again
       # in this one rerun through the public runner (scripts/checks/README.md).
@@ -509,6 +514,7 @@ jobs:
         upgrade-from-previous-release,
         project-checks,
         nightly-change,
+        nightly-plan,
       ]
     if: |
       always() && needs.nightly-change.outputs.run != 'false' &&
@@ -519,11 +525,12 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
+      # One folder for each artifact: the shards of a planned run each write
+      # .ci-results/selected/trace.json.gz.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: test-results-*
           path: .ci-results/
-          merge-multiple: true
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: lane-trace-*
@@ -531,7 +538,44 @@ jobs:
       - name: Merge the traces
         run: |
           find .ci-results -name trace.json.gz -print0 | sort -z |
-            xargs -0 node scripts/checks/trace.mjs merge "$RUNNER_TEMP/trace.json.gz"
+            xargs -0 node scripts/checks/trace.mjs merge "$RUNNER_TEMP/partial.json.gz"
+      # The trace of main: the records of this run, and the records of the
+      # previous trace that the nightly plan keeps (factory trace combine).
+      # Without a nightly plan (a run by hand off main), it is this run's
+      # trace. The selector release comes from the nightly plan, checked
+      # against the pin again.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.nightly-plan.outputs.artifact-id != ''
+        with:
+          artifact-ids: ${{ needs.nightly-plan.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/nightly
+      - name: Combine with the previous trace
+        env:
+          PLANNED: ${{ needs.nightly-plan.outputs.artifact-id != '' }}
+        run: |
+          if [ "$PLANNED" != true ]; then
+            cp "$RUNNER_TEMP/partial.json.gz" "$RUNNER_TEMP/trace.json.gz"
+            exit 0
+          fi
+          sha256="$(jq -er .factory.sha256 .github/merge-gate.json)"
+          echo "$sha256  $RUNNER_TEMP/nightly/factory.tar.gz" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/nightly/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
+          previous=()
+          if [ -f "$RUNNER_TEMP/nightly/previous.json.gz" ]; then
+            previous=(--previous "$RUNNER_TEMP/nightly/previous.json.gz")
+          fi
+          "$RUNNER_TEMP/bin/factory" trace combine --plan "$RUNNER_TEMP/nightly/plan.json" \
+            "${previous[@]}" --partial "$RUNNER_TEMP/partial.json.gz" \
+            --out "$RUNNER_TEMP/trace.json.gz" | tee "$RUNNER_TEMP/combine.txt"
+          {
+            echo "## Trace"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/combine.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve the trace
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -541,14 +585,16 @@ jobs:
 
   # The time of each project check (typecheck, lint, policy) for the trace
   # (scripts/checks/README.md). The lint and typecheck jobs gate the change;
-  # this job is data only and runs only on a traced run.
+  # this job is data only and runs only on a traced run. An incremental
+  # nightly run runs only the project checks of its plan.
   project-checks:
     timeout-minutes: 45
     name: Project check times
-    needs: nightly-change
+    needs: [nightly-change, merge-gate-plan]
     if: |
       !cancelled() && needs.nightly-change.outputs.run != 'false' &&
-      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') &&
+      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.project-checks != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -564,14 +610,26 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
+        with:
+          artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/plan
       - name: Project checks through the check runner
+        env:
+          MODE: ${{ needs.merge-gate-plan.outputs.mode }}
         run: |
           set -o pipefail
-          # A check with cacheable false reads outside state (Terraform, Docker, a
-          # PR deploy) that this job lacks, and its time is not the job's purpose.
-          pnpm -s checks:list |
-            jq -r '.checks[] | select((.family == "typecheck" or .family == "lint" or .family == "policy") and .cacheable != false) | .id' \
-            > "$RUNNER_TEMP/project-checks.txt"
+          if [ "$MODE" = gate ]; then
+            jq -r '.jobs["project-checks"].ids[]' "$RUNNER_TEMP/plan/plan.json" > "$RUNNER_TEMP/project-checks.txt"
+          else
+            # A check with cacheable false reads outside state (Terraform, Docker, a
+            # PR deploy) that this job lacks, and its time is not the job's purpose.
+            pnpm -s checks:list |
+              jq -r '.checks[] | select((.family == "typecheck" or .family == "lint" or .family == "policy") and .cacheable != false) | .id' \
+              > "$RUNNER_TEMP/project-checks.txt"
+          fi
           mkdir -p "$RUNNER_TEMP/project-trace"
           # The result records also go to the Results writer.
           node scripts/checks/run.mjs --trace "$RUNNER_TEMP/project-trace" "$RUNNER_TEMP/project-checks.txt" |
@@ -592,14 +650,16 @@ jobs:
     # In gate mode it builds only the selected images. A person asks for
     # every build with Run workflow (workflow_dispatch) on the PR branch.
     # The nightly run (schedule) builds every image: it is the safety net
-    # of the gate.
+    # of the gate. An image build has no cache key, so the nightly plan does
+    # not hold it.
     needs: [merge-gate-plan, nightly-change]
     if: |
       !cancelled() && needs.nightly-change.outputs.run != 'false' &&
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
-      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.production-builds != '')
+      (github.event_name == 'schedule' ||
+      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.production-builds != ''))
     # The images build for linux/arm64, the platform of the AWS hosts
     # (Graviton). deploy.yaml publishes each image for amd64 and arm64.
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
@@ -893,11 +953,24 @@ jobs:
           merge-multiple: true
           path: ${{ runner.temp }}/plan
       - name: Selected stories (merge gate)
-        if: matrix.lane == 'selected'
+        if: matrix.lane == 'selected' && github.event_name == 'pull_request'
         env:
           SKIP_STORYBOOK_BUILD: "1"
           SHARD: ${{ matrix.shard }}
         run: node scripts/checks/selected.mjs .ci-results/storybook-plays "$RUNNER_TEMP/plan/plan.json" storybook-plays "$SHARD"
+      # The nightly run of main renders the stories of its plan as the full
+      # run does, with the trace: each story records its play and screenshot
+      # check ids (scripts/checks/plan.mjs, nightlyPlan).
+      - name: Planned stories (nightly)
+        if: matrix.lane == 'selected' && github.event_name != 'pull_request'
+        env:
+          SKIP_STORYBOOK_BUILD: "1"
+          STORYBOOK_PLAYS: all
+          SHARD: ${{ matrix.shard }}
+        run: |
+          jq -r --arg shard "$SHARD" '.jobs["storybook-plays"][] | select((.shard | tostring) == $shard) | .plan.ids[]' \
+            "$RUNNER_TEMP/plan/plan.json" > "$RUNNER_TEMP/story-ids.txt"
+          STORYBOOK_IDS="$RUNNER_TEMP/story-ids.txt" node scripts/ci/storybook-plays.mjs --trace
       # The Results writer quarantines a key only when its check fails again
       # in this one rerun through the public runner (scripts/checks/README.md).
       - name: Run the failed checks again
@@ -1874,12 +1947,127 @@ jobs:
   # full and every job runs. It runs only the public gate.mjs, with no
   # package and no credential. The PR store is in the GitHub Actions cache of
   # the PR: only a run of this PR writes there (the merge gate job).
+  # What the nightly run of main runs (CTX-1246, scripts/checks/README.md,
+  # Traces): `factory nightly plan` gives the checks whose inputs changed
+  # since the previous trace of main, or every check (a run by hand, no
+  # previous trace, or a full trace 7 days old), and a random sample of the
+  # checks whose key has only agent passes, for the audit. The Merge gate plan
+  # job puts these checks into the jobs of the run. The artifact `nightly-plan`
+  # holds the plan, the previous trace and the selector release, for the
+  # Trace job and the Results writer. It runs only on main: the role of the
+  # result store trusts only main. It runs no repository script.
+  nightly-plan:
+    timeout-minutes: 10
+    name: Nightly plan
+    needs: [nightly-change, merge-gate-manifest]
+    if: |
+      !cancelled() && needs.nightly-change.outputs.run != 'false' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      needs.merge-gate-manifest.result == 'success'
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    outputs:
+      artifact-id: ${{ steps.preserve.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: merge-gate-inputs
+          path: ${{ runner.temp }}/inputs
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::134416647419:role/check-results-ci-writer
+          aws-region: us-west-2
+      - name: Selector release, checked against the pin
+        run: |
+          version="$(jq -er '.factory.version | select(test("^[0-9a-f]{40}$"))' .github/merge-gate.json)"
+          sha256="$(jq -er .factory.sha256 .github/merge-gate.json)"
+          mkdir -p "$RUNNER_TEMP/nightly" "$RUNNER_TEMP/bin"
+          aws s3api get-object --bucket ctxpipe-factory-check-results-134416647419 \
+            --expected-bucket-owner 134416647419 \
+            --key "releases/factory/$version/factory-linux-arm64.tar.gz" \
+            "$RUNNER_TEMP/nightly/factory.tar.gz" > /dev/null
+          echo "$sha256  $RUNNER_TEMP/nightly/factory.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/nightly/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
+      # The newest trace of a nightly run or a run by hand on main. Without
+      # one, the plan is full.
+      - name: The previous trace of main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          XDG_CACHE_HOME: ${{ runner.temp }}/cache
+        run: |
+          if "$RUNNER_TEMP/bin/factory" trace fetch --repo .; then
+            find "$XDG_CACHE_HOME/factory/traces" -name '*.json.gz' -exec cp {} "$RUNNER_TEMP/nightly/previous.json.gz" \;
+          else
+            echo "::warning::No previous trace of main: this nightly run traces every check."
+          fi
+      - name: Plan
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -o pipefail
+          args=(--repo . --manifest "$RUNNER_TEMP/inputs/manifest.json"
+            --toolchain "$RUNNER_TEMP/inputs/toolchain.json"
+            --exclude-lane vercel --out "$RUNNER_TEMP/nightly/plan.json")
+          if [ -f "$RUNNER_TEMP/nightly/previous.json.gz" ]; then
+            args+=(--trace "$RUNNER_TEMP/nightly/previous.json.gz")
+          fi
+          # A run by hand is full.
+          if [ "$EVENT" = workflow_dispatch ]; then args+=(--full); fi
+          "$RUNNER_TEMP/bin/factory" nightly plan "${args[@]}" | tee "$RUNNER_TEMP/nightly/plan.txt"
+          if grep -q '^AUDIT SAMPLE FAILED' "$RUNNER_TEMP/nightly/plan.txt"; then
+            echo "::error::The audit sample of agent passes is not known: the store did not answer. The Results writer fails."
+          fi
+          {
+            echo "## Nightly plan"
+            echo
+            echo '```'
+            grep -v '^  TRACE ' "$RUNNER_TEMP/nightly/plan.txt"
+            echo '```'
+            echo
+            echo "<details><summary>Checks to trace again</summary>"
+            echo
+            echo '```'
+            grep '^  TRACE ' "$RUNNER_TEMP/nightly/plan.txt" || true
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve the plan
+        id: preserve
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nightly-plan
+          path: ${{ runner.temp }}/nightly/
+          if-no-files-found: error
+      # A marker of a full plan: the job Nightly tickets compares the runner
+      # minutes of a run with the last full nightly run (scripts/ci/nightly.mjs).
+      - name: Mark a full plan
+        run: |
+          if jq -e '.full' "$RUNNER_TEMP/nightly/plan.json" > /dev/null; then
+            echo full > "$RUNNER_TEMP/full.txt"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nightly-full
+          path: ${{ runner.temp }}/full.txt
+          if-no-files-found: ignore
+
+  # On a nightly run of main it puts the checks of the nightly plan into the
+  # jobs of the run (gate.mjs nightly): only the PR steps hold PR data.
   merge-gate-plan:
     timeout-minutes: 5
     name: Merge gate plan
-    needs: [merge-gate-manifest, merge-gate-select, merge-gate-llm]
+    needs: [merge-gate-manifest, merge-gate-select, merge-gate-llm, nightly-plan]
     if: |
-      !cancelled() && github.event_name == 'pull_request'
+      !cancelled() &&
+      (github.event_name == 'pull_request' || needs.nightly-plan.result == 'success')
     continue-on-error: true
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
@@ -1887,19 +2075,20 @@ jobs:
       actions: read
     outputs:
       artifact-id: ${{ steps.preserve.outputs.artifact-id }}
-      mode: ${{ steps.plan.outputs.mode }}
-      deploy: ${{ steps.plan.outputs.deploy }}
-      typecheck: ${{ steps.plan.outputs.typecheck }}
-      test-shards: ${{ steps.plan.outputs.test-shards }}
-      package-tests: ${{ steps.plan.outputs.package-tests }}
-      production-builds: ${{ steps.plan.outputs.production-builds }}
-      packages: ${{ steps.plan.outputs.packages }}
-      storybook-build: ${{ steps.plan.outputs.storybook-build }}
-      storybook-plays: ${{ steps.plan.outputs.storybook-plays }}
-      storybook-visual: ${{ steps.plan.outputs.storybook-visual }}
-      codesearch: ${{ steps.plan.outputs.codesearch }}
-      vercel-sandbox: ${{ steps.plan.outputs.vercel-sandbox }}
-      upgrade-from-previous-release: ${{ steps.plan.outputs.upgrade-from-previous-release }}
+      mode: ${{ steps.plan.outputs.mode || steps.nightly.outputs.mode }}
+      deploy: ${{ steps.plan.outputs.deploy || steps.nightly.outputs.deploy }}
+      typecheck: ${{ steps.plan.outputs.typecheck || steps.nightly.outputs.typecheck }}
+      test-shards: ${{ steps.plan.outputs.test-shards || steps.nightly.outputs.test-shards }}
+      package-tests: ${{ steps.plan.outputs.package-tests || steps.nightly.outputs.package-tests }}
+      production-builds: ${{ steps.plan.outputs.production-builds || steps.nightly.outputs.production-builds }}
+      packages: ${{ steps.plan.outputs.packages || steps.nightly.outputs.packages }}
+      storybook-build: ${{ steps.plan.outputs.storybook-build || steps.nightly.outputs.storybook-build }}
+      storybook-plays: ${{ steps.plan.outputs.storybook-plays || steps.nightly.outputs.storybook-plays }}
+      storybook-visual: ${{ steps.plan.outputs.storybook-visual || steps.nightly.outputs.storybook-visual }}
+      codesearch: ${{ steps.plan.outputs.codesearch || steps.nightly.outputs.codesearch }}
+      vercel-sandbox: ${{ steps.plan.outputs.vercel-sandbox || steps.nightly.outputs.vercel-sandbox }}
+      upgrade-from-previous-release: ${{ steps.plan.outputs.upgrade-from-previous-release || steps.nightly.outputs.upgrade-from-previous-release }}
+      project-checks: ${{ steps.nightly.outputs.project-checks }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1913,31 +2102,34 @@ jobs:
       # artifact with the same name. Without an id, the record is missing and
       # the plan is full.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: github.event_name == 'pull_request'
         continue-on-error: true
         with:
           name: merge-gate-inputs
           path: ${{ runner.temp }}/manifest
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: needs.merge-gate-select.outputs.artifact-id != ''
+        if: github.event_name == 'pull_request' && needs.merge-gate-select.outputs.artifact-id != ''
         continue-on-error: true
         with:
           artifact-ids: ${{ needs.merge-gate-select.outputs.artifact-id }}
           merge-multiple: true
           path: ${{ runner.temp }}/inputs
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: needs.merge-gate-llm.outputs.artifact-id != ''
+        if: github.event_name == 'pull_request' && needs.merge-gate-llm.outputs.artifact-id != ''
         continue-on-error: true
         with:
           artifact-ids: ${{ needs.merge-gate-llm.outputs.artifact-id }}
           merge-multiple: true
           path: ${{ runner.temp }}/inputs
       - name: The mode of the manifest job
+        if: github.event_name == 'pull_request'
         run: |
           mkdir -p "$RUNNER_TEMP/inputs"
           if [ -f "$RUNNER_TEMP/manifest/mode.json" ]; then
             cp "$RUNNER_TEMP/manifest/mode.json" "$RUNNER_TEMP/inputs/mode.json"
           fi
       - name: Restore the PR store
+        if: github.event_name == 'pull_request'
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .merge-gate-store
@@ -1946,6 +2138,7 @@ jobs:
             merge-gate-pr-${{ github.event.pull_request.number }}-
       - name: Plan
         id: plan
+        if: github.event_name == 'pull_request'
         env:
           NEEDS: ${{ toJSON(needs) }}
           FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
@@ -1954,6 +2147,20 @@ jobs:
           node scripts/checks/gate.mjs plan --config .github/merge-gate.json \
             --inputs "$RUNNER_TEMP/inputs" --needs "$RUNNER_TEMP/needs.json" \
             --store .merge-gate-store/store.json --fork "$FORK" \
+            --out "$RUNNER_TEMP/plan" --github-output "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: github.event_name != 'pull_request' && needs.nightly-plan.outputs.artifact-id != ''
+        with:
+          artifact-ids: ${{ needs.nightly-plan.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/nightly
+      # The check times of the previous trace pack the shards.
+      - name: Nightly plan
+        id: nightly
+        if: github.event_name != 'pull_request'
+        run: |
+          node scripts/checks/gate.mjs nightly --config .github/merge-gate.json \
+            --plan "$RUNNER_TEMP/nightly/plan.json" --trace "$RUNNER_TEMP/nightly/previous.json.gz" \
             --out "$RUNNER_TEMP/plan" --github-output "$GITHUB_OUTPUT"
       - name: Preserve the plan
         id: preserve
@@ -2317,7 +2524,7 @@ jobs:
   results-writer:
     timeout-minutes: 15
     name: Results writer
-    needs: [merge-gate-manifest, trace]
+    needs: [merge-gate-manifest, trace, nightly-plan]
     if: |
       always() && github.ref == 'refs/heads/main' &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
@@ -2366,6 +2573,14 @@ jobs:
         with:
           name: lane-trace-projects
           path: ${{ runner.temp }}/results/projects
+      # The audit sample of the nightly plan. Without the plan, the writer
+      # cannot check the sample, so it fails (never a silent skip).
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: steps.pin.outputs.pinned == 'true' && needs.nightly-plan.outputs.artifact-id != ''
+        with:
+          artifact-ids: ${{ needs.nightly-plan.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/nightly
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         if: steps.pin.outputs.pinned == 'true'
         with:
@@ -2386,7 +2601,13 @@ jobs:
       - name: Store the passes and audit the failures
         id: store
         if: steps.pin.outputs.pinned == 'true'
+        env:
+          NIGHTLY_PLAN: ${{ needs.nightly-plan.result }}
         run: |
+          if [ ! -f "$RUNNER_TEMP/nightly/plan.json" ]; then
+            echo "::error::The nightly plan is missing (job Nightly plan: ${NIGHTLY_PLAN}), so the Results writer cannot audit its sample of agent passes. Nothing is stored."
+            exit 1
+          fi
           mapfile -d '' records < <(find "$RUNNER_TEMP/results" -name records.ndjson -print0 | sort -z)
           mapfile -d '' reruns < <(find "$RUNNER_TEMP/results" -name rerun.ndjson -print0 | sort -z)
           rerun_args=()
@@ -2398,6 +2619,7 @@ jobs:
             --trace "$RUNNER_TEMP/trace/trace.json.gz" \
             --records "${records[@]}" \
             --json-file "$RUNNER_TEMP/store.json" \
+            --plan "$RUNNER_TEMP/nightly/plan.json" \
             "${rerun_args[@]}" > "$RUNNER_TEMP/store.txt" 2>&1 || code=$?
           cat "$RUNNER_TEMP/store.txt"
           find "$RUNNER_TEMP/results" -name not-rerun.txt -print0 | sort -z |
@@ -2426,6 +2648,9 @@ jobs:
           echo "non_portable=${ids}" >> "$GITHUB_OUTPUT"
           if [ "$ids" != "[]" ]; then
             echo "::error::Checks whose result depends on the platform: ${ids}. The Non-portable checks job opens a pull request that adds them to the denylist of the manifest."
+          fi
+          if grep -qE '^(NOT AUDITED|AUDIT SAMPLE FAILED)' "$RUNNER_TEMP/store.txt"; then
+            echo "::error::Part of the audit sample of agent passes was not audited. See the Results writer summary."
           fi
           if grep -q '^AUDIT FAILED' "$RUNNER_TEMP/store.txt"; then
             echo "::error::The audit of the result store failed, so no key was quarantined. See the Results writer summary."
@@ -2517,6 +2742,7 @@ jobs:
         codesearch,
         upgrade-from-previous-release,
         merge-gate-manifest,
+        nightly-plan,
         results-writer,
         non-portable-checks,
       ]
@@ -2550,6 +2776,13 @@ jobs:
         with:
           artifact-ids: ${{ steps.ids.outputs.ids }}
           path: ${{ runner.temp }}/results
+      # The runner minutes of this run and of the last full nightly run of
+      # main: an incremental run traces only the checks whose inputs changed.
+      - name: Runner minutes
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/nightly.mjs minutes
       - name: Open the tickets of the flakes and the failed jobs
         id: tickets
         env:

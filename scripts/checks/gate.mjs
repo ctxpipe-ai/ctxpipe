@@ -12,6 +12,7 @@ import { pathToFileURL } from "node:url"
 import {
   accepted,
   fallbackOf,
+  nightlyPlan,
   placeOf,
   plan,
   readStore,
@@ -1411,14 +1412,24 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
           }),
         )}\n`,
       )
-    } else if (command === "plan") {
-      const planned = plan({
-        config,
-        inputs: options.inputs,
-        needs: JSON.parse(readFileSync(options.needs, "utf8")),
-        store: readStore(readJson(options.store)),
-        fork: options.fork === "true",
-      })
+    } else if (command === "plan" || command === "nightly") {
+      const planned =
+        command === "plan"
+          ? plan({
+              config,
+              inputs: options.inputs,
+              needs: JSON.parse(readFileSync(options.needs, "utf8")),
+              store: readStore(readJson(options.store)),
+              fork: options.fork === "true",
+            })
+          : nightlyPlan(
+              JSON.parse(readFileSync(options.plan, "utf8")),
+              traceSeconds(
+                options.trace && existsSync(options.trace)
+                  ? readTrace(options.trace)
+                  : undefined,
+              ),
+            )
       mkdirSync(options.out, { recursive: true })
       writeFileSync(
         join(options.out, "plan.json"),

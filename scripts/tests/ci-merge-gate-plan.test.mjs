@@ -15,7 +15,13 @@ import { fileURLToPath } from "node:url"
 import { parse as parseYaml } from "yaml"
 
 import { fullVerdict, gateDecision, gateText, marker } from "../checks/gate.mjs"
-import { jobPlans, plan, placeOf, readStore } from "../checks/plan.mjs"
+import {
+  jobPlans,
+  nightlyPlan,
+  plan,
+  placeOf,
+  readStore,
+} from "../checks/plan.mjs"
 import { runsInOf } from "../checks/shard.mjs"
 
 // The gate mode of the merge gate (scripts/checks/README.md, Merge gate):
@@ -726,8 +732,12 @@ test("each job of the plan needs the plan job, starts only with its output, and 
     "upgrade-from-previous-release",
   ]
   for (const name of outputs) {
+    // A PR run takes the output of `gate.mjs plan`, a nightly run of main
+    // that of `gate.mjs nightly`.
     assert.ok(
-      plan.includes(`      ${name}: \${{ steps.plan.outputs.${name} }}`),
+      plan.includes(
+        `      ${name}: \${{ steps.plan.outputs.${name} || steps.nightly.outputs.${name} }}`,
+      ),
       `plan output ${name}`,
     )
     const text = job(name)
@@ -1159,6 +1169,7 @@ test("the gate reads each record of a trusted job only by the artifact id that t
     "merge-gate-llm": "merge-gate-llm",
     "merge-gate-plan": "merge-gate-plan",
     "merge-gate-critics": "merge-gate-critics",
+    "nightly-plan": "nightly-plan",
   }
   for (const [writer, name] of Object.entries(writers)) {
     const upload = jobs[writer].steps.find((step) => step.with?.name === name)
@@ -1204,4 +1215,101 @@ test("the gate reads each record of a trusted job only by the artifact id that t
     }).verdict,
     "pass",
   )
+})
+
+// A record of `factory nightly plan` (CTX-1246): the checks to trace again,
+// the audit sample, and `run`, the union of both.
+const nightly = ({ full = null, trace = [], sample = [] } = {}) => ({
+  schemaVersion: 1,
+  commit: sha(3),
+  createdAt: "2026-11-10T02:30:00Z",
+  id: "a".repeat(32),
+  previous: null,
+  full,
+  trace: trace.map((id) => ({ id, reason: "src/a.ts changed" })),
+  kept: [],
+  leftOut: [],
+  audit: full ? null : { seed: key(4), population: sample.length, sample },
+  run: [...new Set([...trace, ...sample])].sort(),
+  estimate: { runMs: 0, allMs: 0 },
+})
+
+test("a nightly plan puts its checks into the jobs of the run, and a full one gives a full run", () => {
+  const typecheck = "typecheck:ui:apps/ui/tsconfig.json"
+  const play = "storybook:plays:apps/ui/src/e.stories.tsx#e--two"
+  const tracedShot = "storybook:visual:apps/ui/src/e.stories.tsx#e--one"
+  const sampledShot = "storybook:visual:apps/ui/src/f.stories.tsx#f--one"
+  const planned = nightlyPlan(
+    nightly({
+      trace: [backend, ui, typecheck, lint, play, tracedShot],
+      sample: [contract, sampledShot],
+    }),
+    new Map(),
+  )
+  assert.equal(planned.mode, "gate")
+  assert.deepEqual(planned.rerun, [])
+  assert.deepEqual(planned.jobs["package-tests"], { ids: [ui], rerun: [] })
+  assert.deepEqual(
+    planned.jobs["test-shards"].flatMap((entry) => entry.plan.ids).sort(),
+    [backend, contract].sort(),
+  )
+  // The project checks run in the Project check times job, for their time.
+  assert.deepEqual(planned.jobs["project-checks"], {
+    ids: [lint, typecheck],
+    rerun: [],
+  })
+  assert.equal(planned.jobs.typecheck, undefined)
+  assert.equal(planned.outputs["project-checks"], "2")
+  // The plays job renders the story of each play check and of each traced
+  // screenshot check; the screenshots job checks both screenshots.
+  assert.deepEqual(
+    planned.jobs["storybook-plays"].flatMap((entry) => entry.plan.ids).sort(),
+    [play, "storybook:plays:apps/ui/src/e.stories.tsx#e--one"].sort(),
+  )
+  assert.deepEqual(
+    planned.jobs["storybook-visual"].flatMap((entry) => entry.plan.ids).sort(),
+    [sampledShot, tracedShot].sort(),
+  )
+  assert.equal(planned.outputs["storybook-build"], "true")
+  // A plan with no check starts no check job.
+  const empty = nightlyPlan(nightly(), new Map())
+  assert.equal(empty.mode, "gate")
+  assert.deepEqual(empty.outputs, {})
+  // A full plan (a run by hand, no previous trace, or 7 days) runs every job.
+  const full = nightlyPlan(nightly({ full: "a person asked" }), new Map())
+  assert.equal(full.mode, "full")
+  assert.deepEqual(full.outputs, {})
+  assert.throws(() => nightlyPlan({ schemaVersion: 2 }, new Map()))
+})
+
+test("the CLI writes the nightly plan and the outputs of the plan job", () => {
+  const directory = inputs({
+    "factory-plan.json": nightly({ trace: [ui] }),
+    "merge-gate.json": config(),
+  })
+  const out = join(directory, "out")
+  const outputs = join(directory, "outputs.txt")
+  const run = spawnSync(
+    process.execPath,
+    [
+      join(root, "scripts/checks/gate.mjs"),
+      "nightly",
+      "--config",
+      join(directory, "merge-gate.json"),
+      "--plan",
+      join(directory, "factory-plan.json"),
+      "--trace",
+      join(directory, "no-previous-trace.json.gz"),
+      "--out",
+      out,
+      "--github-output",
+      outputs,
+    ],
+    { cwd: root, encoding: "utf8" },
+  )
+  assert.equal(run.status, 0, run.stderr)
+  const planned = JSON.parse(readFileSync(join(out, "plan.json"), "utf8"))
+  assert.deepEqual(planned.jobs["package-tests"], { ids: [ui], rerun: [] })
+  assert.match(readFileSync(outputs, "utf8"), /^mode=gate\n/m)
+  assert.match(readFileSync(outputs, "utf8"), /^package-tests=1\n/m)
 })

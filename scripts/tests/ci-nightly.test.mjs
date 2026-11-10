@@ -10,7 +10,12 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { parse } from "yaml"
 
-import { nightlyChanged, nightlyTickets } from "../ci/nightly.mjs"
+import {
+  minutesText,
+  nightlyChanged,
+  nightlyMinutes,
+  nightlyTickets,
+} from "../ci/nightly.mjs"
 
 // GitHub and Linear are outside services: msw answers their HTTP calls.
 const server = setupServer()
@@ -494,4 +499,101 @@ test("each job of the nightly run waits for the job Nightly change and does not 
       "artifact-3",
       "artifact-4",
     ])
+})
+
+test("the runner minutes compare the run with the last full nightly run of main", async () => {
+  const at = (minutes) => new Date(Date.UTC(2026, 10, 10, 2, minutes)).toISOString()
+  const jobs = { 7: [[0, 10], [0, 5]], 6: [[0, 30]], 5: [[0, 200]] }
+  server.use(
+    http.get(
+      `https://api.github.com/repos/${repo}/actions/runs/:id/jobs`,
+      ({ params }) =>
+        HttpResponse.json({
+          jobs: [
+            ...jobs[params.id].map(([start, end]) => ({
+              started_at: at(start),
+              completed_at: at(end),
+            })),
+            // A job that did not end yet does not count.
+            { started_at: at(0), completed_at: null },
+          ],
+        }),
+    ),
+    http.get(
+      `https://api.github.com/repos/${repo}/actions/workflows/ci.yaml/runs`,
+      () =>
+        HttpResponse.json({
+          workflow_runs: [
+            { id: 7, event: "schedule" },
+            { id: 9, event: "push" },
+            { id: 6, event: "schedule", html_url: "u6", created_at: at(0) },
+            { id: 5, event: "schedule", html_url: "u5", created_at: at(0) },
+          ],
+        }),
+    ),
+    http.get(
+      `https://api.github.com/repos/${repo}/actions/runs/:id/artifacts`,
+      ({ params }) =>
+        HttpResponse.json({
+          artifacts: {
+            // An incremental run: a plan, no full marker.
+            6: [{ name: `trace-${sha}` }, { name: "nightly-plan" }],
+            // A full run.
+            5: [{ name: `trace-${sha}` }, { name: "nightly-plan" }, { name: "nightly-full" }],
+          }[params.id],
+        }),
+    ),
+  )
+  const minutes = await nightlyMinutes({ repo, runId: 7, token: "t" })
+  assert.equal(minutes.current, 15)
+  assert.deepEqual(
+    [minutes.full.id, minutes.full.minutes, minutes.full.url],
+    [5, 200, "u5"],
+  )
+  assert.match(minutesText(minutes), /^Runner minutes: 15 in this run .* against 200 in the last full nightly run \(u5, 2026-11-10\)\.$/)
+  assert.match(minutesText({ current: 3 }), /No full nightly run of main/)
+})
+
+test("the nightly run plans on main, traces its plan, and the Results writer always audits the sample of the plan", () => {
+  const { jobs } = parse(
+    readFileSync(
+      new URL("../../.github/workflows/ci.yaml", import.meta.url),
+      "utf8",
+    ),
+  )
+  const text = (job) => JSON.stringify(jobs[job])
+  // The plan job holds the role of the result store, which trusts only main,
+  // and runs no repository script.
+  const plan = jobs["nightly-plan"]
+  assert.match(plan.if, /github\.ref == 'refs\/heads\/main'/)
+  assert.match(text("nightly-plan"), /check-results-ci-writer/)
+  assert.doesNotMatch(text("nightly-plan"), /node scripts|pnpm/)
+  assert.match(text("nightly-plan"), /--exclude-lane vercel/)
+  assert.match(text("nightly-plan"), /workflow_dispatch \]; then args\+=\(--full\)/)
+  // The plan job of the gate puts its checks into the jobs of the run.
+  assert.match(text("merge-gate-plan"), /gate\.mjs nightly/)
+  // The planned jobs trace their checks.
+  for (const job of ["test-shards", "package-tests"])
+    assert.match(text(job), /TRACE":"\$\{\{ github\.event_name != 'pull_request' && '\.ci-results\/selected' \|\| '' \}\}/, job)
+  assert.match(text("storybook-plays"), /STORYBOOK_IDS=.*storybook-plays\.mjs --trace/)
+  // The Trace job combines the trace of the run with the previous trace.
+  assert.match(text("trace"), /trace combine --plan/)
+  assert.match(text("trace"), /sha256sum --check --strict/)
+  // The Results writer never runs factory store without the plan.
+  const store = jobs["results-writer"].steps.find(
+    (step) => step.id === "store",
+  ).run
+  assert.match(store, /--plan "\$RUNNER_TEMP\/nightly\/plan\.json"/)
+  assert.ok(
+    store.indexOf('[ ! -f "$RUNNER_TEMP/nightly/plan.json" ]') <
+      store.indexOf("factory\" store"),
+  )
+  assert.match(store, /exit 1/)
+  assert.match(store, /NOT AUDITED\|AUDIT SAMPLE FAILED/)
+  // Nightly tickets shows the runner minutes.
+  assert.ok(
+    jobs["nightly-tickets"].steps.some(
+      (step) => step.run === "node scripts/ci/nightly.mjs minutes",
+    ),
+  )
 })

@@ -290,6 +290,79 @@ function jobOutputs(jobs) {
   return outputs
 }
 
+// The plan of a nightly run on main (scripts/checks/README.md, Traces), from
+// the record of `factory nightly plan`: its `run` ids in the jobs of ci.yaml.
+// A full factory plan (by hand, without a previous trace, or each 7 days)
+// gives a full run. An incremental one gives a gated run with three
+// differences from a PR run:
+// - The project checks (typecheck, lint, policy) run in the Project check
+//   times job, which records their time for the trace.
+// - The Storybook plays job renders each story whose play check runs, or whose
+//   screenshot check needs a new trace record: one rendered story records the
+//   lines of both ids (storybook-plays.mjs, STORYBOOK_IDS). A screenshot
+//   check of the run (in the trace or in the audit sample) also runs in the
+//   screenshots job.
+// - No check is in `rerun`: each job of the nightly run runs its failed checks
+//   once more for the Results writer.
+// `seconds` are the check times of the previous trace (traceSeconds).
+export function nightlyPlan(factory, seconds) {
+  if (factory?.schemaVersion !== 1 || !Array.isArray(factory.run))
+    throw new Error("not a factory nightly plan (schemaVersion 1)")
+  if (factory.full)
+    return {
+      schemaVersion: 1,
+      config: "nightly",
+      mode: "full",
+      reason: `nightly: ${factory.full}`,
+      jobs: {},
+      outputs: {},
+      deploy: false,
+    }
+  const family = (id) => id.split(":")[0]
+  const project = (id) => ["typecheck", "lint", "policy"].includes(family(id))
+  const traced = new Set(factory.trace.map((planned) => planned.id))
+  const visual = (id) => id.startsWith("storybook:visual:")
+  const playsOf = (id) =>
+    visual(id) ? `storybook:plays:${id.slice("storybook:visual:".length)}` : id
+  const rendered = [
+    ...new Set(
+      factory.run
+        .filter(
+          (id) =>
+            family(id) === "storybook" && (!visual(id) || traced.has(id)),
+        )
+        .map(playsOf),
+    ),
+  ].sort()
+  const rest = factory.run.filter(
+    (id) => !project(id) && (family(id) !== "storybook" || visual(id)),
+  )
+  const jobs = jobPlans(rest, seconds)
+  if (rendered.length) {
+    const shards = Object.values(shard(rendered, seconds)).flat()
+    jobs["storybook-plays"] = shards.map((item, index) => ({
+      lane: "selected",
+      shard: index + 1,
+      count: shards.length,
+      plan: { ids: item.ids, rerun: [] },
+    }))
+  }
+  const projects = factory.run.filter(project).sort()
+  if (projects.length) jobs["project-checks"] = { ids: projects, rerun: [] }
+  return {
+    schemaVersion: 1,
+    config: "nightly",
+    mode: "gate",
+    reason: "nightly",
+    ran: factory.run,
+    rerun: [],
+    jobs,
+    outputs: jobOutputs(jobs),
+    shards: packing([...rest, ...rendered], seconds),
+    deploy: false,
+  }
+}
+
 // The shards of each sharded job of a gated run, for the merge gate report:
 // the shard count, the shard count of a full run, and the estimated minutes
 // of tests in all shards and in the longest shard.

@@ -102,6 +102,11 @@ try {
   const baseline = join(directory, "no-allowed-failures.json")
   writeFileSync(baseline, JSON.stringify({ version: 1, failures: [] }))
   let failed = false
+  // The trace: the records of the Node runtime, and the time of each Bun
+  // check, which has no trace record (`durations`), so that the nightly plan
+  // holds it as traced (scripts/checks/README.md, Traces).
+  let traced
+  const durations = {}
   for (const runtime of ["node", "bun"]) {
     const selected = selectedFiles[runtime]
     if (!selected.length) continue
@@ -186,17 +191,29 @@ try {
         process.stderr.write(`No result records written: ${error.message}\n`)
       }
     // The trace is data only: an error here never changes the result.
-    if (parts)
-      try {
-        writeTrace(
-          join(trace, "trace.json.gz"),
-          laneChecks(parts, "codesearch"),
-          commit,
-        )
-      } catch (error) {
-        process.stderr.write(`No trace written: ${error.message}\n`)
+    try {
+      if (parts) traced = laneChecks(parts, "codesearch")
+      if (trace && runtime === "bun") {
+        let suites = new Map()
+        try {
+          suites = reportSuites(report)
+        } catch {}
+        for (const file of selected) {
+          const id = `vitest:codesearch-bun:apps/codesearch/${file}`
+          const record = suiteRecord(id, suites.get(`apps/codesearch/${file}`))
+          if (record.status !== "error") durations[id] = record.durationMs
+        }
       }
+    } catch (error) {
+      process.stderr.write(`No trace for ${runtime}: ${error.message}\n`)
+    }
   }
+  if (trace && (traced || Object.keys(durations).length))
+    try {
+      writeTrace(join(trace, "trace.json.gz"), traced ?? [], commit, durations)
+    } catch (error) {
+      process.stderr.write(`No trace written: ${error.message}\n`)
+    }
   process.exitCode = failed ? 1 : 0
 } catch (error) {
   process.stderr.write(`${error.message}\n`)
