@@ -1,3 +1,4 @@
+import { deploymentEnvironment } from "../../../../../shared/deployment-environment.js"
 import { parseEnv } from "../../config/env.js"
 import { getRepoReadCloneToken } from "../../models/github-installation.js"
 import {
@@ -42,7 +43,7 @@ export async function hostedSandboxAccess(input: {
   if (!credentials)
     return unavailable("Hosted chat sandboxes are not configured")
   // On Railway, an untagged sandbox would escape the PR-close cleanup.
-  const environment = process.env.RAILWAY_ENVIRONMENT_NAME?.trim()
+  const environment = deploymentEnvironment(process.env)
   if (!environment && process.env.RAILWAY_PROJECT_ID?.trim())
     return unavailable("Hosted chat needs the Railway environment name")
   const repoFullName = githubRepoFullNameFromWorkspaceUrl(input.desiredUrl)

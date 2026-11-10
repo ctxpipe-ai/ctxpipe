@@ -121,7 +121,7 @@ describe("POST /.otel/v1/$signal", () => {
       "OTEL_EXPORTER_OTLP_HEADERS",
       "authorization=Basic%20abc=,x-token=a=b",
     )
-    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-343")
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "pr-343")
     vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "")
     vi.stubEnv("AUTH_BASE_URL", "https://app.example")
     vi.stubEnv("AUTH_ALLOWED_ORIGINS", "https://backend-pr-343.up.railway.app")
@@ -619,26 +619,37 @@ describe("POST /.otel/v1/$signal", () => {
     }
   })
 
-  it("prefers RAILWAY_ENVIRONMENT_NAME, then the resource attribute, then NODE_ENV", async () => {
+  it("prefers DEPLOYMENT_ENVIRONMENT, then RAILWAY_ENVIRONMENT_NAME, then the resource attribute, then NODE_ENV", async () => {
     const cases = [
-      ["pr-343", "deployment.environment=staging", "test", "pr-343"],
       [
+        "pr-343",
+        "production",
+        "deployment.environment=staging",
+        "test",
+        "pr-343",
+      ],
+      ["", "pr-12", "deployment.environment=staging", "test", "pr-12"],
+      ["production", "pr-12", "", "test", "pr-12"],
+      [
+        "",
         "",
         "service.namespace=ctxpipe,deployment.environment=staging",
         "test",
         "staging",
       ],
-      ["", "", "production", "production"],
-      ["", "", "test", "development"],
+      ["", "", "", "production", "production"],
+      ["", "", "", "test", "development"],
       [
+        "",
         "",
         "deployment.environment=first,deployment.environment=pr%2D9",
         "test",
         "pr-9",
       ],
-      ["", "a=1, b=2,deployment.environment=staging", "test", "staging"],
+      ["", "", "a=1, b=2,deployment.environment=staging", "test", "staging"],
     ] as const
-    for (const [railway, attributes, nodeEnv, want] of cases) {
+    for (const [deployment, railway, attributes, nodeEnv, want] of cases) {
+      vi.stubEnv("DEPLOYMENT_ENVIRONMENT", deployment)
       vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", railway)
       vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", attributes)
       vi.stubEnv("NODE_ENV", nodeEnv)

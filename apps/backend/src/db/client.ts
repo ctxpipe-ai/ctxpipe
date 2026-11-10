@@ -5,6 +5,7 @@ import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
 
+import { isPreviewDeployment } from "../../../../shared/deployment-environment.js"
 import { instrumentPgPool } from "../observability/dbTrace.js"
 import { log } from "../observability/logger.js"
 import { relations, schema } from "./schema.js"
@@ -17,17 +18,13 @@ import {
 // per new TCP connect — the same shape as a transpacific org-SQL hop.
 setDefaultResultOrder("ipv4first")
 
-export function isRailwayPrPreview(): boolean {
-  return Boolean(process.env.RAILWAY_ENVIRONMENT_NAME?.trim().startsWith("pr-"))
-}
-
 function createDrizzleDb(connectionString: string) {
-  // Railway Serverless sleeps after ~10m with no outbound. Long-lived idle
-  // Neon connections (and TCP keepalives) prevent that window in PR previews.
+  // An idle preview sleeps (Railway Serverless) or pauses (Aurora) only when
+  // no connection stays open, so a preview lets idle connections end.
   const client = new Pool({
     connectionString,
     max: 50,
-    allowExitOnIdle: isRailwayPrPreview(),
+    allowExitOnIdle: isPreviewDeployment(process.env),
     keepAlive: true,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 30_000,
@@ -60,7 +57,6 @@ function createDrizzleDb(connectionString: string) {
           step: "db.pool.connect",
           message: `pg pool connect ${ms}ms`,
           ms,
-          replicaRegion: process.env.RAILWAY_REPLICA_REGION,
         })
       }
       return poolClient
@@ -211,7 +207,6 @@ export async function withOrgDbContext<T>(
       setMs,
       handlerMs,
       beginCommitMs: totalMs - setMs - handlerMs,
-      replicaRegion: process.env.RAILWAY_REPLICA_REGION,
     })
   }
   return result

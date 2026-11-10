@@ -20,7 +20,7 @@ The backend needs traces, structured logs, and LLM spans. Hosted ingest is Click
 
 6. **Names.** Ids from auth only; OTel semconv plus `ctxpipe.*`; `deployment.environment` (not `.name`); URLs without query strings; no backfill. Keys: [observability skill](../../../.agents/skills/observability/SKILL.md).
 
-7. **Preview metrics.** `RAILWAY_ENVIRONMENT_NAME` matching `pr-<digits>` selects `FlushOnDemandMetricReader` on the backend (no interval); `withLogger` and the HTTP middleware flush after the job or response. Production uses `PeriodicExportingMetricReader` at 60s. Codesearch exports no metrics on preview, so it has no periodic reader there.
+7. **Preview metrics.** A deployment name matching `pr-<digits>` (`DEPLOYMENT_ENVIRONMENT`, else `RAILWAY_ENVIRONMENT_NAME` while Railway previews exist) selects `FlushOnDemandMetricReader` on the backend (no interval); `withLogger` and the HTTP middleware flush after the job or response. Production uses `PeriodicExportingMetricReader` at 60s. Codesearch exports no metrics on preview, so it has no periodic reader there.
 
 8. **OpenWorkflow.** `openworkflow` 0.10 traces through the same global provider (scope `openworkflow`). Each run is a set of linked traces: `workflow_run.create` on the caller's trace, then one `workflow_run.execute` trace per attempt, linked back to creation, with `step_attempt.execute` as its children. Job attribution (`ctxpipe.actor.type=job` and the org, user, and request ids) is stamped on that execution span and copied onto its children. There is no parallel `openworkflow.job` trace. Export drops a Drizzle `params:` line from exception events and status text, including errors a library recorded itself.
 

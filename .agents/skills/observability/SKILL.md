@@ -32,7 +32,7 @@ Time range first, then `DeploymentEnvironment`, then `ServiceName` or `TraceId`.
 
 One key per concept. Resource attributes: `service.name` (`backend`, `openworkflow`, `codesearch`, `ui`), `service.namespace=ctxpipe` on backend, codesearch, and the UI relay, `deployment.environment`. Scope names are not `service.name`.
 
-`deployment.environment` on backend traces, metrics, and logs, the Langfuse environment tag, codesearch, and the UI relay is `RAILWAY_ENVIRONMENT_NAME` when that is set, otherwise `deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES`, otherwise `production` when `NODE_ENV=production`, otherwise `development`.
+`deployment.environment` on backend traces, metrics, and logs, the Langfuse environment tag, codesearch, and the UI relay is `DEPLOYMENT_ENVIRONMENT` when that is set (`RAILWAY_ENVIRONMENT_NAME` is the fallback while Railway previews exist), otherwise `deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES`, otherwise `production` when `NODE_ENV=production`, otherwise `development`.
 
 | Key | Where it is set |
 | --- | --- |
@@ -72,7 +72,7 @@ Metrics: a gauge for a current level, a counter for a cumulative count.
 
 Export stays off the request and job path. evlog logs go through `createDrainPipeline` (backend and codesearch), spans through the batch processor, metrics through the periodic reader. Never await a collector call in a handler, middleware, or job; a telemetry relay gets a short upstream timeout. Flush only on shutdown or before a script exits (`flushEvlog()`).
 
-`RAILWAY_ENVIRONMENT_NAME` matching `pr-<digits>` uses flush-on-demand and `forceFlushOtel()` after the response or job. Production uses a 60s reader.
+A deployment name (`DEPLOYMENT_ENVIRONMENT`, else `RAILWAY_ENVIRONMENT_NAME`) that matches `pr-<digits>` uses flush-on-demand and `forceFlushOtel()` after the response or job. Production uses a 60s reader.
 
 Tests sit next to the module. Assert telemetry through the OTel SDK in-memory exporters and outbound calls through msw: attribute names present; params, query strings, emails, and secrets absent. Mocking rules: root AGENTS.md → Testing.
 

@@ -15,6 +15,34 @@ describe("openWorkflowNamespaceId", () => {
     ).toBe("preview-pr-298")
   })
 
+  it("isolates a preview whose variables are copied from production", () => {
+    expect(
+      openWorkflowNamespaceId({
+        DEPLOYMENT_ENVIRONMENT: "pr-298",
+        OPENWORKFLOW_NAMESPACE_ID: "default",
+      }),
+    ).toBe("preview-pr-298")
+  })
+
+  it("isolates a Railway preview that copied DEPLOYMENT_ENVIRONMENT=production", () => {
+    expect(
+      openWorkflowNamespaceId({
+        DEPLOYMENT_ENVIRONMENT: "production",
+        RAILWAY_ENVIRONMENT_NAME: "pr-298",
+        OPENWORKFLOW_NAMESPACE_ID: "default",
+      }),
+    ).toBe("preview-pr-298")
+  })
+
+  it("keeps the production namespace in production", () => {
+    expect(
+      openWorkflowNamespaceId({
+        DEPLOYMENT_ENVIRONMENT: "production",
+        OPENWORKFLOW_NAMESPACE_ID: "default",
+      }),
+    ).toBe("default")
+  })
+
   it("isolates a duplicated Railway PR environment before variables are rewritten", () => {
     expect(
       openWorkflowNamespaceId({
