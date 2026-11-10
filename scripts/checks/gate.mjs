@@ -568,10 +568,10 @@ export function criticsFail(checked) {
   return checked.missing.length > 0 || (checked.required && !checked.checked)
 }
 
-// The writer and the commit of an override or a raised limit, for a public
-// comment. The writer is the SHA-256 of the store identity in the S3 path of
-// the record (or `ci`), and the commit is a full commit id. Any other value
-// never reaches the comment.
+// The writer and the commit of an override, a dismissal or a raised limit,
+// for a public comment. The writer is the SHA-256 of the store identity in the
+// S3 path of the record (or `ci`), and the commit is a full commit id. Any
+// other value never reaches the comment.
 function provenance(record, repoUrl) {
   return {
     writer: code(
@@ -642,6 +642,29 @@ export function criticsText(checked, repoUrl) {
       // all of it.
       lines.push(
         `- ${item(override.critic)} ${item(override.finding)} on ${item(override.path)}, by writer ${writer} at ${commit}: ${item(override.reason, Infinity)}`,
+      )
+    }
+  }
+  // A held finding that a person dismissed (`factory decide --dismissed`) is
+  // never silent: each one shows its full reason, its writer and its commit.
+  const dismissals = checked.critics.flatMap((critic) =>
+    (critic.dismissals ?? []).map((dismissal) => ({
+      critic: critic.critic,
+      ...dismissal,
+    })),
+  )
+  if (dismissals.length > 0) {
+    lines.push(
+      "",
+      `Dismissed findings: ${dismissals.length}. A person decided that each escalated finding does not stand, with this reason. Read it.`,
+      "",
+    )
+    for (const dismissal of dismissals) {
+      const { writer, commit } = provenance(dismissal, repoUrl)
+      // The factory bounds the reason (300 characters), so the comment shows
+      // all of it.
+      lines.push(
+        `- ${item(dismissal.critic)} ${item(dismissal.finding)}, by writer ${writer} at ${commit}: ${item(dismissal.reason, Infinity)}`,
       )
     }
   }
