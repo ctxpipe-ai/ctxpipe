@@ -83,8 +83,6 @@ const AGENTCORE_CAPS: SandboxCapabilities = {
   fork: false,
 }
 
-/** The longest command that AgentCore runs (3,600 s); the ingest shard limit. */
-const COMMAND_TIMEOUT_SECONDS = 3_600
 /** Stay under Linux `MAX_ARG_STRLEN` (128 KiB) after base64 and quoting. */
 const WRITE_CHUNK_BYTES = 32_768
 
@@ -123,7 +121,8 @@ async function* commandEvents(
       agentRuntimeArn: runtime.runtimeArn,
       qualifier: runtime.qualifier,
       runtimeSessionId: sessionId,
-      body: { command, timeout: COMMAND_TIMEOUT_SECONDS },
+      // The longest that AgentCore allows (3,600 s): the ingest shard limit.
+      body: { command, timeout: 3_600 },
     }),
     signal ? { abortSignal: signal } : {},
   )
