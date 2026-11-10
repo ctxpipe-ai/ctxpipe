@@ -139,6 +139,19 @@ describe("clear write step outputs migration (Postgres)", () => {
     }
     await addRun(db, "boot", "workspace-write-bootstrap", "failed")
     await addStep(db, "boot", "commit-unborn")
+    // The transform and handoff steps that stored file contents, and the new
+    // prepare step that keeps its small output.
+    await addRun(db, "edit", "workspace-write-ui-file-edit")
+    for (const step of [
+      "transform-file-edit",
+      "capture-semantic-handoff:1",
+      "prepare-commit",
+    ]) {
+      await addStep(db, "edit", step)
+    }
+    // The retired migration export workflow: each of its outputs goes.
+    await addRun(db, "export", "workspace-write-migration-export")
+    await addStep(db, "export", "export")
     // A run that can still resume keeps its outputs.
     await addRun(db, "live", "workspace-write-ui-file-edit", "sleeping")
     await addStep(db, "live", "stage")
@@ -152,13 +165,17 @@ describe("clear write step outputs migration (Postgres)", () => {
 
     expect(await outputs(db)).toEqual({
       "boot/commit-unborn": false,
+      "edit/capture-semantic-handoff:1": false,
+      "edit/prepare-commit": true,
+      "edit/transform-file-edit": false,
+      "export/export": false,
       "ingest/discover-roots": true,
       "ingest/resolve": true,
       "ingest/stage": true,
       "live/stage": true,
       "merge/acquire-revision": false,
       "merge/broker-push": true,
-      "merge/commit-subject": true,
+      "merge/commit-subject": false,
       "merge/commit:1": false,
       "merge/stage": false,
       "merge/stage:2": false,
