@@ -3,12 +3,11 @@ name: MCP evals
 # MCPJam evals for the public MCP tools (CTX-574, ADR-051 section 10).
 # The job starts its own backend from the checked-out code, with Postgres and
 # FalkorDB as service containers and made-up fixture data. It never reaches a
-# preview or production. Runs: nightly, by hand, and on a pull request with the
-# label `mcp-evals`. A model call costs money, so a pull request does not run
-# the suite by default. The merge gate comment asks the author for the label.
+# preview or production. Runs: by hand, and on a pull request with the label
+# `mcp-evals`. A model call costs money, so a pull request does not run the
+# suite by default. The merge gate comment asks the author for the label.
+# There is no schedule (ADR-062, revision 2026-11-10).
 on:
-  schedule:
-    - cron: "17 3 * * *"
   pull_request:
     branches:
       - main

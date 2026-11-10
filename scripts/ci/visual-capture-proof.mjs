@@ -3,9 +3,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { baselinePath } from "../../packages/visual-review/src/compare/manifest.ts"
 import { readUnstable } from "../checks/visual.mjs"
-import { selectTracedStories, shardStories } from "./storybook-select.mjs"
+import { selectTracedStories } from "./storybook-select.mjs"
 import {
   captureInContainer,
   capturePlan,
@@ -21,15 +20,11 @@ import {
 // (proof.json, and the PNGs of both runs). The exit code is 1 when a story
 // differs between the runs, is unstable in a run, or does not capture. A
 // story in scripts/ci/visual-unstable-stories.json is known to differ: it is
-// reported as skipped and does not fail the run. proof.json lists in
-// `differing` each other story whose two captures differ (quarantineOf). The
-// nightly CI run (the job "Screenshot determinism" in
-// .github/workflows/ci.yaml) runs it on every story, in
-// shards (--shard i/n keeps every n-th story of the sample), and quarantines
-// the stories that differ: the job "Unstable screenshots" adds them to the
-// unstable list in a draft pull request.
+// reported as skipped and does not fail the run. No CI job runs it: the
+// nightly run finds a flaky screenshot by the contradiction rule (a check
+// that fails and then passes in its rerun, scripts/ci/nightly.mjs).
 //
-// Usage: node scripts/ci/visual-capture-proof.mjs [sample size, default 20, or "all"] [--shard i/n]
+// Usage: node scripts/ci/visual-capture-proof.mjs [sample size, default 20, or "all"]
 
 // Splits the stories that are not identical in the two runs: a story that is
 // listed for the desktop viewport (the viewport of the proof) is skipped, and
@@ -47,36 +42,6 @@ export function judgeProof(results, unstable) {
   }
 }
 
-// The failing stories whose screenshots are not deterministic: each run gave
-// an image of each shot (the end state and each named snapshot; captured, or
-// unstable within the run), and the two runs differ. A story that a run could
-// not capture (a failed play, a capture error) is a broken story, not an
-// unstable screenshot, so it is not quarantined. Each one comes with its
-// desktop baselines, which the quarantine removes: a story in the unstable
-// list has no baseline at that viewport. `entries` are the index entries by
-// story id.
-export function quarantineOf(failing, entries) {
-  return failing
-    .filter((result) =>
-      result.runs.every(
-        (shots) =>
-          shots.length > 0 &&
-          shots.every((shot) => ["captured", "unstable"].includes(shot.status)),
-      ),
-    )
-    .map(({ id, runs }) => ({
-      id,
-      baselines: runs[0].map((shot) =>
-        baselinePath({
-          storyFile: `apps/ui/${entries.get(id).importPath.replace(/^\.\//, "")}`,
-          storyName: entries.get(id).exportName,
-          ...(shot.snapshot && { snapshot: shot.snapshot }),
-          viewport: "desktop",
-        }),
-      ),
-    }))
-}
-
 if (process.argv[1] === fileURLToPath(import.meta.url)) await prove()
 
 async function prove() {
@@ -87,19 +52,14 @@ async function prove() {
     readFileSync(join(root, "apps/ui/storybook-static/index.json"), "utf8"),
   )
   const stories = selectTracedStories(index)
-  const entries = new Map(stories.map((entry) => [entry.id, entry]))
   const all = stories.map((entry) => entry.id)
   if (!all.length) throw new Error("The Storybook build has no story.")
-  const sample = process.argv[2]?.startsWith("--") ? undefined : process.argv[2]
+  const sample = process.argv[2]
   const size =
     sample === "all" ? all.length : Math.min(Number(sample ?? 20), all.length)
-  const shard = process.argv.indexOf("--shard")
-  const ids = shardStories(
-    Array.from(
-      { length: size },
-      (_, k) => all[Math.floor((k * all.length) / size)],
-    ),
-    shard > 0 ? process.argv[shard + 1] : undefined,
+  const ids = Array.from(
+    { length: size },
+    (_, k) => all[Math.floor((k * all.length) / size)],
   )
 
   const sha = (file) =>
@@ -150,7 +110,7 @@ async function prove() {
   mkdirSync(out, { recursive: true })
   writeFileSync(
     join(out, "proof.json"),
-    `${JSON.stringify({ sample: ids.length, identical: results.filter((result) => result.identical).length, skipped: skipped.map((result) => result.id), differing: quarantineOf(failing, entries), results }, null, 2)}\n`,
+    `${JSON.stringify({ sample: ids.length, identical: results.filter((result) => result.identical).length, skipped: skipped.map((result) => result.id), results }, null, 2)}\n`,
   )
   process.stdout.write(
     `${results.filter((result) => result.identical).length} of ${results.length} stories gave identical PNGs in two runs; ${skipped.length} known unstable stories skipped.\n`,
