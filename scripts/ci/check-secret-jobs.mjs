@@ -134,6 +134,10 @@ const exceptions = new Map(
     // The job uses the workbench environment: its model key is the
     // spend-capped CI key, not the production key.
     "mcp-evals.yaml:evals": ["MODEL_PROVIDER_API_KEY"],
+    // Runs the visual critic bake-off with real models. The job uses the
+    // workbench environment: its model key is the spend-capped key of the
+    // bake-off, not the production key.
+    "visual-bakeoff.yaml:run": ["MODEL_PROVIDER_API_KEY"],
     // Ingests real repositories with a real model and the preview GitHub App.
     // INGEST_PROOF_* hold the private test repository URLs, no credential:
     // a secret keeps them out of the public log.

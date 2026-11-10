@@ -89,12 +89,35 @@ export const caseManifestSchema = z
     /** The capture image, with its digest. */
     container: z.string(),
     cases: z.array(caseSchema),
+    /**
+     * The blind pairwise picks of the owner (CTX-1201): for one case, the
+     * outputs of two bake-off arms, and the arm whose output the owner
+     * prefers, or `tie`. Absent until the owner labels.
+     */
+    taste: z
+      .array(
+        z
+          .object({
+            case: z.string(),
+            arms: z.tuple([z.string(), z.string()]),
+            winner: z.string(),
+          })
+          .refine(({ arms, winner }) => [...arms, "tie"].includes(winner), {
+            message: "The winner must be one of the two arms, or tie.",
+          }),
+      )
+      .optional(),
   })
   .refine(
     (manifest) =>
       new Set(manifest.cases.map((entry) => entry.id)).size ===
       manifest.cases.length,
     { message: "Each case id must be unique." },
+  )
+  .refine(
+    ({ cases, taste }) =>
+      (taste ?? []).every((pick) => cases.some(({ id }) => id === pick.case)),
+    { message: "Each taste pick must name a case of the manifest." },
   )
 export type CaseManifest = z.infer<typeof caseManifestSchema>
 
