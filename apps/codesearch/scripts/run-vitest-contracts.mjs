@@ -160,22 +160,28 @@ try {
       },
     )
     if (checked.status !== 0) failed = true
-    // The records are data only: an error here never changes the result. A
-    // file without a suite in the report gets an error record.
+    // The records and the trace are data only: an error here never changes
+    // the result. A file without a suite in the report gets an error record.
+    let fileRecords = []
+    try {
+      let suites = new Map()
+      try {
+        suites = reportSuites(report)
+      } catch {}
+      const lane = runtime === "bun" ? "codesearch-bun" : "codesearch"
+      fileRecords = selected.map((file) =>
+        suiteRecord(
+          `vitest:${lane}:apps/codesearch/${file}`,
+          suites.get(`apps/codesearch/${file}`),
+        ),
+      )
+    } catch (error) {
+      process.stderr.write(`No result records: ${error.message}\n`)
+    }
     if (records)
       try {
-        let suites = new Map()
-        try {
-          suites = reportSuites(report)
-        } catch {}
-        const lane = runtime === "bun" ? "codesearch-bun" : "codesearch"
         const lines = markExitFailure(
-          selected.map((file) =>
-            suiteRecord(
-              `vitest:${lane}:apps/codesearch/${file}`,
-              suites.get(`apps/codesearch/${file}`),
-            ),
-          ),
+          fileRecords,
           checked.status === 0 ? result : { status: checked.status },
         )
         appendFileSync(
@@ -190,20 +196,12 @@ try {
       } catch (error) {
         process.stderr.write(`No result records written: ${error.message}\n`)
       }
-    // The trace is data only: an error here never changes the result.
+    // The time of each Bun check, which has no trace record.
+    if (trace && runtime === "bun")
+      for (const record of fileRecords)
+        if (record.status !== "error") durations[record.id] = record.durationMs
     try {
       if (parts) traced = laneChecks(parts, "codesearch")
-      if (trace && runtime === "bun") {
-        let suites = new Map()
-        try {
-          suites = reportSuites(report)
-        } catch {}
-        for (const file of selected) {
-          const id = `vitest:codesearch-bun:apps/codesearch/${file}`
-          const record = suiteRecord(id, suites.get(`apps/codesearch/${file}`))
-          if (record.status !== "error") durations[id] = record.durationMs
-        }
-      }
     } catch (error) {
       process.stderr.write(`No trace for ${runtime}: ${error.message}\n`)
     }

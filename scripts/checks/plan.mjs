@@ -358,7 +358,6 @@ export function nightlyPlan(factory, seconds) {
     rerun: [],
     jobs,
     outputs: jobOutputs(jobs),
-    shards: packing([...rest, ...rendered], seconds),
     deploy: false,
   }
 }

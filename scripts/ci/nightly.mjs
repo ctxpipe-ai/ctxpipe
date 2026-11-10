@@ -66,13 +66,19 @@ async function runMinutes({ repo, runId, token }) {
 // nightly plan (no artifact `nightly-plan`).
 export async function nightlyMinutes({ repo, runId, token }) {
   const current = await runMinutes({ repo, runId, token })
-  const { workflow_runs: runs } = await github(
-    `/repos/${repo}/actions/workflows/ci.yaml/runs?branch=main&status=completed&per_page=30`,
-    token,
-  )
+  // One query for each event: a push to main also runs ci.yaml, and those
+  // runs would push a full run of up to 7 days ago out of one page.
+  const runs = []
+  for (const event of ["schedule", "workflow_dispatch"]) {
+    const { workflow_runs: found } = await github(
+      `/repos/${repo}/actions/workflows/ci.yaml/runs?branch=main&event=${event}&status=completed&per_page=30`,
+      token,
+    )
+    runs.push(...found)
+  }
+  runs.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
   for (const run of runs) {
     if (String(run.id) === String(runId)) continue
-    if (!["schedule", "workflow_dispatch"].includes(run.event)) continue
     const { artifacts } = await github(
       `/repos/${repo}/actions/runs/${run.id}/artifacts?per_page=100`,
       token,

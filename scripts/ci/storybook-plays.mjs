@@ -62,7 +62,7 @@ const chosenStories = (index) => {
           : selectPlayStories(index)
         : selectRequiredStories(index)
     const only = (process.env.STORYBOOK_ONLY ?? "").split(",").filter(Boolean)
-    const parts = only.length
+    const onlyStories = only.length
       ? stories.filter((story) =>
           only.some(
             (part) =>
@@ -73,13 +73,13 @@ const chosenStories = (index) => {
     const idsFile = process.env.STORYBOOK_IDS
     const filtered = idsFile
       ? storiesOfChecks(
-          parts,
+          onlyStories,
           readFileSync(idsFile, "utf8")
             .split("\n")
             .map((line) => line.trim())
             .filter(Boolean),
         )
-      : parts
+      : onlyStories
     return shardStories(filtered, process.env.STORYBOOK_SHARD)
   } catch (error) {
     fail(error.message)

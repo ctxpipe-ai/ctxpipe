@@ -33,7 +33,7 @@ The product owner decided this on 2026-11-10 ([CTX-1246](https://linear.app/ctxp
 
 - **Incremental trace.** The job Nightly plan (`factory nightly plan`) traces again only the checks with a changed input of their cache key since the previous trace of `main`. The trace of `main` is the previous trace plus these records (`factory trace combine`). A full trace runs on a run by hand and at least once each 7 days.
 - **Sampled audit.** The run also runs a random sample of the checks whose key has only agent passes (at least 20, and 10%), with the seed in the plan and the job summary. The Results writer audits it with the same quarantine rules, and fails when a sampled check was not audited or the plan is missing.
-- **Only keyed checks.** A check with `cacheable: false` or a stochastic check has no key; the nightly run does not run it, and the selection picks it by its static layers. The image builds still run on each nightly run.
+- **Only keyed checks.** A check with `cacheable: false` or a stochastic check has no key; an incremental nightly run does not run it, and the selection picks it by its static layers. Thus an incremental run builds no image; a full run (by hand, or each 7 days) builds every image.
 - The `ci` class stores only what the nightly run ran.
 
 ## Consequences

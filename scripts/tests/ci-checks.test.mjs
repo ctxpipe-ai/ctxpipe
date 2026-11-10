@@ -1664,3 +1664,24 @@ test("a planned job traces its checks when TRACE names a folder", () => {
     rmSync(directory, { recursive: true, force: true })
   }
 })
+
+test("a merge of no trace writes the empty trace of HEAD", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-empty-trace-"))
+  try {
+    const out = join(directory, "trace.json.gz")
+    const result = node([script("trace.mjs"), "merge", out])
+    assert.equal(result.status, 0, result.stderr)
+    const trace = JSON.parse(gunzipSync(readFileSync(out)).toString("utf8"))
+    const head = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+    })
+    assert.deepEqual(trace, {
+      schemaVersion: 1,
+      commit: head.stdout.trim(),
+      checks: [],
+    })
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})

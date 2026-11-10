@@ -521,15 +521,19 @@ test("the runner minutes compare the run with the last full nightly run of main"
     ),
     http.get(
       `https://api.github.com/repos/${repo}/actions/workflows/ci.yaml/runs`,
-      () =>
-        HttpResponse.json({
-          workflow_runs: [
-            { id: 7, event: "schedule" },
-            { id: 9, event: "push" },
-            { id: 6, event: "schedule", html_url: "u6", created_at: at(0) },
-            { id: 5, event: "schedule", html_url: "u5", created_at: at(0) },
+      ({ request }) => {
+        // The query names the event, so push runs never fill the page.
+        const event = new URL(request.url).searchParams.get("event")
+        const runs = {
+          schedule: [
+            { id: 7, created_at: at(30) },
+            { id: 6, html_url: "u6", created_at: at(20) },
           ],
-        }),
+          workflow_dispatch: [{ id: 5, html_url: "u5", created_at: at(10) }],
+        }[event]
+        assert.ok(runs, event)
+        return HttpResponse.json({ workflow_runs: runs })
+      },
     ),
     http.get(
       `https://api.github.com/repos/${repo}/actions/runs/:id/artifacts`,
@@ -550,7 +554,10 @@ test("the runner minutes compare the run with the last full nightly run of main"
     [minutes.full.id, minutes.full.minutes, minutes.full.url],
     [5, 200, "u5"],
   )
-  assert.match(minutesText(minutes), /^Runner minutes: 15 in this run .* against 200 in the last full nightly run \(u5, 2026-11-10\)\.$/)
+  assert.match(
+    minutesText(minutes),
+    /^Runner minutes: 15 in this run .* against 200 in the last full nightly run \(u5, 2026-11-10\)\.$/,
+  )
   assert.match(minutesText({ current: 3 }), /No full nightly run of main/)
 })
 
@@ -590,6 +597,23 @@ test("the nightly run plans on main, traces its plan, and the Results writer alw
   )
   assert.match(store, /exit 1/)
   assert.match(store, /NOT AUDITED\|AUDIT SAMPLE FAILED/)
+  // A run without a project check has no project artifact: the writer
+  // downloads it by a pattern, which does not fail when nothing matches.
+  const projects = jobs["results-writer"].steps.find((step) =>
+    String(step.with?.pattern ?? step.with?.name).includes("lane-trace-projects"),
+  )
+  assert.equal(projects.with.pattern, "lane-trace-projects")
+  // The codesearch job runs the planned files of an incremental run, and the
+  // codesearch and project jobs run their failed checks once more.
+  assert.match(text("codesearch"), /files\+=\(--node/)
+  assert.match(text("codesearch"), /files\+=\(--bun/)
+  for (const job of ["codesearch", "project-checks"])
+    assert.match(text(job), /rerun-failed\.mjs/, job)
+  // An incremental run builds no image: an image build has no key.
+  assert.doesNotMatch(
+    String(jobs["production-builds"].if),
+    /'schedule' \|\|\s*\(needs\.merge-gate-plan/,
+  )
   // Nightly tickets shows the runner minutes.
   assert.ok(
     jobs["nightly-tickets"].steps.some(

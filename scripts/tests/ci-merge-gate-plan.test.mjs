@@ -732,12 +732,8 @@ test("each job of the plan needs the plan job, starts only with its output, and 
     "upgrade-from-previous-release",
   ]
   for (const name of outputs) {
-    // A PR run takes the output of `gate.mjs plan`, a nightly run of main
-    // that of `gate.mjs nightly`.
     assert.ok(
-      plan.includes(
-        `      ${name}: \${{ steps.plan.outputs.${name} || steps.nightly.outputs.${name} }}`,
-      ),
+      plan.includes(`      ${name}: \${{ steps.plan.outputs.${name} }}`),
       `plan output ${name}`,
     )
     const text = job(name)
