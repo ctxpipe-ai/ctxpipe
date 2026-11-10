@@ -740,7 +740,7 @@ it(
       await f.publish()
       // The Zoekt step failed: the checkout exists, its shards do not.
       for (const name of await readdir(cold))
-        await rm(join(cold, name), { force: true })
+        await rm(join(cold, name), { recursive: true, force: true })
       const handle = await runner.runWorkflow(workspaceIndex.spec, indexInput)
       expect(await handle.result({ timeoutMs: 30_000 })).toEqual({
         published: true,

@@ -1,6 +1,7 @@
 # file  sha256  url   (pinned by version and checksum; read by scripts/fetch-releases.sh)
 # A name with -amd64 or -arm64 is for that Docker TARGETARCH; scip-java is a script for both.
 # scip-clang and scip-ruby publish no Linux arm64 build, so they have no -arm64 file.
+# rclone is only for the test image: `rclone serve s3` is the S3-compatible server of the shard store tests.
 scip-go-amd64.tar.gz	5bfe39016ca04f5b3b1cce41d1b63ea120a7d7e93b55407bfb17a6b02d18135a	https://github.com/sourcegraph/scip-go/releases/download/v0.2.7/scip-go-linux-amd64.tar.gz
 scip-go-arm64.tar.gz	6b93476c7578c5aeb5acacb41f8234c20130168271adea0db8d8ae63d1355acb	https://github.com/sourcegraph/scip-go/releases/download/v0.2.7/scip-go-linux-arm64.tar.gz
 scip-amd64.tar.gz	fc2e7273e110be9f35924da1066000183791e8bfdb0391355de6eaaa070fec75	https://github.com/scip-code/scip/releases/download/v0.9.0/scip-linux-amd64.tar.gz
@@ -10,3 +11,5 @@ scip-clang-amd64	06fd18c576f979a726c651594644ec4a35db4f471f2160b3f72eb89fa600178
 scip-ruby-amd64	a068c7c3b2042b9eac563ce77ce35dcaca666b418530b1db9f932a3dbc7175dd	https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v0.4.7/scip-ruby-x86_64-linux
 rust-analyzer-amd64.gz	ac4f42ddbbd040d75d847e991894776485783e28beb744b9719a660a99abe115	https://github.com/rust-lang/rust-analyzer/releases/download/2026-07-27/rust-analyzer-x86_64-unknown-linux-gnu.gz
 rust-analyzer-arm64.gz	4cb0ca4675608e8d73a7f4e43ef733d1f69600845d504c35d2f9d9f240bd3486	https://github.com/rust-lang/rust-analyzer/releases/download/2026-07-27/rust-analyzer-aarch64-unknown-linux-gnu.gz
+rclone-amd64.zip	349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702	https://github.com/rclone/rclone/releases/download/v1.75.2/rclone-v1.75.2-linux-amd64.zip
+rclone-arm64.zip	7e1e8d69654941b7b7df84ee74c5f7fb09cce7d5496947fb7bf16b55ff427d10	https://github.com/rclone/rclone/releases/download/v1.75.2/rclone-v1.75.2-linux-arm64.zip
