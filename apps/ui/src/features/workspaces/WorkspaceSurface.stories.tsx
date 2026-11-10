@@ -584,16 +584,18 @@ export const ConversationMissing: Story = {
   },
 }
 
-/** The conversation has no pull request yet, so its header shows Create PR. */
 /**
- * From `lg` (64rem) up, the conversation and the open tools pane show side by
- * side. Below `lg`, the open pane hides the conversation and has no Maximize:
- * the pane header shows the conversation title and the publish actions.
+ * True when the viewport is at least `width` wide. From `lg` (64rem) up, the
+ * conversation and the open tools pane show side by side. Below `lg`, the
+ * open pane hides the conversation and has no Maximize: the pane header
+ * shows the conversation title and the publish actions. Below `md` (48rem),
+ * the pane fills the viewport.
  */
-const sideBySide = (canvasElement: HTMLElement) =>
-  canvasElement.ownerDocument.defaultView?.matchMedia("(min-width: 64rem)")
+const minWidth = (canvasElement: HTMLElement, width: "48rem" | "64rem") =>
+  canvasElement.ownerDocument.defaultView?.matchMedia(`(min-width: ${width})`)
     .matches ?? true
 
+/** The conversation has no pull request yet, so its header shows Create PR. */
 const noPrHandlers = () =>
   workspaceShellHandlers({
     conversation: {
@@ -898,7 +900,7 @@ export const SharedPublishPending: Story = {
     const pane = canvasElement.ownerDocument.querySelector("aside")
     if (!pane) throw new Error("The tools pane is missing")
     const pendingName = "Syncing: commit and push in progress"
-    if (!sideBySide(canvasElement)) {
+    if (!minWidth(canvasElement, "64rem")) {
       // The open pane hides the conversation: Sync shows once, in the pane
       // header. Hide the pane: the conversation header shows the same
       // pending push.
@@ -1002,7 +1004,7 @@ export const SingleCreatePr: Story = {
     if (!actions) throw new Error("The publish actions are missing")
     for (const button of within(actions).getAllByRole("button"))
       expect(getComputedStyle(button).borderTopWidth).toBe("0px")
-    if (sideBySide(canvasElement)) {
+    if (minWidth(canvasElement, "64rem")) {
       // The tools pane is open beside the conversation: only the conversation
       // header has Create PR.
       expect(createPr.closest("aside")).toBeNull()
@@ -1286,9 +1288,7 @@ export const DiffTabRoundedCorner: Story = {
     await page.findByRole("tab", { name: "Graph", selected: true })
     const graphRadius = radius()
     // Below `md` the pane fills the viewport, and its card has no radius.
-    const flush =
-      !canvasElement.ownerDocument.defaultView?.matchMedia("(min-width: 48rem)")
-        .matches
+    const flush = !minWidth(canvasElement, "48rem")
     if (flush) expect(graphRadius).toBe("0px")
     else expect(graphRadius).not.toBe("0px")
     expect(diffRadius).toBe(graphRadius)
@@ -1302,12 +1302,10 @@ export const DiffTabRoundedCorner: Story = {
  * The names of the publish actions in one header. With `hidden`, also in a
  * header that CSS hides.
  */
-const publishActionNames = (root: HTMLElement, options = { hidden: false }) =>
+const publishActionNames = (root: HTMLElement, hidden = false) =>
   within(root)
-    .queryAllByRole("button", { name: /^(Sync|Create PR)/, ...options })
-    .concat(
-      within(root).queryAllByRole("link", { name: /^Show PR/, ...options }),
-    )
+    .queryAllByRole("button", { name: /^(Sync|Create PR)/, hidden })
+    .concat(within(root).queryAllByRole("link", { name: /^Show PR/, hidden }))
     .filter((element) => !element.closest("[inert]"))
     .map((element) => element.getAttribute("aria-label") ?? element.textContent)
 
@@ -1345,16 +1343,21 @@ export const MaximizedPaneMatchesHeader: Story = {
   play: async ({ canvasElement }) => {
     const document = canvasElement.ownerDocument
     const page = within(document.body)
-    const wide = sideBySide(canvasElement)
+    const wide = minWidth(canvasElement, "64rem")
     // Below `lg` the open pane hides the conversation header. It is still in
     // the document, so read its actions there.
     const header = await waitFor(
       () => {
-        const createPr = page
-          .getAllByRole("button", { name: "Create PR", hidden: !wide })
-          .find((button) => !button.closest("aside"))
+        const createPr = wide
+          ? page.getByRole("button", { name: "Create PR" })
+          : page
+              .getAllByRole("button", { name: "Create PR", hidden: true })
+              .find((button) => !button.closest("aside"))
         if (!createPr) throw new Error("The conversation has no Create PR")
-        if (wide) expect(createPr).toBeVisible()
+        if (wide) {
+          expect(createPr).toBeVisible()
+          expect(createPr.closest("aside")).toBeNull()
+        }
         const actions = createPr.parentElement
         if (!actions) throw new Error("The publish actions are missing")
         return actions
@@ -1363,7 +1366,7 @@ export const MaximizedPaneMatchesHeader: Story = {
     )
     const pane = document.querySelector("aside")
     if (!pane) throw new Error("The tools pane is missing")
-    const headerNames = publishActionNames(header, { hidden: !wide })
+    const headerNames = publishActionNames(header, !wide)
     if (wide)
       await userEvent.click(page.getByRole("button", { name: "Maximize pane" }))
     await waitFor(() => {
@@ -1491,7 +1494,7 @@ export const StableRequestBudget: Story = {
     // in the document but not visible.
     await waitFor(() => {
       const composer = page.getByPlaceholderText(/continue the conversation/i)
-      if (sideBySide(canvasElement)) expect(composer).toBeVisible()
+      if (minWidth(canvasElement, "64rem")) expect(composer).toBeVisible()
     })
     await waitFor(
       () => {

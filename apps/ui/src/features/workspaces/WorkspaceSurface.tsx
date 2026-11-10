@@ -1,11 +1,12 @@
-import {
-  skipToken,
-  useQuery,
-  useQueryClient,
-  useSuspenseQuery,
-} from "@tanstack/react-query"
+import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
-import { useCallback, useEffect, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react"
 
 import { useSideNavLocation } from "@/components/ShellLayoutContext"
 import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
@@ -46,7 +47,7 @@ import {
 } from "./queries"
 import type { WorkspaceDetail } from "./types"
 import { useWorkspaceConversationPublish } from "./useWorkspaceConversationPublish"
-import { WorkspaceChat } from "./WorkspaceChat"
+import { conversationTitleFromList, WorkspaceChat } from "./WorkspaceChat"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { workspaceChatColumnClassName } from "./workspaceChrome"
 import {
@@ -341,19 +342,25 @@ function WorkspaceSurfaceSession(props: {
   })
 
   // The pane header shows the title when the conversation column is hidden.
-  // Read it from the conversation list, and render again when the list loads.
-  // This query does not fetch: the conversation list in the side nav does.
-  const { data: listedTitle } = useQuery({
-    queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
-    queryFn: skipToken,
-    select: (data: { pages: { items: { id: string; name: string }[] }[] }) =>
-      data.pages
-        .flatMap((page) => page.items)
-        .find((item) => item.id === conversationId)
-        ?.name.trim(),
-  })
-  const conversationTitle =
-    (conversationId && listedTitle) || "New conversation"
+  // Read it from the cached conversation list (the side nav loads it), and
+  // render again when the cache changes. No query observer: an observer on
+  // the key of the list would change the options of its infinite query.
+  const queryClient = useQueryClient()
+  const listedTitleSnapshot = () =>
+    conversationId
+      ? conversationTitleFromList(
+          queryClient,
+          orgSlug,
+          workspace.id,
+          conversationId,
+        )?.trim()
+      : undefined
+  const listedTitle = useSyncExternalStore(
+    (onChange) => queryClient.getQueryCache().subscribe(onChange),
+    listedTitleSnapshot,
+    listedTitleSnapshot,
+  )
+  const conversationTitle = listedTitle || "New conversation"
   const fileFromPane = shownPane?.kind === "file" ? shownPane.path : null
   const openFileTabs = tabsIncludingPanePath(fileTabs.tabs, fileFromPane)
 

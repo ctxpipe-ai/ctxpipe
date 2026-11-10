@@ -561,7 +561,10 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       const fitGraphExtents = (duration = 0) => {
         cosmographRef.current?.fitView?.(duration, INITIAL_EXTENTS_FIT_PADDING)
       }
-      const revealAfterInitialFit = () => {
+      const fitAndRevealOnce = () => {
+        if (hasInitialFitRef.current) return
+        hasInitialFitRef.current = true
+        fitGraphExtents()
         if (revealTimer) clearTimeout(revealTimer)
         revealTimer = setTimeout(() => setIsSettled(true), REVEAL_AFTER_FIT_MS)
       }
@@ -646,22 +649,20 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         onSimulationEnd: () => {
           clearAutoSettleTimer()
           setIsSimulationRunning(false)
-          if (hasInitialFitRef.current) return
-          hasInitialFitRef.current = true
-          fitGraphExtents()
-          revealAfterInitialFit()
+          fitAndRevealOnce()
+        },
+        // With reduced motion, the graph shows when the layout stops: at its
+        // end, or when a pause stops it first.
+        onSimulationPause: () => {
+          if (reduceMotion) fitAndRevealOnce()
         },
         onGraphRebuilt: () => {
-          // With reduced motion, the end of the simulation shows the graph.
           if (reduceMotion) return
           if (fitFallbackTimer) clearTimeout(fitFallbackTimer)
-          fitFallbackTimer = setTimeout(() => {
-            if (!hasInitialFitRef.current) {
-              hasInitialFitRef.current = true
-              fitGraphExtents()
-              revealAfterInitialFit()
-            }
-          }, REVEAL_AFTER_REBUILD_MS)
+          fitFallbackTimer = setTimeout(
+            fitAndRevealOnce,
+            REVEAL_AFTER_REBUILD_MS,
+          )
         },
         onClick: (index: number | undefined) => {
           if (index !== undefined) {
