@@ -110,6 +110,7 @@ const checkSecrets =
 // Scripts that a job with a secret may run or source. Each runs no package
 // manager; the check reads each one to keep that true.
 const reviewedScripts = new Set([
+  "scripts/ci/nightly.mjs",
   "scripts/ci/smoke-preview-ui.sh",
   "scripts/preview-app-db-password.sh",
   "scripts/preview-github-app-vars.sh",
@@ -330,6 +331,10 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     "ci.yaml:merge-gate-select",
     "ci.yaml:merge-gate-llm",
     "ci.yaml:results-writer",
+    // The job reads the result records and the visual manifests of the
+    // nightly Storybook jobs only as data (scripts/ci/nightly.mjs), with the
+    // Linear key of the workbench environment. It runs no downloaded file.
+    "ci.yaml:nightly-tickets",
     // The job reads plan.json of the merge gate plan job only as data: the
     // check ids that selected.mjs runs. It downloads the artifact by the id
     // that the plan job gives, so another job of the run cannot replace it.
