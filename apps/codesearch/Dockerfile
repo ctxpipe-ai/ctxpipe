@@ -6,7 +6,8 @@
 # linux/arm64. The complete indexer matrix needs linux/amd64, because scip-clang
 # and scip-ruby do not publish Linux arm64 binaries. The linux/arm64 image has
 # every other tool, which is enough for the Vitest contracts (their tests run
-# fake scip-clang and scip-ruby commands). Production deploys linux/amd64.
+# fake scip-clang and scip-ruby commands). Railway pulls linux/amd64, and the
+# AWS hosts pull linux/arm64.
 
 # ── Stage 1: Go toolchain and Zoekt binaries ─────────────────────────────────
 # golang:1.24-bookworm

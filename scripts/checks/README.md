@@ -43,7 +43,7 @@ The `build` checks are the jobs Production build and Runnable packages of `ci.ya
 | `production-builds` | `ui` | `build:image-ui:apps/ui/Dockerfile` |
 | `production-builds` | `codesearch` | `build:image-codesearch:apps/codesearch/Dockerfile` |
 | `production-builds` | `docs` | `build:image-docs:apps/docs/Dockerfile` |
-| `production-builds` | `chat-sandbox` (arm64) | `build:image-chat-sandbox:scripts/chat-sandbox/Dockerfile` |
+| `production-builds` | `chat-sandbox` | `build:image-chat-sandbox:scripts/chat-sandbox/Dockerfile` |
 | `packages` | `@ctxpipe/backend` | `build:package-backend:apps/backend/package.json` |
 | `packages` | `@ctxpipe/codesearch` | `build:package-codesearch:apps/codesearch/package.json` |
 | `packages` | `@ctxpipe/aws-cdk` | `build:package-aws-cdk:packages/aws-cdk/package.json` |
@@ -53,7 +53,7 @@ The `build` checks are the jobs Production build and Runnable packages of `ci.ya
 
 - The inputs of an image are its Dockerfile, the root files that it copies (the lockfile, `patches/**`, `.dockerignore`) and the directories that it copies. The inputs of a package are its directory, the lockfile and the directories that it imports.
 - An image build has `cacheable: false`: it pulls base images by tag, and packages from the network without a lock, so the same inputs can give another result. A result cache never reuses it, but a selector selects it by its inputs (unlike a `stochastic` check). A package build reads only the checkout, so the cache keys it as any other check. The backend and codesearch builds have the `bun` runtime, so a key holds the Bun version. The aws-cdk build sets `IMAGE_TAG=check`, so the stamped image tag does not depend on the commit.
-- An image check needs the `docker` prerequisite. The codesearch production image builds for `linux/amd64` (the full indexer matrix needs it), and reads the public layer cache `ghcr.io/ctxpipe-ai/ci-cache:production-codesearch` without a login. The chat-sandbox image builds for `linux/arm64`: on an amd64 machine, install binfmt/QEMU first (the CI job does this).
+- An image check needs the `docker` prerequisite. An image builds for the platform of the Docker server. The Production build job runs on `linux/arm64`, the platform of the AWS hosts; the deploy workflow publishes each image for `linux/amd64` and `linux/arm64`. The codesearch build reads the public layer cache `ghcr.io/ctxpipe-ai/ci-cache:production-codesearch` (`linux/arm64`) without a login.
 - The Layer cache job is cache warming, not a check. It writes the layer caches on `main` only, and its failure is a miss on the next run. A cache miss makes a build slower, never another result.
 - Cost: the record of each build has its `durationMs`. The shadow estimate counts both jobs as always-run jobs (`cost` in `gate.mjs`), so a build check has no shard profile. In gate mode the plan job gives the matrix entries of the selected images (`jobPlans` in `plan.mjs`), and a test keeps them equal to the full matrix of `ci.yaml`.
 

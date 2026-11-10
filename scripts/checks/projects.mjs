@@ -278,12 +278,10 @@ const definitions = () => [
       "codesearch",
       "apps/codesearch/Dockerfile",
       ["apps/codesearch/**", "shared/**"],
-      // The Dockerfile builds only for amd64. The layer cache of the
-      // codesearch toolchain stages: the Layer cache job of ci.yaml writes it
-      // on main; a reader needs no login.
+      // The layer cache of the codesearch toolchain stages (linux/arm64):
+      // the Layer cache job of ci.yaml writes it on main; a reader needs no
+      // login.
       [
-        "--platform",
-        "linux/amd64",
         "--cache-from",
         "type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-codesearch",
       ],
@@ -293,9 +291,6 @@ const definitions = () => [
       "chat-sandbox",
       "scripts/chat-sandbox/Dockerfile",
       ["scripts/chat-sandbox/**"],
-      // The AWS sandbox host is arm64, and no other job builds it for arm64
-      // before a release.
-      ["--platform", "linux/arm64"],
     ],
   ].map(([name, file, reads, flags = []]) => {
     const context = name === "chat-sandbox" ? "scripts/chat-sandbox" : "."

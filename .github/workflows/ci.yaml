@@ -568,19 +568,17 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.production-builds != '')
-    # amd64: the images ship for linux/amd64, and codesearch builds only for amd64 (scip-clang and scip-ruby have no arm64 build).
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # The images build for linux/arm64, the platform of the AWS hosts
+    # (Graviton). deploy.yaml publishes each image for amd64 and arm64.
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     strategy:
       fail-fast: false
       matrix:
         # Each entry is the check `build:image-<name>:` of the manifest
         # (scripts/checks/projects.mjs). The merge gate takes the result of
         # the job `Production build (<name>)` as the check result, so this
-        # job needs no workspace install. deploy.yaml publishes the
-        # chat-sandbox image for arm64 (the AWS sandbox host is Graviton). No
-        # other job builds it for arm64 before release. In gate mode the plan
-        # job gives the entries of the selected images (plan.mjs keeps the
-        # same options).
+        # job needs no workspace install. In gate mode the plan job gives the
+        # entries of the selected images (plan.mjs keeps the same options).
         include: >-
           ${{ fromJSON(needs.merge-gate-plan.outputs.production-builds || '[
           {"name": "backend", "dockerfile": "apps/backend/Dockerfile"},
@@ -589,14 +587,10 @@ jobs:
           {"name": "codesearch", "dockerfile": "apps/codesearch/Dockerfile"},
           {"name": "docs", "dockerfile": "apps/docs/Dockerfile"},
           {"name": "chat-sandbox", "dockerfile": "scripts/chat-sandbox/Dockerfile",
-          "context": "scripts/chat-sandbox", "platforms": "linux/arm64"}
+          "context": "scripts/chat-sandbox"}
           ]') }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
-        if: matrix.platforms == 'linux/arm64'
-        with:
-          platforms: arm64
       - uses: ./.github/actions/setup-buildx
       # Only codesearch reads a layer cache: its toolchain stages are the slow
       # part. This job reads it without a login. The layer-cache job writes it
@@ -605,7 +599,6 @@ jobs:
         with:
           context: ${{ matrix.context || '.' }}
           file: ${{ matrix.dockerfile }}
-          platforms: ${{ matrix.platforms }}
           push: false
           cache-from: ${{ matrix.name == 'codesearch' && 'type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-codesearch' || '' }}
 
@@ -634,8 +627,8 @@ jobs:
     permissions:
       contents: read
       packages: write
-    # amd64: it writes the codesearch layer cache, and codesearch builds only for amd64.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # The caches are for linux/arm64, the platform of the jobs that read them.
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     strategy:
       fail-fast: false
       matrix:
@@ -643,7 +636,7 @@ jobs:
           - name: chat-sandbox
             context: scripts/chat-sandbox
             dockerfile: scripts/chat-sandbox/Dockerfile
-            cache: ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox
+            cache: ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox-arm64
           - name: codesearch
             context: .
             dockerfile: apps/codesearch/Dockerfile
@@ -665,33 +658,6 @@ jobs:
           push: false
           cache-from: type=registry,ref=${{ matrix.cache }}
           cache-to: type=registry,ref=${{ matrix.cache }},mode=max,ignore-error=true
-
-  layer-cache-chat-sandbox-arm64:
-    timeout-minutes: 45
-    name: Layer cache (chat-sandbox-arm64)
-    if: github.ref == 'refs/heads/main' && github.event_name != 'schedule'
-    continue-on-error: true
-    permissions:
-      contents: read
-      packages: write
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: scripts/chat-sandbox
-          file: scripts/chat-sandbox/Dockerfile
-          push: false
-          cache-from: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox-arm64
-          cache-to: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox-arm64,mode=max,ignore-error=true
 
   packages:
     timeout-minutes: 20
