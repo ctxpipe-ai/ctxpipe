@@ -19,7 +19,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 3. The first region is us-west-2. The stack takes a region parameter for a later second stamp.
 4. Production and observability run in the production account. Preview applications run in a separate preview account in its own OU. Preview databases stay in the production account (decision 20). The factory account holds no customer data.
 5. Pulumi (TypeScript) manages all hosted infrastructure. All deploys run from the factory repo.
-    - Scope: AWS (production, previews, observability), Cloudflare (DNS, tunnels, Access, WARP) and the GitHub environments.
+    - Scope: AWS (production, previews, observability), Cloudflare (DNS, tunnels, Access, WARP). The CTO manages the GitHub environments, branch rules and admin settings by hand, so no pipeline holds a GitHub admin token.
     - State: each account keeps its Pulumi state in its own S3 bucket. We do not use Pulumi Cloud.
     - Secrets in the state: the `awskms://` secrets provider encrypts them, with a key of that account. The guard stacks (edge and preview-data) use a separate key.
     - Access to the state: the deploy role and the read-only plan role of the account can read the bucket and use the state key. Only the guard role can read or write the prefixes of the guard stacks and use their key. The plan role cannot. Workload roles, for example preview tasks, can read no state.
@@ -46,13 +46,13 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
         - any Cloudflare resource. No normal job holds a Cloudflare token with edit rights. The edge stack holds all DNS records of both zones, the tunnels and Access, and only the guard job runs it;
         - GitHub environments, branch rules and admin settings.
         - the deploy dispatch path: the EventBridge connection, every API destination and rule that can use it, and their target. The target is fixed to the factory digest workflow on `main`;
-    - A separate guard job holds those rights. It runs from `guard.yml` on `main` only. The guard role trusts only that workflow file on `main`. Only the guard role can read the Cloudflare edit token, the GitHub admin token and the production secret values, which are in production Secrets Manager.
+    - A separate guard job holds those rights. It runs from `guard.yml` on `main` only. The guard role trusts only that workflow file on `main`. Only the guard role can read the Cloudflare edit token and the production secret values, which are in production Secrets Manager.
     - A guard change merges on the merge gate, like other code. The guard role and the separate guard state key limit what a guard job can reach.
     - The guard job runs the edge stack (Access, tunnels, internal DNS) and the preview-data stack (decision 21). It also writes the tunnel tokens. Each of these two stacks has its own state prefix and key, which only the guard role can use. A guard pull request runs the policy rules against an empty stack, with no credentials, and the reviewer reads the code change. The guard job runs `pulumi preview` before `up`, and the policy pack blocks a replace or a delete of a protected resource.
     - The phase plans hold the exact guard details: IAM conditions, file lists and token scopes. A security review checks them in each phase pull request.
     - Defaults that close: deny-by-default Access apps on `ctxpipe.dev` and `*.ctxpipe.dev`, and every tunnel's ingress ends with a 404 catch-all.
     - Code owners and a branch rule hold only the files that can change a guardrail, for a person's review (the CTO, 2026-11-10):
-        - `machines/aws-core/`: the organization, the roles, the permission boundaries and the SCPs;
+        - `machines/aws-core/` and its deploy workflow `aws-core.yml`: the organization, the roles, the permission boundaries and the SCPs;
         - the `CODEOWNERS` file itself;
         - `ci.yml`, the merge gate. A pull request runs its own `ci.yml`, so a `ci.yml` without a code owner could rewrite the gate;
         - the security risk register (`risk-register.md`).
