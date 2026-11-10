@@ -72,6 +72,12 @@ const choiceQuestion = (instructions: string): Question => ({
  * before it is sent (see `prepareImage`). Another failure throws. The request asks the provider not to keep the data
  * (`data_collection: "deny"`), as the OpenRouter adapter does.
  *
+ * All decision models of OpenRouter (Jev, `baseten/elephant-1`,
+ * `baseten/mammoth-1`) take the same request at `POST /api/alpha/decisions`.
+ * Only Jev 1.14 takes a Box question: another model answers 400 to it, so the
+ * request asks it only of Jev 1.14. Without a box, the region of a worse
+ * area is the box of the largest measured region.
+ *
  * The request sends the header `TypeSafe-Danger-Zone-Images: true`. TypeSafe
  * requires it for an image or a Box question. The OpenRouter docs do not
  * mention it, and no real call has confirmed that OpenRouter needs it.
@@ -110,9 +116,12 @@ export async function judgeWithJev(
   }
   // The box is asked on the full after image, else on the locator. A
   // [before | after] strip does not map to the after image.
-  const boxIndex = (["after", "locator"] as const)
-    .map((role) => prepared.findIndex((image) => image.role === role))
-    .find((index) => index >= 0)
+  const drawsBoxes = requestedModel === "typesafe/jev-1.14"
+  const boxIndex = drawsBoxes
+    ? (["after", "locator"] as const)
+        .map((role) => prepared.findIndex((image) => image.role === role))
+        .find((index) => index >= 0)
+    : undefined
 
   const askedQualities = qualities.filter(
     ({ pageOnly }) => story.scope === "page" || !pageOnly,
@@ -257,8 +266,12 @@ export async function judgeWithJev(
         clamp(drawn.data.box.bottom / (content?.height ?? 1)),
       ]
     : [0, 0, 0, 0]
-  const region =
-    x2 > x && y2 > y ? { x, y, width: x2 - x, height: y2 - y } : undefined
+  // The regions of a story come largest first.
+  const region = !drawsBoxes
+    ? story.regions[0]?.box
+    : x2 > x && y2 > y
+      ? { x, y, width: x2 - x, height: y2 - y }
+      : undefined
 
   // Each worse area is a finding. A worse quality is a regression with no
   // finding, since a finding names an area. Else a flagged defect that Jev

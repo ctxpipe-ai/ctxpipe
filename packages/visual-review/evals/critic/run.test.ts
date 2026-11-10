@@ -209,8 +209,9 @@ const chat = http.post(`${gateway}/chat/completions`, async ({ request }) => {
     usage: priced ? { cost: 0.01 } : {},
   })
 })
-// Jev finds each regression and its box ($0.001 a call). The other decision
-// model is never sure ($0.002 a call).
+// Jev finds each regression and its box ($0.001 a call). Elephant finds each
+// regression, and answers 400 to a box question, as the API does ($0.0005 a
+// call). The other decision model is never sure ($0.002 a call).
 const decisions = http.post(
   "https://gateway.test/api/alpha/decisions",
   async ({ request }) => {
@@ -224,12 +225,22 @@ const decisions = http.post(
     )
     calls.push(`${body.model} ${id}`)
     const jev = body.model === "typesafe/jev-1.14"
-    const regression = jev && labelOf(id) === "regression"
+    const elephant = body.model === "baseten/elephant-1"
+    if (
+      !jev &&
+      Object.values(body.questions).some(({ type }) => type === "box")
+    )
+      return HttpResponse.json(
+        { error: { message: "Only Jev 1.14 takes a box question." } },
+        { status: 400 },
+      )
+    const finds = jev || elephant
+    const regression = finds && labelOf(id) === "regression"
     const answers = Object.fromEntries(
       Object.entries(body.questions).map(([name, { type }]) => [
         name,
         type === "noul"
-          ? { type, noul: jev ? (regression ? 0.9 : 0.05) : 0.3 }
+          ? { type, noul: finds ? (regression ? 0.9 : 0.05) : 0.3 }
           : type === "box"
             ? {
                 type,
@@ -252,7 +263,7 @@ const decisions = http.post(
     return HttpResponse.json({
       model: body.model,
       answers,
-      usage: { cost: jev ? 0.001 : 0.002 },
+      usage: { cost: jev ? 0.001 : elephant ? 0.0005 : 0.002 },
     })
   },
 )
@@ -299,7 +310,9 @@ test("a dry run judges every case with every arm and selects the cheapest arm th
       "llm-no-facts:anthropic/claude-test",
       "jev",
       "decision:typesafe/other-test",
+      "decision:baseten/elephant-1",
       "cascade:anthropic/claude-test",
+      "cascade:baseten/elephant-1+anthropic/claude-test",
       "blazediff-local",
     ].join(","),
     "--blazediff-agent",
@@ -308,7 +321,7 @@ test("a dry run judges every case with every arm and selects the cheapest arm th
 
   expect(code).toBe(0)
   expect(readFileSync(join(out, "report.md"), "utf8")).toBe(`${text}\n`)
-  expect(text).toContain("Cases: 10 (4 in the hold-out set). Runs: 3. Arms: 7.")
+  expect(text).toContain("Cases: 10 (4 in the hold-out set). Runs: 3. Arms: 9.")
   expect(text).toContain("## Hold-out set (4 cases)")
   expect(text).toContain("## Other cases (6 cases)")
   // Recall, precision, unsure, errors, then (after the agreement columns)
@@ -378,6 +391,18 @@ test("a dry run judges every case with every arm and selects the cheapest arm th
     "no labels yet",
     "12",
   ])
+  // Elephant gets no box question; a worse area takes the largest measured
+  // region. Like Jev, it cannot call the noise case intended.
+  expect(pick("decision:baseten/elephant-1")).toEqual([
+    "1.00",
+    "1.00",
+    "0.25",
+    "0",
+    "1.00",
+    "$0.0005",
+    "no labels yet",
+    "12",
+  ])
   // Jev accepts the intended case; the LLM judges the other three.
   expect(pick("cascade:anthropic/claude-test")).toEqual([
     "1.00",
@@ -386,6 +411,17 @@ test("a dry run judges every case with every arm and selects the cheapest arm th
     "0",
     "1.00",
     "$0.0085",
+    "no labels yet",
+    "12",
+  ])
+  // The same cascade with Elephant as the filter.
+  expect(pick("cascade:baseten/elephant-1+anthropic/claude-test")).toEqual([
+    "1.00",
+    "1.00",
+    "0.00",
+    "0",
+    "1.00",
+    "$0.0080",
     "no labels yet",
     "12",
   ])
@@ -401,7 +437,7 @@ test("a dry run judges every case with every arm and selects the cheapest arm th
     "12",
   ])
   expect(text).toContain(
-    "Selected: `jev`, the cheapest of the arms with recall ≥ 0.9 and precision ≥ 0.7 on the hold-out set (`jev`, `cascade:anthropic/claude-test`, `llm:anthropic/claude-test`, `llm-no-facts:anthropic/claude-test`).",
+    "Selected: `decision:baseten/elephant-1`, the cheapest of the arms with recall ≥ 0.9 and precision ≥ 0.7 on the hold-out set (`decision:baseten/elephant-1`, `jev`, `cascade:baseten/elephant-1+anthropic/claude-test`, `cascade:anthropic/claude-test`, `llm:anthropic/claude-test`, `llm-no-facts:anthropic/claude-test`).",
   )
   // The LLM finds the known region exactly. It rates only clarity, as most
   // arms do; the local judge rates no quality.
@@ -417,7 +453,7 @@ test("a dry run judges every case with every arm and selects the cheapest arm th
   ])
 
   const results = JSON.parse(readFileSync(join(out, "results.json"), "utf8"))
-  expect(results.results).toHaveLength(7 * 10 * 3)
+  expect(results.results).toHaveLength(9 * 10 * 3)
   expect(results.stopped).toBe(null)
 
   // The arm without the interpreter facts gets no change type and no

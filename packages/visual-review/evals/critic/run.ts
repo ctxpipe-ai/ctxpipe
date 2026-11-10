@@ -39,6 +39,8 @@ const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--
                    jev                   Jev alone
                    decision:<model>      another decision model, with the Jev questions
                    cascade:<model>       Jev, then <model> when Jev does not accept
+                   cascade:<filter>+<model>
+                                         the decision model <filter> instead of Jev
                    blazediff-local       the local judge of BlazeDiff (no cost)
                  <model> is an OpenRouter id, for example anthropic/claude-sonnet-5.5.
   --images       The output folder of pnpm visual:bakeoff:build, with cases/<id>/.
@@ -166,13 +168,18 @@ async function armOf(
         input: same,
         judge: (story) => judgeWithJev(story, model),
       }
-    case "cascade":
+    case "cascade": {
       needsModel()
+      const [filter, explainer] = model.includes("+")
+        ? model.split("+", 2)
+        : [undefined, model]
+      if (!explainer) throw new Error(`Arm "${id}" needs a model after the +.`)
       return {
         ...base,
         input: same,
-        judge: (story) => judgeByModel(story, model, "jev"),
+        judge: (story) => judgeByModel(story, explainer, "jev", filter),
       }
+    }
     case "blazediff-local":
       if (!options.blazediffAgent)
         throw new Error(
