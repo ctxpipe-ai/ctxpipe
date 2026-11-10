@@ -47,16 +47,16 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
         - GitHub environments, branch rules and admin settings.
         - the deploy dispatch path: the EventBridge connection, every API destination and rule that can use it, and their target. The target is fixed to the factory digest workflow on `main`;
     - A separate guard job holds those rights. It runs from `guard.yml` on `main` only. The guard role trusts only that workflow file on `main`. Only the guard role can read the Cloudflare edit token, the GitHub admin token and the production secret values, which are in production Secrets Manager.
-    - The person's approval is the code-owner review of each guard pull request. Every file that the guard job loads has a code owner, so no guard change merges without a person. A per-run approval is not available. GitHub supports required reviewers on environments of a private repository only on the Enterprise plan.
+    - A guard change merges on the merge gate, like other code. The guard role and the separate guard state key limit what a guard job can reach.
     - The guard job runs the edge stack (Access, tunnels, internal DNS) and the preview-data stack (decision 21). It also writes the tunnel tokens. Each of these two stacks has its own state prefix and key, which only the guard role can use. A guard pull request runs the policy rules against an empty stack, with no credentials, and the reviewer reads the code change. The guard job runs `pulumi preview` before `up`, and the policy pack blocks a replace or a delete of a protected resource.
     - The phase plans hold the exact guard details: IAM conditions, file lists and token scopes. A security review checks them in each phase pull request.
     - Defaults that close: deny-by-default Access apps on `ctxpipe.dev` and `*.ctxpipe.dev`, and every tunnel's ingress ends with a 404 catch-all.
-    - Code owners and a branch rule hold the guard code for a person's review:
-        - the policy pack and the list of protected resources;
-        - `ci.yml`, each workflow file that gets deploy, guard or writer credentials, and the composite actions that these workflows use. Each such role pins `job_workflow_ref` to its workflow files on `main`, and these workflows have no `workflow_call` trigger. The rest of `.github/` merges on the merge gate;
-        - `machines/aws-core/` and the security risk register (`risk-register.md`);
+    - Code owners and a branch rule hold only the files that can change a guardrail, for a person's review (the CTO, 2026-11-10):
+        - `machines/aws-core/`: the organization, the roles, the permission boundaries and the SCPs;
         - the `CODEOWNERS` file itself;
-        - every file that the guard job loads. The edge stack and the preview-data stack each have their own folder, package manifest and lockfile. They import no shared module from outside their folder.
+        - `ci.yml`, the merge gate. A pull request runs its own `ci.yml`, so a `ci.yml` without a code owner could rewrite the gate;
+        - the security risk register (`risk-register.md`).
+    - Everything else merges on the merge gate: the edge stack, `guard.yml`, the deploy workflows, the policy pack and the guard stacks. The permission boundaries in aws-core are the control, because a deploy role cannot change a guard.
     - No GitHub environment holds a long-lived secret, because any workflow on `main` can name an environment. A job gets a long-lived secret from AWS Secrets Manager, through a role that pins its workflow file.
     - The policy pack blocks a replace or a delete of a protected resource.
     - The organization stays in CDK (`machines/aws-core`).
