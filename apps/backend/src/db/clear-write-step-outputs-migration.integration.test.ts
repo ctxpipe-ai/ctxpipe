@@ -100,7 +100,7 @@ describe("clear write step outputs migration (Postgres)", () => {
     await admin?.end()
   })
 
-  it("clears the retired write step outputs, keeps the rows and other outputs, and drops the LangGraph tables", async () => {
+  it("the batched script clears the retired write step outputs and keeps the rows and other outputs; the migration drops the LangGraph tables", async () => {
     const { db, url } = await freshDatabase("write_outputs")
     await apply(
       db,
@@ -161,6 +161,11 @@ describe("clear write step outputs migration (Postgres)", () => {
       await addStep(db, "ingest", step)
     }
 
+    // The clear runs outside the deploy (batches that each commit), then the
+    // migration drops the LangGraph tables.
+    await db.query(
+      readFileSync(join(__dirname, "clear-write-step-outputs.sql"), "utf8"),
+    )
     await apply(db, [target])
 
     expect(await outputs(db)).toEqual({
