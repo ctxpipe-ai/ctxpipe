@@ -1111,14 +1111,10 @@ export async function prepareRecordedCommit<T>(
   job: WriteJobPush & { candidateSha?: string },
   parent: { sha: string | null; root: string },
   env: Env,
-  steps: {
-    build: (publish: PublishGitCommit) => Promise<T>
-    record?: (sha: string) => Promise<unknown>
-  },
+  build: (publish: PublishGitCommit) => Promise<T>,
+  record: (sha: string) => Promise<unknown> = (sha) =>
+    persistWriteJobPreparedCommit(job.jobId, sha),
 ): Promise<T | GitWriteCommit | "paused"> {
-  const record =
-    steps.record ??
-    ((sha: string) => persistWriteJobPreparedCommit(job.jobId, sha))
   return prepareWithJobRef<T | GitWriteCommit>(job, env, async (publish) => {
     const found = await findPreparedCommit(job, parent, env)
     if (found && "commit" in found) return found.commit
@@ -1127,7 +1123,7 @@ export async function prepareRecordedCommit<T>(
     if (found) await discardWriteJobPreparedCommit(job.jobId, found.stale)
     // Record the commit before its push: a commit on a job ref is always
     // the recorded one, so a replay finds it and asks no model again.
-    return steps.build(async (directory, sha) => {
+    return build(async (directory, sha) => {
       await record(sha)
       await publish(directory, sha)
     })

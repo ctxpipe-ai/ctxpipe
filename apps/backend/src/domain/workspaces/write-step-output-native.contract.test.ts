@@ -9,12 +9,12 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getOrgDb } from "../../db/client.js"
 import { workspaceWriteJobs } from "../../db/schema/workspaces.js"
+import { orgSql } from "../../models/workspace-sql.js"
 import {
   getWriteJobRefState,
   persistBoundWriteJob,
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
-import { orgSql } from "../../models/workspace-sql.js"
 import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
@@ -538,7 +538,9 @@ it(
       async (f) => {
         const jobId = `wjob_${f.id}_legacy_handoff`
         const ownerRunId = `run_${jobId}`
-        const files = [{ path: NOTES, content: original.replace("Alice", "Bob") }]
+        const files = [
+          { path: NOTES, content: original.replace("Alice", "Bob") },
+        ]
         // The candidate of the parent: before CTX-1239 it went to no job ref.
         f.git("reset", "--hard", f.sha)
         writeFileSync(join(f.directory, NOTES), files[0]?.content ?? "")
@@ -563,7 +565,13 @@ it(
               .set({
                 commitSha: candidateSha,
                 payload: sql`jsonb_set(${workspaceWriteJobs.payload}, '{semanticHandoff}', ${JSON.stringify(
-                  { ownerRunId, candidateSha, revision, files, deletePaths: [] },
+                  {
+                    ownerRunId,
+                    candidateSha,
+                    revision,
+                    files,
+                    deletePaths: [],
+                  },
                 )}::jsonb)`,
               })
               .where(eq(workspaceWriteJobs.id, jobId)),

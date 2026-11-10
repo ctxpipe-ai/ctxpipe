@@ -148,10 +148,9 @@ export const workspaceSemanticMerge = defineWorkflow(
           throw new Error(
             "Workspace writes require a connected GitHub repository",
           )
-        const completed =
-          input.handoff
-            ? await validateSemanticHandoff({ ...input, handoff: input.handoff })
-            : await completedWorkspaceWrite(input, "semantic_merge", run.id)
+        const completed = input.handoff
+          ? await validateSemanticHandoff({ ...input, handoff: input.handoff })
+          : await completedWorkspaceWrite(input, "semantic_merge", run.id)
         if (completed) return completed
         if ("extraction" in input && input.extraction) {
           // The old pipeline is gone: no ingestion writes to a

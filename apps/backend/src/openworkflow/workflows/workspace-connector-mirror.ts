@@ -147,7 +147,7 @@ export const workspaceConnectorMirror = defineWorkflow(
                               .toString()
                               .split("\0")
                           : []
-                        const filePaths: string[] = []
+                        const files: typeof input.files = []
                         for (const file of input.files) {
                           const existing = paths.includes(file.path)
                             ? await nativeGit(directory, [
@@ -156,13 +156,10 @@ export const workspaceConnectorMirror = defineWorkflow(
                               ])
                             : null
                           if (!existing?.equals(gitFileBytes(file)))
-                            filePaths.push(file.path)
+                            files.push(file)
                         }
-                        const changed = new Set(filePaths)
                         return {
-                          files: input.files.filter((file) =>
-                            changed.has(file.path),
-                          ),
+                          files,
                           deletePaths: input.deletePaths.filter((path) =>
                             paths.includes(path),
                           ),

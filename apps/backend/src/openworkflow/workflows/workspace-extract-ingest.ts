@@ -249,7 +249,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
             // One step merges the run onto the tip, commits the result, and
             // pushes the commit to its job ref: no step output holds a file
             // (CTX-1239).
-            const prepared = await runJobRefStep(
+            const committed = await runJobRefStep(
               step,
               input.jobId,
               { name: "prepare-commit" },
@@ -385,30 +385,30 @@ export function defineWorkspaceExtractIngestWorkflow() {
                   env,
                 ),
             )
-            if (prepared && "stopped" in prepared) {
+            if (committed && "stopped" in committed) {
               await step.run(
                 {
                   name:
-                    prepared.stopped === "refused"
+                    committed.stopped === "refused"
                       ? "refuse-publish"
                       : "fail-publish",
                 },
                 () => persistWriteJobStatus(input.jobId, "failed"),
               )
-              return prepared.stopped === "refused"
+              return committed.stopped === "refused"
                 ? {
                     committed: false as const,
                     reason: "refused" as const,
-                    refused: prepared.refused,
-                    rules: prepared.rules,
+                    refused: committed.refused,
+                    rules: committed.rules,
                   }
                 : {
                     committed: false as const,
                     reason: "failed" as const,
-                    failed: prepared.failed,
+                    failed: committed.failed,
                   }
             }
-            if (!prepared) {
+            if (!committed) {
               // The delta is from the pinned revision, so a later tip cannot
               // add to it: there is nothing to confirm.
               await step.run({ name: "complete-no-op" }, () =>
@@ -420,7 +420,6 @@ export function defineWorkspaceExtractIngestWorkflow() {
                 withheld: await withheldFiles(),
               }
             }
-            const committed = prepared
             let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
             for (;;) {
               const attempt = await step.run(

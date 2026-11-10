@@ -5,7 +5,6 @@ import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import {
   persistWriteJobCommitSha,
-  persistWriteJobPreparedCommit,
   reconcileWorkspaceWriteJob,
   validateSemanticHandoff,
 } from "../../models/workspace-write-jobs.js"
@@ -217,27 +216,25 @@ export async function prepareWorkspaceWriteCommit<
     },
     { sha: revision.sha, root: pack.root ?? "" },
     env,
-    {
-      build: async (publish) => {
-        const change: WriteChange | { stopped: unknown } = await write.change()
-        if ("stopped" in change) return change as Exclude<Change, WriteChange>
-        if (!change.files.length && !change.deletePaths.length) return null
-        return prepareGitCommit({
-          pack,
-          ...change,
-          subject:
-            typeof write.subject === "string"
-              ? write.subject
-              : await writeCommitSubject(
-                  revision.remote,
-                  write.subject.trigger,
-                  change,
-                ),
-          createdAt: write.createdAt,
-          read,
-          publish,
-        })
-      },
+    async (publish) => {
+      const change: WriteChange | { stopped: unknown } = await write.change()
+      if ("stopped" in change) return change as Exclude<Change, WriteChange>
+      if (!change.files.length && !change.deletePaths.length) return null
+      return prepareGitCommit({
+        pack,
+        ...change,
+        subject:
+          typeof write.subject === "string"
+            ? write.subject
+            : await writeCommitSubject(
+                revision.remote,
+                write.subject.trigger,
+                change,
+              ),
+        createdAt: write.createdAt,
+        read,
+        publish,
+      })
     },
   )
 }
@@ -327,36 +324,34 @@ export async function prepareSemanticMergeCommit(
     },
     { sha: revision.sha, root: pack.root ?? "" },
     env,
-    {
-      build: async (publish) => {
-        const change = await readSemanticMergeChange(input, read)
-        return prepareGitMerge({
-          pack,
-          previousSha: input.previousSha,
-          ...change,
-          // A Markdown file that the model cannot resolve keeps both
-          // versions in conflict markers, so the write is not lost
-          // (CTX-958). Hydrate skips it and tells the user.
-          resolve: (conflicts) =>
-            resolveSemanticConflicts(conflicts, {
-              origin: input.origin,
-              flagUnresolved: true,
-            }),
-          subject: await writeCommitSubject(
-            revision.remote,
-            "semantic_merge",
-            change,
-          ),
-          createdAt,
-          read,
-          publish,
-        })
-      },
-      record: (sha) =>
-        handoff
-          ? validateSemanticHandoff({ ...input, handoff }, sha)
-          : persistWriteJobPreparedCommit(input.jobId, sha),
+    async (publish) => {
+      const change = await readSemanticMergeChange(input, read)
+      return prepareGitMerge({
+        pack,
+        previousSha: input.previousSha,
+        ...change,
+        // A Markdown file that the model cannot resolve keeps both
+        // versions in conflict markers, so the write is not lost
+        // (CTX-958). Hydrate skips it and tells the user.
+        resolve: (conflicts) =>
+          resolveSemanticConflicts(conflicts, {
+            origin: input.origin,
+            flagUnresolved: true,
+          }),
+        subject: await writeCommitSubject(
+          revision.remote,
+          "semantic_merge",
+          change,
+        ),
+        createdAt,
+        read,
+        publish,
+      })
     },
+    // A handoff child records its commit on its parent's job.
+    handoff
+      ? (sha) => validateSemanticHandoff({ ...input, handoff }, sha)
+      : undefined,
   )
 }
 
@@ -382,24 +377,20 @@ export async function prepareUnbornWorkspaceCommit(
     { ...input, remote: binding.remote },
     { sha: null, root },
     env,
-    {
-      build: async (publish) => {
-        const workspace = await getUnbornBootstrapWorkspace(binding)
-        const files = write.files(workspace.displayName)
-        return prepareUnbornGitCommit({
+    async (publish) => {
+      const workspace = await getUnbornBootstrapWorkspace(binding)
+      const files = write.files(workspace.displayName)
+      return prepareUnbornGitCommit({
+        files,
+        root,
+        allowedPaths: files.map((file) => file.path).filter(write.allowedPath),
+        subject: await writeCommitSubject(binding.remote, "bootstrap", {
           files,
-          root,
-          allowedPaths: files
-            .map((file) => file.path)
-            .filter(write.allowedPath),
-          subject: await writeCommitSubject(binding.remote, "bootstrap", {
-            files,
-            deletePaths: [],
-          }),
-          createdAt: write.createdAt,
-          publish,
-        })
-      },
+          deletePaths: [],
+        }),
+        createdAt: write.createdAt,
+        publish,
+      })
     },
   )
 }
