@@ -139,6 +139,7 @@ jobs:
       - name: Tag the multi-platform image
         env:
           IMAGE: ghcr.io/ctxpipe-ai/${{ matrix.image }}
+          INDEX: ${{ runner.temp }}/index/${{ matrix.image }}
         run: |
           set -o pipefail
           docker buildx imagetools create --progress plain \
@@ -148,10 +149,10 @@ jobs:
             "$IMAGE@$(cat "$RUNNER_TEMP/digest/arm64")" 2>&1 | tee "$RUNNER_TEMP/create.log"
           # The digest of the list that this job pushed, from the push and not
           # from a later read of the tag. copy_images_to_ecr copies it.
-          mkdir -p "$RUNNER_TEMP/index"
-          grep -oE 'pushing sha256:[0-9a-f]{64} to ' "$RUNNER_TEMP/create.log" | sort -u | cut -d' ' -f2 > "$RUNNER_TEMP/index/${IMAGE##*/}"
-          [ "$(wc -l < "$RUNNER_TEMP/index/${IMAGE##*/}")" -eq 1 ]
-          docker buildx imagetools inspect "$IMAGE@$(cat "$RUNNER_TEMP/index/${IMAGE##*/}")"
+          mkdir -p "$(dirname "$INDEX")"
+          grep -oE 'pushing sha256:[0-9a-f]{64} to ' "$RUNNER_TEMP/create.log" | sort -u | cut -d' ' -f2 > "$INDEX"
+          [ "$(wc -l < "$INDEX")" -eq 1 ]
+          docker buildx imagetools inspect "$IMAGE@$(cat "$INDEX")"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -162,9 +163,9 @@ jobs:
   # Gives copy_images_to_ecr the manifest-list digests that publish_images
   # pushed in this run. The copy job holds an AWS token, so it downloads no
   # artifact (check-secret-jobs). This job holds no token: it reads the
-  # artifacts as data and lets only sha256 digests through. It also says if
-  # this run is still the head of main: a late rerun of an older run must not
-  # make an older build the newest image in the ECR.
+  # artifacts as data and lets only sha256 digests through. release and
+  # terraform run pnpm install, so they wait for this job: while it reads the
+  # artifacts, no job of the run that runs dependency code can upload one.
   ecr_digests:
     timeout-minutes: 5
     name: Digests for the production ECR
@@ -176,7 +177,6 @@ jobs:
       contents: read
     outputs:
       digests: ${{ steps.digests.outputs.digests }}
-      head: ${{ steps.digests.outputs.head }}
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -184,17 +184,12 @@ jobs:
           path: ${{ runner.temp }}/index
           merge-multiple: true
       - id: digests
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           cd "$RUNNER_TEMP/index"
           for image in *; do
             [[ "$image" =~ ^[a-z-]+$ && "$(cat "$image")" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$image holds no image digest" >&2; exit 1; }
           done
           echo "digests=$(for image in *; do jq -n --arg image "$image" --arg digest "$(cat "$image")" '{($image): $digest}'; done | jq -cs add)" >> "$GITHUB_OUTPUT"
-          main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
-          echo "head=$([ "$main" = "$GITHUB_SHA" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          echo "main is at $main; this run built $GITHUB_SHA"
 
   # Copies each production image, and the cloudflared image that the edge
   # stack pins, to the production ECR (CTX-1215 X2). crane copies the
@@ -207,7 +202,7 @@ jobs:
   copy_images_to_ecr:
     timeout-minutes: 15
     name: Copy images to the production ECR
-    if: github.event_name != 'workflow_dispatch' && needs.ecr_digests.outputs.head == 'true'
+    if: github.event_name != 'workflow_dispatch'
     needs:
       - ecr_digests
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
@@ -216,6 +211,7 @@ jobs:
     # so no other job of this repo can push to the ECR.
     environment: ecr-push
     permissions:
+      contents: read
       id-token: write
       packages: read
     env:
@@ -236,11 +232,18 @@ jobs:
       - name: Copy the images by digest
         env:
           DIGESTS: ${{ needs.ecr_digests.outputs.digests }}
-          GHCR_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          # A late rerun of an older run must not make an older build the
+          # newest tagged image, so each attempt checks the head of main.
+          main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          if [ "$main" != "$GITHUB_SHA" ]; then
+            echo "::notice::main is at $main, not at $GITHUB_SHA: the run of that commit copies its images"
+            exit 0
+          fi
           crane="$RUNNER_TEMP/crane"
-          ecr="$AWS_ACCOUNT.dkr.ecr.us-west-2.amazonaws.com"
-          echo "$GHCR_TOKEN" | "$crane" auth login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          ecr="$AWS_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com"
+          echo "$GH_TOKEN" | "$crane" auth login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           aws ecr get-login-password | "$crane" auth login "$ecr" -u AWS --password-stdin
           # The tags are immutable. A rerun skips a tag that already holds
           # the same digest, and fails on a tag that holds another digest.
@@ -269,6 +272,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     needs:
       - publish_images
+      - ecr_digests
     permissions:
       contents: write
       pull-requests: write
@@ -325,6 +329,7 @@ jobs:
     environment: production
     needs:
       - publish_images
+      - ecr_digests
     defaults:
       run:
         working-directory: infra
