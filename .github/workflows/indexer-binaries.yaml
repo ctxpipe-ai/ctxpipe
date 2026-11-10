@@ -102,9 +102,13 @@ jobs:
             cat SHA256SUMS
             echo '```'
           } > notes.md
+          # The tag goes on the head of the default branch, not on the
+          # built commit. A workflow token cannot create a tag at a commit
+          # whose workflow files differ from the default branch (HTTP 403),
+          # and main can change during the build. The notes name the built
+          # commit.
           gh release create "$tag" \
             --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
             --latest=false \
             --title "codesearch indexers ${GITHUB_SHA::12}" \
             --notes-file notes.md \
