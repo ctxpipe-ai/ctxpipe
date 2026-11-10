@@ -7,6 +7,7 @@ import { Pool } from "pg"
 import { log } from "../observability/logger.js"
 import { backfillNullOrgIds } from "./backfill-null-org-ids.js"
 import { backfillRepositoryIngestionRequests } from "./backfill-repository-ingestion-requests.js"
+import { clearRetiredWriteStepOutputs } from "./clear-retired-write-step-outputs.js"
 import { migrateOpenWorkflow } from "./migrate-openworkflow.js"
 import { APP_ROLE_NAME, provisionAppRole } from "./provision-app-role.js"
 import { reconcileConnectionDirectory } from "./reconcile-connection-directory.js"
@@ -77,6 +78,7 @@ export async function runMigrations(options: {
 
     await backfillNullOrgIds(pool)
     await backfillRepositoryIngestionRequests(pool)
+    await clearRetiredWriteStepOutputs(pool)
     const directory = await reconcileConnectionDirectory(pool)
     log.info({
       step: "migrate",
