@@ -10,6 +10,7 @@ Shared by every [preview-env](SKILL.md) run and every area. Complete it before t
 | --- | --- | --- |
 | `local` | `https://app.ctxpipe.localhost` or `https://<branch>.app.ctxpipe.localhost` (linked worktree) | `pnpm dev` per the root AGENTS.md runbook; Docker infra up; migrations applied |
 | `preview` | `https://backend-pr-<N>.up.railway.app` | Railway PR environment `pr-<N>`; its database is a **copy of production** |
+| `aws` | `https://cutover.ctxpipe.dev` | The AWS production stack before the go/no-go of [CTX-1217](https://linear.app/ctxpipe/issue/CTX-1217), with rehearsal secrets and an empty database or a rehearsal copy. Cloudflare Access protects it: the agent host uses WARP, or the browser and the MCP client send the Access service token. After the go/no-go, the stack serves `app.ctxpipe.ai`, and this mode is closed |
 
 Any other host, including `app.ctxpipe.ai`, is a **harness FAIL**: stop before opening a browser. A raw UI host or port misses the session cookie; always drive the backend origin.
 
@@ -109,7 +110,7 @@ Start the clock at the triggering action (click, send, navigation) and stop it w
 ## Evidence and traces
 
 - Artifacts go to `/tmp/preview-env/{run-id}/` (not the repository): screenshots `{FLOW-ID}-{step}.png`, one recording per area `{area}.webm` of the working path only.
-- **Trace** per flow, in both modes: after the flow, find the trace for its key request with [observability](../observability/SKILL.md): environment `pr-<N>` (`preview`) or `local-<name>` (`local`), `ctxpipe.org.slug={orgSlug}`, the flow's time window, then the `TraceId`. For a curl step, take `x-request-id` from the response (`curl -D -`) and search by `request.id`. Record `trace: {TraceId} (env, org, HH:MM:SSZ)` plus the HyperDX link. For a job, record `openworkflow.run.id`.- Redact tokens, passwords, and emails in anything pasted outside `/tmp`.
+- **Trace** per flow, in each mode: after the flow, find the trace for its key request with [observability](../observability/SKILL.md): environment `pr-<N>` (`preview`), `local-<name>` (`local`) or the `DeploymentEnvironment` of the AWS stack (`aws`), `ctxpipe.org.slug={orgSlug}`, the flow's time window, then the `TraceId`. For a curl step, take `x-request-id` from the response (`curl -D -`) and search by `request.id`. Record `trace: {TraceId} (env, org, HH:MM:SSZ)` plus the HyperDX link. For a job, record `openworkflow.run.id`.- Redact tokens, passwords, and emails in anything pasted outside `/tmp`.
 
 ### Local trace export
 

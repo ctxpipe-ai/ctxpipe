@@ -16,7 +16,9 @@ Body must be JSON with `status` equal to `"ok"`.
 
 `local` only: Docker infra and codesearch are up (`pnpm dev:infra`, `pnpm dev`); a missing codesearch container is a harness FAIL for the areas above. Trace export is on ([local trace export](run-setup.md#local-trace-export)): send `curl -fsS -H "x-request-id: pe-{run-id}-wake" "$BASE_URL/.status"`, then find `SpanAttributes['request.id'] = 'pe-{run-id}-wake'` in HyperDX under `local-<name>` within a minute. No span is a harness FAIL.
 
-**Done when:** `/.status` is ok, and (if those areas run) worker and codesearch have a deploy timestamp newer than the wake call or are already `RUNNING` with a recent timestamp (`preview`), or the local stack answers and its wake request is in HyperDX (`local`).
+`aws` only: every request sends the Access service token (`-H "CF-Access-Client-Id: …" -H "CF-Access-Client-Secret: …"`), unless the agent host uses WARP. From `apps/backend`, run `bun run src/scripts/validateTarget.ts "$BASE_URL"` with `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` set. A failed check is a harness FAIL.
+
+**Done when:** `/.status` is ok, and (if those areas run) worker and codesearch have a deploy timestamp newer than the wake call or are already `RUNNING` with a recent timestamp (`preview`), or the local stack answers and its wake request is in HyperDX (`local`), or each `validateTarget` check passed (`aws`).
 
 ## 2. UI canary
 
@@ -54,7 +56,7 @@ Harness-class blockers (do not continue the suite): session gone mid-run with no
 
 ```markdown
 ## preview-env report
-origin: {BASE_URL}  mode: {local|preview}
+origin: {BASE_URL}  mode: {local|preview|aws}
 run-id: {run-id}
 org: {orgSlug}  workspaces: {slug1}, {slug2}
 git: {commit sha of the checkout or preview deploy}
