@@ -35,7 +35,7 @@ import { log } from "evlog"
 import {
   deploymentEnvironment,
   isPreviewDeployment,
-} from "../config/deployment-environment.js"
+} from "../../../../shared/deployment-environment.js"
 import type { Env } from "../config/env.js"
 import { baggageWithAttribution, copyAttributionToSpan } from "./attribution.js"
 import { BetterAuthSpanFilter } from "./betterAuthSpanFilter.js"
@@ -60,18 +60,18 @@ export function otelServiceName(
 }
 
 /**
- * `DEPLOYMENT_ENVIRONMENT` (or Railway's `RAILWAY_ENVIRONMENT_NAME`), else
- * `deployment.environment` in
- * `OTEL_RESOURCE_ATTRIBUTES`, else `production` when NODE_ENV is production,
+ * The deployment name (`shared/deployment-environment.ts`), else
+ * `deployment.environment` in `OTEL_RESOURCE_ATTRIBUTES`, else `production` when NODE_ENV is production,
  * else `development`. Logs and the Langfuse `env:` tag call this.
  */
 export function otelDeploymentEnvironment(
-  deploymentName = deploymentEnvironment(),
   nodeEnv = process.env.NODE_ENV,
-  resourceAttributes = process.env.OTEL_RESOURCE_ATTRIBUTES,
 ): string {
+  const deploymentName = deploymentEnvironment(process.env)
   if (deploymentName) return deploymentName
-  const fromAttributes = deploymentEnvironmentAttribute(resourceAttributes)
+  const fromAttributes = deploymentEnvironmentAttribute(
+    process.env.OTEL_RESOURCE_ATTRIBUTES,
+  )
   if (fromAttributes) return fromAttributes
   return nodeEnv === "production" ? "production" : "development"
 }
@@ -210,7 +210,8 @@ export function initOtel(env: Env): void {
 
 function metricReaderFor(url: string): MetricReader {
   const exporter = new OTLPMetricExporter({ url, timeoutMillis: 2_000 })
-  if (isPreviewDeployment()) return new FlushOnDemandMetricReader(exporter)
+  if (isPreviewDeployment(process.env))
+    return new FlushOnDemandMetricReader(exporter)
   return new PeriodicExportingMetricReader({
     exporter,
     exportIntervalMillis: 60_000,

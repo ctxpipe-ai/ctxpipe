@@ -5,7 +5,7 @@ import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
 
-import { isPreviewDeployment } from "../config/deployment-environment.js"
+import { isPreviewDeployment } from "../../../../shared/deployment-environment.js"
 import { instrumentPgPool } from "../observability/dbTrace.js"
 import { log } from "../observability/logger.js"
 import { relations, schema } from "./schema.js"
@@ -24,7 +24,7 @@ function createDrizzleDb(connectionString: string) {
   const client = new Pool({
     connectionString,
     max: 50,
-    allowExitOnIdle: isPreviewDeployment(),
+    allowExitOnIdle: isPreviewDeployment(process.env),
     keepAlive: true,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 30_000,

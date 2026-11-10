@@ -19,6 +19,10 @@ import {
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 
+import {
+  deploymentEnvironment,
+  isPreviewDeployment,
+} from "../../../../shared/deployment-environment.js"
 import { ATTRIBUTION_KEYS } from "./contract.js"
 
 let tracerProvider: NodeTracerProvider | undefined
@@ -27,19 +31,18 @@ let runtimeInstrumentation: RuntimeNodeInstrumentation | undefined
 let started = false
 
 /**
- * `DEPLOYMENT_ENVIRONMENT` if set (Railway's `RAILWAY_ENVIRONMENT_NAME` is
- * the fallback), else `deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES`,
- * else `production` when NODE_ENV is production, else `development`.
+ * The deployment name (`shared/deployment-environment.ts`), else
+ * `deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES`, else `production`
+ * when NODE_ENV is production, else `development`.
  */
-export function codesearchDeploymentEnvironment(
-  deploymentName = configuredDeploymentName(),
-  resourceAttributes = process.env.OTEL_RESOURCE_ATTRIBUTES,
-  nodeEnv = process.env.NODE_ENV,
-): string {
+export function codesearchDeploymentEnvironment(): string {
+  const deploymentName = deploymentEnvironment(process.env)
   if (deploymentName) return deploymentName
-  const fromAttributes = deploymentEnvironmentAttribute(resourceAttributes)
+  const fromAttributes = deploymentEnvironmentAttribute(
+    process.env.OTEL_RESOURCE_ATTRIBUTES,
+  )
   if (fromAttributes) return fromAttributes
-  return nodeEnv === "production" ? "production" : "development"
+  return process.env.NODE_ENV === "production" ? "production" : "development"
 }
 
 /** Last `deployment.environment` entry, percent-decoded. Same rule as envDetector. */
@@ -61,19 +64,6 @@ function deploymentEnvironmentAttribute(
     }
   }
   return found
-}
-
-/** The deployment name, or Railway's environment name until Railway goes. */
-function configuredDeploymentName(): string | undefined {
-  return (
-    process.env.DEPLOYMENT_ENVIRONMENT?.trim() ||
-    process.env.RAILWAY_ENVIRONMENT_NAME?.trim() ||
-    undefined
-  )
-}
-
-function previewEnvironment(): boolean {
-  return /^pr-\d+$/.test(configuredDeploymentName() ?? "")
 }
 
 /** `@hono/otel` sets `url.full` when the span starts. Drop its query and fragment. */
@@ -146,7 +136,7 @@ export function initOtel(): void {
 
   const metricsEndpoint =
     process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT?.trim()
-  if (metricsEndpoint && !previewEnvironment()) {
+  if (metricsEndpoint && !isPreviewDeployment(process.env)) {
     meterProvider = new MeterProvider({
       resource,
       readers: [

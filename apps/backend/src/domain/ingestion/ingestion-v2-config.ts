@@ -19,9 +19,9 @@ import {
  */
 export function ingestionV2ShadowEnabled(): boolean {
   const inProduction = false
-  // With no Railway name and no `deployment.environment` attribute, the
+  // With no deployment name and no `deployment.environment` attribute, the
   // name is `production` here, which is not in the allowlist.
-  const label = otelDeploymentEnvironment(undefined, "production")
+  const label = otelDeploymentEnvironment("production")
   return (
     inProduction || /^(?:pr-[\w.-]+|development|local-[\w.-]+)$/.test(label)
   )

@@ -3,6 +3,8 @@ import {
   scrubOtlpJsonText,
 } from "@/lib/otelBrowserScrub"
 
+import { deploymentEnvironment } from "../../../../shared/deployment-environment.js"
+
 const MAX_BODY_BYTES = 1024 * 1024
 
 function parseHttpOrigin(value: string): string | null {
@@ -93,13 +95,11 @@ function percentDecode(value: string): string {
 }
 
 /**
- * `DEPLOYMENT_ENVIRONMENT` (Railway's name is the fallback), else the last
+ * The deployment name (`shared/deployment-environment.ts`), else the last
  * `deployment.environment`, else NODE_ENV.
  */
-function deploymentEnvironment(): string {
-  const deployment =
-    process.env.DEPLOYMENT_ENVIRONMENT?.trim() ||
-    process.env.RAILWAY_ENVIRONMENT_NAME?.trim()
+function deploymentName(): string {
+  const deployment = deploymentEnvironment(process.env)
   if (deployment) return deployment
   const raw = process.env.OTEL_RESOURCE_ATTRIBUTES?.trim()
   if (raw) {
@@ -145,7 +145,7 @@ export async function proxyBrowserOtlp(
   } catch {
     return new Response(null, { status: 400 })
   }
-  restrictBrowserResourceAttributes(decoded, deploymentEnvironment())
+  restrictBrowserResourceAttributes(decoded, deploymentName())
   return forward(upstream, JSON.stringify(decoded))
 }
 

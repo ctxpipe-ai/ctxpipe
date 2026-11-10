@@ -629,6 +629,7 @@ describe("POST /.otel/v1/$signal", () => {
         "pr-343",
       ],
       ["", "pr-12", "deployment.environment=staging", "test", "pr-12"],
+      ["production", "pr-12", "", "test", "pr-12"],
       [
         "",
         "",

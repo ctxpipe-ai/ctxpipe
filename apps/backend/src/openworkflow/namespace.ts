@@ -1,7 +1,7 @@
 import {
   deploymentEnvironment,
   isPreviewDeployment,
-} from "../config/deployment-environment.js"
+} from "../../../../shared/deployment-environment.js"
 
 /**
  * Preserve the historical production namespace while ensuring a preview,

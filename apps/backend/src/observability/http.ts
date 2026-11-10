@@ -3,7 +3,7 @@ import { context, SpanStatusCode, trace } from "@opentelemetry/api"
 import type { Context, MiddlewareHandler } from "hono"
 import { matchedRoutes } from "hono/route"
 
-import { isPreviewDeployment } from "../config/deployment-environment.js"
+import { isPreviewDeployment } from "../../../../shared/deployment-environment.js"
 import {
   contextWithAttributionBag,
   copyAttributionToSpan,
@@ -131,7 +131,7 @@ export function backendOtelMiddleware(): MiddlewareHandler {
       })
     })
 
-    if (!untraced && isPreviewDeployment()) {
+    if (!untraced && isPreviewDeployment(process.env)) {
       setTimeout(() => {
         void forceFlushOtel()
       }, 0)

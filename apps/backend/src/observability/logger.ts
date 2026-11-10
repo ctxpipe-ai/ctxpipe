@@ -12,8 +12,8 @@ import { createOTLPDrain } from "evlog/otlp"
 import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
 
+import { isPreviewDeployment } from "../../../../shared/deployment-environment.js"
 import type { AppEnv } from "../app/env.js"
-import { isPreviewDeployment } from "../config/deployment-environment.js"
 import { parseEnv } from "../config/env.js"
 import { applyLogContract } from "./logContract.js"
 import {
@@ -187,7 +187,7 @@ export async function withLogger<T>(
       if (workflowLoggerHasMilestoneContent(holder.logger)) {
         holder.logger.emit()
       }
-      if (isPreviewDeployment()) {
+      if (isPreviewDeployment(process.env)) {
         await forceFlushOtel()
       }
     }
