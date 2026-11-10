@@ -1545,6 +1545,10 @@ export const FilesPane: Story = {
 }
 
 export const GraphPane: Story = {
+  // With reduced motion the layout runs a fixed number of steps before the
+  // graph shows. The play waits for it: without the wait, the screenshot
+  // showed a loading stage of the graph that depended on the host speed.
+  tags: ["reduced-motion"],
   args: { paneParam: "graph" },
   parameters: {
     storyRoute: workspaceRoute({ pane: "graph" }),
@@ -1553,6 +1557,17 @@ export const GraphPane: Story = {
         page: workspaceShellHandlers(),
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    // The graph shows when its layout has stopped. Then the control to
+    // play the layout again shows.
+    await page.findByRole(
+      "button",
+      { name: "Play layout" },
+      // The layout runs in WebGL, which is slow on a CPU renderer.
+      { timeout: 30_000 },
+    )
   },
 }
 

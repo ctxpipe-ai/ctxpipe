@@ -355,8 +355,12 @@ function WorkspaceSurfaceSession(props: {
           conversationId,
         )?.trim()
       : undefined
+  const subscribe = useCallback(
+    (onChange: () => void) => queryClient.getQueryCache().subscribe(onChange),
+    [queryClient],
+  )
   const listedTitle = useSyncExternalStore(
-    (onChange) => queryClient.getQueryCache().subscribe(onChange),
+    subscribe,
     listedTitleSnapshot,
     listedTitleSnapshot,
   )
