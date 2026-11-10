@@ -99,11 +99,15 @@ export function ingestSandboxUnavailable(
 ): string | null {
   const provider = lockedSandboxProvider(env) ?? "docker"
   if (provider === "docker") return null
+  if (provider === "agentcore")
+    return env.AGENTCORE_RUNTIME_ARN?.trim()
+      ? null
+      : "Re-ingestion needs the AgentCore runtime. Set AGENTCORE_RUNTIME_ARN on the backend and the worker."
   if (provider === "vercel")
     return hostedIngestEgressEnabled(env)
       ? null
       : "Re-ingestion needs the Vercel sandbox settings. Set VERCEL_TOKEN, VERCEL_TEAM_ID and VERCEL_PROJECT_ID on the backend and the worker."
-  return "Re-ingestion needs a Docker or Vercel sandbox. This deployment runs agents unsandboxed."
+  return "Re-ingestion needs a Docker, Vercel or AgentCore sandbox. This deployment runs agents unsandboxed."
 }
 
 export type ReingestRepository = {

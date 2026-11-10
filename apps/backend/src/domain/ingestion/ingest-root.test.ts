@@ -216,7 +216,7 @@ describe("assertIngestProvider", () => {
 
   it("refuses ingest in unsandboxed mode", () => {
     expect(() => assertIngestProvider("local-process")).toThrow(
-      /needs a Docker or Vercel sandbox/,
+      /needs a Docker, Vercel or AgentCore sandbox/,
     )
   })
 })

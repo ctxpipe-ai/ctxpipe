@@ -36,13 +36,17 @@ const INGEST_STEP_OUTPUT = `${INGEST_ROOT}/step-output.tar`
 type Sandbox = Pick<SandboxHandle, "fs" | "process">
 
 /**
- * Ingest runs only in a Docker or Vercel sandbox. Unsandboxed mode runs the
- * agent on the backend host, so ingest refuses it.
+ * Ingest runs only in a Docker, Vercel or AgentCore sandbox. Unsandboxed
+ * mode runs the agent on the backend host, so ingest refuses it.
  */
 export function assertIngestProvider(provider: string): void {
-  if (provider !== "docker" && provider !== "vercel")
+  if (
+    provider !== "docker" &&
+    provider !== "vercel" &&
+    provider !== "agentcore"
+  )
     throw new Error(
-      `Ingest needs a Docker or Vercel sandbox. The ${provider} provider runs the agent on the backend host.`,
+      `Ingest needs a Docker, Vercel or AgentCore sandbox. The ${provider} provider runs the agent on the backend host.`,
     )
 }
 

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { startContainerAgentCore } from "../../test/agentcore-fake.js"
+import { agentCoreRootExec } from "../ingestion/ingest-root.js"
 import { agentCoreSandboxProvider } from "./agentcore-sandbox-provider.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
 
@@ -70,6 +71,35 @@ describe("the AgentCore provider in the chat sandbox image", () => {
     const answer = await fetch(`${channel.url}/ping?x=1`)
     expect(await answer.text()).toBe("pong /ping?x=1")
     await server.kill("SIGKILL")
+    await provider.destroy({ id: handle.id })
+  })
+
+  it("runs an ingest root command as root with the session env, and an abort ends its process group", async () => {
+    const handle = await provider.create({
+      env: { HTTPS_PROXY: "http://s@vault:1" },
+    })
+    const root = agentCoreRootExec(fake.runtime, handle.id)
+    expect((await root("id -u; echo $HTTPS_PROXY")).stdout).toBe(
+      "0\nhttp://s@vault:1\n",
+    )
+    const controller = new AbortController()
+    const running = root("echo $$ > /tmp/root-group; sleep 300", {
+      signal: controller.signal,
+    })
+    // The group id is written before the abort.
+    for (let i = 0; i < 50; i++) {
+      const written = await root("cat /tmp/root-group 2>/dev/null")
+      if (written.stdout.trim()) break
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    const started = Date.now()
+    controller.abort(new Error("step limit"))
+    await expect(running).rejects.toThrow("step limit")
+    expect(Date.now() - started).toBeLessThan(30_000)
+    const left = await root(
+      `g=$(cat /tmp/root-group); for s in /proc/[0-9]*/stat; do r=$(sed 's/.*) //' "$s" 2>/dev/null) || continue; set -- $r; [ "$3" = "$g" ] && [ "$1" != Z ] && echo alive; done; echo checked`,
+    )
+    expect(left.stdout).toBe("checked\n")
     await provider.destroy({ id: handle.id })
   })
 })
