@@ -159,7 +159,7 @@ describe("expand-only SQL migrations from a main database (Postgres)", () => {
     if (scratch) rmSync(scratch, { recursive: true, force: true })
   })
 
-  it("upgrades a main database: deletes orphan rows only on commit, keeps LangGraph tables, and fills org_id on rows the previous image writes", async () => {
+  it("upgrades a main database: deletes orphan rows and drops the LangGraph tables only on commit, and fills org_id on rows the previous image writes", async () => {
     const db = drizzle({ client: pool })
     await migrate(db, {
       migrationsFolder: migrationsFolder("before", mainMigrations),
@@ -211,7 +211,8 @@ describe("expand-only SQL migrations from a main database (Postgres)", () => {
       await client.query("SET session_replication_role = origin")
       client.release()
     }
-    // A main database holds the LangGraph checkpoint tables that main chat writes.
+    // A main database of that age holds the LangGraph checkpoint tables. No
+    // release since CTX-601 reads them, so the migrations drop them.
     await pool.query(
       `CREATE TABLE "checkpoints" ("thread_id" text NOT NULL, "checkpoint_id" text NOT NULL, PRIMARY KEY ("thread_id", "checkpoint_id"))`,
     )
@@ -243,6 +244,10 @@ describe("expand-only SQL migrations from a main database (Postgres)", () => {
       "evidence_kept",
       "evidence_orphan",
     ])
+    const { rows: checkpoints } = await pool.query(
+      `SELECT "thread_id" AS "threadId" FROM "checkpoints"`,
+    )
+    expect(checkpoints).toEqual([{ threadId: "conv_main" }])
 
     await migrate(db, { migrationsFolder: migrationsDir })
 
@@ -255,10 +260,10 @@ describe("expand-only SQL migrations from a main database (Postgres)", () => {
     expect(await orgRows("claim_evidence")).toEqual([
       { id: "evidence_kept", orgId },
     ])
-    const { rows: checkpoints } = await pool.query(
-      `SELECT "thread_id" AS "threadId" FROM "checkpoints"`,
+    const { rows: dropped } = await pool.query(
+      `SELECT to_regclass('public.checkpoints') AS "name"`,
     )
-    expect(checkpoints).toEqual([{ threadId: "conv_main" }])
+    expect(dropped).toEqual([{ name: null }])
 
     await pool.query(`GRANT USAGE ON SCHEMA "public" TO ctxpipe_app`)
     await pool.query(
