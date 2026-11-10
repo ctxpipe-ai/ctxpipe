@@ -27,7 +27,7 @@ import { type Db, initDb } from "../db/client.js"
 import { schema } from "../db/schema.js"
 import { members, users } from "../db/schema/auth.js"
 import { isValidSlug } from "../domain/workspaces/slug.js"
-import { emailConfigured } from "../email/configured.js"
+import { emailTransport } from "../email/configured.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { apiKeyLifecycleEvents } from "./api-key-events.js"
@@ -153,7 +153,7 @@ export function createBetterAuth() {
   // Email/password accounts verify their address before signing in. Not on
   // PR previews (throwaway test accounts), and not without an email
   // transport, where mail is only logged and nobody could verify.
-  const canSendEmail = emailConfigured(env)
+  const canSendEmail = emailTransport(env) !== undefined
   const requireEmailVerification =
     canSendEmail && !isPreviewDeployment(process.env)
   if (!canSendEmail && !isPreviewDeployment(process.env)) {

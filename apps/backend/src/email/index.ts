@@ -5,6 +5,7 @@ import type { ReactElement } from "react"
 
 import { parseEnv } from "../config/env.js"
 import { log } from "../observability/logger.js"
+import { emailTransport } from "./configured.js"
 
 type Mail = { to: string; subject: string; html: string; text: string }
 
@@ -17,11 +18,11 @@ export async function sendEmail(
   const html = await render(template)
   const text = await render(template, { plainText: true })
 
-  const from = env.EMAIL_FROM_ADDRESS
+  const transport = emailTransport(env)
   const mail = { to, subject, html, text }
-  if (from && env.EMAIL_TRANSPORT === "ses") return sendWithSes(from, mail)
-  if (from && env.SMTP_CONNECTION_URL)
-    return sendWithSmtp(env.SMTP_CONNECTION_URL, from, mail)
+  if (transport?.kind === "ses") return sendWithSes(transport.from, mail)
+  if (transport?.kind === "smtp")
+    return sendWithSmtp(transport.connectionUrl, transport.from, mail)
 
   log.info({
     step: "email.dev_stub",
