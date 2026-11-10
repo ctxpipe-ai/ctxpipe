@@ -1191,6 +1191,9 @@ export const Primary = { render: () => null }
 
     test.each([
       ["a budget that is not a number", ["--budget-usd", "five"]],
+      // A factory release without the placeholder passes its text as it is:
+      // an ERROR, never a run without a budget.
+      ["the text of the factory placeholder", ["--budget-usd", "{budgetUsd}"]],
       ["a negative budget", ["--budget-usd", "-1"]],
       // Number() gives Infinity for it, which would turn the budget off.
       ["a budget too large to be finite", ["--budget-usd", "9".repeat(400)]],

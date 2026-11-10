@@ -101,19 +101,25 @@ const cases: Case[] = [
     region: knownRegion,
   })),
 ]
-// A new case has only an after image. The runner skips it (no arm judges a
-// new screenshot yet), so no result and no count below includes it.
-cases.push({
-  ...common("new-1"),
+// A new case has only an after image: two clean renders, and two with a
+// synthetic regression (the wide gray bar).
+const newCase = (id: string, broken: boolean): Case => ({
+  ...common(id),
   kind: "new",
-  label: "intended",
-  class: null,
+  label: broken ? "regression" : "intended",
+  class: broken ? "padding" : null,
   brief: "Add the status bar.",
   commit: { sha: sha("a"), parent: sha("b") },
-  region: null,
+  region: broken ? knownRegion : null,
   diffPixels: null,
-  images: { after: "cases/new-1/after.png" },
+  images: { after: `cases/${id}/after.png` },
 })
+cases.push(
+  newCase("new-clean-1", false),
+  newCase("new-clean-2", false),
+  newCase("new-broken-1", true),
+  newCase("new-broken-2", true),
+)
 const labelOf = (id: string) => cases.find((entry) => entry.id === id)?.label
 
 const folder = mkdtempSync(join(tmpdir(), "bakeoff-test-"))
@@ -122,7 +128,10 @@ const images = join(folder, "images")
 for (const entry of cases) {
   mkdirSync(join(images, "cases", entry.id), { recursive: true })
   if (entry.kind === "new") {
-    writeFileSync(join(images, entry.images.after), page(gray, teal))
+    writeFileSync(
+      join(images, entry.images.after),
+      entry.class ? page(wide, teal) : page(gray, teal),
+    )
     continue
   }
   const [before, after] = pairs[entry.kind]
@@ -190,6 +199,43 @@ const chat = http.post(`${gateway}/chat/completions`, async ({ request }) => {
     ? "regression"
     : labelOf(id)
   const regression = verdict === "regression"
+  // A new screenshot: the schema of a judgment on one image.
+  if (story?.text?.includes("New screenshots"))
+    return HttpResponse.json({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              observations: [],
+              verdict,
+              severity: regression ? "major" : "none",
+              confidence: 0.9,
+              summary: `The new screenshot is ${verdict}.`,
+              qualities: [
+                {
+                  name: "clarity",
+                  rating: regression ? "fails" : "meets",
+                  confidence: 0.8,
+                },
+              ],
+              findings: regression
+                ? [
+                    {
+                      kind: "spacing",
+                      region,
+                      evidence: "The gray bar is too wide.",
+                      rubricRef: "apps/ui/DESIGN.md › Space",
+                      explainedByBrief: false,
+                      suggestion: null,
+                    },
+                  ]
+                : [],
+            }),
+          },
+        },
+      ],
+      usage: priced ? { cost: 0.01 } : {},
+    })
   return HttpResponse.json({
     choices: [
       {
@@ -338,7 +384,9 @@ test("a dry run judges every case with every arm and selects the cheapest arm th
 
   expect(code).toBe(0)
   expect(readFileSync(join(out, "report.md"), "utf8")).toBe(`${text}\n`)
-  expect(text).toContain("Cases: 10 (4 in the hold-out set). Runs: 3. Arms: 9.")
+  expect(text).toContain(
+    "Cases: 14 (4 in the hold-out set, 4 new screenshots). Runs: 3. Arms: 9.",
+  )
   expect(text).toContain("## Hold-out set (4 cases)")
   expect(text).toContain("## Other cases (6 cases)")
   // Recall, precision, unsure, errors, then (after the agreement columns)
@@ -469,16 +517,68 @@ test("a dry run judges every case with every arm and selects the cheapest arm th
     "0.00",
   ])
 
+  // The new screenshots: each arm but the local judge judges them with the
+  // judge of a new screenshot. Recall on the broken ones, false alarms on
+  // the clean ones, unsure, errors, cost per story, and the verdicts.
+  expect(text).toContain("## New screenshots (4 cases)")
+  const newRows = rows(text, "## New screenshots")
+  const right = ["1.00", "0.00", "0.00", "0"]
+  for (const arm of [
+    "llm:anthropic/claude-test",
+    "llm-one-step:anthropic/claude-test",
+    "llm-no-facts:anthropic/claude-test",
+    // The cascade sends a new screenshot to the model, as visual:review does.
+    "cascade:anthropic/claude-test",
+    "cascade:baseten/elephant-1+anthropic/claude-test",
+  ])
+    expect(newRows.get(arm)).toEqual([...right, "$0.0100", "12"])
+  expect(newRows.get("jev")).toEqual([...right, "$0.0010", "12"])
+  expect(newRows.get("decision:baseten/elephant-1")).toEqual([
+    ...right,
+    "$0.0005",
+    "12",
+  ])
+  // The other decision model is never sure.
+  expect(newRows.get("decision:typesafe/other-test")).toEqual([
+    "0.00",
+    "0.00",
+    "1.00",
+    "0",
+    "$0.0020",
+    "12",
+  ])
+  // The local judge needs a before image: not applicable, not an error.
+  expect(newRows.get("blazediff-local")).toEqual([
+    "not applicable",
+    "",
+    "",
+    "",
+    "",
+    "",
+  ])
+
   const results = JSON.parse(readFileSync(join(out, "results.json"), "utf8"))
-  expect(results.results).toHaveLength(9 * 10 * 3)
+  expect(results.results).toHaveLength(9 * 10 * 3 + 8 * 4 * 3)
   expect(results.stopped).toBe(null)
+  // Jev places the defect of a broken new screenshot with its box.
+  const jevBroken = results.results.find(
+    (result: { arm: string; case: string }) =>
+      result.arm === "jev" && result.case === "new-broken-1",
+  )
+  expect(jevBroken.verdict.verdict).toBe("regression")
+  const found = jevBroken.verdict.findings[0].region
+  for (const side of ["x", "y", "width", "height"] as const)
+    expect(found[side]).toBeCloseTo(region[side])
 
   // The arm without the interpreter facts gets no change type and no
   // confidence; the other arms get both.
   const unlabeled = prompts.filter((text) => text.includes("unlabeled change"))
   expect(unlabeled).toHaveLength(10 * 3)
   expect(unlabeled.filter((text) => text.includes("confidence"))).toEqual([])
-  const labeled = prompts.filter((text) => !text.includes("unlabeled change"))
+  const labeled = prompts.filter(
+    (text) =>
+      !text.includes("unlabeled change") && !text.includes("New screenshots"),
+  )
   expect(labeled.length).toBeGreaterThan(0)
   expect(labeled.every((text) => text.includes("; confidence "))).toBe(true)
 })

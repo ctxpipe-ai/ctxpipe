@@ -13,8 +13,11 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { parseArgs } from "node:util"
 
-import { judgeWithJev } from "../../src/adapters/jev.ts"
-import { judgeWithOpenRouter } from "../../src/adapters/openrouter.ts"
+import { judgeNewWithJev, judgeWithJev } from "../../src/adapters/jev.ts"
+import {
+  judgeNewWithOpenRouter,
+  judgeWithOpenRouter,
+} from "../../src/adapters/openrouter.ts"
 import { judgeByModel } from "../../src/command.ts"
 import { diff, type Comparison } from "../../src/compare/diff.ts"
 import { writeStoryImages } from "../../src/compare/images.ts"
@@ -25,7 +28,7 @@ import {
 } from "../../src/compare/manifest.ts"
 import { pngSize } from "../../src/prepare.ts"
 import { reviewStories } from "../../src/review.ts"
-import type { Box, StoryInput } from "../../src/story.ts"
+import type { Box, NewStoryInput, StoryInput } from "../../src/story.ts"
 import { parseVerdict, type Verdict } from "../../src/verdict.ts"
 import { caseManifestSchema, type Case, type CaseManifest } from "./cases.ts"
 import { report, type Result } from "./report.ts"
@@ -64,8 +67,9 @@ const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--
 The key and the endpoint of the paid arms come from MODEL_PROVIDER_API_KEY
 and MODEL_PROVIDER_URL. Exit code: 2 for a usage or input error; else 0.`
 
-/** One case, ready for the judges. */
+/** One case of a change, ready for the judges. */
 type Prepared = {
+  kind: "change"
   entry: Case
   story: StoryInput
   comparison: Comparison
@@ -74,6 +78,13 @@ type Prepared = {
   after: string
   /** The known region of the case, in fractions of the after image. */
   region: Box | null
+}
+
+/** One `new` case, ready for the judges of a new screenshot. */
+type PreparedNew = {
+  kind: "new"
+  entry: Case
+  newStory: NewStoryInput
 }
 
 type Judge = (story: StoryInput, prepared: Prepared) => Promise<Verdict>
@@ -89,18 +100,25 @@ type Arm = {
    */
   input: (story: StoryInput) => StoryInput
   judge: Judge
+  /**
+   * The judge of a new screenshot, as `pnpm visual:review` judges one.
+   * Absent when the arm cannot judge one: the report says "not applicable".
+   */
+  judgeNew?: (story: NewStoryInput) => Promise<Verdict>
 }
 
 /**
- * The cases of the hold-out set: 30% of each kind, the first ones in the
- * order of a hash of the seed and the case id. The same seed and the same
- * cases give the same set.
+ * The cases of the hold-out set: 30% of each kind of change, the first ones
+ * in the order of a hash of the seed and the case id. The same seed and the
+ * same cases give the same set. A `new` case is not a change: the selection
+ * rule does not use it, so it is not in the set.
  */
 export function holdOut(manifest: CaseManifest, seed: number): Set<string> {
   const rank = (id: string) =>
     createHash("sha256").update(`${seed}:${id}`).digest("hex")
   const held = new Set<string>()
   for (const kind of new Set(manifest.cases.map(({ kind }) => kind))) {
+    if (kind === "new") continue
     const ofKind = manifest.cases
       .filter((entry) => entry.kind === kind)
       .map(({ id }) => ({ id, rank: rank(id) }))
@@ -157,16 +175,25 @@ async function armOf(
             process.env,
             kind === "llm-one-step" ? "one-step" : "describe-first",
           ),
+        // A new screenshot has no steps and no interpreter facts: the three
+        // prompt arms get the same prompt for it.
+        judgeNew: (story) => judgeNewWithOpenRouter(story, model, process.env),
       }
     case "jev":
       if (model) throw new Error(`Arm "jev" takes no model.`)
-      return { ...base, input: same, judge: (story) => judgeWithJev(story) }
+      return {
+        ...base,
+        input: same,
+        judge: (story) => judgeWithJev(story),
+        judgeNew: (story) => judgeNewWithJev(story),
+      }
     case "decision":
       needsModel()
       return {
         ...base,
         input: same,
         judge: (story) => judgeWithJev(story, model),
+        judgeNew: (story) => judgeNewWithJev(story, model),
       }
     case "cascade": {
       needsModel()
@@ -178,6 +205,10 @@ async function armOf(
         ...base,
         input: same,
         judge: (story) => judgeByModel(story, explainer, "jev", filter),
+        // `pnpm visual:review --filter jev` sends a new screenshot to the
+        // model, never to the filter.
+        judgeNew: (story) =>
+          judgeNewWithOpenRouter(story, explainer, process.env),
       }
     }
     case "blazediff-local":
@@ -323,33 +354,56 @@ async function blazediffLocal(folder: string, work: string): Promise<Judge> {
 
 /**
  * Compare the before and after image of each case with the compare engine,
- * and write the images for the judges into `work`. A case with no image
- * throws: the run needs every image of the manifest.
+ * and write the images for the judges into `work`. A `new` case has only its
+ * after image, which goes to `work` as it is. A case with no image throws:
+ * the run needs every image of the manifest.
  */
 async function prepare(
   manifest: CaseManifest,
   images: string,
   work: string,
-): Promise<Prepared[]> {
-  const prepared: Prepared[] = []
+): Promise<(Prepared | PreparedNew)[]> {
+  const prepared: (Prepared | PreparedNew)[] = []
+  // The images can come from an archive. A symbolic link in it must not
+  // send a file outside the folder to a model provider.
+  const read = async (entry: Case, path: string) => {
+    try {
+      await realInside(images, path)
+      return await readFile(path)
+    } catch (error) {
+      throw new Error(
+        `Case ${entry.id} has no usable image in ${images}: ${(error as Error).message}`,
+      )
+    }
+  }
   for (const entry of manifest.cases) {
-    if (entry.kind === "new") continue
+    if (entry.kind === "new") {
+      const bytes = await read(entry, insideRoot(images, entry.images.after))
+      const size = pngSize(bytes)
+      if (!size)
+        throw new Error(`The image of the new case ${entry.id} is not a PNG.`)
+      const path = join(work, entry.id, "after.png")
+      await mkdir(join(work, entry.id), { recursive: true })
+      await writeFile(path, bytes)
+      prepared.push({
+        kind: "new",
+        entry,
+        newStory: {
+          storyId: entry.id,
+          // As for a change: each case is judged as a part of the UI.
+          scope: "component",
+          images: [{ path, size }],
+          brief: entry.brief,
+        },
+      })
+      continue
+    }
     const before = insideRoot(images, entry.images.before)
     const after = insideRoot(images, entry.images.after)
-    // The images can come from an archive. A symbolic link in it must not
-    // send a file outside the folder to a model provider.
-    const read = async (path: string) => {
-      await realInside(images, path)
-      return readFile(path)
-    }
     const [beforeBytes, afterBytes] = await Promise.all([
-      read(before),
-      read(after),
-    ]).catch((error: Error) => {
-      throw new Error(
-        `Case ${entry.id} has no usable image in ${images}: ${error.message}`,
-      )
-    })
+      read(entry, before),
+      read(entry, after),
+    ])
     const comparison = await diff(beforeBytes, afterBytes)
     const { images: written, omittedRegions } = await writeStoryImages(
       { root: work, dir: entry.id },
@@ -363,6 +417,7 @@ async function prepare(
         ? { regions: [], signature: null }
         : comparison
     prepared.push({
+      kind: "change",
       entry,
       comparison,
       before,
@@ -409,7 +464,7 @@ const unchanged = (story: StoryInput): Verdict => ({
 
 /** The verdict of a judge that gave no verdict: `unsure`, with the error. */
 const failed = (
-  story: StoryInput,
+  story: Pick<StoryInput, "storyId">,
   run: Pick<Verdict, "model" | "costUsd" | "latencyMs">,
   error: string,
 ): Verdict => ({
@@ -480,9 +535,9 @@ export async function bakeOff(
   try {
     let manifest: CaseManifest
     let arms: Arm[]
-    let prepared: Prepared[]
+    let prepared: (Prepared | PreparedNew)[]
     try {
-      const parsed = caseManifestSchema.parse(
+      manifest = caseManifestSchema.parse(
         JSON.parse(
           await readFile(
             resolve(options.cases ?? join(import.meta.dirname, "cases.json")),
@@ -490,12 +545,6 @@ export async function bakeOff(
           ),
         ),
       )
-      // A new case has no before image. Its judge is not an arm yet
-      // (a follow-up of CTX-1202), so the run skips it.
-      manifest = {
-        ...parsed,
-        cases: parsed.cases.filter(({ kind }) => kind !== "new"),
-      }
       const ids = options.arms
         .split(",")
         .map((arm) => arm.trim())
@@ -547,67 +596,59 @@ export async function bakeOff(
 
     // Each call, also a retry, checks the limits first. A paid call starts
     // only when its estimate fits under the cap.
-    const attempt = (arm: Arm, story: StoryInput, prepared: Prepared) => {
+    const attempt = (arm: Arm, call: () => Promise<Verdict>) => {
       if (arm.paid && spent + estimate() > maxCost) stopped = "cost"
       else if (Date.now() >= deadline) stopped = "time"
-      else return reserved(arm, story, prepared)
+      else return reserved(arm, call)
       throw new Stopped()
     }
     // A paid call holds its estimated cost in the spend while it runs, so
     // that calls at the same time cannot pass the cap together.
-    const reserved = async (
-      arm: Arm,
-      story: StoryInput,
-      prepared: Prepared,
-    ) => {
+    const reserved = async (arm: Arm, call: () => Promise<Verdict>) => {
       const reserve = arm.paid ? estimate() : 0
       spent += reserve
       try {
-        return await arm.judge(story, prepared)
+        return await call()
       } finally {
         spent -= reserve
       }
     }
-    const judge = async (arm: Arm, story: StoryInput, prepared: Prepared) => {
+    const judge = async (arm: Arm, call: () => Promise<Verdict>) => {
       let verdict: Verdict
       try {
-        verdict = await attempt(arm, story, prepared)
+        verdict = await attempt(arm, call)
       } catch (error) {
         if (error instanceof Stopped) throw error
         // The cost of the failed call is not known.
         count(null)
         // One retry for a failed call (a rate limit, a timeout).
         await new Promise((done) => setTimeout(done, 5_000))
-        verdict = await attempt(arm, story, prepared)
+        verdict = await attempt(arm, call)
       }
       count(verdict.costUsd)
       return verdict
     }
-    const runArm = async (arm: Arm, cases: readonly Prepared[]) => {
+    const runArm = async (
+      arm: Arm,
+      cases: readonly (Prepared | PreparedNew)[],
+    ) => {
       const queue = Array.from({ length: runs }, (_, run) =>
         cases.map((prepared) => ({ run: run + 1, prepared })),
       ).flat()
       const worker = async () => {
         for (let task = queue.shift(); task; task = queue.shift()) {
           const { run, prepared } = task
-          const story = arm.input(prepared.story)
+          const pending = verdictOf(arm, prepared)
+          if (!pending) continue
           let verdict: Verdict
           try {
-            // The free noise step of the critic applies before the judge.
-            verdict =
-              prepared.comparison.status === "unchanged"
-                ? unchanged(story)
-                : ((
-                    await reviewStories([story], (story) =>
-                      judge(arm, story, prepared),
-                    )
-                  )[0] ?? unchanged(story))
+            verdict = await pending
           } catch (error) {
             if (error instanceof Stopped) return
             // The cost of a failed call is not known.
             count(null)
             verdict = failed(
-              story,
+              { storyId: prepared.entry.id },
               { model: arm.id, costUsd: null, latencyMs: 0 },
               (error as Error).message,
             )
@@ -616,6 +657,25 @@ export async function bakeOff(
         }
       }
       await Promise.all(Array.from({ length: arm.concurrency }, worker))
+    }
+    // The verdict of `arm` on one case, or undefined when the arm cannot
+    // judge a new screenshot: the report says "not applicable".
+    const verdictOf = (arm: Arm, prepared: Prepared | PreparedNew) => {
+      if (prepared.kind === "change") return verdictOnChange(arm, prepared)
+      const { judgeNew } = arm
+      return judgeNew && judge(arm, () => judgeNew(prepared.newStory))
+    }
+    const verdictOnChange = async (arm: Arm, prepared: Prepared) => {
+      const story = arm.input(prepared.story)
+      // The free noise step of the critic applies before the judge.
+      if (prepared.comparison.status === "unchanged") return unchanged(story)
+      return (
+        (
+          await reviewStories([story], (story) =>
+            judge(arm, () => arm.judge(story, prepared)),
+          )
+        )[0] ?? unchanged(story)
+      )
     }
     // All arms finish all runs of the hold-out cases before any arm starts
     // the other cases, so that a run that a limit stops has the cases of the
@@ -630,9 +690,16 @@ export async function bakeOff(
       manifest,
       holdOut: held,
       arms: armIds,
+      newArms: arms.filter(({ judgeNew }) => judgeNew).map(({ id }) => id),
       runs,
       results,
-      regions: new Map(prepared.map(({ entry, region }) => [entry.id, region])),
+      regions: new Map(
+        prepared.flatMap((prepared) =>
+          prepared.kind === "change"
+            ? [[prepared.entry.id, prepared.region] as const]
+            : [],
+        ),
+      ),
       stopped,
       spend: { spent, maxCost, unknownCost },
     })

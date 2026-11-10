@@ -268,11 +268,62 @@ function select(metrics: ReadonlyMap<string, Metrics>): string {
   return `No single arm: ${tied.map(([arm]) => `\`${arm}\``).join(", ")} have recall ≥ 0.9, precision ≥ 0.7 and the same cost, and the taste win rate does not break the tie.`
 }
 
+/**
+ * The table of the new screenshots: for each arm, the recall on the broken
+ * ones, the false alarms on the clean ones, and the cost per story. An arm
+ * that is not in `newArms` cannot judge a new screenshot: its row says so.
+ */
+function newTable(
+  arms: readonly string[],
+  newArms: readonly string[],
+  rows: readonly Result[],
+  manifest: CaseManifest,
+): string {
+  const label = new Map(manifest.cases.map(({ id, label }) => [id, label]))
+  const lines = [
+    "| Arm | Recall (broken) | False alarms (clean) | Unsure | Errors | Cost per story | Verdicts |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+  ]
+  for (const arm of arms) {
+    if (!newArms.includes(arm)) {
+      lines.push(`| \`${arm}\` | not applicable | | | | | |`)
+      continue
+    }
+    const own = rows.filter((result) => result.arm === arm)
+    // The share of regression verdicts on the broken or on the clean ones.
+    const flagged = (broken: boolean) =>
+      share(
+        own.filter(
+          ({ case: id }) => (label.get(id) === "regression") === broken,
+        ),
+        ({ verdict }) => verdict.verdict === "regression",
+      )
+    const cost = mean(
+      own.flatMap(({ verdict }) =>
+        verdict.costUsd === null ? [] : [verdict.costUsd],
+      ),
+    )
+    lines.push(
+      `| ${[
+        `\`${arm}\``,
+        ratio(flagged(true)),
+        ratio(flagged(false)),
+        ratio(share(own, ({ verdict }) => verdict.verdict === "unsure")),
+        own.filter(({ verdict }) => verdict.error !== undefined).length,
+        cost === undefined ? "unknown" : `$${cost.toFixed(4)}`,
+        own.length,
+      ].join(" | ")} |`,
+    )
+  }
+  return lines.join("\n")
+}
+
 /** The report of a bake-off run, as Markdown. */
 export function report({
   manifest,
   holdOut,
   arms,
+  newArms,
   runs,
   results,
   regions,
@@ -282,6 +333,8 @@ export function report({
   manifest: CaseManifest
   holdOut: ReadonlySet<string>
   arms: readonly string[]
+  /** The arms that judge a new screenshot. */
+  newArms: readonly string[]
   runs: number
   results: readonly Result[]
   regions: ReadonlyMap<string, Box | null>
@@ -289,10 +342,23 @@ export function report({
   spend: { spent: number; maxCost: number; unknownCost: number }
 }): string {
   // Only the cases and runs that every arm judged count, so that a run that
-  // the cap stopped compares the arms on the same cases.
+  // the cap stopped compares the arms on the same cases. A new screenshot
+  // has its own table, with only the arms that judge one.
+  const isNew = new Set(
+    manifest.cases.filter(({ kind }) => kind === "new").map(({ id }) => id),
+  )
   const done = groupBy(results, ({ case: id, run }) => `${id}#${run}`)
-  const common = results.filter(
-    ({ case: id, run }) => done.get(`${id}#${run}`)?.length === arms.length,
+  const complete = (rows: readonly Result[], count: number) =>
+    rows.filter(
+      ({ case: id, run }) => done.get(`${id}#${run}`)?.length === count,
+    )
+  const common = complete(
+    results.filter(({ case: id }) => !isNew.has(id)),
+    arms.length,
+  )
+  const newRows = complete(
+    results.filter(({ case: id }) => isNew.has(id)),
+    newArms.length,
   )
   const held = common.filter(({ case: id }) => holdOut.has(id))
   const rest = common.filter(({ case: id }) => !holdOut.has(id))
@@ -305,7 +371,7 @@ export function report({
   const lines = [
     "# Visual critic bake-off",
     "",
-    `Cases: ${manifest.cases.length} (${holdOut.size} in the hold-out set). Runs: ${runs}. Arms: ${arms.length}.`,
+    `Cases: ${manifest.cases.length} (${holdOut.size} in the hold-out set, ${isNew.size} new screenshots). Runs: ${runs}. Arms: ${arms.length}.`,
     `Spend: $${spend.spent.toFixed(2)} of the $${spend.maxCost} cap.${
       stopped
         ? ` The ${stopped === "cost" ? "spend cap" : "time limit"} stopped the run: the tables count only the cases and runs that every arm judged.`
@@ -325,6 +391,12 @@ export function report({
     `## Other cases (${count(rest)} cases)`,
     "",
     table(restMetrics, tasteLabels),
+    "",
+    `## New screenshots (${count(newRows)} cases)`,
+    "",
+    "A new screenshot has no before image: the judge rates it on its own against the rubric. A broken one has a synthetic regression. A false alarm is a regression verdict on a clean one. The hold-out set and the selection rule do not use these cases.",
+    "",
+    newTable(arms, newArms, newRows, manifest),
     "",
     "## Agreement on each quality (hold-out set)",
     "",
