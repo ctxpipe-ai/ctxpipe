@@ -6,7 +6,8 @@
 //   through the shim. The shim sends the request to `127.0.0.1:<port>` and
 //   streams the answer back as server-sent events.
 // - `put`: the backend stores data for one read by a command in the sandbox
-//   (`GET http://127.0.0.1:8080/blobs/<id>`). AgentCore writes the text of
+//   (`GET /blobs/<id>` on a Unix socket only `node` and root can reach,
+//   see `BLOB_SOCKET`). AgentCore writes the text of
 //   each command to the runtime's CloudWatch log group, but not an
 //   invocation payload. Thus the scripts and the files that the backend
 //   sends (with proxy sessions and repository content) go through `put`, and
@@ -29,7 +30,9 @@
 //         { "type": "end" }
 //   put:  { "type": "stored" }
 //   both: { "type": "error", "message": "..." } instead, on a failure
+import { lstatSync, mkdirSync, rmSync } from "node:fs"
 import { createServer, request as httpRequest } from "node:http"
+import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 /** Headers that belong to one connection, not to the request. */
@@ -57,35 +60,39 @@ function endToEndHeaders(headers) {
   return result
 }
 
-/** The blobs of `put`, each until its first read or its expiry. */
-const blobs = new Map()
-/** Blobs are small (scripts, files); the store holds at most this much. */
-const BLOB_STORE_MAX_BYTES = 256 * 1024 * 1024
-
-/** Store a blob; an error message, or undefined when it is stored. */
-function put(payload) {
-  const { id, data } = payload
-  if (typeof id !== "string" || !/^[0-9a-f]{32,64}$/.test(id))
-    return "The id must be 32 to 64 hex characters"
-  if (typeof data !== "string") return "The data must be base64 text"
-  if (blobs.has(id)) return "The id is in use"
-  const bytes = Buffer.from(data, "base64")
-  let stored = bytes.length
-  for (const blob of blobs.values()) stored += blob.bytes.length
-  if (stored > BLOB_STORE_MAX_BYTES) return "The blob store is full"
-  const expiry = setTimeout(() => blobs.delete(id), 5 * 60_000)
-  expiry.unref()
-  blobs.set(id, { bytes, expiry })
-  return undefined
-}
-
-/** The blob of `id`, which is deleted now; undefined when there is none. */
-function take(id) {
-  const blob = blobs.get(id)
-  if (!blob) return undefined
-  blobs.delete(id)
-  clearTimeout(blob.expiry)
-  return blob.bytes
+/**
+ * The blobs of `put`, each until its first read or its expiry. `put` gives
+ * `{ error }` for data that it does not store; `take` gives the bytes of a
+ * blob once, or undefined.
+ */
+function blobStore() {
+  const blobs = new Map()
+  const validId = (id) => typeof id === "string" && /^[0-9a-f]{32,64}$/.test(id)
+  return {
+    put({ id, data }) {
+      if (!validId(id))
+        return { error: "The id must be 32 to 64 hex characters" }
+      if (typeof data !== "string")
+        return { error: "The data must be base64 text" }
+      if (blobs.has(id)) return { error: "The id is in use" }
+      const bytes = Buffer.from(data, "base64")
+      let stored = bytes.length
+      for (const blob of blobs.values()) stored += blob.bytes.length
+      // Blobs are scripts and files; the store holds at most 256 MiB.
+      if (stored > 256 * 1024 * 1024) return { error: "The blob store is full" }
+      const expiry = setTimeout(() => blobs.delete(id), 5 * 60_000)
+      expiry.unref()
+      blobs.set(id, { bytes, expiry })
+      return {}
+    },
+    take(id) {
+      const blob = validId(id) ? blobs.get(id) : undefined
+      if (!blob) return undefined
+      blobs.delete(id)
+      clearTimeout(blob.expiry)
+      return blob.bytes
+    },
+  }
 }
 
 /** `{ forward }`, or `{ error }` for a payload that is not a forward request. */
@@ -119,7 +126,7 @@ function readBody(request) {
   })
 }
 
-async function invoke(request, response) {
+async function invoke(store, request, response) {
   let payload
   try {
     payload = JSON.parse(await readBody(request))
@@ -140,9 +147,9 @@ async function invoke(request, response) {
     response.end()
   }
   if (payload?.action === "put") {
-    const failed = put(payload)
+    const { error } = store.put(payload)
     return finish(
-      failed ? { type: "error", message: failed } : { type: "stored" },
+      error ? { type: "error", message: error } : { type: "stored" },
     )
   }
   if (payload?.action !== "http")
@@ -168,9 +175,14 @@ async function invoke(request, response) {
         status: answer.statusCode,
         headers: endToEndHeaders(answer.headers),
       })
-      answer.on("data", (chunk) =>
-        send({ type: "body", data: chunk.toString("base64") }),
-      )
+      answer.on("data", (chunk) => {
+        send({ type: "body", data: chunk.toString("base64") })
+        // A slow reader: hold the port's answer until the buffer drains.
+        if (open && response.writableNeedDrain) {
+          answer.pause()
+          response.once("drain", () => answer.resume())
+        }
+      })
       answer.on("end", () => finish({ type: "end" }))
       answer.on("error", (error) =>
         finish({ type: "error", message: String(error) }),
@@ -189,34 +201,28 @@ async function invoke(request, response) {
   upstream.end(forward.body)
 }
 
-/** The shim's HTTP server; not listening yet. */
-export function shimServer() {
-  return (
-    createServer((request, response) => {
+/**
+ * The shim's two servers, not listening yet, on one blob store:
+ * `invocations` for AgentCore on TCP 8080 (`GET /ping`, `POST /invocations`),
+ * and `blobs` for commands in the sandbox (`GET /blobs/<id>`). The blob
+ * server listens only on a Unix socket in a folder of the shim's user
+ * (`node`), so root and `node` can read a blob and the ingest agent user
+ * (ADR-052) cannot, also when it sees a blob id in a command line.
+ */
+export function shim() {
+  const store = blobStore()
+  return {
+    invocations: createServer((request, response) => {
       if (request.method === "GET" && request.url === "/ping") {
         response.writeHead(200, { "content-type": "application/json" })
         response.end(JSON.stringify({ status: "Healthy" }))
-        return
-      }
-      const blob = /^\/blobs\/([0-9a-f]{32,64})$/.exec(request.url ?? "")
-      if (request.method === "GET" && blob) {
-        const bytes = take(blob[1])
-        if (!bytes) {
-          response.writeHead(404).end()
-          return
-        }
-        response.writeHead(200, {
-          "content-type": "application/octet-stream",
-          "content-length": bytes.length,
-        })
-        response.end(bytes)
         return
       }
       if (
         request.method === "POST" &&
         request.url?.startsWith("/invocations")
       ) {
-        invoke(request, response).catch((error) => {
+        invoke(store, request, response).catch((error) => {
           if (!response.headersSent) response.writeHead(500)
           response.end(String(error))
         })
@@ -225,9 +231,48 @@ export function shimServer() {
       response.writeHead(404).end()
     })
       // No request timeout: an event stream can stay open for a whole turn.
-      .setTimeout(0)
-  )
+      .setTimeout(0),
+    blobs: createServer((request, response) => {
+      const bytes =
+        request.method === "GET" && request.url?.startsWith("/blobs/")
+          ? store.take(request.url.slice("/blobs/".length))
+          : undefined
+      if (!bytes) {
+        response.writeHead(404).end()
+        return
+      }
+      response.writeHead(200, {
+        "content-type": "application/octet-stream",
+        "content-length": bytes.length,
+      })
+      response.end(bytes)
+    }),
+  }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href)
-  shimServer().listen(8080, "0.0.0.0")
+/** Where commands read blobs: a socket in a folder that only `node` owns. */
+export const BLOB_SOCKET = "/tmp/ctxpipe-shim/blobs.sock"
+
+/**
+ * Make the socket's folder, mode 0700 and owned by this process's user. The
+ * shim starts before any command, but the check also refuses a folder that
+ * another user made first.
+ */
+function blobSocketFolder(folder) {
+  mkdirSync(folder, { recursive: true, mode: 0o700 })
+  const stat = lstatSync(folder)
+  if (
+    !stat.isDirectory() ||
+    stat.uid !== process.getuid() ||
+    (stat.mode & 0o777) !== 0o700
+  )
+    throw new Error(`${folder} must be a 0700 folder of the shim's user`)
+  rmSync(join(folder, "blobs.sock"), { force: true })
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  const { invocations, blobs } = shim()
+  blobSocketFolder(dirname(BLOB_SOCKET))
+  blobs.listen(BLOB_SOCKET)
+  invocations.listen(8080, "0.0.0.0")
+}

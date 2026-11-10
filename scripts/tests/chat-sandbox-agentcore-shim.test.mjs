@@ -1,9 +1,11 @@
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
-import { createServer } from "node:http"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { createServer, get as httpGet } from "node:http"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { test } from "node:test"
 
-import { shimServer } from "../chat-sandbox/agentcore-shim.mjs"
+import { shim as makeShim } from "../chat-sandbox/agentcore-shim.mjs"
 
 const listen = (server) =>
   new Promise((resolve) =>
@@ -33,7 +35,7 @@ const bodyOf = (events) =>
   ).toString("utf8")
 
 test("the shim answers the AgentCore health check", async (t) => {
-  const shim = shimServer()
+  const shim = makeShim().invocations
   t.after(() => shim.close())
   const response = await fetch(`http://127.0.0.1:${await listen(shim)}/ping`)
   assert.equal(response.status, 200)
@@ -57,7 +59,7 @@ test("the shim forwards a request to a sandbox port and streams the answer", asy
       response.end(JSON.stringify({ ok: true }))
     })
   })
-  const shim = shimServer()
+  const shim = makeShim().invocations
   t.after(() => {
     upstream.close()
     shim.close()
@@ -100,7 +102,7 @@ test("the shim stops the request to the port when the backend closes the invocat
     response.write("data: first\n\n")
     request.on("close", upstreamClosed)
   })
-  const shim = shimServer()
+  const shim = makeShim().invocations
   t.after(() => {
     upstream.close()
     shim.close()
@@ -129,7 +131,7 @@ test("the shim stops the request to the port when the backend closes the invocat
 })
 
 test("the shim refuses a request that is not a forward to a sandbox port", async (t) => {
-  const shim = shimServer()
+  const shim = makeShim().invocations
   t.after(() => shim.close())
   const port = await listen(shim)
   for (const [payload, message] of [
@@ -151,7 +153,7 @@ test("the shim reports a port that does not answer", async (t) => {
   const closedPort = await listen(gone)
   // Closed again, so the port refuses connections.
   await new Promise((resolve) => gone.close(resolve))
-  const shim = shimServer()
+  const shim = makeShim().invocations
   t.after(() => shim.close())
   const events = await invoke(await listen(shim), {
     action: "http",
@@ -174,10 +176,29 @@ test("the shim uses no Node crypto: no import and no global (spike CTX-1213, tes
   assert.doesNotMatch(code, /\bcrypto\b|randomUUID|getRandomValues|randomBytes/)
 })
 
-test("the shim keeps a blob for one read by a command in the sandbox", async (t) => {
-  const shim = shimServer()
-  t.after(() => shim.close())
-  const port = await listen(shim)
+/** GET a path on a Unix socket: the status and the body. */
+const getOnSocket = (socketPath, path) =>
+  new Promise((resolve, reject) => {
+    httpGet({ socketPath, path }, (answer) => {
+      const chunks = []
+      answer.on("data", (chunk) => chunks.push(chunk))
+      answer.on("end", () =>
+        resolve({ status: answer.statusCode, body: Buffer.concat(chunks) }),
+      )
+    }).on("error", reject)
+  })
+
+test("the shim keeps a blob for one read on its socket, not on TCP", async (t) => {
+  const { invocations, blobs } = makeShim()
+  const folder = mkdtempSync(join(tmpdir(), "shim-"))
+  const socket = join(folder, "blobs.sock")
+  await new Promise((resolve) => blobs.listen(socket, resolve))
+  t.after(() => {
+    invocations.close()
+    blobs.close()
+    rmSync(folder, { recursive: true, force: true })
+  })
+  const port = await listen(invocations)
   const id = "a".repeat(32)
   const data = Buffer.from("export HTTPS_PROXY='https://session@vault:14322'\n")
   assert.deepEqual(
@@ -188,11 +209,15 @@ test("the shim keeps a blob for one read by a command in the sandbox", async (t)
   assert.deepEqual(await invoke(port, { action: "put", id, data: "eA==" }), [
     { type: "error", message: "The id is in use" },
   ])
-  const first = await fetch(`http://127.0.0.1:${port}/blobs/${id}`)
+  // AgentCore's port does not serve blobs.
+  assert.equal(
+    (await fetch(`http://127.0.0.1:${port}/blobs/${id}`)).status,
+    404,
+  )
+  const first = await getOnSocket(socket, `/blobs/${id}`)
   assert.equal(first.status, 200)
-  assert.deepEqual(Buffer.from(await first.arrayBuffer()), data)
-  const second = await fetch(`http://127.0.0.1:${port}/blobs/${id}`)
-  assert.equal(second.status, 404)
+  assert.deepEqual(first.body, data)
+  assert.equal((await getOnSocket(socket, `/blobs/${id}`)).status, 404)
   assert.deepEqual(
     await invoke(port, { action: "put", id: "short", data: "" }),
     [{ type: "error", message: "The id must be 32 to 64 hex characters" }],
