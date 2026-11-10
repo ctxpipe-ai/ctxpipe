@@ -256,7 +256,7 @@ test("each planned check goes to the job that runs it, and a job without one doe
   })
   assert.equal(stories.outputs["storybook-build"], "true")
   assert.equal(stories.jobs["storybook-plays"][0].plan.ids.length, 2)
-  // A screenshot check runs in the one screenshots job, after the build.
+  // A screenshot check runs in the screenshots shards, after the build.
   const screenshot = "storybook:visual:apps/ui/src/e.stories.tsx#e--one"
   assert.deepEqual(placeOf(screenshot), { job: "storybook-visual" })
   const shots = planOf({
@@ -265,8 +265,10 @@ test("each planned check goes to the job that runs it, and a job without one doe
     },
   })
   assert.equal(shots.outputs["storybook-build"], "true")
-  assert.equal(shots.outputs["storybook-visual"], "1")
-  assert.deepEqual(shots.jobs["storybook-visual"].ids, [screenshot])
+  assert.deepEqual(JSON.parse(shots.outputs["storybook-visual"]), [
+    { lane: "selected", shard: 1, count: 1 },
+  ])
+  assert.deepEqual(shots.jobs["storybook-visual"][0].plan.ids, [screenshot])
   assert.equal(shots.jobs["storybook-plays"], undefined)
 })
 

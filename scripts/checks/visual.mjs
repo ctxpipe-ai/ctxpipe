@@ -39,6 +39,14 @@ const inputs = [
   "packages/visual-review/src/compare/**",
 ]
 
+// The check id of the screenshots of a story (an index.json entry). The
+// nightly trace also records each story under this id
+// (scripts/ci/storybook-plays.mjs), so that selection maps a changed line to
+// the screenshots of the stories that run it.
+export function visualCheckId(story) {
+  return `storybook:visual:apps/ui/${story.importPath.replace(/^\.\//, "")}#${story.id}`
+}
+
 // The checks of the stories of the Storybook index. `options` are the
 // screenshot options of each story (visualOptions); a story with `skip` has
 // no check. A story has a screenshot at each of its viewports: by default
@@ -84,7 +92,7 @@ export function listVisual(entries, unstable, options = new Map()) {
       if (!ownInputs.length) return []
       return [
         {
-          id: `storybook:visual:${file}#${story.id}`,
+          id: visualCheckId(story),
           family: "storybook",
           lane: "visual",
           root: "apps/ui",

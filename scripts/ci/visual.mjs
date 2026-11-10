@@ -34,7 +34,9 @@ import pin from "./visual-container.json" with { type: "json" }
 //   --only, it checks only those stories: it does not look for orphans, and
 //   only the image budget of their baselines applies. With --records <dir>,
 //   it also writes one result record for each story to <dir>/records.ndjson
-//   (the visual checks, scripts/checks/visual.mjs).
+//   (the visual checks, scripts/checks/visual.mjs). With --shard i/n (a job
+//   of the full run in CI), it checks every n-th story by id, from the i-th;
+//   shard 1 also looks for the orphans and checks the total size.
 // - update: writes the baselines of the selected stories (all, the story ids
 //   of --only, or with --failed the stories that the last check failed), and
 //   deletes the orphan baselines.
@@ -46,7 +48,7 @@ import pin from "./visual-container.json" with { type: "json" }
 // both commands skip it and print the reason. The baseline of a skipped
 // story is an orphan.
 //
-// Usage: node scripts/ci/visual.mjs check [--only <id>,<id>...] [--records <dir>]
+// Usage: node scripts/ci/visual.mjs check [--only <id>,<id>... | --shard <i>/<n>] [--records <dir>]
 //        node scripts/ci/visual.mjs update [--only <id>,<id>... | --failed]
 // The pnpm scripts build Storybook first.
 
@@ -57,18 +59,20 @@ const { values, positionals } = parseArgs({
     only: { type: "string" },
     failed: { type: "boolean", default: false },
     records: { type: "string" },
+    shard: { type: "string" },
   },
 })
 const mode = positionals[0]
 const only = values.only?.split(",").filter(Boolean)
+const [at, count] = (values.shard ?? "").split("/").map(Number)
 if (
   !["check", "update"].includes(mode) ||
   (mode === "check" && values.failed) ||
-  (mode === "update" && values.records) ||
-  (only && values.failed)
+  (mode === "update" && (values.records || values.shard)) ||
+  (only && (values.failed || values.shard))
 ) {
   process.stderr.write(
-    "Usage: node scripts/ci/visual.mjs check [--only <id>,<id>...] [--records <dir>]\n       node scripts/ci/visual.mjs update [--only <id>,<id>... | --failed]\n",
+    "Usage: node scripts/ci/visual.mjs check [--only <id>,<id>... | --shard <i>/<n>] [--records <dir>]\n       node scripts/ci/visual.mjs update [--only <id>,<id>... | --failed]\n",
   )
   process.exit(2)
 }
@@ -129,6 +133,7 @@ const result = await runVisual({
   },
   print: (line) => process.stdout.write(`${line}\n`),
   only,
+  ...(values.shard && { shard: { at, count } }),
   failed: values.failed,
 })
 if (values.records) {

@@ -347,6 +347,52 @@ describe("visual:check", () => {
     })
   })
 
+  test("the shards of a full check compare each story once; the first one also finds the orphans and the total size", async () => {
+    await visual("update")
+    const gone =
+      "apps/ui/src/features/card/screenshots/Card.Gone.desktop.screenshot.png"
+    await put(gone, blue)
+    const budget = { total: 100, image: 1024 * 1024 }
+    const shard = async (at: number) => {
+      captured = []
+      const result = await runWith("check", { shard: { at, count: 2 }, budget })
+      return { result, captured: [...captured].sort() }
+    }
+    // By story id: canvas (known unstable), card, home. The shard of 2 holds
+    // every second one.
+    const first = await shard(1)
+    expect(first.captured).toEqual([`${home.id} desktop`, `${home.id} mobile`])
+    expect(
+      first.result.stories.map((story) => [story.baseline, story.status]),
+    ).toEqual([
+      [homeDesktop, "unchanged"],
+      [homeMobile, "unchanged"],
+      [gone, "removed"],
+    ])
+    expect(first.result.budget).toEqual([
+      { message: expect.stringMatching(/in total/) },
+    ])
+    expect(first.result.code).toBe(1)
+    const second = await shard(2)
+    expect(second.captured).toEqual([`${card.id} desktop`])
+    expect(second.result).toMatchObject({ code: 0, budget: [] })
+    expect(
+      second.result.stories.map((story) => [story.baseline, story.status]),
+    ).toEqual([[cardDesktop, "unchanged"]])
+  })
+
+  test("a shard is only a part of a full check", async () => {
+    for (const more of [
+      { mode: "update" as const, shard: { at: 1, count: 2 } },
+      { mode: "check" as const, shard: { at: 1, count: 2 }, only: [home.id] },
+      { mode: "check" as const, shard: { at: 3, count: 2 } },
+      { mode: "check" as const, shard: { at: 0, count: 2 } },
+    ])
+      await expect(runWith(more.mode, more)).rejects.toThrow(
+        /A shard is one part/,
+      )
+  })
+
   test("with only, a named story's baseline above the image budget fails and is named", async () => {
     shots.set(`${card.id} desktop`, { status: "captured", png: noise() })
     await visual("update")
