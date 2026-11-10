@@ -144,6 +144,22 @@ describe("agentCoreSandboxProvider", () => {
     await provider.destroy({ id: handle.id })
   })
 
+  it("makes no call for a kill or an abort after a command finished, so a stopped session stays stopped", async () => {
+    const handle = await provider.create({})
+    const controller = new AbortController()
+    const job = await handle.process.spawn("true", {
+      signal: controller.signal,
+    })
+    expect(await job.wait()).toBe(0)
+    await provider.destroy({ id: handle.id })
+    const calls = fake.calls.length
+    await job.kill("SIGKILL")
+    controller.abort()
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(fake.calls.length).toBe(calls)
+    expect(fake.running.has(handle.id)).toBe(false)
+  })
+
   it("resumes the same microVM, and gives null when AgentCore started a new one", async () => {
     const handle = await provider.create({})
     await handle.fs.write("kept.txt", "kept")

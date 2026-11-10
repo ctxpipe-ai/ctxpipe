@@ -355,9 +355,12 @@ function agentCoreHandle(
       resolvePgid = resolve
       rejectPgid = reject
     })
+    let settled = false
     const kill = async (signal: NodeJS.Signals | number = "SIGTERM") => {
       const group = pgid ?? (await started.catch(() => undefined))
-      if (group === undefined) return
+      // A finished process has nothing to kill, and a call to a stopped
+      // session would start a new, empty microVM.
+      if (group === undefined || settled) return
       const name =
         typeof signal === "number" ? String(signal) : signal.replace(/^SIG/, "")
       // Dash's `kill` refuses `--`: the group id follows the signal.
@@ -421,15 +424,35 @@ function agentCoreHandle(
         stderr.end()
       }
     })()
-    // `wait` gives the error; this keeps an unread failure from crashing.
-    exited.catch(() => undefined)
     if (options.signal) {
+      const { signal } = options
+      // The stream always ends, also when the kill call fails; the command
+      // then fails with the abort reason (see `throwIfAborted` above).
       const onAbort = () => {
-        void kill("SIGKILL").finally(() => stream.abort())
+        kill("SIGKILL")
+          .catch((error: unknown) =>
+            log.warn({
+              step: "agentcore-sandbox-kill",
+              message: `Killing an aborted command failed: ${String(error)}`,
+              sessionId,
+            }),
+          )
+          .finally(() => stream.abort(signal.reason))
       }
-      if (options.signal.aborted) onAbort()
-      else options.signal.addEventListener("abort", onAbort, { once: true })
+      if (signal.aborted) onAbort()
+      else {
+        signal.addEventListener("abort", onAbort, { once: true })
+        void exited.then(
+          () => signal.removeEventListener("abort", onAbort),
+          () => signal.removeEventListener("abort", onAbort),
+        )
+      }
     }
+    // `wait` gives the error; this keeps an unread failure from crashing.
+    void exited.then(
+      () => (settled = true),
+      () => (settled = true),
+    )
     return {
       pid: await started,
       stdout,
