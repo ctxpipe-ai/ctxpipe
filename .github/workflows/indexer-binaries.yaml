@@ -1,0 +1,111 @@
+# Builds scip-clang and scip-ruby from their pinned upstream commits for
+# linux/amd64 and linux/arm64 on Debian Bookworm (apps/codesearch/indexers/Dockerfile).
+# Upstream publishes only x86_64 binaries, and they need GLIBC 2.38.
+#
+# - A pull request that changes the build runs both builds, with no release.
+# - Run workflow (workflow_dispatch) on main also publishes the binaries and
+#   their SHA256SUMS to the GitHub release `codesearch-indexers-<commit>`.
+#   Then pin the new files in apps/codesearch/release-assets.txt.
+#
+# Each run builds from a clean runner, because the binaries go to production.
+# The release is the cache: the codesearch image downloads the published
+# binaries and never compiles them. A cold build takes more than 10 minutes,
+# but it runs only when an indexer version or the build changes.
+
+name: Indexer binaries
+
+on:
+  pull_request:
+    paths:
+      - "apps/codesearch/indexers/**"
+      - "apps/codesearch/test/fixtures/scip-cpp/**"
+      - "apps/codesearch/test/fixtures/scip-ruby/**"
+      - ".github/workflows/indexer-binaries.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: indexer-binaries-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The two build jobs share their steps (the anchor). Only the runner and
+  # ARCH differ: check-runners.mjs needs a literal runner label on each job.
+  build-arm64:
+    timeout-minutes: 240
+    name: Build (arm64)
+    runs-on: blacksmith-16vcpu-ubuntu-2404-arm
+    env:
+      ARCH: arm64
+    steps: &build-steps
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Build and verify
+        run: |
+          start="$(date +%s)"
+          docker buildx build --progress=plain \
+            -f apps/codesearch/indexers/Dockerfile --target binaries \
+            --output "type=local,dest=$RUNNER_TEMP/out" .
+          seconds="$(( $(date +%s) - start ))"
+          cd "$RUNNER_TEMP/out"
+          mv scip-clang "scip-clang-linux-$ARCH"
+          mv scip-ruby "scip-ruby-linux-$ARCH"
+          echo "linux/$ARCH build: ${seconds} s on ${RUNNER_NAME}" | tee "build-time-$ARCH.txt" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: indexers-${{ env.ARCH }}
+          path: ${{ runner.temp }}/out/*
+          if-no-files-found: error
+
+  build-amd64:
+    timeout-minutes: 240
+    name: Build (amd64)
+    # amd64: it builds the linux/amd64 binaries natively.
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    env:
+      ARCH: amd64
+    steps: *build-steps
+
+  # Only this job can write to the repository. It runs no build and no
+  # upstream code: it uploads the files that the build jobs verified.
+  publish:
+    timeout-minutes: 10
+    name: Publish release
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: [build-arm64, build-amd64]
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: ${{ runner.temp }}/indexers
+          merge-multiple: true
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$RUNNER_TEMP/indexers"
+          sha256sum scip-clang-linux-* scip-ruby-linux-* > SHA256SUMS
+          tag="codesearch-indexers-${GITHUB_SHA::12}"
+          {
+            echo "scip-clang and scip-ruby built on Debian Bookworm (GLIBC 2.36 or less) from the pinned upstream revisions in apps/codesearch/indexers/Dockerfile at ${GITHUB_SHA}."
+            echo
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            cat build-time-*.txt
+            echo
+            echo '```'
+            cat SHA256SUMS
+            echo '```'
+          } > notes.md
+          gh release create "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --latest=false \
+            --title "codesearch indexers ${GITHUB_SHA::12}" \
+            --notes-file notes.md \
+            scip-clang-linux-* scip-ruby-linux-* SHA256SUMS
