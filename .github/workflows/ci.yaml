@@ -871,6 +871,13 @@ jobs:
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-plays != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # The id of the result artifact of each shard: the job Nightly tickets
+    # downloads only these, not an artifact of another job with the same name.
+    outputs:
+      artifact-1: ${{ steps.artifact.outputs.artifact-1 }}
+      artifact-2: ${{ steps.artifact.outputs.artifact-2 }}
+      artifact-3: ${{ steps.artifact.outputs.artifact-3 }}
+      artifact-4: ${{ steps.artifact.outputs.artifact-4 }}
     strategy:
       fail-fast: false
       matrix:
@@ -933,6 +940,7 @@ jobs:
           SKIP_STORYBOOK_BUILD: "1"
         run: node scripts/checks/rerun-failed.mjs .ci-results/storybook-plays
       - name: Preserve play results
+        id: preserve
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -940,6 +948,13 @@ jobs:
           path: .ci-results/storybook-plays/
           include-hidden-files: true
           if-no-files-found: error
+      - name: The artifact id of the shard
+        id: artifact
+        if: always() && github.event_name == 'schedule'
+        env:
+          SHARD: ${{ matrix.shard }}
+          ID: ${{ steps.preserve.outputs.artifact-id }}
+        run: echo "artifact-${SHARD}=${ID}" >> "$GITHUB_OUTPUT"
       - name: Preserve the Storybook trace
         if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -967,6 +982,13 @@ jobs:
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-visual != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # The id of the result artifact of each shard: the job Nightly tickets
+    # downloads only these, not an artifact of another job with the same name.
+    outputs:
+      artifact-1: ${{ steps.artifact.outputs.artifact-1 }}
+      artifact-2: ${{ steps.artifact.outputs.artifact-2 }}
+      artifact-3: ${{ steps.artifact.outputs.artifact-3 }}
+      artifact-4: ${{ steps.artifact.outputs.artifact-4 }}
     strategy:
       fail-fast: false
       matrix:
@@ -1027,6 +1049,7 @@ jobs:
       # unchanged (.ci-results/visual/<story id>/), one artifact for each
       # shard.
       - name: Preserve screenshot results
+        id: preserve
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -1038,6 +1061,13 @@ jobs:
             .ci-results/checks/
           include-hidden-files: true
           if-no-files-found: error
+      - name: The artifact id of the shard
+        id: artifact
+        if: always() && github.event_name == 'schedule'
+        env:
+          SHARD: ${{ matrix.shard }}
+          ID: ${{ steps.preserve.outputs.artifact-id }}
+        run: echo "artifact-${SHARD}=${ID}" >> "$GITHUB_OUTPUT"
 
   codesearch:
     timeout-minutes: 30
@@ -2537,13 +2567,20 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
+      # Only the artifacts that the Storybook shards name by id: another job
+      # of the run can upload an artifact with the same name.
+      - name: The artifact ids of the Storybook shards
+        id: ids
+        env:
+          VISUAL: ${{ join(needs.storybook-visual.outputs.*, ',') }}
+          PLAYS: ${{ join(needs.storybook-plays.outputs.*, ',') }}
+        run: |
+          ids="$(printf '%s,%s' "$VISUAL" "$PLAYS" | tr ',' '\n' | grep -E '^[0-9]+$' | paste -sd, - || true)"
+          echo "ids=${ids}" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: steps.ids.outputs.ids != ''
         with:
-          pattern: test-results-storybook-visual-*
-          path: ${{ runner.temp }}/results
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: storybook-plays-results-*
+          artifact-ids: ${{ steps.ids.outputs.ids }}
           path: ${{ runner.temp }}/results
       - name: Open the tickets of the flakes and the failed jobs
         id: tickets

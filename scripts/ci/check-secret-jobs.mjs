@@ -334,6 +334,8 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     // The job reads the result records and the visual manifests of the
     // nightly Storybook jobs only as data (scripts/ci/nightly.mjs), with the
     // Linear key of the workbench environment. It runs no downloaded file.
+    // It downloads by the artifact ids that the Storybook shards give, so
+    // another job of the run cannot replace them.
     "ci.yaml:nightly-tickets",
     // The job reads plan.json of the merge gate plan job only as data: the
     // check ids that selected.mjs runs. It downloads the artifact by the id

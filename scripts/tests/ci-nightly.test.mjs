@@ -479,4 +479,19 @@ test("each job of the nightly run waits for the job Nightly change and does not 
     jobs["nightly-tickets"].if,
     /needs\.nightly-change\.outputs\.run != 'false'/,
   )
+  // The job with the Linear key downloads only the artifacts that the
+  // Storybook shards name by id, never by a name or a pattern.
+  const downloads = jobs["nightly-tickets"].steps.filter((step) =>
+    step.uses?.startsWith("actions/download-artifact@"),
+  )
+  assert.ok(downloads.length > 0)
+  for (const step of downloads)
+    assert.deepEqual(Object.keys(step.with).sort(), ["artifact-ids", "path"])
+  for (const job of ["storybook-plays", "storybook-visual"])
+    assert.deepEqual(Object.keys(jobs[job].outputs), [
+      "artifact-1",
+      "artifact-2",
+      "artifact-3",
+      "artifact-4",
+    ])
 })
