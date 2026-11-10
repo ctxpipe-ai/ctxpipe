@@ -1,10 +1,12 @@
-import {
-  type QueryClient,
-  useQueryClient,
-  useSuspenseQuery,
-} from "@tanstack/react-query"
+import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
-import { useCallback, useEffect, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react"
 
 import { useSideNavLocation } from "@/components/ShellLayoutContext"
 import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
@@ -45,7 +47,7 @@ import {
 } from "./queries"
 import type { WorkspaceDetail } from "./types"
 import { useWorkspaceConversationPublish } from "./useWorkspaceConversationPublish"
-import { WorkspaceChat } from "./WorkspaceChat"
+import { conversationTitleFromList, WorkspaceChat } from "./WorkspaceChat"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
 import { workspaceChatColumnClassName } from "./workspaceChrome"
 import {
@@ -328,7 +330,6 @@ function WorkspaceSurfaceSession(props: {
 }) {
   const { orgSlug, workspaceSlug, workspace, conversationId, paneParam } = props
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const initialPane = landingPane(paneParam)
   const [shownPane, setShownPane] = useState<ParsedPane | null>(initialPane)
   const [maximized, setMaximized] = useState(false)
@@ -340,6 +341,30 @@ function WorkspaceSurfaceSession(props: {
     previewPath: null,
   })
 
+  // The pane header shows the title when the conversation column is hidden.
+  // Read it from the cached conversation list (the side nav loads it), and
+  // render again when the cache changes. No query observer: an observer on
+  // the key of the list would change the options of its infinite query.
+  const queryClient = useQueryClient()
+  const listedTitleSnapshot = () =>
+    conversationId
+      ? conversationTitleFromList(
+          queryClient,
+          orgSlug,
+          workspace.id,
+          conversationId,
+        )?.trim()
+      : undefined
+  const subscribe = useCallback(
+    (onChange: () => void) => queryClient.getQueryCache().subscribe(onChange),
+    [queryClient],
+  )
+  const listedTitle = useSyncExternalStore(
+    subscribe,
+    listedTitleSnapshot,
+    listedTitleSnapshot,
+  )
+  const conversationTitle = listedTitle || "New conversation"
   const fileFromPane = shownPane?.kind === "file" ? shownPane.path : null
   const openFileTabs = tabsIncludingPanePath(fileTabs.tabs, fileFromPane)
 
@@ -379,12 +404,7 @@ function WorkspaceSurfaceSession(props: {
       orgSlug={orgSlug}
       workspace={workspace}
       conversationId={conversationId}
-      conversationTitle={conversationTitleFromList(
-        queryClient,
-        orgSlug,
-        workspace.id,
-        conversationId,
-      )}
+      conversationTitle={conversationTitle}
       shownPane={shownPane}
       maximized={maximized}
       paneWidth={paneWidth}
@@ -400,22 +420,6 @@ function WorkspaceSurfaceSession(props: {
       setPane={setPane}
     />
   )
-}
-
-function conversationTitleFromList(
-  queryClient: QueryClient,
-  orgSlug: string,
-  workspaceId: string,
-  conversationId?: string,
-) {
-  if (!conversationId) return "New conversation"
-  const cached = queryClient.getQueryData<{
-    pages: { items: { id: string; name: string }[] }[]
-  }>(workspaceKeys.conversations(orgSlug, workspaceId))
-  const name = cached?.pages
-    .flatMap((page) => page.items)
-    .find((item) => item.id === conversationId)?.name
-  return name?.trim() || "New conversation"
 }
 
 function WorkspaceSurfaceLayout(props: {

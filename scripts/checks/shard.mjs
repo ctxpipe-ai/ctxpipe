@@ -16,10 +16,12 @@ export const profiles = {
   codesearch: { setupMinutes: 0.3, maxShards: 1 },
   vercel: { setupMinutes: 0.8, maxShards: 1 },
   storybook: { setupMinutes: 0.6, maxShards: 5 },
-  // The screenshots job: the setup of a Storybook shard and the pull of the
-  // pinned Playwright image (an estimate; the job is not measured yet). One
-  // job: its shards are CTX-1192.
-  visual: { setupMinutes: 1.5, maxShards: 1 },
+  // The screenshots job: checkout, install, the Storybook build and the pull
+  // of the pinned Playwright image, from the job start to the first capture
+  // (43 seconds on CI run 42552424967; 22 to 39 seconds to the capture step
+  // in 3 more runs). Its one job captured about 900 stories in 30 minutes,
+  // so a full run has 4 shards.
+  visual: { setupMinutes: 0.8, maxShards: 4 },
 }
 
 // A Storybook or screenshots shard needs the Storybook build job first.
@@ -149,8 +151,13 @@ function laneMedian(seconds, lane) {
 // weights of CI (scripts/ci/test-weights.json), then the median of the
 // traced checks of its lane, then a fixed guess.
 export function estimate(id, seconds, fileWeights = weights()) {
-  if (seconds.has(id)) return seconds.get(id)
   const [family, lane, ...rest] = id.split(":")
+  // The trace holds the lines of a screenshot check from the plays run
+  // (storybook-plays.mjs), so its time is the play time, not the capture
+  // time in the container. A full run captured about 900 stories in 30
+  // minutes: 2 seconds each.
+  if (family === "storybook" && lane === "visual") return 2
+  if (seconds.has(id)) return seconds.get(id)
   const file = rest.join(":")
   const directory = { backend: "apps/backend/", contracts: "apps/backend/" }
   const weight = fileWeights[lane]?.[file.replace(directory[lane] ?? "", "")]

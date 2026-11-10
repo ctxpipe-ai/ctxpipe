@@ -103,7 +103,11 @@ const shotKey = (shot: Shot) =>
  *   that is not unchanged and `manifest.json` into `out`. It never writes or
  *   deletes a baseline. With `only` (the visual checks of
  *   scripts/checks/visual.mjs), it does not look for orphans, and only the
- *   image budget of the baselines of those stories applies.
+ *   image budget of the baselines of those stories applies. With `shard`
+ *   (one job of a full run in CI), it checks every `count`-th story by id,
+ *   from the `at`-th: the shards together check each story once. Each shard
+ *   checks the image budget of its own baselines, and the first shard also
+ *   looks for orphans and checks the total size.
  * - `update` captures the selected stories (all, `only`, or with `failed`
  *   the stories of the last check that were not unchanged), writes each
  *   baseline that changed (recompressed without loss), and deletes the
@@ -124,6 +128,7 @@ export async function runVisual({
   run,
   print,
   only,
+  shard,
   failed = false,
   budget = { total: 60 * 1024 * 1024, image: 1024 * 1024 },
 }: {
@@ -144,6 +149,8 @@ export async function runVisual({
   print: (line: string) => void
   /** The story ids to compare (`check`) or to accept (`update`). */
   only?: readonly string[]
+  /** Only with `check` and without `only`: one shard of a full run. */
+  shard?: { at: number; count: number }
   /** Only with `update`: accept the stories that the last check failed. */
   failed?: boolean
   /** The largest total size and the largest size of one image, in bytes. */
@@ -154,6 +161,28 @@ export async function runVisual({
   stories: ManifestStory[]
   budget: BudgetError[]
 }> {
+  if (
+    shard &&
+    (mode !== "check" ||
+      only ||
+      !(
+        Number.isInteger(shard.at) &&
+        Number.isInteger(shard.count) &&
+        shard.at >= 1 &&
+        shard.at <= shard.count
+      ))
+  )
+    throw new Error(
+      `A shard is one part of a full check: at and count are integers with 1 <= at <= count (got ${shard.at}/${shard.count}, mode ${mode}${only ? ", with only" : ""}).`,
+    )
+  // The story ids that this run compares or accepts; undefined for all.
+  const subset =
+    only ??
+    (shard &&
+      stories
+        .map((story) => story.id)
+        .sort()
+        .filter((_, position) => position % shard.count === shard.at - 1))
   const shots = stories.flatMap((story): Shot[] => {
     const storyFile = posix.join("apps/ui", story.importPath)
     const page = (story.tags ?? []).includes("page")
@@ -185,7 +214,7 @@ export async function runVisual({
     )?.ticket
   for (const shot of shots) {
     const ticket = ticketOf(shot)
-    if (ticket && (!only || only.includes(shot.story.id)))
+    if (ticket && (!subset || subset.includes(shot.story.id)))
       print(
         `skipped: ${shot.story.id} at ${shot.viewport} (known unstable, ${ticket})`,
       )
@@ -196,9 +225,10 @@ export async function runVisual({
   const expected = new Set(
     shots.filter((shot) => !ticketOf(shot)).map((shot) => shot.baseline),
   )
-  // A check of some stories does not look at the files of other stories.
+  // A check of some stories does not look at the files of other stories;
+  // the first shard of a full run looks for the orphans of all of them.
   const orphans =
-    mode === "check" && only
+    mode === "check" && subset && shard?.at !== 1
       ? []
       : (await baselineFiles(root)).filter((path) => !expected.has(path)).sort()
 
@@ -210,6 +240,8 @@ export async function runVisual({
     if (unknown.length)
       throw new Error(`Not in the Storybook build: ${unknown.join(", ")}`)
     selected = selected.filter((shot) => only.includes(shot.story.id))
+  } else if (subset) {
+    selected = selected.filter((shot) => subset.includes(shot.story.id))
   } else if (mode === "update" && failed) {
     const text = await readFile(join(out, "manifest.json"), "utf8").catch(
       () => {
@@ -305,10 +337,15 @@ export async function runVisual({
   const over = await overBudget(
     root,
     budget,
-    mode === "check" && only
+    mode === "check" && subset
       ? selected.map((shot) => shot.baseline)
       : undefined,
   )
+  // The first shard of a full run also checks the total size.
+  if (shard?.at === 1)
+    over.push(
+      ...(await overBudget(root, budget)).filter((error) => !error.path),
+    )
   for (const error of over) print(error.message)
   return {
     code: failures || over.length ? 1 : 0,

@@ -755,6 +755,8 @@ jobs:
     name: Storybook build
     needs: merge-gate-plan
     # The nightly run (schedule) also plays the stories, to record the trace.
+    # It also renders the stories without a play function, and records each
+    # story under the id of its screenshot check (storybook-plays.mjs).
     if: |
       !cancelled() &&
       (github.event_name == 'workflow_dispatch' ||
@@ -828,6 +830,8 @@ jobs:
     name: Storybook Playwright all plays (${{ matrix.shard }}/${{ matrix.count }})
     needs: [merge-gate-plan, storybook-build]
     # The nightly run (schedule) also plays the stories, to record the trace.
+    # It also renders the stories without a play function, and records each
+    # story under the id of its screenshot check (storybook-plays.mjs).
     if: |
       !cancelled() && needs.storybook-build.result == 'success' &&
       (github.event_name == 'workflow_dispatch' ||
@@ -914,14 +918,15 @@ jobs:
 
   # The visual checks (scripts/checks/README.md, Families): each story's
   # screenshots, captured in the pinned Playwright image and compared with
-  # the committed baselines. A full run checks every story, the orphan
-  # baselines and the size budget (pnpm visual:check); a gated run checks
-  # the selected stories. The nightly run is the full run of main: a push to
-  # main runs no test job. One job: its shards are CTX-1192. A full run took
-  # 30 minutes for about 900 stories.
+  # the committed baselines. A full run checks every story in 4 shards, and
+  # its shard 1 also checks the orphan baselines and the total size
+  # (pnpm visual:check --shard); a gated run checks the selected stories in
+  # the shards of the plan. The nightly run is the full run of main: a push
+  # to main runs no test job. A full run in one job took 30 minutes for
+  # about 900 stories.
   storybook-visual:
-    timeout-minutes: 75
-    name: Storybook screenshots
+    timeout-minutes: 45
+    name: Storybook screenshots (${{ matrix.shard }}/${{ matrix.count }})
     needs: [merge-gate-plan, storybook-build]
     if: |
       !cancelled() && needs.storybook-build.result == 'success' &&
@@ -930,6 +935,15 @@ jobs:
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-visual != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        # In gate mode the plan job gives the shards of the selected stories.
+        include: >-
+          ${{ fromJSON(needs.merge-gate-plan.outputs.storybook-visual || '[
+          {"shard": 1, "count": 4}, {"shard": 2, "count": 4},
+          {"shard": 3, "count": 4}, {"shard": 4, "count": 4}
+          ]') }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - run: corepack enable
@@ -943,22 +957,25 @@ jobs:
         with:
           name: storybook-static
           path: apps/ui/storybook-static
-      - name: Every story screenshot
-        if: needs.merge-gate-plan.outputs.mode != 'gate'
-        run: node scripts/ci/visual.mjs check --records .ci-results/storybook-visual
+      - name: Every story screenshot of the shard
+        if: matrix.lane != 'selected'
+        env:
+          SHARD: ${{ matrix.shard }}/${{ matrix.count }}
+        run: node scripts/ci/visual.mjs check --shard "$SHARD" --records .ci-results/storybook-visual
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
+        if: matrix.lane == 'selected' && needs.merge-gate-plan.outputs.artifact-id != ''
         with:
           artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
           merge-multiple: true
           path: ${{ runner.temp }}/plan
       - name: Selected story screenshots (merge gate)
-        if: needs.merge-gate-plan.outputs.mode == 'gate'
+        if: matrix.lane == 'selected'
         env:
           SKIP_STORYBOOK_BUILD: "1"
-        run: node scripts/checks/selected.mjs .ci-results/storybook-visual "$RUNNER_TEMP/plan/plan.json" storybook-visual
+          SHARD: ${{ matrix.shard }}
+        run: node scripts/checks/selected.mjs .ci-results/storybook-visual "$RUNNER_TEMP/plan/plan.json" storybook-visual "$SHARD"
       # The Results writer quarantines a key only when its check fails again
       # in this one rerun through the public runner (scripts/checks/README.md).
       - name: Run the failed checks again
@@ -969,12 +986,13 @@ jobs:
           SKIP_STORYBOOK_BUILD: "1"
         run: node scripts/checks/rerun-failed.mjs .ci-results/storybook-visual
       # The records, the manifest and the images of each story that is not
-      # unchanged (.ci-results/visual/<story id>/).
+      # unchanged (.ci-results/visual/<story id>/), one artifact for each
+      # shard.
       - name: Preserve screenshot results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: test-results-storybook-visual
+          name: test-results-storybook-visual-${{ matrix.shard }}
           path: |
             .ci-results/storybook-visual/
             .ci-results/visual/
@@ -984,16 +1002,21 @@ jobs:
 
   visual-determinism:
     timeout-minutes: 45
-    name: Screenshot determinism
-    # Only the nightly run: it captures a sample of stories two times in the
-    # pinned Playwright image and fails when a PNG differs or is unstable
-    # (scripts/ci/visual-capture-proof.mjs). It is data for the screenshot
-    # baselines, not a PR check.
+    name: Screenshot determinism (${{ matrix.shard }}/4)
+    # Only the nightly run: it captures every story two times in the pinned
+    # Playwright image, in 4 shards, and fails when a PNG differs or is
+    # unstable (scripts/ci/visual-capture-proof.mjs). The job Unstable
+    # screenshots quarantines the stories that differ. It is data for the
+    # screenshot baselines, not a PR check.
     needs: storybook-build
     if: |
       !cancelled() && needs.storybook-build.result == 'success' &&
       (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - run: corepack enable
@@ -1007,15 +1030,94 @@ jobs:
         with:
           name: storybook-static
           path: apps/ui/storybook-static
-      - name: Capture a sample of stories two times and compare the PNGs
-        run: node scripts/ci/visual-capture-proof.mjs 100
+      - name: Capture every story of the shard two times and compare the PNGs
+        env:
+          SHARD: ${{ matrix.shard }}/4
+        run: node scripts/ci/visual-capture-proof.mjs all --shard "$SHARD"
       - name: Preserve the determinism result
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: visual-determinism
+          name: visual-determinism-${{ matrix.shard }}
           path: .ci-results/visual-capture-proof/
           if-no-files-found: ignore
+
+  # Quarantines the screenshots that differed between the two captures of
+  # the determinism job: a draft pull request adds them to the unstable list
+  # (scripts/ci/visual-unstable-stories.json) and removes their desktop
+  # baselines, also of their named snapshots (an unstable screenshot has
+  # none, so a kept one would be an orphan). Then no screenshot check runs
+  # for them until a person fixes the cause. It runs only on main, runs no
+  # repository script and has no AWS role. When GitHub refuses the pull
+  # request, the error annotation names the stories.
+  unstable-screenshots:
+    timeout-minutes: 10
+    name: Unstable screenshots
+    needs: [visual-determinism]
+    if: always() && needs.visual-determinism.result == 'failure' && github.ref == 'refs/heads/main'
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: visual-determinism-*
+          path: ${{ runner.temp }}/proof
+      - name: Open or update the pull request that quarantines the stories
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          find "$RUNNER_TEMP/proof" -name proof.json -exec cat {} + |
+            jq -sc '[.[].differing // [] | .[]] | unique_by(.id)' > "$RUNNER_TEMP/differing.json"
+          ids="$(jq -c 'map(.id)' "$RUNNER_TEMP/differing.json")"
+          if [ "$ids" = "[]" ]; then
+            echo "No story gave two different images; the job failed for another cause (a broken story or the capture)."
+            exit 0
+          fi
+          # One fixed branch and one pull request: each night adds its
+          # stories to the same list, so an unmerged pull request never
+          # doubles.
+          branch=ci/unstable-screenshots
+          list=scripts/ci/visual-unstable-stories.json
+          # Only the pull request of this job: a fork can open one from a
+          # branch with the same name.
+          open="$(gh pr list --head "$branch" --state open --json number,isCrossRepository,author \
+            --jq '.[] | select((.isCrossRepository | not) and .author.login == "app/github-actions") | .number')"
+          # Without an open pull request, start again from main.
+          if [ -n "$open" ] && git fetch -q origin "$branch"; then
+            git switch -q -c "$branch" FETCH_HEAD
+          else
+            git switch -q -c "$branch"
+          fi
+          jq -r '.[].baselines[]' "$RUNNER_TEMP/differing.json" |
+            while IFS= read -r baseline; do git rm -q --ignore-unmatch -- "$baseline"; done
+          # Each entry needs the ticket that fixes it: the standing ticket
+          # CTX-1237 (screenshots quarantined by the nightly run) holds each
+          # one until a person gives it its own ticket.
+          jq --argjson ids "$ids" --arg reason "Two captures of the nightly run differed ($RUN_URL)." '
+            ([.stories[] | select((.viewport // "desktop") == "desktop") | .id]) as $known
+            | .stories += [($ids - $known)[] | {id: ., viewport: "desktop", reason: $reason, ticket: "CTX-1237"}]
+          ' "$list" > "$RUNNER_TEMP/list.json"
+          mv "$RUNNER_TEMP/list.json" "$list"
+          if git diff --quiet HEAD; then
+            echo "The unstable list already holds ${ids}."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$list"
+          git commit -qm "Quarantine the screenshots that differed in the nightly run"
+          git push -q --force origin "$branch"
+          [ -z "$open" ] || exit 0
+          body="The nightly job Screenshot determinism captured these stories two times, and the PNGs differed. This pull request adds them to the unstable list and removes their desktop baselines, so they get no screenshot check. Find the cause (a mask, a fixed clock, an animation), fix it, and remove the entry. Each night adds its stories to this branch."
+          if ! gh pr create --draft --base main --head "$branch" \
+            --title "Quarantine the screenshots that differed in the nightly run" --body "$body"; then
+            echo "::error::No pull request opened. Add ${ids} to ${list} by hand (branch ${branch})."
+            exit 1
+          fi
 
   codesearch:
     timeout-minutes: 30
@@ -1729,11 +1831,13 @@ jobs:
             # The artifact keeps only the fields that gate.mjs reads: the
             # status of each critic, the commits of its verdicts, and each
             # override, dismissal and raised spend limit with its writer and
-            # commit, so that none is silent in the PR comment. It drops the rest (for
-            # example the disputes and the store details). A test runs this
-            # filter on the factory output.
+            # commit, so that none is silent in the PR comment, and the
+            # section of a command critic (its changed screenshots, which the
+            # factory makes). It drops the rest (for example the disputes and
+            # the store details). A test runs this filter on the factory
+            # output.
             echo "the critics record did not parse" > "$out/critics-cause.txt"
-            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}], overrides: [(.overrides // [])[] | {finding, path, reason, commit, writer}], dismissals: [(.dismissals // [])[] | {finding, reason, commit, writer}], limitRaises: [(.limitRaises // [])[] | {limitUsd, writer, commit}]}]}' \
+            jq -c '{critics: [.critics[] | {critic, status, reason, verdicts: [(.verdicts // [])[] | {commit}], overrides: [(.overrides // [])[] | {finding, path, reason, commit, writer}], dismissals: [(.dismissals // [])[] | {finding, reason, commit, writer}], limitRaises: [(.limitRaises // [])[] | {limitUsd, writer, commit}]} + (if (.section | type) == "string" then {section} else {} end)]}' \
               "$RUNNER_TEMP/critics.json" > "$RUNNER_TEMP/critics.min.json"
             mv "$RUNNER_TEMP/critics.min.json" "$out/critics.json"
             rm "$out/critics-cause.txt"

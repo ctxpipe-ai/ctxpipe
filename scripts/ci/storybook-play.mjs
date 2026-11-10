@@ -290,6 +290,7 @@ export async function playStories(
       const page = await context.newPage()
       const pageErrors = []
       page.on("pageerror", (error) => pageErrors.push(String(error)))
+      const needsPlay = (story.tags ?? []).includes("play-fn")
       await page.addInitScript(playInitScript, {
         // A check ends a story when its play ends. Before a screenshot, a
         // story ends when Storybook completes it: in that phase Storybook
@@ -297,8 +298,10 @@ export async function playStories(
         // and a story without a play function also reaches it. A story with
         // a play must reach "played" first, because a play that did not run
         // also reaches "completed".
-        endPhase: afterPlay ? "completed" : "played",
-        needsPlay: (story.tags ?? []).includes("play-fn"),
+        // Storybook gives a story without a play function no "played" phase,
+        // so such a story (the nightly trace renders it) ends at "completed".
+        endPhase: afterPlay || !needsPlay ? "completed" : "played",
+        needsPlay,
         // Each page starts its clock at this time, and the clock then runs
         // at the real speed. A date in the page is then the same on each run
         // to the minute. The init script shifts `Date` only. Playwright's
