@@ -8,7 +8,10 @@ import { createLogger, flushEvlog, log } from "./src/observability/logger.js"
 import { shutdownOtel } from "./src/observability/otel.js"
 import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
 import { stopGuardedStepAttempts } from "./src/openworkflow/crash-loop.js"
-import { observeOpenWorkflowQueue } from "./src/openworkflow/queue-depth.js"
+import {
+  observeOpenWorkflowQueue,
+  writeQueueDepthEmf,
+} from "./src/openworkflow/queue-depth.js"
 import { connectOpenWorkflowBackend } from "./src/openworkflow/storable-backend.js"
 import { wakeParkedParents } from "./src/openworkflow/wake-parked-parents.js"
 import { scheduleCodesearchCheckoutGc } from "./src/openworkflow/workflows/codesearch-checkout-gc.js"
@@ -20,8 +23,20 @@ import { scheduleUpgradeScansForAllOrgs } from "./src/openworkflow/workflows/wor
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error("DATABASE_URL is required for the worker")
 initDb(databaseUrl)
-// Queue depth for the worker autoscaling and the dashboard.
+// Queue depth for the dashboard (OTel). On ECS, also once a minute for
+// CloudWatch, where the worker autoscaling reads it (ECS sets the variable).
 observeOpenWorkflowQueue()
+if (process.env.ECS_CONTAINER_METADATA_URI_V4) {
+  const writeDepth = () =>
+    void writeQueueDepthEmf().catch((error: unknown) =>
+      log.error({
+        step: "openworkflow.queue-depth-emf",
+        message: `Writing the queue depth for CloudWatch failed: ${String(error)}`,
+      }),
+    )
+  writeDepth()
+  setInterval(writeDepth, 60_000).unref()
+}
 // Restart sandbox sweep chains that a failed schedule or crash left behind,
 // and sweep dormant orgs (on Docker each sweep also prunes the host).
 void scheduleSweepsForOrgsNeedingIt().catch((error: unknown) =>

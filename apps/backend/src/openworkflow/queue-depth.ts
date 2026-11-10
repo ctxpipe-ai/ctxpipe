@@ -60,3 +60,31 @@ export function observeOpenWorkflowQueue(
     [depth, active],
   )
 }
+
+/**
+ * Write the queue depth once as a CloudWatch Embedded Metric Format line.
+ * On ECS, the awslogs driver sends stdout to CloudWatch Logs, which turns
+ * the line into the metric `ctxpipe` / `WorkerQueueDepth`, and the worker
+ * autoscaling reads that metric. The line has no dimensions, because
+ * production and the previews run in separate accounts. This is a metric
+ * record, not a log event, so it does not go through evlog.
+ */
+export async function writeQueueDepthEmf(
+  write: (line: string) => void = (line) => void process.stdout.write(line),
+): Promise<void> {
+  const { ready } = await openWorkflowQueueCounts()
+  const record = {
+    _aws: {
+      Timestamp: Date.now(),
+      CloudWatchMetrics: [
+        {
+          Namespace: "ctxpipe",
+          Dimensions: [[]],
+          Metrics: [{ Name: "WorkerQueueDepth", Unit: "Count" }],
+        },
+      ],
+    },
+    WorkerQueueDepth: ready,
+  }
+  write(`${JSON.stringify(record)}\n`)
+}

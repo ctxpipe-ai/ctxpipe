@@ -11,13 +11,27 @@ import { afterAll, beforeAll, expect, it } from "vitest"
 import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { FlushOnDemandMetricReader } from "../observability/flushOnDemandMetricReader.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
-import { observeOpenWorkflowQueue } from "./queue-depth.js"
+import { observeOpenWorkflowQueue, writeQueueDepthEmf } from "./queue-depth.js"
 
 const ids: string[] = []
 
-beforeAll(() => {
+beforeAll(async () => {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
   initDb(process.env.DATABASE_URL)
+  // Ready: a pending run, a sleeping run whose wake time came, and a
+  // running run whose lease ended.
+  await insertRun("pending", -5)
+  await insertRun("sleeping", -5)
+  await insertRun("running", -5)
+  // Active: a running run with a live lease.
+  await insertRun("running", 60)
+  // Neither: a scheduled run, a sleeping run, a finished run, a run past its
+  // deadline, and a run of another namespace.
+  await insertRun("pending", 3_600)
+  await insertRun("sleeping", 3_600)
+  await insertRun("completed", null)
+  await insertRun("pending", -5, openWorkflowNamespaceId(), -1)
+  await insertRun("pending", -5, `other-${randomUUID()}`)
 })
 
 afterAll(async () => {
@@ -65,23 +79,31 @@ async function collect(): Promise<Record<string, number | undefined>> {
 }
 
 it("reports the runs that wait for a worker and the runs a worker holds", async () => {
-  // Ready: a pending run, a sleeping run whose wake time came, and a
-  // running run whose lease ended.
-  await insertRun("pending", -5)
-  await insertRun("sleeping", -5)
-  await insertRun("running", -5)
-  // Active: a running run with a live lease.
-  await insertRun("running", 60)
-  // Neither: a scheduled run, a sleeping run, a finished run, a run past its
-  // deadline, and a run of another namespace.
-  await insertRun("pending", 3_600)
-  await insertRun("sleeping", 3_600)
-  await insertRun("completed", null)
-  await insertRun("pending", -5, openWorkflowNamespaceId(), -1)
-  await insertRun("pending", -5, `other-${randomUUID()}`)
-
   expect(await collect()).toEqual({
     "openworkflow.queue.depth": 3,
     "openworkflow.runs.active": 1,
+  })
+})
+
+it("writes the depth as one CloudWatch EMF line with no dimensions", async () => {
+  const lines: string[] = []
+  await writeQueueDepthEmf((line) => lines.push(line))
+
+  expect(lines).toHaveLength(1)
+  expect(lines[0]?.endsWith("\n")).toBe(true)
+  const record = JSON.parse(lines[0] ?? "")
+  expect(record).toEqual({
+    _aws: {
+      Timestamp: expect.any(Number),
+      CloudWatchMetrics: [
+        {
+          Namespace: "ctxpipe",
+          Dimensions: [[]],
+          Metrics: [{ Name: "WorkerQueueDepth", Unit: "Count" }],
+        },
+      ],
+    },
+    // The three ready runs of the setup.
+    WorkerQueueDepth: 3,
   })
 })
