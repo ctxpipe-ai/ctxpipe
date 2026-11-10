@@ -359,7 +359,8 @@ export async function visualReview(
 /**
  * Print the verdicts, and return the exit code. A run whose spend reached its
  * budget exits with code 2, also when its last call judged the last
- * screenshot: the run used all of its budget, so it is never a pass.
+ * screenshot: the run used all of its budget, so it is never a pass. With
+ * `--json`, the reason goes to stderr, so that stdout stays one JSON array.
  */
 function finish(
   verdicts: readonly Verdict[],
@@ -368,11 +369,11 @@ function finish(
   { limitUsd, spentUsd }: Budget,
 ): number {
   const reached = limitUsd !== undefined && spentUsd >= limitUsd
-  print(
-    json
-      ? JSON.stringify(verdicts, null, 2)
-      : `${report(verdicts)}${reached ? `\nBudget reached: the run spent ${spentUsd.toFixed(4)} USD of its --budget-usd ${limitUsd}.` : ""}`,
-  )
+  const reason = `Budget reached: the run spent ${spentUsd.toFixed(4)} USD of its --budget-usd ${limitUsd}.`
+  if (json) {
+    print(JSON.stringify(verdicts, null, 2))
+    if (reached) process.stderr.write(`${reason}\n`)
+  } else print(`${report(verdicts)}${reached ? `\n${reason}` : ""}`)
   if (reached || verdicts.some(({ error }) => error !== undefined)) return 2
   if (verdicts.some(blocks)) return 1
   return 0
