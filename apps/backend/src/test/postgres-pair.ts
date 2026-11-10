@@ -26,6 +26,20 @@ async function docker(...args: string[]): Promise<string> {
   return stdout.trim()
 }
 
+/** Runs one statement and returns its rows. */
+export async function rows<T extends pg.QueryResultRow>(
+  url: string,
+  statement: string,
+): Promise<T[]> {
+  const client = new pg.Client({ connectionString: url })
+  await client.connect()
+  try {
+    return (await client.query<T>(statement)).rows
+  } finally {
+    await client.end()
+  }
+}
+
 export async function sql(url: string, ...statements: string[]): Promise<void> {
   const client = new pg.Client({ connectionString: url })
   await client.connect()

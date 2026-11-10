@@ -2,12 +2,12 @@ import { rm } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import pg from "pg"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import {
   clientToolsDirectory,
   type PostgresPair,
+  rows,
   sql,
   startPostgresPair,
 } from "../test/postgres-pair.js"
@@ -31,19 +31,6 @@ const workRoot = fileURLToPath(
 let pair: PostgresPair
 let targetUrl: string
 
-async function rows<T extends pg.QueryResultRow>(
-  url: string,
-  statement: string,
-): Promise<T[]> {
-  const client = new pg.Client({ connectionString: url })
-  await client.connect()
-  try {
-    return (await client.query<T>(statement)).rows
-  } finally {
-    await client.end()
-  }
-}
-
 describe("copy-database (two Postgres 17 containers)", () => {
   beforeAll(async () => {
     const bin = await clientToolsDirectory(workRoot)
@@ -55,7 +42,7 @@ describe("copy-database (two Postgres 17 containers)", () => {
       connectionString: pair.sourceUrl,
       appRolePassword: "app-password",
     })
-    const filled = await fillSyntheticRows(pair.sourceSuperUrl, {}, 30)
+    const filled = await fillSyntheticRows(pair.sourceSuperUrl, 30)
     expect(filled.filter((table) => table.error)).toEqual([])
     // Production is in the state of its last migrate: the backfills and the
     // directory reconcile have run on its rows.
@@ -121,7 +108,7 @@ describe("copy-database (two Postgres 17 containers)", () => {
       report.verify.sequences.find(
         (sequence) => sequence.sequence === "cutover_fixture.samples_id_seq",
       ),
-    ).toMatchObject({ source: "2000", target: "2000" })
+    ).toMatchObject({ source: "2000 called", target: "2000 called" })
 
     // No Neon role came with the copy: the master login owns every object,
     // and `ctxpipe_app` does not exist until migrate makes it.
@@ -193,10 +180,24 @@ describe("copy-database (two Postgres 17 containers)", () => {
       rehearsalUrl,
       "UPDATE cutover_fixture.samples SET label = 'changed' WHERE id = 17",
     )
+    // pg_sequences shows NULL for both, but the next value differs.
+    await sql(
+      pair.sourceUrl,
+      "CREATE SEQUENCE cutover_fixture.unused_seq",
+      "SELECT setval('cutover_fixture.unused_seq', 10, false)",
+    )
+    await sql(
+      rehearsalUrl,
+      "CREATE SEQUENCE cutover_fixture.unused_seq",
+      "SELECT setval('cutover_fixture.unused_seq', 20, false)",
+    )
     const verify = await verifyDatabaseCopy(pair.sourceUrl, rehearsalUrl)
     expect(verify.ok).toBe(false)
     expect(verify.problems).toContain(
       "The rows of cutover_fixture.samples differ (same count 2000, other checksum).",
+    )
+    expect(verify.problems).toContain(
+      "The sequence cutover_fixture.unused_seq is 20 not called on the target and 10 not called on the source.",
     )
   }, 300_000)
 })

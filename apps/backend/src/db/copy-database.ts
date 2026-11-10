@@ -1,9 +1,11 @@
 import { execFile } from "node:child_process"
-import { mkdir, readdir, stat, writeFile } from "node:fs/promises"
+import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { promisify } from "node:util"
 
 import pg from "pg"
+
+import { mapPool } from "../lib/mapPool.js"
 
 /*
  * The copy of the production database from Neon into Aurora (CTX-1217, the
@@ -16,32 +18,18 @@ import pg from "pg"
  * `pg_dump`, `pg_restore` and a server of the same major version must be
  * on PATH. The copy reads each password from its URL and gives it to the
  * child process in PGPASSWORD, so no password shows in the process list.
+ * Give direct URLs, not a pooler (Neon `-pooler`): the checksum sessions set
+ * session settings.
+ *
+ * The output of the tools can hold row values (a COPY or a constraint
+ * error), so it goes to a file of mode 0600 in the work directory, never into
+ * an error message or a log. The dump directory is deleted at the end.
  */
 
 const exec = promisify(execFile)
 
 const SYSTEM_SCHEMA = `n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
   AND n.nspname NOT LIKE 'pg_temp_%' AND n.nspname NOT LIKE 'pg_toast_temp_%'`
-
-/**
- * Settings that make the text form of a row the same on both servers, so that
- * one row gives one checksum on each side.
- */
-const SESSION_SETTINGS = [
-  "SET TimeZone = 'UTC'",
-  "SET DateStyle = 'ISO, YMD'",
-  "SET IntervalStyle = 'postgres'",
-  "SET extra_float_digits = 1",
-  "SET bytea_output = 'hex'",
-  "SET statement_timeout = 0",
-].join("; ")
-
-/**
- * Table-of-contents entries that the restore skips. A login that is not a
- * superuser (the Aurora master user) does not own an extension, so it cannot
- * set the comment of the extension.
- */
-const SKIPPED_TOC_ENTRY = /^\d+; \d+ \d+ COMMENT \S+ EXTENSION /
 
 type Phase = { name: string; ms: number }
 
@@ -60,6 +48,8 @@ type CopyReport = {
   dumpBytes: number
   verify: VerifyReport
   canceledRuns?: number
+  /** Set when a phase failed. The phases before it keep their times. */
+  error?: string
 }
 
 type PreflightReport = {
@@ -68,7 +58,6 @@ type PreflightReport = {
   clientVersion: string
   sourceBytes: string
   sourceReadOnly: boolean
-  targetUser: string
   extensions: { name: string; source: string; target: string | null }[]
   problems: string[]
 }
@@ -87,40 +76,78 @@ type Connection = {
   password: string | undefined
 }
 
-function connection(url: string): Connection {
+/**
+ * The libpq form of a URL: its password (from the user part or the
+ * `password` parameter) goes to PGPASSWORD, not to the arguments. libpq
+ * checks no certificate for `sslmode=require`, so a URL of a remote host
+ * gets `sslmode=verify-full` and the system roots: the dump of production
+ * crosses the internet. Node-postgres already treats `require` as
+ * `verify-full`.
+ */
+function connection(url: string, verifyRemote: boolean): Connection {
   const parsed = new URL(url)
-  const password = parsed.password
-    ? decodeURIComponent(parsed.password)
-    : undefined
+  const password =
+    (parsed.password ? decodeURIComponent(parsed.password) : undefined) ??
+    parsed.searchParams.get("password") ??
+    undefined
   parsed.password = ""
+  parsed.searchParams.delete("password")
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)
+  if (verifyRemote && !local) {
+    parsed.searchParams.set("sslmode", "verify-full")
+    if (!parsed.searchParams.has("sslrootcert"))
+      parsed.searchParams.set("sslrootcert", "system")
+  }
   return { dbname: parsed.toString(), password }
 }
 
+/**
+ * Runs a tool and returns its stdout. Its stderr goes to `<tool>.log` in the
+ * work directory (mode 0600), because it can hold row values. A failure
+ * names the log and the exit code only.
+ */
 async function pgTool(
   tool: "pg_dump" | "pg_restore",
   args: string[],
   password: string | undefined,
+  workDir: string,
 ): Promise<string> {
+  const logFile = join(workDir, `${tool}.log`)
   try {
-    const { stdout } = await exec(tool, args, {
+    const { stdout, stderr } = await exec(tool, args, {
       env: { ...process.env, PGPASSWORD: password ?? "" },
       maxBuffer: 256 * 1024 * 1024,
     })
+    await writeFile(logFile, stderr, { mode: 0o600, flag: "a" })
     return stdout
   } catch (error) {
-    const stderr = (error as { stderr?: string }).stderr ?? ""
-    throw new Error(`${tool} failed: ${stderr.slice(-4000) || String(error)}`, {
-      cause: error,
-    })
+    const stderr =
+      error instanceof Error &&
+      "stderr" in error &&
+      typeof error.stderr === "string"
+        ? error.stderr
+        : ""
+    const code =
+      error instanceof Error && "code" in error ? String(error.code) : "unknown"
+    await writeFile(logFile, stderr, { mode: 0o600, flag: "a" })
+    throw new Error(
+      `${tool} failed (exit ${code}). Its output is in ${logFile}; it can hold row data, so do not paste it into a ticket or a log.`,
+    )
   }
 }
 
 function pool(url: string, max: number): pg.Pool {
   const created = new pg.Pool({ connectionString: url, max })
   created.on("connect", (client) => {
-    client.query(SESSION_SETTINGS).catch(() => {
-      // The next query on this client shows a broken connection.
-    })
+    // The text form of a row must be the same on both servers, so that one
+    // row gives one checksum on each side.
+    client
+      .query(
+        "SET TimeZone = 'UTC'; SET DateStyle = 'ISO, YMD'; SET IntervalStyle = 'postgres'; SET extra_float_digits = 1; SET bytea_output = 'hex'; SET statement_timeout = 0",
+      )
+      .catch(() => {
+        // The next query on this client shows a broken connection.
+      })
   })
   return created
 }
@@ -128,9 +155,8 @@ function pool(url: string, max: number): pg.Pool {
 async function one<T extends pg.QueryResultRow>(
   db: pg.Pool,
   sql: string,
-  values: unknown[] = [],
 ): Promise<T> {
-  const row = (await db.query<T>(sql, values)).rows[0]
+  const row = (await db.query<T>(sql)).rows[0]
   if (!row) throw new Error(`no row from: ${sql}`)
   return row
 }
@@ -160,6 +186,14 @@ export async function preflight(
   const target = pool(targetUrl, 1)
   try {
     const problems: string[] = []
+    for (const [name, url] of [
+      ["source", sourceUrl],
+      ["target", targetUrl],
+    ] as const)
+      if (new URL(url).hostname.includes("-pooler"))
+        problems.push(
+          `The ${name} URL is a pooler. Give the direct URL: the checksums need session settings.`,
+        )
     const version = async (db: pg.Pool) =>
       (
         await one<{ v: string }>(
@@ -244,17 +278,12 @@ export async function preflight(
       source,
       "SELECT pg_database_size(current_database())::text AS bytes, current_setting('default_transaction_read_only') AS readonly",
     )
-    const targetUser = await one<{ name: string }>(
-      target,
-      "SELECT current_user AS name",
-    )
     return {
       sourceVersion,
       targetVersion,
       clientVersion,
       sourceBytes: size.bytes,
       sourceReadOnly: size.readonly === "on",
-      targetUser: targetUser.name,
       extensions,
       problems,
     }
@@ -320,32 +349,28 @@ async function objectCounts(db: pg.Pool): Promise<Map<string, number>> {
   return new Map(rows.map((row) => [row.kind, Number(row.n)]))
 }
 
+/**
+ * `last_value` and `is_called` of each sequence, read from the sequence
+ * itself: `pg_sequences` gives NULL for each sequence that is not called,
+ * whatever its value.
+ */
 async function sequences(db: pg.Pool): Promise<Map<string, string>> {
-  const { rows } = await db.query<{ name: string; value: string | null }>(
-    `SELECT format('%I.%I', schemaname, sequencename) AS name, last_value::text AS value
+  const { rows } = await db.query<{ name: string }>(
+    `SELECT format('%I.%I', schemaname, sequencename) AS name
      FROM pg_sequences WHERE schemaname NOT IN ('pg_catalog', 'information_schema')`,
   )
-  return new Map(rows.map((row) => [row.name, row.value ?? "unused"]))
-}
-
-/** Runs `fn` on each item, at most `limit` at the same time. */
-async function mapLimit<T, R>(
-  items: readonly T[],
-  limit: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length)
-  let next = 0
-  const worker = async () => {
-    while (next < items.length) {
-      const index = next++
-      results[index] = await fn(items[index] as T)
-    }
-  }
-  await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, worker),
-  )
-  return results
+  const values = new Map<string, string>()
+  for (const { name } of rows)
+    values.set(
+      name,
+      (
+        await one<{ value: string }>(
+          db,
+          `SELECT last_value || CASE WHEN is_called THEN ' called' ELSE ' not called' END AS value FROM ${name}`,
+        )
+      ).value,
+    )
+  return values
 }
 
 /**
@@ -368,7 +393,7 @@ export async function verifyDatabaseCopy(
       if (!sourceTables.includes(table))
         problems.push(`The target has the table ${table}, the source has not.`)
 
-    const tableResults = await mapLimit(sourceTables, jobs, async (table) => {
+    const tableResults = await mapPool(sourceTables, jobs, async (table) => {
       if (!targetTables.has(table)) {
         const from = await tableDigest(source, table)
         problems.push(`The target has no table ${table}.`)
@@ -457,16 +482,21 @@ async function cancelOpenRuns(targetUrl: string): Promise<number> {
 /**
  * Copies the source database into the empty target and verifies the copy.
  * It writes `report.json` into the work directory and returns the report.
- * It throws when the preflight finds a problem or a tool fails. A verify
- * mismatch does not throw: the report has `ok: false`.
+ * It throws when the preflight finds a problem or a tool fails; then
+ * `report.json` holds the phases that finished and the error. A verify
+ * mismatch does not throw: the report has `ok: false`. The dump directory is
+ * deleted at the end, because it holds every row of the source.
  */
 export async function copyDatabase(options: {
   sourceUrl: string
   targetUrl: string
-  /** An empty directory with space for the dump. */
+  /** A directory with space for the dump, on storage of this task only. */
   workDir: string
   jobs: number
-  /** Rehearsal only: cancel the unfinished OpenWorkflow runs in the copy. */
+  /**
+   * Rehearsal only: cancel the unfinished OpenWorkflow runs in the copy,
+   * also when verify finds a difference (a rehearsal reads a live source).
+   */
   cancelOpenRuns?: boolean
 }): Promise<CopyReport> {
   const phases: Phase[] = []
@@ -477,83 +507,103 @@ export async function copyDatabase(options: {
     phases.push({ name, ms: Date.now() - begin })
     return result
   }
-  const source = connection(options.sourceUrl)
-  const target = connection(options.targetUrl)
+  const source = connection(options.sourceUrl, true)
+  const target = connection(options.targetUrl, false)
   const dumpDir = join(options.workDir, "dump")
   const jobs = String(options.jobs)
+  const reportFile = join(options.workDir, "report.json")
   await mkdir(options.workDir, { recursive: true })
 
-  const checks = await timed("preflight", () =>
-    preflight(options.sourceUrl, options.targetUrl),
-  )
-  if (checks.problems.length > 0)
-    throw new Error(
-      `Preflight found problems. Nothing was copied.\n- ${checks.problems.join("\n- ")}`,
+  const partial: Partial<CopyReport> = {}
+  try {
+    const checks = await timed("preflight", () =>
+      preflight(options.sourceUrl, options.targetUrl),
     )
+    partial.preflight = checks
+    if (checks.problems.length > 0)
+      throw new Error(
+        `Preflight found problems. Nothing was copied.\n- ${checks.problems.join("\n- ")}`,
+      )
 
-  await timed("dump", () =>
-    pgTool(
-      "pg_dump",
-      [
-        "--format=directory",
-        `--jobs=${jobs}`,
-        "--no-owner",
-        "--no-privileges",
-        "--no-publications",
-        "--no-subscriptions",
-        `--file=${dumpDir}`,
-        `--dbname=${source.dbname}`,
-      ],
-      source.password,
-    ),
-  )
-  const dumpBytes = await directoryBytes(dumpDir)
-
-  await timed("restore", async () => {
-    const contents = await pgTool("pg_restore", ["--list", dumpDir], undefined)
-    const listFile = join(options.workDir, "restore.list")
-    await writeFile(
-      listFile,
-      contents
-        .split("\n")
-        .filter((line) => !SKIPPED_TOC_ENTRY.test(line))
-        .join("\n"),
+    await timed("dump", () =>
+      pgTool(
+        "pg_dump",
+        [
+          "--format=directory",
+          `--jobs=${jobs}`,
+          "--no-owner",
+          "--no-privileges",
+          "--no-publications",
+          "--no-subscriptions",
+          `--file=${dumpDir}`,
+          `--dbname=${source.dbname}`,
+        ],
+        source.password,
+        options.workDir,
+      ),
     )
-    await pgTool(
-      "pg_restore",
-      [
-        `--jobs=${jobs}`,
-        "--no-owner",
-        "--no-privileges",
-        "--exit-on-error",
-        `--use-list=${listFile}`,
-        `--dbname=${target.dbname}`,
-        dumpDir,
-      ],
-      target.password,
-    )
-  })
+    const dumpBytes = await directoryBytes(dumpDir)
+    partial.dumpBytes = dumpBytes
 
-  const verify = await timed("verify", () =>
-    verifyDatabaseCopy(options.sourceUrl, options.targetUrl, options.jobs),
-  )
-  const canceledRuns =
-    options.cancelOpenRuns && verify.ok
+    await timed("restore", async () => {
+      const contents = await pgTool(
+        "pg_restore",
+        ["--list", dumpDir],
+        undefined,
+        options.workDir,
+      )
+      const listFile = join(options.workDir, "restore.list")
+      // A login that is not a superuser (the Aurora master user) does not own
+      // an extension, so it cannot set the comment of the extension.
+      await writeFile(
+        listFile,
+        contents
+          .split("\n")
+          .filter((line) => !/^\d+; \d+ \d+ COMMENT \S+ EXTENSION /.test(line))
+          .join("\n"),
+      )
+      await pgTool(
+        "pg_restore",
+        [
+          `--jobs=${jobs}`,
+          "--no-owner",
+          "--no-privileges",
+          "--exit-on-error",
+          `--use-list=${listFile}`,
+          `--dbname=${target.dbname}`,
+          dumpDir,
+        ],
+        target.password,
+        options.workDir,
+      )
+    })
+
+    const verify = await timed("verify", () =>
+      verifyDatabaseCopy(options.sourceUrl, options.targetUrl, options.jobs),
+    )
+    const canceledRuns = options.cancelOpenRuns
       ? await timed("cancel open runs", () => cancelOpenRuns(options.targetUrl))
       : undefined
 
-  const report: CopyReport = {
-    ok: verify.ok,
-    phases,
-    totalMs: Date.now() - started,
-    preflight: checks,
-    dumpBytes,
-    verify,
-    ...(canceledRuns === undefined ? {} : { canceledRuns }),
+    const report: CopyReport = {
+      ok: verify.ok,
+      phases,
+      totalMs: Date.now() - started,
+      preflight: checks,
+      dumpBytes,
+      verify,
+      canceledRuns,
+    }
+    await writeFile(reportFile, `${JSON.stringify(report, null, 2)}\n`)
+    return report
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    await writeFile(
+      reportFile,
+      `${JSON.stringify({ ...partial, ok: false, phases, totalMs: Date.now() - started, error: message }, null, 2)}\n`,
+    )
+    throw error
+  } finally {
+    await rm(dumpDir, { recursive: true, force: true })
   }
-  await writeFile(
-    join(options.workDir, "report.json"),
-    `${JSON.stringify(report, null, 2)}\n`,
-  )
-  return report
 }

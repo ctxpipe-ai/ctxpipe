@@ -3,8 +3,7 @@ import pg from "pg"
 /*
  * Synthetic rows in each table of a migrated database, for the cutover
  * rehearsal and the copy test (CTX-1217). No row holds customer data: each
- * value comes from the row number. The rows follow a shape: the row count
- * and the size of each table.
+ * value comes from the row number.
  *
  * Each value is a function of its table, its column and the row number, so a
  * foreign key can name the value of the row that it refers to. The restore
@@ -13,16 +12,7 @@ import pg from "pg"
  * (`session_replication_role = replica`), so the tables fill in any order.
  */
 
-type TableShape = { rows: number; bytes?: number }
-
-type FillResult = {
-  table: string
-  rows: number
-  ms: number
-  /** The table had rows from migrate, so it got no synthetic rows. */
-  kept?: boolean
-  error?: string
-}
+type FillResult = { table: string; rows: number; error?: string }
 
 type Column = {
   table: string
@@ -47,15 +37,7 @@ type Column = {
   referenced: boolean
 }
 
-type Table = {
-  name: string
-  rows: number
-  pad: number
-  kept: boolean
-  columns: Column[]
-}
-
-const BATCH = 200_000
+type Table = { name: string; rows: number; columns: Column[] }
 
 async function readColumns(client: pg.Client): Promise<Column[]> {
   const { rows } = await client.query<Column>(
@@ -114,12 +96,7 @@ function written(column: Column): boolean {
  * number). The value of a row depends only on the table, the column and
  * the row number, so a foreign key can name the value of another row.
  */
-function value(
-  column: Column,
-  g: string,
-  tables: Map<string, Table>,
-  pad: number,
-): string {
+function value(column: Column, g: string, tables: Map<string, Table>): string {
   const { type } = column
   if (column.nullInCheck) return `NULL::${type}`
   if (column.refTable && column.refColumn) {
@@ -128,7 +105,7 @@ function value(
     // A nullable foreign key stays empty, unless a check needs a value in it.
     if (!column.notNull && !column.check) return `NULL::${type}`
     if (target && ref && target.rows > 0)
-      return `(${value(ref, `((${g} - 1) % ${target.rows} + 1)`, tables, target.pad)})::${type}`
+      return `(${value(ref, `((${g} - 1) % ${target.rows} + 1)`, tables)})::${type}`
   }
   // A check such as `status = ANY (ARRAY['a'::text, …])` allows only listed
   // values: use the first one.
@@ -136,17 +113,16 @@ function value(
     ? /ARRAY\['((?:[^']|'')*)'::/.exec(column.check)?.[1]
     : undefined
   if (allowed !== undefined) return `${literal(allowed)}::${type}`
-  const text = `${literal(`${column.table}.${column.name}:`)} || (${g}) || ':' || repeat(md5((${g})::text), ${pad})`
+  const text = `${literal(`${column.table}.${column.name}:`)} || (${g}) || ':' || repeat(md5((${g})::text), 2)`
   if (column.typtype === "e")
     return `(enum_range(NULL::${type}))[1 + (${g}) % array_length(enum_range(NULL::${type}), 1)]`
   if (column.category === "A") return `'{}'::${type}`
   if (type === "uuid") return `md5(${literal(column.table)} || (${g}))::uuid`
   if (type === "boolean") return `(${g}) % 2 = 0`
   if (type === "smallint") return `((${g}) % 32000)::smallint`
-  if (type === "bytea")
-    return `decode(repeat(md5((${g})::text), ${pad + 1}), 'hex')`
+  if (type === "bytea") return `decode(repeat(md5((${g})::text), 2), 'hex')`
   if (type === "json" || type === "jsonb")
-    return `jsonb_build_object('n', ${g}, 'pad', repeat(md5((${g})::text), ${pad}))::${type}`
+    return `jsonb_build_object('n', ${g}, 'pad', repeat(md5((${g})::text), 2))::${type}`
   if (type.startsWith("vector"))
     return `array_fill(((${g}) % 1000)::real / 1000, ARRAY[${column.dims ?? 3}])::${type}`
   if (type === "interval") return `(${g}) * interval '1 second'`
@@ -163,17 +139,15 @@ function value(
 }
 
 /**
- * Fills each table of `public` and `openworkflow` with synthetic rows. A table
- * that is not in `shape` gets `defaultRows`. A table that refuses the rows
- * (a check or a unique index that the generator does not know) has `error`
- * in its result, and the other tables continue. A table that has rows after
- * migrate (its bookkeeping) keeps them and gets no more.
+ * Fills each table of `public` and `openworkflow` with `rows` synthetic rows.
+ * A table that refuses the rows (a check or a unique index that the
+ * generator does not know) has `error` in its result, and the other tables
+ * continue. A table that has rows after migrate (its bookkeeping) keeps them
+ * and gets no more.
  */
 export async function fillSyntheticRows(
   superUrl: string,
-  shape: Record<string, TableShape>,
-  defaultRows: number,
-  onTable?: (result: FillResult) => void,
+  rows: number,
 ): Promise<FillResult[]> {
   const client = new pg.Client({ connectionString: superUrl })
   await client.connect()
@@ -186,17 +160,7 @@ export async function fillSyntheticRows(
         const kept =
           ((await client.query(`SELECT 1 FROM ${column.table} LIMIT 1`))
             .rowCount ?? 0) > 0
-        const target = shape[column.table] ?? { rows: defaultRows }
-        table = {
-          name: column.table,
-          rows: kept ? 0 : target.rows,
-          pad: 0,
-          kept,
-          columns: [],
-        }
-        const rowBytes =
-          target.bytes && target.rows ? target.bytes / target.rows : 200
-        table.pad = Math.round(rowBytes / 4 / 32)
+        table = { name: column.table, rows: kept ? 0 : rows, columns: [] }
         tables.set(column.table, table)
       }
       table.columns.push(column)
@@ -204,33 +168,27 @@ export async function fillSyntheticRows(
 
     const results: FillResult[] = []
     for (const table of tables.values()) {
-      const started = Date.now()
-      const result: FillResult = { table: table.name, rows: 0, ms: 0 }
+      const result: FillResult = { table: table.name, rows: 0 }
       try {
-        if (table.kept) result.kept = true
         const list = table.columns.filter(written)
         const names = list.map((column) => `"${column.name}"`).join(", ")
         const values = list
-          .map((column) => value(column, "g", tables, table.pad))
+          .map((column) => value(column, "g", tables))
           .join(", ")
         const overriding = list.some((column) => column.identity)
           ? " OVERRIDING SYSTEM VALUE"
           : ""
-        for (let start = 1; start <= table.rows; start += BATCH) {
-          const end = Math.min(table.rows, start + BATCH - 1)
+        if (table.rows > 0)
           await client.query(
             list.length > 0
-              ? `INSERT INTO ${table.name} (${names})${overriding} SELECT ${values} FROM generate_series(${start}, ${end}) AS g`
-              : `INSERT INTO ${table.name} SELECT FROM generate_series(${start}, ${end}) AS g`,
+              ? `INSERT INTO ${table.name} (${names})${overriding} SELECT ${values} FROM generate_series(1, ${table.rows}) AS g`
+              : `INSERT INTO ${table.name} SELECT FROM generate_series(1, ${table.rows}) AS g`,
           )
-          result.rows = end
-        }
+        result.rows = table.rows
       } catch (error) {
         result.error = error instanceof Error ? error.message : String(error)
       }
-      result.ms = Date.now() - started
       results.push(result)
-      onTable?.(result)
     }
     return results
   } finally {
