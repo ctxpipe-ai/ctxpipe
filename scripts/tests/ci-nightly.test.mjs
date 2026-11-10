@@ -10,11 +10,7 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { parse } from "yaml"
 
-import {
-  nightlyChanged,
-  nightlyTickets,
-  overdueEntries,
-} from "../ci/nightly.mjs"
+import { nightlyChanged, nightlyTickets } from "../ci/nightly.mjs"
 
 // GitHub and Linear are outside services: msw answers their HTTP calls.
 const server = setupServer()
@@ -51,6 +47,17 @@ test("a new commit on main, or no successful nightly run yet, runs the nightly r
   server.use(lastNightly(undefined))
   assert.equal(await nightlyChanged({ repo, sha, token: "t" }), true)
 })
+
+// The entries of the unstable list without a valid `since` date, or with a
+// date more than 7 days before `today` (YYYY-MM-DD). The test of the
+// committed list below is the 7-day check of CI.
+const overdueEntries = (stories, today) =>
+  stories.filter(
+    (entry) =>
+      !/^\d{4}-\d{2}-\d{2}$/.test(entry.since ?? "") ||
+      Number.isNaN(Date.parse(entry.since)) ||
+      Date.parse(today) - Date.parse(entry.since) > 7 * 86_400_000,
+  )
 
 test("an unstable entry older than 7 days, or without a date, is overdue", () => {
   const entry = (since) => ({
@@ -136,6 +143,8 @@ function results({
 
 const visualId = (story) =>
   `storybook:visual:apps/ui/src/x/Card.stories.tsx#${story}`
+const requiredId = (story) =>
+  `storybook:required:apps/ui/src/y/Menu.stories.tsx#${story}`
 const playId = (story) =>
   `storybook:plays:apps/ui/src/x/Card.stories.tsx#${story}`
 
@@ -241,11 +250,13 @@ test("a check that fails and then passes in its rerun opens one ticket for each 
       ],
       plays: [
         { id: playId("card--empty"), status: "failed" },
+        { id: requiredId("menu--closed"), status: "failed" },
         // A test that is not a screenshot or play check.
         { id: "vitest:ui:apps/ui/src/a.test.ts", status: "failed" },
       ],
       playsRerun: [
         { id: playId("card--empty"), status: "passed" },
+        { id: requiredId("menu--closed"), status: "passed" },
         { id: "vitest:ui:apps/ui/src/a.test.ts", status: "passed" },
       ],
     }),
@@ -254,7 +265,11 @@ test("a check that fails and then passes in its rerun opens one ticket for each 
   const created = calls.filter((call) => call.operation === "Create")
   assert.deepEqual(
     created.map((call) => call.variables.input.title),
-    ["Flaky story card--empty", "Flaky story menu--open"],
+    [
+      "Flaky story card--empty",
+      "Flaky story menu--closed",
+      "Flaky story menu--open",
+    ],
   )
   const card = created[0].variables.input
   assert.equal(card.teamId, "team-1")
@@ -315,8 +330,14 @@ test("a failed job of the nightly run opens one ticket in Triage", async () => {
       },
       {
         name: "Trace",
-        conclusion: "failure",
+        conclusion: "timed_out",
         html_url: "https://github.com/j/2",
+      },
+      // Its only failure is a flake, which has its own ticket.
+      {
+        name: "Storybook screenshots (1/4)",
+        conclusion: "failure",
+        html_url: "https://github.com/j/5",
       },
       {
         name: "Tests",
@@ -330,8 +351,20 @@ test("a failed job of the nightly run opens one ticket in Triage", async () => {
       },
     ],
   })
-  assert.deepEqual(await run(results({})), [])
-  const created = calls.filter((call) => call.operation === "Create")
+  assert.deepEqual(
+    await run(
+      results({
+        visual: [{ id: visualId("card--empty"), status: "failed" }],
+        visualRerun: [{ id: visualId("card--empty"), status: "passed" }],
+      }),
+    ),
+    [],
+  )
+  const created = calls.filter(
+    (call) =>
+      call.operation === "Create" &&
+      !call.variables.input.title.startsWith("Flaky story"),
+  )
   assert.equal(created.length, 1)
   const { input } = created[0].variables
   assert.equal(input.stateId, "state-triage")
@@ -343,6 +376,27 @@ test("a failed job of the nightly run opens one ticket in Triage", async () => {
   ])
     assert.ok(input.description.includes(text), text)
   assert.ok(!input.description.includes("Tests:"))
+  assert.ok(!input.description.includes("Storybook screenshots"))
+})
+
+test("a failed job of an unchanged main that failed before comments on the open ticket of the commit", async () => {
+  const calls = nightly({
+    jobs: [
+      {
+        name: "Trace",
+        conclusion: "failure",
+        html_url: "https://github.com/j/2",
+      },
+    ],
+    open: {
+      "Nightly CI run failed on aaaaaaa": { id: "issue-7", identifier: "CTX-77" },
+    },
+  })
+  await run(results({}))
+  assert.equal(calls.filter((call) => call.operation === "Create").length, 0)
+  const [comment] = calls.filter((call) => call.operation === "Comment")
+  assert.equal(comment.variables.input.issueId, "issue-7")
+  assert.ok(comment.variables.input.body.includes("Trace: https://github.com/j/2"))
 })
 
 test("a run with no flake and no failed job calls no Linear API", async () => {
@@ -413,4 +467,13 @@ test("each job of the nightly run waits for the job Nightly change and does not 
     if (String(jobs[job].if).includes("needs.nightly-change"))
       assert.ok(needs(job).includes("nightly-change"), job)
   }
+  // Nightly tickets reads the jobs of the run when every other job has
+  // ended, and it runs also when Nightly change failed (no output).
+  for (const job of [...scheduled, "nightly-change", "non-portable-checks"])
+    if (job !== "nightly-tickets")
+      assert.ok(needs("nightly-tickets").includes(job), job)
+  assert.match(
+    jobs["nightly-tickets"].if,
+    /needs\.nightly-change\.outputs\.run != 'false'/,
+  )
 })

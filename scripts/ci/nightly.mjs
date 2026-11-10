@@ -16,7 +16,9 @@ import { pathToFileURL } from "node:url"
 //       gets one open ticket (Todo, ready-for-agent, parent CTX-1178). When
 //       it already has one, this is its second flake: the ticket gets a
 //       comment, and the story goes into `unstable` with that ticket.
-//     - A failed job of the run: one ticket in Triage that lists them.
+//     - A failed or timed-out job of the run: one ticket in Triage that
+//       lists them (a comment when the commit already has an open one). A
+//       Storybook shard whose only failures are flakes is left out.
 //     <results dir> holds one folder for each downloaded artifact. Writes
 //     `unstable=<JSON>` to $GITHUB_OUTPUT: the entries for
 //     scripts/ci/visual-unstable-stories.json, each with the baselines of
@@ -37,17 +39,6 @@ export async function nightlyChanged({ repo, sha, token }) {
   return runs[0]?.head_sha !== sha
 }
 
-// The entries of the unstable list without a valid `since` date, or with a
-// date more than 7 days before `today` (YYYY-MM-DD).
-export function overdueEntries(stories, today) {
-  return stories.filter(
-    (entry) =>
-      !/^\d{4}-\d{2}-\d{2}$/.test(entry.since ?? "") ||
-      Number.isNaN(Date.parse(entry.since)) ||
-      Date.parse(today) - Date.parse(entry.since) > 7 * 86_400_000,
-  )
-}
-
 // The tickets of one nightly run. Returns the entries for the unstable list.
 export async function nightlyTickets({
   results,
@@ -60,12 +51,18 @@ export async function nightlyTickets({
   today,
 }) {
   const runUrl = `${server}/${repo}/actions/runs/${runId}`
-  const flakes = flakyStories(results)
+  const { flakes, flakeOnly } = flakyStories(results)
   const { jobs } = await github(
     `/repos/${repo}/actions/runs/${runId}/jobs?per_page=100`,
     token,
   )
-  const failedJobs = jobs.filter((job) => job.conclusion === "failure")
+  // A Storybook shard whose only failures are flakes already gave its
+  // tickets: it does not go into the Triage ticket too.
+  const failedJobs = jobs.filter(
+    (job) =>
+      ["failure", "timed_out"].includes(job.conclusion) &&
+      !flakeOnly.some((prefix) => job.name.startsWith(prefix)),
+  )
   if (!flakes.length && !failedJobs.length) return []
 
   const team = await linearSetup(linearKey)
@@ -82,7 +79,7 @@ export async function nightlyTickets({
         : `${runUrl}#artifacts`
     }
     for (const flake of flakes) {
-      const lines = [
+      const details = [
         `- Story: \`${flake.id}\``,
         ...flake.checks.map(
           ({ id, artifact }) =>
@@ -93,15 +90,10 @@ export async function nightlyTickets({
       const title = `Flaky story ${flake.id}`
       const open = await openIssue(linearKey, title)
       if (open) {
-        await linear(
+        await comment(
           linearKey,
-          `mutation Comment($input: CommentCreateInput!) { commentCreate(input: $input) { success } }`,
-          {
-            input: {
-              issueId: open.id,
-              body: `The story flaked again in a nightly run, so it goes on the unstable list with this ticket (a draft pull request on the branch ci/unstable-screenshots). An entry older than 7 days fails CI.\n\n${lines}`,
-            },
-          },
+          open.id,
+          `The story flaked again in a nightly run, so it goes on the unstable list with this ticket (a draft pull request on the branch ci/unstable-screenshots). An entry older than 7 days fails CI.\n\n${details}`,
         )
         unstable.push({
           id: flake.id,
@@ -117,26 +109,35 @@ export async function nightlyTickets({
           stateId: team.state("Todo"),
           labelIds: [team.readyForAgent],
           parentId: team.parent,
-          description: `A check of this story failed in the nightly CI run and then passed in its rerun: it is flaky (the contradiction rule, scripts/checks/README.md). Find the cause (a mask, a fixed clock, an animation, a race in the play) and fix it. A second flake puts the story on the unstable list (scripts/ci/visual-unstable-stories.json) with this ticket.\n\n${lines}`,
+          description: `A check of this story failed in the nightly CI run and then passed in its rerun: it is flaky (the contradiction rule, scripts/checks/README.md). Find the cause (a mask, a fixed clock, an animation, a race in the play) and fix it. A second flake puts the story on the unstable list (scripts/ci/visual-unstable-stories.json) with this ticket.\n\n${details}`,
         })
     }
   }
-  if (failedJobs.length)
-    await createIssue(linearKey, {
-      teamId: team.id,
-      title: `Nightly CI run failed on ${sha.slice(0, 7)}`,
-      stateId: team.state("Triage"),
-      description: `These jobs of the nightly CI run of main failed:\n\n${failedJobs
-        .map((job) => `- ${job.name}: ${job.html_url}`)
-        .join("\n")}\n\nRun: ${runUrl}`,
-    })
+  if (failedJobs.length) {
+    const title = `Nightly CI run failed on ${sha.slice(0, 7)}`
+    const details = `${failedJobs
+      .map((job) => `- ${job.name}: ${job.html_url}`)
+      .join("\n")}\n\nRun: ${runUrl}`
+    // An unchanged main runs again after a failed night: the open ticket of
+    // the same commit gets a comment.
+    const open = await openIssue(linearKey, title)
+    if (open) await comment(linearKey, open.id, `It failed again:\n\n${details}`)
+    else
+      await createIssue(linearKey, {
+        teamId: team.id,
+        title,
+        stateId: team.state("Triage"),
+        description: `These jobs of the nightly CI run of main failed:\n\n${details}`,
+      })
+  }
   return unstable
 }
 
 // The flaky stories below `results`: each screenshot or play check that has
 // a failed record and a passed rerun record. One entry for each story, with
 // its checks (and the artifact folder of each), and the baselines of the
-// story from the visual manifests of the run.
+// story from the visual manifests of the run. `flakeOnly` holds the name
+// prefixes of the Storybook jobs whose every failed check is a flake.
 function flakyStories(results) {
   const failed = new Map()
   const passedAgain = new Set()
@@ -171,18 +172,37 @@ function flakyStories(results) {
     }
   }
   const stories = new Map()
+  const notFlaky = new Set()
   for (const [id, artifact] of failed) {
-    const story = /^storybook:(?:visual|plays):[^#]+#(.+)$/.exec(id)?.[1]
-    if (!story || !passedAgain.has(id)) continue
+    const story = /^storybook:(?:visual|plays|required):[^#]+#(.+)$/.exec(
+      id,
+    )?.[1]
+    if (!story || !passedAgain.has(id)) {
+      notFlaky.add(artifact)
+      continue
+    }
     stories.set(story, [...(stories.get(story) ?? []), { id, artifact }])
   }
-  return [...stories]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([id, checks]) => ({
-      id,
-      checks,
-      baselines: [...(baselines.get(id) ?? [])].sort(),
-    }))
+  // The artifact of each shard of the Storybook jobs, and the job name.
+  const flakeOnly = [...new Set([...failed.values()])]
+    .filter((artifact) => !notFlaky.has(artifact))
+    .map((artifact) => {
+      const visual = /^test-results-storybook-visual-(\d+)$/.exec(artifact)
+      const plays = /^storybook-plays-results-(\d+)$/.exec(artifact)
+      if (visual) return `Storybook screenshots (${visual[1]}/`
+      if (plays) return `Storybook Playwright all plays (${plays[1]}/`
+    })
+    .filter(Boolean)
+  return {
+    flakeOnly,
+    flakes: [...stories]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([id, checks]) => ({
+        id,
+        checks,
+        baselines: [...(baselines.get(id) ?? [])].sort(),
+      })),
+  }
 }
 
 function* files(directory) {
@@ -220,14 +240,14 @@ async function linear(key, query, variables) {
   return body.data
 }
 
-// The team CTX with its workflow states, the label ready-for-agent and the
-// epic CTX-1178.
+// The team CTX with its workflow states, the label ready-for-agent of the
+// group Agent and the epic CTX-1178.
 async function linearSetup(key) {
   const data = await linear(
     key,
     `query Setup {
       teams(filter: { key: { eq: "CTX" } }) { nodes { id states(first: 100) { nodes { id name } } } }
-      issueLabels(filter: { name: { eq: "ready-for-agent" } }) { nodes { id } }
+      issueLabels(filter: { name: { eq: "ready-for-agent" }, parent: { name: { eq: "Agent" } } }) { nodes { id } }
       issue(id: "CTX-1178") { id }
     }`,
   )
@@ -259,6 +279,14 @@ async function openIssue(key, title) {
     { title },
   )
   return data.issues.nodes[0]
+}
+
+async function comment(key, issueId, body) {
+  await linear(
+    key,
+    `mutation Comment($input: CommentCreateInput!) { commentCreate(input: $input) { success } }`,
+    { input: { issueId, body } },
+  )
 }
 
 async function createIssue(key, input) {

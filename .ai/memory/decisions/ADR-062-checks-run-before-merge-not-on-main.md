@@ -14,7 +14,7 @@ A pull request gets its proof in three places: on the agent host with `factory c
   - `deploy.yaml` publishes: the release pull request, the npm packages and the deploy.
   - The Layer cache jobs of `ci.yaml` write the Docker layer cache that the branch builds read. Only `main` writes that cache, because all branches share one tag.
   - `observability.yaml` deploys the observability project when its files change. Its Terraform validation runs before the apply as a step of that deploy, not as a check of the change.
-- **A thin nightly run of `main` audits the proof.** The jobs whose `if:` in `ci.yaml` names `schedule` run in full. Project check times runs each typecheck, lint and policy check that has a cache key (it skips a check with `cacheable: false`, such as `policy:adr`). The test, Storybook plays and screenshots, codesearch, upgrade and build jobs run every check. The nightly run records the trace of `main` for `factory check` and writes the `ci` class of the result store. It finds a fault that two pull requests make together, a false pass in a stored result, and a flaky check. A new check, such as the screenshot lane, joins this nightly run. It does not get a job on push.
+- **A thin nightly run of `main` audits the proof.** When `main` has a new commit, the jobs whose `if:` in `ci.yaml` names `schedule` run in full (see the revision below). Project check times runs each typecheck, lint and policy check that has a cache key (it skips a check with `cacheable: false`, such as `policy:adr`). The test, Storybook plays and screenshots, codesearch, upgrade and build jobs run every check. The nightly run records the trace of `main` for `factory check` and writes the `ci` class of the result store. It finds a fault that two pull requests make together, a false pass in a stored result, and a flaky check. A new check, such as the screenshot lane, joins this nightly run. It does not get a job on push.
 
 ### Revision 2026-11-10: a thin nightly run
 
@@ -25,7 +25,7 @@ The product owner decided this on 2026-11-10 ([CTX-1245](https://linear.app/ctxp
 - **A flake makes a fix ticket.** For each flaky story, the job Nightly tickets opens one Linear ticket (state Todo, label `ready-for-agent`, parent [CTX-1178](https://linear.app/ctxpipe/issue/CTX-1178)) with the check ids, the run link and the link to the diff images. When the story already has an open ticket, the job adds a comment, and this second flake puts the story on the unstable list (`scripts/ci/visual-unstable-stories.json`) with that ticket and the date. The list change is a draft pull request (job Unstable screenshots). An entry older than 7 days fails the CI command regression tests.
 - **A failed nightly run makes a ticket.** When a job of the nightly run fails, the job Nightly tickets opens one Linear ticket in Triage with the failed jobs and the run link.
 - **The MCP evals have no schedule.** They run on a pull request with the `mcp-evals` label, or by hand.
-- The Linear key is the `LINEAR_API_KEY` secret of the `workbench` environment. Without it, the job Nightly tickets gives an error annotation and fails.
+- The Linear key is the `LINEAR_API_KEY` secret of the `workbench` environment. Without it, the job Nightly tickets gives an error annotation and fails. A pull request branch can also use the `workbench` environment, so use a restricted key: the team CTX only, with permission to read, create issues and create comments.
 
 The incremental trace and a sampled audit are a separate change ([CTX-1246](https://linear.app/ctxpipe/issue/CTX-1246)).
 

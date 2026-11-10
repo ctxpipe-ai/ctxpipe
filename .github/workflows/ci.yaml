@@ -3,10 +3,10 @@ name: CI
 on:
   workflow_dispatch:
   # A nightly run of the tests on main records the trace of main with
-  # `--trace`. Only the test, Storybook, codesearch, upgrade, build and
-  # Project check times jobs and the Trace job run on it. It is the safety
-  # net of the merge gate (ADR-062). It stops at its first job (Nightly
-  # change) when main has no commit since the last successful nightly run.
+  # `--trace`. Only the jobs whose `if:` names `schedule`, and the jobs after
+  # them, run on it. It is the safety net of the merge gate (ADR-062). It
+  # stops at its first job (Nightly change) when main has no commit since the
+  # last successful nightly run.
   schedule:
     - cron: "23 2 * * *"
   pull_request:
@@ -2496,9 +2496,10 @@ jobs:
   # flake: its story gets one fix ticket (Todo, ready-for-agent, parent
   # CTX-1178). A second flake of the story comments on that ticket and gives
   # the entry of the unstable list to the Unstable screenshots job. A failed
-  # job of the run opens one ticket in Triage. The Linear key is a secret of
-  # the workbench environment; without it the job fails with an error
-  # annotation. The job reads the downloaded records only as data.
+  # or timed-out job of the run opens one ticket in Triage. It also runs when
+  # Nightly change failed, so that failure gets its ticket. The Linear key is
+  # a secret of the workbench environment; without it the job fails with an
+  # error annotation. The job reads the downloaded records only as data.
   nightly-tickets:
     timeout-minutes: 10
     name: Nightly tickets
@@ -2521,7 +2522,7 @@ jobs:
         results-writer,
         non-portable-checks,
       ]
-    if: always() && github.event_name == 'schedule' && needs.nightly-change.outputs.run == 'true'
+    if: always() && github.event_name == 'schedule' && needs.nightly-change.outputs.run != 'false'
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     environment: workbench
     permissions:
