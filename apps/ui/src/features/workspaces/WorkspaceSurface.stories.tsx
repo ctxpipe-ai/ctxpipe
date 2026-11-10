@@ -126,7 +126,7 @@ const columnBox = (column: Element | null | undefined) => {
  * workspace, so nothing moves when the workspace arrives.
  */
 export const SurfaceSkeletonMatches: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { paneParam: "files" },
   parameters: {
     intent:
@@ -188,7 +188,7 @@ const failedTouch = { count: 0, rejections: [] as unknown[] }
  * slug rename. The page stays, and the failure is not an uncaught error.
  */
 export const FailedTouchIsCaught: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a failed workspace touch request that raises an unhandled promise rejection. The page must catch the 404. Not for visible errors or touch success.",
@@ -584,6 +584,17 @@ export const ConversationMissing: Story = {
   },
 }
 
+/**
+ * True when the viewport is at least `width` wide. From `lg` (64rem) up, the
+ * conversation and the open tools pane show side by side. Below `lg`, the
+ * open pane hides the conversation and has no Maximize: the pane header
+ * shows the conversation title and the publish actions. Below `md` (48rem),
+ * the pane fills the viewport.
+ */
+const minWidth = (canvasElement: HTMLElement, width: "48rem" | "64rem") =>
+  canvasElement.ownerDocument.defaultView?.matchMedia(`(min-width: ${width})`)
+    .matches ?? true
+
 /** The conversation has no pull request yet, so its header shows Create PR. */
 const noPrHandlers = () =>
   workspaceShellHandlers({
@@ -615,7 +626,7 @@ const cleanAheadStatus = () =>
 
 /** A failed Sync shows why in a toast. */
 export const PublishErrorsToast: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   decorators: [
     (Story) => (
@@ -682,7 +693,7 @@ export const PublishErrorsToast: Story = {
 
 /** A failed Create PR shows why in a toast. */
 export const PublishPrErrorToast: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   decorators: PublishErrorsToast.decorators,
   parameters: {
@@ -732,7 +743,7 @@ export const PublishPrErrorToast: Story = {
  * and shows it after the last turn, with a link to the branch on GitHub.
  */
 export const SyncAddsThreadEntry: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1" },
   decorators: [
     (Story) => (
@@ -843,7 +854,7 @@ export const SyncAddsThreadEntry: Story = {
  * one pending push.
  */
 export const SharedPublishPending: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
     intent:
@@ -888,6 +899,33 @@ export const SharedPublishPending: Story = {
     )
     const pane = canvasElement.ownerDocument.querySelector("aside")
     if (!pane) throw new Error("The tools pane is missing")
+    const pendingName = "Syncing: commit and push in progress"
+    if (!minWidth(canvasElement, "64rem")) {
+      // The open pane hides the conversation: Sync shows once, in the pane
+      // header. Hide the pane: the conversation header shows the same
+      // pending push.
+      expect(sync.closest("aside")).toBe(pane)
+      expect(sync).toHaveTextContent("Sync")
+      await userEvent.click(sync)
+      await waitFor(
+        () => {
+          const pending = page.getByRole("button", { name: pendingName })
+          expect(pending.closest("aside")).toBe(pane)
+          expect(pending).toHaveAttribute("data-pending", "true")
+        },
+        { timeout: 15_000 },
+      )
+      await userEvent.click(
+        within(pane).getByRole("button", { name: "Hide pane" }),
+      )
+      await waitFor(() => {
+        const pending = page.getByRole("button", { name: pendingName })
+        expect(pending.closest("aside")).toBeNull()
+        expect(pending).toBeVisible()
+        expect(pending).toHaveAttribute("data-pending", "true")
+      })
+      return
+    }
     expect(sync.closest("aside")).toBeNull()
     expect(sync).toHaveTextContent("Sync")
     expect(
@@ -897,7 +935,6 @@ export const SharedPublishPending: Story = {
       within(pane).queryByRole("button", { name: "Create PR" }),
     ).not.toBeInTheDocument()
     await userEvent.click(sync)
-    const pendingName = "Syncing: commit and push in progress"
     await waitFor(
       () => {
         expect(page.getByRole("button", { name: pendingName })).toHaveAttribute(
@@ -927,7 +964,7 @@ export const SharedPublishPending: Story = {
  * git-pull-request icon, and the buttons there have no border.
  */
 export const SingleCreatePr: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
     intent:
@@ -936,7 +973,9 @@ export const SingleCreatePr: Story = {
     storyRoute: workspaceRoute({ conversationId: "conv_1", pane: "files" }),
     msw: {
       handlers: {
-        page: noPrHandlers(),
+        // Clean and ahead: Create PR is the only publish action. A dirty
+        // status adds Sync when it loads.
+        page: [cleanAheadStatus(), ...noPrHandlers()],
       },
     },
   },
@@ -958,8 +997,6 @@ export const SingleCreatePr: Story = {
     if (!createPr) throw new Error("Create PR is missing")
     const pane = canvasElement.ownerDocument.querySelector("aside")
     if (!pane) throw new Error("The tools pane is missing")
-    // The tools pane is open beside the conversation: only the conversation header has Create PR.
-    expect(createPr.closest("aside")).toBeNull()
     expect(
       createPr.querySelector("svg.tabler-icon-git-pull-request"),
     ).not.toBeNull()
@@ -967,20 +1004,30 @@ export const SingleCreatePr: Story = {
     if (!actions) throw new Error("The publish actions are missing")
     for (const button of within(actions).getAllByRole("button"))
       expect(getComputedStyle(button).borderTopWidth).toBe("0px")
-    // Maximized, the conversation is hidden: the pane header shows Create PR.
-    await userEvent.click(page.getByRole("button", { name: "Maximize pane" }))
+    if (minWidth(canvasElement, "64rem")) {
+      // The tools pane is open beside the conversation: only the conversation
+      // header has Create PR.
+      expect(createPr.closest("aside")).toBeNull()
+      // Maximized, the conversation is hidden: the pane header shows Create PR.
+      await userEvent.click(page.getByRole("button", { name: "Maximize pane" }))
+    }
+    // The pane header shows Create PR and the conversation title, which
+    // comes when the conversation list loads.
     await waitFor(() => {
       const buttons = visibleCreatePr()
       expect(buttons).toHaveLength(1)
       expect(buttons[0]?.closest("aside")).toBe(pane)
       expect(buttons[0]).toBeVisible()
+      expect(
+        within(pane).getByRole("button", { name: "Repo layout" }),
+      ).toBeVisible()
     })
   },
 }
 
 /** With the tools pane closed, Create PR shows once, in the conversation header. */
 export const SingleCreatePrPaneClosed: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1" },
   parameters: {
     intent:
@@ -989,7 +1036,9 @@ export const SingleCreatePrPaneClosed: Story = {
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
-        page: noPrHandlers(),
+        // Clean and ahead: Create PR is the only publish action. A dirty
+        // status adds Sync when it loads.
+        page: [cleanAheadStatus(), ...noPrHandlers()],
       },
     },
   },
@@ -1019,7 +1068,7 @@ export const SingleCreatePrPaneClosed: Story = {
  * row, and they look the same.
  */
 export const CreatePrMatchesPaneTriggers: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1" },
   parameters: {
     intent:
@@ -1068,7 +1117,7 @@ export const CreatePrMatchesPaneTriggers: Story = {
  * beside Files, Graph and Settings, with the same style and the file-diff icon.
  */
 export const DiffTriggerPaneClosed: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1" },
   parameters: {
     intent:
@@ -1120,7 +1169,7 @@ export const DiffTriggerPaneClosed: Story = {
  * empty state.
  */
 export const DiffTriggerNoChanges: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
     intent:
@@ -1152,7 +1201,7 @@ export const DiffTriggerNoChanges: Story = {
  * keeps its x and width; it grows only to join the card.
  */
 export const PaneTabsStayInPlace: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
     intent:
@@ -1171,11 +1220,19 @@ export const PaneTabsStayInPlace: Story = {
     for (const name of names)
       await page.findByRole("tab", { name }, { timeout: 15_000 })
     await document.fonts.ready
+    // Below `lg` the strip can be narrower than its tabs. Then it scrolls
+    // the selected tab into view, which moves all tabs together. Add the
+    // scroll offset, so that only a move inside the strip counts.
     const boxes = () =>
       Object.fromEntries(
         names.map((name) => {
-          const r = page.getByRole("tab", { name }).getBoundingClientRect()
-          return [name, { x: r.x, y: r.y, width: r.width, height: r.height }]
+          const tab = page.getByRole("tab", { name })
+          const r = tab.getBoundingClientRect()
+          const scrolled = tab.closest('[role="tablist"]')?.scrollLeft ?? 0
+          return [
+            name,
+            { x: r.x + scrolled, y: r.y, width: r.width, height: r.height },
+          ]
         }),
       )
     // Let the fade-in of the tabs finish before the first read.
@@ -1203,7 +1260,7 @@ export const PaneTabsStayInPlace: Story = {
  * corner of the pane card is round, as it is when Graph is active.
  */
 export const DiffTabRoundedCorner: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "diff" },
   parameters: {
     intent:
@@ -1230,7 +1287,10 @@ export const DiffTabRoundedCorner: Story = {
     await userEvent.click(page.getByRole("tab", { name: "Graph" }))
     await page.findByRole("tab", { name: "Graph", selected: true })
     const graphRadius = radius()
-    expect(graphRadius).not.toBe("0px")
+    // Below `md` the pane fills the viewport, and its card has no radius.
+    const flush = !minWidth(canvasElement, "48rem")
+    if (flush) expect(graphRadius).toBe("0px")
+    else expect(graphRadius).not.toBe("0px")
     expect(diffRadius).toBe(graphRadius)
     // Files leads the strip, so its join stays square.
     await userEvent.click(page.getByRole("tab", { name: "Files" }))
@@ -1238,11 +1298,14 @@ export const DiffTabRoundedCorner: Story = {
   },
 }
 
-/** The names of the visible publish actions in one header. */
-const publishActionNames = (root: HTMLElement) =>
+/**
+ * The names of the publish actions in one header. With `hidden`, also in a
+ * header that CSS hides.
+ */
+const publishActionNames = (root: HTMLElement, hidden = false) =>
   within(root)
-    .queryAllByRole("button", { name: /^(Sync|Create PR)/ })
-    .concat(within(root).queryAllByRole("link", { name: /^Show PR/ }))
+    .queryAllByRole("button", { name: /^(Sync|Create PR)/, hidden })
+    .concat(within(root).queryAllByRole("link", { name: /^Show PR/, hidden }))
     .filter((element) => !element.closest("[inert]"))
     .map((element) => element.getAttribute("aria-label") ?? element.textContent)
 
@@ -1251,7 +1314,7 @@ const publishActionNames = (root: HTMLElement) =>
  * shows the same publish actions as the conversation header.
  */
 export const MaximizedPaneMatchesHeader: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
     intent:
@@ -1280,11 +1343,21 @@ export const MaximizedPaneMatchesHeader: Story = {
   play: async ({ canvasElement }) => {
     const document = canvasElement.ownerDocument
     const page = within(document.body)
+    const wide = minWidth(canvasElement, "64rem")
+    // Below `lg` the open pane hides the conversation header. It is still in
+    // the document, so read its actions there.
     const header = await waitFor(
       () => {
-        const createPr = page.getByRole("button", { name: "Create PR" })
-        expect(createPr).toBeVisible()
-        expect(createPr.closest("aside")).toBeNull()
+        const createPr = wide
+          ? page.getByRole("button", { name: "Create PR" })
+          : page
+              .getAllByRole("button", { name: "Create PR", hidden: true })
+              .find((button) => !button.closest("aside"))
+        if (!createPr) throw new Error("The conversation has no Create PR")
+        if (wide) {
+          expect(createPr).toBeVisible()
+          expect(createPr.closest("aside")).toBeNull()
+        }
         const actions = createPr.parentElement
         if (!actions) throw new Error("The publish actions are missing")
         return actions
@@ -1293,12 +1366,16 @@ export const MaximizedPaneMatchesHeader: Story = {
     )
     const pane = document.querySelector("aside")
     if (!pane) throw new Error("The tools pane is missing")
-    const headerNames = publishActionNames(header)
-    await userEvent.click(page.getByRole("button", { name: "Maximize pane" }))
+    const headerNames = publishActionNames(header, !wide)
+    if (wide)
+      await userEvent.click(page.getByRole("button", { name: "Maximize pane" }))
     await waitFor(() => {
       expect(publishActionNames(pane)).toEqual(headerNames)
       expect(
         within(pane).getByRole("button", { name: "Create PR" }),
+      ).toBeVisible()
+      expect(
+        within(pane).getByRole("button", { name: "Repo layout" }),
       ).toBeVisible()
     })
   },
@@ -1307,7 +1384,7 @@ export const MaximizedPaneMatchesHeader: Story = {
 const idleBudget = { conversation: 0, tree: 0, status: 0, chat: 0, diff: 0 }
 
 export const StableRequestBudget: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   decorators: [
     (Story) => (
@@ -1413,11 +1490,12 @@ export const StableRequestBudget: Story = {
     idleBudget.chat = 0
     idleBudget.diff = 0
     const page = within(canvasElement.ownerDocument.body)
-    await waitFor(() =>
-      expect(
-        page.getByPlaceholderText(/continue the conversation/i),
-      ).toBeVisible(),
-    )
+    // Below `lg` the open pane hides the conversation, so its composer is
+    // in the document but not visible.
+    await waitFor(() => {
+      const composer = page.getByPlaceholderText(/continue the conversation/i)
+      if (minWidth(canvasElement, "64rem")) expect(composer).toBeVisible()
+    })
     await waitFor(
       () => {
         expect(
@@ -1467,6 +1545,10 @@ export const FilesPane: Story = {
 }
 
 export const GraphPane: Story = {
+  // With reduced motion the layout runs a fixed number of steps before the
+  // graph shows. The play waits for it: without the wait, the screenshot
+  // showed a loading stage of the graph that depended on the host speed.
+  tags: ["reduced-motion"],
   args: { paneParam: "graph" },
   parameters: {
     storyRoute: workspaceRoute({ pane: "graph" }),
@@ -1475,6 +1557,17 @@ export const GraphPane: Story = {
         page: workspaceShellHandlers(),
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    // The graph shows when its layout has stopped. Then the control to
+    // play the layout again shows.
+    await page.findByRole(
+      "button",
+      { name: "Play layout" },
+      // The layout runs in WebGL, which is slow on a CPU renderer.
+      { timeout: 30_000 },
+    )
   },
 }
 
@@ -1588,7 +1681,7 @@ async function expectNoDetailPoll() {
 }
 
 export const WriteCheckFailedStopsPolling: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { paneParam: "settings" },
   beforeEach: () => {
     writeCheck.phase = "failed"
@@ -1679,7 +1772,7 @@ export const WriteCheckFailedStopsPolling: Story = {
 }
 
 export const WriteCheckStallStopsPolling: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   // A short cap, so the story does not wait three minutes.
   args: { paneParam: "settings", writeCheckPollCapMs: 3000 },
   beforeEach: () => {
@@ -1888,7 +1981,7 @@ const deleteFlowDecorators = [
 
 /** Deleting the open Workspace goes Home with a toast and no error page. */
 export const DeleteWorkspaceShowsNoError: Story = {
-  tags: ["workspace-golden", "!page"],
+  tags: ["required", "!page"],
   args: { paneParam: "settings" },
   render: (args) => <DeleteFlowStage {...args} />,
   decorators: deleteFlowDecorators,
@@ -1908,7 +2001,7 @@ export const DeleteWorkspaceShowsNoError: Story = {
 /** The same, when the Workspace is the last one. */
 export const DeleteLastWorkspaceShowsNoError: Story = {
   ...DeleteWorkspaceShowsNoError,
-  tags: ["workspace-golden", "!page"],
+  tags: ["required", "!page"],
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
   parameters: {
     intent:
@@ -1921,7 +2014,7 @@ export const DeleteLastWorkspaceShowsNoError: Story = {
 /** The same, from a conversation URL. */
 export const DeleteFromConversationShowsNoError: Story = {
   ...DeleteWorkspaceShowsNoError,
-  tags: ["workspace-golden", "!page"],
+  tags: ["required", "!page"],
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
   args: { paneParam: "settings", conversationId: "conv_1" },
   parameters: {

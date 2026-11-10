@@ -15,10 +15,18 @@ import {
   lineStarts,
   positionsOf,
 } from "./trace-lines.mjs"
+import {
+  listVisual,
+  readUnstable,
+  runVisualChecks,
+  visualCheckId,
+  visualOptions,
+} from "./visual.mjs"
 
 // The Storybook checks: one for each story with a play function. A story
-// with the `workspace-golden` tag is in the lane `golden` (the required CI
-// set), and any other story is in the lane `plays`.
+// with the `required` tag is in the lane `required` (the required CI
+// set), and any other story is in the lane `plays`. The lane `visual` has
+// one screenshot check for each story (visual.mjs).
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const ui = join(root, "apps/ui")
@@ -38,11 +46,11 @@ export const inputs = [
   "apps/ui/public/**",
   "scripts/checks/run.mjs",
   "scripts/checks/storybook.mjs",
-  "scripts/ci/storybook-golden.mjs",
+  "scripts/ci/storybook-plays.mjs",
   "scripts/ci/check-allowlist-history.mjs",
   "scripts/ci/check-test-report.mjs",
-  "scripts/ci/failures/storybook-golden.json",
-  "scripts/ci/storybook-golden-select.mjs",
+  "scripts/ci/failures/storybook-required.json",
+  "scripts/ci/storybook-select.mjs",
   "scripts/ci/storybook-play.mjs",
 ]
 
@@ -50,10 +58,27 @@ export const inputs = [
 // file, so a file id stays a prefix of the ids of its stories.
 export function storyCheck(story) {
   const file = `apps/ui/${story.importPath.replace(/^\.\//, "")}`
-  const lane = (story.tags ?? []).includes("workspace-golden")
-    ? "golden"
+  const lane = (story.tags ?? []).includes("required")
+    ? "required"
     : "plays"
   return { id: `storybook:${lane}:${file}#${story.id}`, lane, file }
+}
+
+// The trace records of one rendered story, from the trace record of its play
+// check: that record (a story with a play function), and a copy under the id
+// of the story's screenshot check. A screenshot is taken after the play, so
+// the screenshot runs the same lines.
+export function traceRecordsOf(story, record) {
+  return traceIdsOf(story).map((id) => ({ ...record, id }))
+}
+
+// The check ids that the trace of a rendered story records: its play check
+// (a story with a play function) and its screenshot check.
+export function traceIdsOf(story) {
+  return [
+    ...((story.tags ?? []).includes("play-fn") ? [storyCheck(story).id] : []),
+    visualCheckId(story),
+  ]
 }
 
 // The `intent` parameter of each story of one file, read with the Storybook
@@ -82,20 +107,20 @@ export async function listStorybook() {
   const { loadCsf } = await csfTools()
   const index = await buildIndex({ configDir: join(ui, ".storybook") })
   const byFile = new Map()
-  return Object.values(index.entries)
+  const entries = Object.values(index.entries).map((entry) => ({
+    ...entry,
+    // buildIndex gives import paths relative to the working directory; the
+    // build gives them relative to apps/ui.
+    importPath: `./${relative(ui, resolve(entry.importPath))}`,
+  }))
+  const plays = entries
     .filter(
       (entry) =>
         entry.type === "story" && (entry.tags ?? []).includes("play-fn"),
     )
-    .map((entry) => {
-      // buildIndex gives import paths relative to the working directory; the
-      // build gives them relative to apps/ui.
-      const story = {
-        ...entry,
-        importPath: `./${relative(ui, resolve(entry.importPath))}`,
-      }
+    .map((story) => {
       const { id, lane, file } = storyCheck(story)
-      if (lane === "golden" && !byFile.has(file))
+      if (lane === "required" && !byFile.has(file))
         byFile.set(file, intents(file, loadCsf))
       const intent = byFile.get(file)?.get(story.exportName)
       return {
@@ -112,6 +137,10 @@ export async function listStorybook() {
         ...(intent && { intent }),
       }
     })
+  return [
+    ...plays,
+    ...listVisual(entries, readUnstable(), visualOptions(entries, loadCsf)),
+  ]
 }
 
 // Maps the browser coverage of each story to repo source lines with the
@@ -189,9 +218,21 @@ export function browserTrace(directory) {
   }
 }
 
-// Runs Storybook checks against the static build. With `trace`, it also
-// returns the trace records.
+// Runs Storybook checks against the static build: the plays, then the
+// screenshots (visual.mjs, not traced). With `trace`, it also returns the
+// trace records of the plays.
 export async function runStorybook(checks, trace) {
+  const visual = checks.filter((check) => check.lane === "visual")
+  const plays = checks.filter((check) => check.lane !== "visual")
+  const result = plays.length
+    ? await runPlays(plays, trace)
+    : { records: [], traced: [], traceFailed: false }
+  if (visual.length)
+    result.records.push(...(await runVisualChecks(visual)).records)
+  return result
+}
+
+async function runPlays(checks, trace) {
   const log = logFile("storybook")
   const server = await serveStatic(staticDir, 0)
   const records = []
@@ -248,7 +289,7 @@ export async function runStorybook(checks, trace) {
         const record = tracer?.check(story, durationMs, coverage, mocks)
         if (record) traced.push(record)
       },
-      Boolean(trace),
+      { trace: Boolean(trace) },
     )
     tracer?.report()
   } finally {

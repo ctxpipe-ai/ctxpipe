@@ -181,7 +181,7 @@ export const PierreKeyboardFocus: Story = {
     intent:
       "Catches a file tree search that loses keyboard focus. Typing then Enter selects a file, and Escape returns focus to the selected row. Not for the file list content.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     paths: ["AGENTS.md", "knowledge/billing.md"],
     selectedPath: "AGENTS.md",
@@ -343,7 +343,7 @@ export const DeletedFileStaysUntilMerged: Story = {
     intent:
       "Catches a deleted file that vanishes from the tree or can be selected. It stays as a struck-through row with a text summary and is not selectable. Not for other markers.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     paths: ["AGENTS.md", "knowledge/billing.md"],
     selectedPath: "AGENTS.md",
@@ -396,7 +396,7 @@ export const ChangeMarkers: Story = {
     intent:
       "Catches file tree rows that miss their change markers. Added, modified, and deleted files show the right marker and counts. Not for folder expansion.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     paths: [
       "AGENTS.md",
@@ -484,7 +484,7 @@ export const NewPathsKeepExpandedFolders: Story = {
     intent:
       "Catches a path reload that collapses folders the user opened. New paths appear and open folders stay open. Not for the first load.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { selectedPath: "AGENTS.md" },
   render: (args) => <NewPathsHarness {...args} />,
   play: async ({ canvasElement }) => {

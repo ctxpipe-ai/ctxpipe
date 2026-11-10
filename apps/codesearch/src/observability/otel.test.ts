@@ -24,6 +24,7 @@ describe("codesearch resource", () => {
 
   it("defaults service.name and deployment.environment when unset", () => {
     vi.stubEnv("OTEL_SERVICE_NAME", undefined)
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
     vi.stubEnv("NODE_ENV", "production")
     vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "")
@@ -40,8 +41,8 @@ describe("codesearch resource", () => {
     expect(codesearchResource().attributes["service.name"]).toBe("other")
   })
 
-  it("prefers RAILWAY_ENVIRONMENT_NAME over resource attributes", () => {
-    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-12")
+  it("prefers DEPLOYMENT_ENVIRONMENT over resource attributes", () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "pr-12")
     vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=staging")
     expect(codesearchDeploymentEnvironment()).toBe("pr-12")
     expect(codesearchResource().attributes["deployment.environment"]).toBe(
@@ -49,7 +50,15 @@ describe("codesearch resource", () => {
     )
   })
 
-  it("reads deployment.environment from OTEL_RESOURCE_ATTRIBUTES when Railway is unset", () => {
+  it("falls back to RAILWAY_ENVIRONMENT_NAME", () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-5")
+    vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=staging")
+    expect(codesearchDeploymentEnvironment()).toBe("pr-5")
+  })
+
+  it("reads deployment.environment from OTEL_RESOURCE_ATTRIBUTES when the deployment name is unset", () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
     vi.stubEnv("NODE_ENV", "production")
     vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=staging")
@@ -60,6 +69,7 @@ describe("codesearch resource", () => {
   })
 
   it("uses the last percent-decoded deployment.environment entry", () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
     vi.stubEnv("NODE_ENV", "production")
     vi.stubEnv(
@@ -72,7 +82,8 @@ describe("codesearch resource", () => {
     )
   })
 
-  it("uses development when Railway, resource attributes, and production are unset", () => {
+  it("uses development when the deployment name, resource attributes, and production are unset", () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
     vi.stubEnv("NODE_ENV", "test")
     vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "")
@@ -100,7 +111,7 @@ describe("initOtel", () => {
   })
 
   it("installs a meter provider when metrics are configured", () => {
-    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "production")
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "production")
     vi.stubEnv(
       "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
       "http://127.0.0.1:9/v1/traces",
@@ -114,8 +125,8 @@ describe("initOtel", () => {
     expect(metrics.getMeterProvider()).toBeInstanceOf(MeterProvider)
   })
 
-  it("exports no metrics for Railway pr environments", () => {
-    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-4")
+  it("exports no metrics for pr environments", () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "pr-4")
     vi.stubEnv(
       "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
       "http://127.0.0.1:9/v1/traces",

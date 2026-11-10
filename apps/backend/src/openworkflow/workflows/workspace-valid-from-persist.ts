@@ -1,7 +1,6 @@
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { validFromPersistFiles } from "../../domain/workspaces/hydrate-write-jobs.js"
 import { hydrateKnowledgeTree } from "../../domain/workspaces/hydrate.js"
 import {
@@ -22,26 +21,18 @@ import {
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  completeWorkspaceWrite,
+  prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import {
-  persistBoundWriteJob,
-  persistWriteJobPreparedCommit,
-} from "../../models/workspace-write-jobs.js"
-import {
-  persistWriteJobCommitSha,
-  persistWriteJobStatus,
-} from "../../models/workspaces.js"
+import { persistBoundWriteJob } from "../../models/workspace-write-jobs.js"
+import { persistWriteJobStatus } from "../../models/workspaces.js"
 import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
 import { readGitFiles } from "../../services/git/pack.js"
-import {
-  commitGitTree,
-  stageGitFiles,
-  validateGitTree,
-} from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
@@ -103,8 +94,9 @@ export const workspaceValidFromPersist = defineWorkflow(
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
           >
           for (;;) {
-            const candidate = await step.run({ name: "acquire-revision" }, () =>
-              acquireWorkspaceWriteRevision(input, revision, env),
+            const candidate = await step.run(
+              { name: "acquire-revision-v2" },
+              () => acquireWorkspaceWriteRevision(input, revision, env),
             )
             if (candidate) {
               acquired = candidate
@@ -118,57 +110,73 @@ export const workspaceValidFromPersist = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const introduced = await step.run(
-            { name: "read-introducing-commits" },
-            async () => {
-              const token = await resolveRepositoryReadCredential({
-                orgId: input.orgId,
-                env,
-                remote: revision.remote,
-              })
-              const files = await listMarkdownFilesAtGitSha({
-                url: revision.remote.url,
-                sha: revision.sha,
-                token,
-                includeIntroducingCommits: true,
-                root: workspaceRootPath(revision),
-              })
-              const timestamps: Record<string, string> = {}
-              for (const file of files)
-                if (file.introducingCommitTimestamp)
-                  timestamps[file.path] = file.introducingCommitTimestamp
-              return timestamps
-            },
-          )
-          const files = await step.run(
-            { name: "transform-valid-from-persist" },
-            async () => {
-              const sourceFiles = await readGitFiles(
+          // One step makes the change, commits it, and pushes the commit to
+          // its job ref: no step output holds a file (CTX-1239).
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
+            () =>
+              prepareWorkspaceWriteCommit(
+                input,
+                revision,
                 acquired.pack,
-                (path) => path.endsWith(".md"),
-                undefined,
-                read,
-              )
-              const parsed = hydrateKnowledgeTree({
-                workspaceId: input.workspaceId,
-                files: sourceFiles,
-              })
-              return sourceFiles.flatMap((file) => {
-                const timestamp = introduced[file.path]
-                const changes = validFromPersistFiles({
-                  files: [file],
-                  units: parsed.units,
-                  introducingCommitTimestamp: timestamp ?? "",
-                })
-                if (changes.length && !timestamp)
-                  throw new Error(
-                    "Missing native introducing timestamp for a claim repair",
-                  )
-                return changes
-              })
-            },
+                {
+                  change: async () => {
+                    const token = await resolveRepositoryReadCredential({
+                      orgId: input.orgId,
+                      env,
+                      remote: revision.remote,
+                    })
+                    const introduced = new Map<string, string>()
+                    for (const file of await listMarkdownFilesAtGitSha({
+                      url: revision.remote.url,
+                      sha: revision.sha,
+                      token,
+                      includeIntroducingCommits: true,
+                      root: workspaceRootPath(revision),
+                    }))
+                      if (file.introducingCommitTimestamp)
+                        introduced.set(
+                          file.path,
+                          file.introducingCommitTimestamp,
+                        )
+                    const sourceFiles = await readGitFiles(
+                      acquired.pack,
+                      (path) => path.endsWith(".md"),
+                      undefined,
+                      read,
+                    )
+                    const parsed = hydrateKnowledgeTree({
+                      workspaceId: input.workspaceId,
+                      files: sourceFiles,
+                    })
+                    const files = sourceFiles.flatMap((file) => {
+                      const timestamp = introduced.get(file.path)
+                      const changes = validFromPersistFiles({
+                        files: [file],
+                        units: parsed.units,
+                        introducingCommitTimestamp: timestamp ?? "",
+                      })
+                      if (changes.length && !timestamp)
+                        throw new Error(
+                          "Missing native introducing timestamp for a claim repair",
+                        )
+                      return changes
+                    })
+                    if (files.some((file) => !file.path.endsWith(".md")))
+                      throw new Error(
+                        "Validity maintenance may only edit Markdown",
+                      )
+                    return { files, deletePaths: [] }
+                  },
+                  subject: { trigger: "valid_from_persist" },
+                  createdAt: run.createdAt,
+                },
+                env,
+              ),
           )
-          if (!files.length) {
+          if (!committed) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -184,38 +192,6 @@ export const workspaceValidFromPersist = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const staged = await step.run({ name: "stage" }, () => {
-            if (files.some((file) => !file.path.endsWith(".md")))
-              throw new Error("Validity maintenance may only edit Markdown")
-            return stageGitFiles(acquired.pack, files, [], read)
-          })
-          await step.run({ name: "validate" }, () =>
-            validateGitTree(
-              staged,
-              files.map((file) => file.path),
-              {},
-              read,
-            ),
-          )
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "valid_from_persist",
-              fileNames: files.map((file) => file.path),
-            }),
-          )
-          const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(
-              staged,
-              {
-                subject,
-                createdAt: run.createdAt,
-              },
-              read,
-            )
-            await persistWriteJobPreparedCommit(input.jobId, pack.sha)
-            return pack
-          })
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             pushed = await step.run(
@@ -233,7 +209,7 @@ export const workspaceValidFromPersist = defineWorkflow(
           }
           if (!pushed.pushed) {
             const handoff = await step.run(
-              { name: "capture-semantic-handoff" },
+              { name: "capture-semantic-handoff-v2" },
               () =>
                 captureSemanticHandoff(input, revision, committed, env, "host"),
             )
@@ -243,9 +219,10 @@ export const workspaceValidFromPersist = defineWorkflow(
               { name: "semantic-merge-child" },
             )
             await step.run({ name: "complete-merged-result" }, () =>
-              persistWriteJobCommitSha(
-                input.jobId,
+              completeWorkspaceWrite(
+                { ...input, remote: input.revision.remote },
                 result.committed ? result.commitSha : null,
+                env,
               ),
             )
             return result
@@ -265,7 +242,11 @@ export const workspaceValidFromPersist = defineWorkflow(
             )
           })
           await step.run({ name: "complete" }, () =>
-            persistWriteJobCommitSha(input.jobId, committed.sha),
+            completeWorkspaceWrite(
+              { ...input, remote: input.revision.remote },
+              committed.sha,
+              env,
+            ),
           )
           return { committed: true as const, commitSha: committed.sha }
         }

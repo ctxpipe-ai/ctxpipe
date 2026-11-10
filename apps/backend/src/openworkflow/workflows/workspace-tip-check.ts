@@ -31,7 +31,10 @@ import {
   destroySandboxesForWorkspace,
   jobSandboxesDueForDestroy,
 } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
-import { cleanUpWorkspaceIngestRefs } from "../../domain/workspaces/write-broker.js"
+import {
+  cleanUpWorkspaceIngestRefs,
+  cleanUpWorkspaceWriteRefs,
+} from "../../domain/workspaces/write-broker.js"
 import { resumePausedWriteJobs } from "../../domain/workspaces/write-job-resume.js"
 import {
   nextPersistedWriteProbe,
@@ -450,6 +453,31 @@ export const workspaceTipCheck = defineWorkflow(
             })
           })
         }
+      // The job refs of finished and failed write jobs (CTX-1235). The
+      // `complete` step deletes the refs of a job that lands its write; this
+      // check deletes what a failed run or a failed deletion left, in each
+      // writable Workspace, so the refs go also after a long access outage.
+      // A failure here must not fail the tip check; the next check tries
+      // again.
+      for (const workspace of workspaces) {
+        if (
+          !workspace.githubConnectionId ||
+          noAccess.has(workspace.id) ||
+          (writeStatusById.get(workspace.id) ?? workspace.writeStatus) !==
+            "writable"
+        )
+          continue
+        await cleanUpWorkspaceWriteRefs(
+          { orgId: input.orgId, workspaceId: workspace.id },
+          env,
+        ).catch((error: unknown) => {
+          log.warn({
+            event: "workspace_write_ref_cleanup_failed",
+            workspaceId: workspace.id,
+            message: error instanceof Error ? error.message : String(error),
+          })
+        })
+      }
       // A ready graph that the graph store does not hold gets one rebuild, for
       // example after a new projection version. The checks run one at a time,
       // and each is one small marker read. A failure here must not fail

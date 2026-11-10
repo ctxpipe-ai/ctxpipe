@@ -1,10 +1,11 @@
 import { IconPlus, IconRefresh } from "@tabler/icons-react"
 import {
   QueryErrorResetBoundary,
+  useQueryClient,
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { useLocation } from "@tanstack/react-router"
-import { useRef, useState } from "react"
+import { useCallback, useRef, useState, useSyncExternalStore } from "react"
 
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { SideNavRowSkeleton } from "@/components/SideNav/SideNavRowSkeleton"
@@ -25,13 +26,25 @@ export function WorkspaceNavList(props: {
   currentConversationId?: string
   onSelectNav: (next: SideNavLocation) => void
 }) {
+  const queryClient = useQueryClient()
+  const listQueryKey = workspaceListOptions(props.orgSlug).queryKey
+  const listFailed = () => {
+    const state = queryClient.getQueryState(listQueryKey)
+    return state?.status === "error" && state.data === undefined
+  }
+  const subscribe = useCallback(
+    (onChange: () => void) => queryClient.getQueryCache().subscribe(onChange),
+    [queryClient],
+  )
+  const failed = useSyncExternalStore(subscribe, listFailed, listFailed)
   return (
     <QueryErrorResetBoundary>
       {({ reset: resetQueries }) => (
-        // The key resets a failed state when the org changes: the layout
-        // stays mounted on an org switch.
+        // The key resets a failed state when the org changes (the layout
+        // stays mounted on an org switch), and when the list loads after a
+        // failure: Home reads the same list and has its own Retry.
         <WorkspaceQueryErrorBoundary
-          key={props.orgSlug}
+          key={`${props.orgSlug}:${failed}`}
           fallback={(_error, resetBoundary) => (
             <NavListError
               expanded={props.expanded}

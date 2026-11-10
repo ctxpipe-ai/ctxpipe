@@ -56,7 +56,7 @@ const HOST_FIELDS = [
 ] as const
 
 /** A file that the retraction leaves unchanged, and the reason. */
-type SkippedRetraction = { path: string; reason: string }
+export type SkippedRetraction = { path: string; reason: string }
 
 type UnlinkRetractionPlan = {
   files: GitFileChange[]

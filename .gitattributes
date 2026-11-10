@@ -1,0 +1,3 @@
+# A baseline screenshot of a story (pnpm visual:update). Git must not
+# change its line endings or show it as a text diff.
+*.screenshot.png binary

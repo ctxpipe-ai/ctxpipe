@@ -197,7 +197,9 @@ const { spawnSync } = require("node:child_process");
 const { existsSync, writeFileSync } = require("node:fs");
 const args = process.argv.slice(2);
 const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: "inherit" });
-if (result.status === 0 && args.includes(${JSON.stringify(boundary === "unborn push" ? "push" : "hash-object")}) && !existsSync(${JSON.stringify(ready)})) {
+// The default-branch push, not the push of the job ref (CTX-1235).
+const boundary = ${JSON.stringify(boundary === "unborn push" ? "push" : "hash-object")};
+if (result.status === 0 && args.includes(boundary) && (boundary !== "push" || args.some((arg) => arg.includes(":refs/heads/"))) && !existsSync(${JSON.stringify(ready)})) {
   writeFileSync(${JSON.stringify(ready)}, args[args.indexOf("-C") + 1]);
   while (!existsSync(${JSON.stringify(release)})) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
 }
@@ -437,23 +439,31 @@ process.exit(result.status ?? 1);
                   attempt.stepName ===
                     (boundary === "unborn push"
                       ? "claim-unborn-command"
-                      : "acquire-revision") && attempt.status === "completed",
+                      : "acquire-revision-v2") &&
+                  attempt.status === "completed",
               ),
             ).toHaveLength(1)
             expect(
               attempts.filter(
                 (attempt) =>
                   attempt.stepName ===
-                  (boundary === "unborn push" ? "broker-push-unborn" : "stage"),
+                  (boundary === "unborn push"
+                    ? "broker-push-unborn"
+                    : "prepare-commit"),
               ),
             ).toHaveLength(boundary === "semantic handoff" ? 1 : 2)
             if (boundary === "semantic handoff")
               expect(
                 attempts.filter(
-                  (attempt) => attempt.stepName === "capture-semantic-handoff",
+                  (attempt) =>
+                    attempt.stepName === "capture-semantic-handoff-v2",
                 ),
               ).toHaveLength(2)
-            expect(writeCredentials).toBe(1)
+            // The job ref push and the ref deletion need a write credential
+            // too (CTX-1235). Each process asks for it at most once: the
+            // original writer and the two replacements.
+            expect(writeCredentials).toBeGreaterThanOrEqual(1)
+            expect(writeCredentials).toBeLessThanOrEqual(3)
             expect(unexpectedRequests).toEqual([])
           }
           if (boundary === "semantic handoff") {

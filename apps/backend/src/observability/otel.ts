@@ -32,6 +32,10 @@ import {
 } from "@opentelemetry/sdk-trace-base"
 import { log } from "evlog"
 
+import {
+  deploymentEnvironment,
+  isPreviewDeployment,
+} from "../../../../shared/deployment-environment.js"
 import type { Env } from "../config/env.js"
 import { baggageWithAttribution, copyAttributionToSpan } from "./attribution.js"
 import { BetterAuthSpanFilter } from "./betterAuthSpanFilter.js"
@@ -56,18 +60,19 @@ export function otelServiceName(
 }
 
 /**
- * `RAILWAY_ENVIRONMENT_NAME`, else `deployment.environment` in
- * `OTEL_RESOURCE_ATTRIBUTES`, else `production` when NODE_ENV is production,
- * else `development`. Logs and the Langfuse `env:` tag call this.
+ * The deployment name (`shared/deployment-environment.ts`), else
+ * `deployment.environment` in `OTEL_RESOURCE_ATTRIBUTES`, else `production`
+ * when NODE_ENV is production, else `development`. Logs and the Langfuse
+ * `env:` tag call this.
  */
 export function otelDeploymentEnvironment(
-  railwayEnvironmentName = process.env.RAILWAY_ENVIRONMENT_NAME,
   nodeEnv = process.env.NODE_ENV,
-  resourceAttributes = process.env.OTEL_RESOURCE_ATTRIBUTES,
 ): string {
-  const railway = railwayEnvironmentName?.trim()
-  if (railway) return railway
-  const fromAttributes = deploymentEnvironmentAttribute(resourceAttributes)
+  const deploymentName = deploymentEnvironment(process.env)
+  if (deploymentName) return deploymentName
+  const fromAttributes = deploymentEnvironmentAttribute(
+    process.env.OTEL_RESOURCE_ATTRIBUTES,
+  )
   if (fromAttributes) return fromAttributes
   return nodeEnv === "production" ? "production" : "development"
 }
@@ -106,12 +111,6 @@ export function backendResource() {
   return defaultResource()
     .merge(detectResources({ detectors: [envDetector] }))
     .merge(resourceFromAttributes(attributes))
-}
-
-export function isRailwayPrEnvironment(
-  railwayEnvironmentName = process.env.RAILWAY_ENVIRONMENT_NAME,
-): boolean {
-  return /^pr-\d+$/.test(railwayEnvironmentName?.trim() ?? "")
 }
 
 const SPAN_URL_KEYS = [
@@ -212,7 +211,8 @@ export function initOtel(env: Env): void {
 
 function metricReaderFor(url: string): MetricReader {
   const exporter = new OTLPMetricExporter({ url, timeoutMillis: 2_000 })
-  if (isRailwayPrEnvironment()) return new FlushOnDemandMetricReader(exporter)
+  if (isPreviewDeployment(process.env))
+    return new FlushOnDemandMetricReader(exporter)
   return new PeriodicExportingMetricReader({
     exporter,
     exportIntervalMillis: 60_000,

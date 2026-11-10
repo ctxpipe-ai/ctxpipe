@@ -428,8 +428,9 @@ export async function enqueueWriteJob(
           kind: input.kind,
           revision,
           previousSha: command.previousSha,
-          files: command.files,
-          deletePaths: command.deletePaths,
+          // A standalone merge carries its files; only a handoff child has none.
+          files: "files" in command ? command.files : [],
+          deletePaths: "deletePaths" in command ? command.deletePaths : [],
         })
         bound = true
         await runWorkflowWithWorkerWake(workspaceSemanticMerge.spec, command, {

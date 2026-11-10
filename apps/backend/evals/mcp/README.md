@@ -77,7 +77,7 @@ The `stale-cursor` case uses a real cursor. Before that case, `run.ts` calls `se
 
 ### CI
 
-CI is `.github/workflows/mcp-evals.yaml`. It runs nightly, by hand, and on a pull request with the label `mcp-evals`. The job never uses a preview, because a preview database is a copy of production data. The job does these steps:
+CI is `.github/workflows/mcp-evals.yaml`. It runs by hand, and on a pull request with the label `mcp-evals`. It has no schedule. The job never uses a preview, because a preview database is a copy of production data. The job does these steps:
 
 1. It starts Postgres and FalkorDB as service containers and applies the migrations.
 2. It starts codesearch and the backend from the checked-out code.

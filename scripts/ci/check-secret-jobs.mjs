@@ -110,6 +110,7 @@ const checkSecrets =
 // Scripts that a job with a secret may run or source. Each runs no package
 // manager; the check reads each one to keep that true.
 const reviewedScripts = new Set([
+  "scripts/ci/nightly.mjs",
   "scripts/ci/smoke-preview-ui.sh",
   "scripts/preview-app-db-password.sh",
   "scripts/preview-github-app-vars.sh",
@@ -134,6 +135,10 @@ const exceptions = new Map(
     // The job uses the workbench environment: its model key is the
     // spend-capped CI key, not the production key.
     "mcp-evals.yaml:evals": ["MODEL_PROVIDER_API_KEY"],
+    // Runs the visual critic bake-off with real models. The job uses the
+    // workbench environment: its model key is the spend-capped key of the
+    // bake-off, not the production key.
+    "visual-bakeoff.yaml:run": ["MODEL_PROVIDER_API_KEY"],
     // Ingests real repositories with a real model and the preview GitHub App.
     // INGEST_PROOF_* hold the private test repository URLs, no credential:
     // a secret keeps them out of the public log.
@@ -326,6 +331,22 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     "ci.yaml:merge-gate-select",
     "ci.yaml:merge-gate-llm",
     "ci.yaml:results-writer",
+    // The nightly plan reads the manifest and the toolchain record of the
+    // manifest job only as data, and runs only the factory release (checked
+    // against its pinned SHA-256). It runs no repository script.
+    "ci.yaml:nightly-plan",
+    // The job reads the result records and the visual manifests of the
+    // nightly Storybook jobs only as data (scripts/ci/nightly.mjs), with the
+    // Linear key of the workbench environment. It runs no downloaded file.
+    // It downloads by the artifact ids that the Storybook shards give, so
+    // another job of the run cannot replace them.
+    "ci.yaml:nightly-tickets",
+    // The job reads plan.json of the merge gate plan job only as data: the
+    // check ids that selected.mjs runs. It downloads the artifact by the id
+    // that the plan job gives, so another job of the run cannot replace it.
+    // Before, the plan job gave the same ids in its outputs. The job already
+    // runs PR code with the token (pnpm install and the selected tests).
+    "ci.yaml:vercel-sandbox",
     // The Resolve job checks out the merge commit (it holds no secret) and
     // uploads infra/. The plan job may check out only the workflow commit, and
     // it already runs branch Terraform code: the reviewers of the

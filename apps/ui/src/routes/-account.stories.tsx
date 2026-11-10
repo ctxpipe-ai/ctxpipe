@@ -198,7 +198,7 @@ function connectedAppsHandlers(options: { failRevoke?: boolean } = {}) {
 const editBackend = connectedAppsHandlers()
 
 export const ConnectedAppsEditOrgs: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { accountView: "connected-apps" },
   beforeEach: editBackend.reset,
   parameters: {
@@ -250,7 +250,7 @@ export const ConnectedAppsEditOrgs: Story = {
 const revokeBackend = connectedAppsHandlers()
 
 export const ConnectedAppsRevoke: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { accountView: "connected-apps" },
   beforeEach: revokeBackend.reset,
   parameters: {
@@ -280,7 +280,7 @@ export const ConnectedAppsRevoke: Story = {
 const failingRevokeBackend = connectedAppsHandlers({ failRevoke: true })
 
 export const ConnectedAppsRevokeError: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { accountView: "connected-apps" },
   beforeEach: failingRevokeBackend.reset,
   parameters: {
@@ -299,7 +299,8 @@ export const ConnectedAppsRevokeError: Story = {
       await canvas.findByRole("button", { name: "Revoke Example Agent" }),
     )
     const dialog = within(await body.findByRole("alertdialog"))
-    await userEvent.click(dialog.getByRole("button", { name: "Revoke app" }))
+    const revoke = dialog.getByRole("button", { name: "Revoke app" })
+    await userEvent.click(revoke)
     // The dialog stays open and shows the error.
     await waitFor(() =>
       expect(
@@ -308,6 +309,8 @@ export const ConnectedAppsRevokeError: Story = {
     )
     await expect(body.getByRole("alertdialog")).toBeVisible()
     await expect(canvas.getByText("Example Agent")).toBeVisible()
+    // End with the pointer off the button, so its color is the idle one.
+    await userEvent.unhover(revoke)
   },
 }
 
@@ -577,7 +580,7 @@ const staleSelectionBackend = deletedOrganizationBackend([
  * first organization, and the page does not show the error screen.
  */
 export const OrganizationDeletedStaleSelection: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { accountView: "organizations" },
   decorators: orgPageDecorators,
   beforeEach: staleSelectionBackend.reset,
@@ -618,7 +621,7 @@ const lastOrganizationBackend = deletedOrganizationBackend([])
 
 /** The last organization is deleted: the user lands on onboarding. */
 export const LastOrganizationDeleted: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { accountView: "organizations" },
   decorators: orgPageDecorators,
   beforeEach: lastOrganizationBackend.reset,

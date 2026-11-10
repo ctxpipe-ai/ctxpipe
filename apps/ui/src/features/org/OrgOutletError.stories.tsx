@@ -44,7 +44,7 @@ export const OrgGateTryAgainLoads: Story = {
     intent:
       "Catches an organization error screen whose Try again button does not load the page again. After a failed session check, a retry must show the organization page. Not for error text.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: OrgGateFailed.args,
   render: () => <OrgGateRetryRouter />,
   play: async ({ canvasElement }) => {

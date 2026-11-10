@@ -33,7 +33,11 @@ import {
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "../ingestion/ingestion-run.js"
 import { ingestPublishTurn } from "../ingestion/publish-turn.js"
-import { ingestionRunState, reingestSlotTurn } from "./reingest.js"
+import {
+  ingestionRunState,
+  reingestRunKeyPrefix,
+  reingestSlotTurn,
+} from "./reingest.js"
 import { startWorkspaceUpgrade } from "./start.js"
 import { stopOrphanedReingestRuns } from "./stop-orphans.js"
 
@@ -85,7 +89,11 @@ afterAll(async () => {
   await closeDb()
 })
 
-/** Queue an upgrade run that no worker claims: it stays active. */
+/**
+ * Queue an upgrade run. It stays active when no worker of the test claims it.
+ * The worker of `orphanedRepositoryRun` claims it and starts its repository
+ * run.
+ */
 async function upgradeRun(orgId: string): Promise<string> {
   const handle = await runner.runWorkflow(upgradeSpec, { orgId })
   queued.push(handle.workflowRun.id)
@@ -444,44 +452,70 @@ async function orphanedRepositoryRun(orgId: string) {
   fleet.implementWorkflow(scan.spec, scan.fn)
   const worker = fleet.newWorker({ concurrency: 4 })
   await worker.start()
-  const statusOf = async (workflowName: string) => {
+  const handle = await fleet.runWorkflow(parent.spec, { orgId })
+  queued.push(handle.workflowRun.id)
+  /**
+   * The repository run of the parent run, and the ingestion run of that
+   * repository run. The worker can also run the next upgrade run of the org,
+   * and that run starts its own repository run. Thus each read names the
+   * parent run, not only the org.
+   */
+  const repositoryRun = () => repositoryRunOf(handle.workflowRun.id)
+  const ingestionRun = async () => {
+    const child = await repositoryRun()
+    if (!child) return undefined
     const result = await getSystemDb().execute<{
       id: string
       status: string
     }>(sql`
       select id, status from openworkflow.workflow_runs
       where namespace_id = ${openWorkflowNamespaceId()}
-        and workflow_name = ${workflowName}
-        and input->>'orgId' = ${orgId}
+        and workflow_name = ${INGESTION_V2_WORKFLOW_NAME}
+        and starts_with(idempotency_key, ${reingestRunKeyPrefix(child.input)})
     `)
     return result.rows[0]
   }
-  const handle = await fleet.runWorkflow(parent.spec, { orgId })
-  queued.push(handle.workflowRun.id)
   // The repository run has started its ingestion run.
-  let child: { id: string; status: string } | undefined
-  for (let i = 0; i < 60; i++) {
-    child = await statusOf("workspace-upgrade-reingest-repository")
-    const started = await getSystemDb().execute(sql`
-      select 1 from openworkflow.workflow_runs
-      where namespace_id = ${openWorkflowNamespaceId()}
-        and workflow_name = ${INGESTION_V2_WORKFLOW_NAME}
-        and idempotency_key like ${`upgrade-reingest:${orgId}:%`}
-    `)
-    if (child && started.rows.length) break
-    await new Promise((resolve) => setTimeout(resolve, 500))
-  }
-  expect(child?.status).toMatch(/running|sleeping|pending/)
+  const child = await until(async () =>
+    (await ingestionRun()) ? repositoryRun() : undefined,
+  )
+  expect(child.status).toMatch(/running|sleeping|pending/)
 
   // The parent is canceled. Its child keeps running.
   await fleet.cancelWorkflowRun(handle.workflowRun.id)
-  expect((await statusOf("workspace-upgrade-reingest"))?.status).toBe(
-    "canceled",
-  )
-  expect(
-    (await statusOf("workspace-upgrade-reingest-repository"))?.status,
-  ).toMatch(/running|sleeping|pending/)
-  return { fleet, worker, statusOf, scan }
+  const parentRun = await getSystemDb().execute<{ status: string }>(sql`
+    select status from openworkflow.workflow_runs
+    where namespace_id = ${openWorkflowNamespaceId()}
+      and id = ${handle.workflowRun.id}
+  `)
+  expect(parentRun.rows[0]?.status).toBe("canceled")
+  expect((await repositoryRun())?.status).toMatch(/running|sleeping|pending/)
+  return { fleet, worker, scan, repositoryRun, ingestionRun }
+}
+
+/** The repository run that an upgrade run started, if it exists. */
+async function repositoryRunOf(upgradeRunId: string) {
+  const result = await getSystemDb().execute<{
+    id: string
+    status: string
+    input: { orgId: string; workspaceId: string; upgradeRunId: string }
+  }>(sql`
+    select id, status, input from openworkflow.workflow_runs
+    where namespace_id = ${openWorkflowNamespaceId()}
+      and workflow_name = 'workspace-upgrade-reingest-repository'
+      and input->>'upgradeRunId' = ${upgradeRunId}
+  `)
+  return result.rows[0]
+}
+
+/** Read every 500 ms until `read` gives a value, for at most 30 s. */
+async function until<T>(read: () => Promise<T | undefined>): Promise<T> {
+  for (let i = 0; i < 60; i++) {
+    const value = await read()
+    if (value) return value
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+  throw new Error("The state did not come in 30 s.")
 }
 
 describe("a parent run that ends before its repository runs", () => {
@@ -490,7 +524,8 @@ describe("a parent run that ends before its repository runs", () => {
     { timeout: 90_000 },
     async () => {
       const orgId = generateObjectId("org")
-      const { worker, statusOf } = await orphanedRepositoryRun(orgId)
+      const { worker, repositoryRun, ingestionRun } =
+        await orphanedRepositoryRun(orgId)
       try {
         // The next run of the org waits: the slot is not free yet.
         const next = await upgradeRun(orgId)
@@ -505,13 +540,15 @@ describe("a parent run that ends before its repository runs", () => {
         ).toEqual({
           wait: "A repository run of an earlier re-ingestion of this organization has not ended.",
         })
+        // The worker of this test also runs the next run, and that run starts
+        // its own repository run. Its parent is live, so it is not an orphan.
+        await until(() => repositoryRunOf(next))
 
         await stopOrphanedReingestRuns()
-        expect(
-          (await statusOf("workspace-upgrade-reingest-repository"))?.status,
-        ).toBe("canceled")
-        const ingestion = await statusOf(INGESTION_V2_WORKFLOW_NAME)
+        expect((await repositoryRun())?.status).toBe("canceled")
+        const ingestion = await ingestionRun()
         expect(ingestion?.status).toBe("canceled")
+        expect((await repositoryRunOf(next))?.status).not.toBe("canceled")
         expect(
           await reingestSlotTurn({
             orgId,
@@ -552,9 +589,8 @@ describe("a parent run that ends before its repository runs", () => {
             formatVersion: 3,
           }),
         )
-      const { fleet, worker, statusOf, scan } = await orphanedRepositoryRun(
-        org.id,
-      )
+      const { fleet, worker, scan, repositoryRun, ingestionRun } =
+        await orphanedRepositoryRun(org.id)
       try {
         // The reads and a start that finds no row cancel nothing.
         for (const [routes, path] of [
@@ -577,9 +613,9 @@ describe("a parent run that ends before its repository runs", () => {
             }),
           ),
         ).toEqual({ kind: "missing" })
-        expect(
-          (await statusOf("workspace-upgrade-reingest-repository"))?.status,
-        ).toMatch(/running|sleeping|pending/)
+        expect((await repositoryRun())?.status).toMatch(
+          /running|sleeping|pending/,
+        )
 
         const handle = await fleet.runWorkflow(scan.spec, {
           orgId: org.id,
@@ -594,12 +630,8 @@ describe("a parent run that ends before its repository runs", () => {
             and id = ${handle.workflowRun.id}
         `)
         expect(scanRun.rows[0]).toEqual({ attempts: 1 })
-        expect(
-          (await statusOf("workspace-upgrade-reingest-repository"))?.status,
-        ).toBe("canceled")
-        expect((await statusOf(INGESTION_V2_WORKFLOW_NAME))?.status).toBe(
-          "canceled",
-        )
+        expect((await repositoryRun())?.status).toBe("canceled")
+        expect((await ingestionRun())?.status).toBe("canceled")
         // One sweep for the scan of the org, not one for each Workspace.
         const sweeps = await getSystemDb().execute<{ steps: number }>(sql`
           select count(*)::int as steps from openworkflow.step_attempts

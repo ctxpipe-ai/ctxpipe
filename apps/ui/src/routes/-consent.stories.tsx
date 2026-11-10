@@ -73,7 +73,7 @@ export const ConsentSendsTickedOrgs: Story = {
     intent:
       "Catches a consent route that sends the wrong organizations or scope. The consent request carries the ticked organizations and the read scope. Not for the consent screen layout.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   beforeEach: () => {
     consentRequests.length = 0
   },

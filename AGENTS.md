@@ -50,7 +50,7 @@ When you edit a file, write each new sentence to the standard. Change an old sen
 
 ## Agent skills
 
-After you complete the requested code changes, commit them. Then run `factory check --input <ticket or brief file>`. Fix what it reports, commit, and run it again until it passes. Then push the current feature branch. Before the final response, create or update a draft PR against `main`. Analysis-only work needs no commit. Never merge unless the user asks. Proving a fix uses the [tdd](.agents/skills/tdd/SKILL.md) skill; _proof_ is a real collaborator ([mocking.md](.agents/skills/tdd/mocking.md)).
+After you complete the requested code changes, commit them. Then run `factory check --input <ticket or brief file>`. Fix what it reports, commit, and run it again until it passes. Then push and open or update a PR against `main`. Merge it when the merge gate passes. Analysis-only work needs no commit. Proving a fix uses the [tdd](.agents/skills/tdd/SKILL.md) skill; _proof_ is a real collaborator ([mocking.md](.agents/skills/tdd/mocking.md)).
 
 ### Sub-agent models
 
@@ -63,11 +63,11 @@ The review rows are what `critics.json` runs. `factory check` starts the reviewe
 | Build of a ticket, or mechanical review fix | Opus 5.5; effort from the estimated complexity (low, medium, high) | — |
 | Small fix that has acceptance tests in the brief, on a host where `list_profiles` shows `local` | The local model through the `local` profile; read its notes. Review its diff before you accept it | Opus 5.5, low |
 | Review fix that needs a security design | Opus 5.5, medium | — |
-| First review round, Standards axis | Codex GPT-6.1-Sol, high | Opus, high |
+| First review round, Standards axis | Opus 5.5, high | — |
 | First review round, Spec axis | Opus, medium, **and** Codex GPT-6.1-Sol, medium | Opus, high |
-| First review round, Simplicity axis | Codex GPT-6-Sol, high, **and** Sonnet, medium | Opus, high |
+| First review round, Simplicity axis | Codex GPT-6.1-Sol, high, **and** Opus 5.5, medium | Opus, high |
 | Security-sensitive diff (auth, sandboxes, egress, tokens, org isolation) | Opus, high, **and** Codex GPT-6.1-Sol, high | Opus, high only |
-| Follow-up review round (check that the listed findings are fixed and the fix adds no new problem) | Codex GPT-6-Luna, medium | Sonnet, medium |
+| Follow-up review round (check that the listed findings are fixed and the fix adds no new problem) | Standards: Sonnet, medium. Spec and Simplicity: Codex GPT-6-Luna, medium | Sonnet, medium |
 | Re-review of a security fix | Opus, high | — |
 | Status checks, file search, log triage | Haiku, low | — |
 
@@ -103,7 +103,9 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 
 ### Adversarial review
 
-Every adversarial review of a diff is three axes — **Standards**, **Spec**, and **Simplicity** — and Security when its triggers match. `factory check` runs these critics ([`code-review`](.agents/skills/code-review/SKILL.md)) and stores their verdicts for the merge gate. Do not start review sub-agents, and do not run `/code-review` rounds by hand. Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
+Every adversarial review of a diff is three axes — **Standards**, **Spec**, and **Simplicity** — and Security when triggered. `factory check` runs these critics ([`code-review`](.agents/skills/code-review/SKILL.md)) and stores verdicts for the merge gate. Do not start review sub-agents or run `/code-review` by hand, and never review spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense ([`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md)).
+
+Fix or dispute each finding. Ask the human about an escalated finding in your conversation. Security: on an accepted risk, run `factory risk propose`. Else run `factory decide <id> --stands` and fix it, or `--dismissed --reason "<their words>"`. Never write, approve or merge a register entry yourself, or open a PR or edit a ticket, AGENTS.md, an ADR or a skill to avoid a finding. The CTO changes rules.
 
 ## Architecture decisions & ADRs
 

@@ -216,6 +216,7 @@ const definitions = () => [
       [
         "apps/ui/src/**",
         "apps/ui/.storybook/check-modules.mjs",
+        "packages/visual-review/src/story-tags.ts",
         "scripts/ci/page-story-exemptions.json",
       ],
       "Catches a route with no page story and no exemption, or a page story that names a route that does not exist. Run it when a route or a story under apps/ui/src changes; never for a change outside it.",
@@ -277,12 +278,10 @@ const definitions = () => [
       "codesearch",
       "apps/codesearch/Dockerfile",
       ["apps/codesearch/**", "shared/**"],
-      // The Dockerfile builds only for amd64. The layer cache of the
-      // codesearch toolchain stages: the Layer cache job of ci.yaml writes it
-      // on main; a reader needs no login.
+      // The layer cache of the codesearch toolchain stages (linux/arm64):
+      // the Layer cache job of ci.yaml writes it on main; a reader needs no
+      // login.
       [
-        "--platform",
-        "linux/amd64",
         "--cache-from",
         "type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-codesearch",
       ],
@@ -292,9 +291,6 @@ const definitions = () => [
       "chat-sandbox",
       "scripts/chat-sandbox/Dockerfile",
       ["scripts/chat-sandbox/**"],
-      // The AWS sandbox host is arm64, and no other job builds it for arm64
-      // before a release.
-      ["--platform", "linux/arm64"],
     ],
   ].map(([name, file, reads, flags = []]) => {
     const context = name === "chat-sandbox" ? "scripts/chat-sandbox" : "."

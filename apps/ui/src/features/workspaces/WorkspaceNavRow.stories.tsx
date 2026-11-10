@@ -173,11 +173,11 @@ export const Ingesting: Story = {
 }
 
 /**
- * With reduced motion the dot stays, but it does not pulse. The golden
+ * With reduced motion the dot stays, but it does not pulse. The play
  * runner opens this story with `prefers-reduced-motion: reduce`.
  */
 export const IngestingReducedMotion: Story = {
-  tags: ["workspace-golden", "reduced-motion"],
+  tags: ["required", "reduced-motion"],
   parameters: {
     intent:
       "Catches an ingesting dot in the workspace nav row that keeps animating when the user prefers reduced motion. The dot must not animate. Not for the row label or link.",

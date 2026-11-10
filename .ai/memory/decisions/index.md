@@ -4,7 +4,7 @@ Naming: `ADR-NNN-title-slug.md`. Status | Date | Tags; Context; Decision; Conseq
 
 Parent: [`.ai/memory/README.md`](../README.md).
 
-**Updated:** 2026-10-16
+**Updated:** 2026-11-10
 
 ## Index
 
@@ -54,7 +54,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-044](ADR-044-workspace-chat-stock-tanstack.md) | Stock TanStack workspace chat | Accepted |
 | [ADR-045](ADR-045-required-recovery-ci.md) | CI proves what ran | Accepted |
 | [ADR-046](ADR-046-workspace-revision-projection-identity.md) | Workspace revision and projection identity | Accepted (revised 2026-10-15: Workspace root folder; revised 2026-10-16: Workspace format of a revision; revised 2026-10-24: Workspace code reads use the published checkout) |
-| [ADR-047](ADR-047-native-durable-write-workflows.md) | Durable write workflows | Accepted (revised 2026-10-06; amended by ADR-052) |
+| [ADR-047](ADR-047-native-durable-write-workflows.md) | Durable write workflows | Accepted (revised 2026-10-06; amended by ADR-052, CTX-1235 and CTX-1239) |
 | [ADR-048](ADR-048-native-postgres-sandbox-ownership.md) | Conversation sandboxes: stock providers, Postgres ownership, git as durable state | Accepted (amended by ADR-051 and ADR-052: ingest sandboxes) |
 | [ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md) | Self-host chat sandboxes: stock Docker on DinD and an EC2 host; Agent Vault adds their credentials | Accepted |
 | [ADR-050](ADR-050-workspace-sources-config-file.md) | Workspace sources as node files (`sources/*.md`); connections hold auth only | Accepted (revised 2026-10-16: one Markdown file per source, `Source` nodes, `FROM_SOURCE` provenance; revised 2026-10-16: the migration is upgrade format 1; revised 2026-10-18: plain git sources) |
@@ -68,5 +68,6 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-059](ADR-059-plain-connector-sources-only.md) | Plain connector, Workspace sources only | Accepted |
 | [ADR-060](ADR-060-typecheck-with-bun-check.md) | The Typecheck check runs `bun check`: TypeScript 6 stays the dependency, allowances compare file, code, and count | Accepted |
 | [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) | Hosted ctxpipe on AWS (us-west-2) behind Cloudflare: Pulumi for hosted IaC, tunnel-only ingress, Aurora, AgentCore sandboxes, preview clones, HyperDX only | Proposed |
+| [ADR-062](ADR-062-checks-run-before-merge-not-on-main.md) | Checks run before the merge (`factory check`, then the merge gate); a push to `main` runs no check; a thin nightly run of `main` audits the proof: it skips an unchanged `main`, makes a ticket of each flake and failure, traces only the checks whose inputs changed, and audits a random sample of agent passes | Accepted (revised 2026-11-10) |
 
-Numbers 035 and 036 are unused. ADR-058 is reserved for the Zendesk connector. The next new ADR is 062.
+Numbers 035 and 036 are unused. ADR-058 is reserved for the Zendesk connector. The next new ADR is 063.

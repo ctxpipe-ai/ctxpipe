@@ -7,6 +7,8 @@
  * - `reset-password/:token` — credential (email link).
  * - `/.auth/api/v1/public/invitations/:invitationId` — unauthenticated
  *   capability; the id returns the invitee's email.
+ * - The AgentCore port bridge (`http://127.0.0.1:<port>/<token>/…`) — the
+ *   token picks a sandbox port (`agentcore-sandbox-provider.ts`).
  * - verify-email, magic link, device/OAuth/MCP — token is a query param or
  *   body, not a path segment. Magic link is not enabled.
  * - `/callback/:id` is the provider name. OAuth client ids are public.
@@ -24,6 +26,11 @@ const SECRET_PATH_RULES: { pattern: RegExp; replacement: string }[] = [
   {
     pattern: /\/public\/invitations\/[^/?#]+/g,
     replacement: "/public/invitations/{invitation}",
+  },
+  // The AgentCore port bridge: a 48-hex token picks a sandbox port.
+  {
+    pattern: /\/[0-9a-f]{48}(?=[/?#]|$)/g,
+    replacement: "/{bridge-token}",
   },
 ]
 

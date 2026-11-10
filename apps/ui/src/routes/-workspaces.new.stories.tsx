@@ -451,7 +451,7 @@ function placement(canvas: ReturnType<typeof within>): Placement {
  * user goes from step 1 to step 2.
  */
 export const KeepsPlaceBetweenSteps: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches layout shift between the loading skeleton and the loaded steps of the new workspace page. The step keeps its place while data loads. Not for step content.",

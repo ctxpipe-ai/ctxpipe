@@ -398,6 +398,11 @@ it(
           expect(
             f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
           ).toBe(f.sha)
+          // The first write credential is the one of the job ref push
+          // (CTX-1235): no content leaves after the detach.
+          expect(
+            f.git("--git-dir", f.remote, "for-each-ref", "refs/ctxpipe/write/"),
+          ).toBe("")
           expect(result?.status).toBe("rejected")
           const run = await f.backend.getWorkflowRun({
             workflowRunId: handle.workflowRun.id,
@@ -443,7 +448,9 @@ it.each([
         mkdirSync(bin)
         const pushed = join(f.directory, "push-succeeded")
         const observed = join(f.directory, "revision-observed")
-        // Every command runs real Git. Lose only the first successful push's acknowledgement.
+        // Every command runs real Git. Lose only the acknowledgement of the
+        // first successful push to the default branch, not of the push to
+        // the job ref (CTX-1235).
         writeFileSync(
           join(bin, "git"),
           `#!${process.execPath}
@@ -451,7 +458,7 @@ const { spawnSync } = require("node:child_process");
 const { existsSync, writeFileSync } = require("node:fs");
 const args = process.argv.slice(2);
 const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: "inherit" });
-if (result.status === 0 && args.includes("push") && !existsSync(${JSON.stringify(pushed)})) {
+if (result.status === 0 && args.includes("push") && args.some((arg) => arg.includes(":refs/heads/")) && !existsSync(${JSON.stringify(pushed)})) {
   writeFileSync(${JSON.stringify(pushed)}, "published");
   const deadline = Date.now() + 10000;
   while (!existsSync(${JSON.stringify(observed)}) && Date.now() < deadline) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);

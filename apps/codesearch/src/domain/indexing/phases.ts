@@ -13,7 +13,10 @@ import { dirname, join } from "node:path"
 import { and, eq } from "drizzle-orm"
 
 import type { CheckedPlainGitRemote } from "../../../../../shared/plain-git.js"
-import { ZOEKT_INDEX_DIR } from "../../config/paths.js"
+import {
+  ZOEKT_INDEX_DIR,
+  zoektStagingDirFromIndexDir,
+} from "../../config/paths.js"
 import {
   assertNotInOrgDbContext,
   type Db,
@@ -22,6 +25,7 @@ import {
 import { repositoryCheckouts } from "../../db/schema.js"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 import { type GitRemote, repositoryGitRemote } from "../../utils/git.js"
+import { keyedMutex } from "../../utils/keyedMutex.js"
 import {
   assertScipIndex,
   encodeScipIndex,
@@ -35,7 +39,16 @@ import {
   ensureCheckoutWorktree,
   withSharedClone,
 } from "../repositories/worktrees.js"
-import { refreshPinnedRepo } from "../zoekt/pinManager.js"
+import {
+  publishArtifact,
+  shardStore,
+  type StoreAddress,
+} from "../store/shardStore.js"
+import {
+  installStagedShards,
+  markShardsUploaded,
+  type ZoektRepo,
+} from "../zoekt/pinManager.js"
 import { detectLanguages, type ScipIndexerId } from "./detectLanguages.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import { withIndexerProcessSlot } from "./indexerProcessSemaphore.js"
@@ -453,14 +466,15 @@ async function diffRangeNameStatus(params: {
   )
 }
 
+const zoektPublishLock = keyedMutex<string>()
+
 async function indexRepository(params: {
   clonePath: string
   zoektRepoId: number
   zoektName: string
   repoUrl: string
+  address: StoreAddress
 }): Promise<void> {
-  await mkdir(ZOEKT_INDEX_DIR, { recursive: true })
-  const metaPath = `/tmp/zoekt-meta-${randomUUID()}.json`
   const version = await readGitHead(params.clonePath)
   if (!version)
     throw new Error("Cannot index a repository without an immutable Git HEAD")
@@ -471,14 +485,23 @@ async function indexRepository(params: {
     Source: params.clonePath,
     Branches: [{ Name: "HEAD", Version: version }],
   }
-  await writeFile(metaPath, JSON.stringify(metadata))
+  const repo = { zoektRepoId: params.zoektRepoId, zoektName: params.zoektName }
+  // `zoekt-index` writes to a staging directory on the cold volume, so that
+  // the new shards move into cold in one step and the upload knows its files.
+  const stagingDir = join(
+    zoektStagingDirFromIndexDir(ZOEKT_INDEX_DIR),
+    randomUUID(),
+  )
+  const metaPath = `${stagingDir}.meta.json`
+  await mkdir(stagingDir, { recursive: true })
   try {
+    await writeFile(metaPath, JSON.stringify(metadata))
     await withIndexerProcessSlot(() =>
       runCommand(
         [
           "zoekt-index",
           "-index",
-          ZOEKT_INDEX_DIR,
+          stagingDir,
           "-parallelism",
           "1",
           "-meta",
@@ -492,13 +515,47 @@ async function indexRepository(params: {
         },
       ),
     )
+    // Index operations of one repository can overlap. One install, upload
+    // and mark at a time for each Name keeps a publish from deleting the
+    // generation of another, and marks only the shards that it uploaded.
+    await zoektPublishLock.run(params.zoektName, async () => {
+      const shardPaths = await installStagedShards(repo, stagingDir)
+      await uploadShards(repo, params.address, shardPaths)
+    })
   } finally {
+    await rm(stagingDir, { recursive: true, force: true })
     await rm(metaPath, { force: true })
   }
-  await refreshPinnedRepo({
-    zoektRepoId: params.zoektRepoId,
-    zoektName: params.zoektName,
-  })
+}
+
+/**
+ * Uploads the new shards to the shard store, when one is set. A failed
+ * upload does not fail the Zoekt phase: the shards stay on disk without a
+ * local manifest copy, so eviction keeps them, and the next index uploads.
+ */
+async function uploadShards(
+  repo: ZoektRepo,
+  address: StoreAddress,
+  shardPaths: readonly string[],
+): Promise<void> {
+  const store = shardStore()
+  if (!store) return
+  const startMs = Date.now()
+  try {
+    const manifest = await publishArtifact(store, address, shardPaths)
+    const marked = await markShardsUploaded(repo, manifest)
+    tryEmitIndexEvent("codesearch.index.zoekt.uploaded", {
+      fileCount: manifest.files.length,
+      bytes: manifest.files.reduce((sum, file) => sum + file.size, 0),
+      durationMs: Date.now() - startMs,
+      marked,
+    })
+  } catch (error) {
+    tryEmitIndexEvent("codesearch.index.zoekt.upload_failed", {
+      durationMs: Date.now() - startMs,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
 }
 
 async function readGitHead(clonePath: string): Promise<string | null> {
@@ -717,6 +774,12 @@ export async function phaseZoekt(ctx: IndexPhaseRepoContext): Promise<void> {
       zoektRepoId: ctx.zoektRepoId,
       zoektName: ctx.zoektName,
       repoUrl: ctx.repoUrl,
+      address: {
+        orgId: ctx.orgId,
+        repoId: ctx.repoId,
+        checkoutKey: ctx.checkoutKey,
+        kind: "zoekt",
+      },
     }),
   )
 }

@@ -297,6 +297,11 @@ it(
             "Connector mirror binding changed",
           )
           expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
+          // The reset came with the credential of the job ref push
+          // (CTX-1235): no captured page left the worker.
+          expect(
+            f.git("--git-dir", f.remote, "for-each-ref", "refs/ctxpipe/write/"),
+          ).toBe("")
         } finally {
           await worker.stop()
         }
@@ -499,6 +504,89 @@ it.each([false, true])(
               `${humanSha}..main`,
             ),
           ).toBe(reset ? "0" : "1")
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "pushes no job ref when the connector scope changes on the default branch during credential issuance",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          { path: "notion/config.yaml", body: "version: 1\nresources: []\n" },
+          { path: "notion/page.md", body: "# Original page\n" },
+        ],
+      },
+      async (f) => {
+        await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
+        const mirror = await createNotionMirrorBinding(f)
+        const { captureConnectorMirrorTarget } =
+          await import("./capture-connector-mirror.js")
+        const { parseEnv } = await import("../../config/env.js")
+        const captured = await captureConnectorMirrorTarget({
+          orgId: f.org.id,
+          env: parseEnv(process.env),
+          repositoryGitUrl: f.workspaceUrl,
+          mirror,
+        })
+        const { workspaceConnectorMirror } =
+          await import("../../openworkflow/workflows/workspace-connector-mirror.js")
+        const spec = {
+          ...workspaceConnectorMirror.spec,
+          retryPolicy: { maximumAttempts: 1 },
+        }
+        f.runner.implementWorkflow(spec, workspaceConnectorMirror.fn)
+        // An administrator narrows the scope after the acquire step, while
+        // GitHub issues the credential of the job ref push (CTX-1235).
+        let narrowed = false
+        f.onWriteCredentialRequest(async () => {
+          if (narrowed) return
+          narrowed = true
+          f.git("reset", "--hard", f.sha)
+          writeFileSync(
+            join(f.directory, "notion/config.yaml"),
+            "version: 1\nresources:\n  - id: other-page\n    type: page\n",
+          )
+          f.git("add", "notion/config.yaml")
+          f.git("commit", "-m", "Narrow the scope")
+          f.git("push", f.remote, "HEAD:main")
+        })
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        try {
+          await worker.start()
+          const handle = await f.runner.runWorkflow(spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            revision: captured.revision,
+            mirror: captured.mirror,
+            jobId: `wjob_${f.id}_narrowed`,
+            files: [{ path: "notion/page.md", content: "# Private page\n" }],
+            deletePaths: [],
+          })
+          await expect(handle.result({ timeoutMs: 30_000 })).rejects.toThrow()
+          expect(narrowed).toBe(true)
+          expect(
+            (
+              await f.backend.getWorkflowRun({
+                workflowRunId: handle.workflowRun.id,
+              })
+            )?.error?.message,
+          ).toContain("Connector scope changed")
+          expect(
+            f.git("--git-dir", f.remote, "for-each-ref", "refs/ctxpipe/write/"),
+          ).toBe("")
+          expect(
+            f.git("--git-dir", f.remote, "show", "main:notion/page.md"),
+          ).toBe("# Original page")
         } finally {
           await worker.stop()
         }

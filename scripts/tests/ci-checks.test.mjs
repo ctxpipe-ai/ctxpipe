@@ -17,12 +17,11 @@ import { gunzipSync } from "node:zlib"
 
 import { markPortable } from "../checks/families.mjs"
 import { deploySteps, fullRunResults, stepResults } from "../checks/gate.mjs"
-import { jobOutputs } from "../checks/plan.mjs"
+import { jobPlans } from "../checks/plan.mjs"
 import { prerequisites, withNeeds } from "../checks/prerequisites.mjs"
 import { uiBundledImports } from "../checks/projects.mjs"
 import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
 import { lintSteps, runsInOf } from "../checks/shard.mjs"
-import { requiredStories } from "../ci/storybook-golden-select.mjs"
 import { vitestCommand } from "../ci/vitest-launch.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -172,17 +171,35 @@ test("the manifest matches its schema and lists each check of each family", asyn
   )
   assert.equal(count("vitest", "latency"), 2)
   assert.equal(count("vitest", "upgrade"), 1)
-  // The required golden stories are tagged (ci-storybook-golden.test.mjs),
-  // so the golden lane holds at least them.
-  assert.ok(count("storybook", "golden") >= requiredStories.length)
+  assert.ok(count("storybook", "required") > 0)
   assert.ok(count("storybook", "plays") > 0)
+  // Each committed baseline is the own input of exactly one visual check, and
+  // each own input is a committed baseline: the names of
+  // scripts/checks/visual.mjs and of the compare engine agree.
+  const owned = manifest.checks
+    .filter((check) => check.lane === "visual")
+    .flatMap((check) => check.ownInputs)
+  const baselines = spawnSync("git", ["ls-files", "*.screenshot.png"], {
+    cwd: root,
+    encoding: "utf8",
+  })
+    .stdout.split("\n")
+    .filter(Boolean)
+  assert.ok(baselines.length > 0)
+  assert.deepEqual(owned.toSorted(), baselines.toSorted())
+  for (const check of manifest.checks)
+    assert.equal(
+      check.selectAll ?? false,
+      check.lane === "visual",
+      `${check.id}: selectAll`,
+    )
   // An expensive check states its intent in under about 40 words. A check
   // that calls a model or a wall clock is stochastic; a check that reads
   // remote state, base images by tag or a deployment is not cacheable.
   for (const check of manifest.checks) {
     const expensive =
       check.family === "eval" ||
-      check.lane === "golden" ||
+      check.lane === "required" ||
       check.lane === "latency" ||
       check.lane === "upgrade" ||
       check.family === "build" ||
@@ -362,8 +379,9 @@ test("the manifest marks exactly the platform-independent checks portable", () =
     "vitest:cli",
     "vitest:aws-cdk",
     "vitest:visual-review",
-    "storybook:golden",
+    "storybook:required",
     "storybook:plays",
+    "storybook:visual",
     "eval:mcp",
     "build:package",
   ])
@@ -392,6 +410,15 @@ test("the manifest marks exactly the platform-independent checks portable", () =
   assert.deepEqual(
     programs("contracts"),
     new Set(['["git","bun","zoekt","ast-grep","container-platform"]']),
+  )
+  // A screenshot is taken in the pinned image of the Docker server.
+  assert.deepEqual(
+    new Set(
+      checks
+        .filter((check) => check.lane === "visual")
+        .map((check) => JSON.stringify(check.programs)),
+    ),
+    new Set(['["container-platform"]']),
   )
   // A check that the denylist names is never portable.
   const denied = JSON.parse(readFileSync(script("non-portable.json"), "utf8"))
@@ -1261,7 +1288,7 @@ test("the manifest lists a build check for each production image and package of 
     [...builds.keys()].filter((id) => id.startsWith("build:image-")),
   )
   assert.deepEqual(
-    JSON.parse(jobOutputs(images, new Map())["production-builds"]).sort(
+    jobPlans(images, new Map())["production-builds"].sort(
       (a, b) => a.name.localeCompare(b.name),
     ),
     entries.sort((a, b) => a.name.localeCompare(b.name)),
@@ -1584,6 +1611,76 @@ test("the rerun of selected.mjs reads MANIFEST and lists no checks", () => {
       [record.id, record.status, record.message],
       [id, "error", "Unknown check id"],
     )
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("a trace of a nightly run matches the schema, with its plan and its last full trace", () => {
+  const document = schema("trace")
+  const trace = {
+    schemaVersion: 1,
+    commit: "a".repeat(40),
+    checks: [],
+    planId: "b".repeat(32),
+    fullTraceCommit: "c".repeat(40),
+    fullTraceAt: "2026-11-10T02:30:00Z",
+  }
+  validate(trace, document, document)
+  assert.throws(() =>
+    validate({ ...trace, planId: "../x" }, document, document),
+  )
+})
+
+test("a planned job traces its checks when TRACE names a folder", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-selected-trace-"))
+  try {
+    const id = "vitest:ui:apps/ui/src/components/onboarding/org-name.test.ts"
+    const planPath = join(directory, "plan.json")
+    writeFileSync(
+      planPath,
+      JSON.stringify({ jobs: { "package-tests": { ids: [id], rerun: [] } } }),
+    )
+    const results = join(directory, "selected")
+    const run = spawnSync(
+      process.execPath,
+      [script("selected.mjs"), results, planPath, "package-tests"],
+      {
+        cwd: root,
+        encoding: "utf8",
+        env: { ...process.env, TRACE: results },
+        maxBuffer: 64 * 1024 * 1024,
+      },
+    )
+    assert.equal(run.status, 0, run.stderr)
+    const trace = JSON.parse(
+      gunzipSync(readFileSync(join(results, "trace.json.gz"))).toString("utf8"),
+    )
+    assert.deepEqual(
+      trace.checks.map((check) => check.id),
+      [id],
+    )
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("a merge of no trace writes the empty trace of HEAD", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-empty-trace-"))
+  try {
+    const out = join(directory, "trace.json.gz")
+    const result = node([script("trace.mjs"), "merge", out])
+    assert.equal(result.status, 0, result.stderr)
+    const trace = JSON.parse(gunzipSync(readFileSync(out)).toString("utf8"))
+    const head = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+    })
+    assert.deepEqual(trace, {
+      schemaVersion: 1,
+      commit: head.stdout.trim(),
+      checks: [],
+    })
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

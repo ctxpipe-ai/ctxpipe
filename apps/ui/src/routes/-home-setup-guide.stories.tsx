@@ -219,7 +219,7 @@ async function findGuide(canvasElement: HTMLElement) {
  * the activity of the organization shows below it, empty.
  */
 export const GuideAdminNewOrg: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a setup guide for a new organization that shows the wrong progress or action. It shows zero of six done and one Connect GitHub action. Not for later steps.",
@@ -467,7 +467,7 @@ const workspacesPath = ({ request }: { request: Request }) =>
  * "Done", the guide shows the build of the new Workspace.
  */
 export const GuideAdminCreatesWorkspaceOnHome: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   beforeEach: () => {
     createState.created = false
   },
@@ -879,7 +879,7 @@ export const GuideRepositoriesConnectionsFailedShowsRetry: Story = {
 
 /** After the first question the guide is one line. Expand still works. */
 export const GuideAdminAfterFirstQuestion: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a guide after the first question that shows the wrong progress or ignores the user's collapse choice. It starts collapsed and keeps the choice. Not for new organizations.",
@@ -921,7 +921,7 @@ export const GuideAdminAfterFirstQuestion: Story = {
 
 /** A member never sees GitHub, tool or invite rows. "Ask" fills the composer. */
 export const GuideMemberView: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a member guide that shows admin steps. A member sees only the two member steps, and Ask fills and focuses the composer each time. Not for admin guides.",
@@ -997,7 +997,7 @@ export const GuideAllDone: Story = {
 
 /** Dismiss removes the guide, and Home stays. */
 export const GuideDismissRemovesIt: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a dismissed guide that stays on the home page. Dismiss removes the guide and shows the workspace selector. Not for guide progress.",
@@ -1023,7 +1023,7 @@ export const GuideDismissRemovesIt: Story = {
 
 /** Failed signal queries count as "not done". Home still works. */
 export const GuideSignalFailureKeepsHome: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a failed guide signal query that breaks the home page. A failed signal counts as not done and home still works. Not for loaded signals.",
@@ -1250,7 +1250,7 @@ export const GuideRoleFailureHidesIt: Story = {
 
 /** Onboarding finished more than 14 days ago: no guide at all. */
 export const GuideEstablishedUserHidden: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a guide that shows for an established user in an old organization. It stays hidden with no skeleton. Not for new organizations or empty ones.",
@@ -1279,7 +1279,7 @@ export const GuideEstablishedUserHidden: Story = {
  * for its first 14 days, also after the first Workspace.
  */
 export const GuideEstablishedUserNewOrg: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a guide that hides for an established user in a new organization. It shows for the first 14 days, also after the first workspace. Not for old organizations.",
@@ -1307,7 +1307,7 @@ export const GuideEstablishedUserNewOrg: Story = {
  * shows, with the empty activity below it.
  */
 export const GuideEstablishedUserEmptyOrg: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a guide that hides in an old organization with no workspace. The guide shows with the empty activity below it. Not for organizations with workspaces.",
@@ -1335,7 +1335,7 @@ export const GuideEstablishedUserEmptyOrg: Story = {
  * guide stays, so it does not go away in the middle of the setup.
  */
 export const GuideStaysAfterFirstWorkspace: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a guide that disappears when an old organization makes its first workspace in the last 14 days. It stays during the setup. Not for older workspaces.",

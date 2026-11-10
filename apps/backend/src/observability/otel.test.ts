@@ -30,7 +30,6 @@ import { contextWithAttributionBag } from "./attribution.js"
 import {
   AttributionUrlSpanProcessor,
   backendResource,
-  isRailwayPrEnvironment,
   otelDeploymentEnvironment,
   tracedOutgoingFetch,
 } from "./otel.js"
@@ -65,16 +64,6 @@ afterEach(() => {
 
 afterAll(async () => {
   await provider.shutdown()
-})
-
-describe("isRailwayPrEnvironment", () => {
-  it("matches Railway preview names only", () => {
-    expect(isRailwayPrEnvironment("pr-1")).toBe(true)
-    expect(isRailwayPrEnvironment("pr-334")).toBe(true)
-    expect(isRailwayPrEnvironment("production")).toBe(false)
-    expect(isRailwayPrEnvironment("pr-env")).toBe(false)
-    expect(isRailwayPrEnvironment("")).toBe(false)
-  })
 })
 
 describe("outgoing fetch spans", () => {
@@ -328,6 +317,7 @@ describe("exported exceptions", () => {
 
 describe("backend resource", () => {
   it("reads deployment.environment from OTEL_RESOURCE_ATTRIBUTES", () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
     vi.stubEnv("NODE_ENV", "production")
     vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=staging")
@@ -346,8 +336,9 @@ describe("backend resource", () => {
     expect(finished?.resource.attributes["service.namespace"]).toBe("ctxpipe")
   })
 
-  it("prefers RAILWAY_ENVIRONMENT_NAME over resource attributes", () => {
-    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-9")
+  it("prefers DEPLOYMENT_ENVIRONMENT over resource attributes", () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "pr-9")
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
     vi.stubEnv("NODE_ENV", "production")
     vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=staging")
     expect(otelDeploymentEnvironment()).toBe("pr-9")

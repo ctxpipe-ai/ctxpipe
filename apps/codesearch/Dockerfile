@@ -6,7 +6,8 @@
 # linux/arm64. The complete indexer matrix needs linux/amd64, because scip-clang
 # and scip-ruby do not publish Linux arm64 binaries. The linux/arm64 image has
 # every other tool, which is enough for the Vitest contracts (their tests run
-# fake scip-clang and scip-ruby commands). Production deploys linux/amd64.
+# fake scip-clang and scip-ruby commands). Railway pulls linux/amd64, and the
+# AWS hosts pull linux/arm64.
 
 # ── Stage 1: Go toolchain and Zoekt binaries ─────────────────────────────────
 # golang:1.24-bookworm
@@ -80,8 +81,9 @@ RUN --mount=type=bind,source=apps/codesearch/release-assets.txt,target=/release-
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    unzip \
   && rm -rf /var/lib/apt/lists/* \
-  && mkdir -p /out /tmp/releases \
+  && mkdir -p /out /test-out /tmp/releases \
   && TARGETARCH="${TARGETARCH}" bash /fetch-releases.sh /release-assets.txt /tmp/releases /releases \
   && cd /tmp/releases \
   && tar -xzf "scip-go-${TARGETARCH}.tar.gz" -C /out scip-go \
@@ -91,7 +93,8 @@ RUN --mount=type=bind,source=apps/codesearch/release-assets.txt,target=/release-
   && if [ "${TARGETARCH}" = amd64 ]; then \
     cp scip-clang-amd64 /out/scip-clang && cp scip-ruby-amd64 /out/scip-ruby; \
   fi \
-  && chmod +x /out/*
+  && unzip -j -q "rclone-${TARGETARCH}.zip" '*/rclone' -d /test-out \
+  && chmod +x /out/* /test-out/*
 
 # ── Stage 7: Install application dependencies ────────────────────────────────
 # oven/bun:1.4.4-slim
@@ -218,6 +221,8 @@ CMD ["/start.sh"]
 # Run:   docker run --rm ctxpipe-codesearch:test
 FROM runtime AS test
 ENV NODE_ENV=development
+# The S3-compatible server of the shard store tests (src/test/s3Server.ts).
+COPY --from=release-tools /test-out/rclone /usr/local/bin/rclone
 RUN npm install -g pnpm@10.12.1
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./

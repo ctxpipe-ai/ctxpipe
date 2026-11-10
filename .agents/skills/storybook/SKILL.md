@@ -80,15 +80,15 @@ portable/browser test facilities and `run-story-tests` when available.
 - A story that only paints a state is visual coverage, not an interaction test;
   critical behavior needs a `play` function with assertions.
 
-Required workspace recovery plays carry an inline `tags: ["workspace-golden"]`
-array. CI job **Storybook Playwright golden journey** runs
-`node scripts/ci/storybook-golden.mjs`, which builds Storybook and executes
+Required workspace recovery plays carry an inline `tags: ["required"]`
+array. CI job **Storybook required plays** runs
+`node scripts/ci/storybook-plays.mjs`, which builds Storybook and executes
 those plays in Chromium by opening each story iframe. Do not add a
 parallel jsdom component-test stack.
 
 CI job **Storybook Playwright all plays** runs every story that has a `play`
 function, in 4 shards, with the same runner: `STORYBOOK_PLAYS=all node
-scripts/ci/storybook-golden.mjs`. Narrow a local run with `STORYBOOK_ONLY=<id or
+scripts/ci/storybook-plays.mjs`. Narrow a local run with `STORYBOOK_ONLY=<id or
 file part>[,...]` and `STORYBOOK_SHARD=i/n`; set `STORYBOOK_URL` to reuse a
 running Storybook. A story tagged `reduced-motion` runs with reduced-motion
 emulation. A flaky play is a bug: wait for the real state, never add a retry or
@@ -113,14 +113,56 @@ Keep security and request-contract assertions in focused Vitest tests. Use
 - **Guard:** `node scripts/ci/check-story-play-timing.mjs` runs in CI (the lint job, next to the motion check). It fails on `expect(await ...findBy...)` with a state matcher (`toBeVisible`, `toBeChecked`, `toBeEnabled`, `toBeDisabled`, `toHaveStyle`, `toHaveValue`, and similar) outside `waitFor`. It also fails on a stored element that gets such a check after an `await userEvent...`. It also fails on an absence check (`queryBy...` or `querySelector...` with `.not.toBeInTheDocument()`, `.toBeNull()`, or `queryAllBy...` with `.toHaveLength(0)`) that has no earlier settled wait in the same play. A settled wait is `findBy...`, `getBy...`, an awaited helper named `expect...`, `wait...` or `find...`, or a `waitFor` that holds no absence check. Add `// play-timing: ok <reason>` to a line to exempt it, for example when a manual clock drives every timer.
 - With React Aria components, use the Tailwind `hover:` variant. The plugin maps it to `data-hovered`. There is no `hovered:` variant.
 
+## Screenshot capture (pinned container)
+
+Mac and Linux render text differently (81 of 86 sample stories differed). So each screenshot of a story is taken in one pinned Playwright Docker image, on a laptop and in CI.
+
+- The pin is [`scripts/ci/visual-container.json`](../../../scripts/ci/visual-container.json): `mcr.microsoft.com/playwright:v<playwright version>-noble`, by digest, for linux/arm64. `node scripts/ci/check-visual-container.mjs` (the lint job) fails when the tag differs from the `playwright` version of the lockfile. To upgrade Playwright, change the lockfile and the pin in the same commit (`docker buildx imagetools inspect <image>:<tag>` shows the linux/arm64 digest).
+- `node scripts/ci/visual-capture.mjs --out <dir> <story id>...` plays each story from `apps/ui/storybook-static` in the container, then writes `<dir>/<story id>.png` (1440x900, or 390x844 with `--viewport mobile`; pixel ratio 1) and `capture.json`. The shot is taken when the play ends. A story without a play function is shot when Storybook completes its render.
+- The play runner pins the page for each play: the origin `http://localhost:6006` (routed to the real server), `Date` (it starts at 2026-11-02 12:00 UTC on each page and runs; the timers stay native) and a seeded `Math.random`. When the story has ended, the runner stops each CSS animation and transition, hides the text caret and waits for `document.fonts.ready`. The capture takes shots until two shots in a row are the same (at most 6, with a pause of 250 ms after a shot that differs). A story that still changes gets the status `unstable`. The story Testing/Play host fails when a pin is missing.
+- Do not use Playwright's clock (`page.clock`) in the runner. It runs the page timers itself, which changes their order against promises.
+- `node scripts/ci/visual-capture-proof.mjs [size|all]` captures a sample of stories (default 20) two times and compares the PNGs byte by byte (`.ci-results/visual-capture-proof/proof.json`). No CI job runs it. Run it by hand after a change to the capture container, the play runner pins or the stability loop, to see that the capture stays deterministic. A story in [`scripts/ci/visual-unstable-stories.json`](../../../scripts/ci/visual-unstable-stories.json) is known to differ: the proof reports it as skipped and does not fail. Each entry needs a reason, the ticket that fixes it and its date (`since`, `YYYY-MM-DD`); CI fails when an entry is older than 7 days. The nightly CI run finds a flaky story by the contradiction rule: a screenshot or play check that fails and then passes in its rerun. The job "Nightly tickets" opens a fix ticket for the story. A second flake puts the story on the unstable list with that ticket (a draft pull request on the branch `ci/unstable-screenshots` that also removes its baselines). Fix the cause, then remove the entry.
+- The `visual-container` prerequisite (`scripts/checks/prerequisites.mjs`) needs Docker, a linux/arm64 server, and the pinned image (it pulls the image). A laptop without Docker gets `LEFT TO CI` for a check that lists it.
+- **Colima needs at least 4 GiB of memory.** A 2 GiB VM crashed on a WebGL story. Check the VM with `colima list`. To resize it, run `colima stop && colima start --cpu 4 --memory 4`. A larger VM is better: this agent host runs 16 CPUs and 64 GiB. Docker Desktop on Apple silicon needs the same memory setting (Settings, Resources).
+- Use `docker cp` (the capture script does), not a bind mount, to read the PNGs: Colima mounts the home directory read-only by default.
+
+## Screenshot baselines
+
+Each story has a committed baseline PNG beside its story file: `<story file dir>/screenshots/<storyfile>.<storyname>.<viewport>.screenshot.png`. A named snapshot adds `@<name>` to `<storyname>` (see Screenshot options). `<storyfile>` is the story file name without `.stories.tsx`, `<storyname>` is the export name, and `<viewport>` is `desktop` (1440x900) or `mobile` (390x844). Every story has a `desktop` baseline. A page story (the `page` tag) also has a `mobile` baseline.
+
+- `pnpm visual:check` builds Storybook, captures every story in the container ([`scripts/ci/visual.mjs`](../../../scripts/ci/visual.mjs)) and compares each screenshot with its baseline. It writes `.ci-results/visual/manifest.json` and the images of each story that is not unchanged (`<story id>/<viewport>/`). It never writes a baseline. It fails on each status that is not `unchanged`: `new` (no baseline), `changed`, `removed` (an orphan baseline), `unstable`, `play-failed` or `size-changed`.
+- `pnpm visual:update` writes the baselines (recompressed without loss) and deletes the orphan baselines. `--only <id>,<id>` accepts only those stories. `--failed` accepts only the stories that the last `visual:check` failed. Look at each changed image before you accept it: the baseline is what a reviewer compares with.
+- An orphan baseline is a `*.screenshot.png` that no story has, or a `screenshots/` folder with no story file beside it. Thus when you rename or delete a story, run `pnpm visual:update` to delete its baseline.
+- The size budget: both commands fail above 60 MB for all baselines, or above 1 MB for one image.
+- A story in `visual-unstable-stories.json` gets no baseline. Both commands report it as skipped, with its ticket. An entry with `"viewport": "mobile"` skips only the mobile screenshot (for example, a play that asserts the desktop layout).
+- The TanStack route generator reads only route files, so a `screenshots/` folder in `src/routes/` does not change the route tree.
+
+## Screenshot options
+
+A story controls its screenshots with `parameters: { visual: { ... } }`, in the story or in the meta of its file. The value of the story wins over the meta, key by key. Each value must be a literal: `checks:list` and `pnpm visual:check` read the story file with the Storybook CSF parser. A value that is not valid stops both commands.
+
+- `skip: "<reason>"`: the story has no screenshot. A reason is necessary.
+- `fullPage: true`: the screenshot holds the full scroll height, not only the viewport.
+- `maxDiffPixels: <n>`: the count of pixels that may differ (default 10). Do not raise it to hide noise.
+- `viewports: ["desktop"]` or `["desktop", "mobile"]`: this list replaces the default viewports (desktop, and mobile for a `page` story). For example, a page story whose play asserts the desktop layout uses `["desktop"]`.
+- `masks: ["<CSS selector>"]`: the capture hides each element that a selector finds. Use it only when you cannot change the source of the element (for example, a library canvas).
+
+**Named snapshots.** To keep a state in the middle of a play, call `await snapshot("<name>")` from [`apps/ui/src/lib/visual-snapshot.ts`](../../../apps/ui/src/lib/visual-snapshot.ts). The baseline is `<storyfile>.<storyname>@<name>.<viewport>.screenshot.png`, beside the baseline of the end state. Write the name as a string literal in kebab case, in the play function of the story itself (not in a shared helper): the commands read the names from the story file. Each name is one time in a play. Outside the capture, `snapshot()` does nothing. The story Testing/Visual options ([`visual-options.stories.tsx`](../../../apps/ui/src/lib/visual-options.stories.tsx)) shows two named snapshots and both kinds of mask.
+
+**Masks.** Put the `data-visual-mask` attribute on content that cannot be deterministic: a canvas that draws each frame, a video, a live clock. Put it on the shared component one time, not in each story. The capture hides the element for the shot (`visibility: hidden`), so its place shows the background and a control above it stays in the shot.
+
+- Mask noise. Do not re-baseline it: a new baseline only resets a flake, and the next run differs again.
+- Do not mask real content that changes often (a count, a list, a status). Make it deterministic with fixture data, or find the cause of the change.
+- Mask the smallest element that holds the noise. A mask on a container hides all of its content.
+
 ## Quick reference (commands)
 
 | Action | Command |
 |--------|--------|
 | Start Storybook | `pnpm --filter @ctxpipe/ui storybook` |
 | Build static | `pnpm --filter @ctxpipe/ui build-storybook` |
-| Golden plays (uses `STORYBOOK_URL` if set) | `pnpm test:storybook-golden` |
-| Every play, one shard | `STORYBOOK_PLAYS=all STORYBOOK_SHARD=1/4 node scripts/ci/storybook-golden.mjs` |
+| Required plays (uses `STORYBOOK_URL` if set) | `pnpm test:storybook-required` |
+| Every play, one shard | `STORYBOOK_PLAYS=all STORYBOOK_SHARD=1/4 node scripts/ci/storybook-plays.mjs` |
 
 ## Related docs in-repo
 

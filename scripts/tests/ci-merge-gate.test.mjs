@@ -34,6 +34,7 @@ import {
   shard,
   shardMinutes,
   shardTargetSeconds,
+  storybookBuildMinutes,
 } from "../checks/shard.mjs"
 import { hashed, programVersion, toolchain } from "../checks/toolchain.mjs"
 
@@ -264,12 +265,12 @@ test("a ci.yaml change only in the steps of check jobs runs the selector with th
     ),
   ])
     assert.deepEqual(mode(head), full)
-  const golden = workflowJob(base, "storybook-golden")
+  const requiredJob = workflowJob(base, "storybook-required")
   assert.deepEqual(
     mode(
       base.replace(
-        golden,
-        golden.replace(/\n {6}- /, "\n      - run: true\n      - "),
+        requiredJob,
+        requiredJob.replace(/\n {6}- /, "\n      - run: true\n      - "),
       ),
     ),
     full,
@@ -353,7 +354,7 @@ test("the checks of the jobs of a job-scoped ci.yaml change run, without their h
   assert.ok("vitest:backend:apps/backend/src/g.test.ts" in ran)
   assert.deepEqual(
     decision.hits.map((item) => item.id),
-    ["storybook:golden:apps/ui/src/c.stories.tsx#c--one"],
+    ["storybook:required:apps/ui/src/c.stories.tsx#c--one"],
   )
   assert.equal(decision.selection.counts.selected, 8)
 })
@@ -418,8 +419,8 @@ const selection = (overrides = {}) => ({
       reason: { kind: "imports", chain: ["x.ts", "apps/backend/src/b.ts"] },
     },
     {
-      id: "storybook:golden:apps/ui/src/c.stories.tsx#c--one",
-      lane: "golden",
+      id: "storybook:required:apps/ui/src/c.stories.tsx#c--one",
+      lane: "required",
       file: "apps/ui/src/c.stories.tsx",
       reason: { kind: "changed" },
     },
@@ -463,7 +464,7 @@ const selection = (overrides = {}) => ({
   cache: {
     shared: true,
     hits: [
-      hit("storybook:golden:apps/ui/src/c.stories.tsx#c--one", "ci", "ci"),
+      hit("storybook:required:apps/ui/src/c.stories.tsx#c--one", "ci", "ci"),
       hit("vitest:vercel:apps/backend/src/d.contract.test.ts", "agent"),
       hit("lint:oxlint:.oxlintrc.json", "agent"),
     ],
@@ -489,7 +490,7 @@ const needs = (overrides = {}) =>
       test: "failure",
       "production-builds": "success",
       packages: "success",
-      "storybook-golden": "success",
+      "storybook-required": "success",
       "storybook-plays": "success",
       codesearch: "success",
       "vercel-sandbox": "success",
@@ -570,7 +571,7 @@ test("the gated verdict needs one accepted result for each selected check", () =
   assert.deepEqual(
     decision.hits.map(({ id, class: kind }) => [id, kind]),
     [
-      ["storybook:golden:apps/ui/src/c.stories.tsx#c--one", "ci"],
+      ["storybook:required:apps/ui/src/c.stories.tsx#c--one", "ci"],
       ["lint:oxlint:.oxlintrc.json", "agent"],
     ],
   )
@@ -594,8 +595,8 @@ test("the gated verdict needs one accepted result for each selected check", () =
         result: "missing result (job lint: success)",
       },
       {
-        id: "storybook:golden:apps/ui/src/c.stories.tsx#c--one",
-        result: "missing result (job storybook-golden: success)",
+        id: "storybook:required:apps/ui/src/c.stories.tsx#c--one",
+        result: "missing result (job storybook-required: success)",
       },
       {
         id: "vitest:backend:apps/backend/src/g.test.ts",
@@ -619,14 +620,14 @@ test("the gated verdict needs one accepted result for each selected check", () =
 test("without acceptAgentResults an agent hit runs, and a failed hit is a contradiction", () => {
   const decision = decide({
     shadow: { config: { ...pinned, acceptAgentResults: false } },
-    needs: { "storybook-golden": "failure" },
+    needs: { "storybook-required": "failure" },
   })
   assert.deepEqual(
     decision.hits.map(({ id }) => id),
-    ["storybook:golden:apps/ui/src/c.stories.tsx#c--one"],
+    ["storybook:required:apps/ui/src/c.stories.tsx#c--one"],
   )
   assert.ok(decision.ran.some(({ id }) => id === "lint:oxlint:.oxlintrc.json"))
-  // The golden job failed, so the story has no known result: not a
+  // The required job failed, so the story has no known result: not a
   // contradiction. A record that says failed is one.
   assert.deepEqual(decision.metrics.contradictions, [])
   const contradicted = shadow({
@@ -637,7 +638,7 @@ test("without acceptAgentResults an agent hit runs, and a failed hit is a contra
     }),
     records: [
       {
-        id: "storybook:golden:apps/ui/src/c.stories.tsx#c--one",
+        id: "storybook:required:apps/ui/src/c.stories.tsx#c--one",
         status: "failed",
       },
     ],
@@ -646,7 +647,7 @@ test("without acceptAgentResults an agent hit runs, and a failed hit is a contra
     run: { id: "1", attempt: 1, pr: 7, sha: sha(9) },
   })
   assert.deepEqual(contradicted.metrics.contradictions, [
-    { id: "storybook:golden:apps/ui/src/c.stories.tsx#c--one", class: "ci" },
+    { id: "storybook:required:apps/ui/src/c.stories.tsx#c--one", class: "ci" },
   ])
 })
 
@@ -706,8 +707,8 @@ test("a selected check with an error or no record counts as a full-run failure i
       [
         ["lint:oxlint:.oxlintrc.json", "missing result (job lint: success)"],
         [
-          "storybook:golden:apps/ui/src/c.stories.tsx#c--one",
-          "missing result (job storybook-golden: success)",
+          "storybook:required:apps/ui/src/c.stories.tsx#c--one",
+          "missing result (job storybook-required: success)",
         ],
         ["vitest:backend:apps/backend/src/g.test.ts", "error"],
       ],
@@ -945,14 +946,47 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
     job: "lint",
     profile: "project",
   })
-  assert.deepEqual(runsInOf("storybook:golden:x"), {
-    job: "storybook-golden",
+  assert.deepEqual(runsInOf("storybook:required:x"), {
+    job: "storybook-required",
     profile: "storybook",
   })
   assert.deepEqual(runsInOf("storybook:plays:x"), {
     job: "storybook-plays",
     profile: "storybook",
   })
+  assert.deepEqual(runsInOf("storybook:visual:x"), {
+    job: "storybook-visual",
+    profile: "visual",
+  })
+  // A screenshot check counts 2 seconds, not the play time that the trace
+  // holds for it.
+  assert.equal(
+    estimate("storybook:visual:a#x", new Map([["storybook:visual:a#x", 0.2]]), {}),
+    2,
+  )
+  // Two short screenshot checks fit in one shard; the shards need the
+  // Storybook build too. A selection of about 900 stories (2 seconds each)
+  // takes 3 shards of the 10-minute target, under the 4 of a full run.
+  assert.equal(
+    shard(["storybook:visual:a#x", "storybook:visual:b#y"], new Map(), {})
+      .visual.length,
+    1,
+  )
+  assert.equal(
+    shard(
+      Array.from({ length: 900 }, (_, n) => `storybook:visual:a#s${n}`),
+      new Map(
+        Array.from({ length: 900 }, (_, n) => [`storybook:visual:a#s${n}`, 3]),
+      ),
+      {},
+    ).visual.length,
+    3,
+  )
+  assert.equal(
+    shardMinutes({ visual: [{ ids: [], seconds: 60 }] }),
+    Math.round((profiles.visual.setupMinutes + 1 + storybookBuildMinutes) * 10) /
+      10,
+  )
   assert.equal(
     estimate("vitest:backend:apps/backend/src/x.test.ts", new Map(), {
       backend: { "src/x.test.ts": 42 },
@@ -1299,6 +1333,353 @@ test("the critics section says that the gate proves an attested review, not a so
   assert.ok(text.includes("open CTO decision"))
 })
 
+test("each override of a visual verdict shows its reason, writer and commit; none is silent", () => {
+  const reason =
+    "The ticket asks for the shorter label | the model reads the new label as `cut` text, and this reason is longer than two hundred characters so that the table cut would hide its end if the comment used it."
+  const directory = inputs({
+    "critics.json": {
+      head: sha(8),
+      critics: [
+        {
+          critic: "critic:visual",
+          status: "carried",
+          reason:
+            "0 passes and 1 units decided by a dispute (1 overridden by the implementer with a reason)",
+          overrides: [
+            {
+              finding: "f:0123abcd",
+              path: "ui/screenshots/Card.Main.desktop.screenshot.png",
+              reason,
+              commit: sha(9),
+              writer: "a".repeat(64),
+            },
+            {
+              finding: "f:4567cdef",
+              path: "ui/screenshots/Card.Other.desktop.screenshot.png",
+              reason: `${"x".repeat(280)} | a | b`,
+              commit: "not a commit",
+              writer: "someone@example.com",
+            },
+          ],
+        },
+      ],
+    },
+  })
+  const text = criticsText(critics(directory), "https://github.com/o/r")
+  assert.ok(text.includes("Overridden verdicts: 2"), text)
+  assert.ok(text.includes("`f:0123abcd`"), text)
+  assert.ok(
+    text.includes("`ui/screenshots/Card.Main.desktop.screenshot.png`"),
+    text,
+  )
+  assert.ok(text.includes(`by writer \`${"a".repeat(64)}\``), text)
+  // A writer or a commit of another shape never reaches the comment.
+  assert.ok(!text.includes("someone@example.com"), text)
+  assert.ok(text.includes("by writer `unknown` at `unknown`"), text)
+  // A reason at the limit, with pipes, shows in full. A list item is not a
+  // table cell, so its pipes stay as they are.
+  assert.ok(text.includes(`${"x".repeat(280)} | a | b\``), text)
+  assert.ok(text.includes(`(https://github.com/o/r/commit/${sha(9)})`), text)
+  // The full reason, with no backtick that ends the span.
+  assert.ok(text.includes(reason.replace(/`/g, "'")), text)
+  const plain = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          head: sha(8),
+          critics: [
+            { critic: "critic:spec", status: "carried", reason: "1 passes" },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(!plain.includes("Overridden verdicts"), plain)
+})
+
+test("the comment reads the JSON of `factory review gate --json`: each override and each raised limit", () => {
+  // The output of the factory binary, from the factory CLI test
+  // `the_gate_json_of_the_binary_names_each_override_and_raised_limit`
+  // (run it with `--nocapture`). A change of the factory shape fails here.
+  const gate = JSON.parse(
+    readFileSync(
+      join(root, "scripts/tests/fixtures/factory/review-gate-overrides.json"),
+      "utf8",
+    ),
+  )
+  const visual = gate.critics.find(
+    (critic) => critic.critic === "critic:visual",
+  )
+  const [override] = visual.overrides
+  const [raise] = visual.limitRaises
+  // The fixture has a long reason with a pipe and an emoji.
+  assert.ok(override.reason.includes("|") && override.reason.includes("🙂"))
+  const text = criticsText(
+    critics(inputs({ "critics.json": gate })),
+    "https://github.com/o/r",
+  )
+  assert.ok(text.includes("Overridden verdicts: 1"), text)
+  assert.ok(text.includes(`by writer \`${override.writer}\``), text)
+  assert.ok(
+    text.includes(`(https://github.com/o/r/commit/${override.commit})`),
+    text,
+  )
+  // The full reason: not cut, its pipe as it is, its emoji kept.
+  assert.ok(text.includes(`: \`${override.reason}\``), text)
+  // Each raised spend limit shows, with its writer and its commit.
+  assert.ok(text.includes("Raised spend limits: 1"), text)
+  assert.ok(
+    text.includes(
+      `- \`critic:visual\` limit $7.50, set by writer \`${raise.writer}\` at [${raise.commit.slice(0, 7)}](https://github.com/o/r/commit/${raise.commit})`,
+    ),
+    text,
+  )
+  // A table cell still escapes a pipe.
+  const piped = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          critics: [
+            { critic: "critic:spec", status: "carried", reason: "a | b" },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(piped.includes("`a \\| b`"), piped)
+})
+
+test("the critics job projection keeps each override and raised limit for the comment", () => {
+  // The same jq filter as the critics job in ci.yaml, on the output of the
+  // factory binary.
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const [, filter] = workflow.match(/jq -c '(\{critics: [^']+)'/) ?? []
+  assert.ok(filter, "the critics job has no jq projection")
+  const fixture = join(
+    root,
+    "scripts/tests/fixtures/factory/review-gate-overrides.json",
+  )
+  const projected = spawnSync("jq", ["-c", filter, fixture], {
+    encoding: "utf8",
+  })
+  assert.equal(projected.status, 0, projected.stderr)
+  const record = JSON.parse(projected.stdout)
+  // The projection drops what gate.mjs does not read.
+  assert.ok(!projected.stdout.includes("disputes"), projected.stdout)
+  const gate = JSON.parse(readFileSync(fixture, "utf8"))
+  const visual = gate.critics.find(
+    (critic) => critic.critic === "critic:visual",
+  )
+  const text = criticsText(
+    critics(inputs({ "critics.json": record })),
+    "https://github.com/o/r",
+  )
+  assert.ok(text.includes("Overridden verdicts: 1"), text)
+  for (const override of visual.overrides)
+    assert.ok(
+      text.includes(
+        `- \`critic:visual\` \`${override.finding}\` on \`${override.path}\`, by writer \`${override.writer}\` at [${override.commit.slice(0, 7)}](https://github.com/o/r/commit/${override.commit}): \`${override.reason}\``,
+      ),
+      text,
+    )
+  assert.ok(text.includes("Raised spend limits: 1"), text)
+  for (const raise of visual.limitRaises)
+    assert.ok(
+      text.includes(
+        `- \`critic:visual\` limit $${raise.limitUsd.toFixed(2)}, set by writer \`${raise.writer}\` at [${raise.commit.slice(0, 7)}](https://github.com/o/r/commit/${raise.commit})`,
+      ),
+      text,
+    )
+})
+
+test("each dismissed finding shows its reason, writer and commit; none is silent", () => {
+  const reason =
+    "The ticket keeps the old label on purpose | the design review asked for `it`, and this reason is longer than two hundred characters so that the table cut would hide its end if the comment used it here."
+  const directory = inputs({
+    "critics.json": {
+      head: sha(8),
+      critics: [
+        {
+          critic: "critic:spec",
+          status: "carried",
+          reason: "2 passes (2 held findings dismissed by a person with a reason)",
+          dismissals: [
+            {
+              finding: "f:0123abcd",
+              reason,
+              commit: sha(9),
+              writer: "a".repeat(64),
+            },
+            {
+              finding: "f:4567cdef",
+              reason: "another reason",
+              commit: "not a commit",
+              writer: "someone@example.com",
+            },
+          ],
+        },
+      ],
+    },
+  })
+  const text = criticsText(critics(directory), "https://github.com/o/r")
+  assert.ok(text.includes("Dismissed findings: 2"), text)
+  assert.ok(
+    text.includes(
+      `- \`critic:spec\` \`f:0123abcd\`, by writer \`${"a".repeat(64)}\` at [${sha(9).slice(0, 7)}](https://github.com/o/r/commit/${sha(9)}): `,
+    ),
+    text,
+  )
+  // The full reason, with no backtick that ends the span.
+  assert.ok(text.includes(reason.replace(/`/g, "'")), text)
+  // A writer or a commit of another shape never reaches the comment.
+  assert.ok(!text.includes("someone@example.com"), text)
+  assert.ok(text.includes("by writer `unknown` at `unknown`"), text)
+  const plain = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          head: sha(8),
+          critics: [
+            { critic: "critic:spec", status: "carried", reason: "1 passes" },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(!plain.includes("Dismissed findings"), plain)
+})
+
+test("the critics job projection keeps each dismissal of `factory review gate --json` for the comment", () => {
+  // The output of the factory binary, from the factory CLI test
+  // `a_dismissed_finding_ends_its_hold_and_the_gate_shows_it_with_its_reason`.
+  // A change of the factory shape fails here.
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const [, filter] = workflow.match(/jq -c '(\{critics: [^']+)'/) ?? []
+  assert.ok(filter, "the critics job has no jq projection")
+  const fixture = join(
+    root,
+    "scripts/tests/fixtures/factory/review-gate-dismissals.json",
+  )
+  const projected = spawnSync("jq", ["-c", filter, fixture], {
+    encoding: "utf8",
+  })
+  assert.equal(projected.status, 0, projected.stderr)
+  const gate = JSON.parse(readFileSync(fixture, "utf8"))
+  const [dismissal] = gate.critics.find(
+    (critic) => critic.critic === "critic:spec",
+  ).dismissals
+  // The projection drops what gate.mjs does not read.
+  assert.ok(!projected.stdout.includes("createdAt"), projected.stdout)
+  const text = criticsText(
+    critics(inputs({ "critics.json": JSON.parse(projected.stdout) })),
+    "https://github.com/o/r",
+  )
+  assert.ok(text.includes("Dismissed findings: 1"), text)
+  assert.ok(
+    text.includes(
+      `- \`critic:spec\` \`${dismissal.finding}\`, by writer \`${dismissal.writer}\` at [${dismissal.commit.slice(0, 7)}](https://github.com/o/r/commit/${dismissal.commit}): \`${dismissal.reason}\``,
+    ),
+    text,
+  )
+})
+
+test("the comment includes the screenshots section that the factory makes for a command critic", () => {
+  // The output of the factory binary, from the factory CLI test
+  // `the_gate_json_of_a_command_critic_holds_the_section_of_its_changed_images`
+  // (run it with `--nocapture`), through the jq filter of the critics job.
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const [, filter] = workflow.match(/jq -c '(\{critics: [^']+)'/) ?? []
+  const fixture = join(
+    root,
+    "scripts/tests/fixtures/factory/review-gate-section.json",
+  )
+  const projected = spawnSync("jq", ["-c", filter, fixture], {
+    encoding: "utf8",
+  })
+  assert.equal(projected.status, 0, projected.stderr)
+  const record = JSON.parse(projected.stdout)
+  const { section } = JSON.parse(readFileSync(fixture, "utf8")).critics.find(
+    (critic) => critic.critic === "critic:visual",
+  )
+  assert.match(section, /^Changed screenshots: 2\./)
+  // A model critic has no section, so the projection adds none.
+  assert.equal(
+    record.critics.find((critic) => critic.critic === "critic:spec").section,
+    undefined,
+  )
+  const text = criticsText(critics(inputs({ "critics.json": record })))
+  assert.ok(text.includes(`##### \`critic:visual\`\n\n${section}`), text)
+  // A section that is not text never reaches the comment.
+  const odd = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          critics: [
+            {
+              critic: "critic:visual",
+              status: "missing",
+              reason: "r",
+              section: { text: "x" },
+            },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(!odd.includes("#####"), odd)
+  // A long section with no line break is cut at the bound all the same.
+  const long = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          critics: [
+            {
+              critic: "critic:visual",
+              status: "missing",
+              reason: "r",
+              section: "x".repeat(30000),
+            },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(long.includes(`${"x".repeat(25000)}\n\nThe section is cut`), "cut")
+  assert.ok(!long.includes("x".repeat(25001)), "bound")
+})
+
+test("a raised limit of another shape never reaches the comment", () => {
+  const text = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          critics: [
+            {
+              critic: "critic:visual",
+              status: "carried",
+              reason: "1 passes",
+              limitRaises: [
+                {
+                  limitUsd: "lots",
+                  writer: "someone@example.com",
+                  commit: "not a commit",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(text.includes("Raised spend limits: 1"), text)
+  assert.ok(!text.includes("someone@example.com"), text)
+  assert.ok(!text.includes("lots"), text)
+  assert.ok(
+    text.includes("limit `unknown`, set by writer `unknown` at `unknown`"),
+    text,
+  )
+})
+
 test("a lint or policy check takes the result of its step in the Lint and format job", () => {
   const steps = (failed) => ({
     jobs: [
@@ -1364,4 +1745,60 @@ test("the step names of the Lint and format job are the steps in ci.yaml", async
       : lint.includes(`- name: ${name}\n`)
     assert.ok(named, name)
   }
+})
+
+// The critics job redacts the stderr of factory review gate with sed before
+// it reaches the log or the cause file. gate.mjs shows the cause as it is.
+test("the critics cause and the log of factory review gate hold no URL or credential", () => {
+  const ci = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const fn = /^ {10}redact\(\) \{\n[\s\S]*?^ {10}\}$/m.exec(ci)?.[0]
+  assert.ok(fn, "the redact function of the critics job")
+  const redact = (text) => {
+    const run = spawnSync("bash", ["-c", `${fn}\nredact`], {
+      input: `${text}\n`,
+      encoding: "utf8",
+    })
+    assert.equal(run.status, 0, run.stderr)
+    return run.stdout.replace(/\n$/, "")
+  }
+  const line =
+    "error: GET https://bucket.s3.amazonaws.com/x?X-Amz-Signature=abc failed; Bearer abc.def AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG ghp_0123456789abcdefghijklmnopqrstuvwxyzAB AKIAIOSFODNN7EXAMPLE id 0123456789abcdef0123456789abcdef01"
+  const clean = redact(line)
+  for (const leak of [
+    "https://",
+    "amazonaws",
+    "abc.def",
+    "wJalrXUtnFEMI",
+    "ghp_",
+    "AKIAIOSFODNN7EXAMPLE",
+    "0123456789abcdef0123456789abcdef01",
+  ])
+    assert.ok(!clean.includes(leak), `${leak}: ${clean}`)
+  assert.ok(clean.startsWith("error: GET [REDACTED-URL] failed;"), clean)
+  for (const plain of [
+    "the store failed: AccessDenied",
+    "plain text, a path src/a.ts:12",
+  ])
+    assert.equal(redact(plain), plain)
+  const json = redact(
+    '{"token":"abc123","password": "made up, pass", "secret":"a\\"b c"} Authorization: Basic dXNlcjpwYXNz',
+  )
+  for (const leak of ["abc123", "made", "up, pass", "b c", "dXNlcjpwYXNz"])
+    assert.ok(!json.includes(leak), `${leak}: ${json}`)
+  for (const sample of [
+    "{'password': 'made up pass'} x",
+    '{"password":"made up https://example.com/x"}',
+    '{"password":"made up pass',
+    "a\npassword: 'made up https://x\nnext line",
+    '{"password":"made up \\"pass',
+    '{"password":"made up\\',
+    '{"token":"abc123","password": "made-up!pass", "key":1}',
+    '{"password":"made up https://example.com/x","token": "Bearer a b"} y',
+  ])
+    assert.ok(!redact(sample).includes("made"), redact(sample))
+  const tokens = redact(
+    "token xyz and password=hunter2 sk-abc123 eyJhbGciOi.x.y",
+  )
+  for (const leak of ["xyz", "hunter2", "sk-abc123", "eyJhbGciOi"])
+    assert.ok(!tokens.includes(leak), `${leak}: ${tokens}`)
 })

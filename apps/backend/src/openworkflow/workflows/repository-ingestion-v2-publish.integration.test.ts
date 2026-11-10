@@ -23,6 +23,7 @@ import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -55,6 +56,7 @@ import {
   stubGithubApp,
 } from "../../test/ingest-github.js"
 import { standInIngestShardRuntime } from "../../test/ingest-shard-stand-in.js"
+import { expectSmallWriteStepOutputs } from "../../test/write-step-outputs.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
 import { defineIngestionShardWorkflow } from "./ingestion-shard.js"
 import {
@@ -597,6 +599,8 @@ afterAll(async () => {
 
 describe("ingestion v2 publish", () => {
   beforeEach(resetContexts, 60_000)
+  // No step of `workspace-write-extract-ingest` keeps Git objects (CTX-1235).
+  afterEach(() => expectSmallWriteStepOutputs(orgId))
 
   it(
     "publishes one commit per Workspace, keeps a human commit made after the pin, and deletes the run's refs",

@@ -2,7 +2,7 @@
   "name": "@ctxpipe/visual-review",
   "version": "0.0.0",
   "private": true,
-  "description": "The visual critic of ctxpipe: verdict schema, rubric, prompt and parser.",
+  "description": "The visual review of ctxpipe: the screenshot compare engine, and the critic with its verdict schema, rubric, prompt and parser.",
   "license": "MIT",
   "type": "module",
   "exports": "./src/index.ts",
@@ -11,6 +11,10 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@blazediff/codec-png-native": "6.1.0",
+    "@blazediff/core-native": "7.0.0",
+    "@blazediff/interpret-native": "7.0.0",
+    "storybook": "^10.2.10",
     "zod": "^4.3.6"
   },
   "devDependencies": {

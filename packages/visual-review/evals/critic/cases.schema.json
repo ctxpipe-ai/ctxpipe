@@ -1,0 +1,645 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "./cases.schema.json"
+    },
+    "version": {
+      "type": "number",
+      "const": 1
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "until": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "container": {
+      "type": "string"
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]+$"
+              },
+              "storyId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "viewport": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "const": "desktop"
+                  },
+                  "width": {
+                    "type": "number",
+                    "const": 1440
+                  },
+                  "height": {
+                    "type": "number",
+                    "const": 900
+                  }
+                },
+                "required": ["name", "width", "height"],
+                "additionalProperties": false
+              },
+              "diffPixels": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "images": {
+                "type": "object",
+                "properties": {
+                  "before": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "after": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                },
+                "required": ["before", "after"],
+                "additionalProperties": false
+              },
+              "kind": {
+                "type": "string",
+                "const": "intended"
+              },
+              "label": {
+                "type": "string",
+                "enum": ["intended", "regression", "noise", "unsure"]
+              },
+              "class": {
+                "type": "null"
+              },
+              "brief": {
+                "type": "string",
+                "minLength": 1
+              },
+              "commit": {
+                "type": "object",
+                "properties": {
+                  "sha": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{40}$"
+                  },
+                  "parent": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{40}$"
+                  }
+                },
+                "required": ["sha", "parent"],
+                "additionalProperties": false
+              },
+              "region": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "id",
+              "storyId",
+              "viewport",
+              "diffPixels",
+              "images",
+              "kind",
+              "label",
+              "class",
+              "brief",
+              "commit",
+              "region"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]+$"
+              },
+              "storyId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "viewport": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "const": "desktop"
+                  },
+                  "width": {
+                    "type": "number",
+                    "const": 1440
+                  },
+                  "height": {
+                    "type": "number",
+                    "const": 900
+                  }
+                },
+                "required": ["name", "width", "height"],
+                "additionalProperties": false
+              },
+              "diffPixels": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "images": {
+                "type": "object",
+                "properties": {
+                  "before": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "after": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                },
+                "required": ["before", "after"],
+                "additionalProperties": false
+              },
+              "kind": {
+                "type": "string",
+                "const": "regression"
+              },
+              "label": {
+                "type": "string",
+                "const": "regression"
+              },
+              "class": {
+                "type": "string",
+                "enum": [
+                  "padding",
+                  "color-token",
+                  "overflow",
+                  "truncated-text",
+                  "contrast-loss",
+                  "missing-element",
+                  "dark-surface",
+                  "focus-ring"
+                ]
+              },
+              "brief": {
+                "type": "null"
+              },
+              "commit": {
+                "type": "null"
+              },
+              "region": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "y": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "width": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["x", "y", "width", "height"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "storyId",
+              "viewport",
+              "diffPixels",
+              "images",
+              "kind",
+              "label",
+              "class",
+              "brief",
+              "commit",
+              "region"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]+$"
+              },
+              "storyId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "viewport": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "const": "desktop"
+                  },
+                  "width": {
+                    "type": "number",
+                    "const": 1440
+                  },
+                  "height": {
+                    "type": "number",
+                    "const": 900
+                  }
+                },
+                "required": ["name", "width", "height"],
+                "additionalProperties": false
+              },
+              "diffPixels": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "images": {
+                "type": "object",
+                "properties": {
+                  "before": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "after": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                },
+                "required": ["before", "after"],
+                "additionalProperties": false
+              },
+              "kind": {
+                "type": "string",
+                "const": "noise"
+              },
+              "label": {
+                "type": "string",
+                "const": "noise"
+              },
+              "class": {
+                "type": "string",
+                "enum": ["subpixel-shift", "antialiasing"]
+              },
+              "brief": {
+                "type": "null"
+              },
+              "commit": {
+                "type": "null"
+              },
+              "region": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "id",
+              "storyId",
+              "viewport",
+              "diffPixels",
+              "images",
+              "kind",
+              "label",
+              "class",
+              "brief",
+              "commit",
+              "region"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]+$"
+              },
+              "storyId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "viewport": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "const": "desktop"
+                  },
+                  "width": {
+                    "type": "number",
+                    "const": 1440
+                  },
+                  "height": {
+                    "type": "number",
+                    "const": 900
+                  }
+                },
+                "required": ["name", "width", "height"],
+                "additionalProperties": false
+              },
+              "diffPixels": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "images": {
+                "type": "object",
+                "properties": {
+                  "before": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "after": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                },
+                "required": ["before", "after"],
+                "additionalProperties": false
+              },
+              "kind": {
+                "type": "string",
+                "const": "mixed"
+              },
+              "label": {
+                "type": "string",
+                "const": "regression"
+              },
+              "class": {
+                "type": "string",
+                "enum": [
+                  "padding",
+                  "color-token",
+                  "overflow",
+                  "truncated-text",
+                  "contrast-loss",
+                  "missing-element",
+                  "dark-surface",
+                  "focus-ring"
+                ]
+              },
+              "brief": {
+                "type": "string",
+                "minLength": 1
+              },
+              "commit": {
+                "type": "object",
+                "properties": {
+                  "sha": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{40}$"
+                  },
+                  "parent": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{40}$"
+                  }
+                },
+                "required": ["sha", "parent"],
+                "additionalProperties": false
+              },
+              "region": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "y": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "width": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["x", "y", "width", "height"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "storyId",
+              "viewport",
+              "diffPixels",
+              "images",
+              "kind",
+              "label",
+              "class",
+              "brief",
+              "commit",
+              "region"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]+$"
+              },
+              "storyId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "viewport": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "const": "desktop"
+                  },
+                  "width": {
+                    "type": "number",
+                    "const": 1440
+                  },
+                  "height": {
+                    "type": "number",
+                    "const": 900
+                  }
+                },
+                "required": ["name", "width", "height"],
+                "additionalProperties": false
+              },
+              "diffPixels": {
+                "type": "null"
+              },
+              "images": {
+                "type": "object",
+                "properties": {
+                  "after": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                },
+                "required": ["after"],
+                "additionalProperties": false
+              },
+              "kind": {
+                "type": "string",
+                "const": "new"
+              },
+              "label": {
+                "type": "string",
+                "enum": ["intended", "regression"]
+              },
+              "class": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "padding",
+                      "color-token",
+                      "overflow",
+                      "truncated-text",
+                      "contrast-loss",
+                      "missing-element",
+                      "dark-surface",
+                      "focus-ring"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "brief": {
+                "type": "string",
+                "minLength": 1
+              },
+              "commit": {
+                "type": "object",
+                "properties": {
+                  "sha": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{40}$"
+                  },
+                  "parent": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{40}$"
+                  }
+                },
+                "required": ["sha", "parent"],
+                "additionalProperties": false
+              },
+              "region": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "y": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "width": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "height": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": ["x", "y", "width", "height"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "storyId",
+              "viewport",
+              "diffPixels",
+              "images",
+              "kind",
+              "label",
+              "class",
+              "brief",
+              "commit",
+              "region"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "taste": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "case": {
+            "type": "string"
+          },
+          "arms": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "winner": {
+            "type": "string"
+          }
+        },
+        "required": ["case", "arms", "winner"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["$schema", "version", "seed", "until", "container", "cases"],
+  "additionalProperties": false
+}

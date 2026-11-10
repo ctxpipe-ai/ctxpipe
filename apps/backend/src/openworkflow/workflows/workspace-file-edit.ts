@@ -1,7 +1,6 @@
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { hostOnlyRefusal } from "../../domain/workspaces/host-only.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
@@ -22,27 +21,19 @@ import {
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  completeWorkspaceWrite,
+  prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import {
-  persistBoundWriteJob,
-  persistWriteJobPreparedCommit,
-} from "../../models/workspace-write-jobs.js"
-import {
-  persistWriteJobCommitSha,
-  persistWriteJobStatus,
-} from "../../models/workspaces.js"
+import { persistBoundWriteJob } from "../../models/workspace-write-jobs.js"
+import { persistWriteJobStatus } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { repositoryFilePathSchema } from "../../services/git/file-change.js"
 import { readGitFiles } from "../../services/git/pack.js"
-import {
-  commitGitTree,
-  stageGitFiles,
-  validateGitTree,
-} from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
@@ -161,8 +152,9 @@ export const workspaceFileEdit = defineWorkflow(
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
           >
           for (;;) {
-            const candidate = await step.run({ name: "acquire-revision" }, () =>
-              acquireWorkspaceWriteRevision(input, revision, env),
+            const candidate = await step.run(
+              { name: "acquire-revision-v2" },
+              () => acquireWorkspaceWriteRevision(input, revision, env),
             )
             if (candidate) {
               acquired = candidate
@@ -176,55 +168,69 @@ export const workspaceFileEdit = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const changes = await step.run(
-            { name: "transform-file-edit" },
-            async () => {
-              const named = new Set([
-                ...input.files.map((file) => file.path),
-                ...input.deletePaths,
-              ])
-              // Root-relative paths below the Workspace root folder.
-              const existing = new Map(
-                (
-                  await readGitFiles(
-                    acquired.pack,
-                    (path) => named.has(path),
-                    undefined,
-                    read,
-                  )
-                ).map((file) => [file.path, file.content]),
-              )
-              // The format file changes only in its upgrade setting: a merged
-              // upgrade pull request can have changed the format after the
-              // job was queued.
-              const files = input.files.map((file) => {
-                if (file.path !== WORKSPACE_FORMAT_PATH) return file
-                const requested = readWorkspaceFormat(file.content)
-                const content =
-                  requested.kind === "format"
-                    ? withWorkspaceFormatFields(
-                        existing.get(file.path) ?? null,
-                        { upgrades: requested.upgrades },
-                      )
-                    : null
-                if (content === null)
-                  throw new Error(
-                    `${WORKSPACE_FORMAT_PATH} is not valid. ctxpipe cannot change its upgrade setting.`,
-                  )
-                return { path: file.path, content }
-              })
-              return {
-                files: files.filter(
-                  (file) => existing.get(file.path) !== file.content,
-                ),
-                deletePaths: input.deletePaths.filter((path) =>
-                  existing.has(path),
-                ),
-              }
-            },
+          // One step makes the change, commits it, and pushes the commit to
+          // its job ref: no step output holds a file (CTX-1239).
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
+            () =>
+              prepareWorkspaceWriteCommit(
+                input,
+                revision,
+                acquired.pack,
+                {
+                  change: async () => {
+                    const named = new Set([
+                      ...input.files.map((file) => file.path),
+                      ...input.deletePaths,
+                    ])
+                    // Root-relative paths below the Workspace root folder.
+                    const existing = new Map(
+                      (
+                        await readGitFiles(
+                          acquired.pack,
+                          (path) => named.has(path),
+                          undefined,
+                          read,
+                        )
+                      ).map((file) => [file.path, file.content]),
+                    )
+                    // The format file changes only in its upgrade setting: a merged
+                    // upgrade pull request can have changed the format after the
+                    // job was queued.
+                    const files = input.files.map((file) => {
+                      if (file.path !== WORKSPACE_FORMAT_PATH) return file
+                      const requested = readWorkspaceFormat(file.content)
+                      const content =
+                        requested.kind === "format"
+                          ? withWorkspaceFormatFields(
+                              existing.get(file.path) ?? null,
+                              { upgrades: requested.upgrades },
+                            )
+                          : null
+                      if (content === null)
+                        throw new Error(
+                          `${WORKSPACE_FORMAT_PATH} is not valid. ctxpipe cannot change its upgrade setting.`,
+                        )
+                      return { path: file.path, content }
+                    })
+                    return {
+                      files: files.filter(
+                        (file) => existing.get(file.path) !== file.content,
+                      ),
+                      deletePaths: input.deletePaths.filter((path) =>
+                        existing.has(path),
+                      ),
+                    }
+                  },
+                  subject: { trigger: "ui_file_edit" },
+                  createdAt: run.createdAt,
+                },
+                env,
+              ),
           )
-          const files = changes.files
-          if (!files.length && !changes.deletePaths.length) {
+          if (!committed) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -241,39 +247,6 @@ export const workspaceFileEdit = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const staged = await step.run({ name: "stage" }, () =>
-            stageGitFiles(acquired.pack, files, changes.deletePaths, read),
-          )
-          await step.run({ name: "validate" }, () =>
-            validateGitTree(
-              staged,
-              [...files.map((file) => file.path), ...changes.deletePaths],
-              {},
-              read,
-            ),
-          )
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "ui_file_edit",
-              fileNames: [
-                ...files.map((file) => file.path),
-                ...changes.deletePaths,
-              ],
-            }),
-          )
-          const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(
-              staged,
-              {
-                subject,
-                createdAt: run.createdAt,
-              },
-              read,
-            )
-            await persistWriteJobPreparedCommit(input.jobId, pack.sha)
-            return pack
-          })
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             pushed = await step.run(
@@ -291,7 +264,7 @@ export const workspaceFileEdit = defineWorkflow(
           }
           if (!pushed.pushed) {
             const handoff = await step.run(
-              { name: "capture-semantic-handoff" },
+              { name: "capture-semantic-handoff-v2" },
               () =>
                 captureSemanticHandoff(input, revision, committed, env, "host"),
             )
@@ -301,9 +274,10 @@ export const workspaceFileEdit = defineWorkflow(
               { name: "semantic-merge-child" },
             )
             await step.run({ name: "complete-merged-result" }, () =>
-              persistWriteJobCommitSha(
-                input.jobId,
+              completeWorkspaceWrite(
+                { ...input, remote: input.revision.remote },
                 result.committed ? result.commitSha : null,
+                env,
               ),
             )
             await scanAfterSetting()
@@ -324,7 +298,11 @@ export const workspaceFileEdit = defineWorkflow(
             )
           })
           await step.run({ name: "complete" }, () =>
-            persistWriteJobCommitSha(input.jobId, committed.sha),
+            completeWorkspaceWrite(
+              { ...input, remote: input.revision.remote },
+              committed.sha,
+              env,
+            ),
           )
           await scanAfterSetting()
           return { committed: true as const, commitSha: committed.sha }

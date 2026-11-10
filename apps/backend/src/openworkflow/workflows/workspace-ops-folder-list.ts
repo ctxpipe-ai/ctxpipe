@@ -1,7 +1,6 @@
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { folderListFiles } from "../../domain/workspaces/folder-list.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
@@ -17,30 +16,22 @@ import {
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  completeWorkspaceWrite,
+  prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import {
-  persistBoundWriteJob,
-  persistWriteJobPreparedCommit,
-} from "../../models/workspace-write-jobs.js"
-import {
-  persistWriteJobCommitSha,
-  persistWriteJobStatus,
-} from "../../models/workspaces.js"
+import { persistBoundWriteJob } from "../../models/workspace-write-jobs.js"
+import { persistWriteJobStatus } from "../../models/workspaces.js"
 import {
   nativeGit,
   packRootTree,
   withGitDirectory,
 } from "../../services/git/pack.js"
 import { workspaceRepositoryPath } from "../../services/git/root-folder.js"
-import {
-  commitGitTree,
-  stageGitFiles,
-  validateGitTree,
-} from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
@@ -116,13 +107,15 @@ export const workspaceOpsFolderList = defineWorkflow(
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
           >
           for (;;) {
-            const candidate = await step.run({ name: "acquire-revision" }, () =>
-              acquireWorkspaceWriteRevision(
-                input,
-                revision,
-                env,
-                input.previousSha,
-              ),
+            const candidate = await step.run(
+              { name: "acquire-revision-v2" },
+              () =>
+                acquireWorkspaceWriteRevision(
+                  input,
+                  revision,
+                  env,
+                  input.previousSha,
+                ),
             )
             if (candidate) {
               acquired = candidate
@@ -136,59 +129,79 @@ export const workspaceOpsFolderList = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const files = await step.run(
-            {
-              name: "transform-ops-folder-list",
-              retryPolicy: { maximumAttempts: 1 },
-            },
+          // One step makes the change, commits it, and pushes the commit to
+          // its job ref: no step output holds a file (CTX-1239).
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
             () =>
-              withGitDirectory(
-                revision.sha,
-                async (directory) => {
-                  const pathsAt = async (sha: string) => {
-                    const tree = await packRootTree(directory, {
-                      sha,
-                      root: acquired.pack.root,
-                    })
-                    return tree
-                      ? (
-                          await nativeGit(directory, [
-                            "ls-tree",
-                            "-r",
-                            "--name-only",
-                            "-z",
-                            tree,
-                          ])
-                        )
-                          .toString()
-                          .split("\0")
-                      : []
-                  }
-                  const paths = await pathsAt(revision.sha)
-                  const existingAgentsMd = paths.includes("AGENTS.md")
-                    ? (
-                        await nativeGit(directory, [
-                          "show",
-                          `${revision.sha}:${workspaceRepositoryPath(acquired.pack.root ?? "", "AGENTS.md")}`,
-                        ])
-                      ).toString()
-                    : null
-                  return folderListFiles({
-                    displayName: acquired.displayName,
-                    requestedDisplayName: input.displayName,
-                    existingAgentsMd,
-                    paths,
-                    // The acquired pack also holds the previous tree.
-                    ...(input.previousSha
-                      ? { previousPaths: await pathsAt(input.previousSha) }
-                      : {}),
-                  })
-                },
+              prepareWorkspaceWriteCommit(
+                input,
+                revision,
                 acquired.pack,
-                read,
+                {
+                  change: async () => {
+                    const files = await withGitDirectory(
+                      revision.sha,
+                      async (directory) => {
+                        const pathsAt = async (sha: string) => {
+                          const tree = await packRootTree(directory, {
+                            sha,
+                            root: acquired.pack.root,
+                          })
+                          return tree
+                            ? (
+                                await nativeGit(directory, [
+                                  "ls-tree",
+                                  "-r",
+                                  "--name-only",
+                                  "-z",
+                                  tree,
+                                ])
+                              )
+                                .toString()
+                                .split("\0")
+                            : []
+                        }
+                        const paths = await pathsAt(revision.sha)
+                        const existingAgentsMd = paths.includes("AGENTS.md")
+                          ? (
+                              await nativeGit(directory, [
+                                "show",
+                                `${revision.sha}:${workspaceRepositoryPath(acquired.pack.root ?? "", "AGENTS.md")}`,
+                              ])
+                            ).toString()
+                          : null
+                        return folderListFiles({
+                          displayName: acquired.displayName,
+                          requestedDisplayName: input.displayName,
+                          existingAgentsMd,
+                          paths,
+                          // The acquired pack also holds the previous tree.
+                          ...(input.previousSha
+                            ? {
+                                previousPaths: await pathsAt(input.previousSha),
+                              }
+                            : {}),
+                        })
+                      },
+                      acquired.pack,
+                      read,
+                    )
+                    if (files.some((file) => file.path !== "AGENTS.md"))
+                      throw new Error(
+                        "Folder map maintenance may only edit AGENTS.md",
+                      )
+                    return { files, deletePaths: [] }
+                  },
+                  subject: { trigger: "ops_folder_map" },
+                  createdAt: run.createdAt,
+                },
+                env,
               ),
           )
-          if (!files.length) {
+          if (!committed) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -204,38 +217,6 @@ export const workspaceOpsFolderList = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const staged = await step.run({ name: "stage" }, () => {
-            if (files.some((file) => file.path !== "AGENTS.md"))
-              throw new Error("Folder map maintenance may only edit AGENTS.md")
-            return stageGitFiles(acquired.pack, files, [], read)
-          })
-          await step.run({ name: "validate" }, () =>
-            validateGitTree(
-              staged,
-              files.map((file) => file.path),
-              {},
-              read,
-            ),
-          )
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "ops_folder_map",
-              fileNames: files.map((file) => file.path),
-            }),
-          )
-          const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(
-              staged,
-              {
-                subject,
-                createdAt: run.createdAt,
-              },
-              read,
-            )
-            await persistWriteJobPreparedCommit(input.jobId, pack.sha)
-            return pack
-          })
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             pushed = await step.run(
@@ -253,7 +234,7 @@ export const workspaceOpsFolderList = defineWorkflow(
           }
           if (!pushed.pushed) {
             const handoff = await step.run(
-              { name: "capture-semantic-handoff" },
+              { name: "capture-semantic-handoff-v2" },
               () =>
                 captureSemanticHandoff(input, revision, committed, env, "host"),
             )
@@ -263,9 +244,10 @@ export const workspaceOpsFolderList = defineWorkflow(
               { name: "semantic-merge-child" },
             )
             await step.run({ name: "complete-merged-result" }, () =>
-              persistWriteJobCommitSha(
-                input.jobId,
+              completeWorkspaceWrite(
+                { ...input, remote: input.revision.remote },
                 result.committed ? result.commitSha : null,
+                env,
               ),
             )
             return result
@@ -285,7 +267,11 @@ export const workspaceOpsFolderList = defineWorkflow(
             )
           })
           await step.run({ name: "complete" }, () =>
-            persistWriteJobCommitSha(input.jobId, committed.sha),
+            completeWorkspaceWrite(
+              { ...input, remote: input.revision.remote },
+              committed.sha,
+              env,
+            ),
           )
           return { committed: true as const, commitSha: committed.sha }
         }

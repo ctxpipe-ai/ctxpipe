@@ -122,7 +122,7 @@ export const ExpandedAfterCollapsedStory: Story = {
 /** A plain link (not a nav item) opens Connectors. The shell stays mounted, and
  * the current nav item moves from the Workspace to Connectors. */
 export const PlainLinkMovesCurrentNav: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   render: () => (
     <AppShell>
       <Link href="/acme/connectors" className="p-6 text-sm text-teal-400">
@@ -194,7 +194,7 @@ export const DocsLinkOpensProductDocs: Story = {
 }
 
 export const UserMenuLinksConnectedApps: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     ...SingleWorkspace.parameters,
     intent:
@@ -211,5 +211,16 @@ export const UserMenuLinksConnectedApps: Story = {
       "href",
       "/.auth/account/connected-apps",
     )
+    // The menu moves the focus a few times while it opens, and where it ends
+    // differs from run to run. Wait for the open animation, then put the focus
+    // on the first item, so the focus ring does not depend on the time of the
+    // click.
+    const menu = body.getByRole("menu")
+    await waitFor(() =>
+      expect(menu.getAnimations({ subtree: true })).toHaveLength(0),
+    )
+    const first = body.getByRole("menuitem", { name: /Settings/ })
+    first.focus()
+    await waitFor(() => expect(first).toHaveFocus())
   },
 }

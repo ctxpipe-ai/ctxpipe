@@ -95,6 +95,8 @@ it.each(["entity", "full", "rebind"] as const)(
           }).trim()
           const bin = join(f.directory, "push-pause-bin")
           mkdirSync(bin)
+          // Hold the push to the default branch, not the push of the job ref
+          // (CTX-1235).
           writeFileSync(
             join(bin, "git"),
             `#!${process.execPath}
@@ -102,7 +104,7 @@ const {spawnSync} = require("node:child_process");
 const {existsSync, writeFileSync} = require("node:fs");
 const args = process.argv.slice(2);
 const result = spawnSync(${JSON.stringify(realGit)}, args, {stdio: "inherit"});
-if (result.status === 0 && args.includes("push")) {
+if (result.status === 0 && args.includes("push") && args.some((arg) => arg.includes(":refs/heads/"))) {
   writeFileSync(${JSON.stringify(pushed)}, "pushed");
   const deadline = Date.now() + 15000;
   while (!existsSync(${JSON.stringify(release)}) && Date.now() < deadline) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);

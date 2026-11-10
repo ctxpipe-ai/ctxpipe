@@ -704,7 +704,21 @@ const manyFileTabs = [
 
 /** Many file tabs: the selected tab at the end of the strip scrolls into view. */
 export const SelectedTabInView: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
+  // Tab widths depend on the fonts. The strip scrolls to the selected tab on
+  // mount, to the end of the strip as it is then. Load the fonts before the
+  // first render. Otherwise a slow font load widens the tabs after the scroll,
+  // the selected tab is out of view, and the end state depends on the time of
+  // the load.
+  loaders: [
+    async () => {
+      await Promise.all([
+        document.fonts.load("14px Geist"),
+        document.fonts.load('14px "Geist Mono"'),
+      ])
+      return {}
+    },
+  ],
   args: {
     pane: { kind: "file", path: ledgerPath },
     fileTabs: manyFileTabs,
@@ -742,7 +756,7 @@ export const SelectedTabInView: Story = {
 
 /** Text tabs keep 12px side padding, active or idle; icon tabs are square. */
 export const TextTabsKeepPadding: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     pane: { kind: "file", path: ledgerPath },
     fileTabs: [ledgerPath, "knowledge/notes/meeting-notes-1.md"],
@@ -832,6 +846,10 @@ export const TreeCollapsed: Story = {
 }
 
 export const Graph: Story = {
+  // With reduced motion the layout runs a fixed number of steps before the
+  // graph shows. With motion, a timer stops it, so the layout differed
+  // between hosts.
+  tags: ["reduced-motion"],
   args: { pane: { kind: "graph" } },
   parameters: {
     storyRoute: {
@@ -845,6 +863,17 @@ export const Graph: Story = {
         page: [workspaceGraphHandler()],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // The graph shows when its layout has stopped. Then the control to
+    // play the layout again shows.
+    await canvas.findByRole(
+      "button",
+      { name: "Play layout" },
+      // The layout runs in WebGL, which is slow on a CPU renderer.
+      { timeout: 30_000 },
+    )
   },
 }
 
@@ -884,7 +913,7 @@ const graphGets = { count: 0 }
  * A retry of a failed graph also sets the phase to pending while it builds.
  */
 export const GraphPhasePending: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     pane: { kind: "graph" },
     workspace: {
@@ -944,7 +973,7 @@ const graphRebuilds = { count: 0 }
  * a Try again action that asks the server to build the graph again.
  */
 export const GraphPhaseFailed: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     pane: { kind: "graph" },
     workspace: {
@@ -1008,7 +1037,7 @@ export const GraphPhaseFailed: Story = {
  * shows the building state, and the graph opens when a later read has it.
  */
 export const GraphLostRebuilds: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     pane: { kind: "graph" },
     workspace: {
@@ -1069,7 +1098,7 @@ export const GraphLostRebuilds: Story = {
 
 /** The graph phase is ready but the graph route fails: the route error shows. */
 export const GraphPhaseReadyStoreUnavailable: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     pane: { kind: "graph" },
     workspace: {
@@ -1116,7 +1145,7 @@ export const TriggersGraphBuilding: Story = {
     intent:
       "Catches a collapsed pane whose Graph trigger shows no busy dot while the graph builds, or shows it on other triggers. Click opens the graph. Not for the open pane.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     workspace: {
       ...docsWorkspaceDetail,
@@ -1262,7 +1291,7 @@ export const ConversationWritable: Story = {
 }
 
 export const ConversationSandboxFiles: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     conversationId: "conv_1",
     pane: { kind: "files" },
@@ -1311,7 +1340,7 @@ export const ConversationSandboxFiles: Story = {
  * them.
  */
 export const ConversationMaximizedSync: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     ...ConversationSandboxFiles.args,
     maximized: true,
@@ -1634,7 +1663,7 @@ function StartingSandboxPlayground(
  * Then the sandbox tree replaces it, with the open folders and the open file.
  */
 export const DefaultBranchUntilSandboxReady: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     conversationId: "conv_new",
     pane: { kind: "files" },
@@ -1735,7 +1764,7 @@ export const DefaultBranchUntilSandboxReady: Story = {
 const filesTreeGets = { count: 0 }
 
 export const StableFilesRequestBudget: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     conversationId: "conv_1",
     pane: { kind: "files" },
@@ -1885,7 +1914,7 @@ function EditThenNavigateHarness(props: ComponentProps<typeof WorkspacePane>) {
 }
 
 export const EditThenNavigate: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     conversationId: "conv_1",
     pane: { kind: "file", path: ledgerPath },
@@ -2046,7 +2075,7 @@ function newFileWriteResponse(path: string, body: string | null) {
 }
 
 export const NewFileKeepsTypedText: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     conversationId: "conv_1",
     pane: { kind: "file", path: ledgerPath },
@@ -2196,7 +2225,7 @@ const orderedWrites = {
 }
 
 export const OutOfOrderSaves: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     conversationId: "conv_1",
     pane: { kind: "file", path: ledgerPath },

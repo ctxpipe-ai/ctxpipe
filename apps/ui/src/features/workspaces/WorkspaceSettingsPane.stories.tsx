@@ -5,6 +5,7 @@ import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import {
   githubInstallationReposHandler,
+  orgActivityHandler,
   workspaceActivityHandler,
   workspaceDetailHandler,
   workspaceListHandler,
@@ -735,6 +736,8 @@ export const RootFolder: Story = {
     await waitFor(() =>
       expect(rootFolderPatches).toEqual([{ rootPath: "handbook/context" }]),
     )
+    // End with the pointer off the button, so its color is the idle one.
+    await userEvent.unhover(save)
   },
 }
 
@@ -775,8 +778,11 @@ export const RelinkError: Story = {
       scoped.getByLabelText(/git url/i),
       "https://github.com/acme/taken.git",
     )
-    await userEvent.click(scoped.getByRole("button", { name: /^save$/i }))
+    const save = scoped.getByRole("button", { name: /^save$/i })
+    await userEvent.click(save)
     await waitFor(() => scoped.getByText(/could not save/i))
+    // End with the pointer off the button, so its color is the idle one.
+    await userEvent.unhover(save)
   },
 }
 
@@ -822,12 +828,15 @@ export const RenameRefused: Story = {
     const name = canvas.getByRole("textbox", { name: /^name$/i })
     await userEvent.clear(name)
     await userEvent.type(name, "Renamed Workspace")
-    await userEvent.click(canvas.getByRole("button", { name: /^save$/i }))
+    const save = canvas.getByRole("button", { name: /^save$/i })
+    await userEvent.click(save)
     const body = within(canvasElement.ownerDocument.body)
     await body.findByText(/rename could not be scheduled/i)
     await expect(
       canvas.getByRole("textbox", { name: /^url name$/i }),
     ).toHaveValue(docsWorkspaceDetail.slug)
+    // End with the pointer off the button, so its color is the idle one.
+    await userEvent.unhover(save)
   },
 }
 
@@ -947,6 +956,8 @@ export const DeleteLastWorkspaceEmptiesHome: Story = {
               },
             ),
             workspaceActivityHandler(),
+            // With no Workspace left, Home shows the activity of the organization.
+            orgActivityHandler(),
             githubInstallationReposHandler(),
             http.delete(
               ({ request }) =>
@@ -996,5 +1007,18 @@ export const DeleteLastWorkspaceEmptiesHome: Story = {
     expect(
       canvas.getByRole("button", { name: "Create Workspace" }),
     ).toBeVisible()
+    // The empty activity of the organization is the last part of Home to load.
+    await waitFor(() =>
+      expect(
+        canvas.getByText("No commits on the default branch yet."),
+      ).toBeVisible(),
+    )
+    // The composer takes the focus when the list loads, and the pane scrolls
+    // to it. Where it scrolls depends on which parts of the page have loaded
+    // at that time. Scroll to the empty Home, so that the end is the same on
+    // each host.
+    canvas
+      .getByRole("button", { name: "Create Workspace" })
+      .scrollIntoView({ block: "center" })
   },
 }

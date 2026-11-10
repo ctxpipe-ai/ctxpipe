@@ -109,6 +109,36 @@ describe("buildPrompt", () => {
     expect(images).toEqual(story.images)
   })
 
+  test("the story part says that regions.png shows only the largest regions", () => {
+    const { story: text, prefix } = buildPrompt({
+      ...story,
+      omittedRegions: 1,
+    })
+
+    expect(text).toMatch(
+      /Image 1 \(regions\) has a row only for the largest regions: regions 1 to 1 of 2\. The 1 smaller region\(s\) have no row\. The locator image outlines them/,
+    )
+    // The prefix does not change, so a provider can still cache it.
+    expect(prefix).toBe(buildPrompt(story).prefix)
+  })
+
+  test("with no omitted region, the story part has no note about missing rows", () => {
+    expect(buildPrompt(story).story).not.toMatch(/has a row only for/)
+    expect(buildPrompt({ ...story, omittedRegions: 0 }).story).not.toMatch(
+      /has a row only for/,
+    )
+  })
+
+  test("the note about missing rows is absent when no regions image is attached", () => {
+    const { story: text } = buildPrompt({
+      ...story,
+      omittedRegions: 2,
+      images: [{ role: "locator", path: "/tmp/visual/locator.png" }],
+    })
+
+    expect(text).not.toMatch(/has a row only for/)
+  })
+
   test("a page story makes the page-only qualities apply", () => {
     const { story: text } = buildPrompt({ ...story, scope: "page" })
 
@@ -120,6 +150,22 @@ describe("buildPrompt", () => {
     const { story: text } = buildPrompt({ ...story, regions: [] })
 
     expect(text).toMatch(/no measured regions: the image size changed/i)
+  })
+
+  test("a region with no label from the interpreter is an unlabeled change", () => {
+    const { story: text } = buildPrompt({
+      ...story,
+      regions: [
+        {
+          box: { x: 0.1, y: 0.2, width: 0.3, height: 0.05 },
+          changeType: null,
+          position: "top-left",
+          confidence: 0,
+        },
+      ],
+    })
+
+    expect(text).toContain("1. unlabeled change at top-left;")
   })
 
   test("the brief and the diff are fenced as data, and a closing tag inside them cannot end the fence", () => {

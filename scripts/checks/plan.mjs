@@ -51,7 +51,7 @@ export function withJobChecks(selection, jobs) {
   const reached = new Set(
     jobs.flatMap((job) =>
       job === "storybook-build"
-        ? ["storybook-golden", "storybook-plays"]
+        ? ["storybook-required", "storybook-plays", "storybook-visual"]
         : [job],
     ),
   )
@@ -202,8 +202,9 @@ export function withStoreHits(selection, store) {
 }
 
 // Where a check runs in a gated run. The Lint and format job runs each lint
-// and policy check as a step, on each run. Every Storybook check runs in the
-// Storybook plays shards. A check that ci.yaml does not run is `external`:
+// and policy check as a step, on each run. Every Storybook play runs in the
+// Storybook plays shards, and each screenshot in the screenshots shards
+// (runsIn). A check that ci.yaml does not run is `external`:
 // another workflow runs it, and its own status reports the result.
 const external = {
   deploy: "PR Deploy (pr-deploy.yaml, started by the merge gate)",
@@ -219,7 +220,8 @@ export function placeOf(id) {
     return { job: "lint" }
   const workflow = external[`${family}:${lane}`] ?? external[family]
   if (workflow) return { workflow }
-  if (family === "storybook") return { job: "storybook-plays" }
+  if (family === "storybook" && lane !== "visual")
+    return { job: "storybook-plays" }
   const job = runsInOf(id)?.job
   return job ? { job } : { workflow: "no job of PR CI runs it" }
 }
@@ -227,15 +229,17 @@ export function placeOf(id) {
 // The image builds of the Production build job. A test keeps these entries
 // equal to the matrix of ci.yaml.
 const imageOptions = {
-  "chat-sandbox": { context: "scripts/chat-sandbox", platforms: "linux/arm64" },
+  "chat-sandbox": { context: "scripts/chat-sandbox" },
 }
 
-// The jobs that a gated run starts, as the outputs of the plan job. Each
-// job has the ids that it runs and the ids that it runs once more when they
-// fail (`rerun`: a stored pass has the key of the check, so a failure is a
-// contradiction). A matrix job has a list of entries. A job without an output
-// does not start.
-export function jobOutputs(ran, seconds, rerun = new Set()) {
+// The matrix jobs whose checks shard.mjs packs into shards.
+const shardedJobs = ["test-shards", "storybook-plays", "storybook-visual"]
+
+// The jobs that a gated run starts, with the checks of each (`jobs` in
+// plan.json). Each job has the ids that it runs and the ids that it runs once
+// more when they fail (`rerun`: a stored pass has the key of the check, so a
+// failure is a contradiction). A matrix job has a list of entries.
+export function jobPlans(ran, seconds, rerun = new Set()) {
   const part = (ids) => ({
     ids,
     rerun: ids.filter((id) => rerun.has(id)),
@@ -246,31 +250,116 @@ export function jobOutputs(ran, seconds, rerun = new Set()) {
     if (!job || job === "lint") continue
     byJob.set(job, [...(byJob.get(job) ?? []), id])
   }
-  const outputs = {}
+  const jobs = {}
   for (const [job, ids] of byJob) {
     ids.sort()
-    if (job === "test-shards" || job === "storybook-plays") {
+    if (shardedJobs.includes(job)) {
       const shards = Object.values(shard(ids, seconds)).flat()
-      outputs[job] = JSON.stringify(
-        shards.map((item, index) => ({
-          lane: "selected",
-          shard: index + 1,
-          count: shards.length,
-          plan: part(item.ids),
-        })),
-      )
-      if (job === "storybook-plays") outputs["storybook-build"] = "true"
+      jobs[job] = shards.map((item, index) => ({
+        lane: "selected",
+        shard: index + 1,
+        count: shards.length,
+        plan: part(item.ids),
+      }))
     } else if (job === "production-builds")
-      outputs[job] = JSON.stringify(
-        ids.map((id) => {
-          const [, lane, ...file] = id.split(":")
-          const name = lane.replace(/^image-/, "")
-          return { name, dockerfile: file.join(":"), ...imageOptions[name] }
-        }),
-      )
-    else outputs[job] = JSON.stringify(part(ids))
+      jobs[job] = ids.map((id) => {
+        const [, lane, ...file] = id.split(":")
+        const name = lane.replace(/^image-/, "")
+        return { name, dockerfile: file.join(":"), ...imageOptions[name] }
+      })
+    else jobs[job] = part(ids)
   }
+  return jobs
+}
+
+// The outputs of the plan job: only what GitHub needs to start each job. A
+// job without an output does not start. A matrix job gets its entries
+// without their check ids; another job gets the count of its checks. Each
+// job reads its check ids from plan.json (selected.mjs). The `needs` context
+// of the Merge gate job holds these outputs in one environment value, and
+// Linux limits that value to 128 KiB, so they must not grow with the count
+// of checks.
+function jobOutputs(jobs) {
+  const outputs = {}
+  for (const [job, value] of Object.entries(jobs))
+    outputs[job] = Array.isArray(value)
+      ? JSON.stringify(value.map(({ plan: _plan, ...entry }) => entry))
+      : String(value.ids.length)
+  if (jobs["storybook-plays"] || jobs["storybook-visual"])
+    outputs["storybook-build"] = "true"
   return outputs
+}
+
+// The plan of a nightly run on main (scripts/checks/README.md, Traces), from
+// the record of `factory nightly plan`: its `run` ids in the jobs of ci.yaml.
+// A full factory plan (by hand, without a previous trace, or each 7 days)
+// gives a full run. An incremental one gives a gated run with three
+// differences from a PR run:
+// - The project checks (typecheck, lint, policy) run in the Project check
+//   times job, which records their time for the trace.
+// - The Storybook plays job renders each story whose play check runs, or whose
+//   screenshot check needs a new trace record: one rendered story records the
+//   lines of both ids (storybook-plays.mjs, STORYBOOK_IDS). A screenshot
+//   check of the run (in the trace or in the audit sample) also runs in the
+//   screenshots job.
+// - No check is in `rerun`: each job of the nightly run runs its failed checks
+//   once more for the Results writer.
+// `seconds` are the check times of the previous trace (traceSeconds).
+export function nightlyPlan(factory, seconds) {
+  if (factory?.schemaVersion !== 1 || !Array.isArray(factory.run))
+    throw new Error("not a factory nightly plan (schemaVersion 1)")
+  if (factory.full)
+    return {
+      schemaVersion: 1,
+      config: "nightly",
+      mode: "full",
+      reason: `nightly: ${factory.full}`,
+      jobs: {},
+      outputs: {},
+      deploy: false,
+    }
+  const family = (id) => id.split(":")[0]
+  const project = (id) => ["typecheck", "lint", "policy"].includes(family(id))
+  const traced = new Set(factory.trace.map((planned) => planned.id))
+  const visual = (id) => id.startsWith("storybook:visual:")
+  const playsOf = (id) =>
+    visual(id) ? `storybook:plays:${id.slice("storybook:visual:".length)}` : id
+  const rendered = [
+    ...new Set(
+      factory.run
+        .filter(
+          (id) =>
+            family(id) === "storybook" && (!visual(id) || traced.has(id)),
+        )
+        .map(playsOf),
+    ),
+  ].sort()
+  const rest = factory.run.filter(
+    (id) => !project(id) && (family(id) !== "storybook" || visual(id)),
+  )
+  const jobs = jobPlans(rest, seconds)
+  if (rendered.length) {
+    const shards = Object.values(shard(rendered, seconds)).flat()
+    jobs["storybook-plays"] = shards.map((item, index) => ({
+      lane: "selected",
+      shard: index + 1,
+      count: shards.length,
+      plan: { ids: item.ids, rerun: [] },
+    }))
+  }
+  const projects = factory.run.filter(project).sort()
+  if (projects.length) jobs["project-checks"] = { ids: projects, rerun: [] }
+  return {
+    schemaVersion: 1,
+    config: "nightly",
+    mode: "gate",
+    reason: "nightly",
+    ran: factory.run,
+    rerun: [],
+    jobs,
+    outputs: jobOutputs(jobs),
+    deploy: false,
+  }
 }
 
 // The shards of each sharded job of a gated run, for the merge gate report:
@@ -278,7 +367,7 @@ export function jobOutputs(ran, seconds, rerun = new Set()) {
 // of tests in all shards and in the longest shard.
 function packing(ran, seconds) {
   const out = {}
-  for (const job of ["test-shards", "storybook-plays"]) {
+  for (const job of shardedJobs) {
     const ids = ran.filter((id) => placeOf(id).job === job)
     for (const [profile, list] of Object.entries(shard(ids, seconds))) {
       const minutes = (value) => Math.round((value / 60) * 10) / 10
@@ -327,6 +416,7 @@ export function plan({ config, inputs, needs, store, fork }) {
       config: config.mode,
       mode: "full",
       reason: fallback,
+      jobs: {},
       outputs: {},
       deploy: gate && !fork,
     }
@@ -362,7 +452,7 @@ export function plan({ config, inputs, needs, store, fork }) {
     ? readTrace(join(inputs, "trace.json.gz"))
     : undefined
   const seconds = traceSeconds(trace)
-  const outputs = gate ? jobOutputs(ran, seconds, rerun) : {}
+  const jobs = gate ? jobPlans(ran, seconds, rerun) : {}
   return {
     schemaVersion: 1,
     config: config.mode,
@@ -372,7 +462,8 @@ export function plan({ config, inputs, needs, store, fork }) {
     hits: [...hits.values()],
     ran,
     rerun: [...rerun].sort(),
-    outputs,
+    jobs,
+    outputs: jobOutputs(jobs),
     shards: gate ? packing(ran, seconds) : {},
     deploy: gate && !fork && ran.some((id) => id.startsWith("deploy:")),
   }

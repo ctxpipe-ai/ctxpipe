@@ -2,6 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { decode } from "@blazediff/codec-png-native"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import {
@@ -14,6 +15,7 @@ import {
   vi,
 } from "vitest"
 
+import { screenshot } from "../compare/fixtures.ts"
 import {
   buildPrompt,
   judgementJsonSchema,
@@ -132,6 +134,40 @@ describe("judgeWithOpenRouter", () => {
           },
         ],
       },
+    ])
+  })
+
+  test("a PNG with a side over 1568 px or under 280 px is scaled or padded before it is sent", async () => {
+    server.use(reply(JSON.stringify(judgement)))
+    writeFileSync(join(directory, "wide.png"), screenshot(3000, 600, []))
+    writeFileSync(join(directory, "small.png"), screenshot(100, 100, []))
+
+    await judgeWithOpenRouter(
+      {
+        ...story,
+        images: [
+          { role: "regions", path: join(directory, "wide.png") },
+          { role: "locator", path: join(directory, "small.png") },
+        ],
+      },
+      "anthropic/claude-sonnet-5.5",
+      env,
+    )
+
+    const messages = seen?.body.messages as
+      | { content: { type: string; image_url?: { url: string } }[] }[]
+      | undefined
+    const content = messages?.[0]?.content
+    const sizes = (content ?? []).flatMap((part) => {
+      if (!part.image_url) return []
+      const { width, height } = decode(
+        Buffer.from(part.image_url.url.split(",")[1] ?? "", "base64"),
+      )
+      return [{ width, height }]
+    })
+    expect(sizes).toEqual([
+      { width: 1568, height: 314 },
+      { width: 280, height: 280 },
     ])
   })
 

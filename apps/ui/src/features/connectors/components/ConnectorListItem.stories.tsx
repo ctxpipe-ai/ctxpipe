@@ -182,7 +182,7 @@ export const ConnectorRowSkeletonMatches: Story = {
     intent:
       "Catches a connector list skeleton row whose size differs from the loaded row. This causes layout shift. Not for connector data or health states.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     ...shared,
     health: "connected",

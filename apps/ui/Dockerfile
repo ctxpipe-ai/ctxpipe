@@ -18,6 +18,7 @@ COPY --from=deps /app/apps/ui/node_modules ./apps/ui/node_modules
 COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
 COPY apps/ui ./apps/ui
 COPY apps/backend/src ./apps/backend/src
+COPY shared ./shared
 ARG VITE_PUBLIC_API_URL=http://localhost:3000
 ENV VITE_PUBLIC_API_URL=$VITE_PUBLIC_API_URL
 # Node sets a heap limit of about 2 GB on a Docker Desktop VM with 8 GB of

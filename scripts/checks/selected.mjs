@@ -15,23 +15,34 @@ const root = fileURLToPath(new URL("../../", import.meta.url))
 
 // Runs the checks that the merge gate planned for one job of a gated run
 // (scripts/checks/README.md, Merge gate), through the public runner. Usage:
-//   PLAN='{"ids": [...], "rerun": [...]}' [MANIFEST=<file>] selected.mjs <results dir>
-// PLAN is the output of the plan job for this job (or matrix entry).
+//   [MANIFEST=<file>] selected.mjs <results dir> <plan.json> <job> [<shard>]
+// <plan.json> is the record of the plan job, which the job downloads by the
+// artifact id of the plan job. <job> is the ci.yaml job, and <shard> the
+// matrix entry of a sharded job. Its plan is `ids` and `rerun`.
 // MANIFEST is a manifest that an earlier step listed (pnpm checks:list). A
 // step with a credential sets it, so that the check discovery (which imports
 // PR code) runs without the credential. The
 // script writes the result records to <results dir>/records.ndjson, prints
-// them, and prints the end of the log of each check that did not pass. Each
+// them, and prints the end of the log of each check that did not pass. With
+// TRACE=<dir> (the nightly run), it also writes <dir>/trace.json.gz. Each
 // failed check in `rerun` runs once more (rerun-failed.mjs): a stored pass
 // has its key, so the merge gate needs a second result. The exit code is
 // that of the first run.
 try {
-  if (process.argv.length !== 3)
-    throw new Error("Usage: PLAN=<json> selected.mjs <results dir>")
-  const plan = JSON.parse(process.env.PLAN ?? "")
+  const [, , results, planPath, job, shard] = process.argv
+  if (!job || process.argv.length > 6)
+    throw new Error(
+      "Usage: selected.mjs <results dir> <plan.json> <job> [<shard>]",
+    )
+  const planned = JSON.parse(readFileSync(planPath, "utf8")).jobs?.[job]
+  const plan = Array.isArray(planned)
+    ? planned.find((entry) => String(entry.shard) === shard)?.plan
+    : planned
   if (!Array.isArray(plan?.ids) || !plan.ids.length)
-    throw new Error("PLAN has no check ids")
-  const directory = resolve(process.argv[2])
+    throw new Error(
+      `the plan has no check ids for ${job}${shard ? ` shard ${shard}` : ""}`,
+    )
+  const directory = resolve(results)
   mkdirSync(directory, { recursive: true })
   const path = join(directory, "records.ndjson")
   const out = openSync(path, "w")
@@ -44,6 +55,7 @@ try {
         ...(process.env.MANIFEST
           ? ["--manifest", resolve(process.env.MANIFEST)]
           : []),
+        ...(process.env.TRACE ? ["--trace", resolve(process.env.TRACE)] : []),
       ],
       {
         cwd: root,

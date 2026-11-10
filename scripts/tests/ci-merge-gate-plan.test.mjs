@@ -15,7 +15,13 @@ import { fileURLToPath } from "node:url"
 import { parse as parseYaml } from "yaml"
 
 import { fullVerdict, gateDecision, gateText, marker } from "../checks/gate.mjs"
-import { jobOutputs, plan, placeOf, readStore } from "../checks/plan.mjs"
+import {
+  jobPlans,
+  nightlyPlan,
+  plan,
+  placeOf,
+  readStore,
+} from "../checks/plan.mjs"
 import { runsInOf } from "../checks/shard.mjs"
 
 // The gate mode of the merge gate (scripts/checks/README.md, Merge gate):
@@ -35,7 +41,7 @@ const config = (mode = "gate") => ({
 const ui = "vitest:ui:apps/ui/src/a.test.tsx"
 const backend = "vitest:backend:apps/backend/src/b.test.ts"
 const contract = "vitest:contracts:apps/backend/src/c.contract.test.ts"
-const story = "storybook:golden:apps/ui/src/d.stories.tsx#d--one"
+const story = "storybook:required:apps/ui/src/d.stories.tsx#d--one"
 const lint = "lint:oxlint:.oxlintrc.json"
 const image = "build:image-ui:apps/ui/Dockerfile"
 const evalCase = "eval:mcp:apps/backend/evals/mcp/cases.ts#stale-cursor"
@@ -83,7 +89,7 @@ const selectRecord = () => ({
   },
 })
 
-// The record of the LLM job (`--llm-select --dry-run`): it dropped the
+// The record of the LLM job (`--llm-provider openrouter --dry-run`): it dropped the
 // backend test and added the preview deployment.
 const llmRecord = () => ({
   ...selectRecord(),
@@ -168,9 +174,9 @@ test("a failed LLM job, an invalid LLM record or a provider fallback keeps the d
     [
       {
         "llm-selection.json": "",
-        "llm-cause.txt": "the selector did not finish in 105 seconds",
+        "llm-cause.txt": "the selector did not finish in 170 seconds",
       },
-      "the selector did not finish in 105 seconds",
+      "the selector did not finish in 170 seconds",
     ],
     [
       { "llm-selection.json": { ...llmRecord(), selected: "all" } },
@@ -207,11 +213,14 @@ test("each planned check goes to the job that runs it, and a job without one doe
     "production-builds",
     "test-shards",
   ])
-  assert.deepEqual(JSON.parse(planned.outputs["package-tests"]), {
-    ids: [ui],
-    rerun: [],
-  })
+  // The outputs only start the jobs: a count of checks, or the matrix
+  // entries. Each job reads its check ids from plan.json.
+  assert.equal(planned.outputs["package-tests"], "1")
   assert.deepEqual(JSON.parse(planned.outputs["test-shards"]), [
+    { lane: "selected", shard: 1, count: 1 },
+  ])
+  assert.deepEqual(planned.jobs["package-tests"], { ids: [ui], rerun: [] })
+  assert.deepEqual(planned.jobs["test-shards"], [
     {
       lane: "selected",
       shard: 1,
@@ -239,19 +248,41 @@ test("each planned check goes to the job that runs it, and a job without one doe
     /terraform-plan-pr\.yaml/,
   )
   assert.match(placeOf(deploy).workflow, /pr-deploy\.yaml/)
-  // Every Storybook check runs in the plays shards, after the build.
-  const stories = jobOutputs(
-    [story, "storybook:plays:apps/ui/src/e.stories.tsx#e--two"],
-    new Map(),
-  )
-  assert.equal(stories["storybook-build"], "true")
-  assert.equal(JSON.parse(stories["storybook-plays"])[0].plan.ids.length, 2)
+  // Every Storybook play runs in the plays shards, after the build.
+  const stories = planOf({
+    files: {
+      "llm-selection.json": {
+        ...llmRecord(),
+        selected: [
+          check("storybook:required:apps/ui/src/e.stories.tsx#e--one"),
+          check("storybook:plays:apps/ui/src/e.stories.tsx#e--two"),
+        ],
+      },
+    },
+  })
+  assert.equal(stories.outputs["storybook-build"], "true")
+  assert.equal(stories.jobs["storybook-plays"][0].plan.ids.length, 2)
+  // A screenshot check runs in the screenshots shards, after the build.
+  const screenshot = "storybook:visual:apps/ui/src/e.stories.tsx#e--one"
+  assert.deepEqual(placeOf(screenshot), { job: "storybook-visual" })
+  const shots = planOf({
+    files: {
+      "llm-selection.json": { ...llmRecord(), selected: [check(screenshot)] },
+    },
+  })
+  assert.equal(shots.outputs["storybook-build"], "true")
+  assert.deepEqual(JSON.parse(shots.outputs["storybook-visual"]), [
+    { lane: "selected", shard: 1, count: 1 },
+  ])
+  assert.deepEqual(shots.jobs["storybook-visual"][0].plan.ids, [screenshot])
+  assert.equal(shots.jobs["storybook-plays"], undefined)
 })
 
 test("shadow mode, a fork and a failed selector give a full run", () => {
   const shadow = planOf({ mode: "shadow" })
   assert.equal(shadow.mode, "full")
   assert.deepEqual(shadow.outputs, {})
+  assert.deepEqual(shadow.jobs, {})
   assert.deepEqual(shadow.shards, {})
   assert.equal(shadow.deploy, false)
   // The shadow job still reads the combined selection.
@@ -496,6 +527,26 @@ test("the PR comment shows the selection, the hits, the LLM decisions and the mi
     assert.ok(text.includes(part), part)
 })
 
+test("the verdict line names each failed check and always-run job in full", () => {
+  const { decision } = decide()
+  const failed = {
+    ...decision,
+    gatedRun: {
+      ...decision.gatedRun,
+      verdict: "fail",
+      failedChecks: ["lint:oxlint:.oxlintrc.json", "test:vitest:apps/ui"],
+      failedAlwaysRun: ["migrate", "lint"],
+    },
+  }
+  const text = gateText(failed, "https://example.test/run")
+  assert.ok(
+    text.includes(
+      "**Verdict:** fail (failed checks: `lint:oxlint:.oxlintrc.json`, `test:vitest:apps/ui`) (failed always-run jobs: `migrate`, `lint`).",
+    ),
+    text,
+  )
+})
+
 test("the CLI plans a gated run and fails the merge gate on a failed verdict", () => {
   const directory = inputs({
     "mode.json": { mode: "select", reason: "gate" },
@@ -535,7 +586,7 @@ test("the CLI plans a gated run and fails the merge gate on a failed verdict", (
   const lines = readFileSync(output, "utf8").split("\n").filter(Boolean)
   assert.ok(lines.includes("mode=gate"))
   assert.ok(lines.includes("deploy=true"))
-  assert.ok(lines.some((line) => line.startsWith('package-tests={"ids":')))
+  assert.ok(lines.includes("package-tests=1"))
   const results = join(directory, "results", "test-results-selected-1")
   mkdirSync(results, { recursive: true })
   writeFileSync(
@@ -675,6 +726,7 @@ test("each job of the plan needs the plan job, starts only with its output, and 
     "packages",
     "storybook-build",
     "storybook-plays",
+    "storybook-visual",
     "codesearch",
     "vercel-sandbox",
     "upgrade-from-previous-release",
@@ -701,22 +753,37 @@ test("each job of the plan needs the plan job, starts only with its output, and 
       `${name} starts in gate mode only with its output`,
     )
   }
-  // The jobs that run a subset run it through selected.mjs with their plan.
+  // The jobs that run a subset run it through selected.mjs with their plan,
+  // from plan.json of the plan job (the gate test checks the download by
+  // artifact id). A matrix job gives its shard.
   for (const name of [
     "typecheck",
     "test-shards",
     "package-tests",
     "packages",
     "storybook-plays",
+    "storybook-visual",
     "vercel-sandbox",
-  ])
+  ]) {
+    const text = job(name)
+    assert.ok(
+      text.includes(
+        "artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}",
+      ),
+      `${name} downloads the plan`,
+    )
     assert.match(
-      job(name),
-      /PLAN: \$\{\{ (?:needs\.merge-gate-plan\.outputs\.[\w-]+|toJSON\(matrix\.plan\)) \}\}\n\s+run: node scripts\/checks\/selected\.mjs/,
+      text,
+      new RegExp(
+        `\n\\s+run: node scripts/checks/selected\\.mjs \\S+ "\\$RUNNER_TEMP/plan/plan\\.json" ${name}${text.includes("matrix:") ? ' "\\$SHARD"' : ""}\n`,
+      ),
       name,
     )
-  // A gated run has no full inventory and no golden job.
-  for (const name of ["test", "storybook-golden"])
+    // No check id goes into the environment of a step.
+    assert.doesNotMatch(text, /\bPLAN:|matrix\.plan/, name)
+  }
+  // A gated run has no full inventory and no required job.
+  for (const name of ["test", "storybook-required"])
     assert.ok(
       job(name).includes("needs.merge-gate-plan.outputs.mode != 'gate'"),
       name,
@@ -852,7 +919,7 @@ test("a gated step has the setup of its full-run step and of the prerequisites o
     }
   }
   // typecheck, test-shards, package-tests, packages, storybook-plays (for its
-  // own stories and the golden ones), vercel-sandbox.
+  // own stories and the required ones), vercel-sandbox.
   assert.ok(compared >= 6, `${compared} gated steps compared`)
 })
 
@@ -918,24 +985,46 @@ test("a failed plan job gives a full run, and the merge gate reports its verdict
 })
 
 test("the selected checks of a job run through the public runner, with records", () => {
-  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-selected-"))
-  const run = spawnSync(
-    process.execPath,
-    [join(root, "scripts/checks/selected.mjs"), directory],
-    {
-      cwd: root,
-      encoding: "utf8",
-      env: {
-        PATH: process.env.PATH,
-        PLAN: JSON.stringify({ ids: ["vitest:ui:no/such.test.ts"], rerun: [] }),
+  const directory = inputs({
+    "plan.json": {
+      jobs: {
+        "package-tests": { ids: ["vitest:ui:no/such.test.ts"], rerun: [] },
+        "test-shards": [
+          {
+            lane: "selected",
+            shard: 1,
+            count: 2,
+            plan: { ids: ["vitest:backend:no/one.test.ts"], rerun: [] },
+          },
+          {
+            lane: "selected",
+            shard: 2,
+            count: 2,
+            plan: { ids: ["vitest:backend:no/two.test.ts"], rerun: [] },
+          },
+        ],
       },
     },
-  )
+  })
+  const selected = (results, ...args) =>
+    spawnSync(
+      process.execPath,
+      [
+        join(root, "scripts/checks/selected.mjs"),
+        results,
+        join(directory, "plan.json"),
+        ...args,
+      ],
+      { cwd: root, encoding: "utf8", env: { PATH: process.env.PATH } },
+    )
+  const records = (results) =>
+    readFileSync(join(results, "records.ndjson"), "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+  const run = selected(join(directory, "packages"), "package-tests")
   assert.equal(run.status, 1)
-  const [record] = readFileSync(join(directory, "records.ndjson"), "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line))
+  const [record] = records(join(directory, "packages"))
   assert.deepEqual(
     [record.id, record.status, record.origin],
     ["vitest:ui:no/such.test.ts", "error", "runner"],
@@ -944,16 +1033,124 @@ test("the selected checks of a job run through the public runner, with records",
     run.stdout,
     /::group::error: vitest:ui:no\/such\.test\.ts \(Unknown check id\)/,
   )
-  const empty = spawnSync(
-    process.execPath,
-    [join(root, "scripts/checks/selected.mjs"), directory],
-    {
-      encoding: "utf8",
-      env: { PATH: process.env.PATH, PLAN: "{}" },
-    },
+  // A matrix entry runs only the checks of its shard.
+  selected(join(directory, "shard"), "test-shards", "2")
+  assert.deepEqual(
+    records(join(directory, "shard")).map(({ id }) => id),
+    ["vitest:backend:no/two.test.ts"],
   )
-  assert.equal(empty.status, 1)
-  assert.match(empty.stderr, /PLAN has no check ids/)
+  for (const args of [["typecheck"], ["test-shards", "3"], ["test-shards"]]) {
+    const empty = selected(join(directory, "empty"), ...args)
+    assert.equal(empty.status, 1, args.join(" "))
+    assert.match(empty.stderr, /the plan has no check ids for/, args.join(" "))
+  }
+})
+
+test("a PR that selects every check gives the Merge gate job a needs value under the Linux limit", () => {
+  // The Decision step of the Merge gate job gets `toJSON(needs)` in one
+  // environment value. Linux limits one such value to 128 KiB
+  // (MAX_ARG_STRLEN), so a larger value stops the step before gate.mjs
+  // starts ("Argument list too long"). The outputs of the plan job are part
+  // of that value, so they must not grow with the count of selected checks.
+  const many = (count, make) => Array.from({ length: count }, (_, n) => make(n))
+  const ids = [
+    ...many(
+      2500,
+      (n) =>
+        `vitest:backend:apps/backend/src/domain/area-${n % 40}/module-${n}.integration.test.ts`,
+    ),
+    ...many(
+      800,
+      (n) =>
+        `storybook:plays:apps/ui/src/components/area-${n % 30}/component-${n}.stories.tsx#component-${n}--default`,
+    ),
+    ...many(
+      300,
+      (n) =>
+        `vitest:ui:apps/ui/src/components/area-${n % 30}/component-${n}.test.tsx`,
+    ),
+  ]
+  const directory = inputs({
+    "mode.json": { mode: "select", reason: "gate" },
+    "selection.json": {
+      ...selectRecord(),
+      counts: { selected: ids.length, total: ids.length, stochasticOmitted: 0 },
+      selected: ids.map((id) => check(id)),
+      omitted: [],
+      cache: { ...selectRecord().cache, hits: [], misses: [] },
+    },
+    "llm-cause.txt": "the selector did not finish in 170 seconds",
+    "config.json": config(),
+    "needs.json": needs,
+  })
+  const output = join(directory, "github-output.txt")
+  const run = spawnSync(
+    process.execPath,
+    [
+      join(root, "scripts/checks/gate.mjs"),
+      "plan",
+      "--config",
+      join(directory, "config.json"),
+      "--inputs",
+      directory,
+      "--needs",
+      join(directory, "needs.json"),
+      "--store",
+      join(directory, "store.json"),
+      "--fork",
+      "false",
+      "--out",
+      join(directory, "plan"),
+      "--github-output",
+      output,
+    ],
+    { encoding: "utf8", env: { PATH: process.env.PATH } },
+  )
+  assert.equal(run.status, 0, run.stderr)
+  const planned = JSON.parse(
+    readFileSync(join(directory, "plan", "plan.json"), "utf8"),
+  )
+  assert.equal(planned.mode, "gate")
+  assert.equal(planned.ran.length, ids.length)
+  // The `needs` context of the Merge gate job as GitHub gives it: each job
+  // that it needs, with each output that the job declares ("" when unset).
+  const { jobs } = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  const planOutputs = Object.fromEntries(
+    readFileSync(output, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => [
+        line.slice(0, line.indexOf("=")),
+        line.slice(line.indexOf("=") + 1),
+      ]),
+  )
+  const gateNeeds = Object.fromEntries(
+    jobs["merge-gate"].needs.map((name) => [
+      name,
+      {
+        result: "success",
+        outputs: Object.fromEntries(
+          Object.keys(jobs[name].outputs ?? {}).map((key) => [
+            key,
+            key === "artifact-id"
+              ? "13562464110"
+              : name === "merge-gate-plan"
+                ? (planOutputs[key] ?? "")
+                : "",
+          ]),
+        ),
+      },
+    ]),
+  )
+  const bytes = Buffer.byteLength(
+    `NEEDS=${JSON.stringify(gateNeeds, null, 2)}`,
+  )
+  assert.ok(
+    bytes < 128 * 1024,
+    `toJSON(needs) of the Merge gate job is ${bytes} bytes`,
+  )
 })
 
 test("the gate reads each record of a trusted job only by the artifact id that the job gives", () => {
@@ -968,6 +1165,7 @@ test("the gate reads each record of a trusted job only by the artifact id that t
     "merge-gate-llm": "merge-gate-llm",
     "merge-gate-plan": "merge-gate-plan",
     "merge-gate-critics": "merge-gate-critics",
+    "nightly-plan": "nightly-plan",
   }
   for (const [writer, name] of Object.entries(writers)) {
     const upload = jobs[writer].steps.find((step) => step.with?.name === name)
@@ -993,10 +1191,13 @@ test("the gate reads each record of a trusted job only by the artifact id that t
       assert.ok(id[1] in writers, `${reader}: ${id[1]}`)
       assert.ok([job.needs].flat().includes(id[1]), `${reader} needs ${id[1]}`)
       assert.equal(step.with["merge-multiple"], true, reader)
-      // An empty id downloads every artifact of the run, so each reader needs the guard.
-      assert.equal(
-        step.if,
-        `needs.${id[1]}.outputs.artifact-id != ''`,
+      // An empty id downloads every artifact of the run, so each reader needs
+      // the guard. A check job also downloads the plan only in gate mode.
+      assert.ok(
+        String(step.if)
+          .split(" && ")
+          .includes(`needs.${id[1]}.outputs.artifact-id != ''`) &&
+          !String(step.if).includes("||"),
         `${reader} downloads ${id[1]} without the empty-id guard`,
       )
     }
@@ -1010,4 +1211,101 @@ test("the gate reads each record of a trusted job only by the artifact id that t
     }).verdict,
     "pass",
   )
+})
+
+// A record of `factory nightly plan` (CTX-1246): the checks to trace again,
+// the audit sample, and `run`, the union of both.
+const nightly = ({ full = null, trace = [], sample = [] } = {}) => ({
+  schemaVersion: 1,
+  commit: sha(3),
+  createdAt: "2026-11-10T02:30:00Z",
+  id: "a".repeat(32),
+  previous: null,
+  full,
+  trace: trace.map((id) => ({ id, reason: "src/a.ts changed" })),
+  kept: [],
+  leftOut: [],
+  audit: full ? null : { seed: key(4), population: sample.length, sample },
+  run: [...new Set([...trace, ...sample])].sort(),
+  estimate: { runMs: 0, allMs: 0 },
+})
+
+test("a nightly plan puts its checks into the jobs of the run, and a full one gives a full run", () => {
+  const typecheck = "typecheck:ui:apps/ui/tsconfig.json"
+  const play = "storybook:plays:apps/ui/src/e.stories.tsx#e--two"
+  const tracedShot = "storybook:visual:apps/ui/src/e.stories.tsx#e--one"
+  const sampledShot = "storybook:visual:apps/ui/src/f.stories.tsx#f--one"
+  const planned = nightlyPlan(
+    nightly({
+      trace: [backend, ui, typecheck, lint, play, tracedShot],
+      sample: [contract, sampledShot],
+    }),
+    new Map(),
+  )
+  assert.equal(planned.mode, "gate")
+  assert.deepEqual(planned.rerun, [])
+  assert.deepEqual(planned.jobs["package-tests"], { ids: [ui], rerun: [] })
+  assert.deepEqual(
+    planned.jobs["test-shards"].flatMap((entry) => entry.plan.ids).sort(),
+    [backend, contract].sort(),
+  )
+  // The project checks run in the Project check times job, for their time.
+  assert.deepEqual(planned.jobs["project-checks"], {
+    ids: [lint, typecheck],
+    rerun: [],
+  })
+  assert.equal(planned.jobs.typecheck, undefined)
+  assert.equal(planned.outputs["project-checks"], "2")
+  // The plays job renders the story of each play check and of each traced
+  // screenshot check; the screenshots job checks both screenshots.
+  assert.deepEqual(
+    planned.jobs["storybook-plays"].flatMap((entry) => entry.plan.ids).sort(),
+    [play, "storybook:plays:apps/ui/src/e.stories.tsx#e--one"].sort(),
+  )
+  assert.deepEqual(
+    planned.jobs["storybook-visual"].flatMap((entry) => entry.plan.ids).sort(),
+    [sampledShot, tracedShot].sort(),
+  )
+  assert.equal(planned.outputs["storybook-build"], "true")
+  // A plan with no check starts no check job.
+  const empty = nightlyPlan(nightly(), new Map())
+  assert.equal(empty.mode, "gate")
+  assert.deepEqual(empty.outputs, {})
+  // A full plan (a run by hand, no previous trace, or 7 days) runs every job.
+  const full = nightlyPlan(nightly({ full: "a person asked" }), new Map())
+  assert.equal(full.mode, "full")
+  assert.deepEqual(full.outputs, {})
+  assert.throws(() => nightlyPlan({ schemaVersion: 2 }, new Map()))
+})
+
+test("the CLI writes the nightly plan and the outputs of the plan job", () => {
+  const directory = inputs({
+    "factory-plan.json": nightly({ trace: [ui] }),
+    "merge-gate.json": config(),
+  })
+  const out = join(directory, "out")
+  const outputs = join(directory, "outputs.txt")
+  const run = spawnSync(
+    process.execPath,
+    [
+      join(root, "scripts/checks/gate.mjs"),
+      "nightly",
+      "--config",
+      join(directory, "merge-gate.json"),
+      "--plan",
+      join(directory, "factory-plan.json"),
+      "--trace",
+      join(directory, "no-previous-trace.json.gz"),
+      "--out",
+      out,
+      "--github-output",
+      outputs,
+    ],
+    { cwd: root, encoding: "utf8" },
+  )
+  assert.equal(run.status, 0, run.stderr)
+  const planned = JSON.parse(readFileSync(join(out, "plan.json"), "utf8"))
+  assert.deepEqual(planned.jobs["package-tests"], { ids: [ui], rerun: [] })
+  assert.match(readFileSync(outputs, "utf8"), /^mode=gate\n/m)
+  assert.match(readFileSync(outputs, "utf8"), /^package-tests=1\n/m)
 })

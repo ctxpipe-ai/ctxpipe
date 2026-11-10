@@ -269,7 +269,9 @@ OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer xxx
 
 The `deployment.environment` value applies to backend traces, metrics, and logs,
 to the Langfuse environment tag, to codesearch, and to the UI relay. It is
-`RAILWAY_ENVIRONMENT_NAME` when that is set. Otherwise it is
+`DEPLOYMENT_ENVIRONMENT` when that is set. Hosted ctxpipe sets this variable;
+a self-hosted install leaves it unset, because a `pr-N` value turns on preview
+behavior (no email verification). Otherwise it is
 `deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES`. Otherwise it is
 `production` when `NODE_ENV=production`. Otherwise it is `development`. Backend
 and codesearch also set `service.namespace=ctxpipe`. Codesearch always exports `service.name`

@@ -182,7 +182,7 @@ export const ConnectedWithoutSources: Story = {
 }
 
 export const SeveralProviders: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a source list that drops a provider or misstates the totals. It must show every source with its path and description and the connector count. Not for edits or empty states.",
@@ -567,7 +567,7 @@ export const AwaitingMerge: Story = {
 }
 
 export const ScrollsToSourceAnchor: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   decorators: [
     (Story) => (
       <div data-scroll-root className="h-64 overflow-auto">
@@ -626,7 +626,7 @@ export const ScrollsToSourceAnchor: Story = {
 }
 
 export const EditSendsChange: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a source edit that sends the wrong change. The edit dialog must start from the saved scope and send a PUT with the new scope. Not for adding sources.",
@@ -945,7 +945,7 @@ export const AddSendsChange: Story = {
 
 /** Several repositories go to the server in one batch, so in one pull request. */
 export const AddSeveralSendsOneBatch: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches an add of several repositories that sends one request per repository. It must send one batch request, so one pull request. Not for the repository list.",
@@ -1262,7 +1262,7 @@ export const UpgradesLoadFailed: Story = {
 }
 
 export const ReadOnlyHidesChanges: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a read-only workspace that shows source actions. Add, unlink, and remove buttons must not appear when the user cannot edit. Not for the source list content.",
@@ -1323,7 +1323,7 @@ const reposPerConnection = http.get(
 )
 
 export const PickerShowsConnectionNames: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   parameters: {
     intent:
       "Catches a repository picker that mixes several GitHub connections. It lists the repositories of each connection and sends each repository with its own connection id. Not for the source list.",

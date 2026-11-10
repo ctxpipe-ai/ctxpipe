@@ -1,9 +1,22 @@
 import { readFile } from "node:fs/promises"
 import { extname } from "node:path"
 
-import { buildPrompt } from "../prompt.ts"
-import type { StoryInput } from "../story.ts"
-import { judgementJsonSchema, parseVerdict, type Verdict } from "../verdict.ts"
+import { prepareImage } from "../prepare.ts"
+import {
+  buildNewPrompt,
+  buildPrompt,
+  type Prompt,
+  type Steps,
+} from "../prompt.ts"
+import type { NewStoryInput, StoryInput } from "../story.ts"
+import {
+  judgementJsonSchema,
+  newJudgementJsonSchema,
+  parseNewVerdict,
+  parseVerdict,
+  type RunFacts,
+  type Verdict,
+} from "../verdict.ts"
 
 /**
  * Map a `provider/model` id to an OpenRouter id. OpenRouter writes Claude
@@ -83,10 +96,13 @@ const imagePart = async (path: string) => {
     throw new Error(
       `Image "${path}" has type "${extension.slice(1)}". Use png, jpg or webp.`,
     )
-  const bytes = await readFile(path)
+  // A PNG is brought within the side limits of the vision models.
+  const { png } = prepareImage(await readFile(path))
   return {
     type: "image_url",
-    image_url: { url: `data:${mimeType};base64,${bytes.toString("base64")}` },
+    image_url: {
+      url: `data:${mimeType};base64,${Buffer.from(png).toString("base64")}`,
+    },
   }
 }
 
@@ -95,7 +111,10 @@ const imagePart = async (path: string) => {
  * `provider/model` id. The key comes from `MODEL_PROVIDER_API_KEY` and the
  * base URL from `MODEL_PROVIDER_URL` (default: OpenRouter). The request sends
  * the cached prefix, the story text, then the images as data URLs, asks for the
- * critic JSON Schema, and denies data collection by the provider.
+ * critic JSON Schema, and denies data collection by the provider. A PNG with
+ * a side under 280 or over 1568 px is padded or scaled first (see
+ * `prepareImage`). `steps` selects the compare rule of the prompt (see
+ * `Steps`).
  *
  * The verdict carries the measured latency and the cost from `usage.cost`
  * (`null` when the response has none). A reply that is not usable gives the
@@ -106,7 +125,42 @@ export async function judgeWithOpenRouter(
   story: StoryInput,
   model: string,
   env: Record<string, string | undefined>,
+  steps: Steps = "describe-first",
 ): Promise<Verdict> {
+  const { content, run } = await complete(
+    buildPrompt(story, steps),
+    judgementJsonSchema,
+    model,
+    env,
+  )
+  return parseVerdict(content, story, run)
+}
+
+/**
+ * Judge the new screenshots of one story on their own against the rubric,
+ * in one call, as `judgeWithOpenRouter` judges a change.
+ */
+export async function judgeNewWithOpenRouter(
+  story: NewStoryInput,
+  model: string,
+  env: Record<string, string | undefined>,
+): Promise<Verdict> {
+  const { content, run } = await complete(
+    buildNewPrompt(story),
+    newJudgementJsonSchema,
+    model,
+    env,
+  )
+  return parseNewVerdict(content, story, run)
+}
+
+/** One chat call: the reply text and its run facts, or it throws. */
+async function complete(
+  prompt: Prompt,
+  schema: typeof judgementJsonSchema | typeof newJudgementJsonSchema,
+  model: string,
+  env: Record<string, string | undefined>,
+): Promise<{ content: string; run: RunFacts }> {
   const apiKey = env.MODEL_PROVIDER_API_KEY
   if (!apiKey)
     throw new Error(
@@ -115,7 +169,6 @@ export async function judgeWithOpenRouter(
   const baseUrl = (
     env.MODEL_PROVIDER_URL || "https://openrouter.ai/api/v1"
   ).replace(/\/+$/, "")
-  const prompt = buildPrompt(story)
   const images = await Promise.all(
     prompt.images.map(({ path }) => imagePart(path)),
   )
@@ -149,7 +202,7 @@ export async function judgeWithOpenRouter(
         json_schema: {
           name: "visual_verdict",
           strict: true,
-          schema: judgementJsonSchema,
+          schema,
         },
       },
       provider: { data_collection: "deny" },
@@ -182,9 +235,12 @@ export async function judgeWithOpenRouter(
       }`,
     )
 
-  return parseVerdict(content, story, {
-    model,
-    costUsd: typeof body.usage?.cost === "number" ? body.usage.cost : null,
-    latencyMs,
-  })
+  return {
+    content,
+    run: {
+      model,
+      costUsd: typeof body.usage?.cost === "number" ? body.usage.cost : null,
+      latencyMs,
+    },
+  }
 }

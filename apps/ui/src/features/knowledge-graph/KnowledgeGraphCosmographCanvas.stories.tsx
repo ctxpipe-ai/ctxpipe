@@ -153,6 +153,11 @@ export const PaneWide: Story = {
  * and do not take input. */
 export const DrawerOpenDimsOverlays: Story = {
   args: { drawerOpen: true },
+  // The WebGL canvas draws a new frame at each shot, and the cluster labels
+  // of Cosmograph move with it. The capture hides both.
+  parameters: {
+    visual: { masks: ["canvas", ".css-label--labels-container"] },
+  },
   play: async ({ canvasElement }) => {
     const search = await within(canvasElement).findByLabelText(
       "Search nodes",
@@ -175,6 +180,8 @@ const timelineSelections =
  * two. */
 export const TimelinePlaysWithoutRange: Story = {
   args: { onSelectionChange: timelineSelections },
+  // The WebGL canvas draws a new frame at each shot, so the capture hides it.
+  parameters: { visual: { masks: ["canvas"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const playButton = await canvas.findByRole(
@@ -214,7 +221,7 @@ export const NoWebGL: Story = {
     intent:
       "Catches a graph canvas that fails with no message when the browser has no WebGL 2. It must show that the browser cannot show the graph. Not for graph data or layout.",
   },
-  tags: ["workspace-golden"],
+  tags: ["required"],
   beforeEach: () => {
     const getContext = HTMLCanvasElement.prototype.getContext
     HTMLCanvasElement.prototype.getContext = function (

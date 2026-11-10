@@ -1,0 +1,4 @@
+{
+  "$comment": "Stories whose screenshot is known to differ between two runs. scripts/ci/visual-capture-proof.mjs reports each one as skipped and does not fail on it. Each entry needs a reason and the ticket that fixes it. Remove the entry when the ticket is done. An entry with a viewport (desktop or mobile) is unstable only at that viewport; pnpm visual:check and pnpm visual:update skip only that screenshot.",
+  "stories": []
+}

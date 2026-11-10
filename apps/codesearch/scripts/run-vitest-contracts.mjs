@@ -28,8 +28,9 @@ try {
   // --node <file> and --bun <file> select files; repeat each flag as needed.
   // Without file arguments, run both full lanes.
   // --list prints the test files of each runtime as JSON and runs nothing.
-  // --trace <dir> --commit <sha> also writes <dir>/trace.json.gz for the Node
-  // runtime (scripts/checks/README.md). The commit is an argument, because
+  // --trace <dir> --commit <sha> also writes <dir>/trace.json.gz: the trace
+  // records of the Node runtime and the time of each Bun check
+  // (scripts/checks/README.md). The commit is an argument, because
   // the Docker test image has no .git directory.
   // --records <dir> also writes <dir>/records.ndjson: one result record for
   // each test file (scripts/checks/schema/result.v1.schema.json), for the
@@ -68,6 +69,7 @@ try {
     "src/domain/indexing/phases.credentials.test.ts",
     "src/domain/indexing/phases.plainGit.test.ts",
     "src/domain/indexing/phases.worktrees.test.ts",
+    "src/domain/indexing/phases.shardStore.test.ts",
   ]
   for (const file of bun)
     if (!files.includes(file)) throw new Error(`Missing Bun contract: ${file}`)
@@ -101,6 +103,11 @@ try {
   const baseline = join(directory, "no-allowed-failures.json")
   writeFileSync(baseline, JSON.stringify({ version: 1, failures: [] }))
   let failed = false
+  // The trace: the records of the Node runtime, and the time of each Bun
+  // check, which has no trace record (`durations`), so that the nightly plan
+  // holds it as traced (scripts/checks/README.md, Traces).
+  let traced
+  const durations = {}
   for (const runtime of ["node", "bun"]) {
     const selected = selectedFiles[runtime]
     if (!selected.length) continue
@@ -154,22 +161,28 @@ try {
       },
     )
     if (checked.status !== 0) failed = true
-    // The records are data only: an error here never changes the result. A
-    // file without a suite in the report gets an error record.
+    // The records and the trace are data only: an error here never changes
+    // the result. A file without a suite in the report gets an error record.
+    let fileRecords = []
+    try {
+      let suites = new Map()
+      try {
+        suites = reportSuites(report)
+      } catch {}
+      const lane = runtime === "bun" ? "codesearch-bun" : "codesearch"
+      fileRecords = selected.map((file) =>
+        suiteRecord(
+          `vitest:${lane}:apps/codesearch/${file}`,
+          suites.get(`apps/codesearch/${file}`),
+        ),
+      )
+    } catch (error) {
+      process.stderr.write(`No result records: ${error.message}\n`)
+    }
     if (records)
       try {
-        let suites = new Map()
-        try {
-          suites = reportSuites(report)
-        } catch {}
-        const lane = runtime === "bun" ? "codesearch-bun" : "codesearch"
         const lines = markExitFailure(
-          selected.map((file) =>
-            suiteRecord(
-              `vitest:${lane}:apps/codesearch/${file}`,
-              suites.get(`apps/codesearch/${file}`),
-            ),
-          ),
+          fileRecords,
           checked.status === 0 ? result : { status: checked.status },
         )
         appendFileSync(
@@ -184,18 +197,22 @@ try {
       } catch (error) {
         process.stderr.write(`No result records written: ${error.message}\n`)
       }
-    // The trace is data only: an error here never changes the result.
-    if (parts)
-      try {
-        writeTrace(
-          join(trace, "trace.json.gz"),
-          laneChecks(parts, "codesearch"),
-          commit,
-        )
-      } catch (error) {
-        process.stderr.write(`No trace written: ${error.message}\n`)
-      }
+    // The time of each Bun check, which has no trace record.
+    if (trace && runtime === "bun")
+      for (const record of fileRecords)
+        if (record.status !== "error") durations[record.id] = record.durationMs
+    try {
+      if (parts) traced = laneChecks(parts, "codesearch")
+    } catch (error) {
+      process.stderr.write(`No trace for ${runtime}: ${error.message}\n`)
+    }
   }
+  if (trace && (traced || Object.keys(durations).length))
+    try {
+      writeTrace(join(trace, "trace.json.gz"), traced ?? [], commit, durations)
+    } catch (error) {
+      process.stderr.write(`No trace written: ${error.message}\n`)
+    }
   process.exitCode = failed ? 1 : 0
 } catch (error) {
   process.stderr.write(`${error.message}\n`)

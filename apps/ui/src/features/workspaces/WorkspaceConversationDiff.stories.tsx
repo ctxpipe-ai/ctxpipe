@@ -70,7 +70,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const DiffPaneEmpty: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_diff_empty" },
   parameters: {
     intent:
@@ -92,7 +92,7 @@ export const DiffPaneEmpty: Story = {
 let manyFilesRequests = 0
 
 export const DiffPaneManyFiles: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_diff_many" },
   parameters: {
     intent:
@@ -150,7 +150,7 @@ export const DiffPaneManyFiles: Story = {
 }
 
 export const DiffPaneExpandedFile: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: {
     conversationId: "conv_diff_expanded",
     focusPath: "knowledge/decisions/ADR-021-decision.md",
@@ -202,7 +202,7 @@ export const DiffPaneExpandedFile: Story = {
 }
 
 export const DiffPaneLongPaths: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_diff_long" },
   parameters: {
     intent:
@@ -260,7 +260,7 @@ export const DiffPaneLongPaths: Story = {
 }
 
 export const DiffPaneRenamedAndOmitted: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_diff_omitted" },
   parameters: {
     intent:
@@ -329,7 +329,7 @@ export const DiffPaneRenamedAndOmitted: Story = {
 }
 
 export const DiffPaneTurnGone: Story = {
-  tags: ["workspace-golden"],
+  tags: ["required"],
   args: { conversationId: "conv_diff_gone", turn: "run_gone" },
   parameters: {
     intent:

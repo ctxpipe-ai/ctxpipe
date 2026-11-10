@@ -19,6 +19,10 @@ import {
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 
+import {
+  deploymentEnvironment,
+  isPreviewDeployment,
+} from "../../../../shared/deployment-environment.js"
 import { ATTRIBUTION_KEYS } from "./contract.js"
 
 let tracerProvider: NodeTracerProvider | undefined
@@ -27,20 +31,18 @@ let runtimeInstrumentation: RuntimeNodeInstrumentation | undefined
 let started = false
 
 /**
- * `RAILWAY_ENVIRONMENT_NAME` if set, else `deployment.environment` from
- * `OTEL_RESOURCE_ATTRIBUTES`, else `production` when NODE_ENV is production,
- * else `development`.
+ * The deployment name (`shared/deployment-environment.ts`), else
+ * `deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES`, else `production`
+ * when NODE_ENV is production, else `development`.
  */
-export function codesearchDeploymentEnvironment(
-  railwayEnvironmentName = process.env.RAILWAY_ENVIRONMENT_NAME,
-  resourceAttributes = process.env.OTEL_RESOURCE_ATTRIBUTES,
-  nodeEnv = process.env.NODE_ENV,
-): string {
-  const railway = railwayEnvironmentName?.trim()
-  if (railway) return railway
-  const fromAttributes = deploymentEnvironmentAttribute(resourceAttributes)
+export function codesearchDeploymentEnvironment(): string {
+  const deploymentName = deploymentEnvironment(process.env)
+  if (deploymentName) return deploymentName
+  const fromAttributes = deploymentEnvironmentAttribute(
+    process.env.OTEL_RESOURCE_ATTRIBUTES,
+  )
   if (fromAttributes) return fromAttributes
-  return nodeEnv === "production" ? "production" : "development"
+  return process.env.NODE_ENV === "production" ? "production" : "development"
 }
 
 /** Last `deployment.environment` entry, percent-decoded. Same rule as envDetector. */
@@ -62,10 +64,6 @@ function deploymentEnvironmentAttribute(
     }
   }
   return found
-}
-
-function railwayPrEnvironment(): boolean {
-  return /^pr-\d+$/.test(process.env.RAILWAY_ENVIRONMENT_NAME?.trim() ?? "")
 }
 
 /** `@hono/otel` sets `url.full` when the span starts. Drop its query and fragment. */
@@ -138,7 +136,7 @@ export function initOtel(): void {
 
   const metricsEndpoint =
     process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT?.trim()
-  if (metricsEndpoint && !railwayPrEnvironment()) {
+  if (metricsEndpoint && !isPreviewDeployment(process.env)) {
     meterProvider = new MeterProvider({
       resource,
       readers: [
