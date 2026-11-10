@@ -1,12 +1,13 @@
-// The AgentCore entry point of the chat sandbox image (ADR-061 decisions 15
-// and 17). AgentCore sends HTTP to port 8080 only: `GET /ping` and
+// The AgentCore entry point of the chat sandbox image (CTX-1219; design in
+// the AWS migration epic, CTX-1212). AgentCore sends HTTP to port 8080 only: `GET /ping` and
 // `POST /invocations`. The backend reaches a port in the sandbox (the
 // OpenCode server) through this shim: each invocation carries one HTTP
 // request, and the shim sends it to `127.0.0.1:<port>` and streams the
 // answer back as server-sent events.
 //
 // The V2 memory snapshot holds this process only. OpenCode starts later, as
-// a command. The shim makes no secret and does not import Node `crypto`:
+// a command. The shim does not create a secret and does not use Node
+// `crypto`:
 // random values made in a restored process repeat across sessions (spike
 // CTX-1213, test 3).
 //
@@ -34,40 +35,43 @@ const HOP_HEADERS = new Set([
   "upgrade",
 ])
 
-function forwardedHeaders(headers) {
+/** The end-to-end headers of a request or an answer, each as one value. */
+function endToEndHeaders(headers) {
   const result = {}
   for (const [name, value] of Object.entries(headers ?? {})) {
-    if (typeof value !== "string" || HOP_HEADERS.has(name.toLowerCase()))
-      continue
-    result[name] = value
+    if (HOP_HEADERS.has(name.toLowerCase())) continue
+    if (typeof value === "string") result[name] = value
+    else if (Array.isArray(value)) result[name] = value.join(", ")
   }
   return result
 }
 
-/** The forward request, or an error message for a body that is not one. */
+/** `{ forward }`, or `{ error }` for a body that is not a forward request. */
 function parseForward(text) {
   let payload
   try {
     payload = JSON.parse(text)
   } catch {
-    return "The request body is not JSON"
+    return { error: "The request body is not JSON" }
   }
-  if (payload?.action !== "http") return "The action must be http"
+  if (payload?.action !== "http") return { error: "The action must be http" }
   const { port, method, path } = payload
   if (!Number.isInteger(port) || port < 1 || port > 65_535 || port === 8080)
-    return "The port must be a sandbox port other than 8080"
+    return { error: "The port must be a sandbox port other than 8080" }
   if (typeof method !== "string" || !/^[A-Z]+$/.test(method))
-    return "The method is not valid"
+    return { error: "The method is not valid" }
   if (typeof path !== "string" || !path.startsWith("/"))
-    return "The path must start with /"
+    return { error: "The path must start with /" }
   if (payload.body !== undefined && typeof payload.body !== "string")
-    return "The body must be base64 text"
+    return { error: "The body must be base64 text" }
   return {
-    port,
-    method,
-    path,
-    headers: forwardedHeaders(payload.headers),
-    body: payload.body ? Buffer.from(payload.body, "base64") : undefined,
+    forward: {
+      port,
+      method,
+      path,
+      headers: endToEndHeaders(payload.headers),
+      body: payload.body ? Buffer.from(payload.body, "base64") : undefined,
+    },
   }
 }
 
@@ -81,7 +85,7 @@ function readBody(request) {
 }
 
 async function invoke(request, response) {
-  const forward = parseForward(await readBody(request))
+  const { forward, error } = parseForward(await readBody(request))
   response.writeHead(200, {
     "content-type": "text/event-stream",
     "cache-control": "no-cache",
@@ -95,7 +99,7 @@ async function invoke(request, response) {
     open = false
     response.end()
   }
-  if (typeof forward === "string") return finish({ type: "error", message: forward })
+  if (error) return finish({ type: "error", message: error })
   const upstream = httpRequest(
     {
       host: "127.0.0.1",
@@ -105,11 +109,11 @@ async function invoke(request, response) {
       headers: forward.headers,
     },
     (answer) => {
-      const headers = {}
-      for (const [name, value] of Object.entries(answer.headers))
-        if (!HOP_HEADERS.has(name) && value !== undefined)
-          headers[name] = Array.isArray(value) ? value.join(", ") : value
-      send({ type: "head", status: answer.statusCode, headers })
+      send({
+        type: "head",
+        status: answer.statusCode,
+        headers: endToEndHeaders(answer.headers),
+      })
       answer.on("data", (chunk) =>
         send({ type: "body", data: chunk.toString("base64") }),
       )

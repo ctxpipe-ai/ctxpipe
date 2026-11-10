@@ -26,7 +26,7 @@ CMD ["sh", "-c", "tail -f /dev/null"]
 
 # AgentCore Runtime (`--target agentcore`): the shim on port 8080 is the
 # entry point. The memory snapshot holds the shim only; OpenCode starts later
-# as a command (ADR-061 decision 17).
+# as a command (CTX-1219).
 FROM base AS agentcore
 COPY agentcore-shim.mjs /usr/local/lib/ctxpipe/agentcore-shim.mjs
 EXPOSE 8080

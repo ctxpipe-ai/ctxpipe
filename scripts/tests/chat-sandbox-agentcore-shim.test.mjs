@@ -158,10 +158,13 @@ test("the shim reports a port that does not answer", async (t) => {
   assert.equal(events[0].type, "error")
 })
 
-test("the shim imports no Node crypto (spike CTX-1213, test 3)", () => {
-  const source = readFileSync(
+test("the shim uses no Node crypto: no import and no global (spike CTX-1213, test 3)", () => {
+  const code = readFileSync(
     new URL("../chat-sandbox/agentcore-shim.mjs", import.meta.url),
     "utf8",
   )
-  assert.doesNotMatch(source, /from "(node:)?crypto"|require\("(node:)?crypto"\)/)
+    // Comments may name crypto; code may not.
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+  assert.doesNotMatch(code, /\bcrypto\b|randomUUID|getRandomValues|randomBytes/)
 })

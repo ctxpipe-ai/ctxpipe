@@ -34,5 +34,5 @@ the shim streams the answer back as server-sent events. Commands go through
 `InvokeAgentRuntimeCommand`, not through the shim.
 
 The memory snapshot holds the shim only. OpenCode starts later as a command.
-The shim makes no secret and does not use Node `crypto`, because a value that
+The shim does not create a secret and does not use Node `crypto`, because a value that
 a restored process makes can repeat in each session.
