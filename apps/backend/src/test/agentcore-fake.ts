@@ -1,4 +1,8 @@
-import { type ChildProcess, execFileSync, spawn } from "node:child_process"
+import {
+  type ChildProcessWithoutNullStreams,
+  execFileSync,
+  spawn,
+} from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import {
   createServer,
@@ -60,7 +64,7 @@ const chunk = (body: unknown) =>
 /** Where the fake microVM runs: this host's shell, or a container. */
 type MicroVm = {
   /** Runs the command text with a shell in the workspace folder. */
-  run: (command: string) => ChildProcess
+  run: (command: string) => ChildProcessWithoutNullStreams
   /** Empties the microVM, as a new session would find it. */
   reset: () => void
   /** The shim's port 8080 as this host reaches it. */
