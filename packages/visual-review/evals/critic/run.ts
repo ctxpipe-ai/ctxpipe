@@ -366,15 +366,10 @@ async function prepare(
   const prepared: (Prepared | PreparedNew)[] = []
   // The images can come from an archive. A symbolic link in it must not
   // send a file outside the folder to a model provider.
-  const read = async (entry: Case, paths: string[]) => {
+  const read = async (entry: Case, path: string) => {
     try {
-      return await Promise.all(
-        paths.map(async (path) => {
-          const file = insideRoot(images, path)
-          await realInside(images, file)
-          return readFile(file)
-        }),
-      )
+      await realInside(images, path)
+      return await readFile(path)
     } catch (error) {
       throw new Error(
         `Case ${entry.id} has no usable image in ${images}: ${(error as Error).message}`,
@@ -383,8 +378,8 @@ async function prepare(
   }
   for (const entry of manifest.cases) {
     if (entry.kind === "new") {
-      const [bytes] = await read(entry, [entry.images.after])
-      const size = bytes && pngSize(bytes)
+      const bytes = await read(entry, insideRoot(images, entry.images.after))
+      const size = pngSize(bytes)
       if (!size)
         throw new Error(`The image of the new case ${entry.id} is not a PNG.`)
       const path = join(work, entry.id, "after.png")
@@ -405,8 +400,10 @@ async function prepare(
     }
     const before = insideRoot(images, entry.images.before)
     const after = insideRoot(images, entry.images.after)
-    const [beforeBytes = Buffer.alloc(0), afterBytes = Buffer.alloc(0)] =
-      await read(entry, [entry.images.before, entry.images.after])
+    const [beforeBytes, afterBytes] = await Promise.all([
+      read(entry, before),
+      read(entry, after),
+    ])
     const comparison = await diff(beforeBytes, afterBytes)
     const { images: written, omittedRegions } = await writeStoryImages(
       { root: work, dir: entry.id },
