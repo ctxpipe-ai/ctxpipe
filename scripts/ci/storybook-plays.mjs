@@ -3,11 +3,17 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { browserTrace, storyCheck } from "../checks/storybook.mjs"
+import {
+  browserTrace,
+  storyCheck,
+  traceIdsOf,
+  traceRecordsOf,
+} from "../checks/storybook.mjs"
 import { writeTrace } from "../checks/trace.mjs"
 import {
   selectRequiredStories,
   selectPlayStories,
+  selectTracedStories,
   shardStories,
 } from "./storybook-select.mjs"
 import {
@@ -36,14 +42,21 @@ const run = (command, args, cwd = ui) => {
 // STORYBOOK_ONLY=a,b keeps stories whose id or file path contains a, or b.
 // --trace also writes trace.json.gz next to results.json: the browser lines
 // and the MSW handlers of each story (scripts/checks/README.md). It is data
-// only and does not change a result.
+// only and does not change a result. With STORYBOOK_PLAYS=all, --trace also
+// renders the stories without a play function, and records each story under
+// the id of its screenshot check too (traceRecordsOf). A story without a play
+// function has no play check, so it gives no result.
 const mode = process.env.STORYBOOK_PLAYS === "all" ? "all" : "required"
 const trace = process.argv.slice(2).includes("--trace")
 
 const chosenStories = (index) => {
   try {
     const stories =
-      mode === "all" ? selectPlayStories(index) : selectRequiredStories(index)
+      mode === "all"
+        ? trace
+          ? selectTracedStories(index)
+          : selectPlayStories(index)
+        : selectRequiredStories(index)
     const only = (process.env.STORYBOOK_ONLY ?? "").split(",").filter(Boolean)
     const filtered = only.length
       ? stories.filter((story) =>
@@ -104,6 +117,13 @@ try {
     storybookUrl,
     stories,
     (story, { error, durationMs, coverage, mocks }) => {
+      if (tracer) {
+        const record = tracer.check(story, durationMs, coverage, mocks)
+        if (record) traced.push(...traceRecordsOf(story, record))
+        else for (const id of traceIdsOf(story)) durations[id] = durationMs
+      }
+      // A story without a play function is in the trace only.
+      if (!(story.tags ?? []).includes("play-fn")) return
       const file = resolve(ui, story.importPath.replace(/^\.\//, ""))
       const suite = suites.get(file) ?? {
         name: file,
@@ -111,11 +131,6 @@ try {
         assertionResults: [],
       }
       suites.set(file, suite)
-      if (tracer) {
-        const record = tracer.check(story, durationMs, coverage, mocks)
-        if (record) traced.push(record)
-        else durations[storyCheck(story).id] = durationMs
-      }
       const status = error ? "failed" : "passed"
       records.push({
         schemaVersion: 1,
@@ -166,7 +181,7 @@ try {
       process.stderr.write(`No trace written: ${error.message}\n`)
     }
   const results = {
-    numTotalTests: stories.length,
+    numTotalTests: passed + failed,
     numPassedTests: passed,
     numFailedTests: failed,
     numPendingTests: 0,

@@ -329,7 +329,10 @@ export const AdminFinishFailureContinues: Story = {
     (Story) => (
       <>
         <Story />
-        <Toaster />
+        {/* A toast closes on a real timer, so the count of toasts in the
+            screenshot depended on the speed of the host. Here no toast
+            closes. */}
+        <Toaster duration={Number.POSITIVE_INFINITY} />
       </>
     ),
   ],
@@ -386,6 +389,11 @@ export const AdminFinishFailureContinues: Story = {
     await userEvent.click(proceed)
     await canvas.findByText("Landed on /acme from onboarding")
     expect(retryCreate).toHaveBeenCalledTimes(1)
+    // Only the first try failed. Continue completes onboarding with no
+    // second error.
+    expect(
+      body.getAllByText("Could not finish onboarding. Try again."),
+    ).toHaveLength(1)
   },
 }
 

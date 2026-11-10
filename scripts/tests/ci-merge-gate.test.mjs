@@ -958,11 +958,29 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
     job: "storybook-visual",
     profile: "visual",
   })
-  // The screenshots job has one shard and needs the Storybook build too.
+  // A screenshot check counts 2 seconds, not the play time that the trace
+  // holds for it.
+  assert.equal(
+    estimate("storybook:visual:a#x", new Map([["storybook:visual:a#x", 0.2]]), {}),
+    2,
+  )
+  // Two short screenshot checks fit in one shard; the shards need the
+  // Storybook build too. A selection of about 900 stories (2 seconds each)
+  // takes 3 shards of the 10-minute target, under the 4 of a full run.
   assert.equal(
     shard(["storybook:visual:a#x", "storybook:visual:b#y"], new Map(), {})
       .visual.length,
     1,
+  )
+  assert.equal(
+    shard(
+      Array.from({ length: 900 }, (_, n) => `storybook:visual:a#s${n}`),
+      new Map(
+        Array.from({ length: 900 }, (_, n) => [`storybook:visual:a#s${n}`, 3]),
+      ),
+      {},
+    ).visual.length,
+    3,
   )
   assert.equal(
     shardMinutes({ visual: [{ ids: [], seconds: 60 }] }),
@@ -1472,6 +1490,162 @@ test("the critics job projection keeps each override and raised limit for the co
       ),
       text,
     )
+})
+
+test("each dismissed finding shows its reason, writer and commit; none is silent", () => {
+  const reason =
+    "The ticket keeps the old label on purpose | the design review asked for `it`, and this reason is longer than two hundred characters so that the table cut would hide its end if the comment used it here."
+  const directory = inputs({
+    "critics.json": {
+      head: sha(8),
+      critics: [
+        {
+          critic: "critic:spec",
+          status: "carried",
+          reason: "2 passes (2 held findings dismissed by a person with a reason)",
+          dismissals: [
+            {
+              finding: "f:0123abcd",
+              reason,
+              commit: sha(9),
+              writer: "a".repeat(64),
+            },
+            {
+              finding: "f:4567cdef",
+              reason: "another reason",
+              commit: "not a commit",
+              writer: "someone@example.com",
+            },
+          ],
+        },
+      ],
+    },
+  })
+  const text = criticsText(critics(directory), "https://github.com/o/r")
+  assert.ok(text.includes("Dismissed findings: 2"), text)
+  assert.ok(
+    text.includes(
+      `- \`critic:spec\` \`f:0123abcd\`, by writer \`${"a".repeat(64)}\` at [${sha(9).slice(0, 7)}](https://github.com/o/r/commit/${sha(9)}): `,
+    ),
+    text,
+  )
+  // The full reason, with no backtick that ends the span.
+  assert.ok(text.includes(reason.replace(/`/g, "'")), text)
+  // A writer or a commit of another shape never reaches the comment.
+  assert.ok(!text.includes("someone@example.com"), text)
+  assert.ok(text.includes("by writer `unknown` at `unknown`"), text)
+  const plain = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          head: sha(8),
+          critics: [
+            { critic: "critic:spec", status: "carried", reason: "1 passes" },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(!plain.includes("Dismissed findings"), plain)
+})
+
+test("the critics job projection keeps each dismissal of `factory review gate --json` for the comment", () => {
+  // The output of the factory binary, from the factory CLI test
+  // `a_dismissed_finding_ends_its_hold_and_the_gate_shows_it_with_its_reason`.
+  // A change of the factory shape fails here.
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const [, filter] = workflow.match(/jq -c '(\{critics: [^']+)'/) ?? []
+  assert.ok(filter, "the critics job has no jq projection")
+  const fixture = join(
+    root,
+    "scripts/tests/fixtures/factory/review-gate-dismissals.json",
+  )
+  const projected = spawnSync("jq", ["-c", filter, fixture], {
+    encoding: "utf8",
+  })
+  assert.equal(projected.status, 0, projected.stderr)
+  const gate = JSON.parse(readFileSync(fixture, "utf8"))
+  const [dismissal] = gate.critics.find(
+    (critic) => critic.critic === "critic:spec",
+  ).dismissals
+  // The projection drops what gate.mjs does not read.
+  assert.ok(!projected.stdout.includes("createdAt"), projected.stdout)
+  const text = criticsText(
+    critics(inputs({ "critics.json": JSON.parse(projected.stdout) })),
+    "https://github.com/o/r",
+  )
+  assert.ok(text.includes("Dismissed findings: 1"), text)
+  assert.ok(
+    text.includes(
+      `- \`critic:spec\` \`${dismissal.finding}\`, by writer \`${dismissal.writer}\` at [${dismissal.commit.slice(0, 7)}](https://github.com/o/r/commit/${dismissal.commit}): \`${dismissal.reason}\``,
+    ),
+    text,
+  )
+})
+
+test("the comment includes the screenshots section that the factory makes for a command critic", () => {
+  // The output of the factory binary, from the factory CLI test
+  // `the_gate_json_of_a_command_critic_holds_the_section_of_its_changed_images`
+  // (run it with `--nocapture`), through the jq filter of the critics job.
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const [, filter] = workflow.match(/jq -c '(\{critics: [^']+)'/) ?? []
+  const fixture = join(
+    root,
+    "scripts/tests/fixtures/factory/review-gate-section.json",
+  )
+  const projected = spawnSync("jq", ["-c", filter, fixture], {
+    encoding: "utf8",
+  })
+  assert.equal(projected.status, 0, projected.stderr)
+  const record = JSON.parse(projected.stdout)
+  const { section } = JSON.parse(readFileSync(fixture, "utf8")).critics.find(
+    (critic) => critic.critic === "critic:visual",
+  )
+  assert.match(section, /^Changed screenshots: 2\./)
+  // A model critic has no section, so the projection adds none.
+  assert.equal(
+    record.critics.find((critic) => critic.critic === "critic:spec").section,
+    undefined,
+  )
+  const text = criticsText(critics(inputs({ "critics.json": record })))
+  assert.ok(text.includes(`##### \`critic:visual\`\n\n${section}`), text)
+  // A section that is not text never reaches the comment.
+  const odd = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          critics: [
+            {
+              critic: "critic:visual",
+              status: "missing",
+              reason: "r",
+              section: { text: "x" },
+            },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(!odd.includes("#####"), odd)
+  // A long section with no line break is cut at the bound all the same.
+  const long = criticsText(
+    critics(
+      inputs({
+        "critics.json": {
+          critics: [
+            {
+              critic: "critic:visual",
+              status: "missing",
+              reason: "r",
+              section: "x".repeat(30000),
+            },
+          ],
+        },
+      }),
+    ),
+  )
+  assert.ok(long.includes(`${"x".repeat(25000)}\n\nThe section is cut`), "cut")
+  assert.ok(!long.includes("x".repeat(25001)), "bound")
 })
 
 test("a raised limit of another shape never reaches the comment", () => {

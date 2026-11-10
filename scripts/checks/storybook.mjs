@@ -19,6 +19,7 @@ import {
   listVisual,
   readUnstable,
   runVisualChecks,
+  visualCheckId,
   visualOptions,
 } from "./visual.mjs"
 
@@ -61,6 +62,23 @@ export function storyCheck(story) {
     ? "required"
     : "plays"
   return { id: `storybook:${lane}:${file}#${story.id}`, lane, file }
+}
+
+// The trace records of one rendered story, from the trace record of its play
+// check: that record (a story with a play function), and a copy under the id
+// of the story's screenshot check. A screenshot is taken after the play, so
+// the screenshot runs the same lines.
+export function traceRecordsOf(story, record) {
+  return traceIdsOf(story).map((id) => ({ ...record, id }))
+}
+
+// The check ids that the trace of a rendered story records: its play check
+// (a story with a play function) and its screenshot check.
+export function traceIdsOf(story) {
+  return [
+    ...((story.tags ?? []).includes("play-fn") ? [storyCheck(story).id] : []),
+    visualCheckId(story),
+  ]
 }
 
 // The `intent` parameter of each story of one file, read with the Storybook

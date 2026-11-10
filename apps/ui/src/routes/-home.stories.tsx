@@ -207,6 +207,11 @@ export const WorkspacesLoadFails: Story = {
     listReadFails = false
     await userEvent.click(within(alert).getByRole("button", { name: "Retry" }))
     await waitFor(() => expect(canvas.queryByRole("alert")).toBeNull())
+    // The side nav reads the same list. The Retry on Home also clears the
+    // error of the side nav, when the side nav got the failure: its list
+    // shows again.
+    await canvas.findByLabelText("Add Workspace")
+    expect(canvas.queryByText("Could not load Workspaces.")).toBeNull()
   },
   parameters: {
     intent:

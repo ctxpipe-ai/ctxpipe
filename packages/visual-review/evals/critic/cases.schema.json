@@ -608,6 +608,36 @@
           }
         ]
       }
+    },
+    "taste": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "case": {
+            "type": "string"
+          },
+          "arms": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "winner": {
+            "type": "string"
+          }
+        },
+        "required": ["case", "arms", "winner"],
+        "additionalProperties": false
+      }
     }
   },
   "required": ["$schema", "version", "seed", "until", "container", "cases"],

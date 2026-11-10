@@ -279,6 +279,41 @@ export const Canvas = { parameters: { visual: { skip: "Its own reason." } } }
     )
 })
 
+test("the nightly trace records each story under the id of its screenshot check, also a story without a play", async () => {
+  const { traceRecordsOf } = await import("../checks/storybook.mjs")
+  const { selectTracedStories } = await import("../ci/storybook-select.mjs")
+  const played = { ...card, tags: ["dev", "play-fn"] }
+  const record = (id) => ({
+    id,
+    recorded: ["browser"],
+    cases: [{ name: "Plain", durationMs: 5, lines: { "x.ts": [[1, 2]] } }],
+  })
+  const [shot] = listVisual([card], [])
+  // A story without a play function: only its screenshot check.
+  assert.deepEqual(
+    traceRecordsOf(card, record("storybook:plays:x#y")).map(({ id }) => id),
+    [shot.id],
+  )
+  // A story with a play: the play check, and the screenshot check with the
+  // same lines (the screenshot is taken after the play).
+  const both = traceRecordsOf(played, record("storybook:plays:x#y"))
+  assert.deepEqual(
+    both.map(({ id }) => id),
+    [
+      "storybook:plays:apps/ui/src/features/card/Card.stories.tsx#features-card--plain",
+      shot.id,
+    ],
+  )
+  assert.deepEqual(both[1].cases, both[0].cases)
+  // The traced run renders every story, sorted by id, and no docs entry.
+  assert.deepEqual(
+    selectTracedStories({
+      entries: { [home.id]: home, [played.id]: played, [docs.id]: docs },
+    }).map(({ id }) => id),
+    [played.id, home.id],
+  )
+})
+
 test("the options of a story merge over the options of its meta, and the play gives the named snapshots", () => {
   const text = `import { snapshot } from "@/lib/visual-snapshot"
 export default {

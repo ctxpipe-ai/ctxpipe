@@ -568,10 +568,10 @@ export function criticsFail(checked) {
   return checked.missing.length > 0 || (checked.required && !checked.checked)
 }
 
-// The writer and the commit of an override or a raised limit, for a public
-// comment. The writer is the SHA-256 of the store identity in the S3 path of
-// the record (or `ci`), and the commit is a full commit id. Any other value
-// never reaches the comment.
+// The writer and the commit of an override, a dismissal or a raised limit,
+// for a public comment. The writer is the SHA-256 of the store identity in the
+// S3 path of the record (or `ci`), and the commit is a full commit id. Any
+// other value never reaches the comment.
 function provenance(record, repoUrl) {
   return {
     writer: code(
@@ -645,6 +645,29 @@ export function criticsText(checked, repoUrl) {
       )
     }
   }
+  // A held finding that a person dismissed (`factory decide --dismissed`) is
+  // never silent: each one shows its full reason, its writer and its commit.
+  const dismissals = checked.critics.flatMap((critic) =>
+    (critic.dismissals ?? []).map((dismissal) => ({
+      critic: critic.critic,
+      ...dismissal,
+    })),
+  )
+  if (dismissals.length > 0) {
+    lines.push(
+      "",
+      `Dismissed findings: ${dismissals.length}. A person decided that each escalated finding does not stand, with this reason. Read it.`,
+      "",
+    )
+    for (const dismissal of dismissals) {
+      const { writer, commit } = provenance(dismissal, repoUrl)
+      // The factory bounds the reason (300 characters), so the comment shows
+      // all of it.
+      lines.push(
+        `- ${item(dismissal.critic)} ${item(dismissal.finding)}, by writer ${writer} at ${commit}: ${item(dismissal.reason, Infinity)}`,
+      )
+    }
+  }
   // The spend limit of a command critic guards against an accidental spend,
   // not against a hostile writer: any writer can raise it. Thus each raised
   // limit shows, with its writer and its commit.
@@ -671,6 +694,24 @@ export function criticsText(checked, repoUrl) {
       )
     }
   }
+  // The section of a command critic: its changed screenshots, with a link to
+  // each one at the merge base and at the head. The factory makes it and
+  // escapes each path of the PR (`factory review gate`, CTX-1192); the gate
+  // only includes it, with a bound on its length.
+  for (const critic of checked.critics)
+    if (typeof critic.section === "string" && critic.section.trim()) {
+      // A cut ends at a line, so no table row or link is cut in two.
+      const cut =
+        critic.section.length > 25000
+          ? `${critic.section.slice(0, Math.max(critic.section.lastIndexOf("\n", 25000), 0) || 25000)}\n\nThe section is cut: see the Files changed tab.`
+          : critic.section
+      lines.push(
+        "",
+        `##### ${code(critic.critic, { cell: false })}`,
+        "",
+        cut.trimEnd(),
+      )
+    }
   if (checked.missing.length > 0)
     lines.push(
       "",

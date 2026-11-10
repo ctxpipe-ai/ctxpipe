@@ -72,6 +72,9 @@ const config: StorybookConfig = {
       plugins: stripTanStackAppPlugins(viteConfig.plugins as PluginOption[]),
     }
     return mergeConfig(withoutTanStackApp, {
+      // `staticDirs` copies public/ into the build. Vite must not copy it a
+      // second time: two writers in one folder fail with EEXIST.
+      publicDir: false,
       server: {
         allowedHosts: true,
         host: true,

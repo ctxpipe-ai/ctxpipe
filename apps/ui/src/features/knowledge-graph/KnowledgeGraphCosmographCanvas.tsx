@@ -561,7 +561,10 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       const fitGraphExtents = (duration = 0) => {
         cosmographRef.current?.fitView?.(duration, INITIAL_EXTENTS_FIT_PADDING)
       }
-      const revealAfterInitialFit = () => {
+      const fitAndRevealOnce = () => {
+        if (hasInitialFitRef.current) return
+        hasInitialFitRef.current = true
+        fitGraphExtents()
         if (revealTimer) clearTimeout(revealTimer)
         revealTimer = setTimeout(() => setIsSettled(true), REVEAL_AFTER_FIT_MS)
       }
@@ -587,11 +590,19 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 
       const n = points.length
       const isLargeGraph = n > 20_000
+      const reduceMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches
       setConfig({
         points: prepPoints,
         links: prepLinks,
         ...cosmographConfig,
         ...GRAPH_SIMULATION_PRESET,
+        // With reduced motion the layout runs in fewer steps, out of view,
+        // and the graph shows only when the layout has stopped. The count of
+        // steps does not depend on time, so the layout is the same on each
+        // device.
+        ...(reduceMotion && { simulationDecay: 300 }),
         pointDefaultColor: KIND_FALLBACK_COLOR,
         pointDefaultSize: 7,
         pointSizeRange: isLargeGraph ? [1, 22] : [4, 12],
@@ -629,29 +640,29 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         fitViewPadding: 0.15,
         onSimulationStart: () => {
           setIsSimulationRunning(true)
-          autoSettleInitialSimulation()
+          if (!reduceMotion) autoSettleInitialSimulation()
         },
         onSimulationRestart: () => {
           setIsSimulationRunning(true)
-          autoSettleInitialSimulation()
+          if (!reduceMotion) autoSettleInitialSimulation()
         },
         onSimulationEnd: () => {
           clearAutoSettleTimer()
           setIsSimulationRunning(false)
-          if (hasInitialFitRef.current) return
-          hasInitialFitRef.current = true
-          fitGraphExtents()
-          revealAfterInitialFit()
+          fitAndRevealOnce()
+        },
+        // With reduced motion, the graph shows when the layout stops: at its
+        // end, or when a pause stops it first.
+        onSimulationPause: () => {
+          if (reduceMotion) fitAndRevealOnce()
         },
         onGraphRebuilt: () => {
+          if (reduceMotion) return
           if (fitFallbackTimer) clearTimeout(fitFallbackTimer)
-          fitFallbackTimer = setTimeout(() => {
-            if (!hasInitialFitRef.current) {
-              hasInitialFitRef.current = true
-              fitGraphExtents()
-              revealAfterInitialFit()
-            }
-          }, REVEAL_AFTER_REBUILD_MS)
+          fitFallbackTimer = setTimeout(
+            fitAndRevealOnce,
+            REVEAL_AFTER_REBUILD_MS,
+          )
         },
         onClick: (index: number | undefined) => {
           if (index !== undefined) {

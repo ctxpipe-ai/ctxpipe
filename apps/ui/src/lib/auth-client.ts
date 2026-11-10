@@ -79,15 +79,22 @@ signedInBeforeRequest = () => {
  * complete. Pages such as `/` read this atom, so a stale atom sends the user
  * back to onboarding. `getSession` does not update the atom, and `refetch`
  * does not reject on a failed request.
+ *
+ * A session request that started before the change (for example, the one
+ * that `setActive` starts) can end after this refetch and write the old
+ * session into the atom. Then fetch again, at most 3 times in total.
  */
 export async function refetchSessionOnboardingComplete(): Promise<boolean> {
   const session = authClient.$store.atoms.session
-  await session.get().refetch()
-  const data = session.get().data as
-    | { user?: { onboardingCompletedAt?: string | null } | null }
-    | null
-    | undefined
-  return Boolean(data?.user?.onboardingCompletedAt)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await session.get().refetch()
+    const data = session.get().data as
+      | { user?: { onboardingCompletedAt?: string | null } | null }
+      | null
+      | undefined
+    if (data?.user?.onboardingCompletedAt) return true
+  }
+  return false
 }
 
 export const { useSession, getSession, useListOrganizations } = authClient

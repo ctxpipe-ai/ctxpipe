@@ -41,6 +41,11 @@ const threadRoute = {
 const meta = {
   title: "Components/Workspaces/ChatSession",
   component: WorkspaceChatSession,
+  // The last step of the spring scroll of the thread depends on the timing of
+  // the frames, so the thread can stop 1 px lower on a slow host. Reduced
+  // motion jumps to the bottom at once, so the screenshot is the same on each
+  // host.
+  tags: ["reduced-motion"],
   decorators: [
     (Story) => (
       <div className="flex h-[32rem] bg-zinc-950">
@@ -111,6 +116,24 @@ export const CodeAnswer: Story = {
   args: threadArgs(codeAnswerMessages, "Session helper"),
   parameters: {
     storyRoute: threadRoute,
+  },
+  play: async ({ canvasElement }) => {
+    // The code block shows the code in one color first. Shiki colors each
+    // token when it has loaded the TypeScript grammar, which is a lazy chunk.
+    await waitFor(
+      () => {
+        const colors = new Set(
+          Array.from(
+            canvasElement.querySelectorAll<HTMLElement>(
+              'pre [style*="--sdm-c"]',
+            ),
+            (token) => token.style.getPropertyValue("--sdm-c"),
+          ),
+        )
+        expect(colors.size).toBeGreaterThan(1)
+      },
+      { timeout: 15_000 },
+    )
   },
 }
 

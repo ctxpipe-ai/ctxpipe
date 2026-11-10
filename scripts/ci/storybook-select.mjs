@@ -9,6 +9,15 @@ export function selectRequiredStories(index) {
   return tagged.sort((a, b) => (a.id < b.id ? -1 : 1))
 }
 
+// Every story, sorted by id so shards stay stable: the nightly trace renders
+// each story, also one without a play function (its screenshot check needs
+// its lines).
+export function selectTracedStories(index) {
+  return Object.values(index.entries ?? {})
+    .filter((entry) => entry.type === "story")
+    .sort((a, b) => (a.id < b.id ? -1 : 1))
+}
+
 // Every story with a play function, sorted by id so shards stay stable.
 export function selectPlayStories(index) {
   return Object.values(index.entries ?? {})

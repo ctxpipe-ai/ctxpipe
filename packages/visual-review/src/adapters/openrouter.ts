@@ -2,7 +2,12 @@ import { readFile } from "node:fs/promises"
 import { extname } from "node:path"
 
 import { prepareImage } from "../prepare.ts"
-import { buildNewPrompt, buildPrompt, type Prompt } from "../prompt.ts"
+import {
+  buildNewPrompt,
+  buildPrompt,
+  type Prompt,
+  type Steps,
+} from "../prompt.ts"
 import type { NewStoryInput, StoryInput } from "../story.ts"
 import {
   judgementJsonSchema,
@@ -108,7 +113,8 @@ const imagePart = async (path: string) => {
  * the cached prefix, the story text, then the images as data URLs, asks for the
  * critic JSON Schema, and denies data collection by the provider. A PNG with
  * a side under 280 or over 1568 px is padded or scaled first (see
- * `prepareImage`).
+ * `prepareImage`). `steps` selects the compare rule of the prompt (see
+ * `Steps`).
  *
  * The verdict carries the measured latency and the cost from `usage.cost`
  * (`null` when the response has none). A reply that is not usable gives the
@@ -119,9 +125,10 @@ export async function judgeWithOpenRouter(
   story: StoryInput,
   model: string,
   env: Record<string, string | undefined>,
+  steps: Steps = "describe-first",
 ): Promise<Verdict> {
   const { content, run } = await complete(
-    buildPrompt(story),
+    buildPrompt(story, steps),
     judgementJsonSchema,
     model,
     env,

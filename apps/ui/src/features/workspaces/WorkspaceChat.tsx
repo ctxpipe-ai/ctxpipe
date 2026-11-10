@@ -13,6 +13,7 @@ import { chatColumnClassName } from "@/features/chat/chat-column"
 import { chatDraftKey } from "@/features/chat/chat-draft"
 import { ConversationThreadSkeleton } from "@/features/chat/components/ConversationThreadSkeleton"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
+import type { ConversationListInfiniteData } from "@/features/chat/types"
 import { cn } from "@/lib/utils"
 
 import { type ParsedPane, paneSearchForOtherConversation } from "./pane"
@@ -152,15 +153,16 @@ function WorkspaceComposeChat(props: {
   )
 }
 
-function conversationTitleFromList(
+/** The name of a conversation in the cached conversation list, if loaded. */
+export function conversationTitleFromList(
   queryClient: QueryClient,
   orgSlug: string,
   workspaceId: string,
   conversationId: string,
 ) {
-  const cached = queryClient.getQueryData<{
-    pages: { items: { id: string; name: string }[] }[]
-  }>(workspaceKeys.conversations(orgSlug, workspaceId))
+  const cached = queryClient.getQueryData<ConversationListInfiniteData>(
+    workspaceKeys.conversations(orgSlug, workspaceId),
+  )
   return cached?.pages
     .flatMap((page) => page.items)
     .find((item) => item.id === conversationId)?.name

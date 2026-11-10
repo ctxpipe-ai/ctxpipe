@@ -63,6 +63,7 @@ Until the factory release that the merge gate pins makes keys portable (the fact
   4. When no login answers, report the reset times and stop. Do not wait, and do not push before the critics pass.
 
   Never copy, print or move an `auth.json`.
+- `ESCALATED <id>` or `HELD <id>`: only a person decides the finding. Ask the human in your conversation, and record only what they state ([code-review skill](../code-review/SKILL.md), "Dispute a finding"). A Security finding goes to the register (`factory risk propose`). Any other finding takes `factory decide <id> --stands` (then fix it) or `factory decide <id> --dismissed --reason "<their words>"`.
 - `CRITICS NOT RUN` with a fix: the tree is not committed, HEAD is not on a branch, or the shared store did not answer. Do the fix and run again.
 
 ## When a pass is not stored

@@ -338,12 +338,13 @@ async function main() {
 
   // A story that is known to differ between two runs at the desktop
   // viewport gives no case: its pair can differ only because of the flake.
-  const unstable = new Set(
+  // The type of the entries is written here: when no story is unstable, the
+  // JSON import gives the type never[].
+  const unstableStories: { id: string; viewport?: "desktop" | "mobile" }[] =
     unstableList.stories
-      .filter(
-        (entry) =>
-          ("viewport" in entry ? entry.viewport : "desktop") === "desktop",
-      )
+  const unstable = new Set(
+    unstableStories
+      .filter((entry) => (entry.viewport ?? "desktop") === "desktop")
       .map((entry) => entry.id),
   )
 

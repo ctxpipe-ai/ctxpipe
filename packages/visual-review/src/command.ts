@@ -210,7 +210,7 @@ export async function visualReview(
           )),
           ...(await reviewStories(
             screenshots.flatMap(({ story }) => (story ? [story] : [])),
-            (story) => judgeByModel(story, model, filter, budget),
+            (story) => judgeByModel(story, model, filter, undefined, budget),
           )),
         ]
       } catch (error) {
@@ -346,7 +346,7 @@ export async function visualReview(
                 },
                 agent,
               )
-          : (story) => judgeByModel(story, model, filter, budget),
+          : (story) => judgeByModel(story, model, filter, undefined, budget),
       )),
     ]
   } catch (error) {
@@ -423,17 +423,22 @@ const budgetReached = (
 })
 
 /**
- * The model judge: the explainer `model`, after the Jev filter if asked. Each
- * call is inside `budget`.
+ * The model judge: the explainer `model`, after the Jev filter if asked (the
+ * cascade). The bake-off runs the same cascade, also with another decision
+ * model (`filterModel`) as the filter. Each call is inside `budget` (default:
+ * no budget).
  */
-async function judgeByModel(
+export async function judgeByModel(
   story: StoryInput,
   model: string,
   filter: "jev" | "none",
-  budget: Budget,
+  filterModel?: string,
+  budget: Budget = { limitUsd: undefined, spentUsd: 0 },
 ): Promise<Verdict> {
   const filtered =
-    filter === "jev" ? await paid(budget, () => judgeWithJev(story)) : undefined
+    filter === "jev"
+      ? await paid(budget, () => judgeWithJev(story, filterModel))
+      : undefined
   if (filter === "jev" && !filtered) return budgetReached(story.storyId, budget)
   // Jev says intended only when nothing got worse and a brief or a source
   // diff explains the change: then no explainer is needed.
