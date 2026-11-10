@@ -616,44 +616,19 @@ test("the spend cap stops the paid calls, and the report says so", async () => {
     "--concurrency",
     "1",
     "--max-cost",
-    "0.135",
+    "0.035",
   ])
 
   expect(code).toBe(0)
-  // A call starts when its estimate of $0.10 fits under the cap: after
-  // $0.00, $0.01, $0.02 and $0.03, not after $0.04.
+  // A call starts while the spend is below the cap: after $0.00, $0.01,
+  // $0.02 and $0.03, not after $0.04.
   expect(calls).toHaveLength(4)
   expect(text).toContain(
-    "Spend: $0.04 of the $0.135 cap. The spend cap stopped the run",
+    "Spend: $0.04 of the $0.035 cap. The spend cap stopped the run",
   )
   const results = JSON.parse(readFileSync(join(out, "results.json"), "utf8"))
   expect(results.stopped).toBe("cost")
   expect(results.results).toHaveLength(4)
-})
-
-test("calls at the same time cannot pass the spend cap together", async () => {
-  server.use(chat)
-  const { text } = await run([
-    "--cases",
-    writeManifest(),
-    "--arms",
-    "llm:anthropic/claude-test",
-    "--runs",
-    "1",
-    "--concurrency",
-    "4",
-    "--max-cost",
-    "0.115",
-  ])
-
-  // The first call holds $0.10 while it runs, so the estimate of a second
-  // call does not fit, and the other three workers start no call. The first
-  // worker then does the same calls as one worker alone: after $0.00 and
-  // $0.01, not after $0.02. Without the hold, four calls start at $0.00.
-  expect(calls).toHaveLength(2)
-  expect(text).toContain(
-    "Spend: $0.02 of the $0.115 cap. The spend cap stopped the run",
-  )
 })
 
 test("a call without a cost counts as at least $0.10, also before any priced call", async () => {
@@ -669,14 +644,14 @@ test("a call without a cost counts as at least $0.10, also before any priced cal
     "--concurrency",
     "1",
     "--max-cost",
-    "0.135",
+    "0.1",
   ])
 
-  // The first call has no cost: it counts $0.10, so a second estimate of
-  // $0.10 does not fit under the cap.
+  // The first call has no cost: it counts $0.10, so the spend reaches the
+  // cap and no second call starts.
   expect(calls).toHaveLength(1)
   expect(text).toContain(
-    "Spend: $0.10 of the $0.135 cap. The spend cap stopped the run",
+    "Spend: $0.10 of the $0.1 cap. The spend cap stopped the run",
   )
   expect(text).toContain("1 calls gave no cost")
 })
@@ -845,22 +820,24 @@ test("a run that the spend cap stops before its first call gets no image", async
   expect(calls).toEqual([])
 })
 
-test("workers at the same time get only the images of the calls that the spend cap lets start", async () => {
+test("a capped run with workers at the same time gets only the images of the calls that it starts", async () => {
   server.use(chat, releaseOf())
   const cache = mkdtempSync(join(folder, "cache-"))
 
-  // As in the test of the spend cap with four workers: two calls start.
-  const { code } = await fromRelease(cache, [
+  // Four workers start at $0.00. After their four calls, the spend of
+  // $0.04 is at the cap, so no other case starts and gets its images.
+  const { code, text } = await fromRelease(cache, [
     "--arms",
     "llm:anthropic/claude-test",
     "--concurrency",
     "4",
     "--max-cost",
-    "0.115",
+    "0.03",
   ])
 
   expect(code).toBe(0)
-  expect(calls).toHaveLength(2)
+  expect(text).toContain("The spend cap stopped the run")
+  expect(calls).toHaveLength(4)
   const called = calls.map((call) => call.split(" ")[1])
   expect([...downloads].sort()).toEqual(
     files(cases.filter(({ id }) => called.includes(id))),

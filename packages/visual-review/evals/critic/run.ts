@@ -49,10 +49,10 @@ const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--
   --out          The folder for results.json and report.md.
                  Default: .ci-results/visual-bakeoff/report
   --runs         The runs of each arm on each case. Default: 3
-  --max-cost     The spend cap in USD. A paid call starts only when its
-                 estimate (the most expensive call so far, and at least $0.10)
-                 fits under it. A call without a cost counts as its estimate.
-                 Default: 100
+  --max-cost     The spend cap in USD. A paid call starts only while the
+                 spend is below it. Calls that run finish, so the spend can
+                 end above it. A call without a cost counts as the most
+                 expensive call so far, and at least $0.10. Default: 100
   --max-minutes  No call starts after this time, so that a job writes its
                  report before its timeout. Default: no limit.
   --concurrency  The calls at the same time for each paid arm. Default: 4
@@ -574,27 +574,27 @@ export async function bakeOff(
     const deadline = Date.now() + maxMinutes * 60_000
     let spent = 0
     let highest = 0
-    // The estimate of a paid call: the most expensive call so far, and at
-    // least $0.10 (more than one image call of the models of the plan). A
-    // call without a known cost counts as this much.
-    const estimate = () => Math.max(highest, 0.1)
+    // A call without a known cost counts as the most expensive call so far,
+    // and at least $0.10 (more than one image call of the models of the
+    // plan).
+    const unknown = () => Math.max(highest, 0.1)
     let stopped: StopReason | undefined
     let unknownCost = 0
     const results: Result[] = []
     const count = (cost: number | null) => {
       if (cost === null) {
         unknownCost++
-        spent += estimate()
+        spent += unknown()
       } else {
         spent += cost
         highest = Math.max(highest, cost)
       }
     }
 
-    // The limit that stops the next call of `arm`. A paid call starts only
-    // when its estimate fits under the cap.
+    // The limit that stops new work of `arm`: a paid call starts only while
+    // the spend is below the cap. Calls that run finish.
     const limitFor = (arm: Arm) =>
-      arm.paid && spent + estimate() > maxCost
+      arm.paid && spent >= maxCost
         ? "cost"
         : Date.now() >= deadline
           ? "time"
@@ -602,20 +602,9 @@ export async function bakeOff(
     // Each call, also a retry, checks the limits first.
     const attempt = (arm: Arm, call: () => Promise<Verdict>) => {
       const limit = limitFor(arm)
-      if (!limit) return reserved(arm, call)
+      if (!limit) return call()
       stopped = limit
       throw new Stopped()
-    }
-    // A paid call holds its estimated cost in the spend while it runs, so
-    // that calls at the same time cannot pass the cap together.
-    const reserved = async (arm: Arm, call: () => Promise<Verdict>) => {
-      const reserve = arm.paid ? estimate() : 0
-      spent += reserve
-      try {
-        return await call()
-      } finally {
-        spent -= reserve
-      }
     }
     const judge = async (arm: Arm, call: () => Promise<Verdict>) => {
       let verdict: Verdict
@@ -665,12 +654,6 @@ export async function bakeOff(
             stopped = limit
             return
           }
-          // While the images come, a paid arm holds the estimate of its call
-          // in the spend, as a call does. Thus other workers do not get
-          // images for calls that the cap does not let start. The call takes
-          // the hold over in the same tick: no await is between them.
-          const hold = arm.paid ? estimate() : 0
-          spent += hold
           let prepared: Prepared | PreparedNew
           try {
             prepared = await preparedOf(entry)
@@ -680,8 +663,6 @@ export async function bakeOff(
             imageError ??= (error as Error).message
             stopped = "image"
             return
-          } finally {
-            spent -= hold
           }
           let verdict: Verdict
           try {
