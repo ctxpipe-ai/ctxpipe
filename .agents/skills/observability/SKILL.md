@@ -52,7 +52,7 @@ One key per concept. Resource attributes: `service.name` (`backend`, `openworkfl
 
 HTTP on logs matches spans: `http.request.method`, `url.path` (no query string), `http.response.status_code`. A call this service made uses `upstream.status_code`. Wide-event `duration` is milliseconds.
 
-Langfuse metadata is `orgId`, `orgSlug`, `requestId`, and `environment`. Tags are `org:<slug>` and `env:<deployment.environment>`. Prompt text is on those observations. The ClickHouse pipeline deletes `gen_ai.prompt*`, `gen_ai.completion*`, `gen_ai.input.messages`, `gen_ai.output.messages`, and `langfuse.observation.input` / `output`.
+A model call span has the model, the tokens and the cost (`gen_ai.request.model`, `gen_ai.usage.*`, `gen_ai.usage.cost` in USD) and keeps its prompt and completion text (`gen_ai.prompt*`, `gen_ai.completion*`, `langfuse.observation.input` / `output`): HyperDX has them for 30 days. The Langfuse SDK still writes `langfuse.trace.metadata.*` (`orgId`, `orgSlug`, `requestId`, `environment`) and the `org:<slug>` and `env:<deployment.environment>` tags on the spans; no Langfuse server reads them.
 
 Rows already stored may still use `requestId`, `userId`, or `environment`. New writes use the table above.
 

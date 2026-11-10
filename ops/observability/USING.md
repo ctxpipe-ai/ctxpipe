@@ -72,7 +72,7 @@ Never print, paste, or commit the values. Put them here:
 | Factory host with Paseo | `~/.paseo/config.json`: `agents.providers.<provider>.env` for each provider that you use (`claude`, `codex`, ...), then `paseo reload`. New agents get them; a running agent does not. Paseo agents do not read `~/.zshrc`. |
 | Remote VM or cloud agent | The environment settings of that harness. |
 
-Check: `claude mcp list` (or `codex mcp list`) shows `hyperdx` as connected.
+Check: `claude mcp list` (or `codex mcp list`) shows `hyperdx` as connected. The full check of a host, HyperDX and the audit role, is in the factory repo: `node machines/observability/scripts/agent-access-check.ts`.
 
 **AWS reads.** The `factory-audit` role of each account reads CloudWatch Logs and metrics, ECS, RDS, EC2 and AgentCore state, and no secret, object or log-unmask (factory `machines/aws-core/stacks/baseline/README.md`). Only the `factory-auditor` role of an agent host can assume it, so a laptop where agents run is an agent host too: `factory agent-host install` (factory `machines/cli`) gives it a certificate and the profile `ctxpipe-factory-auditor`, the same as a factory host. An agent never uses a person's SSO session: in production that is an admin session. On each agent host, add to `~/.aws/config` (the account IDs are in factory `machines/aws-core/stacks/org/config.ts`):
 
