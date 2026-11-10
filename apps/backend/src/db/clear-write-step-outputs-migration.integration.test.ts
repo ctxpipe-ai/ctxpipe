@@ -6,6 +6,7 @@ import { config } from "dotenv"
 import pg from "pg"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
+import { clearRetiredWriteStepOutputs } from "./clear-retired-write-step-outputs.js"
 import { migrateOpenWorkflow } from "./migrate-openworkflow.js"
 import { ownerUrlForMigrate } from "./owner-migrate-url.js"
 
@@ -84,7 +85,7 @@ async function outputs(db: pg.Client) {
   return Object.fromEntries(rows.map((row) => [row.id, row.kept]))
 }
 
-describe("clear write step outputs migration (Postgres)", () => {
+describe("retired write step outputs and the LangGraph drop (Postgres)", () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
     adminUrl = ownerUrlForMigrate(process.env.DATABASE_URL)
@@ -100,7 +101,7 @@ describe("clear write step outputs migration (Postgres)", () => {
     await admin?.end()
   })
 
-  it("clears the retired write step outputs, keeps the rows and other outputs, and drops the LangGraph tables", async () => {
+  it("migrate drops the LangGraph tables and clears the retired write step outputs in batches, and keeps the rows and other outputs", async () => {
     const { db, url } = await freshDatabase("write_outputs")
     await apply(
       db,
@@ -161,7 +162,45 @@ describe("clear write step outputs migration (Postgres)", () => {
       await addStep(db, "ingest", step)
     }
 
+    // Migrate drops the LangGraph tables in the Drizzle transaction, then
+    // clears the outputs after it, in batches that each commit. A batch of 2
+    // takes several rounds of the cursor.
     await apply(db, [target])
+    const pool = new pg.Pool({ connectionString: url })
+    try {
+      // A run with no time left clears nothing and says that it is not done.
+      expect(
+        await clearRetiredWriteStepOutputs(pool, { batchSize: 2, budgetMs: 0 }),
+      ).toEqual({ cleared: 0, done: false })
+      // A batch that waits past the statement timeout stops, and the next try
+      // takes half as many rows. Here a lock holds the first row of the clear,
+      // so every batch waits, and the run ends at its budget without an error.
+      const locker = await pool.connect()
+      try {
+        await locker.query("BEGIN")
+        await locker.query(
+          `SELECT 1 FROM openworkflow.step_attempts WHERE id = 'boot/commit-unborn' FOR UPDATE`,
+        )
+        expect(
+          await clearRetiredWriteStepOutputs(pool, {
+            batchSize: 2,
+            budgetMs: 1_000,
+            statementTimeoutMs: 100,
+          }),
+        ).toEqual({ cleared: 0, done: false })
+      } finally {
+        await locker.query("ROLLBACK")
+        locker.release()
+      }
+      expect(
+        await clearRetiredWriteStepOutputs(pool, { batchSize: 2 }),
+      ).toEqual({ cleared: 12, done: true })
+      expect(
+        await clearRetiredWriteStepOutputs(pool, { batchSize: 2 }),
+      ).toEqual({ cleared: 0, done: true })
+    } finally {
+      await pool.end()
+    }
 
     expect(await outputs(db)).toEqual({
       "boot/commit-unborn": false,

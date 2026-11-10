@@ -7,6 +7,9 @@ import type { Box } from "../../src/story.ts"
 import type { Verdict } from "../../src/verdict.ts"
 import type { CaseManifest } from "./cases.ts"
 
+/** The limit or the input error that stopped a run. */
+export type StopReason = "cost" | "time" | "image"
+
 /** The verdict of one arm on one case in one run. */
 export type Result = {
   arm: string
@@ -338,7 +341,7 @@ export function report({
   runs: number
   results: readonly Result[]
   regions: ReadonlyMap<string, Box | null>
-  stopped: "cost" | "time" | undefined
+  stopped: StopReason | undefined
   spend: { spent: number; maxCost: number; unknownCost: number }
 }): string {
   // Only the cases and runs that every arm judged count, so that a run that
@@ -374,7 +377,7 @@ export function report({
     `Cases: ${manifest.cases.length} (${holdOut.size} in the hold-out set, ${isNew.size} new screenshots). Runs: ${runs}. Arms: ${arms.length}.`,
     `Spend: $${spend.spent.toFixed(2)} of the $${spend.maxCost} cap.${
       stopped
-        ? ` The ${stopped === "cost" ? "spend cap" : "time limit"} stopped the run: the tables count only the cases and runs that every arm judged.`
+        ? ` The ${{ cost: "spend cap", time: "time limit", image: "check of the case images" }[stopped]} stopped the run: the tables count only the cases and runs that every arm judged.`
         : ""
     }${
       spend.unknownCost

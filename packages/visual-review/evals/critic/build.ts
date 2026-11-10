@@ -1,7 +1,7 @@
 // Builds the case set of the visual critic bake-off (CTX-1200): real intended
 // changes from the git history, synthetic regressions with a known region,
-// noise, and mixed cases. It writes the images to the output folder and the
-// case manifest to cases.json beside this file. The same seed and the same
+// noise, and mixed cases. It writes the images to <out>/images, each as
+// <sha256>.png, and the case manifest to cases.json beside this file. The same seed and the same
 // `--until` commit give the same cases.
 //
 // Usage: pnpm visual:bakeoff:build [--seed <n>] [--until <commit>] [--out <dir>]
@@ -13,7 +13,6 @@
 import { execFileSync, execSync, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import {
-  copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -38,6 +37,7 @@ import {
   type Case,
   type CaseManifest,
 } from "./cases.ts"
+import { imageFile, sha256Of } from "./images.ts"
 import {
   isNoise,
   noiseClasses,
@@ -629,36 +629,38 @@ async function main() {
       `Only ${selected.length} cases, fewer than 150. The manifest did not change.`,
     )
 
-  rmSync(join(out, "cases"), { recursive: true, force: true })
-  const cases = selected.map(([id, entry]) => {
-    mkdirSync(join(out, "cases", id), { recursive: true })
-    if (entry.beforePath)
-      copyFileSync(entry.beforePath, join(out, "cases", id, "before.png"))
-    copyFileSync(entry.afterPath, join(out, "cases", id, "after.png"))
-    return {
-      id,
-      storyId: entry.storyId,
-      viewport: { name: "desktop", width: 1440, height: 900 },
-      diffPixels: entry.diffPixels,
-      images: {
-        ...(entry.beforePath ? { before: `cases/${id}/before.png` } : {}),
-        after: `cases/${id}/after.png`,
-      },
-      kind: entry.kind,
-      label:
-        entry.kind === "mixed" || (entry.kind === "new" && entry.mutation)
-          ? "regression"
-          : entry.kind === "new"
-            ? "intended"
-            : entry.kind,
-      class: entry.mutation,
-      brief: entry.commit?.brief ?? null,
-      commit: entry.commit
-        ? { sha: entry.commit.sha, parent: entry.commit.parent }
-        : null,
-      region: entry.region ?? null,
-    }
-  })
+  // Each image goes to the image folder by its SHA-256, which is also its
+  // name in the release (pnpm visual:bakeoff:publish).
+  mkdirSync(join(out, "images"), { recursive: true })
+  const stored = (path: string) => {
+    const bytes = readFileSync(path)
+    const sha256 = sha256Of(bytes)
+    writeFileSync(join(out, "images", imageFile(sha256)), bytes)
+    return sha256
+  }
+  const cases = selected.map(([id, entry]) => ({
+    id,
+    storyId: entry.storyId,
+    viewport: { name: "desktop", width: 1440, height: 900 },
+    diffPixels: entry.diffPixels,
+    images: {
+      ...(entry.beforePath ? { before: stored(entry.beforePath) } : {}),
+      after: stored(entry.afterPath),
+    },
+    kind: entry.kind,
+    label:
+      entry.kind === "mixed" || (entry.kind === "new" && entry.mutation)
+        ? "regression"
+        : entry.kind === "new"
+          ? "intended"
+          : entry.kind,
+    class: entry.mutation,
+    brief: entry.commit?.brief ?? null,
+    commit: entry.commit
+      ? { sha: entry.commit.sha, parent: entry.commit.parent }
+      : null,
+    region: entry.region ?? null,
+  }))
   const manifest: CaseManifest = caseManifestSchema.parse({
     $schema: "./cases.schema.json",
     version: 1,
@@ -682,7 +684,7 @@ async function main() {
       `${manifest.cases.filter((entry) => entry.kind === kind).length} ${kind}`,
   )
   process.stdout.write(
-    `${cases.length} cases (${counts.join(", ")}) in ${Math.round((performance.now() - started) / 1000)} s. Images: ${relative(root, join(out, "cases"))}\n`,
+    `${cases.length} cases (${counts.join(", ")}) in ${Math.round((performance.now() - started) / 1000)} s. Images: ${relative(root, join(out, "images"))}\n`,
   )
 }
 

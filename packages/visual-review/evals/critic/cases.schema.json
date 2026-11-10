@@ -66,11 +66,11 @@
                 "properties": {
                   "before": {
                     "type": "string",
-                    "pattern": "^cases\\/[a-z0-9-]+\\/(before|after)\\.png$"
+                    "pattern": "^[0-9a-f]{64}$"
                   },
                   "after": {
                     "type": "string",
-                    "pattern": "^cases\\/[a-z0-9-]+\\/(before|after)\\.png$"
+                    "pattern": "^[0-9a-f]{64}$"
                   }
                 },
                 "required": ["before", "after"],
@@ -82,7 +82,7 @@
               },
               "label": {
                 "type": "string",
-                "enum": ["intended", "regression", "noise"]
+                "enum": ["intended", "regression", "noise", "unsure"]
               },
               "class": {
                 "type": "null"
@@ -165,11 +165,11 @@
                 "properties": {
                   "before": {
                     "type": "string",
-                    "pattern": "^cases\\/[a-z0-9-]+\\/(before|after)\\.png$"
+                    "pattern": "^[0-9a-f]{64}$"
                   },
                   "after": {
                     "type": "string",
-                    "pattern": "^cases\\/[a-z0-9-]+\\/(before|after)\\.png$"
+                    "pattern": "^[0-9a-f]{64}$"
                   }
                 },
                 "required": ["before", "after"],
@@ -285,11 +285,11 @@
                 "properties": {
                   "before": {
                     "type": "string",
-                    "pattern": "^cases\\/[a-z0-9-]+\\/(before|after)\\.png$"
+                    "pattern": "^[0-9a-f]{64}$"
                   },
                   "after": {
                     "type": "string",
-                    "pattern": "^cases\\/[a-z0-9-]+\\/(before|after)\\.png$"
+                    "pattern": "^[0-9a-f]{64}$"
                   }
                 },
                 "required": ["before", "after"],
@@ -372,11 +372,11 @@
                 "properties": {
                   "before": {
                     "type": "string",
-                    "pattern": "^cases\\/[a-z0-9-]+\\/(before|after)\\.png$"
+                    "pattern": "^[0-9a-f]{64}$"
                   },
                   "after": {
                     "type": "string",
-                    "pattern": "^cases\\/[a-z0-9-]+\\/(before|after)\\.png$"
+                    "pattern": "^[0-9a-f]{64}$"
                   }
                 },
                 "required": ["before", "after"],
@@ -503,7 +503,7 @@
                 "properties": {
                   "after": {
                     "type": "string",
-                    "pattern": "^cases\\/[a-z0-9-]+\\/(before|after)\\.png$"
+                    "pattern": "^[0-9a-f]{64}$"
                   }
                 },
                 "required": ["after"],

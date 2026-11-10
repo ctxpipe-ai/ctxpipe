@@ -5,8 +5,8 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -19,6 +19,7 @@ import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest"
 import type { PixelBox } from "../../src/compare/diff.ts"
 import { screenshot } from "../../src/compare/fixtures.ts"
 import { caseManifestSchema, type Case } from "./cases.ts"
+import { sha256Of } from "./images.ts"
 import { bakeOff, holdOut } from "./run.ts"
 
 const gateway = "https://gateway.test/api/v1"
@@ -43,29 +44,58 @@ const teal: Bar = {
 }
 const recolored: Bar = { ...teal, color: [30, 90, 200] }
 const wide: Bar = { ...gray, box: { ...gray.box, width: 220 } }
-const page = (...bars: Bar[]) => screenshot(400, 300, bars)
 const pairs = {
-  intended: [page(gray, teal), page(gray, recolored)],
-  regression: [page(gray, teal), page(wide, teal)],
-  noise: [
-    page(gray, teal),
-    page(gray, { ...teal, box: { ...teal.box, x: 41 } }),
+  intended: [
+    [gray, teal],
+    [gray, recolored],
   ],
-  mixed: [page(gray, teal), page(wide, recolored)],
-} as const
+  regression: [
+    [gray, teal],
+    [wide, teal],
+  ],
+  noise: [
+    [gray, teal],
+    [gray, { ...teal, box: { ...teal.box, x: 41 } }],
+  ],
+  mixed: [
+    [gray, teal],
+    [wide, recolored],
+  ],
+} satisfies Record<string, [Bar[], Bar[]]>
 const knownRegion: PixelBox = { x: 38, y: 38, width: 224, height: 34 }
 
+// The images by SHA-256. Each case has its own images: a mark of its own
+// color, the same in the before and the after image, so the diff does not
+// change.
+const stored = new Map<string, Uint8Array>()
+let marks = 0
+const image = (bars: Bar[], mark: number) => {
+  const bytes = screenshot(400, 300, [
+    ...bars,
+    {
+      box: { x: 380, y: 280, width: 10, height: 10 },
+      color: [mark * 10, 0, 0],
+    },
+  ])
+  const sha256 = sha256Of(bytes)
+  stored.set(sha256, bytes)
+  return sha256
+}
+
 const sha = (digit: string) => digit.repeat(40)
-const common = (id: string) => ({
-  id,
-  storyId: id,
-  viewport: { name: "desktop", width: 1440, height: 900 } as const,
-  diffPixels: 100,
-  images: { before: `cases/${id}/before.png`, after: `cases/${id}/after.png` },
-})
+const common = (id: string, [before, after]: [Bar[], Bar[]]) => {
+  const mark = ++marks
+  return {
+    id,
+    storyId: id,
+    viewport: { name: "desktop", width: 1440, height: 900 } as const,
+    diffPixels: 100,
+    images: { before: image(before, mark), after: image(after, mark) },
+  }
+}
 const cases: Case[] = [
   ...[1, 2].map((n): Case => ({
-    ...common(`intended-${n}`),
+    ...common(`intended-${n}`, pairs.intended),
     kind: "intended",
     label: "intended",
     class: null,
@@ -74,7 +104,7 @@ const cases: Case[] = [
     region: null,
   })),
   ...[1, 2, 3, 4].map((n): Case => ({
-    ...common(`regression-${n}`),
+    ...common(`regression-${n}`, pairs.regression),
     kind: "regression",
     label: "regression",
     class: "padding",
@@ -83,7 +113,7 @@ const cases: Case[] = [
     region: knownRegion,
   })),
   ...[1, 2].map((n): Case => ({
-    ...common(`noise-${n}`),
+    ...common(`noise-${n}`, pairs.noise),
     kind: "noise",
     label: "noise",
     class: "subpixel-shift",
@@ -92,7 +122,7 @@ const cases: Case[] = [
     region: null,
   })),
   ...[1, 2].map((n): Case => ({
-    ...common(`mixed-${n}`),
+    ...common(`mixed-${n}`, pairs.mixed),
     kind: "mixed",
     label: "regression",
     class: "padding",
@@ -104,7 +134,7 @@ const cases: Case[] = [
 // A new case has only an after image: two clean renders, and two with a
 // synthetic regression (the wide gray bar).
 const newCase = (id: string, broken: boolean): Case => ({
-  ...common(id),
+  ...common(id, pairs.intended),
   kind: "new",
   label: broken ? "regression" : "intended",
   class: broken ? "padding" : null,
@@ -112,7 +142,7 @@ const newCase = (id: string, broken: boolean): Case => ({
   commit: { sha: sha("a"), parent: sha("b") },
   region: broken ? knownRegion : null,
   diffPixels: null,
-  images: { after: `cases/${id}/after.png` },
+  images: { after: image(broken ? [wide, teal] : [gray, teal], ++marks) },
 })
 cases.push(
   newCase("new-clean-1", false),
@@ -124,20 +154,11 @@ const labelOf = (id: string) => cases.find((entry) => entry.id === id)?.label
 
 const folder = mkdtempSync(join(tmpdir(), "bakeoff-test-"))
 afterAll(() => rmSync(folder, { recursive: true, force: true }))
+// The image folder of most tests has all images, so they need no release.
 const images = join(folder, "images")
-for (const entry of cases) {
-  mkdirSync(join(images, "cases", entry.id), { recursive: true })
-  if (entry.kind === "new") {
-    writeFileSync(
-      join(images, entry.images.after),
-      entry.class ? page(wide, teal) : page(gray, teal),
-    )
-    continue
-  }
-  const [before, after] = pairs[entry.kind]
-  writeFileSync(join(images, entry.images.before), before)
-  writeFileSync(join(images, entry.images.after), after)
-}
+mkdirSync(images)
+for (const [sha256, bytes] of stored)
+  writeFileSync(join(images, `${sha256}.png`), bytes)
 const writeManifest = (extra: object = {}) => {
   const path = join(mkdtempSync(join(folder, "manifest-")), "cases.json")
   writeFileSync(
@@ -595,44 +616,19 @@ test("the spend cap stops the paid calls, and the report says so", async () => {
     "--concurrency",
     "1",
     "--max-cost",
-    "0.135",
+    "0.035",
   ])
 
   expect(code).toBe(0)
-  // A call starts when its estimate of $0.10 fits under the cap: after
-  // $0.00, $0.01, $0.02 and $0.03, not after $0.04.
+  // A call starts while the spend is below the cap: after $0.00, $0.01,
+  // $0.02 and $0.03, not after $0.04.
   expect(calls).toHaveLength(4)
   expect(text).toContain(
-    "Spend: $0.04 of the $0.135 cap. The spend cap stopped the run",
+    "Spend: $0.04 of the $0.035 cap. The spend cap stopped the run",
   )
   const results = JSON.parse(readFileSync(join(out, "results.json"), "utf8"))
   expect(results.stopped).toBe("cost")
   expect(results.results).toHaveLength(4)
-})
-
-test("calls at the same time cannot pass the spend cap together", async () => {
-  server.use(chat)
-  const { text } = await run([
-    "--cases",
-    writeManifest(),
-    "--arms",
-    "llm:anthropic/claude-test",
-    "--runs",
-    "1",
-    "--concurrency",
-    "4",
-    "--max-cost",
-    "0.115",
-  ])
-
-  // The first call holds $0.10 while it runs, so the estimate of a second
-  // call does not fit, and the other three workers start no call. The first
-  // worker then does the same calls as one worker alone: after $0.00 and
-  // $0.01, not after $0.02. Without the hold, four calls start at $0.00.
-  expect(calls).toHaveLength(2)
-  expect(text).toContain(
-    "Spend: $0.02 of the $0.115 cap. The spend cap stopped the run",
-  )
 })
 
 test("a call without a cost counts as at least $0.10, also before any priced call", async () => {
@@ -648,54 +644,242 @@ test("a call without a cost counts as at least $0.10, also before any priced cal
     "--concurrency",
     "1",
     "--max-cost",
-    "0.135",
+    "0.1",
   ])
 
-  // The first call has no cost: it counts $0.10, so a second estimate of
-  // $0.10 does not fit under the cap.
+  // The first call has no cost: it counts $0.10, so the spend reaches the
+  // cap and no second call starts.
   expect(calls).toHaveLength(1)
   expect(text).toContain(
-    "Spend: $0.10 of the $0.135 cap. The spend cap stopped the run",
+    "Spend: $0.10 of the $0.1 cap. The spend cap stopped the run",
   )
   expect(text).toContain("1 calls gave no cost")
 })
 
-test("an image that links outside the image folder stops the run before a call", async () => {
-  server.use(chat)
-  const linked = mkdtempSync(join(folder, "linked-"))
-  const outside = join(folder, "private.png")
-  writeFileSync(outside, pairs.intended[0])
-  for (const entry of cases) {
-    if (entry.kind === "new") continue
-    mkdirSync(join(linked, "cases", entry.id), { recursive: true })
-    writeFileSync(join(linked, entry.images.before), pairs[entry.kind][0])
-    writeFileSync(join(linked, entry.images.after), pairs[entry.kind][1])
-  }
-  const target = join(linked, "cases", "regression-1", "after.png")
-  rmSync(target)
-  symlinkSync(outside, target)
+// A fake release: it serves the images by name and counts the downloads.
+// `serve` can change the bytes of an image, or give no image.
+// The release URL of the runner; msw answers in its place.
+const release =
+  "https://github.com/ctxpipe-ai/ctxpipe/releases/download/visual-bakeoff-images"
+let downloads: string[] = []
+const releaseOf = (
+  serve: (bytes: Uint8Array, sha256: string) => Uint8Array | null = (bytes) =>
+    bytes,
+) =>
+  http.get(`${release}/:file`, ({ params }) => {
+    const name = String(params.file)
+    downloads.push(name)
+    const sha256 = name.replace(/\.png$/, "")
+    const bytes = stored.get(sha256)
+    const served = bytes && serve(bytes, sha256)
+    return served
+      ? // A copy: the body must be only the bytes of the view.
+        new HttpResponse(new Uint8Array(served), {
+          headers: { "content-type": "image/png" },
+        })
+      : new HttpResponse(null, { status: 404 })
+  })
+const fromRelease = async (cache: string, args: string[]) => {
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
   vi.stubEnv("MODEL_PROVIDER_URL", gateway)
   calls = []
+  downloads = []
+  const out = mkdtempSync(join(folder, "out-"))
   const printed: string[] = []
-
   const code = await bakeOff(
     [
       "--images",
-      linked,
+      cache,
       "--out",
-      mkdtempSync(join(folder, "out-")),
+      out,
       "--cases",
       writeManifest(),
-      "--arms",
-      "llm:anthropic/claude-test",
+      "--runs",
+      "1",
+      ...args,
     ],
     (text) => printed.push(text),
   )
+  return { code, out, text: printed.join("\n") }
+}
+/** A copy of `bytes` with one changed byte. */
+const changedByte = (bytes: Uint8Array) => {
+  const changed = new Uint8Array(bytes)
+  changed[changed.length - 20] = (changed[changed.length - 20] ?? 0) ^ 1
+  return changed
+}
+const held = () =>
+  holdOut(
+    caseManifestSchema.parse(JSON.parse(readFileSync(writeManifest(), "utf8"))),
+    7,
+  )
+const files = (entries: readonly Case[]) =>
+  [
+    ...new Set(
+      entries.flatMap(({ images }) =>
+        Object.values(images).map((sha256) => `${sha256}.png`),
+      ),
+    ),
+  ].sort()
+
+test("a hold-out-only dry run gets only the images of the hold-out cases from the release, and keeps them", async () => {
+  server.use(decisions, releaseOf())
+  const cache = join(mkdtempSync(join(folder, "cache-")), "images")
+  const heldCases = cases.filter(({ id }) => held().has(id))
+  expect(heldCases).toHaveLength(4)
+
+  const first = await fromRelease(cache, ["--arms", "jev", "--hold-out-only"])
+
+  expect(first.code).toBe(0)
+  expect(first.text).toContain(
+    "Cases: 4 (4 in the hold-out set, 0 new screenshots). Runs: 1. Arms: 1.",
+  )
+  expect([...downloads].sort()).toEqual(files(heldCases))
+  expect(readdirSync(cache).sort()).toEqual(files(heldCases))
+  expect(files(cases).length).toBeGreaterThan(files(heldCases).length)
+
+  // A second run takes the images from the folder.
+  const second = await fromRelease(cache, ["--arms", "jev", "--hold-out-only"])
+  expect(second.code).toBe(0)
+  expect(downloads).toEqual([])
+})
+
+test("an image with one changed byte fails the hash check before a call", async () => {
+  server.use(chat, releaseOf(changedByte))
+  const cache = mkdtempSync(join(folder, "cache-"))
+
+  const { code, text } = await fromRelease(cache, [
+    "--arms",
+    "llm:anthropic/claude-test",
+  ])
 
   expect(code).toBe(2)
-  expect(printed.join("\n")).toContain("Case regression-1 has no usable image")
+  expect(text).toMatch(
+    /Case \S+ has no usable image: The image \w+\.png from https:\/\/github\.com\/ctxpipe-ai\/ctxpipe\/releases\/download\/visual-bakeoff-images\/\w+\.png does not have the SHA-256 of the manifest\./,
+  )
   expect(calls).toEqual([])
+  expect(readdirSync(cache)).toEqual([])
+})
+
+test("a changed image in the image folder fails the hash check too", async () => {
+  server.use(chat, releaseOf())
+  const cache = mkdtempSync(join(folder, "cache-"))
+  const [name] = files(cases.filter(({ id }) => held().has(id)))
+  writeFileSync(
+    join(cache, name ?? ""),
+    changedByte(readFileSync(join(images, name ?? ""))),
+  )
+
+  const { code, text } = await fromRelease(cache, [
+    "--arms",
+    "llm:anthropic/claude-test",
+  ])
+
+  expect(code).toBe(2)
+  expect(text).toContain(`The image ${name} from ${cache}`)
+})
+
+test("an image that the release does not have stops the run after the hold-out cases, with their report", async () => {
+  const heldFiles = new Set(files(cases.filter(({ id }) => held().has(id))))
+  server.use(
+    decisions,
+    releaseOf((bytes, sha256) =>
+      heldFiles.has(`${sha256}.png`) ? bytes : null,
+    ),
+  )
+  const cache = mkdtempSync(join(folder, "cache-"))
+
+  const { code, out, text } = await fromRelease(cache, ["--arms", "jev"])
+
+  expect(code).toBe(2)
+  expect(text).toMatch(/Case \S+ has no usable image: .* gave 404\./)
+  expect(text).toContain(
+    "The check of the case images stopped the run: the tables count only the cases and runs that every arm judged.",
+  )
+  expect(text).toContain("## Hold-out set (4 cases)")
+  expect(text).toContain("## Other cases (0 cases)")
+  expect(readFileSync(join(out, "report.md"), "utf8")).toBe(
+    `${text.slice(text.indexOf("# Visual critic bake-off"))}\n`,
+  )
+})
+
+test("a run that the spend cap stops before its first call gets no image", async () => {
+  server.use(chat, releaseOf())
+  const cache = mkdtempSync(join(folder, "cache-"))
+
+  const { code, text } = await fromRelease(cache, [
+    "--arms",
+    "llm:anthropic/claude-test",
+    "--max-cost",
+    "0",
+  ])
+
+  expect(code).toBe(0)
+  expect(text).toContain("The spend cap stopped the run")
+  expect(downloads).toEqual([])
+  expect(calls).toEqual([])
+})
+
+test("a capped run with workers at the same time gets only the images of the calls that it starts", async () => {
+  server.use(chat, releaseOf())
+  const cache = mkdtempSync(join(folder, "cache-"))
+
+  // Four workers start at $0.00. After their four calls, the spend of
+  // $0.04 is at the cap, so no other case starts and gets its images.
+  const { code, text } = await fromRelease(cache, [
+    "--arms",
+    "llm:anthropic/claude-test",
+    "--concurrency",
+    "4",
+    "--max-cost",
+    "0.03",
+  ])
+
+  expect(code).toBe(0)
+  expect(text).toContain("The spend cap stopped the run")
+  expect(calls).toHaveLength(4)
+  const called = calls.map((call) => call.split(" ")[1])
+  expect([...downloads].sort()).toEqual(
+    files(cases.filter(({ id }) => called.includes(id))),
+  )
+})
+
+test("an arm that judges no new screenshot gets no image of a new case", async () => {
+  server.use(releaseOf())
+  const cache = mkdtempSync(join(folder, "cache-"))
+
+  const { code } = await fromRelease(cache, [
+    "--arms",
+    "blazediff-local",
+    "--blazediff-agent",
+    agent,
+  ])
+
+  expect(code).toBe(0)
+  expect([...downloads].sort()).toEqual(
+    files(cases.filter(({ kind }) => kind !== "new")),
+  )
+})
+
+test("a real change that the owner labeled unsure does not run", async () => {
+  server.use(decisions)
+  const { code, text } = await run([
+    "--cases",
+    writeManifest({
+      cases: cases.map((entry) =>
+        entry.id === "intended-1" ? { ...entry, label: "unsure" } : entry,
+      ),
+    }),
+    "--arms",
+    "jev",
+    "--runs",
+    "1",
+  ])
+
+  expect(code).toBe(0)
+  expect(text).toContain("Cases: 13")
+  expect(calls.some((call) => call.endsWith(" intended-1"))).toBe(false)
+  expect(calls.some((call) => call.endsWith(" intended-2"))).toBe(true)
 })
 
 test("the taste win rate comes from the owner picks in the manifest", async () => {

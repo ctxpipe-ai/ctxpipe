@@ -4,10 +4,10 @@
 //
 // Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--out <dir>]
 //          [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4]
-//          [--blazediff-agent <dir>] [--cases <path>]
+//          [--blazediff-agent <dir>] [--cases <path>] [--hold-out-only]
 
 import { createHash } from "node:crypto"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -21,19 +21,16 @@ import {
 import { judgeByModel } from "../../src/command.ts"
 import { diff, type Comparison } from "../../src/compare/diff.ts"
 import { writeStoryImages } from "../../src/compare/images.ts"
-import {
-  insideRoot,
-  realInside,
-  storyInput,
-} from "../../src/compare/manifest.ts"
+import { storyInput } from "../../src/compare/manifest.ts"
 import { pngSize } from "../../src/prepare.ts"
 import { reviewStories } from "../../src/review.ts"
 import type { Box, NewStoryInput, StoryInput } from "../../src/story.ts"
 import { parseVerdict, type Verdict } from "../../src/verdict.ts"
-import { caseManifestSchema, type Case, type CaseManifest } from "./cases.ts"
-import { report, type Result } from "./report.ts"
+import { readManifest, type Case, type CaseManifest } from "./cases.ts"
+import { imageFile, imageStore, releaseUrl } from "./images.ts"
+import { report, type Result, type StopReason } from "./report.ts"
 
-const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--out <dir>] [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4] [--blazediff-agent <dir>] [--cases <path>]
+const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--out <dir>] [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4] [--blazediff-agent <dir>] [--cases <path>] [--hold-out-only]
 
   --arms         The arms, comma-separated:
                    llm:<model>           the critic prompt (describe each side, then compare)
@@ -46,15 +43,16 @@ const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--
                                          the decision model <filter> instead of Jev
                    blazediff-local       the local judge of BlazeDiff (no cost)
                  <model> is an OpenRouter id, for example anthropic/claude-sonnet-5.5.
-  --images       The output folder of pnpm visual:bakeoff:build, with cases/<id>/.
-                 Default: .ci-results/visual-bakeoff
+  --images       The folder of the case images, as <sha256>.png. An image that
+                 is not in it comes from the release when its case runs, and
+                 goes into it. Default: .ci-results/visual-bakeoff/images
   --out          The folder for results.json and report.md.
                  Default: .ci-results/visual-bakeoff/report
   --runs         The runs of each arm on each case. Default: 3
-  --max-cost     The spend cap in USD. A paid call starts only when its
-                 estimate (the most expensive call so far, and at least $0.10)
-                 fits under it. A call without a cost counts as its estimate.
-                 Default: 100
+  --max-cost     The spend cap in USD. A paid call starts only while the
+                 spend is below it. Calls that run finish, so the spend can
+                 end above it. A call without a cost counts as the most
+                 expensive call so far, and at least $0.10. Default: 100
   --max-minutes  No call starts after this time, so that a job writes its
                  report before its timeout. Default: no limit.
   --concurrency  The calls at the same time for each paid arm. Default: 4
@@ -63,9 +61,12 @@ const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--
                  node_modules, installed as .github/workflows/visual-bakeoff.yaml
                  does. Needed for blazediff-local.
   --cases        The case manifest. Default: cases.json beside this file.
+  --hold-out-only
+                 Run only the cases of the hold-out set.
 
 The key and the endpoint of the paid arms come from MODEL_PROVIDER_API_KEY
-and MODEL_PROVIDER_URL. Exit code: 2 for a usage or input error; else 0.`
+and MODEL_PROVIDER_URL. Exit code: 2 for a usage or input error, also a
+missing or changed image; else 0.`
 
 /** One case of a change, ready for the judges. */
 type Prepared = {
@@ -353,98 +354,90 @@ async function blazediffLocal(folder: string, work: string): Promise<Judge> {
 }
 
 /**
- * Compare the before and after image of each case with the compare engine,
- * and write the images for the judges into `work`. A `new` case has only its
- * after image, which goes to `work` as it is. A case with no image throws:
- * the run needs every image of the manifest.
+ * Get the images of one case (images.ts), compare the before and after image
+ * with the compare engine, and write the images for the judges into `work`.
+ * A `new` case has only its after image, which goes to `work` as it is. A
+ * case with no image, or with an image that does not have its SHA-256,
+ * throws.
  */
 async function prepare(
-  manifest: CaseManifest,
+  entry: Case,
+  get: (sha256: string) => Promise<Buffer>,
   images: string,
   work: string,
-): Promise<(Prepared | PreparedNew)[]> {
-  const prepared: (Prepared | PreparedNew)[] = []
-  // The images can come from an archive. A symbolic link in it must not
-  // send a file outside the folder to a model provider.
-  const read = async (entry: Case, path: string) => {
+): Promise<Prepared | PreparedNew> {
+  const read = async (sha256: string) => {
     try {
-      await realInside(images, path)
-      return await readFile(path)
+      return await get(sha256)
     } catch (error) {
       throw new Error(
-        `Case ${entry.id} has no usable image in ${images}: ${(error as Error).message}`,
+        `Case ${entry.id} has no usable image: ${(error as Error).message}`,
       )
     }
   }
-  for (const entry of manifest.cases) {
-    if (entry.kind === "new") {
-      const bytes = await read(entry, insideRoot(images, entry.images.after))
-      const size = pngSize(bytes)
-      if (!size)
-        throw new Error(`The image of the new case ${entry.id} is not a PNG.`)
-      const path = join(work, entry.id, "after.png")
-      await mkdir(join(work, entry.id), { recursive: true })
-      await writeFile(path, bytes)
-      prepared.push({
-        kind: "new",
-        entry,
-        newStory: {
-          storyId: entry.id,
-          // As for a change: each case is judged as a part of the UI.
-          scope: "component",
-          images: [{ path, size }],
-          brief: entry.brief,
-        },
-      })
-      continue
-    }
-    const before = insideRoot(images, entry.images.before)
-    const after = insideRoot(images, entry.images.after)
-    const [beforeBytes, afterBytes] = await Promise.all([
-      read(entry, before),
-      read(entry, after),
-    ])
-    const comparison = await diff(beforeBytes, afterBytes)
-    const { images: written, omittedRegions } = await writeStoryImages(
-      { root: work, dir: entry.id },
-      beforeBytes,
-      afterBytes,
-      comparison,
-    )
-    const size = pngSize(afterBytes) ?? entry.viewport
-    const measured =
-      comparison.status === "size-changed"
-        ? { regions: [], signature: null }
-        : comparison
-    prepared.push({
-      kind: "change",
+  if (entry.kind === "new") {
+    const bytes = await read(entry.images.after)
+    const size = pngSize(bytes)
+    if (!size)
+      throw new Error(`The image of the new case ${entry.id} is not a PNG.`)
+    const path = join(work, entry.id, "after.png")
+    await mkdir(join(work, entry.id), { recursive: true })
+    await writeFile(path, bytes)
+    return {
+      kind: "new",
       entry,
-      comparison,
-      before,
-      after,
-      region: entry.region && {
-        x: entry.region.x / size.width,
-        y: entry.region.y / size.height,
-        width: entry.region.width / size.width,
-        height: entry.region.height / size.height,
-      },
-      story: storyInput({
+      newStory: {
         storyId: entry.id,
-        // The case manifest has no scope. Each case is judged as a part of
-        // the UI, so the page-only qualities are not judged.
+        // As for a change: each case is judged as a part of the UI.
         scope: "component",
-        viewport: entry.viewport,
-        size,
-        regions: measured.regions,
-        omittedRegions,
-        signature: measured.signature,
-        images: written,
-        root: work,
-        ...(entry.brief ? { brief: entry.brief } : {}),
-      }),
-    })
+        images: [{ path, size }],
+        brief: entry.brief,
+      },
+    }
   }
-  return prepared
+  const [beforeBytes, afterBytes] = await Promise.all([
+    read(entry.images.before),
+    read(entry.images.after),
+  ])
+  const comparison = await diff(beforeBytes, afterBytes)
+  const { images: written, omittedRegions } = await writeStoryImages(
+    { root: work, dir: entry.id },
+    beforeBytes,
+    afterBytes,
+    comparison,
+  )
+  const size = pngSize(afterBytes) ?? entry.viewport
+  const measured =
+    comparison.status === "size-changed"
+      ? { regions: [], signature: null }
+      : comparison
+  return {
+    kind: "change",
+    entry,
+    comparison,
+    before: join(images, imageFile(entry.images.before)),
+    after: join(images, imageFile(entry.images.after)),
+    region: entry.region && {
+      x: entry.region.x / size.width,
+      y: entry.region.y / size.height,
+      width: entry.region.width / size.width,
+      height: entry.region.height / size.height,
+    },
+    story: storyInput({
+      storyId: entry.id,
+      // The case manifest has no scope. Each case is judged as a part of
+      // the UI, so the page-only qualities are not judged.
+      scope: "component",
+      viewport: entry.viewport,
+      size,
+      regions: measured.regions,
+      omittedRegions,
+      signature: measured.signature,
+      images: written,
+      root: work,
+      ...(entry.brief ? { brief: entry.brief } : {}),
+    }),
+  }
 }
 
 /** The verdict of a pair at most the tolerance apart: noise, with no judge. */
@@ -498,7 +491,11 @@ export async function bakeOff(
       strict: true,
       options: {
         arms: { type: "string" },
-        images: { type: "string", default: ".ci-results/visual-bakeoff" },
+        images: {
+          type: "string",
+          default: ".ci-results/visual-bakeoff/images",
+        },
+        "hold-out-only": { type: "boolean", default: false },
         out: { type: "string", default: ".ci-results/visual-bakeoff/report" },
         runs: { type: "string", default: "3" },
         "max-cost": { type: "string", default: "100" },
@@ -534,17 +531,10 @@ export async function bakeOff(
   const work = await mkdtemp(join(tmpdir(), "visual-bakeoff-"))
   try {
     let manifest: CaseManifest
+    let held: Set<string>
     let arms: Arm[]
-    let prepared: (Prepared | PreparedNew)[]
     try {
-      manifest = caseManifestSchema.parse(
-        JSON.parse(
-          await readFile(
-            resolve(options.cases ?? join(import.meta.dirname, "cases.json")),
-            "utf8",
-          ),
-        ),
-      )
+      manifest = await readManifest(options.cases)
       const ids = options.arms
         .split(",")
         .map((arm) => arm.trim())
@@ -566,52 +556,55 @@ export async function bakeOff(
         throw new Error(
           "Set MODEL_PROVIDER_API_KEY (the OpenRouter key) for the paid arms.",
         )
-      prepared = await prepare(manifest, resolve(options.images), work)
+      // The hold-out set comes from all cases, so that a label of the owner
+      // does not move other cases in or out of it. A case that the owner
+      // labeled unsure has no answer, so it does not run.
+      held = holdOut(manifest, manifest.seed)
+      const cases = manifest.cases.filter(
+        ({ id, label }) =>
+          label !== "unsure" && (held.has(id) || !options["hold-out-only"]),
+      )
+      manifest = { ...manifest, cases }
     } catch (error) {
       print((error as Error).message)
       return 2
     }
 
-    const held = holdOut(manifest, manifest.seed)
     const armIds = arms.map(({ id }) => id)
     const deadline = Date.now() + maxMinutes * 60_000
     let spent = 0
     let highest = 0
-    // The estimate of a paid call: the most expensive call so far, and at
-    // least $0.10 (more than one image call of the models of the plan). A
-    // call without a known cost counts as this much.
-    const estimate = () => Math.max(highest, 0.1)
-    let stopped: "cost" | "time" | undefined
+    // A call without a known cost counts as the most expensive call so far,
+    // and at least $0.10 (more than one image call of the models of the
+    // plan).
+    const unknown = () => Math.max(highest, 0.1)
+    let stopped: StopReason | undefined
     let unknownCost = 0
     const results: Result[] = []
     const count = (cost: number | null) => {
       if (cost === null) {
         unknownCost++
-        spent += estimate()
+        spent += unknown()
       } else {
         spent += cost
         highest = Math.max(highest, cost)
       }
     }
 
-    // Each call, also a retry, checks the limits first. A paid call starts
-    // only when its estimate fits under the cap.
+    // The limit that stops new work of `arm`: a paid call starts only while
+    // the spend is below the cap. Calls that run finish.
+    const limitFor = (arm: Arm) =>
+      arm.paid && spent >= maxCost
+        ? "cost"
+        : Date.now() >= deadline
+          ? "time"
+          : undefined
+    // Each call, also a retry, checks the limits first.
     const attempt = (arm: Arm, call: () => Promise<Verdict>) => {
-      if (arm.paid && spent + estimate() > maxCost) stopped = "cost"
-      else if (Date.now() >= deadline) stopped = "time"
-      else return reserved(arm, call)
+      const limit = limitFor(arm)
+      if (!limit) return call()
+      stopped = limit
       throw new Stopped()
-    }
-    // A paid call holds its estimated cost in the spend while it runs, so
-    // that calls at the same time cannot pass the cap together.
-    const reserved = async (arm: Arm, call: () => Promise<Verdict>) => {
-      const reserve = arm.paid ? estimate() : 0
-      spent += reserve
-      try {
-        return await call()
-      } finally {
-        spent -= reserve
-      }
     }
     const judge = async (arm: Arm, call: () => Promise<Verdict>) => {
       let verdict: Verdict
@@ -628,42 +621,77 @@ export async function bakeOff(
       count(verdict.costUsd)
       return verdict
     }
-    const runArm = async (
-      arm: Arm,
-      cases: readonly (Prepared | PreparedNew)[],
-    ) => {
+    // A case gets its images only when an arm can judge it and the limits
+    // let a call start. Each case is prepared once, for all arms and runs.
+    const images = resolve(options.images)
+    const get = imageStore(images, releaseUrl)
+    const preparing = new Map<string, Promise<Prepared | PreparedNew>>()
+    const ready: (Prepared | PreparedNew)[] = []
+    let imageError: string | undefined
+    const preparedOf = (entry: Case) => {
+      let pending = preparing.get(entry.id)
+      if (!pending) {
+        pending = prepare(entry, get, images, work).then((prepared) => {
+          ready.push(prepared)
+          return prepared
+        })
+        preparing.set(entry.id, pending)
+      }
+      return pending
+    }
+    const runArm = async (arm: Arm, cases: readonly Case[]) => {
       const queue = Array.from({ length: runs }, (_, run) =>
-        cases.map((prepared) => ({ run: run + 1, prepared })),
+        cases.map((entry) => ({ run: run + 1, entry })),
       ).flat()
       const worker = async () => {
         for (let task = queue.shift(); task; task = queue.shift()) {
-          const { run, prepared } = task
-          const pending = verdictOf(arm, prepared)
-          if (!pending) continue
+          const { run, entry } = task
+          // A bad image of another worker stops the run.
+          if (imageError) return
+          // The report says "not applicable": no image is necessary.
+          if (entry.kind === "new" && !arm.judgeNew) continue
+          const limit = limitFor(arm)
+          if (limit) {
+            stopped = limit
+            return
+          }
+          let prepared: Prepared | PreparedNew
+          try {
+            prepared = await preparedOf(entry)
+          } catch (error) {
+            // A missing or changed image stops the run. The report keeps
+            // the verdicts so far.
+            imageError ??= (error as Error).message
+            stopped = "image"
+            return
+          }
+          // Another worker can find a bad image while this one waits.
+          if (imageError) return
           let verdict: Verdict
           try {
-            verdict = await pending
+            verdict = await verdictOf(arm, prepared)
           } catch (error) {
             if (error instanceof Stopped) return
             // The cost of a failed call is not known.
             count(null)
             verdict = failed(
-              { storyId: prepared.entry.id },
+              { storyId: entry.id },
               { model: arm.id, costUsd: null, latencyMs: 0 },
               (error as Error).message,
             )
           }
-          results.push({ arm: arm.id, case: prepared.entry.id, run, verdict })
+          results.push({ arm: arm.id, case: entry.id, run, verdict })
         }
       }
       await Promise.all(Array.from({ length: arm.concurrency }, worker))
     }
-    // The verdict of `arm` on one case, or undefined when the arm cannot
-    // judge a new screenshot: the report says "not applicable".
+    // The verdict of `arm` on one case. The worker gives an arm no new
+    // screenshot that it cannot judge.
     const verdictOf = (arm: Arm, prepared: Prepared | PreparedNew) => {
       if (prepared.kind === "change") return verdictOnChange(arm, prepared)
       const { judgeNew } = arm
-      return judgeNew && judge(arm, () => judgeNew(prepared.newStory))
+      if (!judgeNew) throw new Error(`Arm ${arm.id} judges no new screenshot.`)
+      return judge(arm, () => judgeNew(prepared.newStory))
     }
     const verdictOnChange = async (arm: Arm, prepared: Prepared) => {
       const story = arm.input(prepared.story)
@@ -681,20 +709,24 @@ export async function bakeOff(
     // the other cases, so that a run that a limit stops has the cases of the
     // selection rule.
     for (const cases of [
-      prepared.filter(({ entry }) => held.has(entry.id)),
-      prepared.filter(({ entry }) => !held.has(entry.id)),
+      manifest.cases.filter(({ id }) => held.has(id)),
+      manifest.cases.filter(({ id }) => !held.has(id)),
     ])
       await Promise.all(arms.map((arm) => runArm(arm, cases)))
+    if (imageError) print(imageError)
 
     const text = report({
       manifest,
-      holdOut: held,
+      // Only the hold-out cases that ran: not the ones labeled unsure.
+      holdOut: new Set(
+        manifest.cases.map(({ id }) => id).filter((id) => held.has(id)),
+      ),
       arms: armIds,
       newArms: arms.filter(({ judgeNew }) => judgeNew).map(({ id }) => id),
       runs,
       results,
       regions: new Map(
-        prepared.flatMap((prepared) =>
+        ready.flatMap((prepared) =>
           prepared.kind === "change"
             ? [[prepared.entry.id, prepared.region] as const]
             : [],
@@ -711,7 +743,8 @@ export async function bakeOff(
     )
     await writeFile(join(out, "report.md"), `${text}\n`)
     print(text)
-    return 0
+    // A bad image is an error of the input, also when it stops a run late.
+    return stopped === "image" ? 2 : 0
   } finally {
     await rm(work, { recursive: true, force: true })
   }
