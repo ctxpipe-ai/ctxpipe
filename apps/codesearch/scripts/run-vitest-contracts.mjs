@@ -28,8 +28,9 @@ try {
   // --node <file> and --bun <file> select files; repeat each flag as needed.
   // Without file arguments, run both full lanes.
   // --list prints the test files of each runtime as JSON and runs nothing.
-  // --trace <dir> --commit <sha> also writes <dir>/trace.json.gz for the Node
-  // runtime (scripts/checks/README.md). The commit is an argument, because
+  // --trace <dir> --commit <sha> also writes <dir>/trace.json.gz: the trace
+  // records of the Node runtime and the time of each Bun check
+  // (scripts/checks/README.md). The commit is an argument, because
   // the Docker test image has no .git directory.
   // --records <dir> also writes <dir>/records.ndjson: one result record for
   // each test file (scripts/checks/schema/result.v1.schema.json), for the

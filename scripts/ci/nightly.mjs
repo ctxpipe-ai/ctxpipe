@@ -63,7 +63,8 @@ async function runMinutes({ repo, runId, token }) {
 // The runner minutes of this run, and of the last full nightly run of main
 // before it: a scheduled run or a run by hand on main that uploaded a trace,
 // and whose plan was full (artifact `nightly-full`) or that is older than the
-// nightly plan (no artifact `nightly-plan`).
+// nightly plan (neither `nightly-full` nor `nightly-incremental`). These
+// markers are kept as long as the trace; the plan artifact is not.
 export async function nightlyMinutes({ repo, runId, token }) {
   const current = await runMinutes({ repo, runId, token })
   // One query for each event: a push to main also runs ci.yaml, and those
@@ -85,7 +86,7 @@ export async function nightlyMinutes({ repo, runId, token }) {
     )
     const names = new Set(artifacts.map((artifact) => artifact.name))
     if (![...names].some((name) => name.startsWith("trace-"))) continue
-    if (names.has("nightly-full") || !names.has("nightly-plan"))
+    if (names.has("nightly-full") || !names.has("nightly-incremental"))
       return {
         current,
         full: {

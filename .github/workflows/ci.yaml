@@ -1187,6 +1187,10 @@ jobs:
             "${files[@]}"
       # The Results writer quarantines a key only when its check fails again
       # in this one rerun through the public runner (scripts/checks/README.md).
+      # The runner lists the checks on the host, so it needs the packages.
+      - name: Packages of the check runner
+        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        run: pnpm install --frozen-lockfile
       - name: Run the failed checks again
         if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         continue-on-error: true
@@ -2072,18 +2076,19 @@ jobs:
           if-no-files-found: error
           # The jobs of this run read it. It holds the factory release.
           retention-days: 1
-      # A marker of a full plan: the job Nightly tickets compares the runner
-      # minutes of a run with the last full nightly run (scripts/ci/nightly.mjs).
-      - name: Mark a full plan
+      # A marker of the kind of the plan, kept as long as the trace: the job
+      # Nightly tickets compares the runner minutes of a run with the last
+      # full nightly run (scripts/ci/nightly.mjs).
+      - name: The kind of the plan
+        id: kind
         run: |
-          if jq -e '.full' "$RUNNER_TEMP/nightly/plan.json" > /dev/null; then
-            echo full > "$RUNNER_TEMP/full.txt"
-          fi
+          kind="$(jq -r 'if .full then "full" else "incremental" end' "$RUNNER_TEMP/nightly/plan.json")"
+          echo "$kind" > "$RUNNER_TEMP/kind.txt"
+          echo "kind=${kind}" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: nightly-full
-          path: ${{ runner.temp }}/full.txt
-          if-no-files-found: ignore
+          name: nightly-${{ steps.kind.outputs.kind }}
+          path: ${{ runner.temp }}/kind.txt
 
   # The plan of a PR run (gate.mjs plan): in gate mode, the checks that each
   # job runs, and the stored passes that the other selected checks reuse (the

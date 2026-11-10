@@ -540,10 +540,11 @@ test("the runner minutes compare the run with the last full nightly run of main"
       ({ params }) =>
         HttpResponse.json({
           artifacts: {
-            // An incremental run: a plan, no full marker.
-            6: [{ name: `trace-${sha}` }, { name: "nightly-plan" }],
+            // An incremental run: its plan artifact may have expired, its
+            // marker has not.
+            6: [{ name: `trace-${sha}` }, { name: "nightly-incremental" }],
             // A full run.
-            5: [{ name: `trace-${sha}` }, { name: "nightly-plan" }, { name: "nightly-full" }],
+            5: [{ name: `trace-${sha}` }, { name: "nightly-full" }],
           }[params.id],
         }),
     ),
