@@ -266,8 +266,11 @@ export async function startContainerAgentCore(image: string) {
     "run",
     "-d",
     "--rm",
-    // tini as PID 1, as the image's `agentcore` target has.
+    // tini as PID 1 and root as the user, as in the image's `agentcore`
+    // target. The shim runs as node there; here it is root.
     "--init",
+    "--user",
+    "0",
     "-p",
     "127.0.0.1::8080",
     "-v",

@@ -16,18 +16,18 @@ let provider: ReturnType<typeof agentCoreSandboxProvider>
 
 beforeAll(async () => {
   fake = await startContainerAgentCore(workspaceChatDockerImage())
-  provider = agentCoreSandboxProvider({ runtime: fake.runtime })
+  provider = agentCoreSandboxProvider({ runtime: fake.runtime, user: "node" })
 }, 120_000)
 afterAll(() => fake?.close())
 
 describe("the AgentCore provider in the chat sandbox image", () => {
-  it("runs commands as the image user in /workspace, with the create environment", async () => {
+  it("runs commands as node in /workspace, with the create environment that only root can read", async () => {
     const handle = await provider.create({ env: { PROXY_SESSION: "it's set" } })
     const result = await handle.process.exec(
-      'id -un; pwd; echo "$PROXY_SESSION"; readlink /proc/$$/exe',
+      'id -un; pwd; echo "$PROXY_SESSION"; readlink /proc/$$/exe; cat /tmp/ctxpipe/env.sh 2>/dev/null || echo unreadable',
     )
     expect(result).toEqual({
-      stdout: "node\n/workspace\nit's set\n/usr/bin/dash\n",
+      stdout: "node\n/workspace\nit's set\n/usr/bin/dash\nunreadable\n",
       stderr: "",
       exitCode: 0,
     })

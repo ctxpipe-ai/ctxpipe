@@ -203,6 +203,8 @@ function agentCoreHandle(
   runtime: AgentCoreRuntime,
   sessionId: string,
   paths: SessionPaths,
+  /** Runs the handle's commands as this user; else as the image user. */
+  user?: string,
 ): {
   handle: SandboxHandle
   /** A command without the session env, for the provider's own steps. */
@@ -219,9 +221,9 @@ function agentCoreHandle(
           : `${paths.workdir}/${path}`
   const envFile = `${paths.state}/env.sh`
 
-  /** The shell text of one command: the session env, then the command's. */
+  /** The shell text of one command: its env, its folder, the command. */
   const script = (command: string, options: ProcessOptions = {}) =>
-    `[ -r ${q(envFile)} ] && . ${q(envFile)}\n${exports(handleEnv)}${exports(options.env)}cd ${q(abs(options.cwd ?? paths.workdir))} || exit 1\n${command}`
+    `${exports(handleEnv)}${exports(options.env)}cd ${q(abs(options.cwd ?? paths.workdir))} || exit 1\n${command}`
 
   const spawn = async (
     command: string,
@@ -245,9 +247,11 @@ function agentCoreHandle(
       // Dash's `kill` refuses `--`: the group id follows the signal.
       await run(`kill -${name} -${group} 2>/dev/null; true`)
     }
-    // The outer shell's job notices go to /dev/null; the job keeps stderr,
-    // which fd 3 keeps open for the drain.
-    const wrapped = `set -m\nsh -c ${q(script(command, options))} &\necho "${PGID_MARKER}$!"\nexec 3>&2 2>/dev/null\nwait $!\ncode=$?\n${drainCommand(1, 3)}\nexit $code`
+    // The outer shell reads the session env (only the image user can) and
+    // passes it on (`runuser -m`). Its job notices go to /dev/null; the job
+    // keeps stderr, which fd 3 keeps open for the drain.
+    const runAs = user ? `runuser -u ${q(user)} -m -- ` : ""
+    const wrapped = `[ -r ${q(envFile)} ] && . ${q(envFile)}\nset -m\n${runAs}sh -c ${q(script(command, options))} &\necho "${PGID_MARKER}$!"\nexec 3>&2 2>/dev/null\nwait $!\ncode=$?\n${drainCommand(1, 3)}\nexit $code`
     let pending = ""
     const exited = (async () => {
       try {
@@ -455,6 +459,11 @@ async function stopSession(
 export function agentCoreSandboxProvider(input: {
   runtime: AgentCoreRuntime
   paths?: SessionPaths
+  /**
+   * Runs the handle's commands as this user. The image user is root, which
+   * the provider's own steps and an ingest sandbox's root commands need.
+   */
+  user?: string
 }): SandboxProvider {
   const { runtime } = input
   const paths = input.paths ?? { state: "/tmp/ctxpipe", workdir: "/workspace" }
@@ -465,7 +474,12 @@ export function agentCoreSandboxProvider(input: {
       // AgentCore needs at least 33 characters. The backend is not
       // snapshotted, so its random values do not repeat.
       const sessionId = `ctxpipe-${randomBytes(16).toString("hex")}`
-      const { handle, run } = agentCoreHandle(runtime, sessionId, paths)
+      const { handle, run } = agentCoreHandle(
+        runtime,
+        sessionId,
+        paths,
+        input.user,
+      )
       try {
         // The marker tells `resume` that the microVM is this sandbox's.
         const marked = await run(
@@ -475,11 +489,18 @@ export function agentCoreSandboxProvider(input: {
           throw new Error(
             `Starting the AgentCore session failed: ${marked.stderr.trim()}`,
           )
-        if (createInput.env && Object.keys(createInput.env).length > 0)
-          await handle.fs.write(
-            `${paths.state}/env.sh`,
-            exports(createInput.env),
+        // The create env (the run's proxy session) is readable only by the
+        // image user, which reads it for each command.
+        if (createInput.env && Object.keys(createInput.env).length > 0) {
+          const env = Buffer.from(exports(createInput.env)).toString("base64")
+          const written = await run(
+            `umask 077 && printf %s ${q(env)} | base64 -d > ${q(`${paths.state}/env.sh`)}`,
           )
+          if (written.exitCode !== 0)
+            throw new Error(
+              `Writing the AgentCore session env failed: ${written.stderr.trim()}`,
+            )
+        }
       } catch (error) {
         await stopSession(runtime, sessionId).catch(() => undefined)
         throw error
@@ -487,7 +508,7 @@ export function agentCoreSandboxProvider(input: {
       return handle
     },
     async resume({ id }) {
-      const { handle, run } = agentCoreHandle(runtime, id, paths)
+      const { handle, run } = agentCoreHandle(runtime, id, paths, input.user)
       // A call to a session that is gone starts a new, empty microVM.
       const marker = await run(
         `cat ${q(`${paths.state}/session`)} 2>/dev/null; true`,
