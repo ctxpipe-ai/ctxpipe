@@ -1045,29 +1045,29 @@ export const Primary = { render: () => null }
       content = JSON.stringify(intended)
       const brief = join(root, "brief.md")
       await writeFile(brief, "Make the primary button red.")
-      const stderr = vi
-        .spyOn(process.stderr, "write")
-        .mockImplementation(() => true)
+      const errors: string[] = []
 
-      const code = await run(
-        "--json",
-        "--budget-usd",
-        "0.01",
-        "--brief",
-        brief,
-        "--images",
-        images,
-        "--",
-        paths[0] ?? "",
+      const code = await visualReview(
+        [
+          "--json",
+          "--budget-usd",
+          "0.01",
+          "--brief",
+          brief,
+          "--images",
+          images,
+          "--",
+          paths[0] ?? "",
+        ],
+        (text) => output.push(text),
+        (text) => errors.push(text),
       )
 
-      const written = stderr.mock.calls.map(([text]) => String(text)).join("")
-      stderr.mockRestore()
       expect(code).toBe(2)
       expect(verdicts()).toMatchObject([{ verdict: "intended" }])
-      expect(written).toBe(
-        "Budget reached: the run spent 0.0100 USD of its --budget-usd 0.01.\n",
-      )
+      expect(errors).toEqual([
+        "Budget reached: the run spent 0.0100 USD of its --budget-usd 0.01.",
+      ])
     })
 
     test("a run that ends under its budget passes", async () => {

@@ -109,6 +109,8 @@ code can write those. It reads a verdict only from a folder that it made.`
 export async function visualReview(
   args: readonly string[],
   print: (text: string) => void,
+  printError: (text: string) => void = (text) =>
+    process.stderr.write(`${text}\n`),
 ): Promise<number> {
   let options
   let paths: string[]
@@ -229,7 +231,7 @@ export async function visualReview(
           path,
         }
       })
-      return finish(verdicts, options.json, print, budget)
+      return finish(verdicts, options.json, { print, printError }, budget)
     } finally {
       await rm(work, { recursive: true, force: true })
     }
@@ -353,26 +355,27 @@ export async function visualReview(
     print(`The review stopped: ${(error as Error).message}`)
     return 2
   }
-  return finish(verdicts, options.json, print, budget)
+  return finish(verdicts, options.json, { print, printError }, budget)
 }
 
 /**
  * Print the verdicts, and return the exit code. A run whose spend reached its
  * budget exits with code 2, also when its last call judged the last
  * screenshot: the run used all of its budget, so it is never a pass. With
- * `--json`, the reason goes to stderr, so that stdout stays one JSON array.
+ * `--json`, the reason goes to `printError` (stderr), so that stdout stays one
+ * JSON array.
  */
 function finish(
   verdicts: readonly Verdict[],
   json: boolean,
-  print: (text: string) => void,
+  { print, printError }: Record<"print" | "printError", (text: string) => void>,
   { limitUsd, spentUsd }: Budget,
 ): number {
   const reached = limitUsd !== undefined && spentUsd >= limitUsd
   const reason = `Budget reached: the run spent ${spentUsd.toFixed(4)} USD of its --budget-usd ${limitUsd}.`
   if (json) {
     print(JSON.stringify(verdicts, null, 2))
-    if (reached) process.stderr.write(`${reason}\n`)
+    if (reached) printError(reason)
   } else print(`${report(verdicts)}${reached ? `\n${reason}` : ""}`)
   if (reached || verdicts.some(({ error }) => error !== undefined)) return 2
   if (verdicts.some(blocks)) return 1
